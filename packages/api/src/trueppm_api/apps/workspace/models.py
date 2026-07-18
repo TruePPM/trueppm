@@ -33,6 +33,7 @@ from simple_history.models import HistoricalRecords
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.projects.models import (
     DurationChangePercentPolicy,
+    EstimationScale,
     Methodology,
     VersionedModel,
 )
@@ -285,6 +286,21 @@ class Workspace(models.Model):
         max_length=16,
         choices=TermOverridePolicy.choices,
         default=TermOverridePolicy.SUGGEST,
+    )
+
+    # Per-workspace estimation scale (ADR-0510, #2027) — the non-null root of the
+    # Workspace → Program → Project inheritance chain. Default FIBONACCI reproduces
+    # today's de-facto scale (the only hardcoded picker, StoryDetailDrawer, used
+    # Fibonacci), so the migration is purely additive. Resolved computed-on-read in
+    # ``apps.projects.estimation_scale``. There is NO override_policy — unlike the
+    # duration policy / calendar, the scale is a plain PO/team preference with no
+    # enforcement seam; it is freely overridable at every scope (OSS by
+    # construction, ADR-0510). Display/input-only: it never touches the stored
+    # integer ``story_points`` or any velocity/rollup math.
+    estimation_scale = models.CharField(
+        max_length=16,
+        choices=EstimationScale.choices,
+        default=EstimationScale.FIBONACCI,
     )
 
     # Per-workspace attachment policy (ADR-0153, #976) — the non-null root of the

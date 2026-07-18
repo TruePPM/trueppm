@@ -22,6 +22,8 @@ import {
 } from '@/components/dialog';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { useProject } from '@/hooks/useProject';
+import { StoryPointField } from '@/features/backlog/StoryPointField';
 import type { DorState, Task, TaskType } from '@/types';
 import { useSetDor } from '../hooks/useProductBacklog';
 import { usePatchStory } from '../hooks/useStoryDetail';
@@ -31,8 +33,6 @@ import { DorControl } from './DorControl';
 import { ScoringInputs } from './ScoringInputs';
 import { TypeBadge } from './TypeBadge';
 import type { ScoringInputValues } from '../scorePreview';
-
-const FIBONACCI = [1, 2, 3, 5, 8, 13, 21];
 
 interface ScalarDraft extends ScoringInputValues {
   name: string;
@@ -89,6 +89,10 @@ export function StoryDetailDrawer({
 }: StoryDetailDrawerProps) {
   const patchStory = usePatchStory(projectId);
   const setDor = useSetDor(projectId);
+  // Effective estimation scale drives the points picker (ADR-0510, #2027). Falls
+  // back to Fibonacci — the prior de-facto scale — on a stale/absent project cache.
+  const { data: project } = useProject(projectId);
+  const estimationScale = project?.effective_estimation_scale ?? 'fibonacci';
   const closeRef = useRef<HTMLButtonElement>(null);
   // Non-modal beside the list on desktop, true modal bottom-sheet on mobile —
   // aria-modal and the Tab focus-trap track the viewport (issue 1357).
@@ -226,22 +230,23 @@ export function StoryDetailDrawer({
             disabled={setDor.isPending}
           />
 
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-neutral-text-secondary">Story points</span>
-            <select
-              value={draft.storyPoints ?? ''}
-              onChange={(e) => set('storyPoints', e.target.value === '' ? null : Number(e.target.value))}
-              aria-label="Story points"
-              className="h-9 w-28 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="story-detail-points"
+              className="text-xs font-medium text-neutral-text-secondary"
             >
-              <option value="">—</option>
-              {FIBONACCI.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
+              Story points
+            </label>
+            <StoryPointField
+              id="story-detail-points"
+              scale={estimationScale}
+              value={draft.storyPoints}
+              onChange={(next) => set('storyPoints', next)}
+              ariaLabel="Story points"
+              size="md"
+              className="w-28"
+            />
+          </div>
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-neutral-text-secondary">Epic</span>

@@ -189,6 +189,14 @@ export const MC_HISTORY_RETENTION_MAX = 500;
 export type DurationChangePercentPolicy = 'keep' | 'prorate' | 'confirm';
 
 /**
+ * Story-point estimation scale (ADR-0510, #2027). Governs which point picker and
+ * display label a client renders for the stored integer `story_points` — never the
+ * stored value or any velocity/rollup math. T-shirt sizes map to integers
+ * client-side (see `lib/storyPoints.ts`). Inheritable Workspace → Program → Project.
+ */
+export type EstimationScale = 'fibonacci' | 'linear' | 'tshirt';
+
+/**
  * Product-backlog prioritization scoring model for a project (ADR-0105 §3, #922).
  * `none` hides the scoring surface (pure manual drag); the others drive which
  * distinct Task input columns feed the computed prioritization score.
@@ -282,6 +290,12 @@ export interface Program {
   effective_task_duration_change_percent_policy: DurationChangePercentPolicy;
   /** Read-only policy inherited if the override were cleared (the workspace value). */
   inherited_task_duration_change_percent_policy: DurationChangePercentPolicy;
+  /** Estimation-scale override (ADR-0510, #2027). null = inherit the workspace value. */
+  estimation_scale: EstimationScale | null;
+  /** Read-only server-resolved effective scale (program override ?? workspace). */
+  effective_estimation_scale: EstimationScale;
+  /** Read-only scale inherited if the override were cleared (the workspace value). */
+  inherited_estimation_scale: EstimationScale;
   /**
    * Calendar override (ADR-0441, issue #1987). null = inherit the workspace
    * calendar (or the system default when the workspace has none set either).
@@ -518,6 +532,10 @@ export interface WorkspaceSettings {
   /** `suggest`/`inherit` (OSS) let programs/projects override; `enforce` is the
    *  Enterprise hard lock (stored, never enforced in OSS). */
   taskDurationChangePercentOverridePolicy: 'inherit' | 'suggest' | 'enforce';
+  /** Workspace-wide default estimation scale (ADR-0510, #2027) — the non-null root of
+   *  the Workspace → Program → Project chain. No override policy: freely overridable
+   *  at every scope (no enforcement seam). */
+  estimationScale: EstimationScale;
   /** Workspace-wide default working calendar (ADR-0441, issue #1987) — the root of
    *  the Project → Program → Workspace → system-default chain. null = fall through
    *  to the system default (Mon–Fri, 8h/day); we do not materialize a system-default

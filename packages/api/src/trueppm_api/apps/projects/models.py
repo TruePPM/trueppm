@@ -556,6 +556,24 @@ class DurationChangePercentPolicy(models.TextChoices):
     CONFIRM = "confirm", "Confirm percent-complete (client prompt)"
 
 
+class EstimationScale(models.TextChoices):
+    """Story-point estimation vocabulary (ADR-0510, #2027).
+
+    The non-null root of the Workspace → Program → Project inheritance chain,
+    resolved computed-on-read in ``apps.projects.estimation_scale``. Governs only
+    the *input widget shape* and *display label* a client renders for the stored
+    integer ``story_points`` — never the stored value or any velocity/rollup math.
+    T-shirt sizes carry a hidden numeric map (client-side, ``lib/storyPoints.ts``):
+    XS→1, S→2, M→3, L→5, XL→8, so ``story_points`` stays an integer under every
+    scale and off-scale legacy values still display (no backend validation of
+    on-scale membership — the scale constrains the picker, not the domain).
+    """
+
+    FIBONACCI = "fibonacci", "Fibonacci (1, 2, 3, 5, 8, 13, 21)"
+    LINEAR = "linear", "Linear (1-10)"
+    TSHIRT = "tshirt", "T-shirt (XS-XL)"
+
+
 class DurationChangeSource(models.TextChoices):
     """What triggered a :class:`TaskDurationChangeEvent` (ADR-0151).
 
@@ -743,6 +761,18 @@ class Program(VersionedModel):
     task_duration_change_percent_policy = models.CharField(  # noqa: DJ001 — null = inherit
         max_length=16,
         choices=DurationChangePercentPolicy.choices,
+        null=True,
+        blank=True,
+    )
+    # Per-scope estimation-scale override (ADR-0510, #2027). NULL = inherit the
+    # workspace value; a non-null value overrides it for every project in this
+    # program whose own override is NULL. Resolved computed-on-read in
+    # ``apps.projects.estimation_scale``. Display/input-only — governs which point
+    # widget clients render, never the stored integer ``story_points``. Not in
+    # ``_HISTORY_EXCLUDED_BASE``, so each override write is captured (audit).
+    estimation_scale = models.CharField(  # noqa: DJ001 — null = inherit
+        max_length=16,
+        choices=EstimationScale.choices,
         null=True,
         blank=True,
     )
@@ -1266,6 +1296,19 @@ class Project(VersionedModel):
     task_duration_change_percent_policy = models.CharField(  # noqa: DJ001 — null = inherit
         max_length=16,
         choices=DurationChangePercentPolicy.choices,
+        null=True,
+        blank=True,
+    )
+    # Per-scope estimation-scale override (ADR-0510, #2027). NULL = inherit from the
+    # program (or workspace, if the program also inherits); non-null = explicit
+    # override for this project. Resolved computed-on-read in
+    # ``apps.projects.estimation_scale`` and surfaced via the serializer's
+    # ``effective_estimation_scale``. Display/input-only — governs which point widget
+    # clients render, never the stored integer ``story_points``. Captured by
+    # HistoricalRecords (not in ``_HISTORY_EXCLUDED_BASE``) so admin writes audit.
+    estimation_scale = models.CharField(  # noqa: DJ001 — null = inherit
+        max_length=16,
+        choices=EstimationScale.choices,
         null=True,
         blank=True,
     )

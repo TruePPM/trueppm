@@ -38,6 +38,7 @@ const WS: WorkspaceSettings = {
   mcHistoryOverridePolicy: 'suggest',
   taskDurationChangePercentPolicy: 'keep',
   taskDurationChangePercentOverridePolicy: 'suggest',
+  estimationScale: 'fibonacci',
   methodology: 'WATERFALL',
   methodologyOverridePolicy: 'suggest',
   attachmentsEnabled: true,
@@ -91,6 +92,7 @@ describe('WorkspaceMethodologyPage', () => {
     expect(mutateAsync).toHaveBeenCalledWith({
       methodology: 'AGILE',
       methodologyOverridePolicy: 'inherit',
+      estimationScale: 'fibonacci',
     });
   });
 

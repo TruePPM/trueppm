@@ -32,6 +32,9 @@ import {
   FOCUS_RING,
   INPUT_BASE,
 } from './styles';
+import { StoryPointField } from '@/features/backlog/StoryPointField';
+import { formatStoryPoints } from '@/lib/storyPoints';
+import type { EstimationScale } from '@/api/types';
 
 const TYPE_LABELS: Record<BacklogItemType, string> = {
   story: 'Story',
@@ -68,6 +71,8 @@ function toDraft(item: BacklogItem): DetailDraft {
 export interface DetailViewProps {
   item: BacklogItem;
   tagSuggestions: string[];
+  /** Program's resolved estimation scale (ADR-0510, #2027). */
+  estimationScale: EstimationScale;
   canEdit: boolean;
   canDelete: boolean;
   onClose: () => void;
@@ -83,6 +88,7 @@ export interface DetailViewProps {
 export function DetailView({
   item,
   tagSuggestions,
+  estimationScale,
   canEdit,
   canDelete,
   onClose,
@@ -252,25 +258,22 @@ export function DetailView({
                 Story points
               </label>
               {canEdit ? (
-                <input
+                <StoryPointField
                   id={`${item.id}-points`}
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  step={1}
-                  value={draft.storyPoints ?? ''}
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      storyPoints: e.target.value === '' ? null : Number(e.target.value),
-                    }))
-                  }
-                  placeholder="—"
-                  className={`h-8 w-24 ${INPUT_BASE}`}
+                  scale={estimationScale}
+                  value={draft.storyPoints}
+                  onChange={(next) => setDraft((d) => ({ ...d, storyPoints: next }))}
+                  ariaLabel="Story points"
+                  size="md"
+                  className="w-24"
                 />
               ) : (
                 <span className="tabular-nums text-neutral-text-primary">
-                  {item.storyPoints ?? <span className="text-neutral-text-disabled">—</span>}
+                  {item.storyPoints === null || item.storyPoints === undefined ? (
+                    <span className="text-neutral-text-disabled">—</span>
+                  ) : (
+                    formatStoryPoints(item.storyPoints, estimationScale)
+                  )}
                 </span>
               )}
             </>

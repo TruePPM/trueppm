@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { renderWithProviders } from '@/test/utils';
 import type { Task } from '@/types';
 import { StoryDetailDrawer } from './StoryDetailDrawer';
 import type { ProductBacklog } from '../types';
@@ -62,7 +63,7 @@ const backlog: ProductBacklog = {
 };
 
 function renderDrawer(story: Task, canManageBacklog = true, onClose = vi.fn()) {
-  return render(
+  return renderWithProviders(
     <StoryDetailDrawer
       projectId="p1"
       story={story}

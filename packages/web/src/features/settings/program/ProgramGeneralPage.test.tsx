@@ -67,6 +67,9 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     task_duration_change_percent_policy: null,
     effective_task_duration_change_percent_policy: 'keep',
     inherited_task_duration_change_percent_policy: 'keep',
+    estimation_scale: null,
+    effective_estimation_scale: 'fibonacci',
+    inherited_estimation_scale: 'fibonacci',
     attachments_enabled: null,
     allowed_attachment_types: null,
     effective_attachments_enabled: true,
@@ -266,6 +269,7 @@ describe('ProgramGeneralPage (settings)', () => {
         mc_history_retention_cap: null,
         mc_history_attribution_audience: null,
         task_duration_change_percent_policy: null,
+        estimation_scale: null,
       },
     });
   });
@@ -347,6 +351,7 @@ describe('ProgramGeneralPage (settings)', () => {
         mc_history_retention_cap: null,
         mc_history_attribution_audience: null,
         task_duration_change_percent_policy: null,
+        estimation_scale: null,
       },
     });
   });
@@ -386,6 +391,7 @@ describe('ProgramGeneralPage (settings)', () => {
         mc_history_retention_cap: null,
         mc_history_attribution_audience: null,
         task_duration_change_percent_policy: null,
+        estimation_scale: null,
       },
     });
   });

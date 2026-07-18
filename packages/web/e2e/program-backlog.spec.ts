@@ -226,14 +226,15 @@ test.describe('Program backlog', () => {
 
     await page.getByLabel('Title').fill('First epic');
     // Story points are groomable at create time (#1991) — the pull dialog's
-    // "story points … copied over" promise is now real.
-    await page.getByLabel('Story points').fill('5');
+    // "story points … copied over" promise is now real. The input is a scale-aware
+    // <select> (ADR-0510, #2027), Fibonacci by default — pick, don't fill.
+    await page.getByLabel('Story points').selectOption('5');
     await page.getByRole('button', { name: 'Create item' }).click();
 
     // On success the new item is selected and its detail view renders, carrying
     // the estimate through the create round-trip.
     await expect(page.getByRole('heading', { name: 'First epic' })).toBeVisible();
-    await expect(page.getByRole('spinbutton', { name: 'Story points' })).toHaveValue('5');
+    await expect(page.getByRole('combobox', { name: 'Story points' })).toHaveValue('5');
   });
 
   test('empty state — header "New item" opens the create form', async ({ page }) => {
