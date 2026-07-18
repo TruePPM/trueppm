@@ -75,28 +75,38 @@ const PERSON_RESULT_CAP = 6;
  * Truncation is surfaced to the user by {@link CommandPalette} via an explicit
  * "showing N" hint, so the cap is never silent (#1940).
  */
+/** Per-group result cap; a group absent here is uncapped (jump/board/action). */
+const RESULT_CAPS: Partial<Record<CommandItem['group'], number>> = {
+  sprintTask: SPRINT_TASK_RESULT_CAP,
+  task: TASK_RESULT_CAP,
+  person: PERSON_RESULT_CAP,
+};
+/** Groups shown only once a query is typed — a cold palette never dumps them. */
+const QUERY_ONLY_GROUPS = new Set<CommandItem['group']>(['sprintTask', 'task']);
+
+/** Whether `item` survives the caps, mutating `counts` when it is kept. Drops
+ *  wrong-phase items (`recent` once typing starts; query-only groups while cold)
+ *  and anything over its group's cap. */
+function withinResultCaps(
+  item: CommandItem,
+  hasQuery: boolean,
+  counts: Map<CommandItem['group'], number>,
+): boolean {
+  const { group } = item;
+  if (group === 'recent') return !hasQuery;
+  if (!hasQuery && QUERY_ONLY_GROUPS.has(group)) return false;
+  const cap = RESULT_CAPS[group];
+  if (cap === undefined) return true;
+  const seen = counts.get(group) ?? 0;
+  if (seen >= cap) return false;
+  counts.set(group, seen + 1);
+  return true;
+}
+
 function applyResultCaps(items: CommandItem[], query: string): CommandItem[] {
   const hasQuery = query.trim().length > 0;
-  const out: CommandItem[] = [];
-  let sprintTaskCount = 0;
-  let taskCount = 0;
-  let personCount = 0;
-  for (const item of items) {
-    if (item.group === 'sprintTask') {
-      if (!hasQuery || sprintTaskCount >= SPRINT_TASK_RESULT_CAP) continue;
-      sprintTaskCount += 1;
-    } else if (item.group === 'task') {
-      if (!hasQuery || taskCount >= TASK_RESULT_CAP) continue;
-      taskCount += 1;
-    } else if (item.group === 'person') {
-      if (personCount >= PERSON_RESULT_CAP) continue;
-      personCount += 1;
-    } else if (item.group === 'recent') {
-      if (hasQuery) continue;
-    }
-    out.push(item);
-  }
-  return out;
+  const counts = new Map<CommandItem['group'], number>();
+  return items.filter((item) => withinResultCaps(item, hasQuery, counts));
 }
 
 /** Per-group truncation flags, threaded from {@link CommandPalette} to the

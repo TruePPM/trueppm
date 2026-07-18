@@ -877,6 +877,12 @@ SEED_MAX_UPLOAD_MB: int = env.int("SEED_MAX_UPLOAD_MB", default=5)
 # Django REST Framework
 # ---------------------------------------------------------------------------
 
+# The tightest scoped-throttle tier, shared by the handful of single-shot
+# endpoints whose per-call cost — one outbound egress probe or one double
+# CPM + Monte Carlo pass — makes even a modest loop abusive. Kept as one named
+# constant so the rate lives in a single place rather than a repeated literal.
+_STRICT_ABUSE_RATE = "6/min"
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -975,7 +981,7 @@ REST_FRAMEWORK = {
         # oracles if unbounded, so cap them tightly (security review H3). An admin
         # configuring mail never trips these; a script probing hosts does.
         "email_settings": "12/min",
-        "email_settings_probe": "6/min",
+        "email_settings_probe": _STRICT_ABUSE_RATE,
         # SSO domain discovery (ADR-0187). Unauthenticated; reveals only whether a
         # *domain* uses SSO (never whether an account exists), but the rate still
         # bounds bulk domain-probing. Loose enough for the interactive login page.
@@ -1023,7 +1029,7 @@ REST_FRAMEWORK = {
         # than the plain "monte_carlo" scope. 6/min still leaves ample room for a
         # human (or an MCP agent) exploring a handful of "what if I slip this task"
         # scenarios while blunting a scripted resource-exhaustion flood.
-        "monte_carlo_whatif": "6/min",
+        "monte_carlo_whatif": _STRICT_ABUSE_RATE,
         # MCP read surface per-token rate limits (#1808 finding F4). These bound
         # token-authenticated reads on any McpReadableViewMixin view ONLY — human
         # JWT/Session traffic on the same views is unaffected (the throttles'
@@ -1048,7 +1054,7 @@ REST_FRAMEWORK = {
         # Telemetry test-export probe (#2110). An admin-only button that opens one
         # outbound canary/reachability probe to the configured OTLP collector;
         # scoped-throttled so it can't be used to hammer the collector.
-        "telemetry_test": env("TRUEPPM_THROTTLE_TELEMETRY_TEST_RATE", default="6/min"),
+        "telemetry_test": env("TRUEPPM_THROTTLE_TELEMETRY_TEST_RATE", default=_STRICT_ABUSE_RATE),
     },
 }
 
