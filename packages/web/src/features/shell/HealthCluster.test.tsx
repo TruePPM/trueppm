@@ -443,7 +443,7 @@ describe('HealthCluster', () => {
 
     await user.click(trigger);
     const dialog = screen.getByRole('dialog', { name: 'Project health' });
-    const left = parseFloat(dialog.style.left);
+    const left = Number.parseFloat(dialog.style.left);
     expect(left).toBeGreaterThanOrEqual(8); // never past the left edge
     expect(left).toBeLessThanOrEqual(375 - 8); // fully on-screen
     expect(dialog.style.top).toBe('50px'); // rect.bottom (46) + 4px gap

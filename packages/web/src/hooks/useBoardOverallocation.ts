@@ -23,7 +23,7 @@ function readThreshold(): number {
   try {
     const raw = window.localStorage.getItem('board:overallocThreshold');
     if (!raw) return DEFAULT_THRESHOLD;
-    const parsed = parseFloat(raw);
+    const parsed = Number.parseFloat(raw);
     if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_THRESHOLD;
     return parsed;
   } catch {
@@ -53,14 +53,14 @@ export function useBoardOverallocation(projectId: string | null | undefined): Bo
     if (!allocation.data) return out;
 
     for (const resource of allocation.data.resources) {
-      const max = parseFloat(resource.max_units);
+      const max = Number.parseFloat(resource.max_units);
       if (!Number.isFinite(max) || max <= 0) continue;
 
       // Build day → total_units across all tasks assigned to this resource.
       const dayUnits = new Map<string, number>();
       for (const t of resource.tasks) {
         if (!t.early_start || !t.early_finish) continue;
-        const units = parseFloat(t.units);
+        const units = Number.parseFloat(t.units);
         let cur = parseUTCDate(t.early_start);
         const end = parseUTCDate(t.early_finish);
         while (cur <= end) {

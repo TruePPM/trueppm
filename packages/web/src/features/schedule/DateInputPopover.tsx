@@ -64,7 +64,7 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
     if (!task || !startValue) return '';
     // Guard: ensure startValue is a valid ISO date
     const parsed = new Date(startValue + 'T00:00:00Z');
-    if (isNaN(parsed.getTime())) return '';
+    if (Number.isNaN(parsed.getTime())) return '';
     parsed.setUTCDate(parsed.getUTCDate() + task.duration - 1);
     return parsed.toISOString().slice(0, 10);
   }, [startValue, task]);

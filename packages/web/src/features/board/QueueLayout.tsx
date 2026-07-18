@@ -118,7 +118,7 @@ export function groupTasksForQueue(tasks: Task[], now: Date = new Date()): Queue
         break;
       case 'COMPLETE': {
         const finish = t.actualFinish ?? t.finish;
-        const finishMs = finish ? Date.parse(finish) : NaN;
+        const finishMs = finish ? Date.parse(finish) : Number.NaN;
         if (Number.isFinite(finishMs) && finishMs >= cutoffMs) {
           recentlyDone.push(t);
         }

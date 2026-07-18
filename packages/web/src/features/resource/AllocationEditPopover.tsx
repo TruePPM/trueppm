@@ -39,7 +39,7 @@ export function AllocationEditPopover({
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const currentPct = Math.round(parseFloat(task.units) * 100);
+  const currentPct = Math.round(Number.parseFloat(task.units) * 100);
   const [value, setValue] = useState(String(currentPct));
   const queryClient = useQueryClient();
 
@@ -77,8 +77,8 @@ export function AllocationEditPopover({
     return () => document.removeEventListener('keydown', trapFocus);
   }, []);
 
-  const numericValue = parseInt(value, 10);
-  const isValid = !isNaN(numericValue) && numericValue >= 1 && numericValue <= 200;
+  const numericValue = Number.parseInt(value, 10);
+  const isValid = !Number.isNaN(numericValue) && numericValue >= 1 && numericValue <= 200;
   const newUnits = isValid ? numericValue / 100 : null;
 
   // Pre-save warning: would this push the resource over max_units?

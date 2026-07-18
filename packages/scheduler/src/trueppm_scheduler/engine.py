@@ -2060,7 +2060,9 @@ def _duration_sensitivity(
     y = _average_ranks(completion_offsets)
     yc = y - y.mean()
     y_norm = float(np.sqrt(np.dot(yc, yc)))
-    if y_norm == 0.0:
+    # Div-by-zero guard: a norm is sqrt(dot(v, v)) so it is always >= 0; `<= 0.0`
+    # is equivalent to `== 0.0` here but avoids a float-equality comparison (S1244).
+    if y_norm <= 0.0:
         return []
 
     scored: list[TaskSensitivity] = []
@@ -2074,7 +2076,9 @@ def _duration_sensitivity(
         xr = _average_ranks(x)
         xc = xr - xr.mean()
         x_norm = float(np.sqrt(np.dot(xc, xc)))
-        if x_norm == 0.0:
+        # Same div-by-zero guard as y_norm above: a norm is always >= 0, so `<= 0.0`
+        # matches `== 0.0` without a float-equality comparison (S1244).
+        if x_norm <= 0.0:
             continue
         corr = float(np.dot(xc, yc) / (x_norm * y_norm))
         scored.append(TaskSensitivity(task_id=tid, index=abs(corr)))
