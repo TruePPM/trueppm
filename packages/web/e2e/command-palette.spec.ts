@@ -157,6 +157,74 @@ test.describe('command palette', () => {
     await expect(page).toHaveURL(/\/projects\/cmdk-proj-borealis\/overview/);
   });
 
+  test('epic/story tier: a typed query surfaces breadcrumbed Epic ▸ Story results and navigates (#2103)', async ({
+    page,
+  }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECTS[0].id });
+    // The palette epic/story tier reads /me/search/ — a paginated envelope.
+    await page.route('**/api/v1/me/search/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 2,
+          next: null,
+          previous: null,
+          results: [
+            {
+              id: 'epic-login',
+              kind: 'task',
+              type: 'epic',
+              title: 'Login flow',
+              program_id: 'prog-1',
+              program_name: 'Platform',
+              project_id: 'cmdk-proj-apollo',
+              project_name: 'Apollo Redesign',
+              parent_epic_id: null,
+              parent_epic_name: null,
+            },
+            {
+              id: 'story-login',
+              kind: 'task',
+              type: 'story',
+              title: 'Login form validation',
+              program_id: 'prog-1',
+              program_name: 'Platform',
+              project_id: 'cmdk-proj-apollo',
+              project_name: 'Apollo Redesign',
+              parent_epic_id: 'epic-login',
+              parent_epic_name: 'Login flow',
+            },
+          ],
+        }),
+      }),
+    );
+    await page.goto('/me/work');
+    await expect(page.getByRole('button', { name: /command palette/i })).toBeVisible();
+
+    await page.keyboard.press('Control+k');
+    const dialog = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(dialog).toBeVisible();
+
+    await page.getByRole('combobox').fill('login');
+
+    // Both agile groups render with their breadcrumbed rows.
+    await expect(dialog.getByText('Epics', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('Stories', { exact: true })).toBeVisible();
+    const epicRow = dialog.getByRole('option', { name: /Login flow.*Platform.*Apollo.*Epic/ });
+    await expect(epicRow).toBeVisible();
+    // The story breadcrumb names its parent epic — agile vocabulary, never a WBS code.
+    await expect(
+      dialog.getByRole('option', { name: /Login form validation.*Login flow.*Story/ }),
+    ).toBeVisible();
+
+    // Selecting the epic deep-links to the schedule with the task drawer opened.
+    await epicRow.click();
+    await expect(page).toHaveURL(/\/projects\/cmdk-proj-apollo\/schedule\?task=epic-login/);
+  });
+
   test('jump-to-task opens the task drawer inline (no navigation)', async ({ page }) => {
     await setupAuth(page);
     await setupCatchAll(page);

@@ -20,6 +20,8 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
   task: 'Tasks',
   current: 'Current project',
   person: 'People',
+  epic: 'Epics',
+  story: 'Stories',
   recent: 'Recent',
   jump: 'Jump to',
   backlog: 'Backlog',
@@ -29,8 +31,9 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
 // Render + keyboard-nav order. `sprint` (jump to today's active sprint board, the
 // first-class issue 1594 action) leads always; `sprintTask` (active-sprint tasks,
 // ADR-0508) then `task` (all other tasks) follow — both query-gated; `current`
-// (in-context role targets) then `person` (query-gated global people search) sit
-// above `recent` (cold-only recently-visited projects, ADR-0508) and the global
+// (in-context role targets) then the query-gated global searches — `person`
+// (people), `epic` + `story` (cross-program Epic/Story omni-search, ADR-0508 D4) —
+// sit above `recent` (cold-only recently-visited projects, ADR-0508) and the global
 // navigation.
 const GROUP_ORDER: CommandItem['group'][] = [
   'sprint',
@@ -38,6 +41,8 @@ const GROUP_ORDER: CommandItem['group'][] = [
   'task',
   'current',
   'person',
+  'epic',
+  'story',
   'recent',
   'jump',
   'backlog',
@@ -59,6 +64,11 @@ const TASK_RESULT_CAP = 8;
 const SPRINT_TASK_RESULT_CAP = 25;
 /** Max people results shown (ADR-0401) — same scannability budget as tasks. */
 const PERSON_RESULT_CAP = 6;
+/** Max Epic and Story omni-search results shown (ADR-0508 D4) — the server returns
+ *  a paginated page; the palette shows a scannable slice per group, same budget as
+ *  people. The endpoint is the source of truth for access scope; this is display. */
+const EPIC_RESULT_CAP = 6;
+const STORY_RESULT_CAP = 6;
 
 /**
  * Apply the per-section result caps to the filtered list, preserving order so the
@@ -80,9 +90,16 @@ const RESULT_CAPS: Partial<Record<CommandItem['group'], number>> = {
   sprintTask: SPRINT_TASK_RESULT_CAP,
   task: TASK_RESULT_CAP,
   person: PERSON_RESULT_CAP,
+  epic: EPIC_RESULT_CAP,
+  story: STORY_RESULT_CAP,
 };
 /** Groups shown only once a query is typed — a cold palette never dumps them. */
-const QUERY_ONLY_GROUPS = new Set<CommandItem['group']>(['sprintTask', 'task']);
+const QUERY_ONLY_GROUPS = new Set<CommandItem['group']>([
+  'sprintTask',
+  'task',
+  'epic',
+  'story',
+]);
 
 /** Whether `item` survives the caps, mutating `counts` when it is kept. Drops
  *  wrong-phase items (`recent` once typing starts; query-only groups while cold)
@@ -109,36 +126,34 @@ function applyResultCaps(items: CommandItem[], query: string): CommandItem[] {
   return items.filter((item) => withinResultCaps(item, hasQuery, counts));
 }
 
-/** Per-group truncation flags, threaded from {@link CommandPalette} to the
- *  results subcomponents so the "showing N" cues stay in sync with the caps. */
+/** Per-group truncation state, threaded from {@link CommandPalette} to the results
+ *  subcomponents so the "showing N" cues stay in sync with the caps.
+ *  `truncatedGroups` holds every group that overflowed its {@link RESULT_CAPS}
+ *  entry; `sprintTaskTotal` backs the sprint group's "N of M" total. */
 interface TruncationCues {
-  taskTruncated: boolean;
-  personTruncated: boolean;
-  sprintTaskTruncated: boolean;
+  truncatedGroups: Set<CommandItem['group']>;
   sprintTaskTotal: number;
 }
 
 /** The "showing N" overflow hint for a capped group — sprint tasks name the total
- *  (a bounded set, ADR-0508); task/person groups say "first N". */
+ *  (a bounded, countable set, ADR-0508); every other capped group (task, person,
+ *  epic, story) says "first N". Renders nothing when the group did not overflow. */
 function GroupOverflowHint({
   group,
-  taskTruncated,
-  personTruncated,
-  sprintTaskTruncated,
+  truncatedGroups,
   sprintTaskTotal,
 }: { group: CommandItem['group'] } & TruncationCues) {
+  if (!truncatedGroups.has(group)) return null;
   if (group === 'sprintTask') {
-    return sprintTaskTruncated ? (
+    return (
       <p className="px-3 pb-1 pt-0.5 text-xs text-neutral-text-secondary" role="note">
         Showing {SPRINT_TASK_RESULT_CAP} of {sprintTaskTotal} — refine your search to narrow it
         down.
       </p>
-    ) : null;
+    );
   }
-  const truncated =
-    (group === 'task' && taskTruncated) || (group === 'person' && personTruncated);
-  if (!truncated) return null;
-  const cap = group === 'task' ? TASK_RESULT_CAP : PERSON_RESULT_CAP;
+  const cap = RESULT_CAPS[group];
+  if (cap === undefined) return null;
   return (
     <p className="px-3 pb-1 pt-0.5 text-xs text-neutral-text-secondary" role="note">
       Showing first {cap} — refine your search to narrow it down.
@@ -241,9 +256,7 @@ function PaletteResultsBody({
   query,
   activeItem,
   onHover,
-  taskTruncated,
-  personTruncated,
-  sprintTaskTruncated,
+  truncatedGroups,
   sprintTaskTotal,
 }: {
   items: CommandItem[];
@@ -258,12 +271,7 @@ function PaletteResultsBody({
       </p>
     );
   }
-  const cues: TruncationCues = {
-    taskTruncated,
-    personTruncated,
-    sprintTaskTruncated,
-    sprintTaskTotal,
-  };
+  const cues: TruncationCues = { truncatedGroups, sprintTaskTotal };
   return (
     <>
       {GROUP_ORDER.map((group) => (
@@ -307,22 +315,23 @@ export function CommandPalette() {
   const filtered = useMemo(() => filterCommandItems(allItems, query), [allItems, query]);
   const items = useMemo(() => applyResultCaps(filtered, query), [filtered, query]);
 
-  // Whether a section overflowed its cap — drives the explicit "showing first N"
-  // hints so the truncation is never silent (#1940).
-  const taskTruncated = useMemo(
-    () => filtered.filter((i) => i.group === 'task').length > TASK_RESULT_CAP,
-    [filtered],
-  );
+  // Which capped sections overflowed — drives the explicit "showing first N" hints
+  // so the truncation is never silent (#1940). Computed generically from
+  // {@link RESULT_CAPS} so a new capped group (epic/story, ADR-0508 D4) gets its
+  // cue for free.
+  const truncatedGroups = useMemo(() => {
+    const overflowed = new Set<CommandItem['group']>();
+    for (const [group, cap] of Object.entries(RESULT_CAPS)) {
+      const g = group as CommandItem['group'];
+      if (filtered.filter((i) => i.group === g).length > cap) overflowed.add(g);
+    }
+    return overflowed;
+  }, [filtered]);
   // Total active-sprint task matches (before the cap) — drives the "Showing 25 of
   // {M}" cue, which names the total because a sprint is a bounded, countable set
   // (ADR-0508); project-wide tasks stay "first N" (no alarming unbounded total).
   const sprintTaskTotal = useMemo(
     () => filtered.filter((i) => i.group === 'sprintTask').length,
-    [filtered],
-  );
-  const sprintTaskTruncated = sprintTaskTotal > SPRINT_TASK_RESULT_CAP;
-  const personTruncated = useMemo(
-    () => filtered.filter((i) => i.group === 'person').length > PERSON_RESULT_CAP,
     [filtered],
   );
 
@@ -427,9 +436,7 @@ export function CommandPalette() {
             query={query}
             activeItem={activeItem}
             onHover={(item) => setActiveIndex(items.indexOf(item))}
-            taskTruncated={taskTruncated}
-            personTruncated={personTruncated}
-            sprintTaskTruncated={sprintTaskTruncated}
+            truncatedGroups={truncatedGroups}
             sprintTaskTotal={sprintTaskTotal}
           />
         </div>
