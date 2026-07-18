@@ -43,3 +43,19 @@ schema:TokenObtainPair
 # present, only the old segments are removed.
 /api/v1/admin/failed-tasks/{id}/retry/
 /api/v1/admin/failed-tasks/{id}/dismiss/
+
+# #2108 (ADR-0517) — SSO re-platform onto django-allauth socialaccount: the
+# singleton /workspace/sso/ config endpoint is replaced by the multi-provider
+# /workspace/sso/providers/ collection (list/create + {slug}/ item +
+# {slug}/test-connection/), and the OIDCProvider* / OIDCTestConnection* /
+# DefaultRoleEnum serializers are superseded by the SsoProvider* serializers. SSO
+# is unshipped (0.4) with no external consumers; the new paths/schemas are present,
+# only the old singleton surface is removed.
+/api/v1/workspace/sso/
+/api/v1/workspace/sso/test-connection/
+schema:OIDCDiscoverResponse
+schema:OIDCProviderRead
+schema:OIDCProviderWriteRequest
+schema:OIDCTestConnectionRequestRequest
+schema:OIDCTestConnectionResponse
+schema:DefaultRoleEnum

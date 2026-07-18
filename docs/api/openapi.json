@@ -1287,7 +1287,7 @@
         "/api/v1/auth/oidc/callback/": {
             "get": {
                 "operationId": "v1_auth_oidc_callback_retrieve",
-                "description": "``GET /auth/oidc/callback?code=&state=`` — complete the flow, mint the session.\n\nOn success: validate state (single-use) → exchange code → validate ID token →\nresolve/link/create the user → set the httpOnly refresh cookie → 302 to the\nSPA completion route (no token in the URL). On any failure: 302 to the SPA\ncompletion route with a non-sensitive ``error`` code.",
+                "description": "``GET /auth/oidc/callback?code=&state=`` — complete the flow, mint the session.\n\nOn success: validate state (single-use, browser-bound) → resolve the provider\nfrom the ``slug`` stored in the state → exchange code → (OIDC) validate ID\ntoken / (GitHub) fetch userinfo → resolve/link/create the user → set the\nhttpOnly refresh cookie → 302 to the SPA completion route (no token in the\nURL). On any failure: 302 to the SPA completion route with a non-sensitive\n``error`` code.",
                 "summary": "SSO callback (sets the refresh cookie, redirects to the SPA)",
                 "parameters": [
                     {
@@ -1342,8 +1342,8 @@
         "/api/v1/auth/oidc/discover/": {
             "get": {
                 "operationId": "v1_auth_oidc_discover_retrieve",
-                "description": "``GET /auth/oidc/discover?email=`` — does this *domain* use SSO?\n\nDomain-level only: it never touches the user table and never reveals whether\nan account exists (no enumeration leak). Always 200.",
-                "summary": "Discover whether an email domain uses SSO",
+                "description": "``GET /auth/oidc/discover?email=`` — which enabled providers this domain uses.\n\nDomain-level only: it never touches the user table and never reveals whether\nan account exists (no enumeration leak). With an ``email`` it returns the\nenabled providers whose domain allow-list admits that address; without one it\nreturns every enabled provider (for a login screen that renders a button per\nprovider). Always 200.",
+                "summary": "Discover which SSO providers are available (optionally for an email domain)",
                 "parameters": [
                     {
                         "in": "query",
@@ -1361,7 +1361,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/OIDCDiscoverResponse"
+                                    "$ref": "#/components/schemas/SsoDiscoverResponse"
                                 }
                             }
                         },
@@ -1390,8 +1390,17 @@
         "/api/v1/auth/oidc/login/": {
             "get": {
                 "operationId": "v1_auth_oidc_login_retrieve",
-                "description": "``GET /auth/oidc/login`` — start the Authorization Code + PKCE flow.",
-                "summary": "Begin SSO login (redirects to the IdP)",
+                "description": "``GET /auth/oidc/login?provider=<slug>`` — start the flow for one provider.",
+                "summary": "Begin SSO login for a provider (redirects to the IdP)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "provider",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "tags": [
                     "auth"
                 ],
@@ -38335,11 +38344,11 @@
                 "summary": "Delete member"
             }
         },
-        "/api/v1/workspace/sso/": {
+        "/api/v1/workspace/sso/providers/": {
             "get": {
-                "operationId": "v1_workspace_sso_retrieve",
-                "description": "Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).\n\nSingleton row via ``OIDCProvider.load()``. The client secret is write-only\n(providing it on PUT rotates it) and never returned. DELETE removes the config\nrow entirely (a subsequent GET lazily re-materializes a blank, disabled\nprovider).",
-                "summary": "Get the SSO provider configuration",
+                "operationId": "v1_workspace_sso_providers_list",
+                "description": "``/workspace/sso/providers/`` — list (GET) and create (POST) providers.\n\n``IsWorkspaceAdminStrict`` on every method: even a GET discloses IdP topology\n(issuers, client ids, allowed domains), so reads are ADMIN-gated exactly like\nwrites.",
+                "summary": "List configured SSO providers",
                 "tags": [
                     "workspace"
                 ],
@@ -38356,7 +38365,129 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/OIDCProviderRead"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/SsoProviderRead"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_workspace_sso_providers_create",
+                "description": "``/workspace/sso/providers/`` — list (GET) and create (POST) providers.\n\n``IsWorkspaceAdminStrict`` on every method: even a GET discloses IdP topology\n(issuers, client ids, allowed domains), so reads are ADMIN-gated exactly like\nwrites.",
+                "summary": "Add an SSO provider (secret write-only; sending it stores it)",
+                "tags": [
+                    "workspace"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SsoProviderWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SsoProviderWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SsoProviderWriteRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SsoProviderRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/sso/providers/{slug}/": {
+            "get": {
+                "operationId": "v1_workspace_sso_providers_retrieve",
+                "description": "``/workspace/sso/providers/{slug}/`` — get/update/delete one provider.",
+                "summary": "Get one SSO provider configuration",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "slug",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SsoProviderRead"
                                 }
                             }
                         },
@@ -38381,9 +38512,19 @@
                 }
             },
             "put": {
-                "operationId": "v1_workspace_sso_update",
-                "description": "Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).\n\nSingleton row via ``OIDCProvider.load()``. The client secret is write-only\n(providing it on PUT rotates it) and never returned. DELETE removes the config\nrow entirely (a subsequent GET lazily re-materializes a blank, disabled\nprovider).",
-                "summary": "Update the SSO provider configuration (secret write-only; sending it rotates)",
+                "operationId": "v1_workspace_sso_providers_update",
+                "description": "``/workspace/sso/providers/{slug}/`` — get/update/delete one provider.",
+                "summary": "Update an SSO provider (secret write-only; sending it rotates)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "slug",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
                 "tags": [
                     "workspace"
                 ],
@@ -38391,17 +38532,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/OIDCProviderWriteRequest"
+                                "$ref": "#/components/schemas/SsoProviderWriteRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/OIDCProviderWriteRequest"
+                                "$ref": "#/components/schemas/SsoProviderWriteRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/OIDCProviderWriteRequest"
+                                "$ref": "#/components/schemas/SsoProviderWriteRequest"
                             }
                         }
                     }
@@ -38419,7 +38560,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/OIDCProviderRead"
+                                    "$ref": "#/components/schemas/SsoProviderRead"
                                 }
                             }
                         },
@@ -38444,9 +38585,19 @@
                 }
             },
             "delete": {
-                "operationId": "v1_workspace_sso_destroy",
-                "description": "Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).\n\nSingleton row via ``OIDCProvider.load()``. The client secret is write-only\n(providing it on PUT rotates it) and never returned. DELETE removes the config\nrow entirely (a subsequent GET lazily re-materializes a blank, disabled\nprovider).",
-                "summary": "Delete the SSO provider configuration (disables SSO)",
+                "operationId": "v1_workspace_sso_providers_destroy",
+                "description": "``/workspace/sso/providers/{slug}/`` — get/update/delete one provider.",
+                "summary": "Delete an SSO provider configuration",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "slug",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
                 "tags": [
                     "workspace"
                 ],
@@ -38460,7 +38611,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "Config deleted; SSO disabled."
+                        "description": "Provider deleted."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -38481,33 +38632,24 @@
                 }
             }
         },
-        "/api/v1/workspace/sso/test-connection/": {
+        "/api/v1/workspace/sso/providers/{slug}/test-connection/": {
             "post": {
-                "operationId": "v1_workspace_sso_test_connection_create",
-                "description": "``POST /workspace/sso/test-connection`` — probe discovery + JWKS (admin).",
-                "summary": "Test the SSO provider's discovery + JWKS reachability",
+                "operationId": "v1_workspace_sso_providers_test_connection_create",
+                "description": "``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability.",
+                "summary": "Test a provider's discovery/JWKS (OIDC) or API (GitHub) reachability",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "slug",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
                 "tags": [
                     "workspace"
                 ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/OIDCTestConnectionRequestRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/OIDCTestConnectionRequestRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/OIDCTestConnectionRequestRequest"
-                            }
-                        }
-                    }
-                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -38521,7 +38663,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/OIDCTestConnectionResponse"
+                                    "$ref": "#/components/schemas/SsoTestConnectionResponse"
                                 }
                             }
                         },
@@ -40879,15 +41021,6 @@
                 "type": "string",
                 "description": "* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio"
             },
-            "DefaultRoleEnum": {
-                "enum": [
-                    100,
-                    300,
-                    400
-                ],
-                "type": "integer",
-                "description": "* `100` - Member\n* `300` - Admin\n* `400` - Owner"
-            },
             "DefaultViewEnum": {
                 "enum": [
                     "SCHEDULE",
@@ -42911,202 +43044,6 @@
             "NullEnum": {
                 "enum": [
                     null
-                ]
-            },
-            "OIDCDiscoverResponse": {
-                "type": "object",
-                "description": "Response for ``GET /auth/oidc/discover`` — domain-level only, no enumeration.",
-                "properties": {
-                    "provider_present": {
-                        "type": "boolean"
-                    },
-                    "display_name": {
-                        "type": "string"
-                    },
-                    "issuer": {
-                        "type": "string"
-                    }
-                },
-                "required": [
-                    "provider_present"
-                ]
-            },
-            "OIDCProviderRead": {
-                "type": "object",
-                "description": "Read shape for the admin SSO config — secret reduced to a boolean.\n\n``redirect_uri`` is the value the operator must allow-list in their IdP; it is\nderived (never stored) and passed in via serializer context by the view.\n``allow_password_signin_enforced`` is **always False in OSS** — the field is\ninformational here; enforcement is an enterprise capability (ADR-0187 §4).",
-                "properties": {
-                    "enabled": {
-                        "type": "boolean",
-                        "readOnly": true
-                    },
-                    "display_name": {
-                        "type": "string",
-                        "readOnly": true
-                    },
-                    "issuer_url": {
-                        "type": "string",
-                        "format": "uri",
-                        "readOnly": true
-                    },
-                    "client_id": {
-                        "type": "string",
-                        "readOnly": true
-                    },
-                    "scopes": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "maxLength": 64
-                        },
-                        "readOnly": true
-                    },
-                    "allowed_email_domains": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "maxLength": 255
-                        },
-                        "readOnly": true
-                    },
-                    "auto_create_members": {
-                        "type": "boolean",
-                        "readOnly": true
-                    },
-                    "default_role": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/DefaultRoleEnum"
-                            }
-                        ],
-                        "readOnly": true
-                    },
-                    "allow_password_signin": {
-                        "type": "boolean",
-                        "readOnly": true
-                    },
-                    "allow_password_signin_enforced": {
-                        "type": "boolean",
-                        "readOnly": true
-                    },
-                    "secret_set": {
-                        "type": "boolean",
-                        "readOnly": true
-                    },
-                    "redirect_uri": {
-                        "type": "string",
-                        "readOnly": true
-                    },
-                    "created_at": {
-                        "type": "string",
-                        "format": "date-time",
-                        "readOnly": true
-                    },
-                    "updated_at": {
-                        "type": "string",
-                        "format": "date-time",
-                        "readOnly": true
-                    }
-                },
-                "required": [
-                    "allow_password_signin",
-                    "allow_password_signin_enforced",
-                    "allowed_email_domains",
-                    "auto_create_members",
-                    "client_id",
-                    "created_at",
-                    "default_role",
-                    "display_name",
-                    "enabled",
-                    "issuer_url",
-                    "redirect_uri",
-                    "scopes",
-                    "secret_set",
-                    "updated_at"
-                ]
-            },
-            "OIDCProviderWriteRequest": {
-                "type": "object",
-                "description": "Write shape for the admin SSO config (PUT).\n\n``client_secret`` is write-only; omitting it preserves the stored secret and\nproviding a non-empty value rotates it. ``scopes`` is not writable (OSS-fixed).",
-                "properties": {
-                    "enabled": {
-                        "type": "boolean"
-                    },
-                    "display_name": {
-                        "type": "string",
-                        "maxLength": 255
-                    },
-                    "issuer_url": {
-                        "type": "string",
-                        "format": "uri",
-                        "maxLength": 200
-                    },
-                    "client_id": {
-                        "type": "string",
-                        "maxLength": 255
-                    },
-                    "client_secret": {
-                        "type": "string",
-                        "writeOnly": true,
-                        "minLength": 1
-                    },
-                    "allowed_email_domains": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 255
-                        }
-                    },
-                    "auto_create_members": {
-                        "type": "boolean"
-                    },
-                    "default_role": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/DefaultRoleEnum"
-                            }
-                        ],
-                        "minimum": 0,
-                        "maximum": 32767
-                    },
-                    "allow_password_signin": {
-                        "type": "boolean"
-                    }
-                }
-            },
-            "OIDCTestConnectionRequestRequest": {
-                "type": "object",
-                "description": "Optional issuer override for the admin \"Test connection\" probe.",
-                "properties": {
-                    "issuer_url": {
-                        "type": "string",
-                        "format": "uri"
-                    }
-                }
-            },
-            "OIDCTestConnectionResponse": {
-                "type": "object",
-                "description": "Structured result of the admin \"Test connection\" probe.",
-                "properties": {
-                    "ok": {
-                        "type": "boolean"
-                    },
-                    "issuer": {
-                        "type": "string"
-                    },
-                    "endpoints": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    },
-                    "error": {
-                        "type": "string"
-                    },
-                    "detail": {
-                        "type": "string"
-                    }
-                },
-                "required": [
-                    "ok"
                 ]
             },
             "OnFailureEnum": {
@@ -51773,6 +51710,202 @@
                 ],
                 "type": "string",
                 "description": "* `completed` - Completed in sprint\n* `carried` - Carried to another sprint\n* `dropped` - Dropped (not carried forward)"
+            },
+            "SsoDiscoverResponse": {
+                "type": "object",
+                "description": "Response for ``GET /auth/oidc/discover`` — domain-level only, no enumeration.",
+                "properties": {
+                    "provider_present": {
+                        "type": "boolean"
+                    },
+                    "providers": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    }
+                },
+                "required": [
+                    "provider_present"
+                ]
+            },
+            "SsoProviderRead": {
+                "type": "object",
+                "description": "Read shape for one configured provider — secret reduced to a boolean.\n\n``redirect_uri`` is the value the operator must allow-list in their IdP; it is\nderived (never stored) and passed via serializer context by the view — the\ncallback path is **unchanged** for every provider (ADR-0517 §3.5).\n``allow_password_signin_enforced`` is **always False in OSS**.",
+                "properties": {
+                    "slug": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "provider": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "kind": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "client_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "server_url": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "github_org": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "scopes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "allowed_email_domains": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "auto_create_members": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "default_role": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "allow_password_signin": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "allow_password_signin_enforced": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "secret_set": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "redirect_uri": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "allow_password_signin",
+                    "allow_password_signin_enforced",
+                    "allowed_email_domains",
+                    "auto_create_members",
+                    "client_id",
+                    "created_at",
+                    "default_role",
+                    "display_name",
+                    "enabled",
+                    "github_org",
+                    "kind",
+                    "provider",
+                    "redirect_uri",
+                    "scopes",
+                    "secret_set",
+                    "server_url",
+                    "slug",
+                    "updated_at"
+                ]
+            },
+            "SsoProviderWriteRequest": {
+                "type": "object",
+                "description": "Create/update shape for one provider (POST create / PUT update).\n\n``slug`` selects the registry type (required + immutable on create).\n``client_secret`` is write-only; omitting it preserves the stored secret and\nproviding a non-empty value rotates it. ``scopes`` is not writable (server-fixed).",
+                "properties": {
+                    "slug": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "display_name": {
+                        "type": "string"
+                    },
+                    "client_id": {
+                        "type": "string"
+                    },
+                    "client_secret": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1
+                    },
+                    "server_url": {
+                        "type": "string"
+                    },
+                    "github_org": {
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "allowed_email_domains": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    },
+                    "auto_create_members": {
+                        "type": "boolean"
+                    },
+                    "default_role": {
+                        "type": "integer"
+                    },
+                    "allow_password_signin": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "SsoTestConnectionResponse": {
+                "type": "object",
+                "description": "Structured result of the admin \"Test connection\" probe.",
+                "properties": {
+                    "ok": {
+                        "type": "boolean"
+                    },
+                    "issuer": {
+                        "type": "string"
+                    },
+                    "endpoints": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "detail": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "ok"
+                ]
             },
             "StandupAssignee": {
                 "type": "object",

@@ -26,13 +26,13 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from trueppm_api.apps.sso.models import OIDCProvider
+    from trueppm_api.apps.sso.models import SsoProviderPolicy
 
 logger = logging.getLogger("trueppm.sso")
 
 # Enterprise registers a callable mapping (claims, config) → workspace-role int.
 # OSS leaves it None → the auto-create role is always ``config.default_role``.
-_IDENTITY_MAPPER: Callable[[dict[str, Any], OIDCProvider], int] | None = None
+_IDENTITY_MAPPER: Callable[[dict[str, Any], SsoProviderPolicy], int] | None = None
 
 # Enterprise registers a callable user → bool ("may this user complete a password
 # login?"). OSS leaves it None → password login is always allowed.
@@ -40,14 +40,14 @@ _LOCAL_LOGIN_POLICY: Callable[[Any], bool] | None = None
 
 
 def register_oidc_identity_mapper(
-    provider: Callable[[dict[str, Any], OIDCProvider], int] | None,
+    provider: Callable[[dict[str, Any], SsoProviderPolicy], int] | None,
 ) -> None:
     """Register (or clear, with ``None``) the claims→role mapper. Enterprise calls this."""
     global _IDENTITY_MAPPER
     _IDENTITY_MAPPER = provider
 
 
-def oidc_role_for(claims: dict[str, Any], config: OIDCProvider) -> int:
+def oidc_role_for(claims: dict[str, Any], config: SsoProviderPolicy) -> int:
     """Resolve the workspace-role ordinal to grant an auto-created SSO member.
 
     OSS default: ignore the claims entirely and return ``config.default_role`` —

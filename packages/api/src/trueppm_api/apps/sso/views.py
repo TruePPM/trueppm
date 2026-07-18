@@ -1,17 +1,19 @@
-"""OIDC relying-party endpoints (ADR-0187 §2–3).
+"""Multi-provider SSO endpoints (ADR-0517 §3.4–3.5, supersedes ADR-0187 §2–3).
 
 Two groups:
 
 - **Unauthenticated flow** (pre-session): ``discover`` (domain probe, no
-  enumeration leak), ``login`` (302 to the IdP with state/PKCE/nonce), and
-  ``callback`` (validate, mint the existing cookie-JWT session, 302 to the SPA).
-  These set ``permission_classes = [AllowAny]`` and ``authentication_classes =
-  []`` because the caller has no session yet — authentication *is* the flow.
-- **Admin config** (``IsWorkspaceAdminStrict``): the singleton ``/workspace/sso/``
-  provider config (GET/PUT/DELETE, secret write-only) and ``test-connection``.
-  Strict (ADMIN on *all* methods, reads included) because even a GET exposes the
-  org's IdP configuration — issuer, client_id, allowed email domains — which a
-  plain member must not be able to read.
+  enumeration leak, now returning the *list* of enabled providers), ``login``
+  (302 to the chosen IdP with state/PKCE/nonce), and ``callback`` (validate, mint
+  the existing cookie-JWT session, 302 to the SPA). The callback path is
+  **unchanged** for every provider — a ``slug`` stored in the login state (not a
+  new URL segment) disambiguates which ``SocialApp`` is completing, so the OTel
+  ``code``/``state`` redaction rule and operator IdP allow-lists keep matching
+  (ADR-0517 §3.5).
+- **Admin config** (``IsWorkspaceAdminStrict``): the ``/workspace/sso/providers/``
+  collection (list/create), item (get/update/delete by slug), and
+  ``test-connection``. Strict (ADMIN on *all* methods, reads included) because
+  even a GET exposes the org's IdP topology.
 
 The callback never puts a token in the URL: it sets the hardened httpOnly refresh
 cookie via the existing ``_set_refresh_cookie`` and 302s the browser to the SPA
@@ -36,26 +38,27 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.sso import services
-from trueppm_api.apps.sso.models import OIDCProvider
+from trueppm_api.apps.sso.models import SsoProviderPolicy
 from trueppm_api.apps.sso.serializers import (
-    OIDCDiscoverResponseSerializer,
-    OIDCProviderReadSerializer,
-    OIDCProviderWriteSerializer,
-    OIDCTestConnectionRequestSerializer,
-    OIDCTestConnectionResponseSerializer,
+    SsoDiscoverResponseSerializer,
+    SsoProviderReadSerializer,
+    SsoProviderWriteSerializer,
+    SsoTestConnectionResponseSerializer,
 )
 from trueppm_api.apps.workspace.models import Workspace
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
 from trueppm_api.core.auth_views import _set_refresh_cookie
 
 # Trailing slash matches the route in ``urls.py`` so the IdP returns straight to
-# the view without an APPEND_SLASH redirect hop dropping the query.
+# the view without an APPEND_SLASH redirect hop dropping the query. UNCHANGED for
+# every provider (ADR-0517 §3.5) — OTel redaction + operator allow-lists depend
+# on this exact path.
 _CALLBACK_PATH = "/api/v1/auth/oidc/callback/"
 
-# Browser-binding cookie for the OIDC ``state``. The server-side single-use state
-# only proves *we* minted the value; it does not prove the *same browser* that
-# began the flow is the one completing it. Without this binding, an attacker who
-# completes login at their own IdP account could hand the resulting
+# Browser-binding cookie for the OIDC/OAuth ``state``. The server-side single-use
+# state only proves *we* minted the value; it does not prove the *same browser*
+# that began the flow is the one completing it. Without this binding, an attacker
+# who completes login at their own IdP account could hand the resulting
 # ``?state=&code=`` callback URL to a victim and silently sign the victim into the
 # attacker's account (login CSRF / session fixation). The callback therefore also
 # requires the ``state`` query param to equal the value stored in this cookie.
@@ -88,7 +91,8 @@ def _derive_redirect_uri(request: Request) -> str:
     Prefers the explicit ``TRUEPPM_PUBLIC_API_BASE_URL`` (so the value the operator
     allow-lists is deterministic behind a proxy); falls back to the request's
     absolute URI for zero-config single-origin dev. The exact string is stored in
-    the login state and replayed at the token endpoint, so it always matches.
+    the login state and replayed at the token endpoint, so it always matches. It is
+    the **same path for every provider** (ADR-0517 §3.5).
     """
     base = (getattr(settings, "TRUEPPM_PUBLIC_API_BASE_URL", "") or "").rstrip("/")
     if base:
@@ -106,10 +110,13 @@ def _spa_completion_url(error: str | None = None) -> str:
 
 
 class OIDCDiscoverView(APIView):
-    """``GET /auth/oidc/discover?email=`` — does this *domain* use SSO?
+    """``GET /auth/oidc/discover?email=`` — which enabled providers this domain uses.
 
     Domain-level only: it never touches the user table and never reveals whether
-    an account exists (no enumeration leak). Always 200.
+    an account exists (no enumeration leak). With an ``email`` it returns the
+    enabled providers whose domain allow-list admits that address; without one it
+    returns every enabled provider (for a login screen that renders a button per
+    provider). Always 200.
     """
 
     permission_classes = [AllowAny]
@@ -118,27 +125,26 @@ class OIDCDiscoverView(APIView):
     throttle_scope = "oidc_discover"
 
     @extend_schema(
-        summary="Discover whether an email domain uses SSO",
+        summary="Discover which SSO providers are available (optionally for an email domain)",
         parameters=[OpenApiParameter("email", str, OpenApiParameter.QUERY, required=False)],
-        responses={200: OIDCDiscoverResponseSerializer},
+        responses={200: SsoDiscoverResponseSerializer},
         auth=[],
         tags=["auth"],
     )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         email = (request.query_params.get("email") or "").strip()
-        provider = services.get_enabled_provider()
-        present = bool(
-            provider is not None and "@" in email and services._domain_allowed(provider, email)
-        )
-        payload: dict[str, Any] = {"provider_present": present}
-        if present and provider is not None:
-            payload["display_name"] = provider.display_name
-            payload["issuer"] = provider.issuer_url
-        return Response(OIDCDiscoverResponseSerializer(payload).data)
+        if email:
+            matched = services.domain_matches_any_enabled(email)
+            contexts = [matched] if matched is not None else []
+        else:
+            contexts = services.get_enabled_providers()
+        providers = [{"slug": c.slug, "display_name": c.display_name} for c in contexts]
+        payload = {"provider_present": bool(providers), "providers": providers}
+        return Response(SsoDiscoverResponseSerializer(payload).data)
 
 
 class OIDCLoginView(APIView):
-    """``GET /auth/oidc/login`` — start the Authorization Code + PKCE flow."""
+    """``GET /auth/oidc/login?provider=<slug>`` — start the flow for one provider."""
 
     permission_classes = [AllowAny]
     authentication_classes: list[Any] = []
@@ -146,7 +152,8 @@ class OIDCLoginView(APIView):
     throttle_scope = "oidc_login"
 
     @extend_schema(
-        summary="Begin SSO login (redirects to the IdP)",
+        summary="Begin SSO login for a provider (redirects to the IdP)",
+        parameters=[OpenApiParameter("provider", str, OpenApiParameter.QUERY, required=False)],
         responses={
             302: OpenApiResponse(description="Redirect to the IdP authorization endpoint."),
         },
@@ -154,11 +161,11 @@ class OIDCLoginView(APIView):
         tags=["auth"],
     )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        provider = services.get_enabled_provider()
-        if provider is None:
+        ctx = self._resolve_provider(request)
+        if ctx is None:
             return HttpResponseRedirect(_spa_completion_url(error="sso_not_configured"))
         try:
-            result = services.start_login(provider, redirect_uri=_derive_redirect_uri(request))
+            result = services.start_login(ctx, redirect_uri=_derive_redirect_uri(request))
         except services.OIDCError as exc:
             return HttpResponseRedirect(_spa_completion_url(error=exc.code))
         # Bind the state to this browser (login-CSRF / session-fixation defense).
@@ -166,14 +173,28 @@ class OIDCLoginView(APIView):
         _set_state_cookie(response, result.state)
         return response
 
+    def _resolve_provider(self, request: Request) -> services.ProviderContext | None:
+        """Resolve the provider from ``?provider=<slug>``, or the sole enabled one.
+
+        Explicit slug wins. With no slug, fall back to the single enabled provider
+        (the common single-IdP install) — otherwise the caller must disambiguate.
+        """
+        slug = (request.query_params.get("provider") or "").strip()
+        if slug:
+            return services.get_provider_for_slug(slug)
+        enabled = services.get_enabled_providers()
+        return enabled[0] if len(enabled) == 1 else None
+
 
 class OIDCCallbackView(APIView):
     """``GET /auth/oidc/callback?code=&state=`` — complete the flow, mint the session.
 
-    On success: validate state (single-use) → exchange code → validate ID token →
-    resolve/link/create the user → set the httpOnly refresh cookie → 302 to the
-    SPA completion route (no token in the URL). On any failure: 302 to the SPA
-    completion route with a non-sensitive ``error`` code.
+    On success: validate state (single-use, browser-bound) → resolve the provider
+    from the ``slug`` stored in the state → exchange code → (OIDC) validate ID
+    token / (GitHub) fetch userinfo → resolve/link/create the user → set the
+    httpOnly refresh cookie → 302 to the SPA completion route (no token in the
+    URL). On any failure: 302 to the SPA completion route with a non-sensitive
+    ``error`` code.
     """
 
     permission_classes = [AllowAny]
@@ -182,11 +203,7 @@ class OIDCCallbackView(APIView):
     throttle_scope = "oidc_callback"
 
     def _redirect(self, *, error: str | None = None) -> HttpResponse:
-        """Redirect to the SPA completion route, always clearing the state cookie.
-
-        The state cookie is single-use — once a callback is processed (success or
-        failure) the binding has served its purpose and must not linger.
-        """
+        """Redirect to the SPA completion route, always clearing the state cookie."""
         response = HttpResponseRedirect(_spa_completion_url(error=error))
         _clear_state_cookie(response)
         return response
@@ -208,8 +225,8 @@ class OIDCCallbackView(APIView):
         if idp_error:
             return self._redirect(error="access_denied")
 
-        provider = services.get_enabled_provider()
-        if provider is None:
+        # SSO entirely off → fail closed before touching state.
+        if not services.get_enabled_providers():
             return self._redirect(error="sso_not_configured")
 
         code = request.query_params.get("code") or ""
@@ -227,113 +244,177 @@ class OIDCCallbackView(APIView):
 
         try:
             stored = services.consume_state(state)
-            doc = services.get_discovery_document(provider.issuer_url)
-            tokens = services.exchange_code(
-                provider,
-                doc,
-                code=code,
-                redirect_uri=stored["redirect_uri"],
-                verifier=stored["verifier"],
-            )
-            claims = services.validate_id_token(
-                provider, doc, tokens["id_token"], expected_nonce=stored["nonce"]
-            )
-            user, _created = services.resolve_user(provider, claims)
+            ctx = services.get_provider_for_slug(str(stored.get("slug") or ""))
+            if ctx is None:
+                return self._redirect(error="sso_not_configured")
+            claims = self._complete(ctx, code=code, stored=stored)
+            user, _created = services.resolve_user(ctx, claims)
         except services.OIDCError as exc:
             return self._redirect(error=exc.code)
 
-        # Mint the existing cookie-JWT session — no new token surface (ADR-0187 §2).
+        # Mint the existing cookie-JWT session — no new token surface (ADR-0517 §3.3).
         refresh = RefreshToken.for_user(user)
         response = self._redirect()
         _set_refresh_cookie(response, str(refresh))  # type: ignore[arg-type]
         return response
 
+    def _complete(
+        self, ctx: services.ProviderContext, *, code: str, stored: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Run the provider-specific exchange and return normalized claims."""
+        redirect_uri = stored["redirect_uri"]
+        if ctx.is_github:
+            access_token = services.exchange_github_code(ctx, code=code, redirect_uri=redirect_uri)
+            return services.fetch_github_identity(ctx, access_token)
+        doc = services.get_discovery_document(ctx.issuer)
+        tokens = services.exchange_code(
+            ctx, doc, code=code, redirect_uri=redirect_uri, verifier=stored["verifier"]
+        )
+        return services.validate_id_token(
+            ctx, doc, tokens["id_token"], expected_nonce=stored["nonce"]
+        )
 
-class OIDCProviderView(IdempotencyMixin, APIView):
-    """Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).
 
-    Singleton row via ``OIDCProvider.load()``. The client secret is write-only
-    (providing it on PUT rotates it) and never returned. DELETE removes the config
-    row entirely (a subsequent GET lazily re-materializes a blank, disabled
-    provider).
+# ---------------------------------------------------------------------------
+# Admin config — collection under /workspace/sso/providers/ (ADR-0517 §3.4)
+# ---------------------------------------------------------------------------
+
+
+def _policy_or_none(slug: str) -> SsoProviderPolicy | None:
+    return (
+        SsoProviderPolicy.objects.select_related("social_app")
+        .filter(workspace=Workspace.load(), slug=slug)
+        .first()
+    )
+
+
+class SsoProviderCollectionView(IdempotencyMixin, APIView):
+    """``/workspace/sso/providers/`` — list (GET) and create (POST) providers.
+
+    ``IsWorkspaceAdminStrict`` on every method: even a GET discloses IdP topology
+    (issuers, client ids, allowed domains), so reads are ADMIN-gated exactly like
+    writes.
     """
 
-    # Strict ADMIN on *every* method, reads included. The plain ``IsWorkspaceAdmin``
-    # admits any authenticated member on safe methods, but the read serializer
-    # exposes the org's IdP configuration — issuer URL, client_id, allowed email
-    # domains, redirect_uri — which discloses org structure and identity-provider
-    # topology. That must be gated exactly like the writes: ADMIN, all methods.
     permission_classes = [IsWorkspaceAdminStrict]
-    # Exempt from the generic Idempotency-Key path (ADR-0170): this is a singleton
-    # config row, so PUT (full replace) and DELETE (clear) are naturally idempotent
-    # — replaying converges to the same state with no resource multiplication.
+    # Exempt from the generic Idempotency-Key path (ADR-0170): create keys on the
+    # unique (workspace, slug) constraint, so a replayed POST 409s naturally.
     idempotency_exempt = True
 
-    def _read(self, provider: OIDCProvider, request: Request) -> dict[str, Any]:
-        return OIDCProviderReadSerializer(
-            provider, context={"redirect_uri": _derive_redirect_uri(request)}
+    def _read(self, policy: SsoProviderPolicy, request: Request) -> dict[str, Any]:
+        return SsoProviderReadSerializer(
+            policy, context={"redirect_uri": _derive_redirect_uri(request)}
         ).data
 
     @extend_schema(
-        summary="Get the SSO provider configuration",
-        responses={200: OIDCProviderReadSerializer},
+        summary="List configured SSO providers",
+        responses={200: SsoProviderReadSerializer(many=True)},
         tags=["workspace"],
     )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        provider = OIDCProvider.load()
-        return Response(self._read(provider, request))
+        policies = SsoProviderPolicy.objects.select_related("social_app").filter(
+            workspace=Workspace.load()
+        )
+        return Response([self._read(p, request) for p in policies])
 
     @extend_schema(
-        summary="Update the SSO provider configuration (secret write-only; sending it rotates)",
-        request=OIDCProviderWriteSerializer,
-        responses={200: OIDCProviderReadSerializer},
-        tags=["workspace"],
-    )
-    def put(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        provider = OIDCProvider.load()
-        serializer = OIDCProviderWriteSerializer(provider, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        provider = serializer.save()
-        return Response(self._read(provider, request))
-
-    @extend_schema(
-        summary="Delete the SSO provider configuration (disables SSO)",
-        responses={204: OpenApiResponse(description="Config deleted; SSO disabled.")},
-        tags=["workspace"],
-    )
-    def delete(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # Scope to this workspace rather than ``.all()``: the model is
-        # workspace-scoped (the FK is retained for enterprise multi-tenancy), so a
-        # blanket delete would wipe every tenant's config from one admin's request.
-        OIDCProvider.objects.filter(workspace=Workspace.load()).delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class OIDCTestConnectionView(IdempotencyMixin, APIView):
-    """``POST /workspace/sso/test-connection`` — probe discovery + JWKS (admin)."""
-
-    # Strict ADMIN, all methods: the request body echoes the configured issuer and
-    # the probe confirms IdP topology, so — like the provider config read — it must
-    # not be reachable by a plain member.
-    permission_classes = [IsWorkspaceAdminStrict]
-    # Exempt from the generic Idempotency-Key path (ADR-0170): a read-only
-    # reachability probe that mutates nothing — POST is the verb only because the
-    # candidate issuer is supplied in the body, not because it creates a resource.
-    idempotency_exempt = True
-
-    @extend_schema(
-        summary="Test the SSO provider's discovery + JWKS reachability",
-        request=OIDCTestConnectionRequestSerializer,
-        responses={200: OIDCTestConnectionResponseSerializer},
+        summary="Add an SSO provider (secret write-only; sending it stores it)",
+        request=SsoProviderWriteSerializer,
+        responses={201: SsoProviderReadSerializer},
         tags=["workspace"],
     )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        req = OIDCTestConnectionRequestSerializer(data=request.data)
-        req.is_valid(raise_exception=True)
-        issuer = (req.validated_data.get("issuer_url") or "").strip()
-        if not issuer:
-            issuer = OIDCProvider.load().issuer_url
-        if not issuer:
+        serializer = SsoProviderWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        policy = serializer.save()
+        return Response(self._read(policy, request), status=status.HTTP_201_CREATED)
+
+
+class SsoProviderDetailView(IdempotencyMixin, APIView):
+    """``/workspace/sso/providers/{slug}/`` — get/update/delete one provider."""
+
+    permission_classes = [IsWorkspaceAdminStrict]
+    idempotency_exempt = True
+
+    def _read(self, policy: SsoProviderPolicy, request: Request) -> dict[str, Any]:
+        return SsoProviderReadSerializer(
+            policy, context={"redirect_uri": _derive_redirect_uri(request)}
+        ).data
+
+    @extend_schema(
+        summary="Get one SSO provider configuration",
+        responses={200: SsoProviderReadSerializer},
+        tags=["workspace"],
+    )
+    def get(self, request: Request, slug: str, *args: Any, **kwargs: Any) -> Response:
+        policy = _policy_or_none(slug)
+        if policy is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(self._read(policy, request))
+
+    @extend_schema(
+        summary="Update an SSO provider (secret write-only; sending it rotates)",
+        request=SsoProviderWriteSerializer,
+        responses={200: SsoProviderReadSerializer},
+        tags=["workspace"],
+    )
+    def put(self, request: Request, slug: str, *args: Any, **kwargs: Any) -> Response:
+        policy = _policy_or_none(slug)
+        if policy is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = SsoProviderWriteSerializer(policy, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        policy = serializer.save()
+        return Response(self._read(policy, request))
+
+    @extend_schema(
+        summary="Delete an SSO provider configuration",
+        responses={204: OpenApiResponse(description="Provider deleted.")},
+        tags=["workspace"],
+    )
+    def delete(self, request: Request, slug: str, *args: Any, **kwargs: Any) -> Response:
+        from allauth.socialaccount.models import SocialAccount
+
+        policy = _policy_or_none(slug)
+        if policy is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        # Deleting the SocialApp cascades to the policy (OneToOne, CASCADE), but
+        # SocialAccount has no FK to SocialApp, so the per-user bindings would
+        # survive and could silently re-activate if the slug were later reused.
+        # Purge them explicitly, keyed on the provider slug.
+        SocialAccount.objects.filter(provider=slug).delete()
+        policy.social_app.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SsoTestConnectionView(IdempotencyMixin, APIView):
+    """``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability."""
+
+    permission_classes = [IsWorkspaceAdminStrict]
+    # Throttled: the probe triggers server-side egress (OIDC discovery + JWKS, or
+    # the GitHub API), so an admin must not be able to drive unbounded outbound
+    # requests. Scoped like the flow endpoints (settings ``sso_test_connection``).
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "sso_test_connection"
+    # Exempt from the generic Idempotency-Key path (ADR-0170): a read-only
+    # reachability probe that mutates nothing.
+    idempotency_exempt = True
+
+    @extend_schema(
+        summary="Test a provider's discovery/JWKS (OIDC) or API (GitHub) reachability",
+        request=None,
+        responses={200: SsoTestConnectionResponseSerializer},
+        tags=["workspace"],
+    )
+    def post(self, request: Request, slug: str, *args: Any, **kwargs: Any) -> Response:
+        policy = _policy_or_none(slug)
+        if policy is None:
+            # Match the detail views' not-found behavior for an unknown slug.
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        from trueppm_api.apps.sso.services import ProviderContext
+
+        ctx = ProviderContext(social_app=policy.social_app, policy=policy)
+        if not ctx.is_github and not ctx.issuer:
             return Response({"ok": False, "error": "no_issuer"})
-        result = services.check_provider_reachability(issuer)
-        return Response(OIDCTestConnectionResponseSerializer(result).data)
+        result = services.check_provider_reachability(ctx)
+        return Response(SsoTestConnectionResponseSerializer(result).data)

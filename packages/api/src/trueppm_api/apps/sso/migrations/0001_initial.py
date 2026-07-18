@@ -7,7 +7,12 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
-import trueppm_api.apps.sso.models
+
+def _default_scopes() -> list[str]:
+    # Inlined default (ADR-0517 drops this model in 0002). Kept as a module-level
+    # callable so the historical migration replays deterministically after the
+    # ``OIDCProvider.scopes`` field (and its former model helper) were removed.
+    return ["openid", "email", "profile"]
 
 
 class Migration(migrations.Migration):
@@ -70,7 +75,7 @@ class Migration(migrations.Migration):
                     "scopes",
                     django.contrib.postgres.fields.ArrayField(
                         base_field=models.CharField(max_length=64),
-                        default=trueppm_api.apps.sso.models._default_scopes,
+                        default=_default_scopes,
                         size=None,
                     ),
                 ),

@@ -33,6 +33,9 @@ DJANGO_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.postgres",
+    # SITE_ID = 1 (below) is already set; allauth.socialaccount's SocialApp is an
+    # M2M to Site, so the sites framework must be installed (ADR-0517 §1).
+    "django.contrib.sites",
 ]
 
 THIRD_PARTY_APPS = [
@@ -45,6 +48,14 @@ THIRD_PARTY_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "allauth",
     "allauth.account",
+    # ADR-0517: adopt allauth.socialaccount as the provider *registry* only — our
+    # own hardened views in apps/sso drive the flow (egress, alg allow-list, Fernet
+    # secret, JWT bridge). We do NOT mount allauth.urls. openid_connect covers every
+    # OIDC IdP (as named APPS keyed by our registry slug); github is the one non-OIDC
+    # OAuth2 IdP that motivated the re-platform (#2108).
+    "allauth.socialaccount",
+    "allauth.socialaccount.providers.openid_connect",
+    "allauth.socialaccount.providers.github",
     "channels",
     "drf_spectacular",
     # Serves the Swagger UI / ReDoc static bundles from Django static ('self')
@@ -977,6 +988,11 @@ REST_FRAMEWORK = {
         # oidc_login already caps legitimate use, but an explicit cap blunts a flood
         # of forged callbacks (each fails fast at the browser-state-cookie check).
         "oidc_callback": "30/min",
+        # Admin "Test connection" probe (ADR-0517 §3.4). Each call triggers
+        # server-side egress (OIDC discovery + JWKS, or the GitHub API), so it needs
+        # an abuse bound so an admin cannot drive unbounded outbound requests.
+        # 20/min is ample for a human wiring up a provider.
+        "sso_test_connection": "20/min",
         # Integration-credential and Git webhook-secret endpoints (#1551). Covers the
         # per-user credential store (connect/rotate/revoke/read) and the project-admin
         # Git-automation config + secret-rotation views. Each of these mints, returns,
@@ -1092,6 +1108,34 @@ SHARE_SCHEDULE_MAX_TASKS = env.int("TRUEPPM_SHARE_SCHEDULE_MAX_TASKS", default=1
 
 SITE_ID = 1
 ACCOUNT_EMAIL_VERIFICATION = "none"
+
+# ModelBackend FIRST so username/password login keeps working exactly as before
+# (ADR-0517 §1). The allauth backend is appended only so allauth's own account
+# machinery resolves; our SSO views never call allauth's login() — they mint the
+# simplejwt cookie session via the JWT bridge (apps/sso/views.py).
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+    "allauth.account.auth_backends.AuthenticationBackend",
+]
+
+# SOCIALACCOUNT_PROVIDERS is used purely as a per-provider CONFIG REGISTRY — it
+# pins the server-fixed OSS scopes and PKCE. Per-provider APPS are NOT hardcoded
+# here: each configured IdP lives as a DB `SocialApp` row (provider_id == our
+# registry slug) written through the admin API, so the APPS list stays empty
+# (ADR-0517 §1). We deliberately do NOT set LOGIN_REDIRECT_URL or
+# SOCIALACCOUNT_ADAPTER — our own views own the flow, allauth is a library.
+SOCIALACCOUNT_PROVIDERS = {
+    "openid_connect": {
+        "APPS": [],
+        "OAUTH_PKCE_ENABLED": True,
+        # Server-fixed in OSS — `groups`/custom claims are an Enterprise widening.
+        "SCOPE": ["openid", "email", "profile"],
+    },
+    "github": {
+        # OIDC-equivalent scopes: identity via GET /user + /user/emails.
+        "SCOPE": ["read:user", "user:email"],
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Outbound email transport (#639 read-only status page, #764)

@@ -1,10 +1,22 @@
-"""Serializers for the OIDC provider config + flow responses (ADR-0187).
+"""Serializers for the multi-provider SSO config + flow responses (ADR-0517 §3.4).
 
-The provider's client secret is **never** exposed: the read serializer reports
-only ``secret_set: bool``; the write serializer accepts ``client_secret`` as a
-write-only field and providing it is the rotation path. ``scopes`` is read-only
-(OSS-fixed to ``openid email profile``), and ``default_role`` is restricted to
-MEMBER/ADMIN so SSO can never auto-grant OWNER.
+Each provider is an allauth ``SocialApp`` (``provider``, ``provider_id``,
+``client_id``, ``settings.server_url``) + a :class:`SsoProviderPolicy` side row.
+The serializers span both models by hand (a plain ``Serializer``, not a
+``ModelSerializer``) so the two rows are written atomically and the client sees a
+single flat provider object.
+
+Security-relevant shapes preserved from ADR-0187:
+
+- the client secret is **never** exposed: the read serializer reports only
+  ``secret_set: bool``; the write serializer accepts ``client_secret`` as a
+  write-only field and providing it is the rotation path;
+- ``scopes`` is server-fixed (``openid email profile`` / GitHub
+  ``read:user user:email``) and read-only — the admin cannot widen it;
+- ``default_role`` is restricted to MEMBER/ADMIN so SSO never auto-grants OWNER;
+- ``allow_password_signin`` is rejected in OSS (a set-but-ignored no-op, #2025);
+- the composed ``server_url`` is re-validated as an absolute https URL, and a
+  pasted ``.well-known`` discovery URL is rejected (ADR-0187 issuer rules).
 """
 
 from __future__ import annotations
@@ -12,82 +24,105 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
+from allauth.socialaccount.models import SocialApp
 from django.conf import settings
+from django.db import transaction
 from rest_framework import serializers
 
-from trueppm_api.apps.sso.models import OIDCProvider
-from trueppm_api.apps.workspace.models import WorkspaceRole
+from trueppm_api.apps.sso import services
+from trueppm_api.apps.sso.models import SsoProviderPolicy
+from trueppm_api.apps.workspace.models import Workspace, WorkspaceRole
 
 # SSO auto-create must never mint an OWNER. Members and Admins only.
 _ALLOWED_DEFAULT_ROLES = (WorkspaceRole.MEMBER, WorkspaceRole.ADMIN)
 
 
-class OIDCProviderReadSerializer(serializers.ModelSerializer[OIDCProvider]):
-    """Read shape for the admin SSO config — secret reduced to a boolean.
+class SsoProviderReadSerializer(serializers.Serializer[SsoProviderPolicy]):
+    """Read shape for one configured provider — secret reduced to a boolean.
 
     ``redirect_uri`` is the value the operator must allow-list in their IdP; it is
-    derived (never stored) and passed in via serializer context by the view.
-    ``allow_password_signin_enforced`` is **always False in OSS** — the field is
-    informational here; enforcement is an enterprise capability (ADR-0187 §4).
+    derived (never stored) and passed via serializer context by the view — the
+    callback path is **unchanged** for every provider (ADR-0517 §3.5).
+    ``allow_password_signin_enforced`` is **always False in OSS**.
     """
 
+    slug = serializers.CharField(read_only=True)
+    provider = serializers.SerializerMethodField()
+    kind = serializers.SerializerMethodField()
+    display_name = serializers.SerializerMethodField()
+    enabled = serializers.BooleanField(read_only=True)
+    client_id = serializers.SerializerMethodField()
+    server_url = serializers.SerializerMethodField()
+    github_org = serializers.CharField(read_only=True)
+    scopes = serializers.SerializerMethodField()
+    allowed_email_domains = serializers.ListField(child=serializers.CharField(), read_only=True)
+    auto_create_members = serializers.BooleanField(read_only=True)
+    default_role = serializers.IntegerField(read_only=True)
+    allow_password_signin = serializers.BooleanField(read_only=True)
+    allow_password_signin_enforced = serializers.SerializerMethodField()
     secret_set = serializers.BooleanField(read_only=True)
     redirect_uri = serializers.SerializerMethodField()
-    allow_password_signin_enforced = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
 
-    class Meta:
-        model = OIDCProvider
-        fields = [
-            "enabled",
-            "display_name",
-            "issuer_url",
-            "client_id",
-            "scopes",
-            "allowed_email_domains",
-            "auto_create_members",
-            "default_role",
-            "allow_password_signin",
-            "allow_password_signin_enforced",
-            "secret_set",
-            "redirect_uri",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = fields
+    def get_provider(self, obj: SsoProviderPolicy) -> str:
+        return str(obj.social_app.provider)
 
-    def get_redirect_uri(self, _obj: OIDCProvider) -> str:
-        return str(self.context.get("redirect_uri", ""))
+    def get_kind(self, obj: SsoProviderPolicy) -> str:
+        entry = services.registry_entry(obj.slug)
+        return entry.kind if entry else ""
 
-    def get_allow_password_signin_enforced(self, _obj: OIDCProvider) -> bool:
+    def get_display_name(self, obj: SsoProviderPolicy) -> str:
+        return str(obj.social_app.name)
+
+    def get_client_id(self, obj: SsoProviderPolicy) -> str:
+        return str(obj.social_app.client_id)
+
+    def get_server_url(self, obj: SsoProviderPolicy) -> str:
+        return str(obj.social_app.settings.get("server_url", ""))
+
+    def get_scopes(self, obj: SsoProviderPolicy) -> list[str]:
+        entry = services.registry_entry(obj.slug)
+        if entry and entry.allauth_provider == services.ALLAUTH_GITHUB:
+            return services.GITHUB_SCOPES
+        return services.OIDC_SCOPES
+
+    def get_allow_password_signin_enforced(self, _obj: SsoProviderPolicy) -> bool:
         # OSS never enforces the OFF state; always False. Enterprise's serializer
         # would compute this from its registered policy provider.
         return False
 
+    def get_redirect_uri(self, _obj: SsoProviderPolicy) -> str:
+        return str(self.context.get("redirect_uri", ""))
 
-class OIDCProviderWriteSerializer(serializers.ModelSerializer[OIDCProvider]):
-    """Write shape for the admin SSO config (PUT).
 
+class SsoProviderWriteSerializer(serializers.Serializer[SsoProviderPolicy]):
+    """Create/update shape for one provider (POST create / PUT update).
+
+    ``slug`` selects the registry type (required + immutable on create).
     ``client_secret`` is write-only; omitting it preserves the stored secret and
-    providing a non-empty value rotates it. ``scopes`` is not writable (OSS-fixed).
+    providing a non-empty value rotates it. ``scopes`` is not writable (server-fixed).
     """
 
+    slug = serializers.CharField(required=False)
+    display_name = serializers.CharField(required=False, allow_blank=True)
+    client_id = serializers.CharField(required=False, allow_blank=True)
     client_secret = serializers.CharField(write_only=True, required=False, allow_blank=False)
+    server_url = serializers.CharField(required=False, allow_blank=True)
+    github_org = serializers.CharField(required=False, allow_blank=True)
+    enabled = serializers.BooleanField(required=False)
+    allowed_email_domains = serializers.ListField(child=serializers.CharField(), required=False)
+    auto_create_members = serializers.BooleanField(required=False)
+    default_role = serializers.IntegerField(required=False)
+    allow_password_signin = serializers.BooleanField(required=False)
 
-    class Meta:
-        model = OIDCProvider
-        fields = [
-            "enabled",
-            "display_name",
-            "issuer_url",
-            "client_id",
-            "client_secret",
-            "allowed_email_domains",
-            "auto_create_members",
-            "default_role",
-            "allow_password_signin",
-        ]
+    def validate_slug(self, value: str) -> str:
+        value = value.strip().lower()
+        if value not in services.REGISTRY:
+            raise serializers.ValidationError(f"Unknown provider type: {value!r}.")
+        return value
 
-    def validate_issuer_url(self, value: str) -> str:
+    def validate_server_url(self, value: str) -> str:
         value = value.strip()
         if not value:
             return value
@@ -113,16 +148,13 @@ class OIDCProviderWriteSerializer(serializers.ModelSerializer[OIDCProvider]):
         return value
 
     def validate_allow_password_signin(self, value: bool) -> bool:
-        """Reject the field in OSS instead of persisting a set-but-ignored no-op.
+        """Reject the field in OSS instead of persisting a set-but-ignored no-op (#2025).
 
         ``allow_password_signin`` is an *enforcement* setting: only an edition that
         registers a local-login policy provider (Enterprise) actually blocks password
         login when it is ``False``. In OSS nothing enforces it, so silently storing a
-        client's value would be a footgun — the admin sets "off", nothing changes, and
-        the API reports success (#2025). A field-level validator fires only when the
-        client actually sends the key (the view PATCHes ``partial=True``), so an
-        untouched provider save is unaffected. The read serializer still surfaces
-        ``allow_password_signin_enforced: false`` so clients can discover why.
+        client's value would be a footgun. A field-level validator fires only when the
+        client actually sends the key, so an untouched provider save is unaffected.
         """
         from trueppm_api.apps.sso.extensions import local_login_policy_enforced
 
@@ -143,29 +175,42 @@ class OIDCProviderWriteSerializer(serializers.ModelSerializer[OIDCProvider]):
                 cleaned.append(domain)
         return cleaned
 
+    def _effective_slug(self, attrs: dict[str, Any]) -> str:
+        if self.instance is not None:
+            return str(self.instance.slug)
+        return str(attrs.get("slug", ""))
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        instance = self.instance
+        if instance is None and not attrs.get("slug"):
+            raise serializers.ValidationError({"slug": "This field is required."})
+
+        slug = self._effective_slug(attrs)
+        entry = services.REGISTRY.get(slug)
+        is_github = bool(entry and entry.allauth_provider == services.ALLAUTH_GITHUB)
+
         # Enabling SSO requires a complete configuration — refuse to enable a
         # half-configured provider that would fail at the first login.
-        instance = self.instance
         enabled = attrs.get("enabled", getattr(instance, "enabled", False))
         if enabled:
-            issuer = attrs.get("issuer_url", getattr(instance, "issuer_url", ""))
-            client_id = attrs.get("client_id", getattr(instance, "client_id", ""))
+            client_id = attrs.get("client_id") or self._current_client_id()
             has_secret = bool(attrs.get("client_secret")) or bool(
                 getattr(instance, "secret_set", False)
             )
             domains = attrs.get(
                 "allowed_email_domains", getattr(instance, "allowed_email_domains", [])
             )
+            server_url = attrs.get("server_url") or self._current_server_url()
             missing = []
-            if not issuer:
-                missing.append("issuer_url")
             if not client_id:
                 missing.append("client_id")
             if not has_secret:
                 missing.append("client_secret")
             if not domains:
                 missing.append("allowed_email_domains")
+            # OIDC needs an issuer; GitHub derives its endpoints from constants.
+            if not is_github and not server_url:
+                missing.append("server_url")
             if missing:
                 raise serializers.ValidationError(
                     {
@@ -176,10 +221,73 @@ class OIDCProviderWriteSerializer(serializers.ModelSerializer[OIDCProvider]):
                 )
         return attrs
 
-    def update(self, instance: OIDCProvider, validated_data: dict[str, Any]) -> OIDCProvider:
+    def _current_client_id(self) -> str:
+        return self.instance.social_app.client_id if self.instance is not None else ""
+
+    def _current_server_url(self) -> str:
+        if self.instance is None:
+            return ""
+        return str(self.instance.social_app.settings.get("server_url", ""))
+
+    @transaction.atomic
+    def create(self, validated_data: dict[str, Any]) -> SsoProviderPolicy:
+        slug = validated_data["slug"]
+        entry = services.REGISTRY[slug]
         secret = validated_data.pop("client_secret", None)
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
+
+        app = SocialApp.objects.create(
+            provider=entry.allauth_provider,
+            # provider_id is the slug for OIDC apps (so distinct IdPs coexist under
+            # the shared openid_connect type); GitHub keeps it as the slug too for a
+            # stable SocialAccount ``provider`` key. SocialApp.secret stays EMPTY —
+            # the real secret lives Fernet-encrypted on the policy (control 2).
+            provider_id=slug,
+            name=validated_data.get("display_name", "") or entry.display,
+            client_id=validated_data.get("client_id", ""),
+            secret="",
+            settings={"server_url": validated_data.get("server_url", "")},
+        )
+        app.sites.add(_current_site_id())
+
+        policy = SsoProviderPolicy(
+            social_app=app,
+            workspace=Workspace.load(),
+            slug=slug,
+            enabled=validated_data.get("enabled", False),
+            allowed_email_domains=validated_data.get("allowed_email_domains", []),
+            auto_create_members=validated_data.get("auto_create_members", False),
+            default_role=validated_data.get("default_role", WorkspaceRole.MEMBER),
+            github_org=validated_data.get("github_org", ""),
+        )
+        if secret:
+            policy.set_client_secret(secret)
+        policy.save()
+        return policy
+
+    @transaction.atomic
+    def update(
+        self, instance: SsoProviderPolicy, validated_data: dict[str, Any]
+    ) -> SsoProviderPolicy:
+        secret = validated_data.pop("client_secret", None)
+        app = instance.social_app
+
+        if "display_name" in validated_data:
+            app.name = validated_data["display_name"]
+        if "client_id" in validated_data:
+            app.client_id = validated_data["client_id"]
+        if "server_url" in validated_data:
+            app.settings = {**app.settings, "server_url": validated_data["server_url"]}
+        app.save()
+
+        for field in (
+            "enabled",
+            "allowed_email_domains",
+            "auto_create_members",
+            "default_role",
+            "github_org",
+        ):
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
         if secret:
             # Providing a secret rotates it; the plaintext is encrypted and never
             # stored or returned in clear.
@@ -188,21 +296,23 @@ class OIDCProviderWriteSerializer(serializers.ModelSerializer[OIDCProvider]):
         return instance
 
 
-class OIDCDiscoverResponseSerializer(serializers.Serializer[Any]):
+def _current_site_id() -> int:
+    """The Site id a SocialApp is bound to (the singleton install → SITE_ID).
+
+    A SocialApp is an M2M to Site; we bind every provider to the configured
+    ``SITE_ID`` so allauth's on-site lookups resolve.
+    """
+    return int(getattr(settings, "SITE_ID", 1))
+
+
+class SsoDiscoverResponseSerializer(serializers.Serializer[Any]):
     """Response for ``GET /auth/oidc/discover`` — domain-level only, no enumeration."""
 
     provider_present = serializers.BooleanField()
-    display_name = serializers.CharField(required=False, allow_blank=True)
-    issuer = serializers.CharField(required=False, allow_blank=True)
+    providers = serializers.ListField(child=serializers.DictField(), required=False)
 
 
-class OIDCTestConnectionRequestSerializer(serializers.Serializer[Any]):
-    """Optional issuer override for the admin "Test connection" probe."""
-
-    issuer_url = serializers.URLField(required=False, allow_blank=True)
-
-
-class OIDCTestConnectionResponseSerializer(serializers.Serializer[Any]):
+class SsoTestConnectionResponseSerializer(serializers.Serializer[Any]):
     """Structured result of the admin "Test connection" probe."""
 
     ok = serializers.BooleanField()
