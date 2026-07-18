@@ -359,13 +359,21 @@ workflow:
     - retry npm ci --prefer-offline --quiet
 
 .wasm:
-  image: rust:1.85-slim@sha256:9f841bbe9e7d8e37ceb96ed907265a3a0df7f44e3737d0b100e7907a679acb36
+  # Uses the custom ci-wasm image (built by ci:build-wasm-image), which pre-bakes
+  # the clippy component, the wasm32-unknown-unknown target, pinned wasm-pack +
+  # cargo-deny, and a warm cargo registry — so wasm:* jobs skip the rustup adds,
+  # tool downloads, and crates.io index/source fetch on every run. ci:build-wasm-
+  # image is optional: when Cargo.lock/Cargo.toml/the Dockerfile are unchanged it
+  # isn't in the pipeline and the job pulls the existing tag from the registry.
+  image: $CI_REGISTRY_IMAGE/ci-wasm:1.85
+  needs:
+    - job: ci:build-wasm-image
+      optional: true
   # No cargo target cache — the ~1 GB target/ directory was exhausting shared
-  # runner disk. Cold builds take ~40s which is acceptable until we have a
-  # self-hosted runner with more disk (issues #29/#30).
+  # runner disk. Cold compiles take ~40s which is acceptable until we have a
+  # self-hosted runner with more disk (issues #29/#30). The warm registry above
+  # only removes the network-bound fetch, not the compile.
   before_script:
-    - rustup component add clippy
-    - rustup target add wasm32-unknown-unknown
     - cd packages/wasm-scheduler
 
 # ---------------------------------------------------------------------------
@@ -612,9 +620,10 @@ security:demo-nginx-allowlist:
 
 ci:build-api-image:
   # Rebuild and push the custom ci-api image used by the .api / .api-no-db
-  # job templates. Pre-bakes libpq-dev + gcc + all dev-dep wheels so the
-  # downstream api:* jobs skip ~3min of cold install on every run
-  # (kaizen #640 item 3).
+  # job templates and by mcp:typecheck / mcp:test. Pre-bakes libpq-dev + gcc +
+  # all dev-dep wheels (scheduler + api + mcp) so the downstream api:* jobs skip
+  # ~3min of cold install on every run (kaizen #640 item 3) and the mcp:* jobs
+  # skip their cold mcp[dev] install.
   #
   # Trigger:
   #   - MR pipelines where the Dockerfile or either pyproject.toml changes
@@ -637,11 +646,13 @@ ci:build-api-image:
       changes:
         - packages/api/pyproject.toml
         - packages/scheduler/pyproject.toml
+        - packages/mcp/pyproject.toml
         - .gitlab/ci-images/api.Dockerfile
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/api/pyproject.toml
         - packages/scheduler/pyproject.toml
+        - packages/mcp/pyproject.toml
         - .gitlab/ci-images/api.Dockerfile
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
@@ -693,6 +704,50 @@ ci:build-scheduler-image:
         .
     - docker push "$IMAGE"
 
+ci:build-wasm-image:
+  # Rebuild and push the custom ci-wasm image used by the .wasm template.
+  # Pre-bakes the clippy component + wasm32 target + pinned wasm-pack + pinned
+  # cargo-deny + a warm cargo registry so the four wasm:* jobs skip the rustup
+  # adds, tool downloads, and crates.io fetch on every run.
+  #
+  # Trigger: same shape as ci:build-scheduler-image — Cargo lock/manifest or
+  # Dockerfile changes, plus the weekly scheduled run as a transitive-drift
+  # safety net. .gitlab-ci.yml is deliberately NOT in the trigger list (see the
+  # equivalent decision on ci:build-api-image above).
+  #
+  # Jobs that use the image declare `needs: [{job: ci:build-wasm-image,
+  # optional: true}]` so they wait for the build when it's in the pipeline and
+  # pull the existing registry tag when it isn't (the steady state).
+  stage: lint
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    IMAGE: "$CI_REGISTRY_IMAGE/ci-wasm:1.85"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/wasm-scheduler/Cargo.lock
+        - packages/wasm-scheduler/Cargo.toml
+        - .gitlab/ci-images/wasm.Dockerfile
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/wasm-scheduler/Cargo.lock
+        - packages/wasm-scheduler/Cargo.toml
+        - .gitlab/ci-images/wasm.Dockerfile
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - docker pull "$IMAGE" || true
+    - docker build
+        --cache-from "$IMAGE"
+        --tag "$IMAGE"
+        --file .gitlab/ci-images/wasm.Dockerfile
+        .
+    - docker push "$IMAGE"
+
 ci:mirror-playwright-base:
   # Ensure the upstream Playwright base image is mirrored into our own GitLab
   # Container Registry so the rest of CI never pulls it anonymously from
@@ -701,15 +756,28 @@ ci:mirror-playwright-base:
   # on every build. Our registry has no such limit and dind authenticates to it
   # via CI_REGISTRY creds.
   #
-  # This is the ONLY job that pulls from MCR. It is an idempotent gate that
-  # ci:build-integration-image `needs:`, sharing the build's rules so the two are
-  # always co-present — guaranteeing the mirror exists before the build resolves
-  # its FROM (no manual ordering, no race). It is a fast no-op when the tag is
-  # already mirrored (`docker manifest inspect` short-circuits before any MCR
-  # traffic); it only pulls from MCR when the tag is genuinely missing — a fresh
-  # mirror or a Playwright bump — and the weekly schedule refreshes it. The cold
-  # pull is wrapped in exponential-backoff retry since that one pull may still
-  # hit the throttle window; once pushed, the mirror tag persists until the bump.
+  # This is the ONLY job that pulls from MCR. Every Playwright-based job —
+  # ci:build-integration-image's FROM, and the web:e2e / web:e2e:report /
+  # web:e2e:coverage / website:build / pages jobs' `image:` — consumes the mirror
+  # tag ($CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG) instead of
+  # mcr.microsoft.com. The DAG (needs:) consumers declare an optional need on
+  # this job so they wait for it when it is in the pipeline (a bump) and pull the
+  # existing tag when it is not (steady state); the stage-ordered consumers
+  # (website:build, pages) run in later stages so the lint-stage mirror precedes
+  # them without an explicit need.
+  #
+  # It is an idempotent gate that ci:build-integration-image `needs:`, sharing
+  # the build's rules so the two are always co-present — guaranteeing the mirror
+  # exists before the build resolves its FROM (no manual ordering, no race). A
+  # Playwright bump touches integration.Dockerfile (bump the tag there, in the
+  # PLAYWRIGHT_BASE_TAG variable, and in the playwright configs together), which
+  # trips these rules and refreshes the mirror before the bumped consumers pull.
+  # It is a fast no-op when the tag is already mirrored (`docker manifest
+  # inspect` short-circuits before any MCR traffic); it only pulls from MCR when
+  # the tag is genuinely missing — a fresh mirror or a Playwright bump — and the
+  # weekly schedule refreshes it. The cold pull is wrapped in exponential-backoff
+  # retry since that one pull may still hit the throttle window; once pushed, the
+  # mirror tag persists until the bump.
   stage: lint
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
@@ -1197,12 +1265,18 @@ web:type-check:
 
 mcp:typecheck:
   extends: .fast-job
-  # mypy --strict over packages/mcp. The editable install pulls the mcp SDK +
-  # httpx so their stubs resolve; mypy reads the package's own pyproject config
-  # (packages = ["trueppm_mcp"], strict = true).
+  # mypy --strict over packages/mcp. Uses the custom ci-api image, which now
+  # pre-bakes the mcp[dev] wheels (mcp SDK + httpx + stubs) alongside api's; the
+  # runtime install is a fast editable re-link, not a cold download. mypy reads
+  # the package's own pyproject config (packages = ["trueppm_mcp"], strict).
+  # ci:build-api-image is optional — when deps haven't changed it isn't in the
+  # pipeline and the job pulls the existing tag from the registry.
   stage: analyze
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
-  needs: [mcp:lint]
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  needs:
+    - mcp:lint
+    - job: ci:build-api-image
+      optional: true
   <<: *rules-mcp
   before_script:
     - pip install -e "packages/mcp[dev]" --quiet
@@ -1223,25 +1297,14 @@ wasm:build:
   # downstream — this validates the build is clean.
   extends: .wasm
   stage: analyze
-  needs: [wasm:lint]
+  # wasm-pack + the wasm32 target are baked into the ci-wasm image; the job just
+  # builds. Re-add the optional ci:build-wasm-image need (extends replaces the
+  # template's needs list).
+  needs:
+    - wasm:lint
+    - job: ci:build-wasm-image
+      optional: true
   <<: *rules-wasm
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq curl
-    - rustup component add clippy
-    - rustup target add wasm32-unknown-unknown
-    # Install a pinned, checksum-verified wasm-pack release instead of piping the
-    # unpinned upstream installer through `sh` (#904 supply-chain hardening — the
-    # canonical OpenSSF Scorecard "Pinned-Dependencies" failure). Mirrors the
-    # cargo-deny install in wasm:license-check; the sha256 is the published
-    # v0.13.1 musl tarball. Bump version + hash together when upgrading.
-    - |
-      WASM_PACK_VERSION=0.13.1
-      WASM_PACK_SHA256=c539d91ccab2591a7e975bcf82c82e1911b03335c80aa83d67ad25ed2ad06539
-      WASM_PACK_TARBALL="wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl.tar.gz"
-      curl -sSfL "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/${WASM_PACK_TARBALL}" -o /tmp/wasm-pack.tar.gz
-      echo "${WASM_PACK_SHA256}  /tmp/wasm-pack.tar.gz" | sha256sum -c -
-      tar xzf /tmp/wasm-pack.tar.gz -C /usr/local/bin --strip-components=1 "wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl/wasm-pack"
-    - cd packages/wasm-scheduler
   script:
     - wasm-pack build --target web --release
 
@@ -1319,10 +1382,16 @@ scheduler:test:
 mcp:test:
   # pytest over packages/mcp. The auth + transport surface is exercised against
   # httpx.MockTransport, so no running API or network is needed. 80% floor
-  # mirrors the other Python packages.
+  # mirrors the other Python packages. Uses the ci-api image (mcp[dev] baked);
+  # the runtime install is a fast editable re-link. ci:build-api-image is
+  # optional — pulls the existing registry tag when deps haven't changed.
   stage: test
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
-  needs: [mcp:lint, mcp:typecheck]
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  needs:
+    - mcp:lint
+    - mcp:typecheck
+    - job: ci:build-api-image
+      optional: true
   <<: *rules-mcp
   before_script:
     - pip install -e "packages/mcp[dev]" --quiet
@@ -1511,7 +1580,11 @@ api:fuzz:
 wasm:test:
   extends: .wasm
   stage: test
-  needs: [wasm:lint, wasm:build]
+  needs:
+    - wasm:lint
+    - wasm:build
+    - job: ci:build-wasm-image
+      optional: true
   <<: *rules-wasm
   script:
     - cargo test --all-targets
@@ -1983,11 +2056,15 @@ web:e2e:coverage:
   # and allow_failure so a coverage hiccup never reds the nightly run. Builds its
   # OWN instrumented dist rather than reusing web:build's production artifact —
   # the production build is never instrumented. Unsharded so all pages' coverage
-  # lands in one workspace for the merge. `needs: []` keeps it independent of the
-  # web gate jobs (which the scheduled pipeline may not run).
+  # lands in one workspace for the merge. Independent of the web gate jobs (which
+  # the scheduled pipeline may not run); the only need is the optional Playwright
+  # mirror gate, present on the scheduled pipeline so this job waits for the
+  # image and never pulls from throttled MCR.
   stage: test
-  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
-  needs: []
+  image: $CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG
+  needs:
+    - job: ci:mirror-playwright-base
+      optional: true
   variables:
     VITE_COVERAGE: "true"
   cache:
@@ -2082,8 +2159,16 @@ web:e2e:
   # Consumes dist/ from web:build instead of rebuilding per shard. Emits a blob
   # report per shard; web:e2e:report stitches them into a single HTML report.
   stage: test
-  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
-  needs: [web:lint, web:type-check, web:build]
+  image: $CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG
+  # ci:mirror-playwright-base is optional — absent in steady state (this pulls
+  # the existing registry mirror tag), present on a Playwright bump so the pull
+  # waits for the fresh mirror instead of hitting throttled MCR.
+  needs:
+    - web:lint
+    - web:type-check
+    - web:build
+    - job: ci:mirror-playwright-base
+      optional: true
   parallel: 2
   <<: *rules-web
   cache:
@@ -2113,8 +2198,11 @@ web:e2e:report:
   # supplies one resolved testDir to rebase every blob onto, and sets reporter:html
   # (the base config uses 'line' in CI, which emits no HTML report).
   stage: test
-  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
-  needs: ["web:e2e"]
+  image: $CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG
+  needs:
+    - "web:e2e"
+    - job: ci:mirror-playwright-base
+      optional: true
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
       when: always
@@ -2269,7 +2357,7 @@ website:build:
   # web:e2e suite already uses; Chromium is pre-installed at $PLAYWRIGHT_BROWSERS_PATH
   # and its version matches the `playwright` devDependency (v1.58.2). The client
   # payload stays JS-free — the browser runs only on this build machine.
-  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
+  image: $CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG
   stage: test
   <<: *rules-website
   script:
@@ -2291,7 +2379,7 @@ pages:
   extends: .website
   # Rebuilds the site, so it renders Mermaid and needs the same glibc Playwright
   # image as website:build (see the note there — Alpine's musl can't run Chromium).
-  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
+  image: $CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG
   stage: deploy
   needs: ["website:build"]
   rules:
@@ -2671,19 +2759,15 @@ wasm:license-check:
   # Uses cargo-deny to check crate licenses + advisories against deny.toml.
   extends: .wasm
   stage: security
-  needs: [wasm:test]
+  # git + the pinned cargo-deny 0.19.9 are baked into the ci-wasm image (0.19.x
+  # is required to parse CVSS 4.0 entries in the live RustSec DB); the job just
+  # runs the check. Re-add the optional ci:build-wasm-image need (extends
+  # replaces the template's needs list); before_script falls back to .wasm's cd.
+  needs:
+    - wasm:test
+    - job: ci:build-wasm-image
+      optional: true
   <<: *rules-wasm
-  before_script:
-    # git is required by the advisories check: cargo-deny clones the RustSec
-    # advisory DB (https://github.com/RustSec/advisory-db) via git on first run.
-    # The licenses-only check never fetched it, which is why curl alone sufficed.
-    - apt-get update -qq && apt-get install -y -qq curl git
-    # cargo-deny 0.19.x is required for the advisories check: 0.18.3 cannot parse
-    # CVSS 4.0 entries in the live RustSec DB and aborts on DB load (the licenses
-    # check alone was unaffected, which is why the older pin sufficed before).
-    - curl -sSfL https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.9/cargo-deny-0.19.9-x86_64-unknown-linux-musl.tar.gz
-        | tar xz -C /usr/local/bin --strip-components=1 cargo-deny-0.19.9-x86_64-unknown-linux-musl/cargo-deny
-    - cd packages/wasm-scheduler
   script:
     - cargo deny check licenses advisories
 
