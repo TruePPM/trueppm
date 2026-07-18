@@ -124,6 +124,44 @@ kubectl create secret generic trueppm-otlp \
   --from-literal=headers="authorization=Bearer <your-token>"
 ```
 
+## Verifying export from the app
+
+Once the pods restart with an endpoint set, a workspace admin can confirm export
+is actually working from **Settings → Workspace → System Health → Telemetry**,
+without shelling into a pod. The card shows the effective configuration —
+endpoint, protocol, service name and version, sampler, and per-signal (traces /
+metrics) on/off — and reports whether export is live, switched off, or
+unconfigured. The OTLP headers are **never** shown: the bearer token stays in
+your Secret and never reaches the browser.
+
+The card cannot edit any of this. Configuration is env/Helm only (ADR-0223); the
+card is a read-only view with one action.
+
+**Test export.** The **Test export** button proves the export path end to end:
+
+- When export is on, it sends a single synthetic **canary span**
+  (`trueppm.telemetry.canary`, carrying `trueppm.telemetry.test=true` so you can
+  filter it out of real traces) through a one-off exporter built from the same
+  settings, and reports whether the collector accepted it, with the round-trip
+  time.
+- When an endpoint is set but export is switched off
+  (`TRUEPPM_OTEL_ENABLED=false`), it runs a TCP reachability probe instead — no
+  span is sent — so you can confirm the collector is healthy before turning
+  export on.
+
+If the probe fails, the message names the likely cause (connection refused,
+timeout, or an unresolvable host) — but never echoes the collector's auth
+headers, so a failing test can be shared safely. The button is admin-only and
+rate-limited.
+
+When export is not configured at all, the card switches to a guided-setup view:
+pick your backend (Grafana Tempo, Jaeger, or a generic OTLP collector) and copy
+ready-to-paste environment-variable or Helm-values snippets.
+
+> **Note:** the card does not yet show live throughput counts (spans/metrics per
+> minute) — the export pipeline does not record them. It reports export *health*,
+> not *volume*.
+
 ## What TruePPM reports
 
 Every span and metric carries these **resource attributes** identifying the

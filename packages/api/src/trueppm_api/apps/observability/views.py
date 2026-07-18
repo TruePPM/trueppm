@@ -10,10 +10,12 @@ from django.http import HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
+from rest_framework.views import APIView
 
 from trueppm_api.apps.observability.models import BeatHeartbeat, PurgeRun
 from trueppm_api.apps.observability.selectors import get_readiness, get_system_health
@@ -24,11 +26,13 @@ from trueppm_api.apps.observability.serializers import (
     RetentionImpactSerializer,
     RetentionStateSerializer,
     RetentionUpdateSerializer,
+    TelemetryTestExportResultSerializer,
 )
 from trueppm_api.apps.observability.services import (
     apply_retention_update,
     compute_impact,
     get_retention_state,
+    run_telemetry_test_export,
     start_purge_run,
 )
 from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
@@ -336,3 +340,61 @@ def retention_runs(request: Request) -> Response:
         {"queued": True, "run_id": str(run.id)},
         status=status.HTTP_202_ACCEPTED,
     )
+
+
+class TelemetryTestThrottle(ScopedRateThrottle):
+    """Scoped throttle for the telemetry test-export probe (rate ``telemetry_test``).
+
+    Bounds how often an admin can trigger an outbound canary / reachability probe,
+    so the button can't be looped to pin request workers against a dead collector
+    (each call holds a worker for up to TELEMETRY_TEST_EXPORT_TIMEOUT_SECONDS).
+
+    ``ScopedRateThrottle`` normally reads its scope from ``view.throttle_scope``,
+    but this is a function-based ``@api_view`` that cannot carry that attribute, so
+    the scope is bound from this class instead (mirrors ``MonteCarloRunThrottle``,
+    #1552). Without this override ``self.scope`` resolves to ``None`` and the
+    throttle silently no-ops.
+    """
+
+    scope = "telemetry_test"
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        # Bind the fixed class scope rather than off the view (an @api_view FBV has
+        # no throttle_scope), then run the sliding-window check directly via
+        # SimpleRateThrottle — deliberately skipping ScopedRateThrottle.allow_request
+        # (it re-reads the absent view.throttle_scope). Same resolution as the
+        # scheduling app's precedent, honest about the intentional skip.
+        self.rate = self.get_rate()
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+        return SimpleRateThrottle.allow_request(self, request, view)
+
+
+@extend_schema(
+    summary="Test the OpenTelemetry export path",
+    description=(
+        "Verify OTLP export from inside the app (#2110). When export is enabled it "
+        "emits a single synthetic **canary span** (`trueppm.telemetry.canary`) through "
+        "a one-off exporter built from the same settings and reports whether the "
+        "collector accepted it; when an endpoint is set but export is switched off, it "
+        "runs a bounded TCP reachability probe instead. Config is never editable here "
+        "(ADR-0223) and the OTLP bearer token is never returned. Takes no request body. "
+        "Always responds 200 — the probe outcome (`success` / `reachable` / `failure`) "
+        "is in the body. Requires a staff (admin) account."
+    ),
+    request=None,
+    responses={200: TelemetryTestExportResultSerializer},
+    tags=["meta"],
+)
+@api_view(["POST"])
+@permission_classes([IsAdminUser])
+@throttle_classes([TelemetryTestThrottle])
+def telemetry_test_export(request: Request) -> Response:
+    """Probe the configured OTLP export path and report an honest outcome (#2110).
+
+    Any request body is ignored — the target is read only from settings, which is
+    what closes the SSRF surface (the caller chooses nothing). The failure ``detail``
+    is a canned sentence, never ``str(exc)``, so a transport error can't leak the
+    export bearer token.
+    """
+    result = run_telemetry_test_export()
+    return Response(TelemetryTestExportResultSerializer(result).data)

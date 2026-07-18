@@ -52,6 +52,8 @@ const sampleResponse = {
     endpoint_configured: false,
     protocol: 'grpc',
     service_name: 'trueppm-api',
+    service_version: '0.5.0',
+    edition: 'community',
     traces_enabled: true,
     metrics_enabled: true,
     sampler: 'parentbased_always_on',

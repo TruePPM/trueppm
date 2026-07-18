@@ -48,11 +48,47 @@ const FIXTURE_HEALTH = {
     endpoint_configured: true,
     protocol: 'grpc',
     service_name: 'trueppm-api',
+    service_version: '0.5.0',
+    edition: 'community',
     traces_enabled: true,
     metrics_enabled: true,
     sampler: 'parentbased_always_on',
     sampler_arg: '',
   },
+};
+
+const TELEMETRY_UNCONFIGURED = {
+  enabled: false,
+  endpoint: '',
+  endpoint_configured: false,
+  protocol: 'grpc',
+  service_name: 'trueppm-api',
+  service_version: '0.5.0',
+  edition: 'community',
+  traces_enabled: true,
+  metrics_enabled: true,
+  sampler: 'parentbased_always_on',
+  sampler_arg: '',
+};
+
+const TELEMETRY_TEST_SUCCESS = {
+  mode: 'export',
+  outcome: 'success',
+  endpoint: 'otel-collector.internal:4317',
+  protocol: 'grpc',
+  duration_ms: 84,
+  detail: 'Canary span accepted by the collector — the export path is working end to end.',
+  checked_at: '2026-05-25T12:00:05Z',
+};
+
+const TELEMETRY_TEST_FAILURE = {
+  mode: 'export',
+  outcome: 'failure',
+  endpoint: 'otel-collector.internal:4317',
+  protocol: 'grpc',
+  duration_ms: 5012,
+  detail: 'The collector did not accept the canary span. Check that the collector is running.',
+  checked_at: '2026-05-25T12:00:05Z',
 };
 
 const FIXTURE_TASK = {
@@ -74,10 +110,19 @@ type Page = import('@playwright/test').Page;
 
 async function setup(
   page: Page,
-  opts: { failedTasks?: unknown[]; healthStatus?: number } = {},
+  opts: {
+    failedTasks?: unknown[];
+    healthStatus?: number;
+    telemetry?: unknown;
+    testResult?: unknown;
+  } = {},
 ) {
   const failedTasks = opts.failedTasks ?? [FIXTURE_TASK];
   const healthStatus = opts.healthStatus ?? 200;
+  const health = opts.telemetry
+    ? { ...FIXTURE_HEALTH, telemetry: opts.telemetry }
+    : FIXTURE_HEALTH;
+  const testResult = opts.testResult ?? TELEMETRY_TEST_SUCCESS;
   const pj = (data: unknown) => JSON.stringify(data);
 
   await page.addInitScript(() => {
@@ -111,12 +156,16 @@ async function setup(
   }
   await page.route('**/api/v1/health/system/', (r) =>
     healthStatus === 200
-      ? r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_HEALTH) })
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: pj(health) })
       : r.fulfill({
           status: healthStatus,
           contentType: 'application/json',
           body: pj({ detail: 'Internal server error.' }),
         }),
+  );
+  // Telemetry test-export probe (#2110): POST always 200 with the outcome in body.
+  await page.route('**/api/v1/health/telemetry/test/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(testResult) }),
   );
   // List + detail + the four write actions share a prefix; branch on method +
   // path so each returns its real response shape (#695, ADR-0210). One handler
@@ -196,10 +245,50 @@ test.describe('Workspace Settings → System health', () => {
     // Retention config row.
     await expect(page.getByText('Webhook deliveries')).toBeVisible();
 
-    // Telemetry status card (#2022): exporting, with endpoint + sampler surfaced.
+    // Telemetry card (#2110): exporting, with endpoint surfaced + Test export.
     await expect(page.getByRole('heading', { name: 'Telemetry' })).toBeVisible();
     await expect(page.getByText('Exporting')).toBeVisible();
     await expect(page.getByText('otel-collector.internal:4317')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Test export' })).toBeVisible();
+  });
+
+  test('telemetry card offers guided setup when export is unconfigured', async ({ page }) => {
+    await setup(page, { telemetry: TELEMETRY_UNCONFIGURED });
+    await page.goto('/settings/health');
+
+    // Gate on the page having rendered before asserting card chrome.
+    await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
+
+    await expect(page.getByText('Not configured')).toBeVisible();
+    await expect(page.getByText('Export is off — no collector endpoint set')).toBeVisible();
+    // Backend picker + env snippet.
+    await expect(page.getByRole('button', { name: 'Grafana Tempo' })).toBeVisible();
+    await expect(page.getByText(/OTEL_EXPORTER_OTLP_ENDPOINT=/)).toBeVisible();
+
+    // Toggle to the Helm-values snippet.
+    await page.getByRole('button', { name: 'Helm values' }).click();
+    await expect(page.getByText(/helm upgrade trueppm/)).toBeVisible();
+  });
+
+  test('Test export golden path reports a collector ACK', async ({ page }) => {
+    await setup(page, { testResult: TELEMETRY_TEST_SUCCESS });
+    await page.goto('/settings/health');
+
+    await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
+    await page.getByRole('button', { name: 'Test export' }).click();
+
+    await expect(page.getByText('Collector accepted the canary span')).toBeVisible();
+    await expect(page.getByText(/working end to end/i)).toBeVisible();
+  });
+
+  test('Test export surfaces a failure outcome', async ({ page }) => {
+    await setup(page, { testResult: TELEMETRY_TEST_FAILURE });
+    await page.goto('/settings/health');
+
+    await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
+    await page.getByRole('button', { name: 'Test export' }).click();
+
+    await expect(page.getByText('Export could not reach the collector')).toBeVisible();
   });
 
   test('overview shows an error state with Retry when the health API 500s', async ({ page }) => {

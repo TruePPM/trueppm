@@ -3501,6 +3501,52 @@
                 }
             }
         },
+        "/api/v1/health/telemetry/test/": {
+            "post": {
+                "operationId": "v1_health_telemetry_test_create",
+                "description": "Verify OTLP export from inside the app (#2110). When export is enabled it emits a single synthetic **canary span** (`trueppm.telemetry.canary`) through a one-off exporter built from the same settings and reports whether the collector accepted it; when an endpoint is set but export is switched off, it runs a bounded TCP reachability probe instead. Config is never editable here (ADR-0223) and the OTLP bearer token is never returned. Takes no request body. Always responds 200 — the probe outcome (`success` / `reachable` / `failure`) is in the body. Requires a staff (admin) account.",
+                "summary": "Test the OpenTelemetry export path",
+                "tags": [
+                    "meta"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TelemetryTestExportResult"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/integrations/projects/{project_pk}/git-automation/": {
             "get": {
                 "operationId": "v1_integrations_projects_git_automation_retrieve",
@@ -42630,6 +42676,14 @@
                 "type": "integer",
                 "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert"
             },
+            "ModeEnum": {
+                "enum": [
+                    "export",
+                    "probe"
+                ],
+                "type": "string",
+                "description": "* `export` - export\n* `probe` - probe"
+            },
             "MyApiToken": {
                 "type": "object",
                 "description": "Read serializer for a user's own Personal Access Tokens (ADR-0214).\n\nScoped to ``/api/v1/me/api-tokens/`` — the owner is always the requesting user\nso it is not exposed. The raw token and ``token_hash`` are never serialized;\nthe caller sees ``token_prefix`` only (enough to tell tokens apart) plus the\nlifecycle state it needs to render the list (expiry, revocation, last use).",
@@ -43084,6 +43138,15 @@
                 "required": [
                     "task"
                 ]
+            },
+            "OutcomeEnum": {
+                "enum": [
+                    "success",
+                    "reachable",
+                    "failure"
+                ],
+                "type": "string",
+                "description": "* `success` - success\n* `reachable` - reachable\n* `failure` - failure"
             },
             "PaginatedAcceptanceCriterionList": {
                 "type": "object",
@@ -54135,6 +54198,43 @@
                 ],
                 "type": "string",
                 "description": "* `member` - Member\n* `admin` - Admin"
+            },
+            "TelemetryTestExportResult": {
+                "type": "object",
+                "description": "Result of ``POST /health/telemetry/test/`` (#2110).\n\nSerializes the dict from ``services.run_telemetry_test_export``. Deliberately\nhas **no** field for OTLP headers or the bearer token — the export secret must\nnever reach the browser — and ``detail`` is a canned, author-controlled\nsentence (never ``str(exc)``), so a transport error cannot leak config.",
+                "properties": {
+                    "mode": {
+                        "$ref": "#/components/schemas/ModeEnum"
+                    },
+                    "outcome": {
+                        "$ref": "#/components/schemas/OutcomeEnum"
+                    },
+                    "endpoint": {
+                        "type": "string"
+                    },
+                    "protocol": {
+                        "type": "string"
+                    },
+                    "duration_ms": {
+                        "type": "integer"
+                    },
+                    "detail": {
+                        "type": "string"
+                    },
+                    "checked_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "checked_at",
+                    "detail",
+                    "duration_ms",
+                    "endpoint",
+                    "mode",
+                    "outcome",
+                    "protocol"
+                ]
             },
             "TermOverridePolicyEnum": {
                 "enum": [
