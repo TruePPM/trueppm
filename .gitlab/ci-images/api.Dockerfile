@@ -1,12 +1,18 @@
-# Custom CI image for the .api / .api-no-db job templates in .gitlab-ci.yml.
+# Custom CI image for the .api / .api-no-db job templates in .gitlab-ci.yml,
+# and for the mcp:typecheck / mcp:test jobs.
 #
 # Pre-installs apt build deps (libpq-dev, gcc) and the full editable-install
-# dev-deps tree of packages/scheduler and packages/api, so the six api:*
-# CI jobs skip the ~3.5-minute apt+pip cold install on every run.
+# dev-deps tree of packages/scheduler, packages/api, and packages/mcp, so the
+# api:* CI jobs skip the ~3.5-minute apt+pip cold install on every run and the
+# mcp:* jobs skip their cold mcp[dev] install. MCP is a pure HTTP client
+# (mcp[cli] + httpx, no Django/ORM — ADR-0186); its small dep tree overlaps the
+# api dev tools already here, so baking it costs the api jobs almost nothing and
+# avoids standing up a fourth CI image for two jobs.
 #
 # Rebuilt by the `ci:build-api-image` job when any of the following change:
 #   - packages/api/pyproject.toml
 #   - packages/scheduler/pyproject.toml
+#   - packages/mcp/pyproject.toml
 #   - .gitlab/ci-images/api.Dockerfile
 # or on a scheduled pipeline (weekly safety net for transitive drift).
 #
@@ -62,16 +68,19 @@ COPY packages/scheduler/README.md      ./scheduler/README.md
 COPY packages/scheduler/CHANGELOG.md   ./scheduler/CHANGELOG.md
 COPY packages/api/pyproject.toml       ./api/pyproject.toml
 COPY packages/api/README.md            ./api/README.md
+COPY packages/mcp/pyproject.toml       ./mcp/pyproject.toml
+COPY packages/mcp/README.md            ./mcp/README.md
 
 # Stub source roots so hatchling can build the editable wheels. The stub
 # packages are uninstalled at the end — only the dep wheels remain. Real
 # CI jobs then `pip install -e packages/scheduler[dev] packages/api[dev]`
-# against the actual source.
-RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api \
+# (or packages/mcp[dev]) against the actual source.
+RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api mcp/src/trueppm_mcp \
  && touch scheduler/src/trueppm_scheduler/__init__.py \
           api/src/trueppm_api/__init__.py \
- && pip install --no-cache-dir -e "./scheduler[dev]" -e "./api[dev]" \
- && pip uninstall --yes trueppm-scheduler trueppm-api \
+          mcp/src/trueppm_mcp/__init__.py \
+ && pip install --no-cache-dir -e "./scheduler[dev]" -e "./api[dev]" -e "./mcp[dev]" \
+ && pip uninstall --yes trueppm-scheduler trueppm-api trueppm-mcp \
  && rm -rf /opt/ci-deps
 
 # Run the CI jobs as a non-root user (Sonar dockerfile:S6471, defense-in-depth
