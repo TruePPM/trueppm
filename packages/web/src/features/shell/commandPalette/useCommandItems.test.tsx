@@ -32,12 +32,37 @@ vi.mock('@/hooks/useResourceSearch', () => ({
   useResourceSearch: (query: string, enabled?: boolean) => resourceSearch(query, enabled),
 }));
 
+// Recent-projects tier (ADR-0508/#1557). Default to no rows; a test sets
+// `recentResults` + a cold (empty) query to assert the recent items. `recentSearch`
+// is a spy so the cold-only enabled gating can be asserted.
+let recentResults: {
+  id: string;
+  name: string;
+  program_id: string | null;
+  program_name: string | null;
+  visited_at: string;
+}[] = [];
+const recentSearch = vi.fn((_enabled?: boolean) => ({ data: recentResults }));
+vi.mock('@/hooks/useRecentProjects', () => ({
+  useRecentProjects: (enabled?: boolean) => recentSearch(enabled),
+}));
+
+// Deterministic relative-time so the recent detail line is stable in assertions.
+vi.mock('@/lib/formatRelative', () => ({ formatRelative: () => '2h ago' }));
+
 // Tier-2 hooks. NOTE: the real `useScheduleTasks` falls back to the *route* project
 // when handed `undefined`, so it returns tasks even with the palette closed — the
 // gating happens in useCommandItems, not here. The default mock mirrors the polite
 // arg-honouring shape, but `scheduleTasks` is a spy so a test can simulate the real
 // route-fallback (tasks present regardless of the arg).
-type MockTask = { id: string; name: string; wbs?: string; status?: string; shortId?: string };
+type MockTask = {
+  id: string;
+  name: string;
+  wbs?: string;
+  status?: string;
+  shortId?: string;
+  sprintId?: string | null;
+};
 const scheduleTasks = vi.fn((pid?: string): { tasks: MockTask[] | undefined } => ({
   tasks: pid
     ? [{ id: 't1', name: 'Wire OAuth', wbs: '1.4.2', status: 'IN_PROGRESS', shortId: 'A1B2' }]
@@ -46,10 +71,14 @@ const scheduleTasks = vi.fn((pid?: string): { tasks: MockTask[] | undefined } =>
 vi.mock('@/hooks/useScheduleTasks', () => ({
   useScheduleTasks: (pid?: string) => scheduleTasks(pid),
 }));
+// Active sprint (Tier-2). A spy so a test can force "no active sprint" and assert
+// the sprintTask/task split degrades to all-`task` (ADR-0508). Default: an ACTIVE
+// sprint `s1` for a routed project, none off-route.
+const activeSprintFn = vi.fn((pid?: string) => ({
+  sprint: pid ? { id: 's1', name: 'Sprint 14', state: 'ACTIVE' } : null,
+}));
 vi.mock('@/hooks/useSprints', () => ({
-  useActiveSprint: (pid?: string) => ({
-    sprint: pid ? { id: 's1', name: 'Sprint 14', state: 'ACTIVE' } : null,
-  }),
+  useActiveSprint: (pid?: string) => activeSprintFn(pid),
 }));
 // Shared jump-to-current-sprint targets (#1594). Mirrors the real hook: an
 // in-context target for the routed project, empty off-route. Its own combining /
@@ -103,6 +132,7 @@ afterEach(() => {
   currentId = 'p1';
   hiddenViews = [];
   peopleResults = [];
+  recentResults = [];
   vi.clearAllMocks();
   canManage.mockImplementation((pid?: string) => !!pid);
   sprintTargets.mockImplementation((pid?: string) =>
@@ -122,6 +152,9 @@ afterEach(() => {
     tasks: pid
       ? [{ id: 't1', name: 'Wire OAuth', wbs: '1.4.2', status: 'IN_PROGRESS', shortId: 'A1B2' }]
       : undefined,
+  }));
+  activeSprintFn.mockImplementation((pid?: string) => ({
+    sprint: pid ? { id: 's1', name: 'Sprint 14', state: 'ACTIVE' } : null,
   }));
 });
 
@@ -271,5 +304,84 @@ describe('useCommandItems — tier assembly', () => {
     const { result } = renderHook(() => useCommandItems(true));
     const task = byId(result.current).get('task:t9');
     expect(task?.detail).toBe('2.1');
+  });
+
+  // ---- Recent-projects tier (ADR-0508/#1557) --------------------------------
+  it('builds the cold-only Recent group with a program breadcrumb + recency hint', () => {
+    recentResults = [
+      { id: 'p1', name: 'Atlas', program_id: 'prog1', program_name: 'Platform', visited_at: 'x' },
+      { id: 'p2', name: 'Solo', program_id: null, program_name: null, visited_at: 'y' },
+    ];
+    const { result } = renderHook(() => useCommandItems(true, '')); // cold
+    const items = byId(result.current);
+    const atlas = items.get('recent:p1');
+    expect(atlas?.group).toBe('recent');
+    expect(atlas?.tag).toBe('Project');
+    expect(atlas?.label).toBe('Atlas'); // bare name, no "Open:" prefix
+    expect(atlas?.detail).toBe('Platform · 2h ago');
+    // A project with no program drops the breadcrumb, keeping only recency.
+    expect(items.get('recent:p2')?.detail).toBe('2h ago');
+    // Deep-links to the project overview.
+    atlas?.run();
+    expect(navigate).toHaveBeenCalledWith('/projects/p1/overview');
+    // The hook was gated ON only because the query is empty (cold).
+    expect(recentSearch).toHaveBeenCalledWith(true);
+  });
+
+  it('drops Recent and gates its fetch OFF once a query is typed', () => {
+    recentResults = [
+      { id: 'p1', name: 'Atlas', program_id: 'prog1', program_name: 'Platform', visited_at: 'x' },
+    ];
+    const { result } = renderHook(() => useCommandItems(true, 'atl'));
+    expect(result.current.some((i) => i.group === 'recent')).toBe(false);
+    expect(recentSearch).toHaveBeenCalledWith(false);
+  });
+
+  it('does not build Recent while the palette is closed', () => {
+    recentResults = [
+      { id: 'p1', name: 'Atlas', program_id: 'prog1', program_name: 'Platform', visited_at: 'x' },
+    ];
+    const { result } = renderHook(() => useCommandItems(false));
+    expect(result.current.some((i) => i.group === 'recent')).toBe(false);
+    expect(recentSearch).toHaveBeenCalledWith(false);
+  });
+
+  // ---- Scope-aware task cap: sprintTask vs task split (ADR-0508) ------------
+  it('splits active-sprint tasks into `sprintTask` and the rest into `task`', () => {
+    scheduleTasks.mockImplementation((pid?: string) => ({
+      tasks: pid
+        ? [
+            { id: 'ta', name: 'In sprint', wbs: '1.1', status: 'IN_PROGRESS', sprintId: 's1' },
+            { id: 'tb', name: 'Backlog-y', wbs: '1.2', status: 'TODO', sprintId: null },
+            { id: 'tc', name: 'Other sprint', wbs: '1.3', status: 'TODO', sprintId: 's-other' },
+          ]
+        : undefined,
+    }));
+    const { result } = renderHook(() => useCommandItems(true));
+    const items = byId(result.current);
+    // Active sprint is s1 (useActiveSprint mock) → only ta lands in sprintTask.
+    expect(items.get('task:ta')?.group).toBe('sprintTask');
+    expect(items.get('task:tb')?.group).toBe('task');
+    expect(items.get('task:tc')?.group).toBe('task');
+    // sprintTask items are ordered before task items in the flat list.
+    const ids = result.current.map((i) => i.id);
+    expect(ids.indexOf('task:ta')).toBeLessThan(ids.indexOf('task:tb'));
+  });
+
+  it('puts every task in `task` (never `sprintTask`) when there is no active sprint', () => {
+    activeSprintFn.mockImplementation(() => ({ sprint: null })); // no active sprint
+    scheduleTasks.mockImplementation((pid?: string) => ({
+      tasks: pid
+        ? [
+            { id: 'ta', name: 'A', wbs: '1', status: 'TODO', sprintId: 's1' },
+            { id: 'tb', name: 'B', wbs: '2', status: 'TODO', sprintId: null },
+          ]
+        : undefined,
+    }));
+    const { result } = renderHook(() => useCommandItems(true));
+    const items = byId(result.current);
+    expect(items.get('task:ta')?.group).toBe('task');
+    expect(items.get('task:tb')?.group).toBe('task');
+    expect(result.current.some((i) => i.group === 'sprintTask')).toBe(false);
   });
 });

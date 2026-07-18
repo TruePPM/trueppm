@@ -212,7 +212,7 @@ function groupByProject(tasks: ProgramAllocationTask[]): ProjectGroup[] {
 
 function formatUnits(units: string): string {
   // "1.00" → "100%", "0.50" → "50%"
-  return `${Math.round(parseFloat(units) * 100)}%`;
+  return `${Math.round(Number.parseFloat(units) * 100)}%`;
 }
 
 function formatSpan(t: ProgramAllocationTask): string {

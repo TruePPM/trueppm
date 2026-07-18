@@ -718,7 +718,10 @@ export function scheduledPdfFileName(projectName: string, isoDate: string): stri
     projectName
       .trim()
       .replace(/[^A-Za-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
+      // The collapse above leaves at most one leading/trailing '_', so a
+      // quantifier-free trim suffices — avoids the start-unanchored `_+$`
+      // half of `/^_+|_+$/g`, which backtracks super-linearly (S5852).
+      .replace(/^_|_$/g, '')
       .slice(0, 48) || 'Project';
   const day = isoDate.slice(0, 10);
   return `${slug}_Schedule_${day}.pdf`;

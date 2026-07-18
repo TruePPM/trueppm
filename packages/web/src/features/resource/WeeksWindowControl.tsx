@@ -4,7 +4,7 @@ export type WeeksWindow = (typeof OPTIONS)[number];
 
 export function readPersistedWindow(): WeeksWindow {
   try {
-    const v = parseInt(localStorage.getItem(STORAGE_KEY) ?? '', 10);
+    const v = Number.parseInt(localStorage.getItem(STORAGE_KEY) ?? '', 10);
     return (OPTIONS as readonly number[]).includes(v) ? (v as WeeksWindow) : 8;
   } catch {
     return 8;

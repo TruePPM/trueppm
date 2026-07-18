@@ -103,3 +103,27 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
         if update_fields:
             instance.save(update_fields=update_fields)
         return instance
+
+
+class RecentProjectSerializer(serializers.Serializer[Any]):
+    """One recently-visited project for the ⌘K "Recent" group (ADR-0508, #1557).
+
+    Serializes a :class:`~trueppm_api.apps.profiles.models.ProjectVisit` row into
+    the flat shape the palette renders: the project identity plus its program
+    breadcrumb (for cross-program disambiguation — two projects can share a name
+    across programs) and the ``visited_at`` recency hint. Read-only; the program
+    fields are method-computed so a project with no program (``program`` is
+    ``SET_NULL``) serializes cleanly to ``null`` rather than raising.
+    """
+
+    id = serializers.UUIDField(source="project.id", read_only=True)
+    name = serializers.CharField(source="project.name", read_only=True)
+    program_id = serializers.SerializerMethodField()
+    program_name = serializers.SerializerMethodField()
+    visited_at = serializers.DateTimeField(read_only=True)
+
+    def get_program_id(self, visit: Any) -> str | None:
+        return str(visit.project.program_id) if visit.project.program_id else None
+
+    def get_program_name(self, visit: Any) -> str | None:
+        return visit.project.program.name if visit.project.program_id else None

@@ -69,8 +69,8 @@ export function CapacityInput({
   }
 
   function handleInputChange(raw: string) {
-    const n = parseFloat(raw);
-    if (isNaN(n)) return;
+    const n = Number.parseFloat(raw);
+    if (Number.isNaN(n)) return;
     const clamped =
       unit === 'percent'
         ? Math.min(200, Math.max(0, n))

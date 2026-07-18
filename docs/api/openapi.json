@@ -5286,6 +5286,55 @@
                 "summary": "Mark all read notifications"
             }
         },
+        "/api/v1/me/recent-projects/": {
+            "get": {
+                "operationId": "v1_me_recent_projects_list",
+                "description": "``GET /api/v1/me/recent-projects/`` — the ⌘K \"Recent\" group (ADR-0508, #1557).\n\nReturns the caller's most recently *visited* projects (from the\n:class:`~trueppm_api.apps.profiles.models.ProjectVisit` telemetry, ADR-0150),\nnewest-first, as a fixed navigation strip — default 5, hard max 10 via\n``?limit``. Not a search surface and not paginated.\n\n**RBAC contract**: hard-scoped to ``request.user``'s own visit rows, and each\nrow is re-joined to live project membership in\n``services.recent_projects`` so a project the user lost access to (revoked\nmembership, archive, delete) never leaks its name from a stale visit. There is\nno ``?user=`` escape hatch — the endpoint is per-user private telemetry, never\na cross-user surveillance surface (mirrors ``MeWorkView``).",
+                "summary": "The current user's recently-visited projects",
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/RecentProject"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/me/time-entries/": {
             "get": {
                 "operationId": "v1_me_time_entries_retrieve",
@@ -40807,6 +40856,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "is_driving": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "predecessor_card": {
                         "allOf": [
                             {
@@ -40830,6 +40883,7 @@
                     "accepted_at",
                     "accepted_by",
                     "id",
+                    "is_driving",
                     "pending_acceptance",
                     "predecessor",
                     "predecessor_card",
@@ -49388,6 +49442,43 @@
                 "required": [
                     "checks",
                     "status"
+                ]
+            },
+            "RecentProject": {
+                "type": "object",
+                "description": "One recently-visited project for the ⌘K \"Recent\" group (ADR-0508, #1557).\n\nSerializes a :class:`~trueppm_api.apps.profiles.models.ProjectVisit` row into\nthe flat shape the palette renders: the project identity plus its program\nbreadcrumb (for cross-program disambiguation — two projects can share a name\nacross programs) and the ``visited_at`` recency hint. Read-only; the program\nfields are method-computed so a project with no program (``program`` is\n``SET_NULL``) serializes cleanly to ``null`` rather than raising.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "program_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "program_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "visited_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "program_id",
+                    "program_name",
+                    "visited_at"
                 ]
             },
             "RecurrenceFrequencyEnum": {

@@ -207,6 +207,50 @@ describe('CommandPalette', () => {
     expect(screen.getByText(/Showing first 6 — refine your search/)).toBeInTheDocument();
   });
 
+  it('caps active-sprint tasks at 25 and names the total in the overflow hint (ADR-0508)', () => {
+    mockItems = Array.from({ length: 30 }, (_, i) => ({
+      id: `task:s${i}`,
+      label: `Open task: Widget ${i}`,
+      group: 'sprintTask' as const,
+      tag: 'Task',
+      keywords: 'widget',
+      run: vi.fn(),
+    }));
+    open();
+    render(<CommandPalette />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'widget' } });
+    expect(screen.getByText('Current sprint tasks')).toBeInTheDocument();
+    // 25 of the 30 render, and the cue names the total (bounded, countable set).
+    expect(screen.getAllByRole('option', { name: /Open task: Widget/ })).toHaveLength(25);
+    expect(
+      screen.getByText(/Showing 25 of 30 — refine your search to narrow it down\./),
+    ).toBeInTheDocument();
+  });
+
+  it('renders the Recent group cold and drops it once a query is typed (ADR-0508)', () => {
+    mockItems = [
+      {
+        id: 'recent:p1',
+        label: 'Atlas',
+        group: 'recent' as const,
+        tag: 'Project',
+        detail: 'Platform · 2h ago',
+        keywords: 'recent',
+        run: vi.fn(),
+      },
+      ...MOCK_ITEMS,
+    ];
+    open();
+    render(<CommandPalette />);
+    // Cold: the Recent group + its row (uniquely identified by the recency detail).
+    expect(screen.getByText('Recent')).toBeInTheDocument();
+    expect(screen.getByText('Platform · 2h ago')).toBeInTheDocument();
+    // Typing drops recent (search is owned by `jump`), even for a matching query.
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'atlas' } });
+    expect(screen.queryByText('Recent')).not.toBeInTheDocument();
+    expect(screen.queryByText('Platform · 2h ago')).not.toBeInTheDocument();
+  });
+
   it('shows the off-project hint only when there is no current project (cold)', () => {
     mockProjectId.mockReturnValue(undefined);
     open();

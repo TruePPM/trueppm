@@ -139,7 +139,10 @@ def test_secure_url_variant_preferred() -> None:
 
 
 def test_empty_and_garbage_bodies_yield_empty_preview() -> None:
-    assert parse_preview(b"", base_url=BASE) == parse_preview(b"", base_url=BASE)
+    empty = parse_preview(b"", base_url=BASE)
+    assert empty.title is None
+    assert empty.description is None
+    assert empty.thumbnail_url is None
     garbage = parse_preview(b"\x00\x01\x02not html at all", base_url=BASE)
     assert garbage.title is None
     assert garbage.description is None

@@ -174,6 +174,34 @@ MC_SENSITIVITY_SUBSAMPLE = 2_000
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class DrivingEdge:
+    """A dependency whose relationship free float is zero (#2095).
+
+    A *driving* edge is the predecessor→successor link that actually controls the
+    successor's early date: the successor's early start/finish sits exactly on the
+    date this link imposes, so slipping the predecessor by a single working day
+    would push the successor. Non-driving links have slack — the successor would
+    start at the same time even if that predecessor finished later.
+
+    Identified by the (predecessor, successor) pair plus ``dep_type`` (the string
+    value ``"FS"``/``"SS"``/``"FF"``/``"SF"``), matching the stored dependency row.
+    Purely presentational metadata for the schedule view's link hierarchy — the
+    forward/backward passes and float values are unaffected.
+    """
+
+    predecessor_id: str
+    successor_id: str
+    dep_type: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "predecessor_id": self.predecessor_id,
+            "successor_id": self.successor_id,
+            "dep_type": self.dep_type,
+        }
+
+
 @dataclass
 class ScheduleResult:
     """Output of a CPM schedule calculation.
@@ -197,6 +225,9 @@ class ScheduleResult:
     # Ordering is UNSPECIFIED — look up by id, not position (see class docstring, #1862).
     tasks: list[Task]  # copies with all CPM fields populated
     critical_path: list[str]  # task IDs in topological order along the critical path
+    # Dependencies whose relationship free float is zero (#2095). Order is
+    # deterministic (sorted) so the two engines' snapshots stay comparable.
+    driving_edges: list[DrivingEdge] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         # Defensive copy of the sequence containers (#826): the result owns its
@@ -205,6 +236,12 @@ class ScheduleResult:
         # ScheduleResult. The Task objects are already CPM-field copies.
         self.tasks = list(self.tasks)
         self.critical_path = list(self.critical_path)
+        # Sort for a deterministic, engine-agnostic order (petgraph vs networkx
+        # visit order differs) so conformance snapshots match (#2095).
+        self.driving_edges = sorted(
+            self.driving_edges,
+            key=lambda e: (e.predecessor_id, e.successor_id, e.dep_type),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -213,6 +250,7 @@ class ScheduleResult:
             "project_finish": self.project_finish.isoformat(),
             "tasks": [t.to_dict() for t in self.tasks],
             "critical_path": self.critical_path,
+            "driving_edges": [e.to_dict() for e in self.driving_edges],
         }
 
 
@@ -1017,8 +1055,11 @@ def _compute_floats(
     calendar: Calendar,
     wd_counter: _WorkingDayCounter | None = None,
     task_calendars: dict[str, Calendar] | None = None,
-) -> None:
+) -> list[DrivingEdge]:
     """Compute total_float, free_float, and is_critical for every task (in-place).
+
+    Returns the list of :class:`DrivingEdge` s discovered as a side output of the
+    free-float slack loop — links whose relationship free float is zero (#2095).
 
     ``total_float`` is the working-day span between a task's early and late start;
     a task is ``is_critical`` when it is zero.
@@ -1055,6 +1096,11 @@ def _compute_floats(
         if wd_counter is not None and cal is calendar:
             return wd_counter.between(start, end)
         return _working_days_between(start, end, cal)
+
+    # Driving edges (#2095): links whose per-edge free-float slack is zero — the
+    # predecessor that pins the successor's early date. Collected as a side output
+    # of the same slack loop that computes free float; purely presentational.
+    driving_edges: list[DrivingEdge] = []
 
     for node_id in topo_order:
         task = task_map[node_id]
@@ -1131,8 +1177,15 @@ def _compute_floats(
                 latest = _retreat_calendar_days(succ.early_finish, lag, node_cal)
                 slack = _wdb(task.early_start, latest, node_cal)
             ff_days = min(ff_days, max(0, slack))
+            # Zero relationship free float ⇒ this link drives the successor's early
+            # date (#2095). The forward pass guarantees slack >= 0, so an exact
+            # zero test is deterministic across both engines.
+            if slack == 0:
+                driving_edges.append(DrivingEdge(node_id, succ_id, dep.dep_type.value))
 
         task.free_float = timedelta(days=max(0, ff_days))
+
+    return driving_edges
 
 
 # ---------------------------------------------------------------------------
@@ -1857,7 +1910,9 @@ def schedule(project: Project) -> ScheduleResult:
     # counter is built over the default calendar; per-task-calendar spans fall back
     # to the scalar count inside _compute_floats.
     wd_counter = _WorkingDayCounter.build(project.start_date, project_finish, project.calendar)
-    _compute_floats(task_map, topo_order, g, project.calendar, wd_counter, task_calendars)
+    driving_edges = _compute_floats(
+        task_map, topo_order, g, project.calendar, wd_counter, task_calendars
+    )
 
     # Order the critical path deterministically AND topologically. Filtering a
     # topological order keeps every predecessor ahead of its successor; the catch
@@ -1888,6 +1943,7 @@ def schedule(project: Project) -> ScheduleResult:
         project_finish=project_finish,
         tasks=tasks,
         critical_path=critical_path,
+        driving_edges=driving_edges,
     )
 
 
@@ -2060,7 +2116,9 @@ def _duration_sensitivity(
     y = _average_ranks(completion_offsets)
     yc = y - y.mean()
     y_norm = float(np.sqrt(np.dot(yc, yc)))
-    if y_norm == 0.0:
+    # Div-by-zero guard: a norm is sqrt(dot(v, v)) so it is always >= 0; `<= 0.0`
+    # is equivalent to `== 0.0` here but avoids a float-equality comparison (S1244).
+    if y_norm <= 0.0:
         return []
 
     scored: list[TaskSensitivity] = []
@@ -2074,7 +2132,9 @@ def _duration_sensitivity(
         xr = _average_ranks(x)
         xc = xr - xr.mean()
         x_norm = float(np.sqrt(np.dot(xc, xc)))
-        if x_norm == 0.0:
+        # Same div-by-zero guard as y_norm above: a norm is always >= 0, so `<= 0.0`
+        # matches `== 0.0` without a float-equality comparison (S1244).
+        if x_norm <= 0.0:
             continue
         corr = float(np.dot(xc, yc) / (x_norm * y_norm))
         scored.append(TaskSensitivity(task_id=tid, index=abs(corr)))

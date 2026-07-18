@@ -41,8 +41,11 @@ export function parseHoursToMinutes(raw: string): number | null {
     if (mins > 59) return null;
     minutes = Number(h) * 60 + mins;
   } else {
-    // Decimal-hours form — allow a leading dot (`.5`) and at most one dot.
-    if (!/^\d*\.?\d+$/.test(input) && !/^\d+\.$/.test(input)) return null;
+    // Decimal-hours form — allow a leading dot (`.5`) and at most one dot. The
+    // decimal branch is written as three disjoint alternatives ("d", "d.d", ".d")
+    // rather than `\d*\.?\d+`, whose adjacent `\d*`/`\d+` split is ambiguous and
+    // backtracks super-linearly (S5852).
+    if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(input) && !/^\d+\.$/.test(input)) return null;
     const hours = Number(input);
     if (Number.isNaN(hours)) return null;
     minutes = Math.round(hours * 60);

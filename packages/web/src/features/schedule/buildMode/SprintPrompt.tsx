@@ -105,7 +105,7 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
       null,
     ];
     const handler = (e: KeyboardEvent) => {
-      const idx = parseInt(e.key, 10) - 1;
+      const idx = Number.parseInt(e.key, 10) - 1;
       if (idx >= 0 && idx < sprintIds.length) {
         e.preventDefault();
         selectSprint(sprintIds[idx]);

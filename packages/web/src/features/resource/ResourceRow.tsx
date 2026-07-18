@@ -45,7 +45,7 @@ export function ResourceRow({ resource, days, rowIndex, onOpenDrawer }: Props) {
           iso={iso}
           entry={resource.days[iso]}
           hoursPerDay={resource.hours_per_day}
-          maxUnits={parseFloat(resource.max_units)}
+          maxUnits={Number.parseFloat(resource.max_units)}
           tooltipId={`tooltip-${resource.resource_id}-${iso}`}
           resourceId={resource.resource_id}
           resourceName={resource.resource_name}

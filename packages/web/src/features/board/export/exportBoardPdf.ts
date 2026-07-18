@@ -136,7 +136,10 @@ export function boardPdfFileName(projectName: string, isoDate: string): string {
     projectName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
+      // The collapse above leaves at most one leading/trailing '-', so a
+      // quantifier-free trim suffices — avoids the start-unanchored `-+$`
+      // half of `/^-+|-+$/g`, which backtracks super-linearly (S5852).
+      .replace(/^-|-$/g, '')
       .slice(0, 40) || 'board';
   const day = isoDate.slice(0, 10);
   return `board-${slug}-${day}.pdf`;

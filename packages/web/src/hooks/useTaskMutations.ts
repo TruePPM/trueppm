@@ -956,8 +956,10 @@ export interface DuplicateTaskPayload {
 /** Build the "(copy)" suffix that doesn't collide with an existing sibling. */
 export function buildCopyName(sourceName: string, siblingNames: string[]): string {
   // Strip an existing "(copy)" or "(copy N)" suffix so re-duplicating a copy
-  // doesn't produce "Foo (copy) (copy)".
-  const stripped = sourceName.replace(/\s*\(copy(?:\s+\d+)?\)\s*$/i, '');
+  // doesn't produce "Foo (copy) (copy)". trimEnd() first so the pattern needs a
+  // single `\s*` (before the literal) rather than a `\s*...\s*$` pair, whose two
+  // unbounded whitespace matchers backtrack super-linearly (S5852).
+  const stripped = sourceName.trimEnd().replace(/\s*\(copy(?:\s+\d+)?\)$/i, '');
   const taken = new Set(siblingNames);
   if (!taken.has(`${stripped} (copy)`)) return `${stripped} (copy)`;
   for (let n = 2; n < 1000; n++) {

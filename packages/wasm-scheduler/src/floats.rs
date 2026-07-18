@@ -10,7 +10,7 @@ use crate::calendar::{
     checked_offset_days, prev_working_day, retreat_calendar_days, WorkingDayCounter,
 };
 use crate::graph::ProjectGraph;
-use crate::models::{Calendar, Dependency, DependencyType, Task};
+use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
 
 /// Compute total_float, free_float, and is_critical for every task (in-place).
 ///
@@ -21,19 +21,25 @@ use crate::models::{Calendar, Dependency, DependencyType, Task};
 /// Working-day span counts (`ES..LS` per task, `imposed..succ_date` per edge) go
 /// through a [`WorkingDayCounter`] built once over the schedule's date range,
 /// turning each count from an O(span) day loop into two binary searches (#1534).
+///
+/// Returns the [`DrivingEdge`]s discovered as a side output of the free-float
+/// slack loop — links whose relationship free float is zero (#2095), sorted by
+/// `(predecessor_id, successor_id, dep_type_str)` to match the Python engine.
 pub fn compute_floats(
     tasks: &mut [Task],
     topo_order: &[NodeIndex],
     pg: &ProjectGraph,
     deps: &[Dependency],
     calendar: &Calendar,
-) -> Result<(), String> {
+) -> Result<Vec<DrivingEdge>, String> {
     let counter = WorkingDayCounter::build(tasks, calendar)?;
+    let mut driving_edges: Vec<DrivingEdge> = Vec::new();
     for &idx in topo_order {
         let i = idx.index();
         let es = tasks[i].early_start.unwrap();
         let ef = tasks[i].early_finish.unwrap();
         let ls = tasks[i].late_start.unwrap();
+        let pred_id = tasks[i].id.clone();
 
         // Total float: working days between ES and LS.
         let tf_days = counter.between(es, ls)?;
@@ -81,6 +87,16 @@ pub fn compute_floats(
             };
             let slack = counter.between(anchor, latest)?;
             ff_days = ff_days.min(slack.max(0));
+            // Zero relationship free float ⇒ this link drives the successor's early
+            // date (#2095). The forward pass guarantees slack >= 0, so the exact
+            // zero test matches the Python engine bit-for-bit.
+            if slack == 0 {
+                driving_edges.push(DrivingEdge {
+                    predecessor_id: pred_id.clone(),
+                    successor_id: succ.id.clone(),
+                    dep_type: dep.dep_type,
+                });
+            }
         }
         ff_days = ff_days.max(0);
 
@@ -89,5 +105,14 @@ pub fn compute_floats(
         task.free_float = ff_days as f64 * 86400.0;
         task.is_critical = is_critical;
     }
-    Ok(())
+    // Sort by the same (pred, succ, dep_type STRING) key the Python engine uses so
+    // the two engines' driving_edges lists are byte-identical for conformance.
+    driving_edges.sort_by(|a, b| {
+        (&a.predecessor_id, &a.successor_id, a.dep_type.as_str()).cmp(&(
+            &b.predecessor_id,
+            &b.successor_id,
+            b.dep_type.as_str(),
+        ))
+    });
+    Ok(driving_edges)
 }

@@ -317,7 +317,7 @@ export function detectOverallocationWeekRange(
   const dayUnits: Map<string, number> = new Map();
   for (const task of tasks) {
     if (!task.early_start || !task.early_finish) continue;
-    const units = parseFloat(task.units);
+    const units = Number.parseFloat(task.units);
     let cur = parseUTCDate(task.early_start);
     const end = parseUTCDate(task.early_finish);
     while (cur <= end) {
@@ -347,7 +347,7 @@ export function detectOverallocatedAssignments(
   const dayUnits: Map<string, number> = new Map();
   for (const task of tasks) {
     if (!task.early_start || !task.early_finish) continue;
-    const units = parseFloat(task.units);
+    const units = Number.parseFloat(task.units);
     let cur = parseUTCDate(task.early_start);
     const end = parseUTCDate(task.early_finish);
     while (cur <= end) {
