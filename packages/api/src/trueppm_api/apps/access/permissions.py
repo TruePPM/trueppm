@@ -311,7 +311,15 @@ class IsProjectMemberWriteOrOwn(BasePermission):
         # rule enforced here — one rule, called twice, can never drift. The PO
         # facet, Scheduler-read-only, Member-own-only, and Admin+ branches all
         # live in can_user_edit_task now.
-        return can_user_edit_task(request, obj, method=request.method or "PATCH")
+        #
+        # The task-restore action (#2078) is a POST but must gate exactly like
+        # DELETE — un-deleting is a delete-class act, so the PO grooming facet
+        # (which may edit but not delete an EPIC/STORY) must NOT grant restore.
+        # Pass DELETE semantics so restore parity with destroy is exact.
+        method = (
+            "DELETE" if getattr(view, "action", None) == "restore" else (request.method or "PATCH")
+        )
+        return can_user_edit_task(request, obj, method=method)
 
 
 class CanLogTime(BasePermission):

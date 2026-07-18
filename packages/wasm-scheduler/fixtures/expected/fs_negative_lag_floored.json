@@ -26,5 +26,6 @@
   ],
   "critical_path": [
     "A"
-  ]
+  ],
+  "driving_edges": []
 }

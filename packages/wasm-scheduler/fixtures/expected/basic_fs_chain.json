@@ -34,5 +34,21 @@
       "is_critical": true
     }
   ],
-  "critical_path": ["A", "B", "C"]
+  "critical_path": [
+    "A",
+    "B",
+    "C"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "B",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "B",
+      "successor_id": "C",
+      "dep_type": "FS"
+    }
+  ]
 }

@@ -544,6 +544,64 @@ export function useBulkDeleteTasks(projectId: string | null) {
 }
 
 // ---------------------------------------------------------------------------
+// useRestoreTask — POST /api/v1/tasks/{id}/restore/
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/v1/tasks/{id}/restore/ — faithfully restore a soft-deleted task (#2078).
+ *
+ * The real inverse of delete: the server un-tombstones the task, its `is_subtask`
+ * subtree, and its dependency edges (resource assignments ride along on the row), so
+ * the Undo brings the whole graph back with its original id/short_id/history — unlike
+ * the old create-a-new-row Undo. Returns the restored task. A double-restore of an
+ * already-live id 404s; the caller treats that as a benign no-op.
+ */
+export function useRestoreTask(projectId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      const res = await apiClient.post<ApiTaskResponse>(`/tasks/${taskId}/restore/`);
+      return res.data;
+    },
+    onSuccess: (_data, taskId) => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      void queryClient.invalidateQueries({
+        queryKey: ['task-history', projectId ?? undefined, taskId],
+      });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// useBulkRestoreTasks — fan out POST /api/v1/tasks/{id}/restore/ per id
+// ---------------------------------------------------------------------------
+
+/**
+ * Restore several soft-deleted tasks by calling the single restore endpoint per id
+ * (ADR-0494 §3 — the bulk-delete undo is "backed by the same endpoint"). Recalc is
+ * coalesced server-side, so N calls collapse to one recompute. Rejects if any restore
+ * fails so the caller can surface an error toast.
+ */
+export function useBulkRestoreTasks(projectId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (taskIds: string[]) => {
+      await Promise.all(taskIds.map((id) => apiClient.post(`/tasks/${id}/restore/`)));
+    },
+    onSuccess: (_data, taskIds) => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      for (const taskId of taskIds) {
+        void queryClient.invalidateQueries({
+          queryKey: ['task-history', projectId ?? undefined, taskId],
+        });
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // useReorderTasks — POST /api/v1/projects/{pk}/tasks/reorder/
 // ---------------------------------------------------------------------------
 
@@ -956,8 +1014,10 @@ export interface DuplicateTaskPayload {
 /** Build the "(copy)" suffix that doesn't collide with an existing sibling. */
 export function buildCopyName(sourceName: string, siblingNames: string[]): string {
   // Strip an existing "(copy)" or "(copy N)" suffix so re-duplicating a copy
-  // doesn't produce "Foo (copy) (copy)".
-  const stripped = sourceName.replace(/\s*\(copy(?:\s+\d+)?\)\s*$/i, '');
+  // doesn't produce "Foo (copy) (copy)". trimEnd() first so the pattern needs a
+  // single `\s*` (before the literal) rather than a `\s*...\s*$` pair, whose two
+  // unbounded whitespace matchers backtrack super-linearly (S5852).
+  const stripped = sourceName.trimEnd().replace(/\s*\(copy(?:\s+\d+)?\)$/i, '');
   const taken = new Set(siblingNames);
   if (!taken.has(`${stripped} (copy)`)) return `${stripped} (copy)`;
   for (let n = 2; n < 1000; n++) {

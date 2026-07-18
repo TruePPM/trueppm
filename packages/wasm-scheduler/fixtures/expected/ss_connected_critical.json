@@ -38,5 +38,22 @@
     "ZED",
     "ABE",
     "MID"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "ABE",
+      "successor_id": "MID",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "ZED",
+      "successor_id": "ABE",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "ZED",
+      "successor_id": "MID",
+      "dep_type": "FS"
+    }
   ]
 }

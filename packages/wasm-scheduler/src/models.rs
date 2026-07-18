@@ -18,6 +18,21 @@ pub enum DependencyType {
     SF,
 }
 
+impl DependencyType {
+    /// The serialized tag (`"FS"`/`"FF"`/`"SS"`/`"SF"`) — matches serde output and
+    /// the Python `DependencyType.value`. Used to sort driving edges by the same
+    /// key the Python engine uses (a *string* sort, not the enum discriminant),
+    /// keeping the two engines' `driving_edges` order identical for conformance.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DependencyType::FS => "FS",
+            DependencyType::FF => "FF",
+            DependencyType::SS => "SS",
+            DependencyType::SF => "SF",
+        }
+    }
+}
+
 /// A contiguous range of dates (inclusive on both ends).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -268,6 +283,21 @@ pub struct ScheduleResult {
     pub project_finish: NaiveDate,
     pub tasks: Vec<TaskResult>,
     pub critical_path: Vec<String>,
+    /// Dependencies whose relationship free float is zero (#2095). Sorted by
+    /// `(predecessor_id, successor_id, dep_type_str)` to match the Python engine's
+    /// deterministic order.
+    #[serde(default)]
+    pub driving_edges: Vec<DrivingEdge>,
+}
+
+/// A dependency whose relationship free float is zero — the predecessor that
+/// drives the successor's early date (#2095). Purely presentational metadata; the
+/// forward/backward passes and float values are unaffected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DrivingEdge {
+    pub predecessor_id: String,
+    pub successor_id: String,
+    pub dep_type: DependencyType,
 }
 
 /// Per-task CPM output (subset of Task fields for the result JSON).

@@ -71,7 +71,7 @@ function mapResource(r: ApiResource): OrgResource {
     email: r.email,
     jobRole: r.job_role,
     calendarId: r.calendar,
-    maxUnits: parseFloat(r.max_units),
+    maxUnits: Number.parseFloat(r.max_units),
     isDeleted: r.is_deleted ?? false,
     skills: r.skills.map(mapSkill),
   };

@@ -32,11 +32,11 @@ describe('ConfirmDeleteStrip', () => {
     expect(screen.getByText(/Delete 3 tasks\?/)).toBeInTheDocument();
   });
 
-  it('warns that bulk delete cannot be undone (#2029)', () => {
+  it('tells the user bulk delete is undoable (#2078)', () => {
     render(
       <ConfirmDeleteStrip count={3} isDeleting={false} onConfirm={vi.fn()} onCancel={vi.fn()} />,
     );
-    expect(screen.getByText(/can’t be undone/i)).toBeInTheDocument();
+    expect(screen.getByText(/you can undo this/i)).toBeInTheDocument();
   });
 
   it('shows the deleting state and disables both buttons', () => {

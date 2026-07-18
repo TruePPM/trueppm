@@ -220,7 +220,7 @@ export function ResourceView({
   const overallocationCount =
     viewMode === 'timeline' && allocationResult.data
       ? allocationResult.data.resources.filter((r) => {
-          const over = detectOverallocatedAssignments(r.tasks, parseFloat(r.max_units));
+          const over = detectOverallocatedAssignments(r.tasks, Number.parseFloat(r.max_units));
           return over.size > 0;
         }).length
       : 0;

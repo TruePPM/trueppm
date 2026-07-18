@@ -187,9 +187,11 @@ interface ApiDependency {
   successor: string;
   dep_type: 'FS' | 'SS' | 'FF' | 'SF';
   lag: number;
-  // NOTE: there is no `is_critical` on the dependency model/serializer —
-  // criticality is a property of the two endpoint tasks. Link criticality is
-  // derived in useScheduleTasks (both endpoints on the critical path).
+  // Driving-link flag (#2095): a CPM output on the dependency itself. Unlike
+  // criticality (a property of the two endpoint tasks, derived below), driving
+  // *cannot* be synthesized client-side — which of several predecessors pins the
+  // successor is only known to the engine — so it is a genuine server field.
+  is_driving?: boolean;
 }
 
 /**
@@ -230,22 +232,19 @@ export function deriveBarGeometry(opts: {
   // "longer" than its longest child).
   const finish = isSummary
     ? (ef ?? '')
-    : ef
-      ?? ((start && duration > 0)
-        ? new Date(
-            new Date(start + 'T00:00:00Z').getTime() + duration * 86_400_000,
-          ).toISOString().slice(0, 10)
-        : '');
+    : (ef ??
+      (start && duration > 0
+        ? new Date(new Date(start + 'T00:00:00Z').getTime() + duration * 86_400_000)
+            .toISOString()
+            .slice(0, 10)
+        : ''));
 
   // For summary tasks that have CPM dates, compute a display duration as the
   // calendar-day span. This matches what the backend writes back during CPM so
   // both representations stay consistent.
   const displayDuration =
     isSummary && e && ef
-      ? Math.max(
-          1,
-          Math.round((new Date(ef).getTime() - new Date(e).getTime()) / 86_400_000),
-        )
+      ? Math.max(1, Math.round((new Date(ef).getTime() - new Date(e).getTime()) / 86_400_000))
       : duration;
 
   return { start, finish, displayDuration };
@@ -460,6 +459,8 @@ function mapDependency(d: ApiDependency): TaskLink {
     // Placeholder — the real value is derived from endpoint-task criticality in
     // useScheduleTasks once both the tasks and dependencies queries resolve.
     isCritical: false,
+    // Server-authoritative (#2095) — carried straight through, not derived.
+    isDriving: d.is_driving ?? false,
   };
 }
 
@@ -580,9 +581,7 @@ export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
     const rawLinks = linksQuery.data;
     if (!rawLinks) return undefined;
     if (!tasks) return rawLinks;
-    const criticalTaskIds = new Set(
-      tasks.filter((t) => t.isCritical).map((t) => t.id),
-    );
+    const criticalTaskIds = new Set(tasks.filter((t) => t.isCritical).map((t) => t.id));
     return rawLinks.map((l) => ({
       ...l,
       isCritical: criticalTaskIds.has(l.sourceId) && criticalTaskIds.has(l.targetId),

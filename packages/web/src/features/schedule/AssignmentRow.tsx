@@ -27,8 +27,8 @@ export function AssignmentRow({
   const serverPct = Math.round(assignment.units * 100);
 
   function commitDraft() {
-    const parsed = parseInt(draft, 10);
-    if (isNaN(parsed) || parsed < 1 || parsed > 200) {
+    const parsed = Number.parseInt(draft, 10);
+    if (Number.isNaN(parsed) || parsed < 1 || parsed > 200) {
       // Revert to current server value
       setDraft(String(serverPct));
       return;

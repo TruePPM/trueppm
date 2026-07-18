@@ -81,6 +81,7 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.access.services import transfer_project_ownership
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS_UNKNOWN
+from trueppm_api.apps.profiles.serializers import RecentProjectSerializer
 from trueppm_api.apps.projects.models import (
     _HISTORY_EXCLUDED_TASK,
     SCOPE_LEGACY_FULL,
@@ -3565,7 +3566,9 @@ class TaskViewSet(
         return [*self._rbac_permissions(), *self.mcp_token_guards()]
 
     def _rbac_permissions(self) -> list[BasePermission]:
-        if self.action in ("update", "partial_update", "destroy"):
+        # restore (#2078) mirrors destroy exactly — whoever could delete a task can
+        # un-delete it (Admin+ or the task's assignee via IsProjectMemberWriteOrOwn).
+        if self.action in ("update", "partial_update", "destroy", "restore"):
             return [IsAuthenticated(), IsProjectMemberWriteOrOwn(), IsProjectNotArchived()]
         if self.action == "create":
             return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
@@ -4278,6 +4281,71 @@ class TaskViewSet(
                 project_id, "task.deleted", {"id": task_id, "project": project_id}
             )
         )
+
+    def _trashed_task_queryset(self) -> QuerySet[Task]:
+        """Membership-scoped queryset of the caller's soft-deleted tasks (#2078).
+
+        Deliberately bypasses ``get_queryset()``'s ``is_deleted=False`` filter — restore
+        needs the tombstoned row the normal task surface hides. Still membership-scoped
+        (only tasks in a project the caller is an active member of) so a foreign task id
+        404s rather than leaking existence; the delete-parity role gate
+        (``IsProjectMemberWriteOrOwn``) is enforced separately by ``check_object_permissions``.
+        """
+        user = self.request.user
+        if user is None or not user.is_authenticated:
+            return Task.objects.none()
+        member_ids = ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
+            "project_id", flat=True
+        )
+        return Task.objects.filter(project_id__in=member_ids, is_deleted=True)
+
+    @extend_schema(
+        summary="Restore a soft-deleted task, its subtree, and its dependency edges",
+        request=None,
+        responses={200: TaskSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="restore")
+    def restore(self, request: Request, pk: str | None = None) -> Response:
+        """Un-tombstone a soft-deleted task and its cascade, atomically (#2078, ADR-0494).
+
+        The faithful inverse of ``perform_destroy``: restores the task, its ``is_subtask``
+        subtree, and every dependency edge that both-endpoints-live allows — the real
+        recovery the create-a-new-row Undo only approximated. Resource assignments were
+        never tombstoned, so they return with the row.
+
+        Same gate as delete (``IsProjectMemberWriteOrOwn`` — Admin+ or the assignee). A
+        second restore of an already-live task returns **404**: it is no longer in the
+        caller's trash, so the lookup fails closed rather than re-applying. The whole
+        restore runs in one ``transaction.atomic()`` block — a mid-way failure rolls back
+        rather than leaving a half-restored subtree. ``server_version`` is bumped on every
+        restored row so offline clients re-materialize them (ADR-0202).
+        """
+        from trueppm_api.apps.projects.models import cascade_task_children_restore
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # Look up the tombstoned row directly — get_queryset() filters is_deleted=False.
+        # check_object_permissions still runs the delete-parity gate against it.
+        task = get_object_or_404(self._trashed_task_queryset(), pk=pk)
+        self.check_object_permissions(request, task)
+
+        project_id = str(task.project_id)
+        task_id = str(task.pk)
+        with transaction.atomic():
+            task.restore()
+            cascade_task_children_restore(task)
+
+        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "task_restored", {"id": task_id})
+        )
+
+        # Re-fetch through the annotated read path so the response carries the same shape
+        # as retrieve (labels, rollups) rather than the bare trashed row.
+        restored = annotate_tasks_queryset(
+            Task.objects.filter(pk=task.pk), request, project_id
+        ).get(pk=task.pk)
+        serializer = self.get_serializer(restored)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(responses=TaskScopeRollupSerializer)
     @action(detail=True, methods=["get"], url_path="scope")
@@ -11793,6 +11861,41 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
     def reject(self, request: Request, pk: str | None = None) -> Response:
         """Reject a single pending scope injection, removing the task from the sprint."""
         return self._act(request, pk, accept=False)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="The current user's recently-visited projects",
+        responses={200: RecentProjectSerializer(many=True)},
+    )
+)
+class MeRecentProjectsView(APIView):
+    """``GET /api/v1/me/recent-projects/`` — the ⌘K "Recent" group (ADR-0508, #1557).
+
+    Returns the caller's most recently *visited* projects (from the
+    :class:`~trueppm_api.apps.profiles.models.ProjectVisit` telemetry, ADR-0150),
+    newest-first, as a fixed navigation strip — default 5, hard max 10 via
+    ``?limit``. Not a search surface and not paginated.
+
+    **RBAC contract**: hard-scoped to ``request.user``'s own visit rows, and each
+    row is re-joined to live project membership in
+    ``services.recent_projects`` so a project the user lost access to (revoked
+    membership, archive, delete) never leaks its name from a stale visit. There is
+    no ``?user=`` escape hatch — the endpoint is per-user private telemetry, never
+    a cross-user surveillance surface (mirrors ``MeWorkView``).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        from trueppm_api.apps.profiles.services import recent_projects
+
+        try:
+            limit = int(request.query_params.get("limit", 5))
+        except (TypeError, ValueError):
+            limit = 5
+        visits = recent_projects(request.user, limit=limit)
+        return Response(RecentProjectSerializer(visits, many=True).data, status=status.HTTP_200_OK)
 
 
 @extend_schema_view(

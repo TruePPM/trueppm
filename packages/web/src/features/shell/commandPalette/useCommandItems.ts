@@ -6,7 +6,9 @@ import { usePrograms } from '@/hooks/usePrograms';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useResourceSearch } from '@/hooks/useResourceSearch';
+import { useRecentProjects } from '@/hooks/useRecentProjects';
 import { useActiveSprint } from '@/hooks/useSprints';
+import { formatRelative } from '@/lib/formatRelative';
 import { useCurrentSprintTargets } from '@/hooks/useCurrentSprintTargets';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -85,6 +87,13 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
   const peopleEnabled = enabled && trimmedQuery.length > 0;
   const { data: people } = useResourceSearch(trimmedQuery, peopleEnabled);
 
+  // Recent-projects tier (ADR-0508/#1557): the cold-only "recently visited"
+  // strip. Gated on an open palette with an EMPTY query — the inverse of the
+  // query-gated task/people tiers — so it renders only cold and never fires
+  // while the user is typing a search.
+  const recentEnabled = enabled && trimmedQuery.length === 0;
+  const { data: recentProjects } = useRecentProjects(recentEnabled);
+
   return useMemo(() => {
     // Wrap every action so the overlay closes first, then the effect runs.
     const act = (fn: () => void) => () => {
@@ -119,14 +128,23 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     // project when handed `undefined`, so gating on the raw route id would build
     // task items (and read possibly-partial task data) on every project route even
     // with the palette closed.
+    // Split into two disjoint groups (ADR-0508/#1557): tasks in the current
+    // project's ACTIVE sprint land in `sprintTask` (raised cap 25), everything
+    // else in `task` (cap 8). A task is in exactly one group, so keyboard nav
+    // stays single-listed and each cap applies to its own set. With no active
+    // sprint, `sprintTaskItems` is empty and `taskItems` holds every task —
+    // fully unchanged behavior for Waterfall / no-sprint projects.
+    const sprintTaskItems: CommandItem[] = [];
     const taskItems: CommandItem[] = [];
     if (tier2Id) {
+      const activeSprintId = activeSprint?.id ?? null;
       for (const task of tasks ?? []) {
         const detail = [task.wbs, formatStatus(task.status)].filter(Boolean).join(' · ');
-        taskItems.push({
+        const inActiveSprint = activeSprintId !== null && task.sprintId === activeSprintId;
+        (inActiveSprint ? sprintTaskItems : taskItems).push({
           id: `task:${task.id}`,
           label: `Open task: ${task.name}`,
-          group: 'task',
+          group: inActiveSprint ? 'sprintTask' : 'task',
           tag: 'Task',
           detail,
           keywords: `${task.shortId ?? ''} ${task.wbs ?? ''} ${task.status ?? ''}`,
@@ -201,6 +219,26 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
           tag: 'Person',
           keywords: `person resource member teammate ${person.name}`,
           run: go(`/resources?q=${encodeURIComponent(person.name)}`),
+        }))
+      : [];
+
+    // ---- Recent (cold-only recently-visited projects) ------------------------
+    // ADR-0508/#1557. Bare project name + "{program} · {relative}" recency hint.
+    // Cold, a project can appear in BOTH `recent` and the full `jump` list — the
+    // intentional Spotlight shortcut-strip pattern (web-rule 268); once the user
+    // types, `recentEnabled` is false so nothing is built and `jump` owns search.
+    // Deep-links to project overview (the one view present for every methodology).
+    const recentItems: CommandItem[] = recentEnabled
+      ? (recentProjects ?? []).map((rp) => ({
+          id: `recent:${rp.id}`,
+          label: rp.name,
+          group: 'recent' as const,
+          tag: 'Project',
+          detail: [rp.program_name, formatRelative(new Date(rp.visited_at))]
+            .filter(Boolean)
+            .join(' · '),
+          keywords: `recent recently visited project ${rp.program_name ?? ''}`,
+          run: go(`/projects/${rp.id}/overview`),
         }))
       : [];
 
@@ -288,9 +326,11 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     // sections agree.
     return [
       ...sprintJumps,
+      ...sprintTaskItems,
       ...taskItems,
       ...currentItems,
       ...peopleItems,
+      ...recentItems,
       ...jumps,
       ...backlog,
       ...board,
@@ -302,6 +342,8 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     projects,
     people,
     peopleEnabled,
+    recentProjects,
+    recentEnabled,
     theme,
     setTheme,
     toggleSidebar,

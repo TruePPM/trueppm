@@ -126,6 +126,9 @@ def test_fixture_conformance(fixture_name: str) -> None:
         "project_finish": result.project_finish.isoformat(),
         "tasks": [task_result_to_dict(t) for t in result.tasks],
         "critical_path": result.critical_path,
+        # Driving-edge parity (#2095): both engines must agree on which links have
+        # zero relationship free float. Sorted deterministically by ScheduleResult.
+        "driving_edges": [e.to_dict() for e in result.driving_edges],
     }
 
     if not expected_path.exists():
@@ -155,6 +158,7 @@ def test_fixture_conformance(fixture_name: str) -> None:
     assert actual["project_start"] == expected["project_start"]
     assert actual["project_finish"] == expected["project_finish"]
     assert actual["critical_path"] == expected["critical_path"]
+    assert actual["driving_edges"] == expected.get("driving_edges", []), "driving_edges"
 
     for at, et in zip(actual["tasks"], expected["tasks"], strict=True):
         assert at["id"] == et["id"], "Task ID mismatch"

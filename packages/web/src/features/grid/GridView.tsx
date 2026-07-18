@@ -6,7 +6,7 @@ import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { useProject } from '@/hooks/useProject';
-import { useBulkDeleteTasks } from '@/hooks/useTaskMutations';
+import { useBulkDeleteTasks, useBulkRestoreTasks } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { exportTasksToCsv } from '@/utils/exportCsv';
@@ -51,6 +51,7 @@ export function GridView() {
   const { setSelectedTaskId: setOutlineSelectedTaskId, selectedTaskId: outlineSelectedTaskId } =
     useWbsStore();
   const bulkDelete = useBulkDeleteTasks(projectId);
+  const bulkRestore = useBulkRestoreTasks(projectId);
 
   const methodology = project.data?.methodology ?? 'HYBRID';
   const agileFeatures = project.data?.agile_features === true;
@@ -220,11 +221,16 @@ export function GridView() {
 
   // Bulk delete — Flat / Grouped only (Outline keeps single-row select via wbsStore).
   const [deletePhase, setDeletePhase] = useState<DeletePhase>('idle');
-  const [toast, setToast] = useState<{ text: string; isError: boolean } | null>(null);
+  const [toast, setToast] = useState<{
+    text: string;
+    isError: boolean;
+    onUndo?: () => void;
+  } | null>(null);
 
   useEffect(() => {
     if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 4000);
+    // Give the Undo affordance a longer dwell than a plain confirmation (#2078).
+    const timer = setTimeout(() => setToast(null), toast.onUndo ? 8000 : 4000);
     return () => clearTimeout(timer);
   }, [toast]);
 
@@ -234,20 +240,38 @@ export function GridView() {
   }, [selectedIds, projectId]);
 
   const handleConfirmDelete = useCallback(() => {
-    const count = selectedIds.size;
+    const ids = [...selectedIds];
+    const count = ids.length;
     setDeletePhase('deleting');
-    bulkDelete.mutate([...selectedIds], {
+    bulkDelete.mutate(ids, {
       onSuccess: () => {
         clearSelection();
         setDeletePhase('idle');
-        setToast({ text: `${count} task${count !== 1 ? 's' : ''} deleted.`, isError: false });
+        // Faithful bulk restore (#2078): each task (and its subtree/deps/assignments)
+        // comes back under its original id, so the delete is genuinely undoable now —
+        // the old "can't be undone" warning is gone.
+        setToast({
+          text: `${count} task${count !== 1 ? 's' : ''} deleted.`,
+          isError: false,
+          onUndo: () => {
+            bulkRestore.mutate(ids, {
+              onSuccess: () =>
+                setToast({
+                  text: `${count} task${count !== 1 ? 's' : ''} restored.`,
+                  isError: false,
+                }),
+              onError: () =>
+                setToast({ text: "Couldn't restore tasks — try again.", isError: true }),
+            });
+          },
+        });
       },
       onError: () => {
         setDeletePhase('idle');
         setToast({ text: "Couldn't delete tasks — try again.", isError: true });
       },
     });
-  }, [selectedIds, bulkDelete, clearSelection]);
+  }, [selectedIds, bulkDelete, bulkRestore, clearSelection]);
 
   // TaskFormModal state — opened from "+ Task" or "+ Child" toolbar buttons.
   const [showAddForm, setShowAddForm] = useState(false);
@@ -495,6 +519,15 @@ export function GridView() {
             </span>
           )}
           {toast.text}
+          {toast.onUndo && (
+            <button
+              type="button"
+              onClick={toast.onUndo}
+              className="ml-1 font-semibold text-brand-primary underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
+            >
+              Undo
+            </button>
+          )}
         </div>
       )}
     </div>
