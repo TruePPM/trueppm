@@ -78,7 +78,10 @@ export function WorkspaceAttachmentsPage() {
     return (
       <div className="px-6 py-8 space-y-3">
         {[1, 2].map((i) => (
-          <div key={i} className="h-16 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse" />
+          <div
+            key={i}
+            className="h-16 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse"
+          />
         ))}
       </div>
     );
@@ -146,7 +149,7 @@ export function WorkspaceAttachmentsPage() {
                 checked={policy !== 'enforce'}
                 onChange={() => setPolicy('suggest')}
                 className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              />
+              />{' '}
               May narrow or widen these types
             </label>
             {/* ENFORCE pins the workspace policy so lower scopes cannot override —
@@ -166,7 +169,7 @@ export function WorkspaceAttachmentsPage() {
                   // reason is spelled out via an sr-only span (web-rule 265 / #2001).
                   aria-describedby="attachments-enforce-enterprise-hint"
                   className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                />
+                />{' '}
                 Enforce attachments workspace-wide
               </label>
               <EnterpriseBadge />

@@ -24,7 +24,10 @@ import { InheritableToggleField } from '../components/InheritableToggleField';
 import { InheritableNumberField } from '../components/InheritableNumberField';
 import { InheritableSelectField } from '../components/InheritableSelectField';
 import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
-import { DURATION_CHANGE_POLICY_OPTIONS, DURATION_CHANGE_POLICY_HINT } from '../durationChangePolicy';
+import {
+  DURATION_CHANGE_POLICY_OPTIONS,
+  DURATION_CHANGE_POLICY_HINT,
+} from '../durationChangePolicy';
 import { calendarSourceCopy } from './calendarDisplay';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 import { HEALTH_OPTIONS, HEALTH_ACTIVE } from '@/features/project/projectHealth';
@@ -162,10 +165,8 @@ export function ProjectGeneralPage() {
   );
   const [initialMcHistoryAttributionAudience, setInitialMcHistoryAttributionAudience] =
     useState<MCAttributionAudience | null>(null);
-  const [
-    initialTaskDurationChangePercentPolicy,
-    setInitialTaskDurationChangePercentPolicy,
-  ] = useState<DurationChangePercentPolicy | null>(null);
+  const [initialTaskDurationChangePercentPolicy, setInitialTaskDurationChangePercentPolicy] =
+    useState<DurationChangePercentPolicy | null>(null);
 
   useEffect(() => {
     if (!project || seededProjectIdRef.current === project.id) return;
@@ -774,8 +775,7 @@ export function ProjectGeneralPage() {
                 to={`/projects/${projectId}/settings/calendars`}
                 className="inline-flex w-fit items-center gap-1 text-[12.5px] font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
               >
-                Manage in Working calendars
-                <span aria-hidden="true">→</span>
+                Manage in Working calendars <span aria-hidden="true">→</span>
               </Link>
             </div>
           </FieldRow>
@@ -893,7 +893,12 @@ export function ProjectGeneralPage() {
                 fill="none"
                 aria-hidden="true"
               >
-                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <path
+                  d="M4 6l4 4 4-4"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
               </svg>
             </div>
           </FieldRow>

@@ -12,6 +12,13 @@ import {
 } from '@/hooks/useLabels';
 import { LABEL_COLOR_KEYS, LABEL_COLOR_LABEL, labelDotStyle } from '@/lib/labelColors';
 
+function labelDeleteHint(taskCount: number): string {
+  if (taskCount === 0) return 'It is not used on any tasks.';
+  const noun = taskCount === 1 ? 'task' : 'tasks';
+  const target = taskCount === 1 ? 'that task' : 'them all';
+  return `Used on ${taskCount} ${noun} — it is removed from ${target}.`;
+}
+
 const LABEL_SOFT_CAP = 50;
 
 /**
@@ -259,10 +266,7 @@ function LabelRow({
           aria-label={`Delete ${label.name}?`}
         >
           <span className="text-neutral-text-secondary">
-            Delete “{label.name}”?{' '}
-            {label.taskCount > 0
-              ? `Used on ${label.taskCount} ${label.taskCount === 1 ? 'task' : 'tasks'} — it is removed from ${label.taskCount === 1 ? 'that task' : 'them all'}.`
-              : 'It is not used on any tasks.'}
+            Delete “{label.name}”? {labelDeleteHint(label.taskCount)}
           </span>
           <button
             type="button"

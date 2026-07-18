@@ -376,10 +376,9 @@ def test_bounce_webhook_egress_block_does_not_leak_resolved_ip(
 
     monkeypatch.setattr(egress_http, "assert_url_allowed", _blocked)
 
+    serializer = WorkspaceEmailSettingsSerializer()
     with pytest.raises(serializers.ValidationError) as excinfo:
-        WorkspaceEmailSettingsSerializer().validate_bounce_webhook_url(
-            "https://hook.internal.test/x"
-        )
+        serializer.validate_bounce_webhook_url("https://hook.internal.test/x")
     assert "10.9.8.7" not in str(excinfo.value.detail)
 
 

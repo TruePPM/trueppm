@@ -185,100 +185,117 @@ function CadenceSection({
         </span>
       </div>
       <div className="px-4 py-4">
-        {isLoading || !project ? (
-          <div className="h-16 rounded-card bg-neutral-surface-sunken motion-safe:animate-pulse" />
-        ) : isWaterfall ? (
-          <p className="text-[12px] text-neutral-text-secondary">
-            Waterfall projects don&rsquo;t use sprints — board cadence doesn&rsquo;t apply.
-          </p>
-        ) : !canEdit ? (
-          <div className="space-y-3">
-            <ReadOnlyIndicator
-              label="Board cadence"
-              value={CADENCE_OPTIONS.find((o) => o.id === selected)?.label ?? selected}
-              provenance="managed by the project scheduler"
-            />
-            <p className="text-[12px] text-neutral-text-secondary">
-              Continuous flow hides sprint tracking (planning, burndown, sprint header) and leans on
-              the flow-analytics panel. Tasks still move through your board columns.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div
-              role="radiogroup"
-              aria-labelledby="cadence-heading"
-              tabIndex={-1}
-              onKeyDown={onRadioKeyDown}
-              className="grid grid-cols-2 gap-3 outline-none"
-            >
-              {CADENCE_OPTIONS.map((opt, i) => {
-                const isSelected = selected === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    ref={(el) => {
-                      btnRefs.current[i] = el;
-                    }}
-                    type="button"
-                    role="radio"
-                    aria-checked={isSelected}
-                    // Roving tabindex: only the focused option is in the tab order.
-                    tabIndex={i === focusIdx ? 0 : -1}
-                    disabled={!canEdit || update.isPending}
-                    onClick={() => {
-                      if (canEdit && opt.id !== selected) update.mutate({ board_cadence: opt.id });
-                    }}
-                    className={[
-                      'text-left rounded-card border p-3 transition-colors',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                      !canEdit ? 'cursor-not-allowed' : '',
-                      isSelected
-                        ? 'border-2 border-brand-primary bg-brand-primary-light'
-                        : 'border border-neutral-border bg-neutral-surface-raised hover:bg-neutral-surface-sunken',
-                      !canEdit && !isSelected ? 'opacity-60' : '',
-                    ].join(' ')}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[13px] font-semibold text-neutral-text-primary">
-                        {opt.label}
-                      </span>
-                      {isSelected && (
-                        <span className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 bg-sage-500 text-navy-900">
-                          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                            <path
-                              d="M3 8l4 4 6-7"
-                              stroke="currentColor"
-                              strokeWidth="2.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
+        {(() => {
+          if (isLoading || !project)
+            return (
+              <div className="h-16 rounded-card bg-neutral-surface-sunken motion-safe:animate-pulse" />
+            );
+          if (isWaterfall)
+            return (
+              <p className="text-[12px] text-neutral-text-secondary">
+                Waterfall projects don&rsquo;t use sprints — board cadence doesn&rsquo;t apply.
+              </p>
+            );
+          if (!canEdit)
+            return (
+              <div className="space-y-3">
+                <ReadOnlyIndicator
+                  label="Board cadence"
+                  value={CADENCE_OPTIONS.find((o) => o.id === selected)?.label ?? selected}
+                  provenance="managed by the project scheduler"
+                />
+                <p className="text-[12px] text-neutral-text-secondary">
+                  Continuous flow hides sprint tracking (planning, burndown, sprint header) and
+                  leans on the flow-analytics panel. Tasks still move through your board columns.
+                </p>
+              </div>
+            );
+          return (
+            <div className="space-y-3">
+              <div
+                role="radiogroup"
+                aria-labelledby="cadence-heading"
+                tabIndex={-1}
+                onKeyDown={onRadioKeyDown}
+                className="grid grid-cols-2 gap-3 outline-none"
+              >
+                {CADENCE_OPTIONS.map((opt, i) => {
+                  const isSelected = selected === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      ref={(el) => {
+                        btnRefs.current[i] = el;
+                      }}
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
+                      // Roving tabindex: only the focused option is in the tab order.
+                      tabIndex={i === focusIdx ? 0 : -1}
+                      disabled={!canEdit || update.isPending}
+                      onClick={() => {
+                        if (canEdit && opt.id !== selected)
+                          update.mutate({ board_cadence: opt.id });
+                      }}
+                      className={[
+                        'text-left rounded-card border p-3 transition-colors',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                        !canEdit ? 'cursor-not-allowed' : '',
+                        isSelected
+                          ? 'border-2 border-brand-primary bg-brand-primary-light'
+                          : 'border border-neutral-border bg-neutral-surface-raised hover:bg-neutral-surface-sunken',
+                        !canEdit && !isSelected ? 'opacity-60' : '',
+                      ].join(' ')}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[13px] font-semibold text-neutral-text-primary">
+                          {opt.label}
                         </span>
-                      )}
-                    </div>
-                    <p className="text-[12px] text-neutral-text-secondary leading-snug">{opt.desc}</p>
-                  </button>
-                );
-              })}
+                        {isSelected && (
+                          <span className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 bg-sage-500 text-navy-900">
+                            <svg
+                              width="10"
+                              height="10"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M3 8l4 4 6-7"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[12px] text-neutral-text-secondary leading-snug">
+                        {opt.desc}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[12px] text-neutral-text-secondary">
+                Continuous flow hides sprint tracking (planning, burndown, sprint header) and leans
+                on the flow-analytics panel. Tasks still move through your board columns.
+              </p>
+              {selected === 'continuous' && activeSprint && (
+                <p className="text-[12px] rounded-card border border-brand-accent/30 bg-brand-accent/10 text-neutral-text-primary px-3 py-2">
+                  ⚠ This board has an active sprint. Continuous flow hides sprint tracking — the
+                  sprint and its data are preserved and return if you switch back to sprint-based.
+                </p>
+              )}
+              {update.isError && (
+                <p className="text-[12px] text-semantic-critical">
+                  {extractErrorDetail(update.error) ?? 'Could not update board cadence.'}
+                </p>
+              )}
             </div>
-            <p className="text-[12px] text-neutral-text-secondary">
-              Continuous flow hides sprint tracking (planning, burndown, sprint header) and leans on
-              the flow-analytics panel. Tasks still move through your board columns.
-            </p>
-            {selected === 'continuous' && activeSprint && (
-              <p className="text-[12px] rounded-card border border-brand-accent/30 bg-brand-accent/10 text-neutral-text-primary px-3 py-2">
-                ⚠ This board has an active sprint. Continuous flow hides sprint tracking — the sprint
-                and its data are preserved and return if you switch back to sprint-based.
-              </p>
-            )}
-            {update.isError && (
-              <p className="text-[12px] text-semantic-critical">
-                {extractErrorDetail(update.error) ?? 'Could not update board cadence.'}
-              </p>
-            )}
-          </div>
-        )}
+          );
+        })()}
       </div>
     </section>
   );
@@ -648,9 +665,7 @@ function StatusesSection({
                   onRename={(label) => updateColumn(col.status, { label })}
                   onRecolor={(color) => updateColumn(col.status, { color })}
                   onToggleVisible={() => updateColumn(col.status, { visible: !col.visible })}
-                  onSetAgeThreshold={(days) =>
-                    updateColumn(col.status, { ageThresholdDays: days })
-                  }
+                  onSetAgeThreshold={(days) => updateColumn(col.status, { ageThresholdDays: days })}
                 />
               ))}
             </ul>

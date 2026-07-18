@@ -64,7 +64,8 @@ export function MilestoneBridgeForecast({
   const showProjection = stcLow != null && stcHigh != null && remaining > 0;
 
   const prev = milestone.previous;
-  const showDelta = prev != null && prev.cpm_finish != null && prev.cpm_finish !== milestone.cpm_finish;
+  const showDelta =
+    prev != null && prev.cpm_finish != null && prev.cpm_finish !== milestone.cpm_finish;
 
   return (
     <div
@@ -101,8 +102,7 @@ export function MilestoneBridgeForecast({
 
       {showProjection && (
         <p className="text-xs text-neutral-text-secondary">
-          If velocity holds, ~
-          <span className="tppm-mono">{stcLow}</span>
+          If velocity holds, ~<span className="tppm-mono">{stcLow}</span>
           {stcLow !== stcHigh && (
             <>
               –<span className="tppm-mono">{stcHigh}</span>
@@ -130,7 +130,11 @@ function ScheduleColumn({
     onCriticalPath === true
       ? { text: 'critical path', cls: 'text-semantic-critical', aria: 'on the critical path' }
       : totalFloatDays != null
-        ? { text: null, cls: 'text-neutral-text-secondary', aria: `${totalFloatDays} days of float remaining` }
+        ? {
+            text: null,
+            cls: 'text-neutral-text-secondary',
+            aria: `${totalFloatDays} days of float remaining`,
+          }
         : null;
   return (
     <div className="flex-1 flex flex-col gap-1">
@@ -181,10 +185,15 @@ function VelocityColumn({
       </span>
       {p50 == null ? (
         // rule 119: a configured-but-not-yet-computable read shows a reason, never a blank.
-        <span className="text-xs text-neutral-text-secondary">Estimate pending — building velocity</span>
+        <span className="text-xs text-neutral-text-secondary">
+          Estimate pending — building velocity
+        </span>
       ) : simulated ? (
         <>
-          <span className={chipCls} aria-label={`Monte Carlo P80 finish ${formatShortDate(p80 ?? p50)}`}>
+          <span
+            className={chipCls}
+            aria-label={`Monte Carlo P80 finish ${formatShortDate(p80 ?? p50)}`}
+          >
             P80 <span className="tppm-mono">{formatShortDate(p80 ?? p50)}</span>
           </span>
           {p80 && (
