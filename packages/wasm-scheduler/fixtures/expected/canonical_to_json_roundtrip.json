@@ -48,5 +48,17 @@
     "B",
     "C",
     "M"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "B",
+      "successor_id": "C",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "C",
+      "successor_id": "M",
+      "dep_type": "FS"
+    }
   ]
 }

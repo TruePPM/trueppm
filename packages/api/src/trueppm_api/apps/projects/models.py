@@ -196,7 +196,7 @@ _HISTORY_EXCLUDED_TASK = [
 # ``deleted_at`` (Task, Dependency) is grouped with ``deleted_version`` as a
 # tombstone-reap bookkeeping field, not a user-meaningful audit fact — the
 # ``is_deleted`` transition it accompanies is already captured in history.
-_HISTORY_EXCLUDED_DEPENDENCY = [*_HISTORY_EXCLUDED_BASE, "deleted_at"]
+_HISTORY_EXCLUDED_DEPENDENCY = [*_HISTORY_EXCLUDED_BASE, "deleted_at", "is_driving"]
 
 
 class ImmutableModelError(Exception):
@@ -2666,6 +2666,15 @@ class Dependency(VersionedModel):
         related_name="accepted_dependencies",
     )
     accepted_at = models.DateTimeField(null=True, blank=True)
+
+    # Driving-link flag (#2095): True when this edge's relationship free float is
+    # zero — i.e. this predecessor actually controls (drives) the successor's early
+    # date, so the schedule view draws it at full weight while non-driving links
+    # recede. A CPM *output*, written back by the recompute task via bulk_update
+    # (like Task.is_critical) so it never bumps server_version, and history-excluded.
+    # Defaults False so a freshly-created edge reads as non-driving until the next
+    # recompute resolves it (avoids a NOT NULL-without-default migration).
+    is_driving = models.BooleanField(default=False)
 
     # Timestamp of the most recent soft_delete() call — mirrors Task.deleted_at /
     # Attachment.deleted_at. Registered as the tombstone reap age_field (sync/tasks.py)

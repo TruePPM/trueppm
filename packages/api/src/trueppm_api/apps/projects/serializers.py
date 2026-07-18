@@ -4705,10 +4705,19 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             "pending_acceptance",
             "accepted_by",
             "accepted_at",
+            "is_driving",
             "predecessor_card",
             "successor_card",
         ]
-        read_only_fields = ["id", "pending_acceptance", "accepted_by", "accepted_at"]
+        # is_driving is a CPM output written by the recompute task (#2095) — clients
+        # read it to weight the link but never set it.
+        read_only_fields = [
+            "id",
+            "pending_acceptance",
+            "accepted_by",
+            "accepted_at",
+            "is_driving",
+        ]
 
     @extend_schema_field(ExternalTaskCardSerializer(allow_null=True))
     def get_predecessor_card(self, obj: Dependency) -> dict[str, Any] | None:

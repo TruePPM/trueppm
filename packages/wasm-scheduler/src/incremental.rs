@@ -74,7 +74,10 @@ pub(crate) fn compute_downstream(
         &project.calendar,
     )?;
 
-    compute_floats(
+    // compute_floats runs over the full topo order, so the driving edges it
+    // returns cover the whole graph — include them so an offline drag keeps the
+    // schedule view's driving/non-driving link hierarchy correct (#2095).
+    let driving_edges = compute_floats(
         &mut tasks,
         &pg.topo_order,
         pg,
@@ -121,6 +124,7 @@ pub(crate) fn compute_downstream(
         project_finish,
         tasks: task_results,
         critical_path,
+        driving_edges,
     })
 }
 

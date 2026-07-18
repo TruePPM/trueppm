@@ -364,6 +364,8 @@ workflow and error codes.
 
 Predecessor and successor may belong to the **same project** or to two projects in the **same [program](/features/programs/)**. Cross-**program** edges return `HTTP 400` (the [Enterprise boundary](/license/) is unchanged). A cross-project edge whose successor sits in a project the creator cannot schedule is created **pending**: it is inert until the downstream project's Resource Manager+ accepts it via `accept/`. Once accepted, the program's schedule recomputes across the boundary so floats and criticality are program-true on every member project's own schedule (not only the [program schedule view](/features/program-schedule/)).
 
+The read-only **`is_driving`** flag marks each link whose relationship free float is zero — the predecessor that actually controls (drives) its successor's early date. It is a CPM output set by the auto-scheduler (clients cannot write it), used by the schedule view to weight driving links above slack ones.
+
 ### Cross-project slip conflicts
 
 When an accepted cross-project dependency pushes a committed task in an **active sprint** past its sprint boundary, the program recompute records a **slip conflict** for the downstream team. The dates stay honest — the firewall never moves a sprint, its membership, or its commitment math; it only surfaces the conflict for the team to acknowledge and resolve their own way.

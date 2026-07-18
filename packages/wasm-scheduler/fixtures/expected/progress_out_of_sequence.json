@@ -24,5 +24,6 @@
       "is_critical": false
     }
   ],
-  "critical_path": []
+  "critical_path": [],
+  "driving_edges": []
 }

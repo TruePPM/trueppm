@@ -65,7 +65,12 @@ function makeCtxSpy() {
     get strokeStyle() {
       return _strokeStyle;
     },
-    set lineWidth(_v: number) {},
+    set lineWidth(v: number) {
+      calls.push({ name: 'lineWidth', args: [v] });
+    },
+    set globalAlpha(v: number) {
+      calls.push({ name: 'globalAlpha', args: [v] });
+    },
     set lineCap(_v: string) {},
     set textBaseline(_v: string) {},
     set font(_v: string) {},
@@ -1402,6 +1407,58 @@ describe('dependency arrows — cached layout + scroll re-projection (#1000)', (
     paintDependencyLayout(ctx, layout, 0, 0);
     expect(pointsFrom(calls)).toHaveLength(0);
   });
+
+  // #2095 — driving vs non-driving link weight hierarchy. A merge into `c`:
+  // a→c drives (isDriving), b→c has slack (non-driving). The non-driving feeder
+  // must render thinner (1.5) and at reduced contrast (0.55 alpha) while the
+  // driving feeder stays full weight (2 / alpha 1).
+  const mergeLinks = (aDriving: boolean, bDriving: boolean) => [
+    {
+      id: 'ac',
+      sourceId: 'a',
+      targetId: 'c',
+      type: 'FS' as const,
+      lag: 0,
+      isCritical: false,
+      isDriving: aDriving,
+    },
+    {
+      id: 'bc',
+      sourceId: 'b',
+      targetId: 'c',
+      type: 'FS' as const,
+      lag: 0,
+      isCritical: false,
+      isDriving: bDriving,
+    },
+  ];
+  const widths = (calls: Array<{ name: string; args: unknown[] }>) =>
+    calls.filter((c) => c.name === 'lineWidth').map((c) => c.args[0] as number);
+  const alphas = (calls: Array<{ name: string; args: unknown[] }>) =>
+    calls.filter((c) => c.name === 'globalAlpha').map((c) => c.args[0] as number);
+
+  it('draws non-driving links thinner and at reduced alpha when a driving link exists', () => {
+    const layout = prepareDependencyLayout(tasks, mergeLinks(true, false), scales);
+    expect(layout.anyDriving).toBe(true);
+    const { ctx, calls } = makeArrowCtxSpy();
+    paintDependencyLayout(ctx, layout, 0, 0);
+    // The driving feeder + merge trunk stroke at full weight; the non-driving
+    // feeder strokes at 1.5 with 0.55 alpha.
+    expect(widths(calls)).toContain(2);
+    expect(widths(calls)).toContain(1.5);
+    expect(alphas(calls)).toContain(0.55);
+  });
+
+  it('suppresses the hierarchy when no link is driving (uniform full weight)', () => {
+    const layout = prepareDependencyLayout(tasks, mergeLinks(false, false), scales);
+    expect(layout.anyDriving).toBe(false);
+    const { ctx, calls } = makeArrowCtxSpy();
+    paintDependencyLayout(ctx, layout, 0, 0);
+    // No thinning: every stroked width is the full 2 (or the 2.5 selection ring,
+    // absent here); 1.5 never appears and no arrow drops to 0.55 alpha.
+    expect(widths(calls)).not.toContain(1.5);
+    expect(alphas(calls)).not.toContain(0.55);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1577,7 +1634,9 @@ describe('forced-colors (Windows High Contrast) palette (#1742)', () => {
     // The normal-bar brand blue is replaced by system ink.
     expect(fills).not.toContain('#2F6FD1');
     expect(
-      fills.some((f) => f === 'CanvasText' || f === 'GrayText' || f === 'Highlight' || f === 'Canvas'),
+      fills.some(
+        (f) => f === 'CanvasText' || f === 'GrayText' || f === 'Highlight' || f === 'Canvas',
+      ),
     ).toBe(true);
   });
 });
