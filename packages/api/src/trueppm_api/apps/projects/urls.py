@@ -60,6 +60,7 @@ from trueppm_api.apps.projects.views import (
     FlowMetricsView,
     LabelViewSet,
     MeActiveSprintsView,
+    MeRecentProjectsView,
     MeWorkView,
     MyApiTokenViewSet,
     PhaseReorderView,
@@ -653,6 +654,12 @@ urlpatterns = [
         "me/active-sprints/",
         MeActiveSprintsView.as_view(),
         name="me-active-sprints",
+    ),
+    # Recently-visited projects — ⌘K "Recent" group (ADR-0508, issue #1557)
+    path(
+        "me/recent-projects/",
+        MeRecentProjectsView.as_view(),
+        name="me-recent-projects",
     ),
     # My Work — contributor surface (ADR-0065 Gap 2, issue #499)
     path(

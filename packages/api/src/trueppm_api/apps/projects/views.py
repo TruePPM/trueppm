@@ -81,6 +81,7 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.access.services import transfer_project_ownership
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS_UNKNOWN
+from trueppm_api.apps.profiles.serializers import RecentProjectSerializer
 from trueppm_api.apps.projects.models import (
     _HISTORY_EXCLUDED_TASK,
     SCOPE_LEGACY_FULL,
@@ -11793,6 +11794,41 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
     def reject(self, request: Request, pk: str | None = None) -> Response:
         """Reject a single pending scope injection, removing the task from the sprint."""
         return self._act(request, pk, accept=False)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="The current user's recently-visited projects",
+        responses={200: RecentProjectSerializer(many=True)},
+    )
+)
+class MeRecentProjectsView(APIView):
+    """``GET /api/v1/me/recent-projects/`` — the ⌘K "Recent" group (ADR-0508, #1557).
+
+    Returns the caller's most recently *visited* projects (from the
+    :class:`~trueppm_api.apps.profiles.models.ProjectVisit` telemetry, ADR-0150),
+    newest-first, as a fixed navigation strip — default 5, hard max 10 via
+    ``?limit``. Not a search surface and not paginated.
+
+    **RBAC contract**: hard-scoped to ``request.user``'s own visit rows, and each
+    row is re-joined to live project membership in
+    ``services.recent_projects`` so a project the user lost access to (revoked
+    membership, archive, delete) never leaks its name from a stale visit. There is
+    no ``?user=`` escape hatch — the endpoint is per-user private telemetry, never
+    a cross-user surveillance surface (mirrors ``MeWorkView``).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        from trueppm_api.apps.profiles.services import recent_projects
+
+        try:
+            limit = int(request.query_params.get("limit", 5))
+        except (TypeError, ValueError):
+            limit = 5
+        visits = recent_projects(request.user, limit=limit)
+        return Response(RecentProjectSerializer(visits, many=True).data, status=status.HTTP_200_OK)
 
 
 @extend_schema_view(

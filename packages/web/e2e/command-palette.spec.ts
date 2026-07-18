@@ -118,6 +118,45 @@ test.describe('command palette', () => {
     await expect(page).toHaveURL(/\/resources\?q=Ann/);
   });
 
+  test('recent group: cold, surfaces recently-visited projects that jump to overview (#1557)', async ({
+    page,
+  }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECTS[0].id });
+    // Seed the Recent strip — a plain array, newest-first, with program breadcrumb.
+    await page.route('**/api/v1/me/recent-projects/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            id: 'cmdk-proj-borealis',
+            name: 'Borealis Platform',
+            program_id: 'prog-1',
+            program_name: 'Platform',
+            visited_at: '2026-05-03T12:00:00Z',
+          },
+        ]),
+      }),
+    );
+    await page.goto('/me/work'); // off-project, so the palette opens cold
+    await expect(page.getByRole('button', { name: /command palette/i })).toBeVisible();
+
+    await page.keyboard.press('Control+k');
+    const dialog = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(dialog).toBeVisible();
+
+    // Cold, the Recent group renders with its row (bare name + recency detail).
+    await expect(dialog.getByText('Recent', { exact: true })).toBeVisible();
+    const recentRow = dialog.getByRole('option', { name: /Borealis Platform.*Platform.*Project/ });
+    await expect(recentRow).toBeVisible();
+
+    // Selecting it navigates to the project overview.
+    await recentRow.click();
+    await expect(page).toHaveURL(/\/projects\/cmdk-proj-borealis\/overview/);
+  });
+
   test('jump-to-task opens the task drawer inline (no navigation)', async ({ page }) => {
     await setupAuth(page);
     await setupCatchAll(page);
