@@ -103,6 +103,10 @@ User = get_user_model()
 # was never batched (single retrieve / sync) and must compute its rollup on read.
 _ROLLUP_UNSET: Any = object()
 
+# Field-level validation message for endpoints/type fields that are immutable
+# after the row is created (e.g. task-relation source/target/relation_type).
+_IMMUTABLE_AFTER_CREATE = "cannot be changed after creation."
+
 
 class _UserSummarySerializer(serializers.ModelSerializer):  # type: ignore[type-arg]
     """Compact user payload nested inside Program/Project responses.
@@ -5259,13 +5263,11 @@ class TaskRelationSerializer(serializers.ModelSerializer[TaskRelation]):
         # never believe it moved a link.
         if self.instance is not None:
             if "source" in attrs and attrs["source"].pk != self.instance.source_id:
-                raise serializers.ValidationError({"source": "cannot be changed after creation."})
+                raise serializers.ValidationError({"source": _IMMUTABLE_AFTER_CREATE})
             if "target" in attrs and attrs["target"].pk != self.instance.target_id:
-                raise serializers.ValidationError({"target": "cannot be changed after creation."})
+                raise serializers.ValidationError({"target": _IMMUTABLE_AFTER_CREATE})
             if "relation_type" in attrs and attrs["relation_type"] != self.instance.relation_type:
-                raise serializers.ValidationError(
-                    {"relation_type": "cannot be changed after creation."}
-                )
+                raise serializers.ValidationError({"relation_type": _IMMUTABLE_AFTER_CREATE})
 
         # Reject a self-link (belt-and-braces with the DB CheckConstraint) — a task
         # cannot relate to itself.

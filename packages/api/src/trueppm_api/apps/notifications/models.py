@@ -27,6 +27,9 @@ from typing import Any
 from django.conf import settings
 from django.db import models
 
+# Lazy FK target — Django resolves the string, so no migration is produced.
+_PROJECT_MODEL = "projects.Project"
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -247,7 +250,7 @@ class Mention(models.Model):
     )
 
     project = models.ForeignKey(
-        "projects.Project",
+        _PROJECT_MODEL,
         on_delete=models.CASCADE,
         related_name="mentions",
     )
@@ -334,7 +337,7 @@ class Notification(models.Model):
     )
 
     project = models.ForeignKey(
-        "projects.Project",
+        _PROJECT_MODEL,
         on_delete=models.CASCADE,
         related_name="notifications",
     )
@@ -636,7 +639,7 @@ class ProjectNotificationPreference(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(
-        "projects.Project",
+        _PROJECT_MODEL,
         on_delete=models.CASCADE,
         related_name="notification_preferences_by_user",
     )

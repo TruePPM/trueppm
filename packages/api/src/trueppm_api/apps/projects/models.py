@@ -20,6 +20,11 @@ from simple_history.models import HistoricalRecords
 from trueppm_api.apps.scheduling.models import MCAttributionAudience
 from trueppm_api.fields import LtreeField
 
+# Lazy FK target for the several models pointing at Program. Django serializes
+# the FK target to this resolved string, so using the constant produces no
+# migration change.
+_PROGRAM_MODEL = "projects.Program"
+
 # Engine input bounds — mirror of trueppm_scheduler.engine.MAX_DURATION_DAYS /
 # MAX_LAG_DAYS (~100 years). Kept as local constants so loading models does not
 # pull numpy/networkx in through the scheduler engine (the engine is imported
@@ -1344,7 +1349,7 @@ class Project(VersionedModel):
     # Program membership is independent of project membership: a project member
     # is not implicitly a program member, and vice versa.
     program = models.ForeignKey(
-        "projects.Program",
+        _PROGRAM_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -5290,7 +5295,7 @@ class ApiToken(VersionedModel):
         "Exactly one of project/program is non-null (DB constraint).",
     )
     program = models.ForeignKey(
-        "projects.Program",
+        _PROGRAM_MODEL,
         on_delete=models.CASCADE,
         related_name="api_tokens",
         null=True,
@@ -5577,7 +5582,7 @@ class ApiTokenAuditEntry(models.Model):
         blank=True,
     )
     program = models.ForeignKey(
-        "projects.Program",
+        _PROGRAM_MODEL,
         on_delete=models.CASCADE,
         related_name="api_token_audit",
         null=True,
@@ -6600,7 +6605,7 @@ class ProgramExportJob(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     program = models.ForeignKey(
-        "projects.Program",
+        _PROGRAM_MODEL,
         on_delete=models.CASCADE,
         related_name="export_jobs",
     )

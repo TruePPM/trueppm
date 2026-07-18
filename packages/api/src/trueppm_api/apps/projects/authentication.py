@@ -25,6 +25,10 @@ TOKEN_PREFIX = "tppm_"
 TOKEN_RAW_HEX_LEN = 64  # SHA-256 hex digest length, also = raw token hex length
 TOKEN_TOTAL_LEN = len(TOKEN_PREFIX) + TOKEN_RAW_HEX_LEN  # 69
 
+# Deliberately generic 401 details — prevent enumeration of token states.
+_INVALID_TOKEN_HEADER_DETAIL = "Invalid token header."
+_INVALID_TOKEN_DETAIL = "Invalid token."
+
 
 def sha256_hex(raw: str) -> str:
     """Return the SHA-256 hex digest of the raw token (no salt; 256-bit entropy).
@@ -62,13 +66,13 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         if not auth or auth[0].lower() != self.keyword.lower().encode("ascii"):
             return None  # let other authenticators try (JWT, Session)
         if len(auth) == 1:
-            raise exceptions.AuthenticationFailed("Invalid token header.")
+            raise exceptions.AuthenticationFailed(_INVALID_TOKEN_HEADER_DETAIL)
         if len(auth) > 2:
-            raise exceptions.AuthenticationFailed("Invalid token header.")
+            raise exceptions.AuthenticationFailed(_INVALID_TOKEN_HEADER_DETAIL)
         try:
             raw_token = auth[1].decode("ascii")
         except UnicodeDecodeError as exc:
-            raise exceptions.AuthenticationFailed("Invalid token header.") from exc
+            raise exceptions.AuthenticationFailed(_INVALID_TOKEN_HEADER_DETAIL) from exc
 
         # A ``Bearer`` value that is not one of our ``tppm_``-prefixed tokens is
         # almost certainly a JWT (simplejwt also uses ``Bearer``). Defer to the
@@ -84,13 +88,13 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         # token indistinguishable from "valid prefix, unknown hash" (both return
         # 401 with no body), preventing enumeration of valid token prefixes.
         if len(raw_token) != TOKEN_TOTAL_LEN:
-            raise exceptions.AuthenticationFailed("Invalid token.")
+            raise exceptions.AuthenticationFailed(_INVALID_TOKEN_DETAIL)
 
         token_body = raw_token[len(TOKEN_PREFIX) :]
         try:
             int(token_body, 16)  # confirm it parses as hex; rejects arbitrary input
         except ValueError as exc:
-            raise exceptions.AuthenticationFailed("Invalid token.") from exc
+            raise exceptions.AuthenticationFailed(_INVALID_TOKEN_DETAIL) from exc
 
         # Expiry filter (ADR-0214): a Personal Access Token past its ``expires_at``
         # is treated as if it did not exist — no row, generic 401, no enumeration
@@ -117,7 +121,7 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
             # guessing; auditing those would be an unbounded, chain-locking DoS amplifier,
             # so it is deliberately not recorded.
             self._audit_identity_refusal(request, raw_token)
-            raise exceptions.AuthenticationFailed("Invalid token.")
+            raise exceptions.AuthenticationFailed(_INVALID_TOKEN_DETAIL)
 
         # last_used_at is updated in a single UPDATE so we don't perturb the
         # token's server_version or audit_history.  The audit row for the

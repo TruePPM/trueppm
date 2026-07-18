@@ -7,6 +7,10 @@ import uuid
 from django.conf import settings
 from django.db import models
 
+# Lazy FK target — Django serializes the FK target to this resolved string, so
+# using the constant produces no migration change.
+_PROJECT_MODEL = "projects.Project"
+
 
 class ScheduleRequestStatus(models.TextChoices):
     """Lifecycle of a transactional outbox row for CPM recalculation."""
@@ -53,7 +57,7 @@ class ScheduleRequest(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(
-        "projects.Project",
+        _PROJECT_MODEL,
         on_delete=models.CASCADE,
         related_name="schedule_requests",
     )
@@ -141,7 +145,7 @@ class FailedTask(models.Model):
     # Populated by ``deadletter.record_failed_task`` from whatever ``project_id``
     # the failing task already knew (most scheduling tasks take one as an arg).
     project = models.ForeignKey(
-        "projects.Project",
+        _PROJECT_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -320,7 +324,7 @@ class MonteCarloRun(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(
-        "projects.Project",
+        _PROJECT_MODEL,
         on_delete=models.CASCADE,
         related_name="monte_carlo_runs",
     )
@@ -414,7 +418,7 @@ class ProjectForecastSnapshot(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(
-        "projects.Project",
+        _PROJECT_MODEL,
         on_delete=models.CASCADE,
         related_name="project_forecast_snapshots",
     )

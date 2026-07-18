@@ -34,6 +34,10 @@ from trueppm_api.apps.projects.share_serializers import (
 )
 from trueppm_api.apps.projects.sharing_settings import resolve_effective_sharing
 
+# Uniform 404 detail — the kill switch, an unknown token, and a policy-disabled
+# link must all be indistinguishable to the recipient.
+_LINK_UNAVAILABLE_DETAIL = "This share link isn't available."
+
 
 class ShareLinkMintThrottle(UserRateThrottle):
     """Caps how fast one account can mint share links (bounds link-spraying)."""
@@ -194,14 +198,14 @@ def _serve_public_share(
     # retroactively disable every existing link while off).
     if not _sharing_enabled():
         return Response(
-            {"detail": "This share link isn't available."},
+            {"detail": _LINK_UNAVAILABLE_DETAIL},
             status=status.HTTP_404_NOT_FOUND,
         )
 
     link = share_services.resolve_share_link(token, content_kind)
     if link is None:
         return Response(
-            {"detail": "This share link isn't available."},
+            {"detail": _LINK_UNAVAILABLE_DETAIL},
             status=status.HTTP_404_NOT_FOUND,
         )
     if link.revoked_at is not None:
@@ -221,7 +225,7 @@ def _serve_public_share(
         # (or an ancestor) after the link was minted — stop resolving it, uniform
         # 404 like the instance kill switch.
         return Response(
-            {"detail": "This share link isn't available."},
+            {"detail": _LINK_UNAVAILABLE_DETAIL},
             status=status.HTTP_404_NOT_FOUND,
         )
 

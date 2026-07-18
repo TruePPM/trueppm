@@ -52,6 +52,9 @@ from trueppm_api.apps.projects.services import upsert_burndown_for_sprint
 
 logger = logging.getLogger(__name__)
 
+# Seed-script beat action key for board-column moves.
+_TASK_STATUS_ACTION = "task.status"
+
 # Forward progression of the board. The synthesizer walks a task from its base
 # column up to its authored final column through this sequence, so every
 # in-flight/done task passes through IN_PROGRESS (a hollow burndown is the bug
@@ -236,7 +239,7 @@ def _synthesize_tasks(ctx: ReplayContext, authored: list[_Beat]) -> list[_Beat]:
     evenly-spaced, seeded dates within its window. Deterministic: a fixed seed per
     (program, wbs) means re-import and round-trip reproduce the same history.
     """
-    authored_status_targets = {b.target for b in authored if b.action == "task.status"}
+    authored_status_targets = {b.target for b in authored if b.action == _TASK_STATUS_ACTION}
     out: list[_Beat] = []
     for key, task in ctx.tasks.items():
         project_slug, wbs = key
@@ -264,7 +267,7 @@ def _synthesize_tasks(ctx: ReplayContext, authored: list[_Beat]) -> list[_Beat]:
                 _Beat(
                     when=when,
                     order=1_000_000 + n,  # synthetic beats sort after same-instant authored
-                    action="task.status",
+                    action=_TASK_STATUS_ACTION,
                     target=target,
                     actor=actor,
                     data={"to": status},
@@ -678,7 +681,7 @@ def _sprint_key(ctx: ReplayContext, sprint: Sprint) -> tuple[str, str]:
 
 
 _HANDLERS = {
-    "task.status": _apply_task_status,
+    _TASK_STATUS_ACTION: _apply_task_status,
     "task.assign": _apply_task_assign,
     "task.estimate": _apply_task_estimate,
     "task.points": _apply_task_points,

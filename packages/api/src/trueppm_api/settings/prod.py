@@ -28,6 +28,9 @@ env = environ.Env()
 
 DEBUG = False
 
+# Prefix for every import-time boot-guard failure below.
+_REFUSING_TO_START = "Refusing to start: "
+
 # Force single-line JSON logs in production so a collector (Loki/ELK/CloudWatch)
 # can index each record's fields — including the OTel trace_id/span_id/request_id
 # the filter injects (ADR-0223, #1899) — for log-to-trace correlation. The base
@@ -45,7 +48,7 @@ SECRET_KEY = env("SECRET_KEY")  # required; no default in prod
 # raised at settings import time to actually stop a broken deploy.
 _secret_key_errors = validate_secret_key(SECRET_KEY, debug=DEBUG)
 if _secret_key_errors:
-    raise RuntimeError("Refusing to start: " + "; ".join(str(e.msg) for e in _secret_key_errors))
+    raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _secret_key_errors))
 
 # Persistent connections for production load.
 DATABASES["default"]["CONN_MAX_AGE"] = 600
@@ -75,7 +78,7 @@ _storage_errors = validate_attachment_storage(
     allow_local=ALLOW_LOCAL_ATTACHMENT_STORAGE,
 )
 if _storage_errors:
-    raise RuntimeError("Refusing to start: " + "; ".join(str(e.msg) for e in _storage_errors))
+    raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _storage_errors))
 
 # Refuse to boot without a valid integration encryption key (#1002). The key
 # encrypts integration PATs at rest; without this guard a missing/malformed key
@@ -85,9 +88,7 @@ _integration_key_errors = validate_integration_encryption_key(
     INTEGRATION_ENCRYPTION_KEY, debug=DEBUG
 )
 if _integration_key_errors:
-    raise RuntimeError(
-        "Refusing to start: " + "; ".join(str(e.msg) for e in _integration_key_errors)
-    )
+    raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _integration_key_errors))
 
 # Refuse to boot when DATABASE_URL has no sslmode parameter in a non-DEBUG
 # deployment (#1550). Without sslmode=require the connection falls back to
