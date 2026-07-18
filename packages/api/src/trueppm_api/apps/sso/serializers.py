@@ -193,24 +193,7 @@ class SsoProviderWriteSerializer(serializers.Serializer[SsoProviderPolicy]):
         # half-configured provider that would fail at the first login.
         enabled = attrs.get("enabled", getattr(instance, "enabled", False))
         if enabled:
-            client_id = attrs.get("client_id") or self._current_client_id()
-            has_secret = bool(attrs.get("client_secret")) or bool(
-                getattr(instance, "secret_set", False)
-            )
-            domains = attrs.get(
-                "allowed_email_domains", getattr(instance, "allowed_email_domains", [])
-            )
-            server_url = attrs.get("server_url") or self._current_server_url()
-            missing = []
-            if not client_id:
-                missing.append("client_id")
-            if not has_secret:
-                missing.append("client_secret")
-            if not domains:
-                missing.append("allowed_email_domains")
-            # OIDC needs an issuer; GitHub derives its endpoints from constants.
-            if not is_github and not server_url:
-                missing.append("server_url")
+            missing = self._missing_enable_requirements(attrs, is_github=is_github)
             if missing:
                 raise serializers.ValidationError(
                     {
@@ -220,6 +203,33 @@ class SsoProviderWriteSerializer(serializers.Serializer[SsoProviderPolicy]):
                     }
                 )
         return attrs
+
+    def _missing_enable_requirements(self, attrs: dict[str, Any], *, is_github: bool) -> list[str]:
+        """Names of required config still absent when the client wants SSO enabled.
+
+        Enabling refuses a half-configured provider, so this collects every
+        required field that is neither in ``attrs`` nor already stored on the
+        instance. GitHub derives its endpoints from constants and so is exempt
+        from the issuer (``server_url``) requirement.
+        """
+        instance = self.instance
+        client_id = attrs.get("client_id") or self._current_client_id()
+        has_secret = bool(attrs.get("client_secret")) or bool(
+            getattr(instance, "secret_set", False)
+        )
+        domains = attrs.get("allowed_email_domains", getattr(instance, "allowed_email_domains", []))
+        server_url = attrs.get("server_url") or self._current_server_url()
+        missing: list[str] = []
+        if not client_id:
+            missing.append("client_id")
+        if not has_secret:
+            missing.append("client_secret")
+        if not domains:
+            missing.append("allowed_email_domains")
+        # OIDC needs an issuer; GitHub derives its endpoints from constants.
+        if not is_github and not server_url:
+            missing.append("server_url")
+        return missing
 
     def _current_client_id(self) -> str:
         return self.instance.social_app.client_id if self.instance is not None else ""

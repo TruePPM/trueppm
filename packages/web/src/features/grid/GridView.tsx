@@ -239,6 +239,24 @@ export function GridView() {
     setDeletePhase('confirming');
   }, [selectedIds, projectId]);
 
+  // Faithful bulk restore (#2078): each task (and its subtree/deps/assignments)
+  // comes back under its original id, so the delete is genuinely undoable. Hoisted
+  // out of the delete toast's `onUndo` closure to keep that handler flat.
+  const handleUndoBulkDelete = useCallback(
+    (ids: string[], count: number) => {
+      bulkRestore.mutate(ids, {
+        onSuccess: () =>
+          setToast({
+            text: `${count} task${count !== 1 ? 's' : ''} restored.`,
+            isError: false,
+          }),
+        onError: () =>
+          setToast({ text: "Couldn't restore tasks — try again.", isError: true }),
+      });
+    },
+    [bulkRestore],
+  );
+
   const handleConfirmDelete = useCallback(() => {
     const ids = [...selectedIds];
     const count = ids.length;
@@ -247,23 +265,10 @@ export function GridView() {
       onSuccess: () => {
         clearSelection();
         setDeletePhase('idle');
-        // Faithful bulk restore (#2078): each task (and its subtree/deps/assignments)
-        // comes back under its original id, so the delete is genuinely undoable now —
-        // the old "can't be undone" warning is gone.
         setToast({
           text: `${count} task${count !== 1 ? 's' : ''} deleted.`,
           isError: false,
-          onUndo: () => {
-            bulkRestore.mutate(ids, {
-              onSuccess: () =>
-                setToast({
-                  text: `${count} task${count !== 1 ? 's' : ''} restored.`,
-                  isError: false,
-                }),
-              onError: () =>
-                setToast({ text: "Couldn't restore tasks — try again.", isError: true }),
-            });
-          },
+          onUndo: () => handleUndoBulkDelete(ids, count),
         });
       },
       onError: () => {
@@ -271,7 +276,7 @@ export function GridView() {
         setToast({ text: "Couldn't delete tasks — try again.", isError: true });
       },
     });
-  }, [selectedIds, bulkDelete, bulkRestore, clearSelection]);
+  }, [selectedIds, bulkDelete, clearSelection, handleUndoBulkDelete]);
 
   // TaskFormModal state — opened from "+ Task" or "+ Child" toolbar buttons.
   const [showAddForm, setShowAddForm] = useState(false);
