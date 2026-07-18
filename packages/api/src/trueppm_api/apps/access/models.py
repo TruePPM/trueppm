@@ -11,6 +11,13 @@ from django.utils import timezone
 
 from trueppm_api.apps.projects.models import VersionedModel
 
+# The three program-scoped models below (ProgramMembership,
+# ProgramUserDefinedMentionGroup, ExternalStakeholder) all point their `program`
+# ForeignKey at the same target. Naming it once keeps the app-label reference in
+# a single place. Django serializes the FK target to this resolved string, so
+# using the constant produces no migration change.
+_PROGRAM_MODEL = "projects.Program"
+
 
 class Role(models.IntegerChoices):
     """Project-scoped roles, ordered by privilege level (ADR-0072).
@@ -134,7 +141,7 @@ class ProgramMembership(VersionedModel):
     """
 
     program = models.ForeignKey(
-        "projects.Program",
+        _PROGRAM_MODEL,
         on_delete=models.PROTECT,
         related_name="memberships",
     )
@@ -282,7 +289,7 @@ class ProgramUserDefinedMentionGroup(VersionedModel):
     """
 
     program = models.ForeignKey(
-        "projects.Program",
+        _PROGRAM_MODEL,
         on_delete=models.PROTECT,
         related_name="mention_groups",
     )
@@ -360,7 +367,7 @@ class ExternalStakeholder(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     program = models.ForeignKey(
-        "projects.Program",
+        _PROGRAM_MODEL,
         on_delete=models.CASCADE,
         related_name="external_stakeholders",
     )
