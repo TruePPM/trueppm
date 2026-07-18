@@ -277,6 +277,11 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 #   (refreshes submitted_at), DELETE is idempotent (204 even when no marker exists). A replay
 #   converges to the same submitted/un-submitted state — the same naturally-idempotent per-user
 #   settings-toggle shape as auth-me-profile, with no replayable resource to dedup.
+# - telemetry-test-export (telemetry_test_export POST, ADR-0223 / #2110) is a read-only diagnostic
+#   probe: it emits one synthetic canary span (or runs a bounded TCP reachability check) through a
+#   one-off exporter and reports the outcome. It ignores the request body, mutates no persisted
+#   state, and always responds 200 — replaying it just sends another canary, so there is no
+#   replayable resource to dedup; abuse is bounded by the scoped `telemetry_test` throttle.
 EXEMPT_URL_NAMES = frozenset(
     {
         "project-schedule",
@@ -302,6 +307,7 @@ EXEMPT_URL_NAMES = frozenset(
         "poker-cancel",
         "auth-me-profile",
         "me-timesheet-submit",
+        "telemetry-test-export",
     }
 )
 
