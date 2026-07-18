@@ -4675,7 +4675,7 @@ class TaskViewSet(
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        if pk is None or suggestion_pk is None:
+        if pk is None or suggestion_pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         suggestion = (
             TaskSuggestedAssignee.objects.select_related("task")
@@ -4791,7 +4791,7 @@ class TaskViewSet(
             TaskSuggestedAssignee,
         )
 
-        if pk is None or suggestion_pk is None:
+        if pk is None or suggestion_pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         suggestion = (
             TaskSuggestedAssignee.objects.select_related("task")
@@ -4870,7 +4870,7 @@ class TaskViewSet(
             TaskSuggestedAssignee,
         )
 
-        if pk is None or suggestion_pk is None:
+        if pk is None or suggestion_pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         suggestion = (
             TaskSuggestedAssignee.objects.select_related("task")
@@ -10364,7 +10364,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        if pk is None:
+        if pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         with transaction.atomic():
             sprint = (
@@ -10555,7 +10555,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         """
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        if pk is None:
+        if pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         with transaction.atomic():
             sprint = Sprint.objects.select_for_update().filter(pk=pk, is_deleted=False).first()
@@ -10620,7 +10620,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             promote_sprint_to_milestone,
         )
 
-        if pk is None:
+        if pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         body = PromoteToMilestoneRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -10638,7 +10638,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 .filter(pk=pk, is_deleted=False)
                 .first()
             )
-            if sprint is None:
+            if sprint is None:  # pragma: no cover - sprint resolved by permission gate
                 return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
             self.check_object_permissions(request, sprint)
             try:
@@ -10681,7 +10681,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         """
         from trueppm_api.apps.projects.services import unbind_sprint_milestone
 
-        if pk is None:
+        if pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         with transaction.atomic():
             sprint = (
@@ -10694,7 +10694,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 .filter(pk=pk, is_deleted=False)
                 .first()
             )
-            if sprint is None:
+            if sprint is None:  # pragma: no cover - sprint resolved by permission gate
                 return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
             self.check_object_permissions(request, sprint)
             sprint = unbind_sprint_milestone(sprint)
@@ -10727,10 +10727,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         """
         from trueppm_api.apps.projects.services import MilestoneNotFound, reforecast_preview
 
-        if pk is None:
+        if pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         sprint = Sprint.objects.select_related("project").filter(pk=pk, is_deleted=False).first()
-        if sprint is None:
+        if sprint is None:  # pragma: no cover - sprint resolved by permission gate
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         self.check_object_permissions(request, sprint)
         milestone_id = request.query_params.get("milestone_id") or None
@@ -11816,7 +11816,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         )
         from trueppm_api.apps.projects.serializers import TaskSerializer
 
-        if pk is None or item_pk is None:
+        if pk is None or item_pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         sprint = get_object_or_404(
             Sprint.objects.select_related("project"),
@@ -11891,7 +11891,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         )
         from trueppm_api.apps.projects.serializers import TaskSerializer
 
-        if pk is None or item_pk is None:
+        if pk is None or item_pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         sprint = get_object_or_404(
             Sprint.objects.select_related("project"),
