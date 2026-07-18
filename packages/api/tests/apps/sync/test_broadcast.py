@@ -190,6 +190,40 @@ def test_project_hard_deleted_is_not_persisted(replay_project: Any) -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "program_split",
+        "program_deleted",
+        "program_closed",
+        "program_reopened",
+        "program_sponsorship_transferred",
+    ],
+)
+def test_program_scoped_events_are_not_persisted(event_type: str) -> None:
+    """Program lifecycle events fan out on a *program*'s WS group, passing the Program
+    pk as project_id. A Program pk is never a projects.Project pk, so persisting a
+    BoardEvent for one always violates the Project FK at COMMIT → unhandled 500 (#2126).
+    They must be denylisted like project_hard_deleted: broadcast live, never buffered,
+    and — critically — never attempt the FK insert. Using a random uuid (no Project row)
+    proves no insert is issued (an insert would raise, not merely miss)."""
+    import uuid
+
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    program_id = str(uuid.uuid4())  # deliberately NOT a Project pk
+    layer = _FakeChannelLayer()
+    with patch(_GET_LAYER, return_value=layer):
+        # Must not raise IntegrityError despite program_id having no Project row.
+        broadcast_board_event(program_id, event_type, {"id": program_id})
+
+    assert BoardEvent.objects.filter(project_id=program_id).count() == 0
+    _group, message = layer.sent[0]
+    assert message["event_type"] == event_type
+    assert message["seq"] is None  # not buffered → no replay sequence
+
+
+@pytest.mark.django_db
 def test_broadcast_swallows_persist_failure_and_still_sends(replay_project: Any) -> None:
     """A BoardEvent insert failure is logged, not raised; the live event still goes out."""
     layer = _FakeChannelLayer()

@@ -834,6 +834,17 @@ def test_split_program_rejects_empty_payload(owner: object, program: Program) ->
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("body", ["just a string", ["splits"], 7])
+def test_split_program_rejects_non_object_body(
+    owner: object, program: Program, body: object
+) -> None:
+    """A non-object JSON body (string/list/scalar) has no ``.get`` — the action must
+    return 400, not raise AttributeError → 500 (#2126 class 2)."""
+    resp = _client(owner).post(f"/api/v1/programs/{program.pk}/split/", body, format="json")
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
 def test_split_program_rejects_malformed_entry(owner: object, program: Program) -> None:
     resp = _client(owner).post(
         f"/api/v1/programs/{program.pk}/split/",

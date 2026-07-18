@@ -116,7 +116,12 @@ class LoginAccountRateThrottle(SimpleRateThrottle):
         throttle still applies to those. Reading ``request.data`` here parses the
         request body once (DRF caches it), which is safe inside ``check_throttles``.
         """
-        username = request.data.get("username") if hasattr(request, "data") else None
+        # ``hasattr(request, "data")`` alone is insufficient: a non-object JSON body
+        # (list/str/scalar) makes ``request.data`` a non-dict with no ``.get``, which
+        # would raise AttributeError inside check_throttles → 500 before the login
+        # serializer ever runs (#2126). A non-object body carries no username, so
+        # treat it as "no username" → skip this throttle (the IP throttle still bites).
+        username = request.data.get("username") if isinstance(request.data, dict) else None
         if not username:
             return None
         normalized = str(username).strip().lower()

@@ -131,6 +131,25 @@ def test_login_account_throttle_keys_on_username_not_shared() -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("body", [["not", "an", "object"], "scalar-string", 123])
+def test_login_endpoint_rejects_non_object_body_without_500(body: object) -> None:
+    """A non-object JSON body must not crash the login path (#2126 class 2).
+
+    The account-keyed throttle runs in ``check_throttles`` *before* the serializer
+    and reads ``request.data.get("username")``. A list/str/scalar body has no
+    ``.get``; the pre-fix code raised AttributeError inside the throttle → 500. It
+    must instead skip the account throttle (no username) and let the serializer
+    reject the shape as a normal 400 (Expected a dictionary). Never 500."""
+    cache.clear()
+    try:
+        resp = APIClient().post(_LOGIN_URL, body, format="json", REMOTE_ADDR="203.0.113.42")
+        assert resp.status_code != 500
+        assert resp.status_code == 400
+    finally:
+        cache.clear()
+
+
+@pytest.mark.django_db
 def test_failed_login_emits_auth_failure_audit_event(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
