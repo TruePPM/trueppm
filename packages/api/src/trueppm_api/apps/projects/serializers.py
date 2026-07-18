@@ -5266,7 +5266,7 @@ class TaskRelationSerializer(serializers.ModelSerializer[TaskRelation]):
 # keys so new projects render the brand semantic palette without a settings round-trip.
 # `age_threshold_days` defaults to None (= "use the client's per-status default"), so an
 # unconfigured board keeps the existing aging behavior (#192) until a team tunes it (#410).
-_DEFAULT_COLUMNS = [
+_DEFAULT_COLUMNS = [  # codeql[py/unused-global-variable] -- imported by projects.views
     {
         "status": "BACKLOG",
         "label": "Backlog",

@@ -3412,10 +3412,16 @@ class BoardColumnConfig(models.Model):
 # Board saved views (#191)
 # ---------------------------------------------------------------------------
 
-_VALID_SORT_KEYS = frozenset({"priority", "start_date", "percent_complete"})
-_VALID_EVM_MODES = frozenset({"off", "spi", "cpi", "both"})
-_VALID_PRIORITY_BANDS = frozenset({"high", "medium", "low", "unranked"})
-_VALID_DUE_WINDOWS = frozenset({"overdue", "this_week"})
+# These four are imported by projects.serializers for saved-view config validation;
+# CodeQL's py/unused-global-variable does not track cross-module imports (#2067).
+_VALID_SORT_KEYS = frozenset(  # codeql[py/unused-global-variable]
+    {"priority", "start_date", "percent_complete"}
+)
+_VALID_EVM_MODES = frozenset({"off", "spi", "cpi", "both"})  # codeql[py/unused-global-variable]
+_VALID_PRIORITY_BANDS = frozenset(  # codeql[py/unused-global-variable]
+    {"high", "medium", "low", "unranked"}
+)
+_VALID_DUE_WINDOWS = frozenset({"overdue", "this_week"})  # codeql[py/unused-global-variable]
 
 
 class BoardSavedView(models.Model):
