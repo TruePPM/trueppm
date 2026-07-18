@@ -284,7 +284,9 @@ test.describe('Board view', () => {
     await expect(dialog.getByLabel('Sprint')).toHaveCount(0);
 
     await dialog.getByLabel('Task name *').fill('Estimated waterfall task');
-    await dialog.getByLabel('Pts').fill('8');
+    // Points are now a scale-aware <select> (ADR-0510, #2027) — pick, don't fill.
+    // No effective_estimation_scale mock → falls back to Fibonacci, where 8 is valid.
+    await dialog.getByLabel('Pts').selectOption('8');
 
     const [request] = await Promise.all([
       page.waitForRequest((r) => r.url().includes('/api/v1/tasks/') && r.method() === 'POST'),

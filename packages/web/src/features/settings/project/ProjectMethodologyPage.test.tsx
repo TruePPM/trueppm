@@ -93,8 +93,10 @@ describe('ProjectMethodologyPage', () => {
     renderPage();
 
     expect(screen.getByText(/requires every project to use its default methodology/i)).toBeInTheDocument();
-    // Locked: no interactive radios — the workspace-resolved value (Waterfall) shows read-only.
-    expect(screen.queryByRole('radio')).toBeNull();
+    // Locked: no interactive methodology-option radios — the workspace-resolved value
+    // (Waterfall) shows read-only. (The independent estimation-scale control below has
+    // its own Inherit/Override radios; scope the assertion to the methodology cards.)
+    expect(screen.queryByRole('radio', { name: /Waterfall|Agile|Hybrid/i })).toBeNull();
     expect(
       screen.getByLabelText('Methodology: Waterfall, locked by workspace policy. View only.'),
     ).toBeInTheDocument();
@@ -155,8 +157,9 @@ describe('ProjectMethodologyPage', () => {
     renderPage();
 
     // The methodology picker is locked read-only by workspace policy (ADR-0133):
-    // no disabled radios — effective value + provenance instead.
-    expect(screen.queryByRole('radio')).toBeNull();
+    // no disabled radios — effective value + provenance instead. (Scope past the
+    // estimation-scale control's own Inherit/Override radios.)
+    expect(screen.queryByRole('radio', { name: /Waterfall|Agile|Hybrid/i })).toBeNull();
     expect(
       screen.getByLabelText('Methodology: Agile, locked by workspace policy. View only.'),
     ).toBeInTheDocument();

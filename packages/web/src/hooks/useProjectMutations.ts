@@ -3,6 +3,7 @@ import { apiClient } from '@/api/client';
 import type {
   DurationChangePercentPolicy,
   EstimationMode,
+  EstimationScale,
   MCAttributionAudience,
   PaginatedResponse,
   PrioritizationModel,
@@ -121,6 +122,12 @@ export interface UpdateProjectPayload {
    * (in the serializer `_SCHEDULER_WRITABLE_FIELDS` allowlist alongside methodology).
    */
   estimation_mode?: EstimationMode;
+  /**
+   * Estimation-scale override (ADR-0510, #2027). `null` clears the override so the
+   * project inherits the program/workspace scale. Scheduler+-writable server-side
+   * (in the serializer `_SCHEDULER_WRITABLE_FIELDS` allowlist alongside methodology).
+   */
+  estimation_scale?: EstimationScale | null;
   /**
    * Iteration-container label override (ADR-0111/0116). Singular noun, ≤32 chars;
    * `null` clears the override so the project inherits the program/workspace default.

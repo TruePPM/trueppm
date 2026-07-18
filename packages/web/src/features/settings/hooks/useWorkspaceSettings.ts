@@ -3,6 +3,7 @@ import { apiClient } from '@/api/client';
 import type {
   CalendarOverridePolicy,
   DurationChangePercentPolicy,
+  EstimationScale,
   MCAttributionAudience,
   MCHistoryOverridePolicy,
   MethodologyOverridePolicy,
@@ -35,6 +36,7 @@ interface WorkspaceSettingsRaw {
   mc_history_override_policy: MCHistoryOverridePolicy;
   task_duration_change_percent_policy: DurationChangePercentPolicy;
   task_duration_change_percent_override_policy: 'inherit' | 'suggest' | 'enforce';
+  estimation_scale: EstimationScale;
   methodology: ProgramMethodology;
   methodology_override_policy: MethodologyOverridePolicy;
   attachments_enabled: boolean;
@@ -67,6 +69,7 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     mcHistoryOverridePolicy: raw.mc_history_override_policy,
     taskDurationChangePercentPolicy: raw.task_duration_change_percent_policy,
     taskDurationChangePercentOverridePolicy: raw.task_duration_change_percent_override_policy,
+    estimationScale: raw.estimation_scale,
     methodology: raw.methodology,
     methodologyOverridePolicy: raw.methodology_override_policy,
     attachmentsEnabled: raw.attachments_enabled,
