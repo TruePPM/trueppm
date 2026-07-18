@@ -6,7 +6,7 @@
  *   2. Close sprint dialog → carry-over picker → confirm.
  *   3. Timeline "Activate →" on the last planned card → POST /activate/.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-sprint-buttons-00000000-0000-0000-0000-00000071';
 const ROUTE = `/projects/${PROJECT_ID}/sprints`;

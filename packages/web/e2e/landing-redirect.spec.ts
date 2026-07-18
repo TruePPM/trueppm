@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 
 /**
  * E2E coverage for the role-based app front door (ADR-0129, issue #1181).

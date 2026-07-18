@@ -9,7 +9,7 @@
  * The acceptance here is that the real pipeline produces a valid multi-page download
  * without throwing or hanging; the page-break math itself is unit-tested.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-schedpag-0000-0000-0000-000000001694';

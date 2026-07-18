@@ -13,7 +13,7 @@
  * consent-aware toast (accepted vs pending), and a standalone project shows no
  * toggle (regression).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROGRAM_ID = 'e2e-prog-00000000-0000-0000-0000-000000001150';

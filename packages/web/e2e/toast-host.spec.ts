@@ -5,7 +5,7 @@
  * deterministically by the ToastHost + toastStore unit tests; this spec asserts
  * the end-to-end wiring in the real shell.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-toast-00000000-0000-0000-0000-000000001225';

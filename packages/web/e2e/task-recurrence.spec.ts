@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 
 /**
  * E2E coverage for the recurrence drawer section (#738 / ADR-0090).

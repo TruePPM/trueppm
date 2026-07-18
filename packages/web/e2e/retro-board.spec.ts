@@ -6,7 +6,7 @@
  * while a reader above the pulse audience (the PM band → gated trend) sees ONLY
  * the "kept private" wall — never a count, poll, or teaser.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-retro-board-0000-0000-0000-000000000851';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;

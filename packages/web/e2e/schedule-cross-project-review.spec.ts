@@ -11,7 +11,7 @@
  * panel, and Accept POSTs the accept action and clears the banner (stateful
  * mock). Gate: a Member sees the banner but the controls are disabled.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-xproj-0000-0000-0000-000000001480';

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * E2E for the Unscheduled gutter filter rules — originally introduced in

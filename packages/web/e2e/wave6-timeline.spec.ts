@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * Wave 6 — Resource allocation timeline (issue #164, ADR-0031).

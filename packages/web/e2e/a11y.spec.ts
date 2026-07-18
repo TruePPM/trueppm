@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 import { expectNoA11yViolations, setupApiMocks, setupAuth, setupCatchAll } from './fixtures';
 

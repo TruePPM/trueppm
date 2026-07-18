@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Locator } from '@playwright/test';
+import { test, expect, type Page, type Locator } from './fixtures/coverage';
 
 /**
  * E2E coverage for the Subtasks drawer section (ADR-0060 #308).

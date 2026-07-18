@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * Public read-only board share viewer E2E (#283, ADR-0245).

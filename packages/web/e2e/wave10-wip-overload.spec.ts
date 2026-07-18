@@ -5,7 +5,7 @@
  * headers, and that moving a task into a column over its WIP limit triggers
  * the confirm prompt.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-wip-00000000-0000-0000-0000-000000000070';

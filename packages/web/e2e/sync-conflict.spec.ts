@@ -9,7 +9,7 @@
  * silent data loss. We drive one browser and mock the *other* PM's write as the
  * server response (200 merge / 409 conflict), which is the deterministic seam.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import type { Page, Route } from '@playwright/test';
 
 const FIXTURE_PROJECT_ID = 'e2e-322-00000000-0000-0000-0000-000000000322';

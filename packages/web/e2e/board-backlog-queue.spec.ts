@@ -10,7 +10,7 @@
  * Drag-from-row is intentionally out of scope for v1 (queue is read/sort only),
  * so the spec asserts only structural rendering, not row mutations.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-bq-00000000-0000-0000-0000-000000000384';

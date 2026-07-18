@@ -13,7 +13,7 @@
  * `useIsCoarsePointer()` reports true. Desktop specs run at Desktop Chrome
  * (fine pointer) and see today's exact DOM — the promotion is gated off there.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });

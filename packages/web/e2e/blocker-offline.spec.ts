@@ -11,7 +11,7 @@
  * rather than failing requests — exactly how a real dead zone behaves: the app
  * declines to send rather than the socket erroring.
  */
-import { test, expect, type Page, type Locator } from '@playwright/test';
+import { test, expect, type Page, type Locator } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-blkoff-0000-0000-0000-000000001159';

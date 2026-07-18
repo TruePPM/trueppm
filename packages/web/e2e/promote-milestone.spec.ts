@@ -8,7 +8,7 @@
  * the component unit spec (PromoteMilestoneDialog.test.tsx); they are not
  * reachable from this empty-state opener (the card only shows it when unbound).
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-promote-0000-0000-0000-000000000106';

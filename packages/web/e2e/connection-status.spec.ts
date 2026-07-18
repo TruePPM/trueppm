@@ -8,7 +8,7 @@
  * hook → wsConnectionStore → StatusBar wiring in a real browser; the exact
  * state transitions are unit-tested in wsConnectionStore.test.ts.
  */
-import { test, expect, type WebSocketRoute } from '@playwright/test';
+import { test, expect, type WebSocketRoute } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-ws-00000000-0000-0000-0000-000000000643';

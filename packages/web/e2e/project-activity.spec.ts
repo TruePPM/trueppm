@@ -7,7 +7,7 @@
  *
  * The changelog read API is mocked; rows render in a real browser.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-changelog-0000-0000-0000-000000000371';

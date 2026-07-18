@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * Authentication E2E flows — login form happy path and error handling.

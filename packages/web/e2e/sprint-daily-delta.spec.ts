@@ -3,7 +3,7 @@
  * "what changed since yesterday" panel populated from /sprints/{id}/daily-delta/:
  * moved cards, new blockers, scope, burndown swing, and a per-actor at-a-glance.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 const PROJECT_ID = 'e2e-daily-delta-0000-0000-0000-000000000925';

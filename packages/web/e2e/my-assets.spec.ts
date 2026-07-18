@@ -8,7 +8,7 @@
  * shell + auth come from the shared fixtures, and the catch-all 401-guard keeps
  * no unmocked request from tripping the session-expired modal.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FEED = {

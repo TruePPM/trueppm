@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * Smoke tests — verify the app shell loads and key structural elements are present.

@@ -12,7 +12,7 @@
  * The deep edit/keyboard-drag flows of Outline mode are covered by the vitest
  * unit suite (jsdom does not exercise @dnd-kit drag at e2e fidelity reliably).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const FIXTURE_PROJECT_ID = 'e2e-grid-00000000-0000-0000-0000-000000000334';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;

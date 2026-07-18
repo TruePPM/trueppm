@@ -4,7 +4,7 @@
  * Search: typing dims non-matches, shows a count chip, mirrors to ?q=, and clears.
  * Zoom: the stepper changes the level and persists across a reload.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-findfit-0000-0000-0000-000000000010';

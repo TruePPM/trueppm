@@ -9,7 +9,7 @@
  * Here we simulate the post-delete server state by returning 404 for the
  * project detail and assert the gate renders ProjectNotFound with a way back.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const DELETED_PROJECT_ID = 'e2e-deleted-0000-0000-0000-000000001111';

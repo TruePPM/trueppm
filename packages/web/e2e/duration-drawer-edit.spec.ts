@@ -14,7 +14,7 @@
  * shared TaskDetailDrawer directly, no canvas hit-testing / drag layer). Mock
  * scaffold mirrors e2e/task-drawer-estimate-batch.spec.ts.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 const PROJECT_ID = 'e2e-dur-edit-00000000-0000-0000-0000-000000002106';

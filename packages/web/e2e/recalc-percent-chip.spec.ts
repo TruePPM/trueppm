@@ -5,7 +5,7 @@
  * the edit with the prorated percent_complete. Suppressed path: on a coarse
  * pointer (mobile web) the chip never appears — `confirm` behaves as `keep`.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-recalc-00000000-0000-0000-0000-000000001254';

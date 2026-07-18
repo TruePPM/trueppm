@@ -4,7 +4,7 @@
  * Verifies that the active sprint's tasks render below the cadence strip,
  * grouped by board status with CP flags and the open-in-board link wired.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-sprints-backlog-00000000-0000-0000-0000-000000000030';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;

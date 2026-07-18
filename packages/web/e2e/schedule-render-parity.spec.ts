@@ -13,7 +13,7 @@
  * The ⌘M shortcut is exercised at the unit layer (useScheduleKeyboard tests)
  * because Playwright's keyboard.press('Meta+M') has cross-OS quirks.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-render-00000000-0000-0000-0000-000000000248';

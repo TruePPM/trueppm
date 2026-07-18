@@ -13,7 +13,7 @@
  * its real shape (per the repo's catch-all-mock caveat) and interactions are
  * gated on a "page rendered" signal before the FAB is touched.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-mfab-0000-0000-0000-000000000020';

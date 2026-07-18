@@ -14,7 +14,7 @@
  * re-authenticating. It exercises the full flow: expire → view cached content
  * → attempt a write → re-auth prompt.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-session-00000000-0000-0000-0000-000000000001';

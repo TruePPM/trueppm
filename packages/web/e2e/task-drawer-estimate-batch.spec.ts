@@ -19,7 +19,7 @@
  * navigates directly to the full-page route (mirroring
  * e2e/task-detail-expand.spec.ts's direct-URL approach).
  */
-import { test, expect, type Page, type Request } from '@playwright/test';
+import { test, expect, type Page, type Request } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 const PROJECT_ID = 'e2e-est-batch-00000000-0000-0000-0000-000000000985';

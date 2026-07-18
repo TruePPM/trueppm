@@ -9,7 +9,7 @@
  * Empty state: a planned sprint with no points ceiling and nothing rolling
  * forward omits the points chip and the carryover card (no empty shells).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-planning-00000000-0000-0000-0000-000000000020';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;

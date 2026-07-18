@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * Schedule view E2E tests — toolbar, task list panel, and accessibility basics.

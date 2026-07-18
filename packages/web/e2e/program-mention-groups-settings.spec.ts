@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * Program Settings → Access → Mention groups E2E (ADR-0248, #516).

@@ -6,7 +6,7 @@
  * The Move picker (variation B) is deferred per ux-design; tests here cover
  * variation A only.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const FIXTURE_PROJECT_ID = 'e2e-304-00000000-0000-0000-0000-000000000304';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;

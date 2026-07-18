@@ -6,7 +6,7 @@
  * "+ add task" affordance (a lane id there is a resource or an epic, not a WBS
  * parent), and an ungrouped card lands in the "(No epic)" lane.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-grouping-0000-0000-0000-000000000324';

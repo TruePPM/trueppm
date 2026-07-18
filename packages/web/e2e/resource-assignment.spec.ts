@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * Resource assignment E2E tests — TaskDetailDrawer integration (#97).

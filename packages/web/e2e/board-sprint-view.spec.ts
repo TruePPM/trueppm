@@ -11,7 +11,7 @@
  * this spec asserts the filter + URL + chrome surface. Day-counter / date text
  * is intentionally NOT asserted — it is wall-clock + locale dependent.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-sv-00000000-0000-0000-0000-000000000429';

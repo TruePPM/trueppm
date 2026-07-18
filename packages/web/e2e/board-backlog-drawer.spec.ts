@@ -10,7 +10,7 @@
  * Drag-and-drop is exercised in BoardView unit tests; this spec asserts the
  * configurational claims about which surface renders.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-bd-00000000-0000-0000-0000-000000000383';

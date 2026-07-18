@@ -71,6 +71,17 @@ for xml in packages/scheduler/coverage.xml packages/api/coverage.xml packages/mc
     fi
 done
 
+# --- Web E2E coverage presence check (warn only, issue #2117) ---------------
+# The E2E LCOV comes from the nightly `web:e2e:coverage` CI job (instrumented
+# build + Playwright). It is expensive to reproduce locally, so a local scan
+# simply imports without it — Sonar just reports lower web coverage than the
+# nightly. Regenerate on demand with `cd packages/web && npm run test:e2e:coverage`.
+if [[ ! -f "packages/web/coverage/e2e/lcov.info" ]]; then
+    echo "! packages/web/coverage/e2e/lcov.info not found — E2E coverage will not"
+    echo "  import locally (it is produced by the nightly web:e2e:coverage job)."
+    echo "  To include it: cd packages/web && npm run test:e2e:coverage"
+fi
+
 if [[ "${PREP_ONLY}" == "1" ]]; then
     echo "→ prep-only: skipping sonar-scanner."
     exit 0

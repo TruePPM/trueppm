@@ -10,7 +10,7 @@
  *
  * All API calls are route-mocked; no server required.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-cs-00000000-0000-0000-0000-000000001594';

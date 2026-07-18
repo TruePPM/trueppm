@@ -6,7 +6,7 @@
  * header band carries the goal + dates, and that SCHEDULER+ users can
  * collapse and re-expand the body (persisted to localStorage).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupApiMocks, setupAuth, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-spp-00000000-0000-0000-0000-000000000020';

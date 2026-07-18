@@ -7,7 +7,7 @@
  * (unlike the add-task modal, which sets `enabled=false`), so this isolates the
  * typing guard rather than the board's modal-owns-keyboard gate.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-kbd-00000000-0000-0000-0000-000000000644';

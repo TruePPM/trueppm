@@ -8,7 +8,7 @@
  * Two fixture variants share one project and column config; only the task
  * payload differs so each test exercises a single state.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const FIXTURE_PROJECT_ID = 'e2e-332-00000000-0000-0000-0000-000000000332';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;

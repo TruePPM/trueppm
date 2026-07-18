@@ -10,7 +10,7 @@
  * Plus a contributor-surface exclusion check: a phase never appears in the
  * global quick-log task picker (My Work / QuickLogTime, issue #1754 Surface 2).
  */
-import { test, expect, type Route } from '@playwright/test';
+import { test, expect, type Route } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-phase-00000000-0000-0000-0000-000000001754';

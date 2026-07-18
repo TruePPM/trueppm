@@ -6,7 +6,7 @@
  * re-open ≡ toggle + persistence, presence in the bar, and that the pinned right
  * cluster stays visible at lg widths.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-shellbar-0000-0000-0000-000000001204';

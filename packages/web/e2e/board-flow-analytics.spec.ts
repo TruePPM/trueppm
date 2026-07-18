@@ -5,7 +5,7 @@
  * caption) and the always-on per-column WIP breach chip. flow-metrics is overridden
  * with populated data; a low IN_PROGRESS wip_limit forces a breach.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-flow-00000000-0000-0000-0000-000000000088';

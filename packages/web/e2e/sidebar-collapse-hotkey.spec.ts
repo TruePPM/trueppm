@@ -6,7 +6,7 @@
  * it hides the rail and shows it again, and it yields the chord (= bold) while a
  * text field is focused.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-sbhotkey-0000-0000-0000-000000001193';

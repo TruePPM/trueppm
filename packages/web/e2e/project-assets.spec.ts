@@ -8,7 +8,7 @@
  * catch-all 401-guard is installed so no unmocked request trips the
  * session-expired modal.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-assets-0000-0000-0000-000000000971';

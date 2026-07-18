@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * /me/settings/api-tokens — Personal Access Tokens (#648, ADR-0214).

@@ -6,7 +6,7 @@
  * surface (Overview), that it lists the previously-omitted wired bindings, and
  * that it is suppressed while typing in a text field.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-helpkey-0000-0000-0000-000000002058';

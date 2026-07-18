@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * Brand v2 (navy/sage) palette guard — issue #919, ADR-0103.

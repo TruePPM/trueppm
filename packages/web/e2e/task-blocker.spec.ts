@@ -8,7 +8,7 @@
  * Schedule + drawer render via the shared fixtures; the task PATCH is stubbed and
  * its body captured.
  */
-import { test, expect, type Page, type Locator } from '@playwright/test';
+import { test, expect, type Page, type Locator } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-blocker-00000000-0000-0000-0000-000000001135';

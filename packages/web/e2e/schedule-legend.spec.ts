@@ -8,7 +8,7 @@
  *   `trueppm.schedule.legend.collapsed.v1`).
  * - Suppressed below the `lg` (1024px) breakpoint.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-legend-00000000-0000-0000-0000-000000000474';

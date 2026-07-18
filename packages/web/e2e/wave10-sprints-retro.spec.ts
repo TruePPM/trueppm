@@ -9,7 +9,7 @@
  * The legacy ``promote=true`` checkbox is gone in this build per ADR-0071;
  * promotion is now per-item and explicit.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-sprints-retro-00000000-0000-0000-0000-000000000060';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;

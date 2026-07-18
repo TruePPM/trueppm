@@ -12,7 +12,7 @@
  * gated on a "board rendered" signal (a card visible by role) before touching
  * the toolbar.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-board-filter-0000-0000-0000-000000001091';
