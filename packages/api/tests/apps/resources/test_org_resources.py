@@ -10,14 +10,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 from django.contrib.auth import get_user_model
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APIRequestFactory
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
 from trueppm_api.apps.resources.models import Resource, TaskResource
+from trueppm_api.apps.resources.views import ResourceViewSet
 
 User = get_user_model()
 
@@ -314,6 +316,16 @@ class TestResourceRestore:
         resource.save(update_fields=["is_deleted"])
         res = member_client.post(f"/api/v1/resources/{resource.pk}/restore/")
         assert res.status_code == 403
+
+    def test_restore_unknown_resource_returns_404(self, admin_client: APIClient) -> None:
+        res = admin_client.post(f"/api/v1/resources/{uuid4()}/restore/")
+        assert res.status_code == 404
+
+    def test_restore_without_pk_returns_404(self, db: object) -> None:
+        """The defensive pk-None guard short-circuits before any DB lookup."""
+        request = APIRequestFactory().post("/api/v1/resources/restore/")
+        res = ResourceViewSet().restore(request, pk=None)
+        assert res.status_code == 404
 
 
 # ---------------------------------------------------------------------------
