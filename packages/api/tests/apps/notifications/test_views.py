@@ -313,6 +313,20 @@ class TestNotificationPreferences:
         )
         assert r.status_code == 400
 
+    @pytest.mark.parametrize("body", [["signal_only"], "signal_only", 42])
+    def test_apply_preset_rejects_non_object_body(
+        self, alice_client: APIClient, body: object
+    ) -> None:
+        """A non-object JSON body (list/str/scalar) has no ``.get`` — the view must
+        treat it as a missing preset and return 400, not raise AttributeError → 500
+        (#2126 class 2)."""
+        r = alice_client.post(
+            "/api/v1/me/notification-preferences/apply-preset/",
+            body,
+            format="json",
+        )
+        assert r.status_code == 400
+
     def test_apply_preset_unauthenticated_blocked(self) -> None:
         r = APIClient().post(
             "/api/v1/me/notification-preferences/apply-preset/",

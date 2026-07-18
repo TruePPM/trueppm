@@ -80,7 +80,10 @@ def _emit_login_failure_event(request: Request) -> None:
     correlatable across attempts — an operator can see that one account is being
     hammered from many IPs — without writing raw credentials/emails into logs.
     """
-    raw_username = request.data.get("username") if hasattr(request, "data") else None
+    # A non-object JSON body (list/str/scalar) leaves ``request.data`` without a
+    # ``.get``; guard on the dict shape so audit emission can never turn a rejected
+    # login into a 500 (#2126). A non-object body simply has no username → "unknown".
+    raw_username = request.data.get("username") if isinstance(request.data, dict) else None
     username_hash = (
         hashlib.sha256(str(raw_username).strip().lower().encode("utf-8")).hexdigest()
         if raw_username

@@ -334,6 +334,19 @@ def test_unknown_schedule_token_returns_404(project):
 
 
 @pytest.mark.django_db
+def test_non_ascii_token_returns_404_not_500(project):
+    """A non-ASCII token in the share path must resolve as "unknown" (404), not crash.
+
+    Regression for #2126 class 3: the token hash previously ascii-encoded the raw
+    value, so a non-ASCII path segment raised UnicodeEncodeError → unhandled 500.
+    Minted tokens are always URL-safe ASCII, so a non-ASCII token can never match —
+    it must 404 like any other unknown token. Covers both share kinds (shared sink)."""
+    non_ascii = "café-☃-é中文"
+    assert APIClient().get(_schedule_url(non_ascii)).status_code == 404
+    assert APIClient().get(_board_url(non_ascii)).status_code == 404
+
+
+@pytest.mark.django_db
 def test_kill_switch_hides_public_schedule_with_404(project, settings):
     _link, raw = share_services.mint_share_link(
         project, None, content_kind=ShareContentKind.SCHEDULE

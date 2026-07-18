@@ -386,7 +386,10 @@ class NotificationPreferenceViewSet(
         user = request.user
         if not user.is_authenticated:
             raise PermissionDenied("Authentication required.")
-        preset = request.data.get("preset")
+        # Guard the top-level body shape: a non-object JSON body (list/str/scalar)
+        # has no ``.get``, so an unguarded access would raise AttributeError → 500.
+        # Treat any non-object body as a missing preset → the existing 400 (#2126).
+        preset = request.data.get("preset") if isinstance(request.data, dict) else None
         if preset not in ("signal_only", "everything"):
             return Response(
                 {"detail": "preset must be 'signal_only' or 'everything'."},

@@ -1003,7 +1003,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # Owner-only object check (also confirms the program exists).
         program = self.get_object()
 
-        splits = request.data.get("splits")
+        # Guard the top-level body shape first: a non-object JSON body (string/
+        # scalar) has no ``.get``, so an unguarded access raises AttributeError →
+        # 500. Any non-object body is treated as a missing "splits" → 400 (#2126).
+        splits = request.data.get("splits") if isinstance(request.data, dict) else None
         if not isinstance(splits, list) or not splits:
             return Response(
                 {"detail": "splits must be a non-empty array."},

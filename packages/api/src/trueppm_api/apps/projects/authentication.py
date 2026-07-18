@@ -27,8 +27,16 @@ TOKEN_TOTAL_LEN = len(TOKEN_PREFIX) + TOKEN_RAW_HEX_LEN  # 69
 
 
 def sha256_hex(raw: str) -> str:
-    """Return the SHA-256 hex digest of the raw token (no salt; 256-bit entropy)."""
-    return hashlib.sha256(raw.encode("ascii")).hexdigest()
+    """Return the SHA-256 hex digest of the raw token (no salt; 256-bit entropy).
+
+    Encodes as UTF-8 rather than ASCII so a non-ASCII ``raw`` (e.g. a hand-crafted
+    ``/api/v1/share/<token>/`` path segment) hashes to a non-matching digest and
+    resolves as "unknown token" (→ 404 / 401) instead of raising an unhandled
+    ``UnicodeEncodeError`` → 500 (#2126). Minted tokens are always URL-safe ASCII
+    (``secrets.token_urlsafe``), for which UTF-8 and ASCII produce identical bytes,
+    so every existing ``token_hash`` is unchanged — this only stops the crash.
+    """
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 class ProjectApiTokenAuthentication(BaseAuthentication):

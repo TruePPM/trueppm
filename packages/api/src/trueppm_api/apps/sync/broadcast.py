@@ -39,6 +39,14 @@ WS_PROTOCOL_VERSION = 1
 #      FK check surfaces at COMMIT, past ``_persist_board_event``'s try/except, so
 #      it cannot be swallowed — it must not be attempted. A hard-deleted project
 #      has no replay value anyway (a reconnecting member is evicted or 404s).
+#   3. **Program-scoped** — the ``program_*`` lifecycle events (split / deleted /
+#      closed / reopened / sponsorship_transferred) fan out on a *program*'s WS
+#      group but pass the **Program** pk as ``project_id``. A Program pk is never a
+#      ``projects.Project`` pk, so persisting a BoardEvent for one always violates
+#      the Project FK at COMMIT — an unhandled IntegrityError → 500 for an
+#      otherwise-valid request (#2126). Like ``project_hard_deleted``, the FK check
+#      surfaces past ``_persist_board_event``'s try/except, so the persist must not
+#      be attempted; these events are live-only signals with no project replay row.
 DONT_PERSIST_EVENT_TYPES = frozenset(
     {
         "presence_join",
@@ -49,6 +57,11 @@ DONT_PERSIST_EVENT_TYPES = frozenset(
         "task_run_failed",
         "task_run_cancelled",
         "project_hard_deleted",
+        "program_split",
+        "program_deleted",
+        "program_closed",
+        "program_reopened",
+        "program_sponsorship_transferred",
     }
 )
 
