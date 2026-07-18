@@ -122,8 +122,8 @@ test.describe('Workspace Email & SMTP — writable', () => {
     );
     await expect(page.getByText(/emailed links are broken/i)).toHaveCount(0);
 
-    // Reveal the SMTP fields, fill the transport.
-    await page.getByRole('radio', { name: /Custom SMTP/ }).check();
+    // Pick the Custom provider to reveal the SMTP fields, fill the transport.
+    await page.getByLabel('Provider').selectOption('custom');
     await page.getByLabel('SMTP host').fill('mail.truescope.io');
     await page.getByLabel('SMTP username').fill('postmaster');
     await page.getByLabel('Password', { exact: true }).fill('s3cret');
@@ -156,7 +156,7 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await page.goto('/settings/email');
     await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
 
-    await page.getByRole('radio', { name: /Custom SMTP/ }).check();
+    await page.getByLabel('Provider').selectOption('custom');
     await page.getByLabel('SMTP host').fill('bad.host.example');
     await page.getByLabel('SMTP username').fill('u');
     await page.getByLabel('Password', { exact: true }).fill('s3cret');
@@ -167,6 +167,44 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await expect(email.getByText('Could not connect to the mail server.')).toBeVisible();
     // Values are preserved — the host the admin typed is still in the field.
     await expect(page.getByLabel('SMTP host')).toHaveValue('bad.host.example');
+  });
+
+  test('guided provider setup: Gmail pre-fills + App-Password callout; None warns (#2115)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/email-settings/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(EMAIL_GET) }),
+    );
+
+    await page.goto('/settings/email');
+    await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
+
+    const email = page.locator('[data-settings-section="email"]');
+
+    // Pick Gmail → App-Password credential + guided callout, host pre-filled behind Advanced.
+    await page.getByLabel('Provider').selectOption('gmail');
+    await expect(email.getByRole('textbox', { name: 'App password' })).toBeVisible();
+    await expect(email.getByText('smtp.gmail.com · 587 · STARTTLS')).toBeVisible();
+
+    // The App-Password FieldHelp opens a dialog with the 2FA guidance + deep link.
+    await email.getByRole('button', { name: /Gmail App password/i }).click();
+    const help = page.getByRole('dialog', { name: /Gmail App password/i });
+    await expect(help.getByText(/2-Step Verification/i)).toBeVisible();
+    await expect(help.getByRole('link', { name: /Google App passwords/i })).toHaveAttribute(
+      'href',
+      'https://myaccount.google.com/apppasswords',
+    );
+    await help.getByRole('button', { name: 'Got it' }).click();
+
+    // Expand Advanced and confirm the host is editable + pre-filled.
+    await email.getByRole('button', { name: /Advanced — server settings/i }).click();
+    await expect(page.getByLabel('SMTP host')).toHaveValue('smtp.gmail.com');
+
+    // Switch to Custom, set Security to None → the plaintext warning appears.
+    await page.getByLabel('Provider').selectOption('custom');
+    await page.getByLabel('Security', { exact: true }).selectOption('none');
+    await expect(email.getByText('Unencrypted connection')).toBeVisible();
   });
 
   test('warns that emailed links are broken when the Public URL is unset (#2015)', async ({

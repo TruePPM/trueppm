@@ -47,19 +47,59 @@ message at an attacker-controlled relay: the write path is operator-only by
 design, while the read path stays open to admins who need to see how mail is set
 up.
 
-### Transport modes
+### Choosing a provider
 
-The page offers four transports:
+You pick the outbound service from a single **Provider** dropdown, and the rest
+of the form appears based on your choice. **Gmail**, **Microsoft 365 / Outlook**,
+and **Fastmail** are first-class presets: selecting one pre-fills the host, port,
+and connection security for you (all still editable behind an **Advanced — server
+settings** reveal), so you never have to look up `smtp.gmail.com` or which port
+Fastmail wants.
 
-| Mode | What it does |
+| Provider | What it does |
 |---|---|
 | **TruePPM cloud** | The default. Falls back to the `EMAIL_*` environment settings — today's behavior. No SMTP credentials are stored on the row. |
-| **Custom SMTP** | You supply the host, port, connection security (None / STARTTLS / SSL-TLS), username, and password. |
+| **Gmail** | Pre-fills `smtp.gmail.com` · `587` · STARTTLS. Requires a Google **App Password** — see [Gmail App Passwords](#gmail-app-password) below. |
+| **Microsoft 365 / Outlook** | Pre-fills `smtp.office365.com` · `587` · STARTTLS. |
+| **Fastmail** | Pre-fills `smtp.fastmail.com` · `465` · SSL/TLS. Use a Fastmail app password. |
 | **SendGrid** | Sends through SendGrid's SMTP relay. You supply only the API key (the host and username are fixed). |
 | **Amazon SES** | Sends through the region's SES SMTP relay. You supply the region-derived host, username, and password. |
+| **Custom (generic) SMTP** | You supply the host, port, connection security ([None / STARTTLS / SSL-TLS](#smtp-security)), username, and password. |
 
-SendGrid and SES are SMTP relays, so no extra backend is needed — all three
-non-cloud modes build a standard SMTP connection.
+The presets, SendGrid, SES, and Custom SMTP all build a standard SMTP
+connection — a preset is just a Custom SMTP configuration with the host, port,
+and security filled in for you. All of them are `transport_mode='smtp'` on the
+server except SendGrid and SES, which have their own relay modes.
+
+### Gmail App Password
+
+Gmail no longer accepts your normal Google account password over SMTP —
+&ldquo;less secure app access&rdquo; was retired. A **16-character App Password**
+is the only way to authenticate, and it requires 2-Step Verification. The Gmail
+preset shows this same walkthrough inline (the ⓘ next to the App password field):
+
+1. Turn on **2-Step Verification** for the Google account you'll send from.
+2. Create an App Password at
+   [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
+   Google shows a 16-character string once.
+3. Paste that 16-character App Password into the **App password** field on the
+   Email & SMTP page — **not** your account password.
+4. Leave Security on **STARTTLS (587)**, the Gmail preset default.
+
+Gmail's OAuth2/XOAUTH2 sign-in flow is intentionally not offered: App Passwords
+are the pragmatic, self-hoster-friendly path and need no registered Google OAuth
+app.
+
+### SMTP security
+
+The **Security** dropdown controls how TruePPM secures the SMTP connection. The
+Email & SMTP page carries the same guidance inline (the ⓘ next to the field):
+
+| Security | Port | What it does |
+|---|---|---|
+| **STARTTLS** | 587 | Connects in the clear, then upgrades to TLS before login. Recommended — the right choice for almost every provider. |
+| **SSL/TLS** | 465 | TLS from the first byte (implicit). Use it when your provider only offers 465 (e.g. Fastmail). |
+| **None** | 25 | Plaintext, no encryption. Credentials and mail travel in the clear — **only** for a trusted internal relay on a private network, never over the public internet. Selecting it shows an explicit warning. |
 
 ### The password is encrypted and never returned
 
