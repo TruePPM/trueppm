@@ -70,26 +70,18 @@ function resolveExpiry(choice: ExpiryChoice, customDate: string): string | null 
   return null;
 }
 
-function CreatedLinkRow({
-  link,
-  projectId,
-  origin,
-}: {
-  link: ShareLink;
-  projectId: string;
-  origin: string;
-}) {
+function CreatedLinkRow({ link, projectId }: { link: ShareLink; projectId: string }) {
   const [confirming, setConfirming] = useState(false);
   const revoke = useRevokeShareLink(projectId);
-  const url = `${origin}/share/${link.contentKind}/${link.tokenPrefix}`;
+  // Only the token PREFIX survives creation (the full token is one-time), so a
+  // manage-row copy can never reproduce a working link. Copy the bare reference
+  // fragment — no origin, so it never reads as a clickable URL — for correlating
+  // this row against access logs, and label/toast it honestly (#2163).
+  const reference = `share/${link.contentKind}/${link.tokenPrefix}`;
 
-  const onCopyPrefix = () => {
-    // Only a token PREFIX is known after creation (the full token is one-time), so
-    // "Copy" here copies the row's display URL fragment as a convenience, not a
-    // working link — matching the settings management list. The working link is
-    // copied at the reveal step.
-    void navigator.clipboard.writeText(url).then(
-      () => toast.success('Link copied'),
+  const onCopyReference = () => {
+    void navigator.clipboard.writeText(reference).then(
+      () => toast.info('Reference copied — the full link was only shown at creation'),
       () => toast.error('Could not copy — select manually'),
     );
   };
@@ -136,8 +128,13 @@ function CreatedLinkRow({
           </div>
         ) : (
           <div className="flex shrink-0 items-center gap-1.5">
-            <button type="button" onClick={onCopyPrefix} className={BTN}>
-              Copy
+            <button
+              type="button"
+              onClick={onCopyReference}
+              className={BTN}
+              title="Copy this link's reference ID (the full link was only shown at creation)"
+            >
+              Copy ID
             </button>
             <button type="button" onClick={() => setConfirming(true)} className={BTN}>
               Revoke
@@ -287,7 +284,11 @@ export function ShareViewDialog({
               >
                 Shared {noun} links
               </h2>
-              <button type="button" onClick={() => setMode('create')} className={`${BTN} !px-2 !py-1`}>
+              <button
+                type="button"
+                onClick={() => setMode('create')}
+                className={`${BTN} !px-2 !py-1`}
+              >
                 + New link
               </button>
             </div>
@@ -296,7 +297,7 @@ export function ShareViewDialog({
             </p>
             <div className="mb-4 space-y-2">
               {links.map((link) => (
-                <CreatedLinkRow key={link.id} link={link} projectId={projectId} origin={origin} />
+                <CreatedLinkRow key={link.id} link={link} projectId={projectId} />
               ))}
             </div>
             <div className="flex justify-end">
@@ -403,7 +404,8 @@ export function ShareViewDialog({
               <span className="text-[12px] text-neutral-text-primary">
                 Show assignee names
                 <span className="block text-xs text-neutral-text-secondary">
-                  Off by default — the {noun} is visible, but who&rsquo;s on each task stays private.
+                  Off by default — the {noun} is visible, but who&rsquo;s on each task stays
+                  private.
                 </span>
               </span>
             </label>
