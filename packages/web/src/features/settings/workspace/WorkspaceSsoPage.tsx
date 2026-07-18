@@ -27,7 +27,7 @@ import { SsoProviderPanel } from './SsoProviderPanel';
 /** Decorative provider tile (glyph + brand hue). The glyph is aria-hidden. */
 function ProviderTile({ slug }: { slug: string }) {
   const def = providerDef(slug);
-  const color = def?.tile.color ?? '#7fb394';
+  const color = def?.tile.color ?? 'var(--sso-tile-generic)';
   return (
     <span
       aria-hidden="true"

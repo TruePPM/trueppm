@@ -74,7 +74,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: 'Generic OIDC',
     type: 'OIDC',
     kind: 'free',
-    tile: { glyph: '◎', color: '#7fb394' },
+    tile: { glyph: '◎', color: 'var(--sso-tile-generic)' },
     subtitle: 'Any standards-compliant OIDC provider',
     fields: [
       {
@@ -93,7 +93,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: 'Google',
     type: 'OIDC',
     kind: 'fixed',
-    tile: { glyph: 'G', color: '#e6857c' },
+    tile: { glyph: 'G', color: 'var(--sso-tile-google)' },
     subtitle: 'Google Workspace / consumer',
     fixedIssuer: 'https://accounts.google.com',
   },
@@ -102,7 +102,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: 'Microsoft Entra ID',
     type: 'OIDC',
     kind: 'derived',
-    tile: { glyph: 'M', color: '#5b93e6' },
+    tile: { glyph: 'M', color: 'var(--sso-tile-entra)' },
     subtitle: 'Formerly Azure AD',
     fields: [
       {
@@ -125,7 +125,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: 'GitLab',
     type: 'OIDC',
     kind: 'derived',
-    tile: { glyph: 'G', color: '#e2864f' },
+    tile: { glyph: 'G', color: 'var(--sso-tile-gitlab)' },
     subtitle: 'gitlab.com or self-managed',
     fields: [
       {
@@ -144,7 +144,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: 'Keycloak',
     type: 'OIDC',
     kind: 'derived',
-    tile: { glyph: 'K', color: '#4f8ada' },
+    tile: { glyph: 'K', color: 'var(--sso-tile-keycloak)' },
     subtitle: 'Self-hosted · realm-based',
     fields: [
       {
@@ -173,7 +173,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: 'Authentik',
     type: 'OIDC',
     kind: 'derived',
-    tile: { glyph: 'A', color: '#e2685d' },
+    tile: { glyph: 'A', color: 'var(--sso-tile-authentik)' },
     subtitle: 'Self-hosted · application slug',
     fields: [
       {
@@ -204,7 +204,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: 'Zitadel',
     type: 'OIDC',
     kind: 'derived',
-    tile: { glyph: 'Z', color: '#9a83ec' },
+    tile: { glyph: 'Z', color: 'var(--sso-tile-zitadel)' },
     subtitle: 'Cloud or self-hosted',
     fields: [
       {
@@ -223,7 +223,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: 'Okta',
     type: 'OIDC',
     kind: 'derived',
-    tile: { glyph: 'O', color: '#6f8ff0' },
+    tile: { glyph: 'O', color: 'var(--sso-tile-okta)' },
     subtitle: 'Okta org domain',
     fields: [
       {
@@ -242,7 +242,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: 'Auth0',
     type: 'OIDC',
     kind: 'derived',
-    tile: { glyph: 'A', color: '#e0704f' },
+    tile: { glyph: 'A', color: 'var(--sso-tile-auth0)' },
     subtitle: 'Auth0 tenant domain',
     fields: [
       {
@@ -261,7 +261,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: 'GitHub',
     type: 'OAuth',
     kind: 'oauth',
-    tile: { glyph: 'GH', color: '#c2ccda' },
+    tile: { glyph: 'GH', color: 'var(--sso-tile-github)' },
     subtitle: 'OAuth 2.0 — no OIDC discovery',
     fields: [
       {

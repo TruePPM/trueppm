@@ -152,6 +152,25 @@
     --label-cyan-bg: #164e63;   --label-cyan-text: #67e8f9;   --label-cyan-border: #155e75;
   }
 
+  /* ── SSO provider tile hues (#2108, ADR-0517) ───────────────────────────
+     Decorative brand hue per identity-provider tile in the SSO settings list.
+     The registry (ssoProviders.ts) references these via `var(--sso-tile-<slug>)`
+     so no raw hex lives in component source (rule 8 / ADR-0126 gate). Each is a
+     single mid-tone hue: used full-strength as the aria-hidden glyph color and
+     mixed to 16% for the tile background, so one value reads in both themes.    */
+  :root {
+    --sso-tile-generic:   #7fb394;
+    --sso-tile-google:    #e6857c;
+    --sso-tile-entra:     #5b93e6;
+    --sso-tile-gitlab:    #e2864f;
+    --sso-tile-keycloak:  #4f8ada;
+    --sso-tile-authentik: #e2685d;
+    --sso-tile-zitadel:   #9a83ec;
+    --sso-tile-okta:      #6f8ff0;
+    --sso-tile-auth0:     #e0704f;
+    --sso-tile-github:    #c2ccda;
+  }
+
   /* ── Risk matrix zone tokens ────────────────────────────────────────────
      Light mode: subtle tints per severity band (rule 88).
      Dark mode: higher-opacity variants against the dark surface so the zones
