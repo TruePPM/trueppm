@@ -155,6 +155,7 @@ from trueppm_api.apps.projects.serializers import (
     InboundTaskSyncPayloadSerializer,
     InboundTaskSyncResultSerializer,
     LabelSerializer,
+    MeActiveSprintCardSerializer,
     MeWorkActiveSprintSerializer,
     MeWorkTaskSerializer,
     MilestoneListItemSerializer,
@@ -186,6 +187,7 @@ from trueppm_api.apps.projects.serializers import (
     TaskAttachmentSerializer,
     TaskBulkSerializer,
     TaskCommentSerializer,
+    TaskDurationChangeEventSerializer,
     TaskLabelChipSerializer,
     TaskNoteSerializer,
     TaskRecurrenceRuleSerializer,
@@ -202,6 +204,7 @@ from trueppm_api.apps.webhooks.models import (
     Webhook,
     WebhookDelivery,
 )
+from trueppm_api.core.openapi import suppress_list_pagination
 
 logger = logging.getLogger(__name__)
 
@@ -1404,6 +1407,7 @@ class ProjectViewSet(
             )
         },
     )
+    @suppress_list_pagination
     @action(detail=False, methods=["get"], url_path="trash")
     def trash(self, request: Request) -> Response:
         """List the caller's soft-deleted projects still inside the retention window (#1113).
@@ -2575,8 +2579,21 @@ class ProjectViewSet(
 
     @extend_schema(
         summary="Health summary across the caller's own projects (ADR-0401, #1941)",
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+        responses={
+            200: inline_serializer(
+                name="ProjectHealthSummary",
+                many=True,
+                fields={
+                    "id": serializers.UUIDField(),
+                    "name": serializers.CharField(),
+                    "health_band": serializers.CharField(),
+                    "at_risk_count": serializers.IntegerField(),
+                    "critical_count": serializers.IntegerField(),
+                },
+            )
+        },
     )
+    @suppress_list_pagination
     @action(detail=False, methods=["get"], url_path="health-summary")
     def health_summary(self, request: Request) -> Response:
         """Compact "my projects" health triage for the My Work page (ADR-0401).
@@ -4363,6 +4380,12 @@ class TaskViewSet(
         task = self.get_object()
         return Response(compute_scope_rollup(task), status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Duration-change audit events for a task (ADR-0151, #414)",
+        # Without this, drf-spectacular infers the viewset's default TaskSerializer
+        # and the paginated event list fails schema conformance against Task (#2127).
+        responses={200: TaskDurationChangeEventSerializer(many=True)},
+    )
     @action(detail=True, methods=["get"], url_path="duration-events")
     def duration_events(self, request: Request, **kwargs: Any) -> Response:
         """Duration-change audit events for a task, newest first (ADR-0151, #414).
@@ -4420,6 +4443,7 @@ class TaskViewSet(
             400: OpenApiResponse(description="The 'project' query parameter is required."),
         },
     )
+    @suppress_list_pagination
     @action(detail=False, methods=["get"], url_path="search")
     def search(self, request: Request, **kwargs: Any) -> Response:
         """Board card full-text search (#323, ADR-0145).
@@ -11903,7 +11927,7 @@ class MeRecentProjectsView(APIView):
         summary="Multi-team active-sprints lens for the current user",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=MeActiveSprintCardSerializer(many=True),
                 description=(
                     "Array of per-project summary cards, one for each project where "
                     "the caller owns a non-complete task in that project's ACTIVE "

@@ -205,3 +205,89 @@ def test_throttled_endpoints_document_429(schema: dict) -> None:
         assert "429" in op["responses"], (
             f"{path} is throttled and must document a 429 response (#1333)."
         )
+
+
+# ---------------------------------------------------------------------------
+# #2127 — response-schema conformance fixes. Schemathesis flagged read/write
+# endpoints whose real response bodies violated the committed schema. Each
+# assertion below pins one fix so a regenerate that loses the annotation fails.
+# ---------------------------------------------------------------------------
+
+
+def _response_2xx_schema(schema: dict, path: str, method: str) -> dict:
+    """Return the JSON response schema for the first documented 2xx of an op."""
+    op = schema["paths"][path][method]
+    responses = op["responses"]
+    for code in ("200", "201"):
+        if code in responses:
+            content = responses[code].get("content", {})
+            return content.get("application/json", {}).get("schema", {})
+    raise AssertionError(f"no 2xx JSON response for {method.upper()} {path}")
+
+
+def test_nullable_scalar_fields_declared_nullable(schema: dict) -> None:
+    """Runtime-nullable fields must be `nullable` so a null body conforms (#2127)."""
+    comps = schema["components"]["schemas"]
+    assert comps["Dependency"]["properties"]["accepted_by"].get("nullable") is True
+    assert comps["ProjectDetail"]["properties"]["recalculated_at"].get("nullable") is True
+    assert comps["Task"]["properties"]["baseline_finish"].get("nullable") is True
+    assert comps["Task"]["properties"]["baseline_start"].get("nullable") is True
+
+
+def test_nested_user_summary_fields_nullable(schema: dict) -> None:
+    """`lead_detail` (nested _UserSummary) is null when unset — must be nullable (#2127)."""
+    for comp in ("Project", "ProjectDetail", "Program"):
+        lead = schema["components"]["schemas"][comp]["properties"]["lead_detail"]
+        assert lead.get("nullable") is True, f"{comp}.lead_detail must be nullable (#2127)."
+
+
+def test_task_external_link_summary_is_object(schema: dict) -> None:
+    """external_link_summary emits {count, worst_status}, not a string (#2127)."""
+    prop = schema["components"]["schemas"]["Task"]["properties"]["external_link_summary"]
+    assert prop.get("type") == "object"
+    assert set(prop.get("properties", {})) >= {"count", "worst_status"}
+
+
+def test_resource_email_has_no_email_format(schema: dict) -> None:
+    """Resource.email is blank-able; a "" response must not fail `format: email` (#2127)."""
+    prop = schema["components"]["schemas"]["Resource"]["properties"]["email"]
+    assert prop.get("type") == "string"
+    assert prop.get("format") != "email", "blank Resource.email must not claim email format."
+
+
+def test_bare_array_list_endpoints_are_arrays(schema: dict) -> None:
+    """Endpoints returning a bare array must not advertise a pagination envelope (#2127)."""
+    for path, method in (
+        ("/api/v1/projects/trash/", "get"),
+        ("/api/v1/tasks/search/", "get"),
+        ("/api/v1/me/credentials/", "get"),
+        ("/api/v1/me/active-sprints/", "get"),
+        ("/api/v1/projects/health-summary/", "get"),
+    ):
+        sch = _response_2xx_schema(schema, path, method)
+        assert sch.get("type") == "array", f"{method.upper()} {path} must be an array (#2127)."
+
+
+def test_workspace_members_declares_pagination_envelope(schema: dict) -> None:
+    """workspace/members manually paginates — schema must be the {results:[...]} object (#2127)."""
+    sch = _response_2xx_schema(schema, "/api/v1/workspace/members/", "get")
+    ref = sch.get("$ref", "")
+    props = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["properties"]
+    assert "results" in props and props["results"].get("type") == "array"
+
+
+def test_duration_events_response_is_event_not_task(schema: dict) -> None:
+    """duration-events returns TaskDurationChangeEvent rows, not a Task (#2127)."""
+    sch = _response_2xx_schema(schema, "/api/v1/tasks/{id}/duration-events/", "get")
+    # Paginated: the results item ref must be the duration-change event component.
+    dumped = json.dumps(sch)
+    assert "TaskDurationChangeEvent" in dumped
+    assert '/Task"' not in dumped, "duration-events must not reference the Task schema (#2127)."
+
+
+def test_mark_all_read_returns_counter(schema: dict) -> None:
+    """mark-all-read returns {updated: N}, not a Notification (#2127)."""
+    sch = _response_2xx_schema(schema, "/api/v1/me/notifications/mark-all-read/", "post")
+    ref = sch.get("$ref", "")
+    props = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["properties"]
+    assert "updated" in props

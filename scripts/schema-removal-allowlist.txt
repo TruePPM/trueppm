@@ -59,3 +59,15 @@ schema:OIDCProviderWriteRequest
 schema:OIDCTestConnectionRequestRequest
 schema:OIDCTestConnectionResponse
 schema:DefaultRoleEnum
+
+# #2127 — response-schema conformance fixes. Three list endpoints returned bare
+# arrays but the schema wrongly wrapped them in a pagination envelope; they now
+# advertise plain arrays, dropping the phantom Paginated* components. Fixing the
+# duration-events response to the TaskDurationChangeEvent serializer emits that
+# component's own `source` enum, which splits the previously-shared `SourceEnum`
+# into per-component names (TaskDurationChangeEventSourceEnum / TimeEntrySourceEnum) —
+# same values, more specific names. All are additive-safe renames/removals.
+schema:PaginatedBoardCardSearchResultList
+schema:PaginatedCredentialSummaryList
+schema:PaginatedTrashProjectListList
+schema:SourceEnum

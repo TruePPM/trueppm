@@ -158,6 +158,28 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
 
 _HTTP_METHODS = ("get", "post", "put", "patch", "delete", "head", "options", "trace")
 
+# Attribute stamped on a viewset ``@action`` handler to opt its list response out
+# of drf-spectacular's automatic pagination-envelope wrapping (see
+# :func:`suppress_list_pagination` and :meth:`TruePPMAutoSchema._get_paginator`).
+_SUPPRESS_PAGINATION_ATTR = "spectacular_suppress_pagination"
+
+
+def suppress_list_pagination(view_func: Any) -> Any:
+    """Mark a viewset ``@action``'s list response as NON-paginated for the schema.
+
+    drf-spectacular auto-wraps any ``many=True`` response of a view whose
+    ``pagination_class`` is set in that paginator's envelope
+    (``Paginated…List``). Actions that deliberately return a **bare array** — a
+    small, capped, or fixed-size list the client consumes directly — must opt out
+    so the generated schema matches the real response body; otherwise the
+    committed schema claims a paginated object and every such response fails
+    ``response_schema_conformance`` (#2127). Pairs with
+    :meth:`TruePPMAutoSchema._get_paginator`.
+    """
+    setattr(view_func, _SUPPRESS_PAGINATION_ATTR, True)
+    return view_func
+
+
 _IRREGULAR_SINGULAR = {
     "criteria": "criterion",
     "analyses": "analysis",
@@ -379,3 +401,19 @@ class TruePPMAutoSchema(AutoSchema):
             responses = operation.setdefault("responses", {})
             responses.setdefault("429", dict(_THROTTLE_RESPONSE))
         return operation
+
+    def _get_paginator(self) -> Any:
+        """Return ``None`` for actions marked with :func:`suppress_list_pagination`.
+
+        drf-spectacular paginates a ``many=True`` response whenever the view has a
+        ``pagination_class``. An ``@action`` that returns a bare array opts out via
+        the marker so its schema is a plain array, not a pagination envelope
+        (#2127). Every other action falls through to the default behaviour.
+        """
+        action = getattr(self.view, "action", None)
+        if action:
+            handler = getattr(self.view, action, None)
+            if handler is not None and getattr(handler, _SUPPRESS_PAGINATION_ATTR, False):
+                return None
+        # drf-spectacular's AutoSchema is untyped; the base return is a paginator or None.
+        return super()._get_paginator()  # type: ignore[no-untyped-call]

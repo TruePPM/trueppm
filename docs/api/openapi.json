@@ -3768,8 +3768,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/MeActiveSprintCard"
+                                    }
                                 }
                             }
                         },
@@ -4268,15 +4270,6 @@
                         }
                     },
                     {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "name": "search",
                         "required": false,
                         "in": "query",
@@ -4302,7 +4295,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedCredentialSummaryList"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/CredentialSummary"
+                                    }
                                 }
                             }
                         },
@@ -4397,15 +4393,6 @@
                         }
                     },
                     {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "provider",
                         "schema": {
@@ -4459,7 +4446,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedCredentialSummaryList"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/CredentialSummary"
+                                    }
                                 }
                             }
                         },
@@ -5280,6 +5270,7 @@
             "post": {
                 "operationId": "v1_me_notifications_mark_all_read_create",
                 "description": "Mark every unread notification for this user as read in one update.",
+                "summary": "Mark all unread notifications read",
                 "tags": [
                     "me"
                 ],
@@ -5315,7 +5306,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Notification"
+                                    "$ref": "#/components/schemas/MarkAllReadResult"
                                 }
                             }
                         },
@@ -5337,8 +5328,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Mark all read notifications"
+                }
             }
         },
         "/api/v1/me/recent-projects/": {
@@ -27199,9 +27189,29 @@
         },
         "/api/v1/projects/health-summary/": {
             "get": {
-                "operationId": "v1_projects_health_summary_retrieve",
+                "operationId": "v1_projects_health_summary_list",
                 "description": "Compact \"my projects\" health triage for the My Work page (ADR-0401).\n\nReturns one row per project the caller is a member of (excluding archived),\neach carrying a derived ``health_band`` plus the same at-risk / critical task\ncounts the single-project status-summary uses, so a PM overseeing many\nprojects can see \"which of mine is on fire?\" without opening each.\n\nScope is the caller's OWN member projects (adoption lens, OSS) — it is NOT a\ncross-program or portfolio rollup (that governance surface stays Enterprise,\nADR-0030/0088). The membership filter lives in ProjectScopedViewSet.get_queryset.\n\nAt-risk / critical use the status_summary semantics: incomplete tasks with\ntotal_float <= 5 working days → at_risk_count; incomplete is_critical=True →\ncritical_count. ``distinct=True`` on both conditional counts matches the\nannotate-over-reverse-FK convention of ProgramViewSet.projects — defensive\nagainst fan-out if a second to-many join is ever added to this queryset (the\nmembership scope is a ``pk__in`` subquery, not a join, so today there is only\nthe one ``tasks`` join).\n\nhealth_band is derived: the manual Project.health override wins when set (not\nAUTO); otherwise counts-first — critical_count > 0 → critical, else\nat_risk_count > 0 → at_risk, else on_track.",
                 "summary": "Health summary across the caller's own projects (ADR-0401, #1941)",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "tags": [
                     "projects"
                 ],
@@ -27221,8 +27231,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/ProjectHealthSummary"
+                                    }
                                 }
                             }
                         },
@@ -27323,24 +27335,6 @@
                         }
                     },
                     {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "page_size",
-                        "required": false,
-                        "in": "query",
-                        "description": "Number of results to return per page.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "name": "search",
                         "required": false,
                         "in": "query",
@@ -27369,7 +27363,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedTrashProjectListList"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/TrashProjectList"
+                                    }
                                 }
                             }
                         },
@@ -34867,8 +34864,9 @@
         },
         "/api/v1/tasks/{id}/duration-events/": {
             "get": {
-                "operationId": "v1_tasks_duration_events_retrieve",
+                "operationId": "v1_tasks_duration_events_list",
                 "description": "Duration-change audit events for a task, newest first (ADR-0151, #414).\n\nDetail-scoped read of the task's ``TaskDurationChangeEvent`` rows — old/new\nduration, the percent-complete policy applied, the actor, and the active\nsprint (if any) at change time. Any project member may read (same gate as\n``scope``). IDOR-safe: ``ProjectScopedViewSet`` restricts the queryset to the\ncaller's projects, so ``get_object`` 404s on a foreign task. Paginated\nnewest-first; ``select_related`` keeps actor-name rendering off the N+1 path.",
+                "summary": "Duration-change audit events for a task (ADR-0151, #414)",
                 "parameters": [
                     {
                         "in": "path",
@@ -34879,6 +34877,42 @@
                         },
                         "description": "A UUID string identifying this task.",
                         "required": true
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "tags": [
@@ -34900,7 +34934,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Task"
+                                    "$ref": "#/components/schemas/PaginatedTaskDurationChangeEventList"
                                 }
                             }
                         },
@@ -34922,8 +34956,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Retrieve duration event"
+                }
             }
         },
         "/api/v1/tasks/{id}/reorder/": {
@@ -35635,24 +35668,6 @@
                         }
                     },
                     {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "page_size",
-                        "required": false,
-                        "in": "query",
-                        "description": "Number of results to return per page.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "in": "query",
                         "name": "project",
                         "schema": {
@@ -35700,7 +35715,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedBoardCardSearchResultList"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/BoardCardSearchResult"
+                                    }
                                 }
                             }
                         },
@@ -38175,7 +38193,7 @@
         },
         "/api/v1/workspace/members/": {
             "get": {
-                "operationId": "v1_workspace_members_list",
+                "operationId": "v1_workspace_members_retrieve",
                 "description": "GET /api/v1/workspace/members/ — list members (#518).\n\nAdmins see every member; a non-admin member sees only their own row.\nCursor-paginated (#1317): each page materializes at most ``page_size`` rows,\nso the member-row builder's batched queries stay bounded regardless of org\nsize.",
                 "tags": [
                     "workspace"
@@ -38193,10 +38211,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/WorkspaceMember"
-                                    }
+                                    "$ref": "#/components/schemas/PaginatedWorkspaceMemberList"
                                 }
                             }
                         },
@@ -41088,7 +41103,8 @@
                     },
                     "accepted_by": {
                         "type": "integer",
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true
                     },
                     "accepted_at": {
                         "type": "string",
@@ -42370,6 +42386,17 @@
                     "sample_key"
                 ]
             },
+            "MarkAllReadResult": {
+                "type": "object",
+                "properties": {
+                    "updated": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "updated"
+                ]
+            },
             "McHistoryAttributionAudienceEnum": {
                 "enum": [
                     "admin_owner",
@@ -42481,6 +42508,40 @@
                     "timezone",
                     "username",
                     "workspace_role"
+                ]
+            },
+            "MeActiveSprintCard": {
+                "type": "object",
+                "description": "One per-project card for ``GET /api/v1/me/active-sprints/`` (#230, #2127).\n\nResponse-schema shape only: the view assembles plain dicts, so this exists to\ngive drf-spectacular an accurate typed array (the endpoint returns a bare list\nof these, not a paginated envelope).",
+                "properties": {
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "project_name": {
+                        "type": "string"
+                    },
+                    "sprint": {
+                        "$ref": "#/components/schemas/_ActiveSprintCardSprint"
+                    },
+                    "capacity_ratio": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "capacity_label": {
+                        "type": "string"
+                    },
+                    "velocity": {
+                        "$ref": "#/components/schemas/_ActiveSprintCardVelocity"
+                    }
+                },
+                "required": [
+                    "capacity_label",
+                    "capacity_ratio",
+                    "project_id",
+                    "project_name",
+                    "sprint",
+                    "velocity"
                 ]
             },
             "MeWorkTask": {
@@ -43240,37 +43301,6 @@
                     }
                 }
             },
-            "PaginatedBoardCardSearchResultList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/BoardCardSearchResult"
-                        }
-                    }
-                }
-            },
             "PaginatedCalendarExceptionList": {
                 "type": "object",
                 "required": [
@@ -43360,37 +43390,6 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/CeremonyTemplate"
-                        }
-                    }
-                }
-            },
-            "PaginatedCredentialSummaryList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/CredentialSummary"
                         }
                     }
                 }
@@ -44387,6 +44386,37 @@
                     }
                 }
             },
+            "PaginatedTaskDurationChangeEventList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskDurationChangeEvent"
+                        }
+                    }
+                }
+            },
             "PaginatedTaskList": {
                 "type": "object",
                 "required": [
@@ -44666,37 +44696,6 @@
                     }
                 }
             },
-            "PaginatedTrashProjectListList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/TrashProjectList"
-                        }
-                    }
-                }
-            },
             "PaginatedUserDefinedMentionGroupReadList": {
                 "type": "object",
                 "required": [
@@ -44882,6 +44881,32 @@
                         }
                     }
                 }
+            },
+            "PaginatedWorkspaceMemberList": {
+                "type": "object",
+                "properties": {
+                    "next": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "previous": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WorkspaceMember"
+                        }
+                    }
+                },
+                "required": [
+                    "next",
+                    "previous",
+                    "results"
+                ]
             },
             "PasswordResetConfirmRequest": {
                 "type": "object",
@@ -45674,7 +45699,6 @@
                     },
                     "email": {
                         "type": "string",
-                        "format": "email",
                         "maxLength": 254
                     },
                     "job_role": {
@@ -46834,6 +46858,15 @@
                 "type": "string",
                 "description": "* `open` - Open for voting\n* `revealed` - Revealed\n* `committed` - Committed\n* `cancelled` - Cancelled"
             },
+            "PolicyAppliedEnum": {
+                "enum": [
+                    "keep",
+                    "prorate",
+                    "confirm"
+                ],
+                "type": "string",
+                "description": "* `keep` - Keep percent-complete\n* `prorate` - Prorate percent-complete\n* `confirm` - Confirm percent-complete (client prompt)"
+            },
             "PreviewTypeEnum": {
                 "enum": [
                     "document",
@@ -47182,7 +47215,8 @@
                                 "$ref": "#/components/schemas/_UserSummary"
                             }
                         ],
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true
                     },
                     "created_by": {
                         "type": "integer",
@@ -47818,7 +47852,8 @@
                                 "$ref": "#/components/schemas/_UserSummary"
                             }
                         ],
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true
                     },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
@@ -48442,7 +48477,8 @@
                                 "$ref": "#/components/schemas/_UserSummary"
                             }
                         ],
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true
                     },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
@@ -48793,7 +48829,8 @@
                     "recalculated_at": {
                         "type": "string",
                         "format": "date-time",
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true
                     },
                     "is_sample": {
                         "type": "boolean",
@@ -49095,6 +49132,34 @@
                     "policy_source",
                     "server_version",
                     "source_label"
+                ]
+            },
+            "ProjectHealthSummary": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "health_band": {
+                        "type": "string"
+                    },
+                    "at_risk_count": {
+                        "type": "integer"
+                    },
+                    "critical_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "at_risk_count",
+                    "critical_count",
+                    "health_band",
+                    "id",
+                    "name"
                 ]
             },
             "ProjectMembershipRead": {
@@ -49786,7 +49851,6 @@
                     },
                     "email": {
                         "type": "string",
-                        "format": "email",
                         "maxLength": 254
                     },
                     "job_role": {
@@ -49888,7 +49952,6 @@
                     },
                     "email": {
                         "type": "string",
-                        "format": "email",
                         "maxLength": 254
                     },
                     "job_role": {
@@ -51160,14 +51223,6 @@
                 ],
                 "type": "string",
                 "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate"
-            },
-            "SourceEnum": {
-                "enum": [
-                    "manual",
-                    "timer"
-                ],
-                "type": "string",
-                "description": "* `manual` - Manual\n* `timer` - Timer"
             },
             "Sprint": {
                 "type": "object",
@@ -52533,7 +52588,20 @@
                         "nullable": true
                     },
                     "external_link_summary": {
-                        "type": "string",
+                        "type": "object",
+                        "properties": {
+                            "count": {
+                                "type": "integer"
+                            },
+                            "worst_status": {
+                                "type": "string",
+                                "nullable": true
+                            }
+                        },
+                        "required": [
+                            "count",
+                            "worst_status"
+                        ],
                         "readOnly": true
                     },
                     "status_changed_at": {
@@ -53078,6 +53146,105 @@
                 "required": [
                     "body"
                 ]
+            },
+            "TaskDurationChangeEvent": {
+                "type": "object",
+                "description": "Read serializer for a task's duration-change audit events (ADR-0151, #414).\n\nPowers ``GET /api/v1/tasks/{id}/duration-events/`` and is the API surface the\ndeferred desktop affordance and the future activity timeline (ADR-0096) read.\n``actor_name`` is denormalized so a client can render attribution without a\nsecond round trip; ``null`` for automated (non-user) events.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "actor": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "The user who changed the duration. NULL for automated sources."
+                    },
+                    "actor_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Display name of the actor, or ``None`` for automated events.",
+                        "readOnly": true
+                    },
+                    "old_duration": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Working-day duration before the change."
+                    },
+                    "new_duration": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Working-day duration after the change."
+                    },
+                    "percent_complete_at_change": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true,
+                        "description": "percent_complete immediately before the duration changed."
+                    },
+                    "percent_complete_after": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "policy_applied": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PolicyAppliedEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "source": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskDurationChangeEventSourceEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "actor",
+                    "actor_name",
+                    "created_at",
+                    "id",
+                    "new_duration",
+                    "old_duration",
+                    "percent_complete_after",
+                    "percent_complete_at_change",
+                    "policy_applied",
+                    "source",
+                    "sprint",
+                    "task"
+                ]
+            },
+            "TaskDurationChangeEventSourceEnum": {
+                "enum": [
+                    "user_edit",
+                    "cpm_cascade"
+                ],
+                "type": "string",
+                "description": "* `user_edit` - User edit\n* `cpm_cascade` - CPM cascade"
             },
             "TaskDurationChangePercentPolicyEnum": {
                 "enum": [
@@ -54412,7 +54579,7 @@
                     "source": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/SourceEnum"
+                                "$ref": "#/components/schemas/TimeEntrySourceEnum"
                             }
                         ],
                         "readOnly": true
@@ -54458,6 +54625,14 @@
                 "required": [
                     "minutes"
                 ]
+            },
+            "TimeEntrySourceEnum": {
+                "enum": [
+                    "manual",
+                    "timer"
+                ],
+                "type": "string",
+                "description": "* `manual` - Manual\n* `timer` - Timer"
             },
             "TimerStartRequest": {
                 "type": "object",
@@ -55537,6 +55712,83 @@
                     "fiscal_year_start_display",
                     "logo_url",
                     "subdomain"
+                ]
+            },
+            "_ActiveSprintCardSprint": {
+                "type": "object",
+                "description": "Burndown snapshot block nested in each ``/me/active-sprints/`` card (#230).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "short_id_display": {
+                        "type": "string"
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "day": {
+                        "type": "integer"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "remaining_points": {
+                        "type": "integer"
+                    },
+                    "committed_points": {
+                        "type": "integer"
+                    },
+                    "trend_pts": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "committed_points",
+                    "day",
+                    "finish_date",
+                    "id",
+                    "name",
+                    "remaining_points",
+                    "short_id_display",
+                    "start_date",
+                    "total",
+                    "trend_pts"
+                ]
+            },
+            "_ActiveSprintCardVelocity": {
+                "type": "object",
+                "description": "Rolling-velocity forecast block nested in each ``/me/active-sprints/`` card.",
+                "properties": {
+                    "rolling_avg_points": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "forecast_range_low": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "forecast_range_high": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "forecast_range_high",
+                    "forecast_range_low",
+                    "rolling_avg_points"
                 ]
             },
             "_CookieRefreshResponse": {

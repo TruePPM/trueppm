@@ -5,6 +5,8 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from rest_framework import serializers
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -58,6 +60,34 @@ class ResourceSkillSerializer(serializers.ModelSerializer[ResourceSkill]):
         read_only_fields = ["id", "server_version", "skill_name"]
 
 
+class _BlankableEmailField(serializers.CharField):
+    """Optional email field whose OpenAPI schema is a plain string.
+
+    ``Resource.email`` is ``EmailField(blank=True)``: an un-emailed resource
+    serializes as ``""``, which is not a valid ``email``-format value and fails
+    response-schema conformance (#2127). A stock ``EmailField`` carries an
+    ``EmailValidator`` that drf-spectacular reads to stamp ``format: email`` on
+    the schema (via ``_insert_field_validators``), so subclassing it — or
+    overriding the schema — cannot drop the format. This is a ``CharField`` (no
+    validator to enrich from) that instead validates the address inline for
+    non-blank input, so real emails are still rejected when malformed while a
+    blank value stays a conformant plain string.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("max_length", 254)
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data: Any) -> str:
+        value: str = super().to_internal_value(data)
+        if value:
+            try:
+                validate_email(value)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError("Enter a valid email address.") from exc
+        return value
+
+
 class ResourceSerializer(serializers.ModelSerializer[Resource]):
     """Read/write serializer for named resources (people, equipment, or material).
 
@@ -79,6 +109,13 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
 
     skills = ResourceSkillSerializer(many=True, read_only=True)
     is_me = serializers.SerializerMethodField()
+    # ``Resource.email`` is ``EmailField(blank=True)``: an un-emailed resource
+    # serializes as ``""``, which is not a valid ``email``-format string and fails
+    # response-schema conformance (#2127). Advertise a plain string schema (the
+    # write-side ``EmailField`` still validates real input) so a blank email is a
+    # valid response (see _BlankableEmailField for why a stock EmailField cannot
+    # drop the format).
+    email = _BlankableEmailField(required=False, allow_blank=True)
 
     class Meta:
         model = Resource

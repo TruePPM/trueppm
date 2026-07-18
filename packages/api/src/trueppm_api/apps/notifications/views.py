@@ -14,8 +14,13 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
-from rest_framework import mixins, status, viewsets
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+    inline_serializer,
+)
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -311,6 +316,17 @@ class NotificationViewSet(
             updated.read_at = timezone.now()
             updated.save(update_fields=["read_at"])
 
+    @extend_schema(
+        summary="Mark all unread notifications read",
+        # Without this, drf-spectacular infers the viewset's NotificationSerializer;
+        # the action returns a small ``{updated: N}`` counter instead (#2127).
+        responses={
+            200: inline_serializer(
+                name="MarkAllReadResult",
+                fields={"updated": serializers.IntegerField()},
+            )
+        },
+    )
     @action(detail=False, methods=["post"], url_path="mark-all-read")
     def mark_all_read(self, request: Request) -> Response:
         """Mark every unread notification for this user as read in one update."""
