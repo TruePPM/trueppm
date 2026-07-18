@@ -15,7 +15,7 @@
  * guards the page-level regression boundary (the view still renders with the
  * floor-prompt wiring mounted; the dialog is absent until a real drag fires).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-floor-0000-0000-0000-000000000868';

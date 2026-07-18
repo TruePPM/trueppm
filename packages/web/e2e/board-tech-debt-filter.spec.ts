@@ -8,7 +8,7 @@
  *   - The "Filter: Tech debt" chip + "Show all →" affordance appears.
  *   - "Show all →" clears the lens and restores every task.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-board-techdebt-0000-0000-0000-000000000001';

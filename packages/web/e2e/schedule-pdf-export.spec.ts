@@ -10,7 +10,7 @@
  * same dialog); below sm export is hidden entirely (a deck export is a desk task).
  * Empty state: with no activities the Export button is disabled.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-schedpdf-0000-0000-0000-000000001437';

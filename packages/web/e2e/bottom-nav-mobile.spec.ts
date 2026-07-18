@@ -8,7 +8,7 @@
  * reachable per methodology, either as a primary tab or via the More overflow
  * sheet.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import type { Page } from '@playwright/test';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 

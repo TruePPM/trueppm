@@ -9,7 +9,7 @@
  * Role is ADMIN (300) so the render-gate (useCanManageScope) lets the affordance
  * appear; the server is the real gate.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupApiMocks, setupAuth, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-scope-0000-0000-0000-000000000881';

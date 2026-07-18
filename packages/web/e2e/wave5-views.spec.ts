@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * E2E tests for wave 5 views — Calendar (#206) plus the unified Grid view

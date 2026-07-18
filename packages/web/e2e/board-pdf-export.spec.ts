@@ -7,7 +7,7 @@
  * Mobile: the action is hidden below the `sm` breakpoint (a deck export is a
  * desktop task).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-pdf-00000000-0000-0000-0000-000000000326';

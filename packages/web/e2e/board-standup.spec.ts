@@ -6,7 +6,7 @@
  * so the core walk is tested without the sprint-header/burndown chrome. A separate test
  * drives the actual "Standup" entry button with a mocked active sprint + burndown.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-standup-0000-0000-0000-000000001278';

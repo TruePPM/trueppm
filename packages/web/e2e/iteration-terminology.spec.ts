@@ -10,7 +10,7 @@
  * (which mock a project with no iteration_label → the resolver falls back to "Sprint"),
  * so this spec only exercises the non-default path.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-itl-00000000-0000-0000-0000-000000000862';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;

@@ -22,7 +22,7 @@
  * gives a future un-consolidation a ready slot. "Team" is the Resources view
  * (issue #22). A mobile-viewport hero shot rounds out the set.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 import os from 'node:os';
 import path from 'node:path';

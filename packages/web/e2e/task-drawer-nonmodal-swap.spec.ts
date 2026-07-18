@@ -14,7 +14,7 @@
  * directly (no canvas hit-testing like the Schedule Gantt, no drag layer like the
  * Board). The mock/auth/fixture setup mirrors e2e/wave10-sprints-backlog.spec.ts.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 const PROJECT_ID = 'e2e-drawer-swap-00000000-0000-0000-0000-000000000078';

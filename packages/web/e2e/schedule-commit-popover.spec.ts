@@ -18,7 +18,7 @@
  * precedent: "Deeper structural / mutation flows … are exercised at the
  * vitest layer where they can be asserted without canvas/network coupling."
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-commit-00000000-0000-0000-0000-000000000492';

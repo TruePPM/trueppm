@@ -8,7 +8,7 @@
  *   - Toggle state persists across reloads via localStorage.
  *   - Empty state renders when contributor has zero matching tasks.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-board-my-tasks-00000000-0000-0000-0000-0001';

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 
 /**
  * E2E coverage for the last-visited ping (ADR-0150, issue #1182).

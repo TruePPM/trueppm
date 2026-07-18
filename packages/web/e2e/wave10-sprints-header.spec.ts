@@ -11,7 +11,7 @@
  *  - Active sprint exists → Close button enabled
  *  - Already-planned sprint → Plan-next is disabled
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-sprints-00000000-0000-0000-0000-000000000010';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;

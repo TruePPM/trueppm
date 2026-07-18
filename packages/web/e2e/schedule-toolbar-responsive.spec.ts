@@ -8,7 +8,7 @@
  * never migrate into the `···` Actions overflow (web rule 243). Only the Display
  * trigger's label collapses to icon-only below lg.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000568';

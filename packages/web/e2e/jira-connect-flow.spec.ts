@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * Jira connect flow (#1421, ADR-0313) — the PAT-based, in-page wizard that fills

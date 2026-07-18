@@ -14,7 +14,7 @@
  * disambiguation + optimistic move are exercised by the backlogDrag unit logic. The
  * keyboard-accessible reparent alternative is the drawer's "Parent epic" select (#1043).
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/coverage';
 import { setupApiMocks, setupAuth, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-groom-00000000-0000-0000-0000-000000000494';

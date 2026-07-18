@@ -11,7 +11,7 @@
  * Mock-only — no backend. The user is role 300 (Member) so demo/note/flag
  * curation controls are present.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-review-00000000-0000-0000-0000-0000000000d4';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;

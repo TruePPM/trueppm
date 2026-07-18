@@ -5,7 +5,7 @@
  * phase lane's bottom edge to make it taller. Both preferences persist to
  * localStorage and survive a reload.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-resize0-0000-0000-0000-000000000285';

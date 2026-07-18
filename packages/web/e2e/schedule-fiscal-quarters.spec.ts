@@ -5,7 +5,7 @@
  * specs drive the QuarterModeControl: it appears only at quarter zoom for a
  * non-January fiscal workspace, switches mode, and persists the choice.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000755';

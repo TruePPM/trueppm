@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth } from './fixtures/auth';
 import { setupApiMocks, setupCatchAll } from './fixtures/api-mocks';
 

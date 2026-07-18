@@ -5,7 +5,7 @@
  * sprint assignments and that switching to it renders the team summary
  * cards instead of the single-project view.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-sprints-lens-00000000-0000-0000-0000-000000000040';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;

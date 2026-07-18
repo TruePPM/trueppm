@@ -7,7 +7,7 @@
  * counterpart deterministically lands on login at 375×667 (the same
  * known auth flake as wave3-card-info-popover).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const FIXTURE_PROJECT_ID = 'e2e-305-00000000-0000-0000-0000-000000000305';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;

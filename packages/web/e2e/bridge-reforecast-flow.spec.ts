@@ -19,7 +19,7 @@
  * covered by the scheduler/backend tests (test_milestone_reforecast.py) and the
  * component units (AdvancingToMilestoneCard / SprintForecastWidget), not here.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 const PROJECT_ID = 'e2e-bridge-reforecast-0000-0000-0000-000010';

@@ -11,7 +11,7 @@
  * crash the object-shaped product-backlog read). Interactions gate on a "page rendered"
  * signal (the heading / a card) before touching chrome.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures/coverage';
 import { setupApiMocks, setupAuth, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-groom-00000000-0000-0000-0000-000000001044';

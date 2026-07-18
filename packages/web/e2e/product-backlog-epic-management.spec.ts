@@ -9,7 +9,7 @@
  * Product Owner who lacks delete (can_delete:false) can edit but sees no delete kebab; a
  * plain viewer (can_edit:false) sees a read-only header with no edit button at all.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/coverage';
 import { setupApiMocks, setupAuth, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-epic-00000000-0000-0000-0000-000000001339';

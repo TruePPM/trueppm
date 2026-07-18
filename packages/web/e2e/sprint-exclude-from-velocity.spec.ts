@@ -5,7 +5,7 @@
  * panel marks (does not drop) an excluded sprint and surfaces the "N excluded"
  * callout, and toggling PATCHes `exclude_from_velocity` to the sprint endpoint.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-excl-velocity-0000-0000-0000-000000001092';

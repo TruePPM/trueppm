@@ -13,7 +13,7 @@
  * connection-status.spec.ts — the exact sequence-tracking logic is unit-tested
  * in useProjectWebSocket.test.ts; this spec locks the on-the-wire URL contract.
  */
-import { test, expect, type WebSocketRoute } from '@playwright/test';
+import { test, expect, type WebSocketRoute } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-ws-00000000-0000-0000-0000-000000000321';

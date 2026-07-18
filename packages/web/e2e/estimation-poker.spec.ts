@@ -7,7 +7,7 @@
  *
  * Setup mirrors sprints-planning-surface.spec.ts (the e2e user is Admin → a facilitator).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-poker-0000-0000-0000-000000000863';

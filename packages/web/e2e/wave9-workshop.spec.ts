@@ -10,7 +10,7 @@
  *
  * Reference migration to the shared `e2e/fixtures/` helpers — see #348.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-workshop-00000000-0000-0000-0000-000000000099';

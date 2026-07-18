@@ -13,7 +13,7 @@
  * a CPM bypass. The row must still render a single date (em-dash in Finish)
  * because the frontend invariant is the last line of defense before pixels.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-mile-00000000-0000-0000-0000-000000000221';

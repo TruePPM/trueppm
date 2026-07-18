@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 /**
  * /me/settings/connected-accounts — golden path + revoke + anchor-scroll deep link.

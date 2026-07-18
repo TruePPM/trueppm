@@ -7,7 +7,7 @@
  * and the canvas still mounts. Palette correctness is unit-tested in
  * GanttRenderer.test.ts.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 // Emulate Windows High Contrast for every test in this file.

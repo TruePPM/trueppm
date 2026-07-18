@@ -9,7 +9,7 @@
  * The /api/v1/task-relations/ backend ships in a separate MR, so every endpoint
  * this UI reads is mocked here with its real shape (this UI is a pure consumer).
  */
-import { test, expect, type Page, type Locator } from '@playwright/test';
+import { test, expect, type Page, type Locator } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROGRAM_ID = 'e2e-prog-00000000-0000-0000-0000-000000002068';

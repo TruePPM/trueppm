@@ -13,7 +13,7 @@
  * failing requests — exactly how the feature behaves in a real dead zone where
  * the app declines to send rather than the socket erroring.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-offline-00000000-0000-0000-0000-000000000606';

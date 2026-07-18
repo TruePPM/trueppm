@@ -9,7 +9,7 @@
  * The schedule + drawer are rendered via the shared fixtures; the /links/
  * endpoints are stubbed with a small stateful mock per-spec.
  */
-import { test, expect, type Page, type Locator } from '@playwright/test';
+import { test, expect, type Page, type Locator } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-links-00000000-0000-0000-0000-000000000637';

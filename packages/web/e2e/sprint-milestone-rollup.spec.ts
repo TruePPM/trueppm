@@ -6,7 +6,7 @@
  * the way the server payload encodes them. Driven entirely off the server
  * response shape so a regression in any of the surfaces would surface here.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-mrollup-00000000-0000-0000-0000-000000000074';

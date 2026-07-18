@@ -25,7 +25,7 @@
  * `workshopSession` query, which refetches `GET /workshop/current/`, so the
  * mock returns a mutable participant list that the frames toggle.
  */
-import { test, expect, type WebSocketRoute } from '@playwright/test';
+import { test, expect, type WebSocketRoute } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 import type { WorkshopParticipant } from '../src/types';
 

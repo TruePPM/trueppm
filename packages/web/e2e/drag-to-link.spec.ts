@@ -22,7 +22,7 @@
  * #1190 catch-all rule); interactions gate on a "page rendered" signal (the
  * bar's aria gridcell) so the drag never races the first paint.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-link-00000000-0000-0000-0000-000000001666';

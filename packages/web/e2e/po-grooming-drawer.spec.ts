@@ -8,7 +8,7 @@
  * backlog-manage rights) is covered exhaustively by the scorePreview + drawer
  * vitest; this spec asserts the integrated open→edit→save flow.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/coverage';
 import { setupApiMocks, setupAuth, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-drawer-0000-0000-0000-0000-000000001043';

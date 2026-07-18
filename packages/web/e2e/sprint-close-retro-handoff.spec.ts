@@ -8,7 +8,7 @@
  *   2. Dismiss — the CTA is dismissible and never gates the close: dismissing
  *      removes it and leaves the workspace intact.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-retro-handoff-0000-0000-0000-000000001471';
 const ROUTE = `/projects/${PROJECT_ID}/sprints`;

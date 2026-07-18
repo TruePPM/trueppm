@@ -12,7 +12,7 @@
  * BoardView unit tests + board-backlog-band.spec.ts; this spec asserts the
  * toolbar surface itself.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-cb-00000000-0000-0000-0000-000000000382';

@@ -10,7 +10,7 @@
  * not the mobile snap board) guarantees the phase sidebar + four columns
  * overflow horizontally, so the pan produces an observable `scrollLeft` change.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-spacepan-0000-0000-0000-000000000010';

@@ -13,7 +13,7 @@
  * setupApiMocks — the catch-all list mock would crash object-shaped endpoints
  * (see CLAUDE.md), so we never lean on it for the page render.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-sync-00000000-0000-0000-0000-000000000374';

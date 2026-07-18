@@ -5,7 +5,7 @@
  * task at /projects/:id/tasks/:taskId; the page renders the task title and the
  * registry-driven sections with a back link to the schedule.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-expand-0000-0000-0000-000000000013';

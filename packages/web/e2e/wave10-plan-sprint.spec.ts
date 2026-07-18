@@ -5,7 +5,7 @@
  * opens the dialog, the form submits to the create endpoint, and the
  * dialog closes on success.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-plan-sprint-00000000-0000-0000-0000-000000000050';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;

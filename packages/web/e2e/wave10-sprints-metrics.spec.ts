@@ -5,7 +5,7 @@
  * render below the existing sprint header when an ACTIVE sprint exists, and
  * pull data from the right endpoints.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 
 const PROJECT_ID = 'e2e-sprints-metrics-00000000-0000-0000-0000-000000000020';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;

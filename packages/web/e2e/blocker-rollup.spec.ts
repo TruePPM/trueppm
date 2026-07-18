@@ -5,7 +5,7 @@
  * Golden path: the panel lists flagged-blocked tasks with type + age + assignee
  * + soft link, and never a reason. Empty path: a reassuring "no blockers" state.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-blkrollup-0000-0000-0000-000000001134';

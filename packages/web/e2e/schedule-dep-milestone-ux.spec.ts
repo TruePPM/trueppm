@@ -9,7 +9,7 @@
  * 3. Milestone task opens drawer with "Date" row (not Start/Finish pair),
  *    "— (milestone)" duration, binary progress text, and no Estimates section.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-dep-ms-00000000-0000-0000-0000-000000000058';

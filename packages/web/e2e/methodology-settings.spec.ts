@@ -12,7 +12,7 @@
  *
  * All API calls are intercepted via page.route() so no backend is required.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 const pj = (data: unknown) => JSON.stringify(data);

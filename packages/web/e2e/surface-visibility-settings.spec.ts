@@ -7,7 +7,7 @@
  * controls (Inherit / Override + on/off switch). Writes are Admin-only; Members
  * and below see a read-only indicator. All API calls are intercepted.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 const pj = (data: unknown) => JSON.stringify(data);

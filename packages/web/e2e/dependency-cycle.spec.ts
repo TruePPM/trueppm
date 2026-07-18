@@ -7,7 +7,7 @@
  * cycle path resolved to task names (not UUIDs), and that the dep was not
  * persisted (no successful POST captured by the mock).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-cycle-00000000-0000-0000-0000-000000000356';

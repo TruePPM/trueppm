@@ -1874,6 +1874,49 @@ web:diff-coverage:
         --compare-branch="origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
         --fail-under="$COVERAGE_DIFF_MIN"
 
+web:e2e:coverage:
+  # Playwright E2E line coverage for SonarCloud (#2117). SonarCloud imports LCOV;
+  # it does not run tests. The vitest report already imports, but every UI file
+  # exercised only by E2E — a large share of the app — is analyzed by Sonar yet
+  # absent from that LCOV, so it counts as 0% covered and drags the reported total
+  # far below the true API-94%/web-unit-78.5% figures. This job builds an
+  # istanbul-instrumented bundle (VITE_COVERAGE=true), runs the mocked, self-
+  # contained Chromium suite (specs mock all /api and /ws at the browser — no
+  # backend), and the coverage fixture (e2e/fixtures/coverage.ts) writes each
+  # page's `window.__coverage__`; merge-e2e-coverage.mjs stitches them into an
+  # LCOV with repo-root-relative SF paths that sonar:scan imports.
+  #
+  # Scheduled-only (mirrors sonar:scan) so day-to-day MR pipelines are unchanged,
+  # and allow_failure so a coverage hiccup never reds the nightly run. Builds its
+  # OWN instrumented dist rather than reusing web:build's production artifact —
+  # the production build is never instrumented. Unsharded so all pages' coverage
+  # lands in one workspace for the merge. `needs: []` keeps it independent of the
+  # web gate jobs (which the scheduled pipeline may not run).
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
+  needs: []
+  variables:
+    VITE_COVERAGE: "true"
+  cache:
+    <<: *web-cache
+    policy: pull
+  before_script:
+    - *retry-fn
+    - cd packages/web
+    - retry npm ci --prefer-offline --quiet
+  script:
+    - npm run build
+    - npx playwright test --project=chromium
+    - node scripts/merge-e2e-coverage.mjs
+  artifacts:
+    when: always
+    paths:
+      - packages/web/coverage/e2e/lcov.info
+    expire_in: 7 days
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SONAR_SCHEDULED == "true"'
+  allow_failure: true
+
 sonar:scan:
   # Nightly SonarCloud analysis WITH coverage import (#2090, #2092).
   #
@@ -1896,6 +1939,10 @@ sonar:scan:
     - job: scheduler:test
       artifacts: true
     - job: mcp:test
+      artifacts: true
+    # Playwright E2E line coverage (#2117) — nightly, same schedule gate as this
+    # job, allow_failure, so a missing/failed run just imports the vitest report.
+    - job: web:e2e:coverage
       artifacts: true
   variables:
     # Full history so SonarCloud's new-code detection and SCM blame are accurate
