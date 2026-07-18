@@ -358,6 +358,32 @@ function OverviewSkeleton() {
   );
 }
 
+/**
+ * Hard-error state (no data). Role-aware: a 403 shows an admin-access message and
+ * omits Retry (retrying a permission error is futile); any other failure offers a
+ * Retry that re-runs the query.
+ */
+function SystemHealthErrorState({ is403, onRetry }: { is403: boolean; onRetry: () => void }) {
+  return (
+    <div className="px-6 py-8 flex flex-col gap-3 items-start">
+      <p className="text-[13px] text-semantic-critical">
+        {is403
+          ? 'Admin access required. Contact your workspace owner.'
+          : "Couldn't load system health — the API may be unreachable."}
+      </p>
+      {!is403 && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          Retry
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
@@ -392,24 +418,7 @@ export function SystemHealthOverviewPage() {
   }
 
   if (error !== null && data === undefined) {
-    return (
-      <div className="px-6 py-8 flex flex-col gap-3 items-start">
-        <p className="text-[13px] text-semantic-critical">
-          {is403
-            ? 'Admin access required. Contact your workspace owner.'
-            : "Couldn't load system health — the API may be unreachable."}
-        </p>
-        {!is403 && (
-          <button
-            type="button"
-            onClick={() => void refetch()}
-            className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          >
-            Retry
-          </button>
-        )}
-      </div>
-    );
+    return <SystemHealthErrorState is403={is403} onRetry={() => void refetch()} />;
   }
 
   // data is available (possibly stale if a background refetch errored — that's fine).

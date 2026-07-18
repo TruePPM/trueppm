@@ -99,6 +99,177 @@ function applyResultCaps(items: CommandItem[], query: string): CommandItem[] {
   return out;
 }
 
+/** Per-group truncation flags, threaded from {@link CommandPalette} to the
+ *  results subcomponents so the "showing N" cues stay in sync with the caps. */
+interface TruncationCues {
+  taskTruncated: boolean;
+  personTruncated: boolean;
+  sprintTaskTruncated: boolean;
+  sprintTaskTotal: number;
+}
+
+/** The "showing N" overflow hint for a capped group — sprint tasks name the total
+ *  (a bounded set, ADR-0508); task/person groups say "first N". */
+function GroupOverflowHint({
+  group,
+  taskTruncated,
+  personTruncated,
+  sprintTaskTruncated,
+  sprintTaskTotal,
+}: { group: CommandItem['group'] } & TruncationCues) {
+  if (group === 'sprintTask') {
+    return sprintTaskTruncated ? (
+      <p className="px-3 pb-1 pt-0.5 text-xs text-neutral-text-secondary" role="note">
+        Showing {SPRINT_TASK_RESULT_CAP} of {sprintTaskTotal} — refine your search to narrow it
+        down.
+      </p>
+    ) : null;
+  }
+  const truncated =
+    (group === 'task' && taskTruncated) || (group === 'person' && personTruncated);
+  if (!truncated) return null;
+  const cap = group === 'task' ? TASK_RESULT_CAP : PERSON_RESULT_CAP;
+  return (
+    <p className="px-3 pb-1 pt-0.5 text-xs text-neutral-text-secondary" role="note">
+      Showing first {cap} — refine your search to narrow it down.
+    </p>
+  );
+}
+
+/** One result row (`role="option"`). Hover moves the active selection; the tag
+ *  chip and optional detail/EE badge render inline. */
+function PaletteOption({
+  item,
+  isActive,
+  onHover,
+}: {
+  item: CommandItem;
+  isActive: boolean;
+  onHover: () => void;
+}) {
+  return (
+    <button
+      id={`cmdk-opt-${item.id}`}
+      role="option"
+      aria-selected={isActive}
+      type="button"
+      onMouseMove={onHover}
+      onClick={() => item.run()}
+      className={`flex min-h-[44px] w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm ${
+        isActive ? 'bg-brand-primary/10 text-brand-primary' : 'text-neutral-text-primary'
+      }`}
+    >
+      <span className="flex min-w-0 items-baseline gap-2">
+        <span className="min-w-0 truncate">{item.label}</span>
+        {item.detail && (
+          <span className="tppm-mono hidden shrink-0 text-xs text-neutral-text-secondary sm:inline">
+            {item.detail}
+          </span>
+        )}
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5">
+        {item.gated && (
+          <span className="tppm-mono rounded-chip bg-semantic-at-risk-bg px-1.5 py-0.5 text-xs text-semantic-at-risk">
+            EE
+          </span>
+        )}
+        <span
+          className={`tppm-mono rounded-chip px-1.5 py-0.5 text-xs ${
+            CHIP_CLASS[item.tag] ?? DEFAULT_CHIP_CLASS
+          }`}
+        >
+          {item.tag}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/** One labelled result group (`role="group"`) — header, overflow hint, options.
+ *  Renders nothing when the group has no items. */
+function PaletteGroup({
+  group,
+  items,
+  activeItem,
+  onHover,
+  cues,
+}: {
+  group: CommandItem['group'];
+  items: CommandItem[];
+  activeItem: CommandItem | undefined;
+  onHover: (item: CommandItem) => void;
+  cues: TruncationCues;
+}) {
+  const groupItems = items.filter((i) => i.group === group);
+  if (groupItems.length === 0) return null;
+  return (
+    <div
+      className="py-1"
+      role="group"
+      aria-label={GROUP_LABEL[group]}
+      data-testid={`cmdk-group-${group}`}
+    >
+      <p className="tppm-mono px-3 py-1 text-xs uppercase tracking-wider text-neutral-text-disabled">
+        {GROUP_LABEL[group]}
+      </p>
+      <GroupOverflowHint group={group} {...cues} />
+      {groupItems.map((item) => (
+        <PaletteOption
+          key={item.id}
+          item={item}
+          isActive={item.id === activeItem?.id}
+          onHover={() => onHover(item)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** The listbox body: an empty-state line, or the ordered result groups. */
+function PaletteResultsBody({
+  items,
+  query,
+  activeItem,
+  onHover,
+  taskTruncated,
+  personTruncated,
+  sprintTaskTruncated,
+  sprintTaskTotal,
+}: {
+  items: CommandItem[];
+  query: string;
+  activeItem: CommandItem | undefined;
+  onHover: (item: CommandItem) => void;
+} & TruncationCues) {
+  if (items.length === 0) {
+    return (
+      <p className="px-4 py-6 text-center text-sm text-neutral-text-secondary">
+        No matches for “{query}”.
+      </p>
+    );
+  }
+  const cues: TruncationCues = {
+    taskTruncated,
+    personTruncated,
+    sprintTaskTruncated,
+    sprintTaskTotal,
+  };
+  return (
+    <>
+      {GROUP_ORDER.map((group) => (
+        <PaletteGroup
+          key={group}
+          group={group}
+          items={items}
+          activeItem={activeItem}
+          onHover={onHover}
+          cues={cues}
+        />
+      ))}
+    </>
+  );
+}
+
 /**
  * ⌘K / Ctrl+K command palette (v2 design system). A centered overlay with a fuzzy
  * filter over Jump-to destinations (My Work, programs, projects) and global
@@ -241,100 +412,16 @@ export function CommandPalette() {
           aria-label="Results"
           className="max-h-[50vh] overflow-y-auto py-1"
         >
-          {items.length === 0 ? (
-            <p className="px-4 py-6 text-center text-sm text-neutral-text-secondary">
-              No matches for “{query}”.
-            </p>
-          ) : (
-            GROUP_ORDER.map((group) => {
-              const groupItems = items.filter((i) => i.group === group);
-              if (groupItems.length === 0) return null;
-              return (
-                <div
-                  key={group}
-                  className="py-1"
-                  role="group"
-                  aria-label={GROUP_LABEL[group]}
-                  data-testid={`cmdk-group-${group}`}
-                >
-                  <p className="tppm-mono px-3 py-1 text-xs uppercase tracking-wider text-neutral-text-disabled">
-                    {GROUP_LABEL[group]}
-                  </p>
-                  {(() => {
-                    // Sprint tasks name the total ("Showing 25 of 41 — …") since a
-                    // sprint is a bounded, countable working set (ADR-0508).
-                    if (group === 'sprintTask') {
-                      return sprintTaskTruncated ? (
-                        <p
-                          key="sprintTask-overflow"
-                          className="px-3 pb-1 pt-0.5 text-xs text-neutral-text-secondary"
-                          role="note"
-                        >
-                          Showing {SPRINT_TASK_RESULT_CAP} of {sprintTaskTotal} — refine your
-                          search to narrow it down.
-                        </p>
-                      ) : null;
-                    }
-                    const truncated =
-                      (group === 'task' && taskTruncated) ||
-                      (group === 'person' && personTruncated);
-                    const cap = group === 'task' ? TASK_RESULT_CAP : PERSON_RESULT_CAP;
-                    return truncated ? (
-                      <p
-                        key={`${group}-overflow`}
-                        className="px-3 pb-1 pt-0.5 text-xs text-neutral-text-secondary"
-                        role="note"
-                      >
-                        Showing first {cap} — refine your search to narrow it down.
-                      </p>
-                    ) : null;
-                  })()}
-                  {groupItems.map((item) => {
-                    const isActive = item.id === activeItem?.id;
-                    return (
-                      <button
-                        key={item.id}
-                        id={`cmdk-opt-${item.id}`}
-                        role="option"
-                        aria-selected={isActive}
-                        type="button"
-                        onMouseMove={() => setActiveIndex(items.indexOf(item))}
-                        onClick={() => item.run()}
-                        className={`flex min-h-[44px] w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm ${
-                          isActive
-                            ? 'bg-brand-primary/10 text-brand-primary'
-                            : 'text-neutral-text-primary'
-                        }`}
-                      >
-                        <span className="flex min-w-0 items-baseline gap-2">
-                          <span className="min-w-0 truncate">{item.label}</span>
-                          {item.detail && (
-                            <span className="tppm-mono hidden shrink-0 text-xs text-neutral-text-secondary sm:inline">
-                              {item.detail}
-                            </span>
-                          )}
-                        </span>
-                        <span className="flex shrink-0 items-center gap-1.5">
-                          {item.gated && (
-                            <span className="tppm-mono rounded-chip bg-semantic-at-risk-bg px-1.5 py-0.5 text-xs text-semantic-at-risk">
-                              EE
-                            </span>
-                          )}
-                          <span
-                            className={`tppm-mono rounded-chip px-1.5 py-0.5 text-xs ${
-                              CHIP_CLASS[item.tag] ?? DEFAULT_CHIP_CLASS
-                            }`}
-                          >
-                            {item.tag}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })
-          )}
+          <PaletteResultsBody
+            items={items}
+            query={query}
+            activeItem={activeItem}
+            onHover={(item) => setActiveIndex(items.indexOf(item))}
+            taskTruncated={taskTruncated}
+            personTruncated={personTruncated}
+            sprintTaskTruncated={sprintTaskTruncated}
+            sprintTaskTotal={sprintTaskTotal}
+          />
         </div>
 
         {/* Footer hint — the action verb adapts so a task open is announced as
