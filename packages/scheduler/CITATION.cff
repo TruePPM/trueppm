@@ -13,7 +13,7 @@ authors:
     family-names: Hair
     affiliation: "TruePPM, Inc."
     orcid: "https://orcid.org/0000-0000-0000-0000"  # <to be assigned before submission>
-version: 0.4.0a1
+version: 0.4.0b1
 date-released: 2026-07-18
 doi: 10.5281/zenodo.0000000  # <Zenodo concept DOI, to be minted on first archived release>
 license: Apache-2.0

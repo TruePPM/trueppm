@@ -11,11 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 While the package is in the `0.x` alpha series (`Development Status :: 3 - Alpha`),
 the public API — the `__all__` surface of `trueppm_scheduler` — may change
-between releases. Pin an exact version (e.g. `trueppm-scheduler==0.4.0a1`).
+between releases. Pin an exact version (e.g. `trueppm-scheduler==0.4.0b1`).
 
 ## [Unreleased]
 
-## [0.4.0a1] - 2026-07-18
+## [0.4.0b1] - 2026-07-18
 
 ### Added
 
@@ -171,8 +171,8 @@ _No library-facing changes in this release._
 - Cycle detection that names the offending task IDs (`CyclicDependencyError`).
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`.
 
-[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0a1...main
-[0.4.0a1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a3...scheduler-v0.4.0a1
+[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b1...main
+[0.4.0b1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a3...scheduler-v0.4.0b1
 [0.3.0a3]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a2...scheduler-v0.3.0a3
 [0.3.0a2]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a1...scheduler-v0.3.0a2
 [0.3.0a1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.2.0a1...scheduler-v0.3.0a1
