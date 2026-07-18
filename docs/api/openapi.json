@@ -41088,6 +41088,15 @@
                 "type": "string",
                 "description": "* `open` - Open\n* `suggest_approve` - Suggest & Approve\n* `pm_only` - PM Only"
             },
+            "EstimationScaleEnum": {
+                "enum": [
+                    "fibonacci",
+                    "linear",
+                    "tshirt"
+                ],
+                "type": "string",
+                "description": "* `fibonacci` - Fibonacci (1, 2, 3, 5, 8, 13, 21)\n* `linear` - Linear (1-10)\n* `tshirt` - T-shirt (XS-XL)"
+            },
             "EventTypeEnum": {
                 "enum": [
                     "task.created",
@@ -45281,6 +45290,20 @@
                             }
                         ]
                     },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
                     "iteration_label": {
                         "type": "string",
                         "nullable": true,
@@ -45508,6 +45531,20 @@
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
                             },
                             {
                                 "$ref": "#/components/schemas/BlankEnum"
@@ -46543,6 +46580,9 @@
                     "task_duration_change_percent_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     },
+                    "estimation_scale": {
+                        "$ref": "#/components/schemas/EstimationScaleEnum"
+                    },
                     "attachments_enabled": {
                         "type": "boolean"
                     },
@@ -46933,6 +46973,28 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "iteration_label": {
                         "type": "string",
                         "nullable": true,
@@ -47188,6 +47250,7 @@
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
                     "effective_calendar",
+                    "effective_estimation_scale",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
@@ -47199,6 +47262,7 @@
                     "inherited_allowed_attachment_types",
                     "inherited_attachments_enabled",
                     "inherited_calendar",
+                    "inherited_estimation_scale",
                     "inherited_iteration_label",
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
@@ -47442,6 +47506,20 @@
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
                             },
                             {
                                 "$ref": "#/components/schemas/BlankEnum"
@@ -47796,6 +47874,28 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -48069,6 +48169,7 @@
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
                     "effective_calendar",
+                    "effective_estimation_scale",
                     "effective_iteration_label",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
@@ -48081,6 +48182,7 @@
                     "inherited_allow_guests",
                     "inherited_allowed_attachment_types",
                     "inherited_attachments_enabled",
+                    "inherited_estimation_scale",
                     "inherited_iteration_label",
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
@@ -48396,6 +48498,28 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -48704,6 +48828,7 @@
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
                     "effective_calendar",
+                    "effective_estimation_scale",
                     "effective_iteration_label",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
@@ -48716,6 +48841,7 @@
                     "inherited_allow_guests",
                     "inherited_allowed_attachment_types",
                     "inherited_attachments_enabled",
+                    "inherited_estimation_scale",
                     "inherited_iteration_label",
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
@@ -49181,6 +49307,20 @@
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
                             },
                             {
                                 "$ref": "#/components/schemas/BlankEnum"
@@ -55128,6 +55268,9 @@
                     },
                     "task_duration_change_percent_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "estimation_scale": {
+                        "$ref": "#/components/schemas/EstimationScaleEnum"
                     },
                     "attachments_enabled": {
                         "type": "boolean"

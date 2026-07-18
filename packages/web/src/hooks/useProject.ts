@@ -9,7 +9,7 @@ import type {
   ProjectVisibility,
 } from '@/api/types';
 import type { BoardCadence, Methodology } from '@/types';
-import type { DurationChangePercentPolicy, PrioritizationModel } from '@/api/types';
+import type { DurationChangePercentPolicy, EstimationScale, PrioritizationModel } from '@/api/types';
 
 /**
  * Resolved visibility of the four independently-toggleable leaf surfaces
@@ -91,6 +91,19 @@ export interface ApiProjectDetail {
    * affordance and the policy-driven read-only treatment.
    */
   inherited_methodology: Methodology;
+  /**
+   * Estimation-scale OVERRIDE (ADR-0510, #2027). null = inherit the program/workspace
+   * scale. Scheduler+-writable. Governs which point picker and display labels the
+   * client renders (see `lib/storyPoints.ts`) — never the stored integer
+   * `story_points`. Read `effective_estimation_scale` to drive a picker, not this.
+   */
+  estimation_scale: EstimationScale | null;
+  /** Server-resolved scale (project ?? program ?? workspace). The value every point
+   *  picker on this project reads. */
+  effective_estimation_scale: EstimationScale;
+  /** Scale this project would show if its own override were cleared (program ??
+   *  workspace). Drives the settings "Inherit (X)" affordance. */
+  inherited_estimation_scale: EstimationScale;
   /**
    * Board cadence (ADR-0164, issue 410). `sprint` (default) shows the sprint chrome;
    * `continuous` hides it for continuous-flow Kanban. Scheduler+-writable. Not an

@@ -24,7 +24,8 @@ interface DetailPaneProps {
 }
 
 export function DetailPane({ controller }: DetailPaneProps) {
-  const { url, selectedItem, memberProjects, canEdit, canDelete, tagUniverse } = controller;
+  const { url, selectedItem, memberProjects, canEdit, canDelete, tagUniverse, estimationScale } =
+    controller;
   const navigate = useNavigate();
 
   const pullActive = url.isPull && selectedItem?.status === 'PROPOSED';
@@ -40,6 +41,7 @@ export function DetailPane({ controller }: DetailPaneProps) {
     return (
       <DetailCreate
         tagSuggestions={tagUniverse}
+        estimationScale={estimationScale}
         onCancel={url.closeDetail}
         onCreate={async (input) => {
           const created = await controller.createItem(input);
@@ -66,6 +68,7 @@ export function DetailPane({ controller }: DetailPaneProps) {
       <DetailView
         item={selectedItem}
         tagSuggestions={tagUniverse}
+        estimationScale={estimationScale}
         canEdit={canEdit}
         canDelete={canDelete}
         onClose={url.closeDetail}

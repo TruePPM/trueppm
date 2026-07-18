@@ -14,6 +14,7 @@ import { InheritableNumberField } from '../components/InheritableNumberField';
 import { InheritableSelectField } from '../components/InheritableSelectField';
 import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
 import { DURATION_CHANGE_POLICY_OPTIONS, DURATION_CHANGE_POLICY_HINT } from '../durationChangePolicy';
+import { ESTIMATION_SCALE_OPTIONS, ESTIMATION_SCALE_HINT } from '../estimationScale';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 import { useExportProgramSeed } from '@/hooks/useProgramSeedIo';
 import {
@@ -24,6 +25,7 @@ import {
 import { ROLE_ADMIN } from '@/lib/roles';
 import type {
   DurationChangePercentPolicy,
+  EstimationScale,
   MCAttributionAudience,
   ProgramHealth,
   ProgramMethodology,
@@ -180,6 +182,8 @@ export function ProgramGeneralPage() {
   // null = inherit the program/workspace value (ADR-0151, issue 1254).
   const [taskDurationChangePercentPolicy, setTaskDurationChangePercentPolicy] =
     useState<DurationChangePercentPolicy | null>(null);
+  // null = inherit the workspace estimation scale (ADR-0510, #2027).
+  const [estimationScale, setEstimationScale] = useState<EstimationScale | null>(null);
   const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');
   // null = no accent chosen (renders as a health-tinted neutral on the card).
   const [color, setColor] = useState<string | null>(null);
@@ -214,6 +218,7 @@ export function ProgramGeneralPage() {
     initialTaskDurationChangePercentPolicy,
     setInitialTaskDurationChangePercentPolicy,
   ] = useState<DurationChangePercentPolicy | null>(null);
+  const [initialEstimationScale, setInitialEstimationScale] = useState<EstimationScale | null>(null);
   const [initialVisibility, setInitialVisibility] = useState<ProgramVisibility>('WORKSPACE');
   const [initialColor, setInitialColor] = useState<string | null>(null);
   const [initialLead, setInitialLead] = useState<string | null>(null);
@@ -234,6 +239,7 @@ export function ProgramGeneralPage() {
     setMcHistoryRetentionCap(program.mc_history_retention_cap ?? null);
     setMcHistoryAttributionAudience(program.mc_history_attribution_audience ?? null);
     setTaskDurationChangePercentPolicy(program.task_duration_change_percent_policy ?? null);
+    setEstimationScale(program.estimation_scale ?? null);
     setVisibility(program.visibility);
     setColor(program.color ?? null);
     setLead(program.lead ?? null);
@@ -250,6 +256,7 @@ export function ProgramGeneralPage() {
     setInitialMcHistoryRetentionCap(program.mc_history_retention_cap ?? null);
     setInitialMcHistoryAttributionAudience(program.mc_history_attribution_audience ?? null);
     setInitialTaskDurationChangePercentPolicy(program.task_duration_change_percent_policy ?? null);
+    setInitialEstimationScale(program.estimation_scale ?? null);
     setInitialVisibility(program.visibility);
     setInitialColor(program.color ?? null);
     setInitialLead(program.lead ?? null);
@@ -270,6 +277,7 @@ export function ProgramGeneralPage() {
       mcHistoryRetentionCap,
       mcHistoryAttributionAudience,
       taskDurationChangePercentPolicy,
+      estimationScale,
       visibility,
       color,
       lead,
@@ -288,6 +296,7 @@ export function ProgramGeneralPage() {
       mcHistoryRetentionCap,
       mcHistoryAttributionAudience,
       taskDurationChangePercentPolicy,
+      estimationScale,
       visibility,
       color,
       lead,
@@ -308,6 +317,7 @@ export function ProgramGeneralPage() {
       mcHistoryRetentionCap: initialMcHistoryRetentionCap,
       mcHistoryAttributionAudience: initialMcHistoryAttributionAudience,
       taskDurationChangePercentPolicy: initialTaskDurationChangePercentPolicy,
+      estimationScale: initialEstimationScale,
       visibility: initialVisibility,
       color: initialColor,
       lead: initialLead,
@@ -326,6 +336,7 @@ export function ProgramGeneralPage() {
       initialMcHistoryRetentionCap,
       initialMcHistoryAttributionAudience,
       initialTaskDurationChangePercentPolicy,
+      initialEstimationScale,
       initialVisibility,
       initialColor,
       initialLead,
@@ -355,6 +366,8 @@ export function ProgramGeneralPage() {
         mc_history_attribution_audience: mcHistoryAttributionAudience,
         // null clears the duration-change override so the program inherits the workspace value (ADR-0151).
         task_duration_change_percent_policy: taskDurationChangePercentPolicy,
+        // null clears the estimation-scale override so the program inherits the workspace value (ADR-0510).
+        estimation_scale: estimationScale,
         visibility,
         color,
         lead,
@@ -374,6 +387,7 @@ export function ProgramGeneralPage() {
     setInitialMcHistoryRetentionCap(mcHistoryRetentionCap);
     setInitialMcHistoryAttributionAudience(mcHistoryAttributionAudience);
     setInitialTaskDurationChangePercentPolicy(taskDurationChangePercentPolicy);
+    setInitialEstimationScale(estimationScale);
     setInitialVisibility(visibility);
     setInitialColor(color);
     setInitialLead(lead);
@@ -393,6 +407,7 @@ export function ProgramGeneralPage() {
     mcHistoryRetentionCap,
     mcHistoryAttributionAudience,
     taskDurationChangePercentPolicy,
+    estimationScale,
     visibility,
     color,
     lead,
@@ -412,6 +427,7 @@ export function ProgramGeneralPage() {
     setMcHistoryRetentionCap(initialMcHistoryRetentionCap);
     setMcHistoryAttributionAudience(initialMcHistoryAttributionAudience);
     setTaskDurationChangePercentPolicy(initialTaskDurationChangePercentPolicy);
+    setEstimationScale(initialEstimationScale);
     setVisibility(initialVisibility);
     setColor(initialColor);
     setLead(initialLead);
@@ -429,6 +445,7 @@ export function ProgramGeneralPage() {
     initialMcHistoryRetentionCap,
     initialMcHistoryAttributionAudience,
     initialTaskDurationChangePercentPolicy,
+    initialEstimationScale,
     initialVisibility,
     initialColor,
     initialLead,
@@ -764,6 +781,22 @@ export function ProgramGeneralPage() {
               options={DURATION_CHANGE_POLICY_OPTIONS}
               inheritFromLabel="the workspace default"
               ariaLabel="Duration change percent policy"
+              scopeNoun="program"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Estimation scale"
+            hint={`${ESTIMATION_SCALE_HINT} Inherits the workspace setting unless you override it here.`}
+          >
+            <InheritableSelectField
+              value={estimationScale}
+              onChange={setEstimationScale}
+              inherited={program?.inherited_estimation_scale ?? 'fibonacci'}
+              options={ESTIMATION_SCALE_OPTIONS}
+              inheritFromLabel="the workspace default"
+              ariaLabel="Estimation scale"
               scopeNoun="program"
               canEdit={canEdit}
             />
