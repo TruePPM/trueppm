@@ -229,7 +229,7 @@ function SegmentedControl({ view, onChange }: { view: SubView; onChange: (v: Sub
 function RangeFilter({ range, onChange }: { range: Range; onChange: (r: Range) => void }) {
   return (
     <label className="flex items-center gap-2 text-xs text-neutral-text-secondary">
-      Range
+      Range{' '}
       <select
         value={range}
         onChange={(e) => onChange(e.target.value as Range)}

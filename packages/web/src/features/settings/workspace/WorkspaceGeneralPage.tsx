@@ -9,12 +9,11 @@ import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { IterationLabelField } from '../project/IterationLabelField';
 import { WorkspaceLogoField } from './WorkspaceLogoField';
 import { Toggle } from '../components/Toggle';
+import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
 import {
-  MC_ATTRIBUTION_OPTIONS,
-  MC_ATTRIBUTION_HINT,
-  MC_HISTORY_HINT,
-} from '../forecastHistory';
-import { DURATION_CHANGE_POLICY_OPTIONS, DURATION_CHANGE_POLICY_HINT } from '../durationChangePolicy';
+  DURATION_CHANGE_POLICY_OPTIONS,
+  DURATION_CHANGE_POLICY_HINT,
+} from '../durationChangePolicy';
 import type {
   DurationChangePercentPolicy,
   MCAttributionAudience,
@@ -94,8 +93,9 @@ export function WorkspaceGeneralPage() {
   const [workWeek, setWorkWeek] = useState<boolean[]>([true, true, true, true, true, false, false]);
   const [allowGuests, setAllowGuests] = useState(false);
   const [publicSharing, setPublicSharing] = useState(false);
-  const [publicSharingPolicy, setPublicSharingPolicy] =
-    useState<'inherit' | 'suggest' | 'enforce'>('suggest');
+  const [publicSharingPolicy, setPublicSharingPolicy] = useState<'inherit' | 'suggest' | 'enforce'>(
+    'suggest',
+  );
   const [iterationLabel, setIterationLabel] = useState('Sprint');
   const [iterationLabelPolicy, setIterationLabelPolicy] = useState<IterationLabelPolicy>('suggest');
   // Forecast-history config (ADR-0144, issue 1232) — workspace is the non-null root.
@@ -288,7 +288,10 @@ export function WorkspaceGeneralPage() {
     return (
       <div className="px-6 py-8 space-y-3">
         {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-10 rounded-control bg-neutral-surface-raised motion-safe:animate-pulse" />
+          <div
+            key={i}
+            className="h-10 rounded-control bg-neutral-surface-raised motion-safe:animate-pulse"
+          />
         ))}
       </div>
     );
@@ -496,11 +499,7 @@ export function WorkspaceGeneralPage() {
           label="Allow guests"
           hint="Guests are external collaborators (vendors, auditors). Limited to projects they're invited to."
         >
-          <Toggle
-            on={allowGuests}
-            onChange={setAllowGuests}
-            ariaLabel="Allow guest access"
-          />
+          <Toggle on={allowGuests} onChange={setAllowGuests} ariaLabel="Allow guest access" />
         </FieldRow>
 
         <FieldRow
@@ -519,7 +518,10 @@ export function WorkspaceGeneralPage() {
             <ul className="mt-2 space-y-1 text-[11px] text-neutral-text-secondary">
               <li>· Toolbars — the ↗ Share button is disabled with a tooltip.</li>
               <li>· Project settings — Create is disabled; existing links stop resolving (410).</li>
-              <li>· Public pages — already-open links show the &ldquo;sharing is turned off&rdquo; page.</li>
+              <li>
+                · Public pages — already-open links show the &ldquo;sharing is turned off&rdquo;
+                page.
+              </li>
             </ul>
           ) : (
             <p className="mt-2 text-[11px] text-neutral-text-secondary">
@@ -542,7 +544,7 @@ export function WorkspaceGeneralPage() {
                 checked={publicSharingPolicy !== 'enforce'}
                 onChange={() => setPublicSharingPolicy('suggest')}
                 className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              />
+              />{' '}
               May narrow or widen this default
             </label>
             {/* ENFORCE locks the workspace setting so lower scopes cannot override
@@ -562,7 +564,7 @@ export function WorkspaceGeneralPage() {
                   // reason is spelled out via an sr-only span (web-rule 265 / #2001).
                   aria-describedby="public-sharing-enforce-enterprise-hint"
                   className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                />
+                />{' '}
                 Enforce sharing workspace-wide
               </label>
               <EnterpriseBadge />
@@ -631,7 +633,10 @@ export function WorkspaceGeneralPage() {
           </select>
         </FieldRow>
 
-        <FieldRow label="Duration change &rarr; percent complete" hint={DURATION_CHANGE_POLICY_HINT}>
+        <FieldRow
+          label="Duration change &rarr; percent complete"
+          hint={DURATION_CHANGE_POLICY_HINT}
+        >
           <label htmlFor={`${defaultViewId}-duration-change`} className="sr-only">
             Duration change to percent complete
           </label>

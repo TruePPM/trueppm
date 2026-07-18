@@ -48,27 +48,30 @@ function AssignmentsSectionInner({ resourceId }: { resourceId: string }) {
         Assignments
       </p>
 
-      {isLoading ? (
-        <AssignmentsSkeleton />
-      ) : isError ? (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-2 px-3 py-2 rounded border border-semantic-critical/40 bg-semantic-critical-bg text-xs text-semantic-critical"
-        >
-          <span>Couldn’t load assignments.</span>
-          <button
-            type="button"
-            onClick={() => void refetch()}
-            className="shrink-0 underline hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-          >
-            Retry
-          </button>
-        </div>
-      ) : !data || data.length === 0 ? (
-        <p className="text-xs text-neutral-text-disabled">No current assignments.</p>
-      ) : (
-        <AssignmentsList assignments={data} />
-      )}
+      {(() => {
+        if (isLoading) return <AssignmentsSkeleton />;
+        if (isError) {
+          return (
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-2 px-3 py-2 rounded border border-semantic-critical/40 bg-semantic-critical-bg text-xs text-semantic-critical"
+            >
+              <span>Couldn’t load assignments.</span>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="shrink-0 underline hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+              >
+                Retry
+              </button>
+            </div>
+          );
+        }
+        if (!data || data.length === 0) {
+          return <p className="text-xs text-neutral-text-disabled">No current assignments.</p>;
+        }
+        return <AssignmentsList assignments={data} />;
+      })()}
     </section>
   );
 }

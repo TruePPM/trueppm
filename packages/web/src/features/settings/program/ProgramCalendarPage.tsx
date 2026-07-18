@@ -128,11 +128,16 @@ export function ProgramCalendarPage() {
   // Below-role / policy-locked users get the effective value + provenance instead
   // of a disabled picker (ADR-0133). "Inheriting" collapses to a single word; an
   // active override reads out the resolved calendar name.
-  const readOnlyCalendarValue =
-    displayCalendarId === null
-      ? 'Inherited from workspace'
-      : (displayCalendarRow?.name ??
-        (effective && effective.id === displayCalendarId ? effective.name : 'Workspace calendar'));
+  let readOnlyCalendarValue: string;
+  if (displayCalendarId === null) {
+    readOnlyCalendarValue = 'Inherited from workspace';
+  } else if (displayCalendarRow?.name != null) {
+    readOnlyCalendarValue = displayCalendarRow.name;
+  } else if (effective && effective.id === displayCalendarId) {
+    readOnlyCalendarValue = effective.name;
+  } else {
+    readOnlyCalendarValue = 'Workspace calendar';
+  }
 
   return (
     <div>
@@ -182,66 +187,71 @@ export function ProgramCalendarPage() {
               filled={displayCalendarId !== null}
             />
           ) : (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (canEdit) setCalendarId(null);
-              }}
-              disabled={!canEdit}
-              aria-pressed={displayCalendarId === null}
-              className={[
-                'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                calendarId === null
-                  ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
-                  : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-                !canEdit ? 'cursor-not-allowed opacity-60' : '',
-              ].join(' ')}
-            >
-              Inherit from workspace
-            </button>
-            <div className="relative inline-block w-[240px]">
-              <select
-                value={displayCalendarId ?? ''}
-                onChange={(e) => setCalendarId(e.target.value === '' ? null : e.target.value)}
-                aria-label="Working calendar override"
-                // Disable when the workspace policy locks overrides, or on a load
-                // error — an enabled empty picker there would be indistinguishable
-                // from "no calendars exist". (The loading case is handled upstream
-                // by the page-level skeleton, so it never reaches this control.)
-                disabled={!canEdit || !!calendarsError}
-                className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (canEdit) setCalendarId(null);
+                }}
+                disabled={!canEdit}
+                aria-pressed={displayCalendarId === null}
+                className={[
+                  'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                  calendarId === null
+                    ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
+                    : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+                  !canEdit ? 'cursor-not-allowed opacity-60' : '',
+                ].join(' ')}
               >
-                <option value="">
-                  {calendarsError ? "Couldn't load calendars" : 'Override with a calendar…'}
-                </option>
-                {/* Keep the current override selectable even if it isn't in the
+                Inherit from workspace
+              </button>
+              <div className="relative inline-block w-[240px]">
+                <select
+                  value={displayCalendarId ?? ''}
+                  onChange={(e) => setCalendarId(e.target.value === '' ? null : e.target.value)}
+                  aria-label="Working calendar override"
+                  // Disable when the workspace policy locks overrides, or on a load
+                  // error — an enabled empty picker there would be indistinguishable
+                  // from "no calendars exist". (The loading case is handled upstream
+                  // by the page-level skeleton, so it never reaches this control.)
+                  disabled={!canEdit || !!calendarsError}
+                  className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
+                >
+                  <option value="">
+                    {calendarsError ? "Couldn't load calendars" : 'Override with a calendar…'}
+                  </option>
+                  {/* Keep the current override selectable even if it isn't in the
                     fetched list yet (still loading, or the calendar was removed),
                     so the <select> stays controlled without a value/option mismatch. */}
-                {displayCalendarId && !calendars.some((c) => c.id === displayCalendarId) && (
-                  <option value={displayCalendarId}>
-                    {lockedByPolicy ? 'Workspace calendar' : 'Current override'}
-                  </option>
-                )}
-                {calendars.map((cal) => (
-                  <option key={cal.id} value={cal.id}>
-                    {cal.name}
-                  </option>
-                ))}
-              </select>
-              <svg
-                className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
-                width="11"
-                height="11"
-                viewBox="0 0 16 16"
-                fill="none"
-                aria-hidden="true"
-              >
-                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+                  {displayCalendarId && !calendars.some((c) => c.id === displayCalendarId) && (
+                    <option value={displayCalendarId}>
+                      {lockedByPolicy ? 'Workspace calendar' : 'Current override'}
+                    </option>
+                  )}
+                  {calendars.map((cal) => (
+                    <option key={cal.id} value={cal.id}>
+                      {cal.name}
+                    </option>
+                  ))}
+                </select>
+                <svg
+                  className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
+                  width="11"
+                  height="11"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 6l4 4 4-4"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
             </div>
-          </div>
           )}
           {summaryLine && (
             <p className="text-[12px] text-neutral-text-secondary mt-1.5">{summaryLine}</p>

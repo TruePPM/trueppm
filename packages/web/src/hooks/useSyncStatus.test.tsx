@@ -71,22 +71,18 @@ describe('useSyncStatus — live-update degradation surfaces as stale (#2053)', 
   // The WS connection store is a module singleton; restore it after each case.
   afterEach(() => useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 }));
 
-  it('derives stale when the socket is prolonged-down (stale)', () => {
-    useWsConnectionStore.setState({ state: 'stale' });
+  it.each([
+    { socketState: 'stale', expected: 'stale', label: 'the socket is prolonged-down (stale)' },
+    { socketState: 'failed', expected: 'stale', label: 'the socket has failed terminally' },
+    {
+      socketState: 'reconnecting',
+      expected: 'synced',
+      // A brief blip must not alarm — only stale/failed count.
+      label: 'the socket is in a transient state (reconnecting)',
+    },
+  ] as const)('derives $expected when $label', ({ socketState, expected }) => {
+    useWsConnectionStore.setState({ state: socketState });
     const { result } = renderHook(() => useSyncStatus(), { wrapper: wrapper(makeQC()) });
-    expect(result.current.status.kind).toBe('stale');
-  });
-
-  it('derives stale when the socket has failed terminally', () => {
-    useWsConnectionStore.setState({ state: 'failed' });
-    const { result } = renderHook(() => useSyncStatus(), { wrapper: wrapper(makeQC()) });
-    expect(result.current.status.kind).toBe('stale');
-  });
-
-  it('stays synced for transient socket states (connecting / reconnecting)', () => {
-    useWsConnectionStore.setState({ state: 'reconnecting' });
-    const { result } = renderHook(() => useSyncStatus(), { wrapper: wrapper(makeQC()) });
-    // A brief blip must not alarm — only stale/failed count.
-    expect(result.current.status.kind).toBe('synced');
+    expect(result.current.status.kind).toBe(expected);
   });
 });

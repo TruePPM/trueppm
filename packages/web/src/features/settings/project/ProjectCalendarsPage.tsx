@@ -16,7 +16,13 @@ import {
 } from '@/hooks/useProjectCalendars';
 import { SettingsPageTitle } from '../SettingsShell';
 import { EnterpriseBadge } from '@/features/settings/components/EnterpriseBadge';
-import { CalendarIcon, PlusIcon, CloseIcon, ChevronRightIcon, WarningIcon } from '@/components/Icons';
+import {
+  CalendarIcon,
+  PlusIcon,
+  CloseIcon,
+  ChevronRightIcon,
+  WarningIcon,
+} from '@/components/Icons';
 import { AddCalendarPicker } from './AddCalendarPicker';
 import {
   buildMonthGrids,
@@ -50,7 +56,8 @@ const ROLE_CHIP: Record<CalendarRole, { label: string; className: string }> = {
   },
   workspace: {
     label: 'workspace',
-    className: 'bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border/55',
+    className:
+      'bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border/55',
   },
 };
 
@@ -89,9 +96,14 @@ export function ProjectCalendarsPage() {
   // Preview window. Desktop shows a rolling quarter from the current month;
   // mobile shows a single month. The pager shifts the anchor and the preview
   // query re-keys on the new window (each window is a distinct cache entry).
-  const [anchor, setAnchor] = useState({ year: TODAY.getUTCFullYear(), month: TODAY.getUTCMonth() });
+  const [anchor, setAnchor] = useState({
+    year: TODAY.getUTCFullYear(),
+    month: TODAY.getUTCMonth(),
+  });
   const months = isMobile ? 1 : 3;
-  const window = isMobile ? monthWindow(anchor.year, anchor.month) : spanWindow(anchor.year, anchor.month, months);
+  const window = isMobile
+    ? monthWindow(anchor.year, anchor.month)
+    : spanWindow(anchor.year, anchor.month, months);
   const preview = useCalendarPreview(projectId, window.start, window.end);
 
   const update = useUpdateProjectCalendars(projectId);
@@ -394,6 +406,15 @@ function BaseCalendarRow({
     );
   }
 
+  let overridePlaceholder: string;
+  if (libraryLoading) {
+    overridePlaceholder = 'Loading calendars…';
+  } else if (libraryError) {
+    overridePlaceholder = "Couldn't load calendars";
+  } else {
+    overridePlaceholder = 'Override with a calendar…';
+  }
+
   return (
     <div className="rounded-control border border-neutral-border bg-neutral-surface-raised px-3.5 py-3">
       <div className="mb-2 flex items-center gap-2">
@@ -429,13 +450,7 @@ function BaseCalendarRow({
             disabled={saving || libraryLoading || libraryError}
             className="h-8 w-full appearance-none rounded-control border border-neutral-border bg-neutral-surface-raised pl-2.5 pr-8 text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary"
           >
-            <option value="">
-              {libraryLoading
-                ? 'Loading calendars…'
-                : libraryError
-                  ? "Couldn't load calendars"
-                  : 'Override with a calendar…'}
-            </option>
+            <option value="">{overridePlaceholder}</option>
             {/* Keep the current override selectable even if it isn't in the fetched
                 list yet (still loading, or removed from the library). */}
             {base && !library.some((c) => c.id === base.id) && (
@@ -696,7 +711,10 @@ function Legend() {
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-neutral-border bg-neutral-surface-raised px-3.5 py-2.5">
       {LEGEND_ROWS.map(({ type, label }) => (
-        <span key={type} className="flex items-center gap-1.5 text-[11.5px] text-neutral-text-secondary">
+        <span
+          key={type}
+          className="flex items-center gap-1.5 text-[11.5px] text-neutral-text-secondary"
+        >
           <span
             style={type === 'working' ? undefined : dayTypeFillStyle(type)}
             className="h-3 w-3 shrink-0 rounded-sm border border-neutral-border/55"
@@ -741,7 +759,9 @@ function EnterpriseTiles() {
             className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4 opacity-90"
           >
             <div className="mb-2.5 flex items-center">
-              <span className="text-[14px] font-semibold text-neutral-text-primary">{tile.title}</span>
+              <span className="text-[14px] font-semibold text-neutral-text-primary">
+                {tile.title}
+              </span>
               <EnterpriseBadge />
             </div>
             <p className="mb-3.5 text-[12.5px] leading-relaxed text-neutral-text-secondary">
@@ -769,7 +789,10 @@ function PanelSkeleton() {
       <div>
         <SubHead>Applied to this project</SubHead>
         {[0, 1, 2].map((i) => (
-          <div key={i} className="mb-2 h-[60px] animate-pulse rounded-control bg-neutral-surface-sunken" />
+          <div
+            key={i}
+            className="mb-2 h-[60px] animate-pulse rounded-control bg-neutral-surface-sunken"
+          />
         ))}
       </div>
       <div>
@@ -788,7 +811,10 @@ function GridSkeleton({ count }: { count: number }) {
           <div className="mx-auto mb-2 h-3 w-3/5 animate-pulse rounded bg-neutral-surface-sunken" />
           <div className="grid grid-cols-7 gap-[3px]">
             {Array.from({ length: 35 }).map((_, i) => (
-              <div key={i} className="aspect-square animate-pulse rounded bg-neutral-surface-sunken" />
+              <div
+                key={i}
+                className="aspect-square animate-pulse rounded bg-neutral-surface-sunken"
+              />
             ))}
           </div>
         </div>
@@ -799,7 +825,14 @@ function GridSkeleton({ count }: { count: number }) {
 
 function LockGlyph() {
   return (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0">
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      className="shrink-0"
+    >
       <path
         d="M4.5 7V5a3.5 3.5 0 017 0v2M3.5 7h9v6h-9z"
         stroke="currentColor"
