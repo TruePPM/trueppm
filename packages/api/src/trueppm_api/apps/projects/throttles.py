@@ -188,7 +188,9 @@ class TokenIssuanceThrottle(BaseThrottle):
     USER_LIMIT: ClassVar[int] = 5
 
     @property
-    def user_limit(self) -> int:
+    def effective_limit(self) -> int:
+        """Enforced cap, read from settings at request time with the ``USER_LIMIT``
+        default as fallback (named distinctly from the constant to avoid confusion)."""
         return int(getattr(settings, "TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE", self.USER_LIMIT))
 
     def allow_request(self, request: Request, view: APIView) -> bool:
@@ -207,7 +209,7 @@ class TokenIssuanceThrottle(BaseThrottle):
             logger.exception("TokenIssuanceThrottle: Redis error, failing open")
             return True
 
-        if count > self.user_limit:
+        if count > self.effective_limit:
             self.wait_seconds = 60
             return False
         return True

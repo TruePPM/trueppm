@@ -216,7 +216,7 @@ def test_token_issuance_limit_honors_setting(monkeypatch: pytest.MonkeyPatch) ->
     throttle = TokenIssuanceThrottle()
     request = SimpleNamespace(user=_auth_user())
     with override_settings(TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE=2):
-        assert throttle.user_limit == 2
+        assert throttle.effective_limit == 2
         assert throttle.allow_request(request, view=None) is True
         assert throttle.allow_request(request, view=None) is True
         assert throttle.allow_request(request, view=None) is False
