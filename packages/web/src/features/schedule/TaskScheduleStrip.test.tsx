@@ -6,7 +6,8 @@ import { TaskScheduleStrip } from './TaskScheduleStrip';
 
 // Mock the data hooks so the editable path needs no QueryClientProvider and we
 // can assert on the exact PATCH payload / callback wiring (#2106).
-const mutate = vi.fn();
+type MutateOpts = { onSuccess?: () => void; onError?: (err: unknown) => void };
+const mutate = vi.fn<(vars: unknown, opts?: MutateOpts) => void>();
 const mutateAsync = vi.fn().mockResolvedValue(undefined);
 vi.mock('@/hooks/useTaskMutations', () => ({
   useUpdateTask: () => ({ mutate, mutateAsync }),
