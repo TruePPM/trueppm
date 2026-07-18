@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0123_remove_historicalproject_agile_features_and_more"),
+        ("projects", "0124_dependency_is_driving"),
     ]
 
     operations = [
