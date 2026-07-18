@@ -2451,6 +2451,13 @@ class LabelSerializer(serializers.ModelSerializer[Label]):
 
 
 class TaskSerializer(serializers.ModelSerializer[Task]):
+    # The three PERT estimate fields, shared by the phase-rollup lock and the
+    # three-point ordering guard in ``validate()``. A frozenset so ``& set(attrs)``
+    # gives a cheap "did the write touch any estimate?" test.
+    _THREE_POINT_FIELDS: frozenset[str] = frozenset(
+        {"optimistic_duration", "most_likely_duration", "pessimistic_duration"}
+    )
+
     # Duration round-trips as integer working days.
     # CPM output fields are read-only — written by the scheduling engine.
     #
@@ -2831,12 +2838,46 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         either planned_start or a sprint assignment. ADMIN+ users are exempt
         so project managers can correct imported or manually-entered data.
         """
-        # #1711 BOLA guard: the writable ``project`` FK must not relocate an
-        # existing task to another project. ``perform_update`` re-checks object
-        # permissions only against the task's *current* project, so without this a
-        # member of project A could PATCH ``project`` to a project B they cannot
-        # see (a cross-project write-IDOR). Tasks never legitimately change project
-        # via this endpoint — mirrors AcceptanceCriterionSerializer.validate().
+        # Each guard is an independent read/mutation of ``attrs`` with no shared
+        # local state, so this method decomposes into focused helpers that run in
+        # the original order (#2081 — this was a 118-complexity single block). The
+        # only value threaded between helpers is the post-coupling milestone state,
+        # which pins duration to zero and is reused to skip the planned_finish
+        # duration derivation for milestones.
+        self._validate_project_immutable(attrs)
+        self._reconcile_milestone_signals(attrs)
+        is_milestone = attrs.get(
+            "is_milestone",
+            self.instance.is_milestone if self.instance is not None else False,
+        )
+        if is_milestone:
+            attrs["duration"] = 0
+        self._reject_milestone_unflag_with_live_sprint(attrs)
+        self._resolve_planned_finish_duration(attrs, is_milestone=is_milestone)
+        self._validate_sprint_project_ownership(attrs)
+        self._validate_blocking_task(attrs)
+        self._validate_assignee_membership(attrs)
+        self._reject_pending_sprint_relink(attrs)
+        self._evaluate_sprint_guardrails(attrs)
+        self._enforce_progress_anchor(attrs)
+        self._enforce_milestone_rollup_lock(attrs)
+        self._enforce_summary_percent_lock(attrs)
+        self._enforce_phase_rollup_locks(attrs)
+        self._enforce_project_span(attrs)
+        self._validate_three_point_order(attrs)
+        self._validate_product_backlog(attrs)
+
+        return attrs
+
+    def _validate_project_immutable(self, attrs: dict[str, Any]) -> None:
+        """#1711 BOLA guard: the writable ``project`` FK must not relocate a task.
+
+        ``perform_update`` re-checks object permissions only against the task's
+        *current* project, so without this a member of project A could PATCH
+        ``project`` to a project B they cannot see (a cross-project write-IDOR).
+        Tasks never legitimately change project via this endpoint — mirrors
+        ``AcceptanceCriterionSerializer.validate()``.
+        """
         if (
             self.instance is not None
             and "project" in attrs
@@ -2846,15 +2887,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 {"project": "A task cannot be moved to another project."}
             )
 
-        # Milestone signal coupling (#1773): ``is_milestone`` and
-        # ``delivery_mode='milestone'`` are two encodings of the same fact, but
-        # they were independently writable, so a task could carry one without the
-        # other — and different consumers key off different signals (the rollup
-        # SQL weights on ``delivery_mode``; sprint targeting and CPM key on
-        # ``is_milestone``). Reconcile them here so the DB can only hold the
-        # coupled state: is_milestone ⟺ delivery_mode='milestone' ⟺ duration=0.
-        # Whichever signal the caller sent is authoritative and the other is
-        # synced to match; sending both with conflicting values is rejected.
+    def _reconcile_milestone_signals(self, attrs: dict[str, Any]) -> None:
+        """Milestone signal coupling (#1773): keep is_milestone ⟺ delivery_mode.
+
+        ``is_milestone`` and ``delivery_mode='milestone'`` are two encodings of the
+        same fact, but they were independently writable, so a task could carry one
+        without the other — and different consumers key off different signals (the
+        rollup SQL weights on ``delivery_mode``; sprint targeting and CPM key on
+        ``is_milestone``). Reconcile them so the DB can only hold the coupled state.
+        Whichever signal the caller sent is authoritative and the other is synced to
+        match; sending both with conflicting values is rejected.
+        """
         im_sent = "is_milestone" in attrs
         dm_sent = "delivery_mode" in attrs
         cur_dm = (
@@ -2883,22 +2926,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             # delivery_mode drives is_milestone.
             attrs["is_milestone"] = attrs["delivery_mode"] == DeliveryMode.MILESTONE
 
-        # Duration invariant: a milestone is a zero-duration gate. Enforced for
-        # the effective (post-coupling) milestone state, on create and on the
-        # merged instance+attrs state for partial updates. Reused below to skip
-        # the planned_finish → working-day duration derivation for milestones.
-        is_milestone = attrs.get(
-            "is_milestone",
-            self.instance.is_milestone if self.instance is not None else False,
-        )
-        if is_milestone:
-            attrs["duration"] = 0
+    def _reject_milestone_unflag_with_live_sprint(self, attrs: dict[str, Any]) -> None:
+        """Block un-flagging a milestone that a live sprint still targets (#1773).
 
-        # Block un-flagging a milestone that a live sprint still targets (#1773):
-        # ``Sprint.target_milestone`` requires its task be a milestone (enforced at
-        # bind time), and its rollup filters on ``is_milestone=True`` — silently
-        # dropping the flag would leave a dangling FK and make the sprint's
-        # milestone rollup vanish. Mirror the percent-lock probe/error-code style.
+        ``Sprint.target_milestone`` requires its task be a milestone (enforced at
+        bind time), and its rollup filters on ``is_milestone=True`` — silently
+        dropping the flag would leave a dangling FK and make the sprint's milestone
+        rollup vanish. Mirror the percent-lock probe/error-code style.
+        """
         if (
             self.instance is not None
             and self.instance.is_milestone
@@ -2920,13 +2955,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     }
                 )
 
-        # #951: resolve a target finish date into a working-day duration. The web
-        # Gantt resize sends ``planned_finish`` (the date the user dropped the
-        # bar's right edge on) and the server derives ``duration`` from the
-        # project calendar, so the committed value skips non-working days instead
-        # of counting raw calendar days. ``planned_finish`` is never persisted
-        # (it is not a model field) — pop it regardless of branch. Milestones
-        # keep their pinned ``duration = 0`` above and ignore it.
+    def _resolve_planned_finish_duration(
+        self, attrs: dict[str, Any], *, is_milestone: bool
+    ) -> None:
+        """#951: resolve a target finish date into a working-day duration.
+
+        The web Gantt resize sends ``planned_finish`` (the date the user dropped the
+        bar's right edge on) and the server derives ``duration`` from the project
+        calendar, so the committed value skips non-working days instead of counting
+        raw calendar days. ``planned_finish`` is never persisted (it is not a model
+        field) — pop it regardless of branch. Milestones keep their pinned
+        ``duration = 0`` and ignore it.
+        """
         planned_finish = attrs.pop("planned_finish", None)
         if planned_finish is not None and not is_milestone:
             from trueppm_api.apps.projects.services import working_day_duration
@@ -2964,32 +3004,41 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 working_day_duration(eff_start, planned_finish, getattr(project, "calendar", None)),
             )
 
-        # Sprint cross-project ownership check.
+    def _task_project_id_from(self, attrs: dict[str, Any]) -> Any:
+        """The task's project id — from the instance on update, ``attrs`` on create."""
+        return (
+            self.instance.project_id
+            if self.instance is not None
+            else getattr(attrs.get("project"), "pk", None)
+        )
+
+    def _validate_sprint_project_ownership(self, attrs: dict[str, Any]) -> None:
+        """The sprint assigned to a task must belong to the task's project.
+
+        Validated here because the Sprint FK queryset is intentionally not
+        project-scoped at the field level (the viewset scopes access via project
+        membership).
+        """
         sprint = attrs.get("sprint")
         if "sprint" in attrs and sprint is not None:
-            task_project_id = (
-                self.instance.project_id
-                if self.instance is not None
-                else getattr(attrs.get("project"), "pk", None)
-            )
+            task_project_id = self._task_project_id_from(attrs)
             if task_project_id is not None and str(sprint.project_id) != str(task_project_id):
                 raise serializers.ValidationError(
                     {"sprint": "Sprint does not belong to this project."}
                 )
 
-        # ADR-0124 (#1135): the soft ``blocking_task`` link must stay within the
-        # same project and may not point at the task itself. Validated here because
-        # the FK queryset is intentionally not project-scoped at the field level
-        # (a project-scoped queryset would need the project from the instance, which
-        # PrimaryKeyRelatedField cannot reach). A cross-project soft link would let
-        # a contributor reference work they may not be able to read.
+    def _validate_blocking_task(self, attrs: dict[str, Any]) -> None:
+        """ADR-0124 (#1135): the soft ``blocking_task`` link stays in-project.
+
+        It may not point at the task itself. Validated here because the FK queryset
+        is intentionally not project-scoped at the field level (a project-scoped
+        queryset would need the project from the instance, which
+        ``PrimaryKeyRelatedField`` cannot reach). A cross-project soft link would
+        let a contributor reference work they may not be able to read.
+        """
         blocking_task = attrs.get("blocking_task")
         if "blocking_task" in attrs and blocking_task is not None:
-            task_project_id = (
-                self.instance.project_id
-                if self.instance is not None
-                else getattr(attrs.get("project"), "pk", None)
-            )
+            task_project_id = self._task_project_id_from(attrs)
             if self.instance is not None and str(blocking_task.pk) == str(self.instance.pk):
                 raise serializers.ValidationError(
                     {"blocking_task": "A task cannot be marked as blocking itself."}
@@ -3001,18 +3050,19 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     {"blocking_task": "The blocking task must belong to the same project."}
                 )
 
-        # #684 (security): the assignee must be a live member of the task's project.
-        # ``assignee`` is a nullable FK — DRF resolves it to a User (or None) — and
-        # leaving a task unassigned is always valid, so only validate when an assignee
-        # is actually being set. This closes the gap where any writer could point a
-        # task at ANY existing user id, including one with no ProjectMembership on the
-        # project: the REST PATCH/POST path and the mobile sync upload (which reuses
-        # this serializer via ``apply_task_changes``) both route through here. The
-        # project is resolved the same way the sprint/blocking_task checks above do —
-        # from the instance on update, from validated_data on create — and
-        # soft-deleted memberships are excluded (``is_deleted=False``), matching
-        # ``validate_lead``. The error names only "this project", never another
-        # project's membership, so it leaks nothing about foreign projects.
+    def _validate_assignee_membership(self, attrs: dict[str, Any]) -> None:
+        """#684 (security): the assignee must be a live member of the task's project.
+
+        ``assignee`` is a nullable FK — DRF resolves it to a User (or None) — and
+        leaving a task unassigned is always valid, so only validate when an assignee
+        is actually being set. This closes the gap where any writer could point a
+        task at ANY existing user id, including one with no ProjectMembership on the
+        project: the REST PATCH/POST path and the mobile sync upload (which reuses
+        this serializer via ``apply_task_changes``) both route through here.
+        Soft-deleted memberships are excluded (``is_deleted=False``), matching
+        ``validate_lead``. The error names only "this project", never another
+        project's membership, so it leaks nothing about foreign projects.
+        """
         assignee = attrs.get("assignee")
         if "assignee" in attrs and assignee is not None:
             project = self.instance.project if self.instance is not None else attrs.get("project")
@@ -3027,14 +3077,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                         {"assignee": "The assignee must be a member of this project."}
                     )
 
-        # ADR-0102 §3: a task pending sprint-acceptance is team-owned. Its sprint
-        # link may only change by ACCEPTING (keeps the sprint, clears pending) or
-        # REJECTING (removes it) via the dedicated scope-change endpoints — never
-        # through a generic task update. Blocking it here closes the bypass where
-        # any writer of the `sprint` field (REST PATCH by a member-assignee, or the
-        # mobile sync upload — both route through this serializer) could un-gate a
-        # pending injection, and it prevents the audit row / sprint_pending flag
-        # from being stranded by a write that skips reject_scope_change.
+    def _reject_pending_sprint_relink(self, attrs: dict[str, Any]) -> None:
+        """ADR-0102 §3: a task pending sprint-acceptance is team-owned.
+
+        Its sprint link may only change by ACCEPTING (keeps the sprint, clears
+        pending) or REJECTING (removes it) via the dedicated scope-change endpoints
+        — never through a generic task update. Blocking it here closes the bypass
+        where any writer of the ``sprint`` field (REST PATCH by a member-assignee,
+        or the mobile sync upload — both route through this serializer) could
+        un-gate a pending injection, and it prevents the audit row / sprint_pending
+        flag from being stranded by a write that skips ``reject_scope_change``.
+        """
+        sprint = attrs.get("sprint")
         if (
             self.instance is not None
             and getattr(self.instance, "sprint_pending", False)
@@ -3051,18 +3105,28 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 }
             )
 
-        # Sprint/Phase/WBS guardrails (ADR-0101). Only evaluated when a task is being
-        # *assigned* to a sprint (sprint set to a non-null value). Tripped rules at
-        # WARN are advisory — they ride out as `warnings` on the response and never
-        # reject; only a rule the project Owner escalated to BLOCK raises here.
+    def _evaluate_sprint_guardrails(self, attrs: dict[str, Any]) -> None:
+        """Sprint/Phase/WBS guardrails (ADR-0101), evaluated on sprint assignment.
+
+        Only evaluated when a task is being *assigned* to a sprint (sprint set to a
+        non-null value). Tripped rules at WARN are advisory — they ride out as
+        ``warnings`` on the response and never reject; only a rule the project Owner
+        escalated to BLOCK raises (inside ``_evaluate_task_guardrails``).
+        """
+        sprint = attrs.get("sprint")
         if "sprint" in attrs and sprint is not None and self.instance is not None:
             self._tripped_guardrails = self._evaluate_task_guardrails(self.instance, sprint)
         else:
             self._tripped_guardrails = []
 
-        # Progress-anchor gate: block percent_complete > 0 when the task has no
-        # planned_start and no sprint. For partial updates, merge instance state
-        # with the incoming attrs to determine the resulting effective values.
+    def _enforce_progress_anchor(self, attrs: dict[str, Any]) -> None:
+        """Progress-anchor gate (ADR-0057 Q5): percent_complete > 0 needs an anchor.
+
+        Block ``percent_complete > 0`` when the task has no planned_start and no
+        sprint. For partial updates, merge instance state with the incoming attrs to
+        determine the resulting effective values. ADMIN+ users are exempt so project
+        managers can correct imported or manually-entered data.
+        """
         new_pc = attrs.get("percent_complete")
         if new_pc is not None and new_pc > 0:
             eff_planned_start = attrs.get(
@@ -3082,12 +3146,15 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 if role is None or role < Role.ADMIN:
                     raise ProgressAnchorError()
 
-        # Milestone-rollup lock (ADR-0074): a milestone task with live targeting
-        # sprints has its percent_complete computed from sprint state — manual
-        # writes would silently revert on the next rollup recompute, so reject
-        # them at validate time with a structured error code the frontend can
-        # map to its lock affordance. Carries no role exemption: even admins
-        # close or unlink the sprint to override (audit-by-design).
+    def _enforce_milestone_rollup_lock(self, attrs: dict[str, Any]) -> None:
+        """Milestone-rollup lock (ADR-0074): a targeted milestone's percent is computed.
+
+        A milestone task with live targeting sprints has its percent_complete
+        computed from sprint state — manual writes would silently revert on the next
+        rollup recompute, so reject them at validate time with a structured error
+        code the frontend can map to its lock affordance. Carries no role exemption:
+        even admins close or unlink the sprint to override (audit-by-design).
+        """
         if "percent_complete" in attrs and self.instance is not None and self.instance.is_milestone:
             from trueppm_api.apps.projects.models import Sprint
 
@@ -3097,11 +3164,15 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             if has_live_targeting_sprint:
                 raise MilestoneRollupLockedError()
 
-        # Summary-task percent lock (ADR-0108 §4): a task with WBS children has its
-        # percent_complete rolled up (delivery-mode-aware) from its leaf descendants
-        # and computed on read — a manual write would be silently discarded on the
-        # next serialize, so reject it. Mirrors the milestone lock above; leaf tasks
-        # stay writable. The has-children probe reuses the ``is_summary`` ltree shape.
+    def _enforce_summary_percent_lock(self, attrs: dict[str, Any]) -> None:
+        """Summary-task percent lock (ADR-0108 §4): a parent's percent is rolled up.
+
+        A task with WBS children has its percent_complete rolled up
+        (delivery-mode-aware) from its leaf descendants and computed on read — a
+        manual write would be silently discarded on the next serialize, so reject
+        it. Mirrors the milestone lock; leaf tasks stay writable. The has-children
+        probe reuses the ``is_summary`` ltree shape.
+        """
         if (
             "percent_complete" in attrs
             and self.instance is not None
@@ -3139,27 +3210,25 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     }
                 )
 
-        # Phase rollup locks (ADR-0293): a *phase* — a non-subtask task with at
-        # least one structural (non-subtask) child — is a pure rollup. Its status,
-        # 3-point estimate, and assignee are all computed from its children and can
-        # never be set directly; a manual write would be silently discarded on the
-        # next rollup, so reject it here with a stable error code. Enforcement lives
-        # entirely in this serializer (ADR-0112 API-first single source of truth) so
-        # an MCP/agent caller is blocked identically to the UI. Each lock fires only
-        # when the request actually *changes* the locked attribute (a PATCH that
-        # omits it, or re-sends the same value, still succeeds). is_phase is probed
-        # once, lazily, only when a locked field is in the payload — mirrors the
-        # summary_rollup_locked has-children probe with an added is_subtask=false.
-        _STATUS_LOCK = "status" in attrs
-        _ESTIMATE_FIELDS = {
-            "optimistic_duration",
-            "most_likely_duration",
-            "pessimistic_duration",
-        }
-        _ESTIMATE_LOCK = bool(_ESTIMATE_FIELDS & set(attrs))
-        _ASSIGNEE_LOCK = "assignee" in attrs
-        if (_STATUS_LOCK or _ESTIMATE_LOCK or _ASSIGNEE_LOCK) and self._instance_is_phase():
-            if _STATUS_LOCK and attrs["status"] != getattr(self.instance, "status", None):
+    def _enforce_phase_rollup_locks(self, attrs: dict[str, Any]) -> None:
+        """Phase rollup locks (ADR-0293): a phase's status/estimate/assignee are computed.
+
+        A *phase* — a non-subtask task with at least one structural (non-subtask)
+        child — is a pure rollup. Its status, 3-point estimate, and assignee are all
+        computed from its children and can never be set directly; a manual write
+        would be silently discarded on the next rollup, so reject it here with a
+        stable error code. Enforcement lives entirely in this serializer (ADR-0112
+        API-first single source of truth) so an MCP/agent caller is blocked
+        identically to the UI. Each lock fires only when the request actually
+        *changes* the locked attribute (a PATCH that omits it, or re-sends the same
+        value, still succeeds). is_phase is probed once, lazily, only when a locked
+        field is in the payload.
+        """
+        status_lock = "status" in attrs
+        estimate_lock = bool(self._THREE_POINT_FIELDS & set(attrs))
+        assignee_lock = "assignee" in attrs
+        if (status_lock or estimate_lock or assignee_lock) and self._instance_is_phase():
+            if status_lock and attrs["status"] != getattr(self.instance, "status", None):
                 raise serializers.ValidationError(
                     {
                         "status": serializers.ErrorDetail(
@@ -3169,9 +3238,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                         )
                     }
                 )
-            if _ESTIMATE_LOCK and any(
+            if estimate_lock and any(
                 field in attrs and attrs[field] != getattr(self.instance, field, None)
-                for field in _ESTIMATE_FIELDS
+                for field in self._THREE_POINT_FIELDS
             ):
                 raise serializers.ValidationError(
                     {
@@ -3180,11 +3249,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                             "be set directly.",
                             code="phase_estimate_rollup_locked",
                         )
-                        for field in _ESTIMATE_FIELDS
+                        for field in self._THREE_POINT_FIELDS
                         if field in attrs
                     }
                 )
-            if _ASSIGNEE_LOCK and getattr(attrs.get("assignee"), "pk", None) != getattr(
+            if assignee_lock and getattr(attrs.get("assignee"), "pk", None) != getattr(
                 self.instance, "assignee_id", None
             ):
                 raise serializers.ValidationError(
@@ -3197,22 +3266,23 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     }
                 )
 
-        # Project-start floor (#867, supersedes the #868 rejection): a
-        # planned_start earlier than the project start is no longer rejected
-        # here. The earlier direction auto-shifts the project boundary back to
-        # the task (``shift_project_start_if_needed`` in create()/update()), so
-        # the task is never a sub-start ghost value and the CPM "no task before
-        # project start" invariant holds because the project start moved. The
-        # shift is a side effect, so it runs at save time, not in validate().
+    def _enforce_project_span(self, attrs: dict[str, Any]) -> None:
+        """Cumulative project-span guard (#1862): reject writes that overflow the span.
 
-        # Cumulative project-span guard (#1862): the model field caps a single
-        # task's duration, but the CPM engine also rejects a project whose task
-        # durations + dependency lags SUM past MAX_PROJECT_SPAN_DAYS. Without a
-        # write-boundary check ~11 max-duration tasks persist fine and then every
-        # recalculate_schedule throws (run FAILED, Monte Carlo 400) until the data
-        # is hand-corrected. Fail early here so the error lands on the offending
-        # write. Enforced on create, and on any update that changes this task's
-        # duration (an unrelated PATCH must not be blocked by pre-existing data).
+        The model field caps a single task's duration, but the CPM engine also
+        rejects a project whose task durations + dependency lags SUM past
+        ``MAX_PROJECT_SPAN_DAYS``. Without a write-boundary check ~11 max-duration
+        tasks persist fine and then every ``recalculate_schedule`` throws (run
+        FAILED, Monte Carlo 400) until the data is hand-corrected. Fail early here so
+        the error lands on the offending write. Enforced on create, and on any update
+        that changes this task's duration (an unrelated PATCH must not be blocked by
+        pre-existing data).
+
+        (Project-start floor #867: a planned_start earlier than the project start is
+        no longer rejected — ``shift_project_start_if_needed`` auto-shifts the project
+        boundary at save time instead, which is a side effect and not a validate-time
+        concern.)
+        """
         project = self.instance.project if self.instance is not None else attrs.get("project")
         if project is not None and (self.instance is None or "duration" in attrs):
             from django.core.exceptions import ValidationError as DjangoValidationError
@@ -3230,21 +3300,22 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             except DjangoValidationError as exc:
                 raise serializers.ValidationError({"duration": exc.messages}) from exc
 
-        # Three-point estimate ordering (#1982, mirrors the engine invariant in
-        # trueppm_scheduler.engine, added in #1069). The Monte Carlo sampler only
-        # draws when all three estimates are present, so a complete triple must
-        # satisfy optimistic <= most_likely <= pessimistic. Without this check the
-        # API accepts data the engine later rejects, and the invalid row detonates
-        # at compute time — a hard 500 on the compute-on-read program schedule
-        # (#1981), or a silently-FAILED single-project recompute that keeps serving
-        # stale dates. Validate against the merged instance+attrs state so a
-        # partial PATCH that crosses the invariant against stored values is still
-        # rejected; only run when the write actually touches an estimate field, so
-        # an unrelated PATCH on a task with pre-existing (legacy/imported) invalid
-        # estimates is not blocked — same policy as the project-span guard above.
-        # A partial estimate (not all three present) stays unvalidated, matching
-        # the engine.
-        if _ESTIMATE_FIELDS & set(attrs):
+    def _validate_three_point_order(self, attrs: dict[str, Any]) -> None:
+        """Three-point estimate ordering (#1982, mirrors the engine invariant).
+
+        The Monte Carlo sampler only draws when all three estimates are present, so a
+        complete triple must satisfy optimistic <= most_likely <= pessimistic.
+        Without this check the API accepts data the engine later rejects, and the
+        invalid row detonates at compute time — a hard 500 on the compute-on-read
+        program schedule (#1981), or a silently-FAILED single-project recompute that
+        keeps serving stale dates. Validate against the merged instance+attrs state so
+        a partial PATCH that crosses the invariant against stored values is still
+        rejected; only run when the write actually touches an estimate field, so an
+        unrelated PATCH on a task with pre-existing (legacy/imported) invalid
+        estimates is not blocked — same policy as the project-span guard. A partial
+        estimate (not all three present) stays unvalidated, matching the engine.
+        """
+        if self._THREE_POINT_FIELDS & set(attrs):
             _pert = {
                 field: (attrs[field] if field in attrs else getattr(self.instance, field, None))
                 for field in ("optimistic_duration", "most_likely_duration", "pessimistic_duration")
@@ -3262,10 +3333,6 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                         )
                     }
                 )
-
-        self._validate_product_backlog(attrs)
-
-        return attrs
 
     def _validate_product_backlog(self, attrs: dict[str, Any]) -> None:
         """Validate ADR-0105 fields: parent-epic membership and the DoR-gated READY move.
