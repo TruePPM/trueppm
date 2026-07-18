@@ -893,6 +893,10 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
+    # Custom handler translates a malformed UUID (bad path segment or query param)
+    # into 404/400 instead of the 500 DRF's default returns for the Django
+    # ValidationError / uuid.UUID ValueError those raise (#2125).
+    "EXCEPTION_HANDLER": "trueppm_api.core.exception_handlers.trueppm_exception_handler",
     "DEFAULT_FILTER_BACKENDS": [
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
