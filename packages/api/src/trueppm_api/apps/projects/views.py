@@ -1156,7 +1156,10 @@ class ProjectViewSet(
 
         project = self.get_object()
 
-        stories_data = request.data.get("stories")
+        # A fuzzed/malformed request body may be a JSON list or scalar, not an
+        # object — guard the .get so it degrades to the 400 below instead of an
+        # unhandled AttributeError (#2213). None flows into the list check.
+        stories_data = request.data.get("stories") if isinstance(request.data, dict) else None
         if not isinstance(stories_data, list) or not stories_data:
             return Response(
                 {"stories": ["This field is required and must be a non-empty list."]},
@@ -1258,7 +1261,9 @@ class ProjectViewSet(
 
         project = self.get_object()
 
-        tasks_data = request.data.get("tasks")
+        # Guard against a non-object body (fuzzed list/scalar) so .get degrades to
+        # the 400 below rather than an unhandled AttributeError (#2213).
+        tasks_data = request.data.get("tasks") if isinstance(request.data, dict) else None
         if not isinstance(tasks_data, list) or not tasks_data:
             return Response(
                 {"tasks": ["This field is required and must be a non-empty list."]},
@@ -3692,12 +3697,27 @@ class TaskViewSet(
         # ?start__gte=YYYY-MM-DD  — tasks whose early_finish >= this date (still active)
         # ?finish__lte=YYYY-MM-DD — tasks whose early_start <= this date (already started)
         # Combined, they return tasks that overlap [start__gte, finish__lte].
+        # Parse the date params before filtering: early_start/early_finish are
+        # DateFields, so passing an unvalidated string straight into .filter()
+        # lets Django raise a ValidationError at query time that the (UUID-only)
+        # exception handler doesn't map, surfacing as a 500 (#2213). Coerce here
+        # and 400 on a malformed date, matching the _parse idiom above.
         start_gte = self.request.query_params.get("start__gte")
         if start_gte:
-            qs = qs.filter(early_finish__gte=start_gte)
+            try:
+                qs = qs.filter(early_finish__gte=datetime.date.fromisoformat(start_gte))
+            except ValueError:
+                raise DRFValidationError(
+                    {"start__gte": "Must be a valid ISO 8601 date (YYYY-MM-DD)."}
+                ) from None
         finish_lte = self.request.query_params.get("finish__lte")
         if finish_lte:
-            qs = qs.filter(early_start__lte=finish_lte)
+            try:
+                qs = qs.filter(early_start__lte=datetime.date.fromisoformat(finish_lte))
+            except ValueError:
+                raise DRFValidationError(
+                    {"finish__lte": "Must be a valid ISO 8601 date (YYYY-MM-DD)."}
+                ) from None
 
         return annotate_tasks_queryset(qs, self.request, project_id)
 
@@ -6595,6 +6615,15 @@ class TaskReparentView(IdempotencyMixin, APIView):
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
+        # Reject a non-object body explicitly rather than letting .get raise an
+        # unhandled AttributeError (#2213). A guard mapping to None is wrong here:
+        # new_parent_id=None is a *valid* request ("move to project root"), so a
+        # malformed list/scalar body must 400, not silently reparent to root.
+        if not isinstance(request.data, dict):
+            return Response(
+                {"detail": "Request body must be a JSON object."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         new_parent_id = request.data.get("new_parent_id")
 
         with transaction.atomic():
@@ -11015,7 +11044,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        tasks_data = request.data.get("tasks")
+        tasks_data = request.data.get("tasks") if isinstance(request.data, dict) else None
         if not isinstance(tasks_data, list) or not tasks_data:
             return Response(
                 {"tasks": ["This field is required and must be a non-empty list."]},

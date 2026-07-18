@@ -893,6 +893,20 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
+    # API-only service: render JSON, nothing else. DRF's default renderer set
+    # includes BrowsableAPIRenderer, which content-negotiates on the request
+    # Accept header and, for a serializer-less GenericViewSet, calls
+    # get_serializer() to build its HTML form — firing DRF's
+    # `assert self.serializer_class is not None` (an unhandled 500) whenever a
+    # caller sends `Accept: text/html`. A fuzzer (or any browser) trivially
+    # trips this on every serializer-less action. Restricting to JSONRenderer
+    # turns those requests into a clean 406 and removes the whole class of bug
+    # (#2213). Set unconditionally (not DEBUG-gated) because the nightly fuzz
+    # and the test suite run under dev settings with DEBUG=True — the browsable
+    # API is redundant with the drf-spectacular Swagger UI anyway.
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
     # Custom handler translates a malformed UUID (bad path segment or query param)
     # into 404/400 instead of the 500 DRF's default returns for the Django
     # ValidationError / uuid.UUID ValueError those raise (#2125).
