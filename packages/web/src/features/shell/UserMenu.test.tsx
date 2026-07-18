@@ -68,6 +68,14 @@ vi.mock('react-router', async (importOriginal) => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
+// The wildcard test route never populates the `:projectId` param, so mock the
+// hook. Defaults to undefined (no project in context) to preserve the existing
+// tests; the #2147 tests below set it to bring a project into scope.
+const mockUseProjectId = vi.fn<() => string | undefined>(() => undefined);
+vi.mock('@/hooks/useProjectId', () => ({
+  useProjectId: () => mockUseProjectId(),
+}));
+
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
@@ -98,6 +106,9 @@ describe('UserMenu', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetUser();
+    // clearAllMocks wipes call history but not the implementation, so restore
+    // the default "no project in context" between tests.
+    mockUseProjectId.mockReturnValue(undefined);
   });
 
   it('renders initials "SC" in the avatar chip', () => {
@@ -200,6 +211,44 @@ describe('UserMenu', () => {
     renderWithRouter(<UserMenu />);
     openMenu();
     expect(screen.queryByRole('menuitem', { name: /workspace settings/i })).toBeNull();
+  });
+
+  it('project in context + admin → renders "Project settings" linking to the members section (#2147)', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    mockUserResult.value = {
+      user: {
+        id: '1',
+        username: 'sarah',
+        display_name: 'Sarah Chen',
+        initials: 'SC',
+        email: 'sarah@example.com',
+        can_access_admin_settings: true,
+      },
+      isLoading: false,
+    };
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    const items = screen.getAllByRole('menuitem', { name: /project settings/i });
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0].getAttribute('href')).toBe('/projects/proj-1/settings/members');
+  });
+
+  it('project in context + non-admin → no "Project settings" row (RequireAdminSettings would bounce them, #2147)', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    mockUserResult.value = {
+      user: {
+        id: '1',
+        username: 'sarah',
+        display_name: 'Sarah Chen',
+        initials: 'SC',
+        email: 'sarah@example.com',
+        can_access_admin_settings: false,
+      },
+      isLoading: false,
+    };
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    expect(screen.queryByRole('menuitem', { name: /project settings/i })).toBeNull();
   });
 
   it('groups personal settings under a "Personal" header (design §10, #1804)', () => {

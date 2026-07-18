@@ -70,10 +70,16 @@ export function BottomNav() {
   const hidden = new Set([...(user?.hidden_views ?? []), ...surfaceHidden]);
   const grouped = groupedVisibleViewsForUser(methodology, hidden).flatMap((g) => g.visibleViews);
   const canSeeTeam = role !== null && role >= ROLE_SCHEDULER;
+  // `/projects/:id/settings` is guarded by RequireAdminSettings, which bounces a
+  // user who is admin nowhere to their personal notification prefs. Drop the row
+  // for them so the mobile overflow never leads to that silent redirect — the
+  // same predicate (strict `!== false`, visible while the signal loads) the
+  // desktop rail and account menu use (#2147).
+  const canAccessSettings = user?.can_access_admin_settings !== false;
   const reachable = [
     'overview',
     ...grouped.filter((v) => v !== 'resources' || canSeeTeam),
-    'settings',
+    ...(canAccessSettings ? ['settings'] : []),
   ];
 
   // Promote the user's pinned views (issue 1591) into the primary slots ahead
