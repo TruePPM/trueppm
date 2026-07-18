@@ -1076,8 +1076,8 @@ function DrawerContent({
             This task was deleted by someone else.
           </p>
           <p className="mt-0.5 text-xs text-neutral-text-secondary">
-            Your unsaved edits are still shown here but can no longer be saved. Copy your
-            text if you need it, then dismiss.
+            Your unsaved edits are still shown here but can no longer be saved. Copy your text if
+            you need it, then dismiss.
           </p>
           <div className="mt-2 flex gap-2">
             <Button variant="secondary" size="sm" onClick={onCopyDeletedDraft}>
@@ -1113,7 +1113,7 @@ function DrawerContent({
             return (
               <div>
                 <div className="px-4 py-4 space-y-5">
-                  <TaskScheduleStrip task={task} />
+                  <TaskScheduleStrip task={task} projectId={projectId} canEdit={canEdit} />
                   {OverviewComp && (
                     <SectionErrorBoundary sectionTitle="Overview">
                       <OverviewComp

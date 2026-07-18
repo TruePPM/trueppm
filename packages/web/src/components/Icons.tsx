@@ -1061,6 +1061,27 @@ export function InfoIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/** Pencil — inline "edit this value" affordance (e.g. the drawer duration cell, issue 2106) */
+export function PencilIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M11.5 2.5a1.4 1.4 0 0 1 2 2L5 13l-2.75.75L3 11z" />
+      <line x1="10" y1="4" x2="12" y2="6" />
+    </svg>
+  );
+}
+
 /** Check mark — marks the currently-selected row in a chooser/help list (issue 1975) */
 export function CheckIcon({ className, ...rest }: IconProps) {
   return (

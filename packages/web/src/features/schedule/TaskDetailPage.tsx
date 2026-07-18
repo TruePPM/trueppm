@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router';
 
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { canEditTask } from '@/lib/roles';
 import { registry, type DrawerSectionRegistration } from '@/lib/widget-registry';
 import { registerOssDrawerSections } from './sections';
 // Importing SectionList loads the drawer module, whose init registers the OSS
@@ -80,12 +81,17 @@ export function TaskDetailPage() {
         </h1>
 
         <div className="mt-4">
-          <TaskScheduleStrip task={task} />
+          <TaskScheduleStrip task={task} projectId={projectId} canEdit={canEditTask(userRole)} />
         </div>
 
         {/* The full task detail — the same sections the drawer hosts. */}
         <div className="mt-4 overflow-hidden rounded-card border border-neutral-border bg-neutral-surface">
-          <SectionList sections={sections} taskId={task.id} projectId={projectId ?? ''} userRole={userRole} />
+          <SectionList
+            sections={sections}
+            taskId={task.id}
+            projectId={projectId ?? ''}
+            userRole={userRole}
+          />
         </div>
       </div>
     </div>
