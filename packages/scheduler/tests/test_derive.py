@@ -21,6 +21,7 @@ from trueppm_scheduler import (
     Derivation,
     Project,
     Quantity,
+    SchedulerError,
     Task,
     UnknownTaskError,
     derive_value,
@@ -466,6 +467,19 @@ class TestErrorsAndSerialization:
         p = make_project([task("A", "A", 2)])
         with pytest.raises(UnknownTaskError):
             derive_value(p, "ZZ", Quantity.EARLY_START)
+
+    def test_unknown_task_caught_by_except_scheduler_error(self) -> None:
+        """UnknownTaskError must be caught by ``except SchedulerError`` (#2180).
+
+        It previously subclassed a bare ``ValueError``, so a consumer catching the
+        documented ``SchedulerError`` base for any scheduler-originated failure let
+        this one escape. Reparented to ``SchedulerError`` (still a ``ValueError``).
+        """
+        p = make_project([task("A", "A", 2)])
+        with pytest.raises(SchedulerError):
+            derive_value(p, "ZZ", Quantity.EARLY_START)
+        # Backward compatible: still an is-a ValueError.
+        assert issubclass(UnknownTaskError, ValueError)
 
     def test_bad_quantity_raises_value_error(self) -> None:
         p = make_project([task("A", "A", 2)])

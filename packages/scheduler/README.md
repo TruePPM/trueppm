@@ -114,6 +114,7 @@ Every exception the engine raises subclasses `ValueError`, so one
 | `CyclicDependencyError` | The dependency graph contains a cycle. `.cycle` lists the task IDs forming it. |
 | `SimulationCapExceeded` | `monte_carlo(runs=…)` exceeds `max_runs`, or the project has more tasks than `max_tasks`. |
 | `InvalidScheduleInput` | The input is structurally valid but out of range (see limits below). |
+| `UnknownTaskError` | `derive_value(project, task_id, …)` is called with a `task_id` that names no task in the project. |
 
 The engine walks the working calendar one day at a time, so it validates input
 up front rather than spinning on a degenerate project:

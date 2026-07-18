@@ -70,12 +70,40 @@ class TestExceptionHierarchy:
 
     @pytest.mark.parametrize(
         "exc",
-        [ts.CyclicDependencyError, ts.SimulationCapExceeded, ts.InvalidScheduleInput],
+        [
+            ts.CyclicDependencyError,
+            ts.SimulationCapExceeded,
+            ts.InvalidScheduleInput,
+            ts.UnknownTaskError,
+        ],
     )
     def test_concrete_exceptions_subclass_scheduler_error(self, exc: type) -> None:
         assert issubclass(exc, SchedulerError)
         # Backward compatible: still a ValueError, so existing handlers keep working.
         assert issubclass(exc, ValueError)
+
+    def test_every_exported_exception_subclasses_scheduler_error(self) -> None:
+        """No exported exception may escape ``except SchedulerError`` (#2180).
+
+        The whole point of the ``SchedulerError`` base is that one handler catches
+        every scheduler-originated failure. Enumerate the public surface rather
+        than a hand-maintained list so a newly exported exception (e.g. the next
+        ``UnknownTaskError``, which shipped subclassing a bare ``ValueError``) is
+        caught here instead of silently escaping the contract.
+        """
+        exported_exceptions = [
+            obj
+            for name in ts.__all__
+            if isinstance(obj := getattr(ts, name), type) and issubclass(obj, BaseException)
+        ]
+        # SchedulerError itself is the base; every other exported exception is a
+        # strict subclass of it.
+        assert SchedulerError in exported_exceptions
+        for exc in exported_exceptions:
+            assert issubclass(exc, SchedulerError), (
+                f"{exc.__name__} is exported but does not subclass SchedulerError; "
+                "it would escape `except SchedulerError`."
+            )
 
 
 class TestDegenerateInputContract:
