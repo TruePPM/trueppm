@@ -1493,6 +1493,14 @@ api:fuzz:
   # is a triage signal, not a merge gate — reproduce the failing case as a
   # deterministic pytest, then fix.
   #
+  # `allow_failure: true` (#2212) encodes exactly that intent: a fuzz finding must
+  # NOT red the nightly *schedule* pipeline, which is shared with Renovate and
+  # SonarCloud — a red there conflates "the API has a 500" with "a dependency
+  # needs review" and trains maintainers to ignore nightly red. The findings stay
+  # visible via the JUnit report (pipeline Tests tab + a ⚠️ warning on the job)
+  # and the 30-day artifact; a green pipeline is still the correct outcome. The
+  # durable signal (failure -> auto-file/notify) is tracked in #2212.
+  #
   # Boots the same real stack as web:integration (Django + PostgreSQL + Valkey),
   # seeds the integration fixtures, mints a JWT for the seeded OWNER user, then
   # fuzzes every documented operation as an authenticated caller.
@@ -1505,6 +1513,7 @@ api:fuzz:
   # thousands of conformance nits. Tighten the schema first, then add those
   # checks back if we want a documentation-accuracy gate.
   stage: test
+  allow_failure: true
   image: $CI_REGISTRY_IMAGE/ci-integration:noble
   needs:
     - job: ci:build-integration-image
