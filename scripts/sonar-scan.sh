@@ -46,6 +46,24 @@ else
     echo "  Run \`make coverage-diff\` (or \`cd packages/web && npm run test:coverage\`) first."
 fi
 
+# --- API Cobertura <source> rewrite ----------------------------------------
+# packages/api sets `relative_files = true` (cross-runner shard combine, #1348),
+# so its coverage.xml emits an EMPTY `<source></source>` and filenames like
+# `src/trueppm_api/...`. From the repo root the scanner resolves those against
+# `<repo>/src/...` and drops every file (#2113). Inject the package root so they
+# resolve to `<repo>/packages/api/src/...` — matching the absolute <source> the
+# scheduler/mcp reports already carry. sonar-project.properties points the API
+# reportPath at this generated coverage.sonar.xml. The substitution is a no-op on
+# a report that already has a non-empty <source> (e.g. a local non-combine run).
+API_COV="packages/api/coverage.xml"
+API_COV_SONAR="packages/api/coverage.sonar.xml"
+if [[ -f "${API_COV}" ]]; then
+    sed "s#<source></source>#<source>${REPO_ROOT}/packages/api</source>#" "${API_COV}" > "${API_COV_SONAR}"
+    echo "→ wrote ${API_COV_SONAR} (resolvable <source> root)"
+else
+    echo "! ${API_COV} not found — API coverage will not import (run \`make coverage-diff\`)."
+fi
+
 # --- Python report presence check (warn only) ------------------------------
 for xml in packages/scheduler/coverage.xml packages/api/coverage.xml packages/mcp/coverage.xml; do
     if [[ ! -f "${xml}" ]]; then

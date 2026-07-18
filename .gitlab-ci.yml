@@ -1911,10 +1911,18 @@ sonar:scan:
     # The web LCOV records `SF:src/...` paths relative to packages/web; the
     # scanner runs from the checkout root, so rewrite them to
     # `SF:packages/web/src/...` — the same prefix scripts/sonar-scan.sh and the
-    # Makefile diff-cover target apply. Python Cobertura reports resolve via
-    # their own <source> roots (the same /builds/... path this job checks out
-    # to), so they need no rewrite.
+    # Makefile diff-cover target apply.
     - sed 's|^SF:|SF:packages/web/|' packages/web/coverage/lcov.info > packages/web/coverage/lcov.sonar.info
+    # The API report emits an EMPTY `<source></source>` because packages/api sets
+    # `[tool.coverage.run] relative_files = true` (needed for the cross-runner
+    # shard combine, #1348); its class filenames are `src/trueppm_api/...`. With
+    # no source root the scanner resolves them from the repo root — `<repo>/src/
+    # trueppm_api/...` — and drops all 328 files (#2113). Inject the real package
+    # root so they resolve to `<repo>/packages/api/src/...`, matching the absolute
+    # <source> the scheduler/mcp reports already carry. Point the reportPath at
+    # coverage.sonar.xml (sonar-project.properties) — the same generated-file
+    # pattern as the web lcov above.
+    - sed "s#<source></source>#<source>${CI_PROJECT_DIR}/packages/api</source>#" packages/api/coverage.xml > packages/api/coverage.sonar.xml
     # SONAR_TOKEN and SONAR_HOST_URL come from masked CI/CD variables and are
     # read from the environment by sonar-scanner automatically. Don't block on
     # the quality-gate compute task — this is a dashboard refresh, not a gate.
