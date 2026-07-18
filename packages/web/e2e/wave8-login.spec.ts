@@ -79,47 +79,60 @@ test.describe('Wave 8 — Login screen', () => {
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeFocused();
   });
 
-  test('SSO button and open-source chip are shown (basic SSO is OSS, #1392)', async ({ page }) => {
+  test('a sign-in button per enabled provider + open-source chip (basic SSO is OSS, #2108)', async ({
+    page,
+  }) => {
+    await page.route('**/api/v1/auth/oidc/discover/**', (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          provider_present: true,
+          providers: [
+            { slug: 'keycloak', display_name: 'Keycloak' },
+            { slug: 'github', display_name: 'GitHub' },
+          ],
+        },
+      }),
+    );
     await page.goto('/login');
 
-    await expect(page.getByRole('button', { name: 'Continue with SSO' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Continue with Keycloak' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Continue with GitHub' })).toBeVisible();
     // The chip corrects the prior "SSO available in Enterprise tier" mislabel.
     await expect(page.getByText(/Open-source core/i)).toBeVisible();
   });
 
-  test('SSO falls back to password entry when the email domain has no provider', async ({
-    page,
-  }) => {
+  test('no SSO section is shown when no provider is configured', async ({ page }) => {
     await page.route('**/api/v1/auth/oidc/discover/**', (route) =>
-      route.fulfill({ status: 200, json: { provider_present: false } }),
+      route.fulfill({ status: 200, json: { provider_present: false, providers: [] } }),
     );
     await page.goto('/login');
 
-    await page.getByLabel('Email').fill('nobody@unknown.example');
-    await page.getByRole('button', { name: 'Continue with SSO' }).click();
-
-    await expect(page.getByText(/No SSO provider is set up for that email domain/i)).toBeVisible();
+    // Password form is present; no provider buttons and no dangling OR divider.
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Continue with/i })).toHaveCount(0);
   });
 
-  test('SSO hands off to the RP login endpoint for a matched domain', async ({ page }) => {
+  test('SSO hands off to the provider-scoped RP login endpoint on click', async ({ page }) => {
     await page.route('**/api/v1/auth/oidc/discover/**', (route) =>
       route.fulfill({
         status: 200,
-        json: { provider_present: true, display_name: 'Acme SSO', issuer: 'https://id.acme.io' },
+        json: { provider_present: true, providers: [{ slug: 'keycloak', display_name: 'Keycloak' }] },
       }),
     );
     // The handoff is a top-level navigation to the RP login endpoint (which would
     // 302 to the IdP in production); stub it so the browser lands somewhere benign.
-    await page.route('**/api/v1/auth/oidc/login', (route) =>
+    // The `**` after `login` is required — the ?provider= query would otherwise
+    // break the glob match.
+    await page.route('**/api/v1/auth/oidc/login**', (route) =>
       route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>idp</body></html>' }),
     );
     await page.goto('/login');
 
-    await page.getByLabel('Email').fill('anna@acme.io');
-    await page.getByRole('button', { name: 'Continue with SSO' }).click();
+    await page.getByRole('button', { name: 'Continue with Keycloak' }).click();
 
-    await page.waitForURL('**/api/v1/auth/oidc/login');
-    expect(page.url()).toContain('/api/v1/auth/oidc/login');
+    await page.waitForURL('**/api/v1/auth/oidc/login**');
+    expect(page.url()).toContain('/api/v1/auth/oidc/login?provider=keycloak');
   });
 
   test('marketing panel shows headline and build info', async ({ page }) => {

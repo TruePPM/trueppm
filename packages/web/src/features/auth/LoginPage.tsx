@@ -1,4 +1,4 @@
-import { useState, useId, type FormEvent } from 'react';
+import { useEffect, useState, useId, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
@@ -7,7 +7,11 @@ import type { CurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
 import { LogoMark } from '@/components/Icons';
 import { OSSChip } from '@/components/OSSChip';
-import { discoverSso, SSO_LOGIN_PATH, type SsoDiscoverResult } from '@/hooks/ssoLogin';
+import {
+  discoverSsoProviders,
+  ssoLoginUrl,
+  type SsoProviderSummary,
+} from '@/hooks/ssoLogin';
 
 interface TokenResponse {
   // The refresh token is no longer returned in the body — it is set as an
@@ -120,13 +124,11 @@ export function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // SSO login state (issue 1392, ADR-0187). The flow reuses the email typed
-  // above: `checking` probes the provider, `redirecting` hands off to the IdP,
-  // `unmatched` means the email domain is not served by the configured provider.
-  const [ssoStatus, setSsoStatus] = useState<'idle' | 'checking' | 'redirecting' | 'unmatched'>(
-    'idle',
-  );
-  const [ssoProvider, setSsoProvider] = useState<SsoDiscoverResult | null>(null);
+  // Multi-provider SSO (#2108, ADR-0517). The login screen renders a button per
+  // *enabled* provider, discovered on mount (domain-level only — no account
+  // enumeration). `redirectingSlug` marks the provider we are handing off to.
+  const [ssoProviders, setSsoProviders] = useState<SsoProviderSummary[]>([]);
+  const [redirectingSlug, setRedirectingSlug] = useState<string | null>(null);
 
   const emailId = useId();
   const passwordId = useId();
@@ -134,6 +136,19 @@ export function LoginPage() {
 
   const setAccessToken = useAuthStore((s) => s.setAccessToken);
   const navigate = useNavigate();
+
+  // Discover the enabled providers once on mount so the screen can render a
+  // sign-in button per provider. `discoverSsoProviders` never throws — a failure
+  // degrades to an empty list, leaving the password form as the only path.
+  useEffect(() => {
+    let active = true;
+    void discoverSsoProviders().then((res) => {
+      if (active) setSsoProviders(res.providers);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -180,32 +195,16 @@ export function LoginPage() {
   }
 
   /**
-   * Begin SSO: match the typed email's domain to the configured provider, then
-   * hand off to the RP login endpoint. The handoff is a top-level browser
+   * Begin SSO for a specific provider. The handoff is a top-level browser
    * navigation (not a fetch) so the browser follows the 302 to the IdP and
-   * carries the single-use `state` cookie the endpoint sets (login-CSRF binding,
-   * ADR-0187 §2). `discoverSso` never throws — a probe failure degrades to
-   * `unmatched`, leaving password sign-in available.
+   * carries the single-use `state` cookie the login endpoint sets (login-CSRF
+   * binding, ADR-0517 §3.5).
    */
-  async function handleSso() {
-    setError(null);
-    if (email.trim() === '') {
-      setSsoStatus('idle');
-      setError('Enter your work email above, then continue with SSO.');
-      return;
-    }
-    setSsoStatus('checking');
-    const result = await discoverSso(email.trim());
-    if (result.provider_present) {
-      setSsoProvider(result);
-      setSsoStatus('redirecting');
-      window.location.assign(SSO_LOGIN_PATH);
-    } else {
-      setSsoStatus('unmatched');
-    }
+  function startSso(slug: string) {
+    setRedirectingSlug(slug);
+    window.location.assign(ssoLoginUrl(slug));
   }
 
-  const ssoBusy = ssoStatus === 'checking' || ssoStatus === 'redirecting';
   const canSubmit = email.trim() !== '' && password !== '' && !isSubmitting;
 
   return (
@@ -261,11 +260,7 @@ export function LoginPage() {
               autoComplete="email"
               required
               value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                // Editing the email invalidates any prior SSO probe result.
-                setSsoStatus('idle');
-              }}
+              onChange={(e) => setEmail(e.target.value)}
               disabled={isSubmitting}
               placeholder="anna.khoury@example.com"
               className="
@@ -366,58 +361,59 @@ export function LoginPage() {
             {isSubmitting ? 'Signing in…' : 'Sign in'}
           </button>
 
-          {/* OR divider */}
-          <div className="flex items-center gap-3" aria-hidden="true">
-            <div className="flex-1 h-px bg-neutral-border" />
-            <span className="text-xs text-neutral-text-secondary">OR</span>
-            <div className="flex-1 h-px bg-neutral-border" />
-          </div>
+          {/* SSO — basic OIDC/OAuth login against the operator's own IdP(s)
+              (#2108, ADR-0517). Part of the Apache-2.0 community edition: the auth
+              carve-out gates identity *governance* (SAML/SCIM/directory sync), not
+              login federation — hence the OSS chip. One button per enabled
+              provider; each is a top-level navigation to the RP login endpoint,
+              which 302s to that IdP. The whole block is hidden when no provider is
+              configured, so a password-only install shows no dangling divider. */}
+          {ssoProviders.length > 0 && (
+            <>
+              <div className="flex items-center gap-3" aria-hidden="true">
+                <div className="flex-1 h-px bg-neutral-border" />
+                <span className="text-xs text-neutral-text-secondary">OR</span>
+                <div className="flex-1 h-px bg-neutral-border" />
+              </div>
 
-          {/* SSO — basic OIDC/OAuth login against the operator's own IdP (issue
-              1392, ADR-0187). Part of the Apache-2.0 community edition: the auth
-              carve-out gates identity *governance* (SAML/SCIM/directory sync),
-              not login federation — hence the OSS chip, which corrects the prior
-              "SSO available in Enterprise tier" mislabel. Reuses the email typed
-              above: discover matches the domain, then we hand off to the RP login
-              endpoint which 302s to the IdP. */}
-          <div className="flex flex-col gap-2">
-            <div className="flex justify-center">
-              <OSSChip />
-            </div>
-            {/* No static aria-label — the visible text IS the accessible name so
-                it tracks the flow state; the live region below announces changes. */}
-            <button
-              type="button"
-              onClick={() => void handleSso()}
-              disabled={ssoBusy}
-              className="
-                h-11 w-full rounded border border-neutral-border
-                bg-neutral-surface-raised text-neutral-text-primary
-                text-sm font-medium
-                hover:bg-neutral-surface-sunken
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                disabled:opacity-50 disabled:cursor-not-allowed
-                transition-colors
-              "
-            >
-              {ssoStatus === 'checking'
-                ? 'Checking your provider…'
-                : ssoStatus === 'redirecting'
-                  ? 'Redirecting you securely…'
-                  : 'Continue with SSO'}
-            </button>
-            {/* One polite live region covering every transient SSO state so a
-                screen-reader user hears the outcome of pressing the button. */}
-            {ssoStatus !== 'idle' && (
-              <p role="status" aria-live="polite" className="text-xs text-neutral-text-secondary text-center">
-                {ssoStatus === 'checking' && 'Checking your identity provider…'}
-                {ssoStatus === 'redirecting' &&
-                  `Provider matched${ssoProvider?.issuer ? `: ${ssoProvider.issuer}` : ''} — redirecting you securely…`}
-                {ssoStatus === 'unmatched' &&
-                  'No SSO provider is set up for that email domain. Sign in with your password above.'}
-              </p>
-            )}
-          </div>
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-center">
+                  <OSSChip />
+                </div>
+                {ssoProviders.map((p) => (
+                  <button
+                    key={p.slug}
+                    type="button"
+                    onClick={() => startSso(p.slug)}
+                    disabled={redirectingSlug !== null}
+                    className="
+                      h-11 w-full rounded border border-neutral-border
+                      bg-neutral-surface-raised text-neutral-text-primary
+                      text-sm font-medium
+                      hover:bg-neutral-surface-sunken
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                      disabled:opacity-50 disabled:cursor-not-allowed
+                      transition-colors
+                    "
+                  >
+                    {redirectingSlug === p.slug
+                      ? 'Redirecting you securely…'
+                      : `Continue with ${p.display_name}`}
+                  </button>
+                ))}
+                {/* Polite live region so a screen-reader user hears the handoff. */}
+                {redirectingSlug !== null && (
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className="text-xs text-neutral-text-secondary text-center"
+                  >
+                    Redirecting you to your identity provider securely…
+                  </p>
+                )}
+              </div>
+            </>
+          )}
         </form>
 
         {/* Footer: TruePPM is self-hosted and invite-based, so there is no

@@ -4,12 +4,13 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import {
-  useOidcProvider,
-  useUpdateOidcProvider,
-  useDeleteOidcProvider,
-  useTestOidcConnection,
+  useSsoProviders,
+  useCreateSsoProvider,
+  useUpdateSsoProvider,
+  useDeleteSsoProvider,
+  useTestSsoConnection,
 } from './useSso';
-import type { OidcProviderConfig } from './useSso';
+import type { SsoProvider } from './useSso';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -24,15 +25,19 @@ vi.mock('@/api', () => ({
   apiClient: { get: getMock, put: putMock, post: postMock, delete: deleteMock },
 }));
 
-const PROVIDER: OidcProviderConfig = {
-  enabled: true,
+const KEYCLOAK: SsoProvider = {
+  slug: 'keycloak',
+  provider: 'openid_connect',
+  kind: 'derived',
   display_name: 'Keycloak',
-  issuer_url: 'https://idp.example.com/realms/main',
+  enabled: true,
   client_id: 'trueppm',
+  server_url: 'https://idp.example.com/realms/main',
+  github_org: '',
   scopes: ['openid', 'email', 'profile'],
   allowed_email_domains: ['example.com'],
   auto_create_members: true,
-  default_role: 4,
+  default_role: 100,
   allow_password_signin: true,
   allow_password_signin_enforced: false,
   secret_set: true,
@@ -48,147 +53,134 @@ function makeWrapper(qc: QueryClient) {
   return Wrapper;
 }
 
+function freshClient(kind: 'queries' | 'mutations') {
+  return new QueryClient({ defaultOptions: { [kind]: { retry: false } } });
+}
+
 // ---------------------------------------------------------------------------
-// useOidcProvider
+// useSsoProviders
 // ---------------------------------------------------------------------------
 
-describe('useOidcProvider', () => {
-  let qc: QueryClient;
+describe('useSsoProviders', () => {
+  beforeEach(() => vi.clearAllMocks());
 
-  beforeEach(() => {
-    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    vi.clearAllMocks();
-  });
-
-  it('fetches the singleton provider config', async () => {
-    getMock.mockResolvedValueOnce({ data: PROVIDER });
-
-    const { result } = renderHook(() => useOidcProvider(), { wrapper: makeWrapper(qc) });
+  it('GETs the provider collection', async () => {
+    getMock.mockResolvedValueOnce({ data: [KEYCLOAK] });
+    const { result } = renderHook(() => useSsoProviders(), {
+      wrapper: makeWrapper(freshClient('queries')),
+    });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(getMock).toHaveBeenCalledWith('/workspace/sso/');
-    expect(result.current.data).toEqual(PROVIDER);
+    expect(getMock).toHaveBeenCalledWith('/workspace/sso/providers/');
+    expect(result.current.data).toEqual([KEYCLOAK]);
   });
 
   it('surfaces the error without retrying', async () => {
-    getMock.mockRejectedValueOnce(new Error('not configured'));
-
-    const { result } = renderHook(() => useOidcProvider(), { wrapper: makeWrapper(qc) });
+    getMock.mockRejectedValueOnce(new Error('forbidden'));
+    const { result } = renderHook(() => useSsoProviders(), {
+      wrapper: makeWrapper(freshClient('queries')),
+    });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-
     expect(getMock).toHaveBeenCalledTimes(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// useUpdateOidcProvider
+// useCreateSsoProvider
 // ---------------------------------------------------------------------------
 
-describe('useUpdateOidcProvider', () => {
-  let qc: QueryClient;
+describe('useCreateSsoProvider', () => {
+  beforeEach(() => vi.clearAllMocks());
 
-  beforeEach(() => {
-    qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-    vi.clearAllMocks();
-  });
+  it('POSTs the body to the collection and invalidates the list', async () => {
+    postMock.mockResolvedValueOnce({ data: KEYCLOAK });
+    const qc = freshClient('mutations');
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
 
-  it('PUTs the partial body to the singleton endpoint', async () => {
-    putMock.mockResolvedValueOnce({ data: PROVIDER });
-
-    const { result } = renderHook(() => useUpdateOidcProvider(), { wrapper: makeWrapper(qc) });
-
-    result.current.mutate({ display_name: 'Keycloak', client_secret: 's3cret' });
+    const { result } = renderHook(() => useCreateSsoProvider(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ slug: 'keycloak', client_id: 'trueppm', client_secret: 's3cret' });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(putMock).toHaveBeenCalledWith('/workspace/sso/', {
-      display_name: 'Keycloak',
+    expect(postMock).toHaveBeenCalledWith('/workspace/sso/providers/', {
+      slug: 'keycloak',
+      client_id: 'trueppm',
       client_secret: 's3cret',
     });
-  });
-
-  it('seeds the cache with the response and invalidates on success', async () => {
-    putMock.mockResolvedValueOnce({ data: PROVIDER });
-    const setDataSpy = vi.spyOn(qc, 'setQueryData');
-    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
-
-    const { result } = renderHook(() => useUpdateOidcProvider(), { wrapper: makeWrapper(qc) });
-
-    result.current.mutate({ enabled: true });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(setDataSpy).toHaveBeenCalledWith(['workspace-sso-provider'], PROVIDER);
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['workspace-sso-provider'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['workspace-sso-providers'] });
   });
 });
 
 // ---------------------------------------------------------------------------
-// useDeleteOidcProvider
+// useUpdateSsoProvider
 // ---------------------------------------------------------------------------
 
-describe('useDeleteOidcProvider', () => {
-  let qc: QueryClient;
+describe('useUpdateSsoProvider', () => {
+  beforeEach(() => vi.clearAllMocks());
 
-  beforeEach(() => {
-    qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-    vi.clearAllMocks();
-  });
-
-  it('DELETEs the singleton endpoint and invalidates the provider query', async () => {
-    deleteMock.mockResolvedValueOnce({});
+  it('PUTs to the slug item URL and invalidates the list', async () => {
+    putMock.mockResolvedValueOnce({ data: KEYCLOAK });
+    const qc = freshClient('mutations');
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
 
-    const { result } = renderHook(() => useDeleteOidcProvider(), { wrapper: makeWrapper(qc) });
-
-    result.current.mutate();
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(deleteMock).toHaveBeenCalledWith('/workspace/sso/');
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['workspace-sso-provider'] });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// useTestOidcConnection
-// ---------------------------------------------------------------------------
-
-describe('useTestOidcConnection', () => {
-  let qc: QueryClient;
-
-  beforeEach(() => {
-    qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-    vi.clearAllMocks();
-  });
-
-  it('POSTs an empty body when called without vars', async () => {
-    postMock.mockResolvedValueOnce({ data: { ok: true, issuer: PROVIDER.issuer_url } });
-
-    const { result } = renderHook(() => useTestOidcConnection(), { wrapper: makeWrapper(qc) });
-
-    result.current.mutate();
+    const { result } = renderHook(() => useUpdateSsoProvider(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ slug: 'keycloak', body: { display_name: 'KC' } });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(postMock).toHaveBeenCalledWith('/workspace/sso/test-connection/', {});
-    expect(result.current.data?.ok).toBe(true);
-  });
-
-  it('POSTs the supplied issuer_url override', async () => {
-    postMock.mockResolvedValueOnce({ data: { ok: true } });
-
-    const { result } = renderHook(() => useTestOidcConnection(), { wrapper: makeWrapper(qc) });
-
-    result.current.mutate({ issuer_url: 'https://other.example.com' });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(postMock).toHaveBeenCalledWith('/workspace/sso/test-connection/', {
-      issuer_url: 'https://other.example.com',
+    expect(putMock).toHaveBeenCalledWith('/workspace/sso/providers/keycloak/', {
+      display_name: 'KC',
     });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['workspace-sso-providers'] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useDeleteSsoProvider
+// ---------------------------------------------------------------------------
+
+describe('useDeleteSsoProvider', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('DELETEs the slug item URL and invalidates the list', async () => {
+    deleteMock.mockResolvedValueOnce({});
+    const qc = freshClient('mutations');
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useDeleteSsoProvider(), { wrapper: makeWrapper(qc) });
+    result.current.mutate('keycloak');
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(deleteMock).toHaveBeenCalledWith('/workspace/sso/providers/keycloak/');
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['workspace-sso-providers'] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useTestSsoConnection
+// ---------------------------------------------------------------------------
+
+describe('useTestSsoConnection', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('POSTs an empty body to the slug test-connection URL', async () => {
+    postMock.mockResolvedValueOnce({ data: { ok: true, issuer: KEYCLOAK.server_url } });
+
+    const { result } = renderHook(() => useTestSsoConnection(), {
+      wrapper: makeWrapper(freshClient('mutations')),
+    });
+    result.current.mutate('keycloak');
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(postMock).toHaveBeenCalledWith(
+      '/workspace/sso/providers/keycloak/test-connection/',
+      {},
+    );
+    expect(result.current.data?.ok).toBe(true);
   });
 
   it('normalizes a rejected response carrying an ok body into a result', async () => {
@@ -196,9 +188,10 @@ describe('useTestOidcConnection', () => {
       response: { data: { ok: false, error: 'discovery_unreachable', detail: 'timeout' } },
     });
 
-    const { result } = renderHook(() => useTestOidcConnection(), { wrapper: makeWrapper(qc) });
-
-    result.current.mutate();
+    const { result } = renderHook(() => useTestSsoConnection(), {
+      wrapper: makeWrapper(freshClient('mutations')),
+    });
+    result.current.mutate('keycloak');
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -212,12 +205,12 @@ describe('useTestOidcConnection', () => {
   it('rethrows errors without a structured ok body', async () => {
     postMock.mockRejectedValueOnce(new Error('network down'));
 
-    const { result } = renderHook(() => useTestOidcConnection(), { wrapper: makeWrapper(qc) });
-
-    result.current.mutate();
+    const { result } = renderHook(() => useTestSsoConnection(), {
+      wrapper: makeWrapper(freshClient('mutations')),
+    });
+    result.current.mutate('keycloak');
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-
     expect(result.current.error?.message).toBe('network down');
   });
 });
