@@ -2530,6 +2530,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # replace-set lost-update race never exists. Prefetched in TaskViewSet.get_queryset.
     labels = TaskLabelChipSerializer(many=True, read_only=True)
 
+    # Per-task custom-field values (#2143, ADR-0528) — flat {field_id: typed value} map,
+    # read-only. Values ride Task.server_version (like labels); writes go through the
+    # nested /tasks/<id>/field-values/<field_id>/ endpoint. Unset fields are omitted.
+    # Prefetched (with the field def + user) in annotate_tasks_queryset — no N+1.
+    custom_fields = serializers.SerializerMethodField()
+
     # Computed readiness state for board cards (issue #179).  Derived from
     # assignee_id, baseline_start annotation, and has_predecessors annotation
     # added by TaskViewSet.get_queryset().
@@ -2744,6 +2750,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "can_delete",
             # Server-derived time-log capability (ADR-0185, #1258)
             "can_log_time",
+            # Per-task custom-field values (#2143) — flat {field_id: value} map.
+            "custom_fields",
         ]
         read_only_fields = [
             "id",
@@ -2798,6 +2806,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "criteria_met_count",
             "criteria_total",
             "dor_blockers",
+            "custom_fields",
         ]
 
     def _get_caller_role(self, project: Project | None) -> int | None:
@@ -3812,6 +3821,28 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if getattr(obj, "has_predecessors", False):
             return "ready"
         return "estimated"
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "additionalProperties": True,
+            "description": (
+                "Per-task custom-field values keyed by field id. Value type follows the "
+                "field's field_type (string/number/bool/ISO-date/option-key/array/"
+                "{id,name,initials} person). Unset fields are omitted."
+            ),
+        }
+    )
+    def get_custom_fields(self, obj: Task) -> dict[str, Any]:
+        """Flat ``{field_id: typed value}`` map of this task's set custom-field values.
+
+        Delegates to ``build_custom_fields_map`` (reads the prefetched
+        ``custom_field_values`` cache — no per-task query); unset values are omitted so
+        the board card renders nothing for them (docs/design/board-card-custom-fields.md).
+        """
+        from trueppm_api.apps.projects.custom_field_values import build_custom_fields_map
+
+        return build_custom_fields_map(obj)
 
     def get_sprint_scope_changes(self, obj: Task) -> list[dict[str, Any]]:
         """Return scope-change audit rows for the sprint-scope indicator chip."""
@@ -8187,6 +8218,7 @@ class ProjectCustomFieldSerializer(serializers.ModelSerializer[ProjectCustomFiel
             "required",
             "options",
             "order",
+            "show_on_card",
             "server_version",
             "created_at",
             "updated_at",

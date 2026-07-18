@@ -6167,6 +6167,11 @@ class ProjectCustomField(models.Model):
     # Display order on the Workflow settings page. Drag-to-reorder is implemented
     # by issuing PATCHes on individual rows; no dedicated reorder endpoint.
     order = models.PositiveSmallIntegerField(default=0, db_index=True)
+    # Opt-in to rendering this field's value on the board card face (#2143/#1989).
+    # Off by default so cards stay scannable — a Scheduler+ author flips it per
+    # field; the board card treats custom fields as the lowest-priority, first-to-
+    # collapse content (see docs/design/board-card-custom-fields.md).
+    show_on_card = models.BooleanField(default=False)
     server_version = models.BigIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -6188,6 +6193,79 @@ class ProjectCustomField(models.Model):
 
     def __str__(self) -> str:
         return f"ProjectCustomField({self.project_id}, {self.name!r}, {self.field_type})"
+
+
+class TaskCustomFieldValue(models.Model):
+    """A typed per-task value for one ProjectCustomField (#2143, ADR-0528).
+
+    One row per ``(task, field)``. Exactly one ``value_*`` column is meaningful per
+    row, chosen by ``field.field_type``; the rest stay at their empty default. Typed
+    columns (rather than a single JSON blob) buy DB-level typing and — the deciding
+    factor — a *real* FK for USER-typed values: a person value is integrity-checked
+    on write and set null when the referenced user is removed, so the card renders
+    nothing instead of dangling on an orphaned id.
+
+    **Plain model, mirrors ``TaskLabel`` (ADR-0400).** The value is NOT independently
+    synced: it reaches clients as a flat ``custom_fields`` map on the Task read payload
+    that rides ``Task.server_version``. Setting a value upserts this row and bumps the
+    parent task's version; clearing hard-deletes the row and bumps the task's version,
+    so the map re-syncs with the key removed. ``field.project_id`` must equal
+    ``task.project_id`` (serializer-enforced; no cross-FK DB CHECK).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name="custom_field_values",
+    )
+    field = models.ForeignKey(
+        ProjectCustomField,
+        on_delete=models.CASCADE,
+        related_name="values",
+    )
+
+    # Exactly one is populated per field_type; the rest stay at their empty default.
+    value_text = models.TextField(blank=True, default="")  # TEXT
+    value_number = models.DecimalField(  # NUMBER
+        max_digits=20, decimal_places=6, null=True, blank=True
+    )
+    value_date = models.DateField(null=True, blank=True)  # DATE
+    value_bool = models.BooleanField(null=True, blank=True)  # BOOLEAN (null = unset)
+    value_option = models.CharField(max_length=32, blank=True, default="")  # SINGLE_SELECT
+    value_multi = models.JSONField(default=list, blank=True)  # MULTI_SELECT (list of keys)
+    value_user = models.ForeignKey(  # USER
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_taskcustomfieldvalue"
+        constraints = [
+            # Covers both one-value-per-(task,field) and the by-task prefetch (leftmost
+            # column). No explicit Meta.indexes: this unique btree serves the board-feed
+            # lookup and the ``field`` FK is auto-indexed for cascade / per-field queries.
+            models.UniqueConstraint(
+                fields=["task", "field"],
+                name="uniq_taskcustomfieldvalue_task_field",
+            ),
+        ]
+        verbose_name = "task custom field value"
+        verbose_name_plural = "task custom field values"
+
+    def __str__(self) -> str:
+        return f"TaskCustomFieldValue(task={self.task_id}, field={self.field_id})"
+
+    @property
+    def project_id(self) -> Any:
+        """Owning project — bridges to task's project for IDOR/permission resolvers."""
+        return self.task.project_id
 
 
 # ---------------------------------------------------------------------------

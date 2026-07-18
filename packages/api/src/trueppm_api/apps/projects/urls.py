@@ -91,6 +91,7 @@ from trueppm_api.apps.projects.views import (
     TaskBaselineDetailView,
     TaskBulkView,
     TaskCommentViewSet,
+    TaskCustomFieldValueView,
     TaskHistoryView,
     TaskIndentView,
     TaskLabelView,
@@ -293,6 +294,12 @@ urlpatterns = [
         "projects/<project_pk>/tasks/<task_pk>/labels/<label_id>/",
         TaskLabelView.as_view(),
         name="project-task-labels-detach",
+    ),
+    # Idempotent set/clear of a typed custom-field value on a task (#2143, ADR-0528).
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/field-values/<field_id>/",
+        TaskCustomFieldValueView.as_view(),
+        name="project-task-custom-field-value",
     ),
     # Phase reorder — workshop mode drag-to-reorder (ADR-0046)
     path(

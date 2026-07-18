@@ -112,6 +112,17 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
         # Iterate the prefetched cache; values_list() bypasses it and fires an extra SELECT.
         return [str(label.pk) for label in obj.labels.all()]
 
+    # Per-task custom-field values (#2143, ADR-0528) ride Task.server_version exactly like
+    # label_ids — the same flat {field_id: value} map the online Task payload carries, fed
+    # by the same prefetch. NB: offline *rendering* additionally needs the field definitions
+    # synced (deferred per ADR-0528); this map is forward-compatible until that lands.
+    custom_fields = serializers.SerializerMethodField()
+
+    def get_custom_fields(self, obj: Task) -> dict[str, Any]:
+        from trueppm_api.apps.projects.custom_field_values import build_custom_fields_map
+
+        return build_custom_fields_map(obj)
+
     class Meta:
         model = Task
         fields = [
@@ -144,6 +155,7 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
             "assignee",
             "is_phase",
             "label_ids",
+            "custom_fields",
         ]
 
 

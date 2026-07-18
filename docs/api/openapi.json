@@ -25097,6 +25097,154 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/field-values/{field_id}/": {
+            "put": {
+                "operationId": "v1_projects_tasks_field_values_update",
+                "description": "Idempotent set/clear of one custom-field value on a task (#2143, ADR-0528).\n\n``PUT`` upserts the typed value for ``field_id`` on the task; ``DELETE`` clears it.\nEach bumps ``Task.server_version`` only when the value actually changed, so the\ntask's flat ``custom_fields`` map re-syncs (ADR-0400 ride-the-parent pattern) and a\n``task_updated`` board event fires; an idempotent repeat is a no-op that neither\nchurns the version nor re-broadcasts — mirroring ``TaskLabelView``.\n\nSetting a value **is a task edit**, so it is gated by ``IsProjectMemberWriteOrOwn``\n(a Member may edit their own tasks; a Viewer cannot) — deliberately distinct from\nthe field *definition* CRUD, which stays Scheduler+. Writes are **human-only** (no\nMCP token write path) until the 0.6 agent-write surface (ADR-0186); the read map on\nthe Task payload is already agent-reachable now.",
+                "summary": "Set a task's custom-field value",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "field_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskCustomFieldValueWriteRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskCustomFieldValueWriteRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskCustomFieldValueWriteRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Value set (idempotent)"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_tasks_field_values_destroy",
+                "description": "Idempotent set/clear of one custom-field value on a task (#2143, ADR-0528).\n\n``PUT`` upserts the typed value for ``field_id`` on the task; ``DELETE`` clears it.\nEach bumps ``Task.server_version`` only when the value actually changed, so the\ntask's flat ``custom_fields`` map re-syncs (ADR-0400 ride-the-parent pattern) and a\n``task_updated`` board event fires; an idempotent repeat is a no-op that neither\nchurns the version nor re-broadcasts — mirroring ``TaskLabelView``.\n\nSetting a value **is a task edit**, so it is gated by ``IsProjectMemberWriteOrOwn``\n(a Member may edit their own tasks; a Viewer cannot) — deliberately distinct from\nthe field *definition* CRUD, which stays Scheduler+. Writes are **human-only** (no\nMCP token write path) until the 0.6 agent-write surface (ADR-0186); the read map on\nthe Task payload is already agent-reachable now.",
+                "summary": "Clear a task's custom-field value",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "field_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Cleared (idempotent)"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/history/": {
             "get": {
                 "operationId": "v1_projects_tasks_history_retrieve",
@@ -45580,6 +45728,9 @@
                         "type": "integer",
                         "maximum": 32767,
                         "minimum": 0
+                    },
+                    "show_on_card": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -48491,6 +48642,9 @@
                         "maximum": 32767,
                         "minimum": 0
                     },
+                    "show_on_card": {
+                        "type": "boolean"
+                    },
                     "server_version": {
                         "type": "integer",
                         "readOnly": true
@@ -48535,6 +48689,9 @@
                         "type": "integer",
                         "maximum": 32767,
                         "minimum": 0
+                    },
+                    "show_on_card": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
@@ -52926,6 +53083,12 @@
                         "type": "boolean",
                         "description": "Authoritative per-task time-log verdict for the requesting user (ADR-0185 §3).\n\nDelegates to the SAME predicate the CanLogTime permission class enforces, so the\nclient's \"+ time\" gate can never drift from the server's rule. Fails closed to\n``False`` when serialized without a request (nested serialization, tests).",
                         "readOnly": true
+                    },
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "description": "Per-task custom-field values keyed by field id. Value type follows the field's field_type (string/number/bool/ISO-date/option-key/array/{id,name,initials} person). Unset fields are omitted.",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -52943,6 +53106,7 @@
                     "can_log_time",
                     "criteria_met_count",
                     "criteria_total",
+                    "custom_fields",
                     "dor_blockers",
                     "dwell_days",
                     "early_finish",
@@ -53300,6 +53464,15 @@
                 },
                 "required": [
                     "body"
+                ]
+            },
+            "TaskCustomFieldValueWriteRequestRequest": {
+                "type": "object",
+                "properties": {
+                    "value": {}
+                },
+                "required": [
+                    "value"
                 ]
             },
             "TaskDurationChangeEvent": {
