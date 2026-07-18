@@ -302,6 +302,79 @@ def test_velocity_samples_non_numeric_rejected() -> None:
         monte_carlo(project)
 
 
+def _scrum_payload(**overrides: object) -> str:
+    """A minimal single-scrum-task project as JSON, for the velocity-path leaks."""
+    doc: dict[str, object] = {
+        "id": "p",
+        "name": "n",
+        "start_date": "2026-01-01",
+        "tasks": [
+            {
+                "id": "a",
+                "name": "a",
+                "duration": 86400.0,
+                "delivery_mode": "scrum",
+                "story_points": 5.0,
+            }
+        ],
+        "dependencies": [],
+        "velocity_samples": [3.0],
+        "sprint_length_days": 1,
+    }
+    doc.update(overrides)
+    return json.dumps(doc)
+
+
+def test_velocity_overflow_story_points_over_tiny_mean_rejected() -> None:
+    """story_points / mean overflowing float64 to inf must raise the documented
+    InvalidScheduleInput, not a bare OverflowError from math.ceil(inf) (#2178).
+
+    story_points is finite-checked but unbounded, and a near-zero velocity sample
+    makes the ratio overflow; oversized story_points with a *normal* mean is already
+    caught by the span guard, so only this division-overflow corner leaked.
+    """
+    doc = json.loads(_scrum_payload())
+    doc["tasks"][0]["story_points"] = 1e300
+    doc["velocity_samples"] = [5e-11]
+    payload = json.dumps(doc)
+    with pytest.raises(InvalidScheduleInput):
+        schedule(Project.from_json(payload))
+    with pytest.raises(InvalidScheduleInput):
+        monte_carlo(Project.from_json(payload), runs=10)
+
+
+@pytest.mark.parametrize("bad", ["abc", 2.5, True, [1, 2], {}])
+def test_sprint_length_days_non_int_rejected_from_json(bad: object) -> None:
+    """A non-int sprint_length_days — non-numeric, fractional float (2.5), or bool —
+    must raise InvalidScheduleInput on from_json, not leak a bare TypeError from the
+    ``<=`` compare nor silently simulate a fractional sprint that the Rust engine only
+    round-trips as an integer (#2178)."""
+    with pytest.raises(InvalidScheduleInput):
+        Project.from_json(_scrum_payload(sprint_length_days=bad))
+
+
+@pytest.mark.parametrize("bad", ["abc", 2.5, True])
+def test_sprint_length_days_non_int_rejected_direct_object(bad: object) -> None:
+    """The direct-object API (not via from_dict) must also reject a non-int
+    sprint_length_days in _validate_project — the #1209 direct-object gap (#2178)."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 1, 5),
+        tasks=[Task(id="a", name="a", duration=timedelta(days=1))],
+        velocity_samples=[3.0],
+        sprint_length_days=bad,  # type: ignore[arg-type]
+    )
+    with pytest.raises(InvalidScheduleInput):
+        schedule(project)
+
+
+def test_valid_int_sprint_length_days_still_simulates() -> None:
+    """The type pin must not over-reject: a plain int sprint length still runs (#2178)."""
+    result = monte_carlo(Project.from_json(_scrum_payload(sprint_length_days=2)), runs=20)
+    assert result.p50 is not None
+
+
 def test_task_from_dict_direct_bad_planned_start() -> None:
     with pytest.raises(InvalidScheduleInput):
         Task.from_dict({"id": "t", "name": "n", "duration": 1, "planned_start": 12345})

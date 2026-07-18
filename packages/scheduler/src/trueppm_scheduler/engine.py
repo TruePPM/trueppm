@@ -1463,7 +1463,23 @@ def _velocity_worst_case_days(task: Task, project: Project) -> int:
     # task slips the guard and is silently mis-forecast instead of rejected). The
     # sampler's absolute cap only ever makes the real horizon *smaller* than this,
     # so it stays an upper bound; it is exact whenever the cap does not bind.
-    max_sprints = math.ceil(task.story_points / mean) * 4 + 10
+    #
+    # story_points is finite-checked (models.py) but its magnitude is unbounded, and
+    # mean can be an arbitrarily small positive velocity sample, so story_points/mean
+    # can overflow float64 to inf — and math.ceil(inf) raises a bare OverflowError past
+    # the documented contract (#2178). (Oversized story_points with a *normal* mean is
+    # already rejected by the MAX_PROJECT_SPAN_DAYS span guard; only this division-
+    # overflow corner slips through.) Reject the non-finite ratio here, as the
+    # InvalidScheduleInput it is, before math.ceil sees it — this helper runs inside
+    # the span-guard sweep of _validate_project, so the rejection is eager.
+    ratio = task.story_points / mean
+    if not math.isfinite(ratio):
+        raise InvalidScheduleInput(
+            f"Task {task.id!r} velocity horizon is not computable: story_points "
+            f"({task.story_points!r}) over mean velocity ({mean!r}) overflows to a "
+            "non-finite value."
+        )
+    max_sprints = math.ceil(ratio) * 4 + 10
     return int(max_sprints) * project.sprint_length_days
 
 
@@ -1578,6 +1594,23 @@ def _validate_project(project: Project) -> None:
                 raise InvalidScheduleInput(
                     f"velocity_samples must contain only finite numbers (got {s!r})."
                 )
+
+    # sprint_length_days reaches ``project.sprint_length_days <= 0`` in
+    # _velocity_worst_case_days and the velocity sampler's working-day index math; the
+    # from_dict/from_json path already pins it to an int, but a direct-object caller
+    # (#1209) can pass a non-int, which otherwise leaks a bare TypeError from the
+    # ``<=`` compare past the documented contract (#2178). A non-integer float (``2.5``)
+    # is also rejected: it simulates in Python but the Rust engine only round-trips an
+    # integer sprint length, the same silent Python<->Rust type divergence #1862 closed
+    # for hours_per_day/working_days. bool is an int subclass but never a meaningful
+    # sprint length, so reject it explicitly.
+    if project.sprint_length_days is not None and (
+        isinstance(project.sprint_length_days, bool)
+        or not isinstance(project.sprint_length_days, int)
+    ):
+        raise InvalidScheduleInput(
+            f"sprint_length_days must be an integer (got {project.sprint_length_days!r})."
+        )
 
     for t in project.tasks:
         # Type guards for the direct-object API (#1209): the from_dict/from_json path
