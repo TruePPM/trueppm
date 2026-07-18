@@ -59,7 +59,17 @@ const FIXTURE_PROJECT = {
   effective_allow_guests: true,
   inherited_public_sharing: false,
   inherited_allow_guests: true,
+  // Standalone by default (#2089); the move test drives the picker to assign one.
+  program: null,
+  program_detail: null,
 };
+
+// Programs the move-to-program picker (#2089) offers. Beacon is administrable;
+// Cortex is Member-only (my_role < ADMIN) so the picker dims it as a dead-end.
+const FIXTURE_PROGRAMS = [
+  { id: 'prog-beacon', name: 'Beacon', my_role: 300, is_closed: false },
+  { id: 'prog-cortex', name: 'Cortex', my_role: 100, is_closed: false },
+];
 
 // Org-level working calendars the override picker (#968) chooses from. Paginated
 // envelope — the endpoint uses the global PageNumberPagination default.
@@ -78,7 +88,12 @@ interface Captures {
 async function setup(
   page: Page,
   captures: Captures,
-  opts: { patchStatus?: number; patchBody?: unknown; selfRole?: number } = {},
+  opts: {
+    patchStatus?: number;
+    patchBody?: unknown;
+    selfRole?: number;
+    programs?: Array<Record<string, unknown>>;
+  } = {},
 ) {
   // Role ordinals (ADR-0072): VIEWER=0, MEMBER=100, SCHEDULER=200, ADMIN=300,
   // OWNER=400. ProjectGeneralPage gates the sharing override on role >= ADMIN via
@@ -106,11 +121,12 @@ async function setup(
   await page.route('**/api/v1/edition/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition: 'community' }) }),
   );
+  const programs = opts.programs ?? [];
   await page.route('**/api/v1/programs/', (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ results: [], count: 0, next: null, previous: null }),
+      body: pj({ results: programs, count: programs.length, next: null, previous: null }),
     }),
   );
   // Working-calendar list feeding the override picker (#968).
@@ -391,5 +407,61 @@ test.describe('Project Settings → General', () => {
         'Allow public link sharing: Off, inherited from the program or workspace default. View only.',
       ),
     ).toBeVisible();
+  });
+
+  // #2089: the seventh writable field, `program`, rides a dedicated confirm modal
+  // with its own isolated PATCH — never the shared save bar. Golden path: assign a
+  // standalone project to a program the caller administers.
+  test('assigns a standalone project to a program via the dedicated dialog (#2089)', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setup(page, captures, { programs: FIXTURE_PROGRAMS });
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    const section = page.locator('[data-settings-section="general"]');
+    await expect(section.getByRole('heading', { name: 'General' })).toBeVisible();
+
+    // Standalone summary + the "Add to program" affordance.
+    await expect(section.getByText('Standalone', { exact: true })).toBeVisible();
+    await section.getByRole('button', { name: /add to program/i }).click();
+
+    // Picker modal: Beacon (Admin) is selectable; Cortex (Member-only) is dimmed.
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: 'Move to a program' })).toBeVisible();
+    await expect(dialog.getByRole('radio', { name: /Cortex/ })).toBeDisabled();
+
+    await dialog.getByRole('radio', { name: /Beacon/ }).click();
+    await dialog.getByRole('button', { name: 'Move project' }).click();
+
+    // The move PATCHes program-only — the shared save bar is never involved.
+    await expect.poll(() => captures.patch).toBeDefined();
+    expect(captures.patch).toEqual({ program: 'prog-beacon' });
+  });
+
+  // Error path: the server's dual-Admin 400 surfaces verbatim and the dialog stays
+  // open so the user can correct or cancel.
+  test('surfaces the dual-Admin 400 verbatim and keeps the move dialog open (#2089)', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    const message = 'You need at least Project Manager role on ‘Beacon’ to add this project to it.';
+    await setup(page, captures, {
+      programs: FIXTURE_PROGRAMS,
+      patchStatus: 400,
+      patchBody: { program: [message] },
+    });
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    const section = page.locator('[data-settings-section="general"]');
+    await expect(section.getByRole('heading', { name: 'General' })).toBeVisible();
+    await section.getByRole('button', { name: /add to program/i }).click();
+
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('radio', { name: /Beacon/ }).click();
+    await dialog.getByRole('button', { name: 'Move project' }).click();
+
+    await expect(dialog.getByRole('alert')).toHaveText(message);
+    await expect(dialog).toBeVisible();
   });
 });

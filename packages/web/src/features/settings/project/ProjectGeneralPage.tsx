@@ -2,8 +2,10 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { MemberPicker } from '../components/MemberPicker';
+import { MoveProgramDialog } from '../components/MoveProgramDialog';
 import { StubFieldset } from '../components/StubFieldset';
 import { DangerZoneLink } from '../components/DangerZoneLink';
+import { extractValidationMessage } from '@/lib/apiError';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
@@ -98,7 +100,30 @@ export function ProjectGeneralPage() {
   const projectId = useProjectId();
   const { data: project } = useProject(projectId);
   const updateProject = useUpdateProject(projectId);
+  // Independent mutation instance for the program move (#2089): its own pending
+  // state and its own PATCH, so a program 400 never touches the shared save bar.
+  const moveProgram = useUpdateProject(projectId);
   const { role } = useCurrentUserRole(projectId);
+
+  // Move-to-program dialog (#2089). The `program` FK is deliberately NOT part of
+  // `values`/`initialValues` above, so the shared save bar never sees it — the
+  // move is a self-contained confirm + isolated mutate with verbatim-400 surfacing.
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
+
+  const handleMoveConfirm = useCallback(
+    async (targetProgramId: string | null) => {
+      setMoveError(null);
+      try {
+        await moveProgram.mutateAsync({ program: targetProgramId });
+        setMoveDialogOpen(false);
+      } catch (err) {
+        // Surface the server's actionable dual-Admin message verbatim (ADR-0070).
+        setMoveError(extractValidationMessage(err, 'Could not move the project. Please try again.'));
+      }
+    },
+    [moveProgram],
+  );
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -522,6 +547,39 @@ export function ProjectGeneralPage() {
               canEdit={canEdit}
               selectedDetail={project?.lead_detail ?? null}
             />
+          </FieldRow>
+
+          {/* Program membership (ADR-0070, #2089). Read-only summary + a dedicated
+              action button — the move rides its own confirm modal and isolated PATCH
+              (see moveProgram), never the shared save bar, so a dual-Admin 400 can't
+              sink an unrelated name/health/timezone save. The button is a form control,
+              so the enclosing StubFieldset already disables it below Admin; canEdit
+              double-gates for clarity. */}
+          <FieldRow
+            label="Program"
+            hint="The program this project rolls up into. Moving it needs Manager role on both this project and the target program."
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-medium text-neutral-text-primary">
+                  {project?.program_detail?.name ?? 'Standalone'}
+                </span>
+                <span className="shrink-0 rounded border border-neutral-border/55 bg-neutral-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
+                  {project?.program_detail ? 'In program' : 'No program'}
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={!canEdit}
+                onClick={() => {
+                  setMoveError(null);
+                  setMoveDialogOpen(true);
+                }}
+                className="h-8 rounded border border-neutral-border bg-neutral-surface-raised px-3 text-[12.5px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {project?.program_detail ? 'Move…' : 'Add to program…'}
+              </button>
+            </div>
           </FieldRow>
 
           <FieldRow
@@ -969,6 +1027,17 @@ export function ProjectGeneralPage() {
 
       {/* Destructive actions live on the Archive / Delete page (#977). */}
       <DangerZoneLink to="#lifecycle" />
+
+      {moveDialogOpen && (
+        <MoveProgramDialog
+          currentProgramId={project?.program ?? null}
+          currentProgramName={project?.program_detail?.name ?? null}
+          error={moveError}
+          busy={moveProgram.isPending}
+          onCancel={() => setMoveDialogOpen(false)}
+          onConfirm={(target) => void handleMoveConfirm(target)}
+        />
+      )}
     </div>
   );
 }

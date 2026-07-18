@@ -1,4 +1,4 @@
-import { act, render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -31,6 +31,21 @@ vi.mock('@/hooks/useProjectMutations', () => ({
 // network call. Picker interaction is covered by EntitySelectCombobox.test.tsx.
 vi.mock('@/hooks/useProjectMembers', () => ({
   useProjectMembers: () => ({ members: [], isLoading: false }),
+}));
+
+// The move-to-program dialog (#2089) fetches the program list on open; stub it so
+// no network call fires. The dialog's own picker logic is covered in
+// MoveProgramDialog.test.tsx — here we only assert the row + open/confirm wiring.
+const { programsState } = vi.hoisted(() => ({
+  programsState: {
+    current: {
+      data: [{ id: 'prog-a', name: 'Apollo', my_role: 300, is_closed: false }] as unknown[],
+      isLoading: false,
+    },
+  },
+}));
+vi.mock('@/hooks/usePrograms', () => ({
+  usePrograms: () => programsState.current,
 }));
 
 function renderPage() {
@@ -91,6 +106,9 @@ const SEED_PROJECT = {
   effective_allowed_attachment_types: ['application/pdf'],
   inherited_attachments_enabled: true,
   inherited_allowed_attachment_types: ['application/pdf'],
+  // Standalone by default (#2089); the program-move tests flip program_detail.
+  program: null,
+  program_detail: null,
 };
 
 let mutateAsync: ReturnType<typeof vi.fn>;
@@ -474,5 +492,66 @@ describe('ProjectGeneralPage', () => {
         mc_history_attribution_audience: null,
       }),
     );
+  });
+
+  describe('program move (#2089)', () => {
+    it('renders the standalone state with an "Add to program" affordance', () => {
+      renderPage();
+      expect(screen.getByText('Standalone')).toBeInTheDocument();
+      expect(screen.getByText('No program')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add to program/i })).toBeInTheDocument();
+    });
+
+    it('names the current program with a Move affordance when assigned', () => {
+      useProject.mockReturnValue({
+        data: { ...SEED_PROJECT, program: 'prog-z', program_detail: { id: 'prog-z', name: 'Zephyr' } },
+      });
+      renderPage();
+      expect(screen.getByText('Zephyr')).toBeInTheDocument();
+      expect(screen.getByText('In program')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^move…$/i })).toBeInTheDocument();
+    });
+
+    it('disables the move affordance below Admin (#1084)', () => {
+      useCurrentUserRole.mockReturnValue({ role: 100, isLoading: false });
+      renderPage();
+      expect(screen.getByRole('button', { name: /add to program/i })).toBeDisabled();
+    });
+
+    it('opens the picker and fires an isolated PATCH carrying only program', async () => {
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: /add to program/i }));
+
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toBeInTheDocument();
+
+      fireEvent.click(within(dialog).getByRole('radio', { name: /Apollo/ }));
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Move project' }));
+
+      await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ program: 'prog-a' }));
+      // The move never rides the shared save bar — its payload is program-only.
+      expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('name');
+    });
+
+    it('surfaces the server 400 verbatim without closing the dialog', async () => {
+      const err = Object.assign(new Error('rejected'), {
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: { program: ['You need at least Project Manager role on ‘Apollo’ to add this project to it.'] },
+        },
+      });
+      mutateAsync.mockRejectedValueOnce(err);
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: /add to program/i }));
+
+      const dialog = screen.getByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('radio', { name: /Apollo/ }));
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Move project' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/Project Manager role on ‘Apollo’/);
+      // Dialog stays open so the user can correct or cancel.
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
   });
 });
