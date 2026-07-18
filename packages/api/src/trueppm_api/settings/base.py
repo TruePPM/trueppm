@@ -687,6 +687,12 @@ TRUEPPM_OTEL_METRICS_ENABLED: bool = env.bool("TRUEPPM_OTEL_METRICS_ENABLED", de
 # The arg carries the ratio (0.0–1.0) for the ratio-based samplers.
 OTEL_TRACES_SAMPLER: str = env("OTEL_TRACES_SAMPLER", default="parentbased_always_on")
 OTEL_TRACES_SAMPLER_ARG: str = env("OTEL_TRACES_SAMPLER_ARG", default="")
+# Wall-clock bound (seconds) for the admin telemetry test-export probe (#2110):
+# caps the one-off canary export and the TCP reachability probe so a dead collector
+# can never hang the request thread. Well under the gunicorn worker timeout.
+TELEMETRY_TEST_EXPORT_TIMEOUT_SECONDS: int = env.int(
+    "TRUEPPM_TELEMETRY_TEST_EXPORT_TIMEOUT_SECONDS", default=5
+)
 
 # ---------------------------------------------------------------------------
 # Structured logging + trace correlation (ADR-0223, #1899)
@@ -1023,6 +1029,10 @@ REST_FRAMEWORK = {
         # an unthrottled load source on a self-hosted box, per Omar's VoC concern).
         "share_mint": env("TRUEPPM_THROTTLE_SHARE_MINT_RATE", default="20/min"),
         "share_access": env("TRUEPPM_THROTTLE_SHARE_ACCESS_RATE", default="60/min"),
+        # Telemetry test-export probe (#2110). An admin-only button that opens one
+        # outbound canary/reachability probe to the configured OTLP collector;
+        # scoped-throttled so it can't be used to hammer the collector.
+        "telemetry_test": env("TRUEPPM_THROTTLE_TELEMETRY_TEST_RATE", default="6/min"),
     },
 }
 

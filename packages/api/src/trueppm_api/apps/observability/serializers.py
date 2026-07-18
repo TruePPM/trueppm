@@ -1,4 +1,7 @@
-"""Serializers for the retention policy editor + purge runs (ADR-0173)."""
+"""Serializers for the retention policy editor + purge runs (ADR-0173).
+
+Also holds the telemetry test-export result serializer (ADR-0223 follow-up, #2110).
+"""
 
 from __future__ import annotations
 
@@ -8,6 +11,24 @@ from rest_framework import serializers
 
 from trueppm_api.apps.observability.models import PurgeRun, RetentionSchedule
 from trueppm_api.apps.observability.retention import RETENTION_KEYS
+
+
+class TelemetryTestExportResultSerializer(serializers.Serializer[Any]):
+    """Result of ``POST /health/telemetry/test/`` (#2110).
+
+    Serializes the dict from ``services.run_telemetry_test_export``. Deliberately
+    has **no** field for OTLP headers or the bearer token — the export secret must
+    never reach the browser — and ``detail`` is a canned, author-controlled
+    sentence (never ``str(exc)``), so a transport error cannot leak config.
+    """
+
+    mode = serializers.ChoiceField(choices=["export", "probe"])
+    outcome = serializers.ChoiceField(choices=["success", "reachable", "failure"])
+    endpoint = serializers.CharField(allow_blank=True)
+    protocol = serializers.CharField()
+    duration_ms = serializers.IntegerField()
+    detail = serializers.CharField()
+    checked_at = serializers.DateTimeField()
 
 
 class RetentionPolicyReadSerializer(serializers.Serializer[Any]):

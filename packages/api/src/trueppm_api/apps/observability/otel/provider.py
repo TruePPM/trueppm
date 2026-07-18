@@ -244,6 +244,11 @@ def _service_version() -> str:
         return "unknown"
 
 
+def service_version() -> str:
+    """Public accessor for the resource ``service.version`` (#2110 selector)."""
+    return _service_version()
+
+
 def _build_resource(edition: str) -> Resource:
     """Build the OTel ``Resource`` (service identity + ``trueppm.edition``)."""
     from opentelemetry.sdk.resources import Resource
@@ -256,6 +261,48 @@ def _build_resource(edition: str) -> Resource:
             attributes.RESOURCE_EDITION: edition,
         }
     )
+
+
+def build_resource() -> Resource:
+    """Public ``Resource`` builder for the current edition.
+
+    Used by the on-demand telemetry test-export (#2110) so its canary span carries
+    the same service identity (``service.name`` / ``service.version`` /
+    ``trueppm.edition``) as the real export pipeline — the operator sees the canary
+    attributed to this deployment, not an anonymous span.
+    """
+    return _build_resource(str(getattr(settings, "TRUEPPM_EDITION", "community")))
+
+
+def build_span_exporter(*, timeout: float | None = None) -> Any:
+    """Build a one-off OTLP span exporter from the configured OTLP settings.
+
+    Shared by the batched tracer provider (the long-lived export pipeline) and the
+    on-demand telemetry **test-export** action (#2110), so both resolve endpoint,
+    protocol and headers through the exact same path — a canary probe can never
+    disagree with the real exporter about where spans go, and there is one place
+    the bearer-token headers are read. ``timeout`` (seconds) bounds a single export
+    attempt; the test action passes a short bound so a dead collector cannot hang
+    the request, while the batch pipeline leaves it unset (the exporter default).
+
+    The caller owns the returned exporter's lifecycle and must ``shutdown()`` it.
+    """
+    endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT
+    headers = _parse_headers(settings.OTEL_EXPORTER_OTLP_HEADERS)
+    kwargs: dict[str, Any] = {"endpoint": endpoint, "headers": headers}
+    if timeout is not None:
+        kwargs["timeout"] = int(timeout)
+    if _is_http_protocol():
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter as HTTPSpanExporter,
+        )
+
+        return HTTPSpanExporter(**kwargs)
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+        OTLPSpanExporter as GRPCSpanExporter,
+    )
+
+    return GRPCSpanExporter(**kwargs)
 
 
 def _parse_headers(raw: str) -> dict[str, str] | None:
@@ -333,26 +380,10 @@ def _build_tracer_provider(resource: Resource) -> TracerProvider:
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-    endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT
-    headers = _parse_headers(settings.OTEL_EXPORTER_OTLP_HEADERS)
-    exporter: Any
-    if _is_http_protocol():
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-            OTLPSpanExporter as HTTPSpanExporter,
-        )
-
-        exporter = HTTPSpanExporter(endpoint=endpoint, headers=headers)
-    else:
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-            OTLPSpanExporter as GRPCSpanExporter,
-        )
-
-        exporter = GRPCSpanExporter(endpoint=endpoint, headers=headers)
-
     provider = TracerProvider(resource=resource, sampler=_build_sampler())
     # BatchSpanProcessor exports on its own background thread and is fire-and-forget:
     # export failures are logged and dropped by the SDK and never reach a request.
-    provider.add_span_processor(BatchSpanProcessor(exporter))
+    provider.add_span_processor(BatchSpanProcessor(build_span_exporter()))
     return provider
 
 

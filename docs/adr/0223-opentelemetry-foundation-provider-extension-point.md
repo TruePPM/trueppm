@@ -348,3 +348,47 @@ request or task path.
 
 ### Phase 2 tracking
 Issue #710. Epic #707. Builds on the foundation (#708) and Phase 1 (#709).
+
+## Follow-up: telemetry test-export verification (#2110)
+
+**Status:** Accepted · **Extends:** this ADR (config stays env/Helm-only; the OTLP
+bearer token never leaves the process) · **Edition:** OSS.
+
+**Context.** The System Health "Telemetry" card (#2022) renders exporter *posture*
+but gives an operator no way to prove the configured collector is reachable, and no
+help configuring one. The exporters record no success/failure/counts
+(`BatchSpanProcessor` / `PeriodicExportingMetricReader` are fire-and-forget), so
+live "N spans / 60s" counts are impossible without new plumbing and are **deferred
+to #2109**. This follow-up ships the *verification core*.
+
+**Decision.**
+
+1. **`POST /api/v1/health/telemetry/test/`** — `@api_view(["POST"])`,
+   `IsAdminUser`, scoped-throttled (`telemetry_test`), consistent with the other
+   function-based observability views. Takes **no request body** (the target is read
+   only from settings — see Security) and **always responds 200**; the probe outcome
+   is in the body, so a collector transport failure is never miscoded as an API
+   failure.
+2. **Two modes, three outcomes.** When `provider.is_enabled()`: build a one-off OTLP
+   span exporter from the same settings, export one synthetic canary span
+   (`trueppm.telemetry.canary`, `trueppm.telemetry.test=true`) synchronously, and map
+   `SpanExportResult` to `success` / `failure`. When an endpoint is set but
+   `TRUEPPM_OTEL_ENABLED=false`: a bounded TCP reachability probe → `reachable` /
+   `failure` (no span is forced — export was deliberately disabled). Bounded by
+   `TELEMETRY_TEST_EXPORT_TIMEOUT_SECONDS` (default 5s) so a dead collector can't hang
+   the request; the one-off exporter is always `shutdown()`.
+3. **Security (load-bearing).** Every failure `detail` is a canned, author-controlled
+   sentence keyed on the exception *type* — never `str(exc)` — so a gRPC/transport
+   error that embeds the target can never leak `OTEL_EXPORTER_OTLP_HEADERS`. The
+   endpoint host may appear (already shown on the card); headers/token never do.
+   **SSRF is closed by construction:** the target is read only from settings — the
+   same host the app already exports to — so the caller chooses nothing and no new
+   egress surface is opened.
+4. **Selector.** `_telemetry()` gains `service_version` + `edition` (cheap identity
+   reads). **No logs-signal field** — OTLP log export does not exist (that is #711);
+   surfacing a logs row would fabricate a capability.
+5. **Honest state.** The card omits fabricated live counts; state is derived from
+   config plus the on-demand test result.
+
+**Durable Execution:** N/A — request-scoped, no Celery task, no outbox, no
+`on_commit`. **Tracking:** #2110. Deferred live export stats: #2109.

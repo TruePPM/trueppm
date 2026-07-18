@@ -11,6 +11,7 @@ from trueppm_api.apps.observability.views import (
     retention_runs,
     retention_settings,
     system_health,
+    telemetry_test_export,
 )
 
 urlpatterns = [
@@ -20,4 +21,5 @@ urlpatterns = [
     path("health/retention/", retention_settings, name="retention-settings"),
     path("health/retention/impact/", retention_impact, name="retention-impact"),
     path("health/retention/runs/", retention_runs, name="retention-runs"),
+    path("health/telemetry/test/", telemetry_test_export, name="telemetry-test-export"),
 ]

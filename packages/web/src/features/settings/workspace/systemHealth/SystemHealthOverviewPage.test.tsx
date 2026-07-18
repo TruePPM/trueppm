@@ -75,6 +75,8 @@ function makeHealth(over: Partial<SystemHealthResponse> = {}): SystemHealthRespo
       endpoint_configured: false,
       protocol: 'grpc',
       service_name: 'trueppm-api',
+      service_version: '0.5.0',
+      edition: 'community',
       traces_enabled: true,
       metrics_enabled: true,
       sampler: 'parentbased_always_on',
@@ -194,15 +196,17 @@ describe('SystemHealthOverviewPage', () => {
     expect(screen.queryByText(/No parked tasks/i)).not.toBeInTheDocument();
   });
 
-  it('renders the telemetry card as Off with a not-configured hint when export is unset', () => {
+  it('renders the telemetry card in guided-setup mode when export is unset', () => {
     useSystemHealth.mockReturnValue(mockResult({ data: makeHealth() }));
     renderPage();
     expect(screen.getByText('Telemetry')).toBeInTheDocument();
-    expect(screen.getByText('Off')).toBeInTheDocument();
-    expect(screen.getByText(/OpenTelemetry export is not configured/i)).toBeInTheDocument();
+    expect(screen.getByText('Not configured')).toBeInTheDocument();
+    expect(screen.getByText(/Export is off — no collector endpoint set/i)).toBeInTheDocument();
   });
 
-  it('renders the telemetry card as Exporting with endpoint and sampler when live', () => {
+  it('mounts the telemetry card as Exporting with the endpoint and sampler when live', () => {
+    // Deep card behavior (guided setup, signals, test-export) is covered in
+    // TelemetryCard.test.tsx; here we only assert the page wires the card in.
     const health = makeHealth({
       telemetry: {
         enabled: true,
@@ -210,6 +214,8 @@ describe('SystemHealthOverviewPage', () => {
         endpoint_configured: true,
         protocol: 'grpc',
         service_name: 'trueppm-api',
+        service_version: '0.5.0',
+        edition: 'community',
         traces_enabled: true,
         metrics_enabled: false,
         sampler: 'parentbased_traceidratio',
@@ -220,8 +226,8 @@ describe('SystemHealthOverviewPage', () => {
     renderPage();
     expect(screen.getByText('Exporting')).toBeInTheDocument();
     expect(screen.getByText('otel-collector.internal:4317')).toBeInTheDocument();
-    expect(screen.getByText('parentbased_traceidratio (0.1)')).toBeInTheDocument();
-    expect(screen.getByText('Traces on · Metrics off')).toBeInTheDocument();
+    expect(screen.getByText('parentbased_traceidratio · 0.1')).toBeInTheDocument();
+    expect(screen.getByText('Test export')).toBeInTheDocument();
   });
 
   it('renders a Disabled chip for a disabled retention entry', () => {

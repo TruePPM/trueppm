@@ -449,6 +449,8 @@ def _telemetry() -> dict[str, Any]:
     to an admin. ``enabled`` mirrors the bootstrap gate — export is live only when an
     endpoint is set *and* the master ``TRUEPPM_OTEL_ENABLED`` switch is on.
     """
+    from trueppm_api.apps.observability.otel import provider
+
     endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT.strip()
     enabled = bool(endpoint) and settings.TRUEPPM_OTEL_ENABLED
     return {
@@ -457,6 +459,11 @@ def _telemetry() -> dict[str, Any]:
         "endpoint_configured": bool(endpoint),
         "protocol": settings.OTEL_EXPORTER_OTLP_PROTOCOL,
         "service_name": settings.OTEL_SERVICE_NAME,
+        # Resource identity — the service.version / edition the canary and every
+        # real span carry, so the operator can match this card to what lands in
+        # their backend. Cheap: package metadata + a settings read.
+        "service_version": provider.service_version(),
+        "edition": str(getattr(settings, "TRUEPPM_EDITION", "community")),
         # Raw per-signal toggles — reported as configured, so an operator can see a
         # signal is switched off even while the overall exporter is live.
         "traces_enabled": settings.TRUEPPM_OTEL_TRACES_ENABLED,

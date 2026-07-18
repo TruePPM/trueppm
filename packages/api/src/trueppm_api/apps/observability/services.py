@@ -9,7 +9,10 @@ so the worker only adopts a row that has committed (ADR-0173 §Durable Execution
 from __future__ import annotations
 
 import logging
+import socket
+import time
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.db import transaction
@@ -146,3 +149,247 @@ def start_purge_run(*, dry_run: bool, trigger: str = PurgeRun.Trigger.MANUAL) ->
 
     transaction.on_commit(_dispatch)
     return run
+
+
+# ---------------------------------------------------------------------------
+# Telemetry test-export probe (#2110, ADR-0223 follow-up)
+#
+# The System Health "Telemetry" card lets an admin verify the OTLP export path
+# from inside the app. Two modes, three terminal outcomes:
+#   - export enabled  -> emit one synthetic canary span through a one-off exporter
+#                        built from the SAME settings, report the collector's ACK.
+#   - endpoint set but TRUEPPM_OTEL_ENABLED=false -> bounded TCP reachability probe
+#                        only (export was deliberately disabled; do not force a span).
+#
+# SECURITY (load-bearing): every failure `detail` is a CANNED, author-controlled
+# sentence keyed on the exception *type* — never str(exc) — so a gRPC/transport
+# error that embeds the collector target can never leak OTEL_EXPORTER_OTLP_HEADERS
+# (the bearer token). SSRF is closed by construction: the target is read only from
+# settings — the same host the app already exports to on every request — so the
+# caller chooses nothing and no new egress surface is opened.
+# ---------------------------------------------------------------------------
+
+_CANARY_SPAN_NAME = "trueppm.telemetry.canary"
+
+
+def run_telemetry_test_export() -> dict[str, Any]:
+    """Probe the configured OTLP export path once and return an honest outcome.
+
+    When export is enabled (endpoint set AND master switch on), emit a single
+    synthetic canary span through a one-off exporter and report whether the
+    collector accepted it. When an endpoint is set but export is switched off, do a
+    bounded TCP reachability probe instead of forcing a span. Always returns a dict
+    (the view always responds 200); the outcome lives in the body.
+    """
+    from trueppm_api.apps.observability.otel import provider
+
+    endpoint = str(settings.OTEL_EXPORTER_OTLP_ENDPOINT or "").strip()
+    protocol = str(settings.OTEL_EXPORTER_OTLP_PROTOCOL)
+    checked_at = timezone.now()
+
+    if provider.is_enabled():
+        return _canary_export(endpoint, protocol, checked_at)
+    return _tcp_probe(endpoint, protocol, checked_at)
+
+
+def _telemetry_result(
+    mode: str,
+    outcome: str,
+    endpoint: str,
+    protocol: str,
+    duration_ms: int,
+    detail: str,
+    checked_at: Any,
+) -> dict[str, Any]:
+    """Assemble the test-export result dict (no token/headers ever included)."""
+    return {
+        "mode": mode,
+        "outcome": outcome,
+        "endpoint": endpoint,
+        "protocol": protocol,
+        "duration_ms": duration_ms,
+        "detail": detail,
+        "checked_at": checked_at,
+    }
+
+
+def _elapsed_ms(start: float) -> int:
+    """Milliseconds elapsed since a ``time.monotonic()`` reading."""
+    return int((time.monotonic() - start) * 1000)
+
+
+def _canary_export(endpoint: str, protocol: str, checked_at: Any) -> dict[str, Any]:
+    """Export one canary span synchronously and map the SDK result to an outcome.
+
+    Builds a one-off exporter + a throwaway ``TracerProvider`` (bypassing the
+    fire-and-forget batch pipeline so the SUCCESS/FAILURE result is observable),
+    and always tears both down in ``finally`` so no gRPC channel/thread lingers.
+    The canary is named ``trueppm.telemetry.canary`` with ``trueppm.telemetry.test``
+    so operators can filter it out of real traces.
+    """
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SpanExportResult
+    from opentelemetry.sdk.trace.sampling import ALWAYS_ON
+
+    from trueppm_api.apps.observability.otel import provider
+
+    timeout = float(settings.TELEMETRY_TEST_EXPORT_TIMEOUT_SECONDS)
+    exporter = None
+    tracer_provider = None
+    start = time.monotonic()
+    try:
+        exporter = provider.build_span_exporter(timeout=timeout)
+        tracer_provider = TracerProvider(resource=provider.build_resource(), sampler=ALWAYS_ON)
+        tracer = tracer_provider.get_tracer("trueppm.telemetry.test")
+        span = tracer.start_span(_CANARY_SPAN_NAME, attributes={"trueppm.telemetry.test": True})
+        span.end()
+        result = exporter.export([span])
+        duration_ms = _elapsed_ms(start)
+        if result == SpanExportResult.SUCCESS:
+            return _telemetry_result(
+                "export",
+                "success",
+                endpoint,
+                protocol,
+                duration_ms,
+                "Canary span accepted by the collector — the export path is working end to end.",
+                checked_at,
+            )
+        return _telemetry_result(
+            "export",
+            "failure",
+            endpoint,
+            protocol,
+            duration_ms,
+            "The collector did not accept the canary span. Check that the collector is "
+            "running and the endpoint host and port are correct.",
+            checked_at,
+        )
+    except Exception:
+        # Never surface str(exc): a transport error can embed the target/headers.
+        logger.warning("Telemetry test export failed", exc_info=True)
+        return _telemetry_result(
+            "export",
+            "failure",
+            endpoint,
+            protocol,
+            _elapsed_ms(start),
+            "Export failed before the span could be sent. Verify OTEL_EXPORTER_OTLP_ENDPOINT "
+            "and OTEL_EXPORTER_OTLP_PROTOCOL.",
+            checked_at,
+        )
+    finally:
+        if exporter is not None:
+            try:
+                exporter.shutdown()
+            except Exception:
+                logger.debug("canary exporter shutdown failed", exc_info=True)
+        if tracer_provider is not None:
+            try:
+                tracer_provider.shutdown()
+            except Exception:
+                logger.debug("canary tracer provider shutdown failed", exc_info=True)
+
+
+def _tcp_probe(endpoint: str, protocol: str, checked_at: Any) -> dict[str, Any]:
+    """TCP-connect to the collector host:port and map the socket result to an outcome."""
+    if not endpoint:
+        return _telemetry_result(
+            "probe",
+            "failure",
+            "",
+            protocol,
+            0,
+            "No collector endpoint is configured. Set OTEL_EXPORTER_OTLP_ENDPOINT "
+            "to enable export.",
+            checked_at,
+        )
+    host, port = _parse_host_port(endpoint, protocol)
+    timeout = float(settings.TELEMETRY_TEST_EXPORT_TIMEOUT_SECONDS)
+    start = time.monotonic()
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
+        return _telemetry_result(
+            "probe",
+            "reachable",
+            endpoint,
+            protocol,
+            _elapsed_ms(start),
+            "Collector endpoint is reachable. Export is currently switched off "
+            "(TRUEPPM_OTEL_ENABLED=false); set it to true to start sending.",
+            checked_at,
+        )
+    except TimeoutError:
+        return _telemetry_result(
+            "probe",
+            "failure",
+            endpoint,
+            protocol,
+            _elapsed_ms(start),
+            "Connection timed out — the collector did not respond. Check the host, port, "
+            "and any NetworkPolicy that could block egress.",
+            checked_at,
+        )
+    except socket.gaierror:
+        return _telemetry_result(
+            "probe",
+            "failure",
+            endpoint,
+            protocol,
+            _elapsed_ms(start),
+            "The endpoint host could not be resolved. Check OTEL_EXPORTER_OTLP_ENDPOINT.",
+            checked_at,
+        )
+    except ConnectionRefusedError:
+        return _telemetry_result(
+            "probe",
+            "failure",
+            endpoint,
+            protocol,
+            _elapsed_ms(start),
+            "Connection refused — nothing is listening on that host and port.",
+            checked_at,
+        )
+    except OSError:
+        return _telemetry_result(
+            "probe",
+            "failure",
+            endpoint,
+            protocol,
+            _elapsed_ms(start),
+            "Could not reach the collector endpoint. Check the host, port, and network path.",
+            checked_at,
+        )
+
+
+def _parse_host_port(endpoint: str, protocol: str) -> tuple[str, int]:
+    """Split an OTLP endpoint into (host, port), defensively.
+
+    Handles a URL form (``http://host:4318``) and the scheme-less gRPC form
+    (``host:4317`` or bare ``host``). The default port follows the protocol:
+    4318 for HTTP/protobuf, 4317 for gRPC. A malformed endpoint (an out-of-range
+    port like ``:99999``) must never raise here — it runs before ``_tcp_probe``'s
+    try-block, so an exception would surface as a 500 instead of the clean canned
+    "failure" card. Any parse problem falls back to the protocol default port so
+    the probe simply reports the endpoint as unreachable.
+    """
+    ep = endpoint.strip()
+    default_port = 4318 if str(protocol).lower().startswith("http") else 4317
+    try:
+        if "://" in ep:
+            parsed = urlsplit(ep)
+            host = parsed.hostname or ""
+            port = parsed.port or default_port
+        elif ep.count(":") == 1:
+            host, _, raw_port = ep.partition(":")
+            port = int(raw_port) if raw_port.isdigit() else default_port
+        else:
+            host, port = ep, default_port
+    except ValueError:
+        # urlsplit(...).port raises on an out-of-range port; give up on parsing
+        # the port and let the connect attempt fail cleanly.
+        return ep, default_port
+    if not 0 <= port <= 65535:
+        port = default_port
+    return host, port

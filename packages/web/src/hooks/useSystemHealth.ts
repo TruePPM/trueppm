@@ -6,7 +6,7 @@
  * operator rather than silently retrying behind a spinner.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 
 // ---------------------------------------------------------------------------
@@ -65,10 +65,31 @@ export interface SystemHealthTelemetry {
   endpoint_configured: boolean;
   protocol: string;
   service_name: string;
+  service_version: string;
+  edition: string;
   traces_enabled: boolean;
   metrics_enabled: boolean;
   sampler: string;
   sampler_arg: string;
+}
+
+/**
+ * Result of POST /health/telemetry/test/ (#2110). `mode` reflects whether a real
+ * canary span was sent (`export`) or only a TCP reachability probe (`probe`, when
+ * export is switched off). `detail` is a canned server sentence — never carries the
+ * OTLP bearer token. `reachable` means the collector answered but no span was sent.
+ */
+export type TelemetryTestMode = 'export' | 'probe';
+export type TelemetryTestOutcome = 'success' | 'reachable' | 'failure';
+
+export interface TelemetryTestResult {
+  mode: TelemetryTestMode;
+  outcome: TelemetryTestOutcome;
+  endpoint: string;
+  protocol: string;
+  duration_ms: number;
+  detail: string;
+  checked_at: string;
 }
 
 export interface SystemHealthResponse {
@@ -112,5 +133,22 @@ export function useSystemHealth() {
     refetchInterval: 10_000,
     refetchIntervalInBackground: false,
     retry: false,
+  });
+}
+
+/**
+ * Triggers the admin-only OTLP export probe (POST /health/telemetry/test/).
+ *
+ * Sends no body — the target is read only from server settings. The endpoint
+ * always responds 200 with the probe outcome in the body, so a collector that is
+ * down surfaces as `outcome: "failure"`, not a thrown error. Not invalidating any
+ * query: this is a one-off diagnostic, it changes no server state.
+ */
+export function useTelemetryTestExport() {
+  return useMutation<TelemetryTestResult, Error, void>({
+    mutationFn: async () => {
+      const res = await apiClient.post<TelemetryTestResult>('/health/telemetry/test/');
+      return res.data;
+    },
   });
 }

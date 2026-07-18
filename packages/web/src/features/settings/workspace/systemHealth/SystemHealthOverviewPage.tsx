@@ -21,6 +21,7 @@ import {
   type SystemHealthComponent,
 } from '@/hooks/useSystemHealth';
 import { formatAge, formatUpdatedAgo } from './formatAge';
+import { TelemetryCard } from './TelemetryCard';
 import { docsUrl } from '@/lib/docsUrl';
 import axios from 'axios';
 
@@ -644,71 +645,14 @@ export function SystemHealthOverviewPage() {
             </div>
           </SettingsCard>
 
-          {/* Telemetry (OpenTelemetry exporter) status (#2022) — read-only; export
-              is configured via env/Helm only. The OTLP headers (export bearer
-              token) are never surfaced by the API, so they can't appear here. */}
-          <SettingsCard>
-            <div className="px-4 py-3 border-b border-neutral-border/55 flex items-center justify-between gap-3">
-              <h2 className="text-[13px] font-semibold text-neutral-text-primary">Telemetry</h2>
-              {health.telemetry.enabled ? (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-semantic-on-track-bg text-semantic-on-track border border-semantic-on-track/40">
-                  Exporting
-                </span>
-              ) : (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border">
-                  Off
-                </span>
-              )}
-            </div>
-            <div className="px-4 py-3">
-              {health.telemetry.endpoint_configured ? (
-                <>
-                  <FieldRow label="Endpoint">
-                    <span className="text-[13px] text-neutral-text-primary tppm-mono break-all">
-                      {health.telemetry.endpoint}
-                    </span>
-                  </FieldRow>
-                  <FieldRow label="Protocol">
-                    <span className="text-[13px] text-neutral-text-primary tppm-mono">
-                      {health.telemetry.protocol}
-                    </span>
-                  </FieldRow>
-                  <FieldRow label="Service name">
-                    <span className="text-[13px] text-neutral-text-primary tppm-mono">
-                      {health.telemetry.service_name}
-                    </span>
-                  </FieldRow>
-                  <FieldRow label="Sampler">
-                    <span className="text-[13px] text-neutral-text-primary tppm-mono">
-                      {health.telemetry.sampler}
-                      {health.telemetry.sampler_arg ? ` (${health.telemetry.sampler_arg})` : ''}
-                    </span>
-                  </FieldRow>
-                  <FieldRow label="Signals">
-                    <span className="text-[13px] text-neutral-text-primary">
-                      Traces {health.telemetry.traces_enabled ? 'on' : 'off'} · Metrics{' '}
-                      {health.telemetry.metrics_enabled ? 'on' : 'off'}
-                    </span>
-                  </FieldRow>
-                  {!health.telemetry.enabled && (
-                    <p className="mt-2 text-[12px] text-neutral-text-secondary">
-                      An endpoint is set but export is switched off (
-                      <span className="tppm-mono">TRUEPPM_OTEL_ENABLED=false</span>).
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p className="text-[13px] text-neutral-text-secondary">
-                  OpenTelemetry export is not configured. Set{' '}
-                  <span className="tppm-mono">OTEL_EXPORTER_OTLP_ENDPOINT</span> (env / Helm) to
-                  send traces and metrics to a collector.
-                </p>
-              )}
-              <p className="mt-3 text-[12px] text-neutral-text-secondary">
-                Configured via environment / Helm only — not editable here.
-              </p>
-            </div>
-          </SettingsCard>
+          {/* Telemetry (OpenTelemetry export) — guided setup + verification (#2110).
+              Read-only; export is configured via env/Helm only (ADR-0223). The OTLP
+              bearer token is never surfaced by the API, so it can't appear here.
+              Spans both grid columns — it is the most content-dense card (guided
+              setup + code snippets) and reads cramped at half width on xl. */}
+          <div className="xl:col-span-2">
+            <TelemetryCard telemetry={health.telemetry} />
+          </div>
         </div>
       </div>
     </div>
