@@ -44,6 +44,13 @@ export interface BoardToolbarPrefs {
    * personal density lens, not shared board state, like zoom/groupBy.
    */
   cellCap: number | null;
+  /**
+   * Board-level master switch for custom-field marks on cards (#2144, web-rule 271).
+   * Default ON. A per-user consent lever: any board resident can mute the whole
+   * custom-field class off their working surface in one click, without project-settings
+   * access — the field-level `showOnCard` flags stay a project-admin decision.
+   */
+  showCustomFieldsOnCards: boolean;
 }
 
 /** Desktop fallback layout when the user has never explicitly chosen one. */
@@ -63,6 +70,7 @@ interface StoredPrefs {
   zoom: BoardZoom;
   groupBy: BoardGroupMode;
   cellCap: number | null;
+  showCustomFieldsOnCards: boolean;
 }
 
 const STORAGE_KEY = 'trueppm.board.toolbarPrefs.v1';
@@ -72,6 +80,7 @@ const DEFAULTS: StoredPrefs = {
   zoom: 'normal',
   groupBy: 'phase',
   cellCap: null,
+  showCustomFieldsOnCards: true,
 };
 
 /**
@@ -124,6 +133,9 @@ function read(): StoredPrefs {
         typeof parsed.cellCap === 'number' && Number.isFinite(parsed.cellCap) && parsed.cellCap > 0
           ? Math.floor(parsed.cellCap)
           : null,
+      // Additive (issue 2144): a stored blob without the key defaults to ON (only an
+      // explicit `false` mutes) — same backwards-compatible pattern, no version bump.
+      showCustomFieldsOnCards: parsed.showCustomFieldsOnCards !== false,
     };
   } catch {
     return DEFAULTS;
@@ -152,11 +164,13 @@ export function useBoardToolbarPrefs(): {
   zoom: BoardZoom;
   groupBy: BoardGroupMode;
   cellCap: number | null;
+  showCustomFieldsOnCards: boolean;
   setLayout: (v: BoardLayoutVariant) => void;
   setBacklogDensity: (d: BacklogDensity) => void;
   setZoom: (z: BoardZoom) => void;
   setGroupBy: (g: BoardGroupMode) => void;
   setCellCap: (c: number | null) => void;
+  setShowCustomFieldsOnCards: (v: boolean) => void;
 } {
   const [prefs, setPrefs] = useState<StoredPrefs>(() => read());
 
@@ -209,6 +223,14 @@ export function useBoardToolbarPrefs(): {
     });
   }, []);
 
+  const setShowCustomFieldsOnCards = useCallback((showCustomFieldsOnCards: boolean) => {
+    setPrefs((p) => {
+      const next = { ...p, showCustomFieldsOnCards };
+      write(next);
+      return next;
+    });
+  }, []);
+
   return {
     // Effective layout for callers that don't care about mobile auto-defaulting
     // — the desktop fallback. Callers that need the mobile-aware layout combine
@@ -219,10 +241,12 @@ export function useBoardToolbarPrefs(): {
     zoom: prefs.zoom,
     groupBy: prefs.groupBy,
     cellCap: prefs.cellCap,
+    showCustomFieldsOnCards: prefs.showCustomFieldsOnCards,
     setLayout,
     setBacklogDensity,
     setZoom,
     setGroupBy,
     setCellCap,
+    setShowCustomFieldsOnCards,
   };
 }

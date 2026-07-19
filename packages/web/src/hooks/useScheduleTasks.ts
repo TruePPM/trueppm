@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useProjectId } from '@/hooks/useProjectId';
 import { apiClient } from '@/api/client';
 import type {
+  CustomFieldValue,
   Task,
   TaskAssignee,
   TaskLabel,
@@ -145,6 +146,9 @@ export interface ApiTask {
     color: string;
     position?: number;
   }>;
+  // Per-task custom-field values keyed by field id (#2143). Value type follows the
+  // field's type; unset fields are omitted server-side. Passed through unchanged.
+  custom_fields?: Record<string, CustomFieldValue>;
   // Product backlog & scoring (ADR-0105) — snake_case on the wire.
   type?: TaskType;
   governance_class?: GovernanceClass;
@@ -305,6 +309,9 @@ export function mapTask(t: ApiTask): Task {
         position: l.position,
       }),
     ),
+    // Custom-field values pass through unchanged — the map is already resolved and
+    // keyed by field id server-side (#2143). Undefined when the payload omits it.
+    customFields: t.custom_fields,
     optimisticDuration: t.optimistic_duration,
     mostLikelyDuration: t.most_likely_duration,
     pessimisticDuration: t.pessimistic_duration,

@@ -335,8 +335,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       const taskId = typeof payload.id === 'string' ? payload.id : null;
       const actorId = typeof payload.actor_id === 'string' ? payload.actor_id : null;
       const version = typeof payload.version === 'number' ? payload.version : null;
-      const currentUserId =
-        queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
+      const currentUserId = queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
 
       const isSelfEcho = actorId !== null && actorId === currentUserId;
       let isDuplicate = false;
@@ -569,7 +568,11 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
 
     // --- Project custom-field schema events ---
     on('project_custom_fields_updated', () => {
-      void queryClient.invalidateQueries({ queryKey: ['customFields', projectIdRef.current] });
+      // Must match useProjectCustomFields' FIELDS_KEY exactly, or a live definition
+      // change (incl. a show_on_card toggle #2144) never refreshes the board's fields.
+      void queryClient.invalidateQueries({
+        queryKey: ['project-custom-fields', projectIdRef.current],
+      });
     });
 
     // --- Estimation poker (ADR-0179, issue 863) ---
@@ -718,13 +721,10 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
     });
 
     // --- Resource assignment events ---
-    on(
-      ['assignment_created', 'assignment_updated', 'assignment_deleted', 'roster_changed'],
-      () => {
-        // Assignments are surfaced on task rows (assignee chips, overalloc flag).
-        scheduleInvalidate('tasks');
-      },
-    );
+    on(['assignment_created', 'assignment_updated', 'assignment_deleted', 'roster_changed'], () => {
+      // Assignments are surfaced on task rows (assignee chips, overalloc flag).
+      scheduleInvalidate('tasks');
+    });
 
     // --- Membership events ---
     on(['member_added', 'member_role_changed', 'member_removed'], (payload, event_type) => {
@@ -743,8 +743,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         queryKey: ['project-member-self', projectIdRef.current],
       });
       const affectedUserId = typeof payload.user_id === 'string' ? payload.user_id : null;
-      const currentUserId =
-        queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
+      const currentUserId = queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
       if (
         event_type === 'member_role_changed' &&
         affectedUserId !== null &&

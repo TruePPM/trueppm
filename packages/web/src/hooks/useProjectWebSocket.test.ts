@@ -853,7 +853,9 @@ describe('useProjectWebSocket — wave-2 missing handlers (#835)', () => {
 
     dispatch('project_custom_fields_updated', { action: 'created' });
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['customFields', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['project-custom-fields', 'proj-1'],
+    });
   });
 
   // #837 — reaction/ack broadcasts refetch the task-comments cache (inline render).
