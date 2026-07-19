@@ -11,7 +11,9 @@ import { setupApiMocks, setupCatchAll, type ProjectFixture } from './fixtures';
  *   - golden path: open the project picker on A → search → select B → land on B's
  *     equivalent view with the chrome intact (never a listing route);
  *   - the leaf is not an interactive control;
- *   - edge: a member of a single project sees no project picker (nothing to switch).
+ *   - edge: a member of a single project sees no project picker (nothing to switch);
+ *   - off-project (My Work): the segment becomes an unanchored "Jump to project…"
+ *     placeholder picker whose options land on a project's Overview (#2102, ADR-0508 D3).
  *
  * Every project-scoped endpoint the Overview page reads is mocked with its real
  * shape for BOTH project ids (via `*` wildcards), so switching to B doesn't crash
@@ -114,6 +116,41 @@ async function setupBothProjects(page: Page, projects: ProjectFixture[]) {
   });
 }
 
+/**
+ * Object-shaped reads the My Work page (`/me/work`) makes that the list-shaped
+ * catch-all would corrupt (#1190 lesson): the cross-project task page and the
+ * weekly time rollup. Both are mocked empty so the page renders its calm empty
+ * state and the off-project `LocationSwitcher` mounts without the root error
+ * boundary tearing the chrome (which would surface as a flaky detached trigger).
+ */
+async function setupMyWorkPage(page: Page) {
+  await page.route('**/api/v1/me/work/', (route) =>
+    route.fulfill(
+      json({
+        results: [],
+        next: null,
+        previous: null,
+        active_sprints: [],
+        due_today_count: 0,
+        server_version_high_water: 0,
+        retro_action_items: [],
+        signals: null,
+        external_items: [],
+        external_sources: [],
+      }),
+    ),
+  );
+  await page.route('**/api/v1/me/time-entries/**', (route) =>
+    route.fulfill(
+      json({
+        results: [],
+        totals: { by_day: {}, by_cell: {}, today_minutes: 0, week_minutes: 0 },
+        submission: { week_start: '2026-01-05', submitted: false, submitted_at: null },
+      }),
+    ),
+  );
+}
+
 test.describe('Top-bar location switcher (#1643)', () => {
   test('golden path — switch from one member project to another without leaving the chrome', async ({
     page,
@@ -163,5 +200,43 @@ test.describe('Top-bar location switcher (#1643)', () => {
     // still shows as static wayfinding).
     await expect(page.getByRole('navigation', { name: 'View' })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('button', { name: /Switch project/ })).toHaveCount(0);
+  });
+
+  test('off-project (My Work) — the "Jump to project…" picker lands on a project Overview (#2102, ADR-0508 D3)', async ({
+    page,
+  }) => {
+    await setupBothProjects(page, TWO_PROJECTS);
+    await setupMyWorkPage(page);
+    await page.goto('/me/work');
+
+    // Page-rendered signal: gate on My Work's own greeting <h1> (always present,
+    // above the loading/empty/populated fork) before touching the top bar, so the
+    // trigger is queried against a fully-mounted page (#1190 lesson).
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10_000 });
+
+    // Off-project anatomy is two-part: [Jump to project…] › Leaf — no program segment,
+    // no current-implying "Switch project" name.
+    const location = page.getByRole('navigation', { name: 'Location' });
+    const trigger = page.getByRole('button', { name: 'Jump to a project' });
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toContainText('Jump to project…');
+    await expect(page.getByRole('button', { name: /Switch project/ })).toHaveCount(0);
+    await expect(location.getByText('My Work')).toHaveAttribute('aria-current', 'page');
+
+    // Open the placeholder picker — no option is pre-selected (there is no current).
+    await trigger.click();
+    const listbox = page.getByRole('listbox', { name: 'Jump to a project' });
+    await expect(listbox.getByRole('option')).toHaveCount(2);
+    for (const opt of await listbox.getByRole('option').all()) {
+      await expect(opt).toHaveAttribute('aria-selected', 'false');
+    }
+
+    // Selecting a project jumps into its Overview (never a listing route).
+    await listbox.getByRole('option', { name: /Borealis Pipeline/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_B}/overview$`));
+    // On the project route the segment is now anchored to the chosen current project.
+    await expect(
+      page.getByRole('button', { name: 'Current project: Borealis Pipeline. Switch project.' }),
+    ).toBeVisible();
   });
 });

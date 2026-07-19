@@ -28,6 +28,13 @@ interface Props {
    *  only (#1680 — the project segment passes the methodology label here). Other
    *  rows and other segments (e.g. program) stay single-line. */
   currentSubtitle?: string;
+  /** Placeholder-picker mode (#2102, ADR-0508 D3): when `currentId` is undefined
+   *  the trigger shows this visible label (e.g. "Jump to project…") instead of a
+   *  current name. Ignored while a current exists. */
+  placeholder?: string;
+  /** Accessible name for the trigger + listbox in placeholder mode (e.g. "Jump to
+   *  a project") — the `Switch ${noun}` fallback implies a current one exists. */
+  placeholderAriaLabel?: string;
 }
 
 function CheckIcon() {
@@ -61,10 +68,16 @@ function CheckIcon() {
  *     substring filter, `aria-activedescendant` highlight, arrows/Home/End/Enter,
  *     two-stage Escape, `role="status"` empty row, click-outside dismiss, and focus
  *     that returns to the trigger on close; or
- *   - a **static identity row** (≤ 1 option) — the name as plain, non-focusable
- *     text with no chevron, because there is nothing to switch to (a chevron that
- *     opens an empty list is a dead affordance). This is the wayfinding-still-shown
- *     guarantee the old `ProjectSwitcher` lacked (it returned null below two).
+ *   - a **static identity row** (≤ 1 option, current present) — the name as plain,
+ *     non-focusable text with no chevron, because there is nothing to switch to (a
+ *     chevron that opens an empty list is a dead affordance). This is the
+ *     wayfinding-still-shown guarantee the old `ProjectSwitcher` lacked (it
+ *     returned null below two); or
+ *   - a **placeholder picker** (no `currentId` — #2102, ADR-0508 D3) — the same
+ *     searchable picker anchored by a `placeholder` label ("Jump to project…"),
+ *     rendered even with a single option: with no current, every option is a
+ *     destination, so the static-row shortcut never applies. The caller omits the
+ *     segment entirely at zero options.
  *
  * Selecting an option navigates to its `to` (which the caller composes to preserve
  * the active view segment). Choosing the current option is a no-op close.
@@ -76,6 +89,8 @@ export function LocationSegment({
   currentName,
   leading,
   currentSubtitle,
+  placeholder,
+  placeholderAriaLabel,
 }: Props) {
   const navigate = useNavigate();
 
@@ -173,9 +188,23 @@ export function LocationSegment({
     }
   }
 
+  // Placeholder-picker mode (#2102, ADR-0508 D3): no current AND a placeholder was
+  // supplied — the segment is a pure "jump into a ${noun}" affordance, so trigger +
+  // listbox take the placeholder accessible name (never "Switch …", which implies a
+  // current). Gating on `placeholder` (not `currentId` alone) keeps a caller that
+  // omits it — e.g. the program segment mid-load, `currentId` transiently undefined
+  // — on its original static-row/`Switch …` behavior, so this branch only ever
+  // affects segments that opted in.
+  const isPlaceholder = currentId === undefined && placeholder !== undefined;
+  const pickerAriaLabel =
+    isPlaceholder && placeholderAriaLabel ? placeholderAriaLabel : `Switch ${noun}`;
+
   // Static identity row — nothing to switch to (rule 124: no chevron, not a button).
-  // Still shows the name so wayfinding is never lost.
-  if (options.length < 2) {
+  // Still shows the name so wayfinding is never lost. Applies only when a current
+  // exists: in placeholder mode even a single option renders the picker (#2102) —
+  // the segment's whole job there is jumping, and a static placeholder that opens
+  // nothing would be the dead affordance rule 124 forbids.
+  if (options.length < 2 && !isPlaceholder) {
     return (
       <span className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium text-chrome-text-secondary">
         {leading}
@@ -192,13 +221,19 @@ export function LocationSegment({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={
-          currentName ? `Current ${noun}: ${currentName}. Switch ${noun}.` : `Switch ${noun}`
+          currentName ? `Current ${noun}: ${currentName}. Switch ${noun}.` : pickerAriaLabel
         }
         onClick={() => setOpen((v) => !v)}
         className="inline-flex max-w-[11rem] items-center gap-1.5 h-8 px-2 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
       >
         {leading}
-        {currentName && <span className="hidden truncate lg:inline">{currentName}</span>}
+        {currentName ? (
+          <span className="hidden truncate lg:inline">{currentName}</span>
+        ) : (
+          // The placeholder is the segment's only label, so unlike a current name
+          // it never hides below lg — a bare chevron would be unguessable.
+          isPlaceholder && placeholder && <span className="truncate">{placeholder}</span>
+        )}
         <svg
           width="10"
           height="10"
@@ -255,7 +290,7 @@ export function LocationSegment({
           <div
             id={listboxId}
             role="listbox"
-            aria-label={`Switch ${noun}`}
+            aria-label={pickerAriaLabel}
             className="max-h-64 overflow-y-auto py-1"
           >
             {filtered.length === 0 ? (

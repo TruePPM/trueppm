@@ -58,7 +58,10 @@ export interface ProgramSegmentModel {
 /** The project segment's data, or null to omit the segment entirely. */
 export interface ProjectSegmentModel {
   options: LocationSegmentOption[];
-  currentId: string;
+  /** The active project's id, or undefined off-project (#2102, ADR-0508 D3):
+   *  the segment then renders as an unanchored "Jump to project…" placeholder
+   *  picker whose options land on each project's Overview. */
+  currentId: string | undefined;
   currentName: string | undefined;
   /** The current project's methodology label (web-rule 196: the resolved
    *  `effective_methodology`), shown as the picker's current-row subtitle (#1680).
@@ -104,7 +107,8 @@ function titleCase(segment: string): string {
  *   - project route with a program  → program picker · project picker · view leaf
  *   - project route, no program      → (program omitted) · project picker · view leaf
  *   - program route                  → program picker · (project omitted) · program-view leaf
- *   - global route (My Work, …)      → leaf only (both segments omitted)
+ *   - global route (My Work, …)      → "Jump to project…" placeholder picker · leaf
+ *                                      (#2102, ADR-0508 D3; leaf-only with 0 projects)
  *   - settings route                 → `suppressed` (switcher renders nothing)
  *
  * Every option preserves the active view segment on switch: jumping projects keeps
@@ -154,7 +158,29 @@ export function useLocationModel(): LocationModel {
   }, [effectiveProgramId, programId, location.pathname, programs, program]);
 
   const projectSegment = useMemo<ProjectSegmentModel | null>(() => {
-    if (!projectId) return null;
+    if (!projectId) {
+      // Off-project placeholder picker (#2102, ADR-0508 D3): on a global route
+      // (My Work, Notifications, the listing pages) the segment still offers a
+      // one-hop jump into any member project — no `current`, options land on each
+      // project's Overview. Two deliberate bounds: a program route keeps its
+      // program-picker-only anatomy (the D3 off-project anatomy is two-part —
+      // `[Jump to project…] › Leaf` — and introduces no third segment), and with
+      // zero projects the segment is omitted entirely (leaf-only; a picker with
+      // nothing to pick is a dead affordance, rule 124).
+      if (effectiveProgramId) return null;
+      const list = projects ?? [];
+      if (list.length === 0) return null;
+      return {
+        options: list.map((p) => ({
+          id: p.id,
+          name: p.name,
+          to: `/projects/${p.id}/overview`,
+        })),
+        currentId: undefined,
+        currentName: undefined,
+        currentMethodologyLabel: undefined,
+      };
+    }
     const options: LocationSegmentOption[] = (projects ?? []).map((p) => ({
       id: p.id,
       name: p.name,
@@ -168,7 +194,14 @@ export function useLocationModel(): LocationModel {
         ? methodologyLabel(project.effective_methodology)
         : undefined,
     };
-  }, [projectId, projects, projectView, project?.name, project?.effective_methodology]);
+  }, [
+    projectId,
+    effectiveProgramId,
+    projects,
+    projectView,
+    project?.name,
+    project?.effective_methodology,
+  ]);
 
   const leaf = useMemo(() => {
     if (projectId) return grouped.labelFor(projectView);

@@ -114,6 +114,48 @@ describe('LocationSegment (#1643)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/projects/p2/board');
   });
 
+  describe('placeholder-picker mode — no current (#2102, ADR-0508 D3)', () => {
+    function renderPlaceholder(options = OPTIONS) {
+      return renderWithRouter(
+        <LocationSegment
+          noun="project"
+          options={options}
+          currentId={undefined}
+          currentName={undefined}
+          placeholder="Jump to project…"
+          placeholderAriaLabel="Jump to a project"
+        />,
+      );
+    }
+
+    it('renders a picker trigger with the placeholder label and aria-label', () => {
+      renderPlaceholder();
+      const trigger = screen.getByRole('button', { name: 'Jump to a project' });
+      expect(trigger).toHaveAttribute('aria-haspopup', 'listbox');
+      expect(trigger).toHaveTextContent('Jump to project…');
+      // Never the current-implying fallback.
+      expect(screen.queryByRole('button', { name: /Switch project/ })).not.toBeInTheDocument();
+    });
+
+    it('renders the picker even with a single option (no static-row shortcut)', () => {
+      renderPlaceholder([OPTIONS[0]]);
+      fireEvent.click(screen.getByRole('button', { name: 'Jump to a project' }));
+      const listbox = screen.getByRole('listbox', { name: 'Jump to a project' });
+      expect(within(listbox).getByRole('option', { name: 'Apollo' })).toBeInTheDocument();
+    });
+
+    it('marks no option selected and navigates on select', () => {
+      renderPlaceholder();
+      fireEvent.click(screen.getByRole('button', { name: 'Jump to a project' }));
+      const listbox = screen.getByRole('listbox', { name: 'Jump to a project' });
+      for (const opt of within(listbox).getAllByRole('option')) {
+        expect(opt).toHaveAttribute('aria-selected', 'false');
+      }
+      fireEvent.click(within(listbox).getByRole('option', { name: 'Gemini' }));
+      expect(mockNavigate).toHaveBeenCalledWith('/projects/p2/board');
+    });
+  });
+
   it('shows a status row when no option matches the query', () => {
     renderSegment();
     fireEvent.click(screen.getByRole('button', { name: /Switch project/ }));
