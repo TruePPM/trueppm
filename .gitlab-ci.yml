@@ -2097,32 +2097,26 @@ web:e2e:coverage:
   allow_failure: true
 
 sonar:scan:
-  # Nightly SonarCloud analysis WITH coverage import (#2090, #2092).
+  # Nightly SonarCloud analysis — bugs, code smells, security hotspots, and
+  # duplication on the scheduled pipeline.
   #
   # Runs ONLY on the scheduled pipeline (SONAR_SCHEDULED == "true"), never on MR
-  # or push pipelines — so day-to-day pipeline latency is unchanged. SonarCloud
-  # does not run tests; it imports the coverage reports already produced by the
-  # test stage, via the reportPaths declared in sonar-project.properties.
+  # or push pipelines — so day-to-day pipeline latency is unchanged.
   #
-  # `needs:` the four coverage producers so their reports land in this job's
-  # workspace. On the scheduled-main pipeline every `if main` job runs, so these
-  # producers are present. allow_failure means a Sonar/network hiccup never turns
-  # the nightly pipeline red.
-  stage: security
+  # `needs: []` (decoupled from the coverage producers) so the analysis starts at
+  # the top of the nightly pipeline instead of queueing behind the full test +
+  # coverage fan-out — the Playwright web:e2e:coverage job was the long pole that
+  # held it in the security stage. The trade-off is deliberate (2026-07-19):
+  # coverage % is NO LONGER imported into Sonar — the reportPaths declared in
+  # sonar-project.properties resolve to absent files and are skipped, so the
+  # scanner runs analysis-only. To restore the coverage import (#2090, #2113,
+  # #2117), re-add api:coverage / web:coverage / scheduler:test / mcp:test /
+  # web:e2e:coverage to `needs:` (their reports repopulate the script's `sed`
+  # rewrites below). allow_failure keeps a Sonar/network hiccup from ever
+  # reddening the nightly pipeline.
+  stage: analyze
   image: sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9
-  needs:
-    - job: api:coverage
-      artifacts: true
-    - job: web:coverage
-      artifacts: true
-    - job: scheduler:test
-      artifacts: true
-    - job: mcp:test
-      artifacts: true
-    # Playwright E2E line coverage (#2117) — nightly, same schedule gate as this
-    # job, allow_failure, so a missing/failed run just imports the vitest report.
-    - job: web:e2e:coverage
-      artifacts: true
+  needs: []
   variables:
     # Full history so SonarCloud's new-code detection and SCM blame are accurate
     # (the default shallow clone makes Sonar warn and skip blame attribution).
@@ -2134,11 +2128,18 @@ sonar:scan:
     paths:
       - .sonar/cache
   script:
+    # Coverage import is OPTIONAL now that this job runs decoupled from the
+    # coverage producers (needs: [] — see header). Each rewrite is guarded on the
+    # source report existing: when a producer is wired back into `needs:` its
+    # report is present and rewritten; absent, the step is skipped and the scanner
+    # runs analysis-only (the reportPaths in sonar-project.properties resolve to
+    # missing files and Sonar just skips them).
+    #
     # The web LCOV records `SF:src/...` paths relative to packages/web; the
     # scanner runs from the checkout root, so rewrite them to
     # `SF:packages/web/src/...` — the same prefix scripts/sonar-scan.sh and the
     # Makefile diff-cover target apply.
-    - sed 's|^SF:|SF:packages/web/|' packages/web/coverage/lcov.info > packages/web/coverage/lcov.sonar.info
+    - if [ -f packages/web/coverage/lcov.info ]; then sed 's|^SF:|SF:packages/web/|' packages/web/coverage/lcov.info > packages/web/coverage/lcov.sonar.info; fi
     # The API report emits an EMPTY `<source></source>` because packages/api sets
     # `[tool.coverage.run] relative_files = true` (needed for the cross-runner
     # shard combine, #1348); its class filenames are `src/trueppm_api/...`. With
@@ -2148,7 +2149,7 @@ sonar:scan:
     # <source> the scheduler/mcp reports already carry. Point the reportPath at
     # coverage.sonar.xml (sonar-project.properties) — the same generated-file
     # pattern as the web lcov above.
-    - sed "s#<source></source>#<source>${CI_PROJECT_DIR}/packages/api</source>#" packages/api/coverage.xml > packages/api/coverage.sonar.xml
+    - if [ -f packages/api/coverage.xml ]; then sed "s#<source></source>#<source>${CI_PROJECT_DIR}/packages/api</source>#" packages/api/coverage.xml > packages/api/coverage.sonar.xml; fi
     # SONAR_TOKEN and SONAR_HOST_URL come from masked CI/CD variables and are
     # read from the environment by sonar-scanner automatically. Don't block on
     # the quality-gate compute task — this is a dashboard refresh, not a gate.
