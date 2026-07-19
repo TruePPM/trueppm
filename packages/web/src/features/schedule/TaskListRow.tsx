@@ -176,6 +176,317 @@ function addDaysISO(iso: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+type BuildMode = NonNullable<ReturnType<typeof useBuildMode>>;
+
+/**
+ * Post-commit sprint-assignment outcome (#875). A `warn` surfaces a
+ * GuardrailNotice with one-tap keep/undo (`priorSprintId` reverts); a `block`
+ * surfaces an Owner-escalated GuardrailBlock with no override.
+ */
+type SprintOutcome =
+  | { kind: 'warn'; warnings: GuardrailWarning[]; priorSprintId: string | null }
+  | { kind: 'block'; detail: string };
+
+/**
+ * Context for the build-mode row keyboard reducer. Extracted from
+ * TaskListRowInner (#2081) so the branch-dense reducer lives outside the
+ * component body; every field is a value the inline handler previously closed
+ * over. The extraction is verbatim — branch order and semantics are unchanged.
+ */
+interface BuildKeyDownCtx {
+  buildMode: BuildMode | null;
+  anyCellInEdit: boolean;
+  siblingIds: string[] | undefined;
+  task: Task;
+  prevTaskId: string | null;
+  nextTaskId: string | null;
+  reorderTasks: ReturnType<typeof useReorderTasks>;
+  focusRowDom: (id: string) => void;
+}
+
+/**
+ * Build-mode keyboard reducer for a task row. Handles Option/Alt+↑/↓ sibling
+ * reorder (#347), arrow-key row focus traversal, Tab/Shift-Tab indent/outdent,
+ * single-letter Name cell-edit entry, Delete/Backspace, and Esc. Returns early
+ * (no-op) when build mode is inactive or a cell is being edited. The caller
+ * inspects `e.defaultPrevented` afterward to decide whether to run the flag-off
+ * shortcuts, so this function's preventDefault contract is load-bearing.
+ */
+function handleBuildModeKeyDown(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): void {
+  const { buildMode, anyCellInEdit, siblingIds, task, prevTaskId, nextTaskId, reorderTasks, focusRowDom } =
+    ctx;
+  if (!buildMode || anyCellInEdit) return;
+  // Option/Alt+↑/↓ — reorder among same-indent siblings (#347)
+  if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && siblingIds) {
+    e.preventDefault();
+    const currentIdx = siblingIds.indexOf(task.id);
+    if (currentIdx === -1) return;
+    const delta = e.key === 'ArrowDown' ? 1 : -1;
+    const newIdx = currentIdx + delta;
+    if (newIdx < 0 || newIdx >= siblingIds.length) return;
+    const newOrder = [...siblingIds];
+    newOrder.splice(currentIdx, 1);
+    newOrder.splice(newIdx, 0, task.id);
+    reorderTasks.mutate({ parent_path: wbsParentPath(task.wbs), ordered_ids: newOrder });
+    return;
+  }
+
+  // Arrow up/down — move row focus to the previous/next visible row.
+  // Documented in useScheduleFocus's docstring; previously unimplemented (#340 follow-up).
+  if (!e.altKey && e.key === 'ArrowDown' && nextTaskId) {
+    e.preventDefault();
+    buildMode.focus.focusRow(nextTaskId);
+    focusRowDom(nextTaskId);
+    return;
+  }
+  if (!e.altKey && e.key === 'ArrowUp' && prevTaskId) {
+    e.preventDefault();
+    buildMode.focus.focusRow(prevTaskId);
+    focusRowDom(prevTaskId);
+    return;
+  }
+  // Tab on a focused row → indent (Shift-Tab → outdent). The focus reducer
+  // ignores Tab in RowFocused — caller (this) handles the structural action.
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    if (e.shiftKey) buildMode.outdent(task.id);
+    else buildMode.indent(task.id);
+    return;
+  }
+  // Letter key (single printable, not modified) opens Name cell-edit
+  // pre-filled with the typed letter — but we keep it simple in v1 and
+  // just enter cell-edit; the user re-types if they want to overwrite.
+  if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && /[a-zA-Z0-9]/.test(e.key)) {
+    e.preventDefault();
+    buildMode.focus.enterCellEdit(task.id, 'name');
+    return;
+  }
+  // Delete (Backspace/Delete) on focused row — destructive, no confirm, to
+  // keep the build path fast. The safety net is the "Deleted — Undo" toast
+  // wired into buildMode.deleteTask (ScheduleView, #1762): Undo recreates the
+  // task from a pre-delete snapshot. The same path backs the ⋮ menu's Delete.
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault();
+    buildMode.deleteTask(task.id);
+    return;
+  }
+  // Esc clears focus.
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    buildMode.focus.clear();
+  }
+}
+
+/**
+ * Context for the row-level keyboard reducer (flag-off + build-mode dispatch).
+ * Extracted from TaskListRowInner (#2081). `runBuildKeyDown` is the thin wrapper
+ * around handleBuildModeKeyDown so this reducer keeps its "let build mode run
+ * first, then fall through to flag-off shortcuts" ordering exactly.
+ */
+interface RowKeyDownCtx {
+  sprintOutcome: unknown;
+  buildMode: BuildMode | null;
+  runBuildKeyDown: (e: React.KeyboardEvent) => void;
+  isEditing: boolean;
+  anyCellInEdit: boolean;
+  nextTaskId: string | null;
+  prevTaskId: string | null;
+  isSelected: boolean;
+  task: Task;
+  setSelectedTaskId: (id: string | null) => void;
+  focusRowDom: (id: string) => void;
+  handleToggleComplete: () => void;
+  handleDuplicate: () => void;
+  startEdit: () => void;
+}
+
+/**
+ * Row-level keyboard reducer. Dispatches build-mode keys first (via
+ * runBuildKeyDown) and returns if build mode consumed the event, then handles
+ * the flag-off shortcuts: arrow-key selection, Space→Mark complete (ADR-0066
+ * Q5), ⌘D/Ctrl+D duplicate (Q1), Enter select/insert, and F2 rename. Branch
+ * order preserved verbatim from the previous inline handler (#2081).
+ */
+function handleRowKeyDown(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
+  const {
+    sprintOutcome,
+    buildMode,
+    runBuildKeyDown,
+    isEditing,
+    anyCellInEdit,
+    nextTaskId,
+    prevTaskId,
+    isSelected,
+    task,
+    setSelectedTaskId,
+    focusRowDom,
+    handleToggleComplete,
+    handleDuplicate,
+    startEdit,
+  } = ctx;
+  // When the sprint-outcome panel is mounted (warn/block after SprintPrompt
+  // committed), any key originating inside it — especially Space typed into
+  // the optional reason input, or Esc to dismiss — must not bubble into
+  // the row's Mark-Complete / clear-focus shortcuts. ADR-0101 §2: the
+  // warn reason field is always optional and never blocked from input.
+  if (sprintOutcome && e.target !== e.currentTarget) return;
+  // Build-mode owns Tab/Letter/Delete/Esc on the row; let it run first.
+  if (buildMode) {
+    runBuildKeyDown(e);
+    if (e.defaultPrevented) return;
+  }
+  if (isEditing || anyCellInEdit) return;
+  // Arrow up/down — flag-off path. Build-mode path is handled above.
+  if (!buildMode && e.key === 'ArrowDown' && nextTaskId) {
+    e.preventDefault();
+    setSelectedTaskId(nextTaskId);
+    focusRowDom(nextTaskId);
+    return;
+  }
+  if (!buildMode && e.key === 'ArrowUp' && prevTaskId) {
+    e.preventDefault();
+    setSelectedTaskId(prevTaskId);
+    focusRowDom(prevTaskId);
+    return;
+  }
+  // Space rebinds to Mark complete on the focused row (ADR-0066 Q5).
+  // Today both Enter and Space were redundant ("open drawer"); Enter
+  // keeps that meaning, Space gets the new high-frequency action.
+  if (e.key === ' ') {
+    e.preventDefault();
+    handleToggleComplete();
+    return;
+  }
+  // ⌘D / Ctrl+D — Duplicate the focused row (ADR-0066 Q1). Always
+  // preventDefault to suppress the browser bookmark dialog.
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
+    e.preventDefault();
+    handleDuplicate();
+    return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (buildMode) {
+      // Enter on a focused row inserts a new sibling below (same parent /
+      // depth) and drops the cursor into its Name cell (#1666). F2 remains
+      // the "edit this row's name" affordance. One mental model: Enter
+      // always ends with the cursor in an editable Name cell.
+      buildMode.insertBelow(task.id);
+    } else {
+      setSelectedTaskId(isSelected ? null : task.id);
+    }
+  }
+  if (e.key === 'F2') {
+    e.preventDefault();
+    if (buildMode) {
+      buildMode.focus.enterCellEdit(task.id, 'name');
+    } else {
+      startEdit();
+    }
+  }
+}
+
+/**
+ * Context for the build-mode row context-menu item builder. Extracted from
+ * TaskListRowInner (#2081); the menu is only built when `buildMode` is present.
+ */
+interface RowMenuCtx {
+  buildMode: BuildMode;
+  task: Task;
+  level: number;
+  isComplete: boolean;
+  onAddDependencyRequest: ((taskId: string, mode: 'predecessor' | 'successor') => void) | undefined;
+  handleToggleComplete: () => void;
+  handleDuplicate: () => void;
+}
+
+/**
+ * Build the ⋮ context-menu item list for a build-mode row. Item order, keys,
+ * hints, disabled predicates, and group boundaries are preserved verbatim from
+ * the previous inline `menuItems` array (#2081).
+ */
+function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
+  const { buildMode, task, level, isComplete, onAddDependencyRequest, handleToggleComplete, handleDuplicate } =
+    ctx;
+  return [
+    {
+      key: 'edit',
+      label: 'Edit',
+      icon: '✎',
+      hint: 'F2',
+      onSelect: () => buildMode.focus.enterCellEdit(task.id, 'name'),
+    },
+    {
+      key: 'toggle-complete',
+      // Toggle copy flip — when the task is already COMPLETE the same
+      // action un-marks it (ADR-0066 Q3 / ux-design item 2).
+      label: isComplete ? 'Unmark complete' : 'Mark complete',
+      icon: isComplete ? '↺' : '☑',
+      hint: 'Space',
+      // Milestones are date points; toggling status on them is meaningless.
+      disabled: task.isMilestone,
+      onSelect: handleToggleComplete,
+    },
+    {
+      key: 'indent',
+      label: 'Indent',
+      icon: '⇥',
+      hint: 'Tab',
+      startsGroup: true,
+      disabled: level <= 1,
+      onSelect: () => buildMode.indent(task.id),
+    },
+    {
+      key: 'outdent',
+      label: 'Outdent',
+      icon: '⇤',
+      hint: '⇧+Tab',
+      // Disable outdent at root level (level 1).
+      disabled: level <= 1,
+      onSelect: () => buildMode.outdent(task.id),
+    },
+    {
+      key: 'add-predecessor',
+      label: 'Add predecessor…',
+      icon: '↗',
+      startsGroup: true,
+      disabled: !onAddDependencyRequest,
+      onSelect: () => onAddDependencyRequest?.(task.id, 'predecessor'),
+    },
+    {
+      key: 'add-successor',
+      label: 'Add successor…',
+      icon: '↙',
+      disabled: !onAddDependencyRequest,
+      onSelect: () => onAddDependencyRequest?.(task.id, 'successor'),
+    },
+    {
+      key: 'duplicate',
+      label: 'Duplicate',
+      icon: '⎘',
+      hint: '⌘D',
+      startsGroup: true,
+      onSelect: handleDuplicate,
+    },
+    {
+      key: 'milestone',
+      label: 'Convert to milestone',
+      icon: '◆',
+      disabled: task.isMilestone,
+      onSelect: () => buildMode.convertToMilestone(task.id),
+    },
+    {
+      key: 'delete',
+      label: 'Delete',
+      icon: '🗑',
+      hint: '⌫',
+      destructive: true,
+      startsGroup: true,
+      onSelect: () => buildMode.deleteTask(task.id),
+    },
+  ];
+}
+
 function TaskListRowInner({
   task,
   level,
@@ -296,9 +607,6 @@ function TaskListRowInner({
   // (Owner-escalated, no override) anchored to the same position as the
   // SprintPrompt so the build-mode user sees the consequence inline without
   // leaving the row. `priorSprintId` lets Undo revert the assignment.
-  type SprintOutcome =
-    | { kind: 'warn'; warnings: GuardrailWarning[]; priorSprintId: string | null }
-    | { kind: 'block'; detail: string };
   const [sprintOutcome, setSprintOutcome] = useState<SprintOutcome | null>(null);
 
   const isBuildSelected = buildMode?.focus.isRowFocused(task.id) ?? false;
@@ -333,68 +641,19 @@ function TaskListRowInner({
     });
   }, []);
 
-  const handleBuildKeyDown = (e: React.KeyboardEvent) => {
-    if (!buildMode || anyCellInEdit) return;
-    // Option/Alt+↑/↓ — reorder among same-indent siblings (#347)
-    if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && siblingIds) {
-      e.preventDefault();
-      const currentIdx = siblingIds.indexOf(task.id);
-      if (currentIdx === -1) return;
-      const delta = e.key === 'ArrowDown' ? 1 : -1;
-      const newIdx = currentIdx + delta;
-      if (newIdx < 0 || newIdx >= siblingIds.length) return;
-      const newOrder = [...siblingIds];
-      newOrder.splice(currentIdx, 1);
-      newOrder.splice(newIdx, 0, task.id);
-      reorderTasks.mutate({ parent_path: wbsParentPath(task.wbs), ordered_ids: newOrder });
-      return;
-    }
-
-    // Arrow up/down — move row focus to the previous/next visible row.
-    // Documented in useScheduleFocus's docstring; previously unimplemented (#340 follow-up).
-    if (!e.altKey && e.key === 'ArrowDown' && nextTaskId) {
-      e.preventDefault();
-      buildMode.focus.focusRow(nextTaskId);
-      focusRowDom(nextTaskId);
-      return;
-    }
-    if (!e.altKey && e.key === 'ArrowUp' && prevTaskId) {
-      e.preventDefault();
-      buildMode.focus.focusRow(prevTaskId);
-      focusRowDom(prevTaskId);
-      return;
-    }
-    // Tab on a focused row → indent (Shift-Tab → outdent). The focus reducer
-    // ignores Tab in RowFocused — caller (this) handles the structural action.
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      if (e.shiftKey) buildMode.outdent(task.id);
-      else buildMode.indent(task.id);
-      return;
-    }
-    // Letter key (single printable, not modified) opens Name cell-edit
-    // pre-filled with the typed letter — but we keep it simple in v1 and
-    // just enter cell-edit; the user re-types if they want to overwrite.
-    if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && /[a-zA-Z0-9]/.test(e.key)) {
-      e.preventDefault();
-      buildMode.focus.enterCellEdit(task.id, 'name');
-      return;
-    }
-    // Delete (Backspace/Delete) on focused row — destructive, no confirm, to
-    // keep the build path fast. The safety net is the "Deleted — Undo" toast
-    // wired into buildMode.deleteTask (ScheduleView, #1762): Undo recreates the
-    // task from a pre-delete snapshot. The same path backs the ⋮ menu's Delete.
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-      e.preventDefault();
-      buildMode.deleteTask(task.id);
-      return;
-    }
-    // Esc clears focus.
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      buildMode.focus.clear();
-    }
-  };
+  // Thin wrapper so the row's onKeyDown can run build-mode keys first and then
+  // inspect e.defaultPrevented; the reducer itself lives at module scope (#2081).
+  const handleBuildKeyDown = (e: React.KeyboardEvent) =>
+    handleBuildModeKeyDown(e, {
+      buildMode,
+      anyCellInEdit,
+      siblingIds,
+      task,
+      prevTaskId,
+      nextTaskId,
+      reorderTasks,
+      focusRowDom,
+    });
 
   // #347: ⋮⋮ drag handle pointer handlers
   const handleReorderPointerDown = (e: React.PointerEvent) => {
@@ -529,83 +788,15 @@ function TaskListRowInner({
 
   const isComplete = task.status === 'COMPLETE';
   const menuItems: RowMenuItem[] = buildMode
-    ? [
-        {
-          key: 'edit',
-          label: 'Edit',
-          icon: '✎',
-          hint: 'F2',
-          onSelect: () => buildMode.focus.enterCellEdit(task.id, 'name'),
-        },
-        {
-          key: 'toggle-complete',
-          // Toggle copy flip — when the task is already COMPLETE the same
-          // action un-marks it (ADR-0066 Q3 / ux-design item 2).
-          label: isComplete ? 'Unmark complete' : 'Mark complete',
-          icon: isComplete ? '↺' : '☑',
-          hint: 'Space',
-          // Milestones are date points; toggling status on them is meaningless.
-          disabled: task.isMilestone,
-          onSelect: handleToggleComplete,
-        },
-        {
-          key: 'indent',
-          label: 'Indent',
-          icon: '⇥',
-          hint: 'Tab',
-          startsGroup: true,
-          disabled: level <= 1,
-          onSelect: () => buildMode.indent(task.id),
-        },
-        {
-          key: 'outdent',
-          label: 'Outdent',
-          icon: '⇤',
-          hint: '⇧+Tab',
-          // Disable outdent at root level (level 1).
-          disabled: level <= 1,
-          onSelect: () => buildMode.outdent(task.id),
-        },
-        {
-          key: 'add-predecessor',
-          label: 'Add predecessor…',
-          icon: '↗',
-          startsGroup: true,
-          disabled: !onAddDependencyRequest,
-          onSelect: () => onAddDependencyRequest?.(task.id, 'predecessor'),
-        },
-        {
-          key: 'add-successor',
-          label: 'Add successor…',
-          icon: '↙',
-          disabled: !onAddDependencyRequest,
-          onSelect: () => onAddDependencyRequest?.(task.id, 'successor'),
-        },
-        {
-          key: 'duplicate',
-          label: 'Duplicate',
-          icon: '⎘',
-          hint: '⌘D',
-          startsGroup: true,
-          onSelect: handleDuplicate,
-        },
-        {
-          key: 'milestone',
-          label: 'Convert to milestone',
-          icon: '◆',
-          disabled: task.isMilestone,
-          onSelect: () => buildMode.convertToMilestone(task.id),
-        },
-        {
-          key: 'delete',
-          label: 'Delete',
-          icon: '🗑',
-          hint: '⌫',
-          destructive: true,
-          startsGroup: true,
-          onSelect: () => buildMode.deleteTask(task.id),
-        },
-      ]
+    ? buildRowMenuItems({
+        buildMode,
+        task,
+        level,
+        isComplete,
+        onAddDependencyRequest,
+        handleToggleComplete,
+        handleDuplicate,
+      })
     : [];
 
   const isCriticalStyle = task.isCritical
@@ -695,68 +886,24 @@ function TaskListRowInner({
           onHoverChange?.(null);
         }
       }}
-      onKeyDown={(e) => {
-        // When the sprint-outcome panel is mounted (warn/block after SprintPrompt
-        // committed), any key originating inside it — especially Space typed into
-        // the optional reason input, or Esc to dismiss — must not bubble into
-        // the row's Mark-Complete / clear-focus shortcuts. ADR-0101 §2: the
-        // warn reason field is always optional and never blocked from input.
-        if (sprintOutcome && e.target !== e.currentTarget) return;
-        // Build-mode owns Tab/Letter/Delete/Esc on the row; let it run first.
-        if (buildMode) {
-          handleBuildKeyDown(e);
-          if (e.defaultPrevented) return;
-        }
-        if (isEditing || anyCellInEdit) return;
-        // Arrow up/down — flag-off path. Build-mode path is handled above.
-        if (!buildMode && e.key === 'ArrowDown' && nextTaskId) {
-          e.preventDefault();
-          setSelectedTaskId(nextTaskId);
-          focusRowDom(nextTaskId);
-          return;
-        }
-        if (!buildMode && e.key === 'ArrowUp' && prevTaskId) {
-          e.preventDefault();
-          setSelectedTaskId(prevTaskId);
-          focusRowDom(prevTaskId);
-          return;
-        }
-        // Space rebinds to Mark complete on the focused row (ADR-0066 Q5).
-        // Today both Enter and Space were redundant ("open drawer"); Enter
-        // keeps that meaning, Space gets the new high-frequency action.
-        if (e.key === ' ') {
-          e.preventDefault();
-          handleToggleComplete();
-          return;
-        }
-        // ⌘D / Ctrl+D — Duplicate the focused row (ADR-0066 Q1). Always
-        // preventDefault to suppress the browser bookmark dialog.
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
-          e.preventDefault();
-          handleDuplicate();
-          return;
-        }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          if (buildMode) {
-            // Enter on a focused row inserts a new sibling below (same parent /
-            // depth) and drops the cursor into its Name cell (#1666). F2 remains
-            // the "edit this row's name" affordance. One mental model: Enter
-            // always ends with the cursor in an editable Name cell.
-            buildMode.insertBelow(task.id);
-          } else {
-            setSelectedTaskId(isSelected ? null : task.id);
-          }
-        }
-        if (e.key === 'F2') {
-          e.preventDefault();
-          if (buildMode) {
-            buildMode.focus.enterCellEdit(task.id, 'name');
-          } else {
-            startEdit();
-          }
-        }
-      }}
+      onKeyDown={(e) =>
+        handleRowKeyDown(e, {
+          sprintOutcome,
+          buildMode,
+          runBuildKeyDown: handleBuildKeyDown,
+          isEditing,
+          anyCellInEdit,
+          nextTaskId,
+          prevTaskId,
+          isSelected,
+          task,
+          setSelectedTaskId,
+          focusRowDom,
+          handleToggleComplete,
+          handleDuplicate,
+          startEdit,
+        })
+      }
     >
       {/* ── ⋮⋮ reorder handle — build mode only, visible on row hover (#347) ── */}
       {buildMode && siblingIds && (
@@ -841,240 +988,36 @@ function TaskListRowInner({
         {/* Task name — inline input when editing.
             Build-mode uses the EditableCell primitive (Tab traverses to next
             cell). Flag-off path keeps the existing simple input (legacy behavior). */}
-        {buildMode && editingColumnName ? (
-          <div className="relative flex-1 min-w-0">
-            <EditableCell
-              column="name"
-              value={task.name}
-              isEditing={true}
-              inputType="text"
-              ariaLabel={`Rename task ${task.name}`}
-              className="flex-1 min-w-0 w-full"
-              onStartEdit={() => {
-                /* already editing */
-              }}
-              onCommit={(parsed) => {
-                if (typeof parsed === 'string' && projectId) {
-                  updateTask.mutate({ id: task.id, projectId, name: parsed });
-                  setShowSprintPrompt(true);
-                }
-                setAutocompleteQuery('');
-                buildMode.focus.commitToRow();
-              }}
-              onRollback={() => {
-                setAutocompleteQuery('');
-                buildMode.focus.rollbackToRow();
-              }}
-              onTabForward={() => buildMode.focus.tabForward()}
-              onTabBackward={() => buildMode.focus.tabBackward()}
-              onQueryChange={setAutocompleteQuery}
-              // Commit-and-continue (#1666): Enter in the Name cell commits, then
-              // inserts a new sibling below and drops into its Name cell. A blank
-              // Name (emptyIsNoop) makes the second Enter a calm no-op.
-              onEnterCommit={() => buildMode.insertBelow(task.id)}
-              emptyIsNoop
-            />
-            {nameSuggestions && (
-              <NameAutocomplete
-                query={autocompleteQuery}
-                suggestions={nameSuggestions}
-                onSelect={(name) => {
-                  updateTask.mutate({ id: task.id, projectId, name });
-                  setAutocompleteQuery('');
-                  buildMode.focus.commitToRow();
-                }}
-                onDismiss={() => setAutocompleteQuery('')}
-              />
-            )}
-          </div>
-        ) : isEditing ? (
-          <input
-            ref={inputRef}
-            value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                commitEdit();
-              }
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                cancelEdit();
-              }
-            }}
-            className="flex-1 min-w-0 bg-brand-primary/10 text-neutral-text-primary text-xs px-1 rounded-control
-              outline-none ring-1 ring-brand-primary truncate"
-            style={{ height: 20 }}
-            aria-label={`Rename task ${task.name}`}
-          />
-        ) : (
-          <div
-            className="flex shrink-0 min-w-0 items-center gap-1 overflow-hidden"
-            style={{ width: taskNameWidth }}
-          >
-            <span
-              className={`min-w-0 shrink truncate ${isCriticalStyle} ${isSummaryStyle}`}
-              title={
-                (task.isCritical
-                  ? 'This task is on the critical path — a delay here delays the project end date'
-                  : `${task.name} — double-click to rename`) +
-                // The Gantt bar is canvas-rendered (no DOM bar tooltip), so the
-                // notes freshness signal (ADR-0143, issue 740) rides on the row name.
-                (task.latestNoteAt
-                  ? `  ·  last note ${formatRelative(new Date(task.latestNoteAt))}`
-                  : '')
-              }
-              aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}${task.assignees.length > 0 ? ` — assigned to ${task.assignees.map((a) => a.name).join(', ')}` : ''}${task.latestNoteAt ? `, last note ${formatRelative(new Date(task.latestNoteAt))}` : ''}`}
-            >
-              {task.name}
-            </span>
-            {task.latestNoteAt && (
-              <span
-                className="inline-flex shrink-0 items-center text-xs text-neutral-text-secondary"
-                title={`Last note ${formatRelative(new Date(task.latestNoteAt))}`}
-                aria-hidden="true"
-                data-testid="note-freshness-chip"
-              >
-                📝
-              </span>
-            )}
-            {/* "N planned" badge (#1798): a phase row whose subtree holds sprint-
-                assigned backlog. Muted + dashed neutral (never a semantic/critical
-                token) — planned work is a read-state, not a risk. It is a
-                navigation control, not a task action: activating it reveals that
-                work in the Unscheduled tray (the #1790 VoC "at-a-glance" layer). */}
-            {task.isSummary && plannedBadge && plannedBadge.count > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  requestRevealGutterSprint(plannedBadge.primarySprintId);
-                }}
-                className="inline-flex shrink-0 items-center gap-1 rounded-chip border border-dashed border-neutral-border
-                  px-1.5 py-0.5 text-xs font-normal text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                title={
-                  plannedBadge.sprintNames.length === 1
-                    ? `Planned for ${plannedBadge.sprintNames[0]} — not a committed date`
-                    : `${plannedBadge.count} tasks planned for upcoming ${itl.lower}s — not committed dates`
-                }
-                aria-label={`${plannedBadge.count} planned${plannedBadge.sprintNames.length ? `, targeted for ${plannedBadge.sprintNames.join(', ')}` : ''}. Not committed dates. Activate to show in the Unscheduled tray.`}
-                data-testid="planned-badge"
-              >
-                {plannedBadge.count} planned
-              </button>
-            )}
-            {hasMissingDatesWarning && (
-              <span
-                className="inline-flex shrink-0 items-center gap-0.5 px-1 py-px rounded-chip text-xs font-medium text-semantic-at-risk border border-semantic-at-risk/40"
-                title="This task is in progress but has no schedule dates. Set a start date or move it to To Do."
-                aria-label="Missing schedule dates"
-                data-testid="missing-dates-chip"
-              >
-                <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
-                <span>missing dates</span>
-              </span>
-            )}
-            {recalcPrompt?.taskId === task.id && (
-              <RecalcPercentChip
-                prompt={recalcPrompt}
-                onAccept={async (percent) => {
-                  await updateTask.mutateAsync({
-                    id: task.id,
-                    projectId,
-                    percent_complete: percent,
-                  });
-                }}
-                onDismiss={() => setRecalcPrompt(null)}
-              />
-            )}
-            {/* At-a-glance external-link status (issue 767, ADR-0155): link glyph + count,
-                tinted by the worst link status, immediately left of the assignee chips.
-                Hidden for summary/milestone tasks and when the task has no live links. */}
-            {!task.isSummary &&
-              !task.isMilestone &&
-              task.externalLinkSummary &&
-              task.externalLinkSummary.count > 0 && (
-                <span
-                  className={`inline-flex shrink-0 items-center gap-0.5 text-xs font-medium ${
-                    task.externalLinkSummary.worstStatus
-                      ? LINK_STATUS_TEXT_CLASS[task.externalLinkSummary.worstStatus]
-                      : 'text-neutral-text-secondary'
-                  }`}
-                  title={`${task.externalLinkSummary.count} link${
-                    task.externalLinkSummary.count === 1 ? '' : 's'
-                  }${
-                    task.externalLinkSummary.worstStatus
-                      ? ` · worst status: ${task.externalLinkSummary.worstStatus}`
-                      : ''
-                  }`}
-                  aria-label={`${task.externalLinkSummary.count} external link${
-                    task.externalLinkSummary.count === 1 ? '' : 's'
-                  }${
-                    task.externalLinkSummary.worstStatus
-                      ? `, worst status: ${task.externalLinkSummary.worstStatus}`
-                      : ''
-                  }`}
-                  data-testid="link-status-chip"
-                >
-                  <LinkIcon className="w-3 h-3" aria-hidden="true" />
-                  <span>{task.externalLinkSummary.count}</span>
-                </span>
-              )}
-            {/* Dep chips — shown when task is selected in focus mode; replaces
-                assignee chips. Passive counters, not buttons: click-to-highlight
-                is tracked in issue 1608. */}
-            {isSelected && depChips ? (
-              <span
-                className="flex items-center gap-0.5 flex-shrink-0"
-                aria-label={`${depChips.predsCount} predecessors, ${depChips.succsCount} successors`}
-              >
-                {depChips.predsCount > 0 && (
-                  <span
-                    className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium ${depChips.predsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
-                    title={`${depChips.predsCount} predecessor${depChips.predsCount !== 1 ? 's' : ''}`}
-                  >
-                    ←{depChips.predsCount}
-                  </span>
-                )}
-                {depChips.succsCount > 0 && (
-                  <span
-                    className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium ${depChips.succsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
-                    title={`${depChips.succsCount} successor${depChips.succsCount !== 1 ? 's' : ''}`}
-                  >
-                    →{depChips.succsCount}
-                  </span>
-                )}
-              </span>
-            ) : (
-              !task.isSummary && !task.isMilestone && <AssigneeChips assignees={task.assignees} />
-            )}
-            {/* Phase-in-waiting ghost affordance (issue #1754): a "+ Phase" row
-                has no structural child yet, so `isPhaseTask` is still false.
-                One tap nests a structural child under it — the row becomes a
-                real phase and this hint retires (ScheduleView stops passing
-                phaseInWaiting once isPhaseTask flips true). */}
-            {phaseInWaiting && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddPhaseFirstChild?.(task.id);
-                }}
-                className="inline-flex shrink-0 items-center gap-1 rounded-chip border border-dashed border-neutral-border
-                  px-1.5 py-0.5 text-xs text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                title="This phase has no tasks yet"
-                aria-label={`Add first task to ${task.name}`}
-                data-testid="phase-in-waiting-hint"
-              >
-                <span aria-hidden="true">⊕</span>
-                <span>Add first task to this phase</span>
-              </button>
-            )}
-          </div>
-        )}
+        <TaskNameContent
+          buildMode={buildMode}
+          editingColumnName={editingColumnName}
+          task={task}
+          projectId={projectId}
+          updateTask={updateTask}
+          setShowSprintPrompt={setShowSprintPrompt}
+          autocompleteQuery={autocompleteQuery}
+          setAutocompleteQuery={setAutocompleteQuery}
+          nameSuggestions={nameSuggestions}
+          isEditing={isEditing}
+          inputRef={inputRef}
+          editValue={editValue}
+          setEditValue={setEditValue}
+          commitEdit={commitEdit}
+          cancelEdit={cancelEdit}
+          isCriticalStyle={isCriticalStyle}
+          isSummaryStyle={isSummaryStyle}
+          taskNameWidth={taskNameWidth}
+          plannedBadge={plannedBadge}
+          requestRevealGutterSprint={requestRevealGutterSprint}
+          itl={itl}
+          hasMissingDatesWarning={hasMissingDatesWarning}
+          recalcPrompt={recalcPrompt}
+          setRecalcPrompt={setRecalcPrompt}
+          isSelected={isSelected}
+          depChips={depChips}
+          phaseInWaiting={phaseInWaiting}
+          onAddPhaseFirstChild={onAddPhaseFirstChild}
+        />
 
         {/* Properties button — absolute within the task column so it never overlaps
             the Dur·Start or % columns. Visible on hover/focus or when selected. */}
@@ -1106,128 +1049,36 @@ function TaskListRowInner({
       </div>
 
       {/* ── Dur column ──────────────────────────────────────────────────────── */}
-      {!isEditing &&
-        visible.dur &&
-        (buildMode && !task.isMilestone ? (
-          <EditableCell
-            column="duration"
-            value={String(task.duration)}
-            display={`${task.duration}d`}
-            isEditing={editingColumnDuration}
-            inputType="duration"
-            ariaLabel={`Duration: ${task.duration} days. Press Enter to edit.`}
-            className="justify-end shrink-0 border-r border-neutral-border/20 text-right text-neutral-text-secondary tabular-nums pr-2"
-            style={{ width: widths.dur }}
-            onStartEdit={() => {
-              buildMode.focus.focusRow(task.id);
-              buildMode.focus.enterCellEdit(task.id, 'duration');
-            }}
-            onCommit={(parsed) => {
-              if (typeof parsed === 'number' && projectId) {
-                const oldDuration = task.duration;
-                const oldPercent = task.progress;
-                updateTask.mutate({ id: task.id, projectId, duration: parsed });
-                // Under the effective `confirm` policy this raises the inline
-                // opt-in; keep/prorate are handled server-side and raise nothing
-                // (ADR-0151, issue 1254).
-                setRecalcPrompt(
-                  buildRecalcPrompt({
-                    taskId: task.id,
-                    policy: effectiveDurationPolicy,
-                    oldPercent,
-                    oldDuration,
-                    newDuration: parsed,
-                    suppressed: isCoarsePointer,
-                  }),
-                );
-              }
-              buildMode.focus.commitToRow();
-            }}
-            onRollback={() => buildMode.focus.rollbackToRow()}
-            onTabForward={() => buildMode.focus.tabForward()}
-            onTabBackward={() => buildMode.focus.tabBackward()}
-          />
-        ) : (
-          <div
-            className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
-              text-right text-neutral-text-secondary tabular-nums pr-2"
-            style={{ width: widths.dur }}
-            role="gridcell"
-            aria-label={task.isMilestone ? 'milestone' : `${task.duration} days`}
-          >
-            {task.isMilestone ? '—' : `${task.duration}d`}
-          </div>
-        ))}
+      {!isEditing && visible.dur && (
+        <TaskDurationCell
+          buildMode={buildMode}
+          task={task}
+          widthPx={widths.dur}
+          editingColumnDuration={editingColumnDuration}
+          projectId={projectId}
+          updateTask={updateTask}
+          setRecalcPrompt={setRecalcPrompt}
+          effectiveDurationPolicy={effectiveDurationPolicy}
+          isCoarsePointer={isCoarsePointer}
+        />
+      )}
 
       {/* ── Start column ────────────────────────────────────────────────────── */}
       {!isEditing && visible.start && (
-        <div
-          className={[
-            'relative flex items-center justify-end shrink-0 border-r border-neutral-border/20',
-            'text-right text-neutral-text-secondary tabular-nums pr-2',
-            buildMode && task.isMilestone ? 'cursor-pointer hover:text-neutral-text-primary' : '',
-          ].join(' ')}
-          style={{ width: widths.start }}
-          role="gridcell"
-          aria-label={task.start ? `starts ${formatDate(task.start)}` : 'unscheduled'}
-          tabIndex={buildMode && task.isMilestone ? 0 : undefined}
-          onClick={
-            buildMode && task.isMilestone
-              ? (e) => {
-                  e.stopPropagation();
-                  setShowMilestonePicker((v) => !v);
-                }
-              : undefined
-          }
-          onKeyDown={
-            buildMode && task.isMilestone
-              ? (e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setShowMilestonePicker((v) => !v);
-                  }
-                }
-              : undefined
-          }
-        >
-          {task.isMilestone ? formatDate(task.start) : task.start ? formatDate(task.start) : '—'}
-          {buildMode && task.isMilestone && (
-            <MilestoneDatePopover
-              open={showMilestonePicker}
-              parents={milestoneParents ?? []}
-              onSelect={(iso) => {
-                if (projectId) {
-                  updateTask.mutate({ id: task.id, projectId, planned_start: iso });
-                }
-                setShowMilestonePicker(false);
-              }}
-              onClose={() => setShowMilestonePicker(false)}
-            />
-          )}
-        </div>
+        <TaskStartCell
+          buildMode={buildMode}
+          task={task}
+          widthPx={widths.start}
+          showMilestonePicker={showMilestonePicker}
+          setShowMilestonePicker={setShowMilestonePicker}
+          milestoneParents={milestoneParents}
+          projectId={projectId}
+          updateTask={updateTask}
+        />
       )}
 
       {/* ── Finish column ───────────────────────────────────────────────────── */}
-      {!isEditing && visible.finish && (
-        <div
-          className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
-            text-right text-neutral-text-secondary tabular-nums pr-2"
-          style={{ width: widths.finish }}
-          role="gridcell"
-          aria-label={
-            task.isMilestone
-              ? 'milestone — single date in Start column'
-              : task.finish
-                ? `finishes ${formatDate(task.finish)}`
-                : 'unscheduled'
-          }
-        >
-          {/* Milestones are single-point gates: render an em-dash so the row
-              never displays a date range that contradicts the diamond marker.
-              The single date is shown in the Start column (line 564). */}
-          {task.isMilestone ? '—' : task.finish ? formatDate(task.finish) : '—'}
-        </div>
-      )}
+      {!isEditing && visible.finish && <TaskFinishCell task={task} widthPx={widths.finish} />}
 
       {/* ── % complete column ───────────────────────────────────────────────── */}
       {/*
@@ -1236,148 +1087,36 @@ function TaskListRowInner({
        * structured 400. The cell also surfaces a lock affordance and a
        * compact variance pill when the sprint is anchored to the milestone.
        */}
-      {!isEditing &&
-        visible.progress &&
-        (buildMode && !task.isMilestone ? (
-          <EditableCell
-            column="progress"
-            value={String(task.progress)}
-            display={`${Math.round(task.progress)}%`}
-            isEditing={editingColumnProgress}
-            inputType="number"
-            ariaLabel={`Progress: ${Math.round(task.progress)}%. Press Enter to edit.`}
-            className="justify-end shrink-0 text-right text-neutral-text-secondary tabular-nums pr-2"
-            style={{ width: widths.progress }}
-            onStartEdit={() => {
-              buildMode.focus.focusRow(task.id);
-              buildMode.focus.enterCellEdit(task.id, 'progress');
-            }}
-            onCommit={(parsed) => {
-              if (typeof parsed === 'number' && projectId) {
-                updateTask.mutate(
-                  { id: task.id, projectId, percent_complete: parsed },
-                  {
-                    onError: (err) => {
-                      if (parseProgressAnchorError(err)) {
-                        setScheduleError(
-                          `Set a Planned Start date (or assign a ${itl.lower}) before recording progress.`,
-                        );
-                        setTimeout(() => setScheduleError(null), 5000);
-                      } else if (parseMilestoneRollupLockedError(err)) {
-                        setScheduleError(
-                          `Progress rolls up from sprint(s) — close or unlink to edit.`,
-                        );
-                        setTimeout(() => setScheduleError(null), 5000);
-                      }
-                    },
-                  },
-                );
-              }
-              buildMode.focus.commitToRow();
-            }}
-            onRollback={() => buildMode.focus.rollbackToRow()}
-            onTabForward={() => buildMode.focus.tabForward()}
-            onTabBackward={() => buildMode.focus.tabBackward()}
-          />
-        ) : (
-          <MilestoneProgressCell task={task} widthPx={widths.progress} />
-        ))}
+      {!isEditing && visible.progress && (
+        <TaskProgressCell
+          buildMode={buildMode}
+          task={task}
+          widthPx={widths.progress}
+          editingColumnProgress={editingColumnProgress}
+          projectId={projectId}
+          updateTask={updateTask}
+          setScheduleError={setScheduleError}
+          itl={itl}
+        />
+      )}
 
       {/* ── Owner column (#248) ─────────────────────────────────────────────── */}
       {/* Summary tasks: empty cell (assignees roll up implicitly, not authored). */}
-      {!isEditing && visible.owner && (
-        <div
-          className="flex items-center shrink-0 pl-2"
-          style={{ width: widths.owner }}
-          role="gridcell"
-          aria-label={
-            task.isSummary
-              ? 'Summary task — owner column empty'
-              : task.assignees.length === 0
-                ? 'Owner: none'
-                : `Owner: ${task.assignees.map((a) => a.name).join(', ')}`
-          }
-        >
-          {!task.isSummary && <AssigneeChips assignees={task.assignees} size="md" max={3} />}
-        </div>
-      )}
+      {!isEditing && visible.owner && <TaskOwnerCell task={task} widthPx={widths.owner} />}
       {/* Sprint assignment prompt after name commit in agile mode (#346).
           When the commit trips a Tier-1 warn or an Owner-escalated Tier-2 block
           (ADR-0101), the prompt is replaced by the corresponding outcome panel
           anchored to the same position rather than closing silently. */}
-      {buildMode && showSprintPrompt && !sprintOutcome && (
-        <SprintPrompt
-          open={showSprintPrompt}
-          projectId={projectId || null}
-          onSelect={(sprintId, storyPoints) => {
-            if (!projectId) {
-              setShowSprintPrompt(false);
-              return;
-            }
-            const priorSprintId = task.sprintId ?? null;
-            updateTask.mutate(
-              {
-                id: task.id,
-                projectId,
-                sprint: sprintId,
-                story_points: storyPoints,
-              },
-              {
-                onSuccess: (data) => {
-                  const w = parseGuardrailWarnings(data);
-                  if (w.length > 0) {
-                    setSprintOutcome({ kind: 'warn', warnings: w, priorSprintId });
-                  } else {
-                    setShowSprintPrompt(false);
-                  }
-                },
-                onError: (err) => {
-                  const b = parseGuardrailBlockedError(err);
-                  if (b) {
-                    setSprintOutcome({ kind: 'block', detail: b.detail });
-                  } else {
-                    setShowSprintPrompt(false);
-                  }
-                },
-              },
-            );
-          }}
-          onDismiss={() => setShowSprintPrompt(false)}
-        />
-      )}
-      {buildMode && sprintOutcome && (
-        <div className="absolute top-full left-0 z-50 w-[260px] mt-0.5">
-          {sprintOutcome.kind === 'warn' ? (
-            <GuardrailNotice
-              warnings={sprintOutcome.warnings}
-              onKeep={() => {
-                setSprintOutcome(null);
-                setShowSprintPrompt(false);
-              }}
-              onUndo={() => {
-                if (projectId) {
-                  // Re-PATCH to the prior sprint to revert the override.
-                  updateTask.mutate({
-                    id: task.id,
-                    projectId,
-                    sprint: sprintOutcome.priorSprintId,
-                  });
-                }
-                setSprintOutcome(null);
-                setShowSprintPrompt(false);
-              }}
-            />
-          ) : (
-            <GuardrailBlock
-              detail={sprintOutcome.detail}
-              onDismiss={() => {
-                setSprintOutcome(null);
-                setShowSprintPrompt(false);
-              }}
-            />
-          )}
-        </div>
-      )}
+      <SprintAssignmentRegion
+        buildMode={buildMode}
+        showSprintPrompt={showSprintPrompt}
+        sprintOutcome={sprintOutcome}
+        setSprintOutcome={setSprintOutcome}
+        setShowSprintPrompt={setShowSprintPrompt}
+        projectId={projectId}
+        task={task}
+        updateTask={updateTask}
+      />
       {buildMode && menuAnchor && (
         <BuildModeRowMenu
           anchor={menuAnchor}
@@ -1502,5 +1241,695 @@ function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number 
     >
       {!task.isMilestone && `${pct}%`}
     </div>
+  );
+}
+
+type UpdateTaskMutation = ReturnType<typeof useUpdateTask>;
+type IterationLabel = ReturnType<typeof useIterationLabel>;
+
+/**
+ * Task-name cell content — the build-mode EditableCell, the flag-off inline
+ * rename input, and the read view with its inline chips (note freshness,
+ * "N planned", missing-dates, recalc prompt, external links, dep chips,
+ * assignee chips, phase-in-waiting). Extracted from TaskListRowInner verbatim
+ * (#2081); every branch and attribute is preserved.
+ */
+interface TaskNameContentProps {
+  buildMode: BuildMode | null;
+  editingColumnName: boolean;
+  task: Task;
+  projectId: string;
+  updateTask: UpdateTaskMutation;
+  setShowSprintPrompt: React.Dispatch<React.SetStateAction<boolean>>;
+  autocompleteQuery: string;
+  setAutocompleteQuery: React.Dispatch<React.SetStateAction<string>>;
+  nameSuggestions: Props['nameSuggestions'];
+  isEditing: boolean;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  editValue: string;
+  setEditValue: (value: string) => void;
+  commitEdit: () => void;
+  cancelEdit: () => void;
+  isCriticalStyle: string;
+  isSummaryStyle: string;
+  taskNameWidth: number;
+  plannedBadge: Props['plannedBadge'];
+  requestRevealGutterSprint: (sprintId: string | null) => void;
+  itl: IterationLabel;
+  hasMissingDatesWarning: boolean;
+  recalcPrompt: RecalcPromptState | null;
+  setRecalcPrompt: React.Dispatch<React.SetStateAction<RecalcPromptState | null>>;
+  isSelected: boolean;
+  depChips: Props['depChips'];
+  phaseInWaiting: boolean;
+  onAddPhaseFirstChild: Props['onAddPhaseFirstChild'];
+}
+
+function TaskNameContent({
+  buildMode,
+  editingColumnName,
+  task,
+  projectId,
+  updateTask,
+  setShowSprintPrompt,
+  autocompleteQuery,
+  setAutocompleteQuery,
+  nameSuggestions,
+  isEditing,
+  inputRef,
+  editValue,
+  setEditValue,
+  commitEdit,
+  cancelEdit,
+  isCriticalStyle,
+  isSummaryStyle,
+  taskNameWidth,
+  plannedBadge,
+  requestRevealGutterSprint,
+  itl,
+  hasMissingDatesWarning,
+  recalcPrompt,
+  setRecalcPrompt,
+  isSelected,
+  depChips,
+  phaseInWaiting,
+  onAddPhaseFirstChild,
+}: TaskNameContentProps) {
+  return buildMode && editingColumnName ? (
+    <div className="relative flex-1 min-w-0">
+      <EditableCell
+        column="name"
+        value={task.name}
+        isEditing={true}
+        inputType="text"
+        ariaLabel={`Rename task ${task.name}`}
+        className="flex-1 min-w-0 w-full"
+        onStartEdit={() => {
+          /* already editing */
+        }}
+        onCommit={(parsed) => {
+          if (typeof parsed === 'string' && projectId) {
+            updateTask.mutate({ id: task.id, projectId, name: parsed });
+            setShowSprintPrompt(true);
+          }
+          setAutocompleteQuery('');
+          buildMode.focus.commitToRow();
+        }}
+        onRollback={() => {
+          setAutocompleteQuery('');
+          buildMode.focus.rollbackToRow();
+        }}
+        onTabForward={() => buildMode.focus.tabForward()}
+        onTabBackward={() => buildMode.focus.tabBackward()}
+        onQueryChange={setAutocompleteQuery}
+        // Commit-and-continue (#1666): Enter in the Name cell commits, then
+        // inserts a new sibling below and drops into its Name cell. A blank
+        // Name (emptyIsNoop) makes the second Enter a calm no-op.
+        onEnterCommit={() => buildMode.insertBelow(task.id)}
+        emptyIsNoop
+      />
+      {nameSuggestions && (
+        <NameAutocomplete
+          query={autocompleteQuery}
+          suggestions={nameSuggestions}
+          onSelect={(name) => {
+            updateTask.mutate({ id: task.id, projectId, name });
+            setAutocompleteQuery('');
+            buildMode.focus.commitToRow();
+          }}
+          onDismiss={() => setAutocompleteQuery('')}
+        />
+      )}
+    </div>
+  ) : isEditing ? (
+    <input
+      ref={inputRef}
+      value={editValue}
+      onChange={(e) => setEditValue(e.target.value)}
+      onBlur={commitEdit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commitEdit();
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          cancelEdit();
+        }
+      }}
+      className="flex-1 min-w-0 bg-brand-primary/10 text-neutral-text-primary text-xs px-1 rounded-control
+        outline-none ring-1 ring-brand-primary truncate"
+      style={{ height: 20 }}
+      aria-label={`Rename task ${task.name}`}
+    />
+  ) : (
+    <div
+      className="flex shrink-0 min-w-0 items-center gap-1 overflow-hidden"
+      style={{ width: taskNameWidth }}
+    >
+      <span
+        className={`min-w-0 shrink truncate ${isCriticalStyle} ${isSummaryStyle}`}
+        title={
+          (task.isCritical
+            ? 'This task is on the critical path — a delay here delays the project end date'
+            : `${task.name} — double-click to rename`) +
+          // The Gantt bar is canvas-rendered (no DOM bar tooltip), so the
+          // notes freshness signal (ADR-0143, issue 740) rides on the row name.
+          (task.latestNoteAt
+            ? `  ·  last note ${formatRelative(new Date(task.latestNoteAt))}`
+            : '')
+        }
+        aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}${task.assignees.length > 0 ? ` — assigned to ${task.assignees.map((a) => a.name).join(', ')}` : ''}${task.latestNoteAt ? `, last note ${formatRelative(new Date(task.latestNoteAt))}` : ''}`}
+      >
+        {task.name}
+      </span>
+      {task.latestNoteAt && (
+        <span
+          className="inline-flex shrink-0 items-center text-xs text-neutral-text-secondary"
+          title={`Last note ${formatRelative(new Date(task.latestNoteAt))}`}
+          aria-hidden="true"
+          data-testid="note-freshness-chip"
+        >
+          📝
+        </span>
+      )}
+      {/* "N planned" badge (#1798): a phase row whose subtree holds sprint-
+          assigned backlog. Muted + dashed neutral (never a semantic/critical
+          token) — planned work is a read-state, not a risk. It is a
+          navigation control, not a task action: activating it reveals that
+          work in the Unscheduled tray (the #1790 VoC "at-a-glance" layer). */}
+      {task.isSummary && plannedBadge && plannedBadge.count > 0 && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            requestRevealGutterSprint(plannedBadge.primarySprintId);
+          }}
+          className="inline-flex shrink-0 items-center gap-1 rounded-chip border border-dashed border-neutral-border
+            px-1.5 py-0.5 text-xs font-normal text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          title={
+            plannedBadge.sprintNames.length === 1
+              ? `Planned for ${plannedBadge.sprintNames[0]} — not a committed date`
+              : `${plannedBadge.count} tasks planned for upcoming ${itl.lower}s — not committed dates`
+          }
+          aria-label={`${plannedBadge.count} planned${plannedBadge.sprintNames.length ? `, targeted for ${plannedBadge.sprintNames.join(', ')}` : ''}. Not committed dates. Activate to show in the Unscheduled tray.`}
+          data-testid="planned-badge"
+        >
+          {plannedBadge.count} planned
+        </button>
+      )}
+      {hasMissingDatesWarning && (
+        <span
+          className="inline-flex shrink-0 items-center gap-0.5 px-1 py-px rounded-chip text-xs font-medium text-semantic-at-risk border border-semantic-at-risk/40"
+          title="This task is in progress but has no schedule dates. Set a start date or move it to To Do."
+          aria-label="Missing schedule dates"
+          data-testid="missing-dates-chip"
+        >
+          <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
+          <span>missing dates</span>
+        </span>
+      )}
+      {recalcPrompt?.taskId === task.id && (
+        <RecalcPercentChip
+          prompt={recalcPrompt}
+          onAccept={async (percent) => {
+            await updateTask.mutateAsync({
+              id: task.id,
+              projectId,
+              percent_complete: percent,
+            });
+          }}
+          onDismiss={() => setRecalcPrompt(null)}
+        />
+      )}
+      {/* At-a-glance external-link status (issue 767, ADR-0155): link glyph + count,
+          tinted by the worst link status, immediately left of the assignee chips.
+          Hidden for summary/milestone tasks and when the task has no live links. */}
+      {!task.isSummary &&
+        !task.isMilestone &&
+        task.externalLinkSummary &&
+        task.externalLinkSummary.count > 0 && (
+          <span
+            className={`inline-flex shrink-0 items-center gap-0.5 text-xs font-medium ${
+              task.externalLinkSummary.worstStatus
+                ? LINK_STATUS_TEXT_CLASS[task.externalLinkSummary.worstStatus]
+                : 'text-neutral-text-secondary'
+            }`}
+            title={`${task.externalLinkSummary.count} link${
+              task.externalLinkSummary.count === 1 ? '' : 's'
+            }${
+              task.externalLinkSummary.worstStatus
+                ? ` · worst status: ${task.externalLinkSummary.worstStatus}`
+                : ''
+            }`}
+            aria-label={`${task.externalLinkSummary.count} external link${
+              task.externalLinkSummary.count === 1 ? '' : 's'
+            }${
+              task.externalLinkSummary.worstStatus
+                ? `, worst status: ${task.externalLinkSummary.worstStatus}`
+                : ''
+            }`}
+            data-testid="link-status-chip"
+          >
+            <LinkIcon className="w-3 h-3" aria-hidden="true" />
+            <span>{task.externalLinkSummary.count}</span>
+          </span>
+        )}
+      {/* Dep chips — shown when task is selected in focus mode; replaces
+          assignee chips. Passive counters, not buttons: click-to-highlight
+          is tracked in issue 1608. */}
+      {isSelected && depChips ? (
+        <span
+          className="flex items-center gap-0.5 flex-shrink-0"
+          aria-label={`${depChips.predsCount} predecessors, ${depChips.succsCount} successors`}
+        >
+          {depChips.predsCount > 0 && (
+            <span
+              className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium ${depChips.predsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+              title={`${depChips.predsCount} predecessor${depChips.predsCount !== 1 ? 's' : ''}`}
+            >
+              ←{depChips.predsCount}
+            </span>
+          )}
+          {depChips.succsCount > 0 && (
+            <span
+              className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium ${depChips.succsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+              title={`${depChips.succsCount} successor${depChips.succsCount !== 1 ? 's' : ''}`}
+            >
+              →{depChips.succsCount}
+            </span>
+          )}
+        </span>
+      ) : (
+        !task.isSummary && !task.isMilestone && <AssigneeChips assignees={task.assignees} />
+      )}
+      {/* Phase-in-waiting ghost affordance (issue #1754): a "+ Phase" row
+          has no structural child yet, so `isPhaseTask` is still false.
+          One tap nests a structural child under it — the row becomes a
+          real phase and this hint retires (ScheduleView stops passing
+          phaseInWaiting once isPhaseTask flips true). */}
+      {phaseInWaiting && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddPhaseFirstChild?.(task.id);
+          }}
+          className="inline-flex shrink-0 items-center gap-1 rounded-chip border border-dashed border-neutral-border
+            px-1.5 py-0.5 text-xs text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          title="This phase has no tasks yet"
+          aria-label={`Add first task to ${task.name}`}
+          data-testid="phase-in-waiting-hint"
+        >
+          <span aria-hidden="true">⊕</span>
+          <span>Add first task to this phase</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Duration cell — build-mode EditableCell (raises the inline "Recalc %?" prompt
+ * under the effective confirm policy, ADR-0151) or the static read cell.
+ * Extracted from TaskListRowInner verbatim (#2081).
+ */
+interface TaskDurationCellProps {
+  buildMode: BuildMode | null;
+  task: Task;
+  widthPx: number;
+  editingColumnDuration: boolean;
+  projectId: string;
+  updateTask: UpdateTaskMutation;
+  setRecalcPrompt: React.Dispatch<React.SetStateAction<RecalcPromptState | null>>;
+  effectiveDurationPolicy: ReturnType<typeof useEffectiveDurationPolicy>;
+  isCoarsePointer: boolean;
+}
+
+function TaskDurationCell({
+  buildMode,
+  task,
+  widthPx,
+  editingColumnDuration,
+  projectId,
+  updateTask,
+  setRecalcPrompt,
+  effectiveDurationPolicy,
+  isCoarsePointer,
+}: TaskDurationCellProps) {
+  return buildMode && !task.isMilestone ? (
+    <EditableCell
+      column="duration"
+      value={String(task.duration)}
+      display={`${task.duration}d`}
+      isEditing={editingColumnDuration}
+      inputType="duration"
+      ariaLabel={`Duration: ${task.duration} days. Press Enter to edit.`}
+      className="justify-end shrink-0 border-r border-neutral-border/20 text-right text-neutral-text-secondary tabular-nums pr-2"
+      style={{ width: widthPx }}
+      onStartEdit={() => {
+        buildMode.focus.focusRow(task.id);
+        buildMode.focus.enterCellEdit(task.id, 'duration');
+      }}
+      onCommit={(parsed) => {
+        if (typeof parsed === 'number' && projectId) {
+          const oldDuration = task.duration;
+          const oldPercent = task.progress;
+          updateTask.mutate({ id: task.id, projectId, duration: parsed });
+          // Under the effective `confirm` policy this raises the inline
+          // opt-in; keep/prorate are handled server-side and raise nothing
+          // (ADR-0151, issue 1254).
+          setRecalcPrompt(
+            buildRecalcPrompt({
+              taskId: task.id,
+              policy: effectiveDurationPolicy,
+              oldPercent,
+              oldDuration,
+              newDuration: parsed,
+              suppressed: isCoarsePointer,
+            }),
+          );
+        }
+        buildMode.focus.commitToRow();
+      }}
+      onRollback={() => buildMode.focus.rollbackToRow()}
+      onTabForward={() => buildMode.focus.tabForward()}
+      onTabBackward={() => buildMode.focus.tabBackward()}
+    />
+  ) : (
+    <div
+      className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
+        text-right text-neutral-text-secondary tabular-nums pr-2"
+      style={{ width: widthPx }}
+      role="gridcell"
+      aria-label={task.isMilestone ? 'milestone' : `${task.duration} days`}
+    >
+      {task.isMilestone ? '—' : `${task.duration}d`}
+    </div>
+  );
+}
+
+/**
+ * Start-date cell. Milestones in build mode become an editable date point (the
+ * MilestoneDatePopover quick-pick, #345); everything else is a static read
+ * cell. Extracted from TaskListRowInner verbatim (#2081).
+ */
+interface TaskStartCellProps {
+  buildMode: BuildMode | null;
+  task: Task;
+  widthPx: number;
+  showMilestonePicker: boolean;
+  setShowMilestonePicker: React.Dispatch<React.SetStateAction<boolean>>;
+  milestoneParents: Props['milestoneParents'];
+  projectId: string;
+  updateTask: UpdateTaskMutation;
+}
+
+function TaskStartCell({
+  buildMode,
+  task,
+  widthPx,
+  showMilestonePicker,
+  setShowMilestonePicker,
+  milestoneParents,
+  projectId,
+  updateTask,
+}: TaskStartCellProps) {
+  return (
+    <div
+      className={[
+        'relative flex items-center justify-end shrink-0 border-r border-neutral-border/20',
+        'text-right text-neutral-text-secondary tabular-nums pr-2',
+        buildMode && task.isMilestone ? 'cursor-pointer hover:text-neutral-text-primary' : '',
+      ].join(' ')}
+      style={{ width: widthPx }}
+      role="gridcell"
+      aria-label={task.start ? `starts ${formatDate(task.start)}` : 'unscheduled'}
+      tabIndex={buildMode && task.isMilestone ? 0 : undefined}
+      onClick={
+        buildMode && task.isMilestone
+          ? (e) => {
+              e.stopPropagation();
+              setShowMilestonePicker((v) => !v);
+            }
+          : undefined
+      }
+      onKeyDown={
+        buildMode && task.isMilestone
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setShowMilestonePicker((v) => !v);
+              }
+            }
+          : undefined
+      }
+    >
+      {task.isMilestone ? formatDate(task.start) : task.start ? formatDate(task.start) : '—'}
+      {buildMode && task.isMilestone && (
+        <MilestoneDatePopover
+          open={showMilestonePicker}
+          parents={milestoneParents ?? []}
+          onSelect={(iso) => {
+            if (projectId) {
+              updateTask.mutate({ id: task.id, projectId, planned_start: iso });
+            }
+            setShowMilestonePicker(false);
+          }}
+          onClose={() => setShowMilestonePicker(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Finish-date cell. Milestones render an em-dash (single-point gate; the date
+ * is shown in the Start column). Extracted from TaskListRowInner verbatim (#2081).
+ */
+function TaskFinishCell({ task, widthPx }: { task: Task; widthPx: number }) {
+  return (
+    <div
+      className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
+        text-right text-neutral-text-secondary tabular-nums pr-2"
+      style={{ width: widthPx }}
+      role="gridcell"
+      aria-label={
+        task.isMilestone
+          ? 'milestone — single date in Start column'
+          : task.finish
+            ? `finishes ${formatDate(task.finish)}`
+            : 'unscheduled'
+      }
+    >
+      {/* Milestones are single-point gates: render an em-dash so the row
+          never displays a date range that contradicts the diamond marker.
+          The single date is shown in the Start column. */}
+      {task.isMilestone ? '—' : task.finish ? formatDate(task.finish) : '—'}
+    </div>
+  );
+}
+
+/**
+ * Progress cell. Non-milestone build-mode rows use the editable percent cell
+ * (with structured 400 error handling for progress-anchor / rollup-lock);
+ * everything else delegates to MilestoneProgressCell. Extracted from
+ * TaskListRowInner verbatim (#2081).
+ */
+interface TaskProgressCellProps {
+  buildMode: BuildMode | null;
+  task: Task;
+  widthPx: number;
+  editingColumnProgress: boolean;
+  projectId: string;
+  updateTask: UpdateTaskMutation;
+  setScheduleError: (message: string | null) => void;
+  itl: IterationLabel;
+}
+
+function TaskProgressCell({
+  buildMode,
+  task,
+  widthPx,
+  editingColumnProgress,
+  projectId,
+  updateTask,
+  setScheduleError,
+  itl,
+}: TaskProgressCellProps) {
+  return buildMode && !task.isMilestone ? (
+    <EditableCell
+      column="progress"
+      value={String(task.progress)}
+      display={`${Math.round(task.progress)}%`}
+      isEditing={editingColumnProgress}
+      inputType="number"
+      ariaLabel={`Progress: ${Math.round(task.progress)}%. Press Enter to edit.`}
+      className="justify-end shrink-0 text-right text-neutral-text-secondary tabular-nums pr-2"
+      style={{ width: widthPx }}
+      onStartEdit={() => {
+        buildMode.focus.focusRow(task.id);
+        buildMode.focus.enterCellEdit(task.id, 'progress');
+      }}
+      onCommit={(parsed) => {
+        if (typeof parsed === 'number' && projectId) {
+          updateTask.mutate(
+            { id: task.id, projectId, percent_complete: parsed },
+            {
+              onError: (err) => {
+                if (parseProgressAnchorError(err)) {
+                  setScheduleError(
+                    `Set a Planned Start date (or assign a ${itl.lower}) before recording progress.`,
+                  );
+                  setTimeout(() => setScheduleError(null), 5000);
+                } else if (parseMilestoneRollupLockedError(err)) {
+                  setScheduleError(
+                    `Progress rolls up from sprint(s) — close or unlink to edit.`,
+                  );
+                  setTimeout(() => setScheduleError(null), 5000);
+                }
+              },
+            },
+          );
+        }
+        buildMode.focus.commitToRow();
+      }}
+      onRollback={() => buildMode.focus.rollbackToRow()}
+      onTabForward={() => buildMode.focus.tabForward()}
+      onTabBackward={() => buildMode.focus.tabBackward()}
+    />
+  ) : (
+    <MilestoneProgressCell task={task} widthPx={widthPx} />
+  );
+}
+
+/**
+ * Owner cell. Summary tasks render an empty cell (assignees roll up implicitly).
+ * Extracted from TaskListRowInner verbatim (#2081).
+ */
+function TaskOwnerCell({ task, widthPx }: { task: Task; widthPx: number }) {
+  return (
+    <div
+      className="flex items-center shrink-0 pl-2"
+      style={{ width: widthPx }}
+      role="gridcell"
+      aria-label={
+        task.isSummary
+          ? 'Summary task — owner column empty'
+          : task.assignees.length === 0
+            ? 'Owner: none'
+            : `Owner: ${task.assignees.map((a) => a.name).join(', ')}`
+      }
+    >
+      {!task.isSummary && <AssigneeChips assignees={task.assignees} size="md" max={3} />}
+    </div>
+  );
+}
+
+/**
+ * Sprint-assignment region shown after a name commit in agile build mode (#346).
+ * Renders the SprintPrompt, or — when the commit trips a Tier-1 warn or an
+ * Owner-escalated Tier-2 block (ADR-0101) — the corresponding outcome panel
+ * anchored to the same position. Extracted from TaskListRowInner verbatim (#2081).
+ */
+interface SprintAssignmentRegionProps {
+  buildMode: BuildMode | null;
+  showSprintPrompt: boolean;
+  sprintOutcome: SprintOutcome | null;
+  setSprintOutcome: React.Dispatch<React.SetStateAction<SprintOutcome | null>>;
+  setShowSprintPrompt: React.Dispatch<React.SetStateAction<boolean>>;
+  projectId: string;
+  task: Task;
+  updateTask: UpdateTaskMutation;
+}
+
+function SprintAssignmentRegion({
+  buildMode,
+  showSprintPrompt,
+  sprintOutcome,
+  setSprintOutcome,
+  setShowSprintPrompt,
+  projectId,
+  task,
+  updateTask,
+}: SprintAssignmentRegionProps) {
+  return (
+    <>
+      {buildMode && showSprintPrompt && !sprintOutcome && (
+        <SprintPrompt
+          open={showSprintPrompt}
+          projectId={projectId || null}
+          onSelect={(sprintId, storyPoints) => {
+            if (!projectId) {
+              setShowSprintPrompt(false);
+              return;
+            }
+            const priorSprintId = task.sprintId ?? null;
+            updateTask.mutate(
+              {
+                id: task.id,
+                projectId,
+                sprint: sprintId,
+                story_points: storyPoints,
+              },
+              {
+                onSuccess: (data) => {
+                  const w = parseGuardrailWarnings(data);
+                  if (w.length > 0) {
+                    setSprintOutcome({ kind: 'warn', warnings: w, priorSprintId });
+                  } else {
+                    setShowSprintPrompt(false);
+                  }
+                },
+                onError: (err) => {
+                  const b = parseGuardrailBlockedError(err);
+                  if (b) {
+                    setSprintOutcome({ kind: 'block', detail: b.detail });
+                  } else {
+                    setShowSprintPrompt(false);
+                  }
+                },
+              },
+            );
+          }}
+          onDismiss={() => setShowSprintPrompt(false)}
+        />
+      )}
+      {buildMode && sprintOutcome && (
+        <div className="absolute top-full left-0 z-50 w-[260px] mt-0.5">
+          {sprintOutcome.kind === 'warn' ? (
+            <GuardrailNotice
+              warnings={sprintOutcome.warnings}
+              onKeep={() => {
+                setSprintOutcome(null);
+                setShowSprintPrompt(false);
+              }}
+              onUndo={() => {
+                if (projectId) {
+                  // Re-PATCH to the prior sprint to revert the override.
+                  updateTask.mutate({
+                    id: task.id,
+                    projectId,
+                    sprint: sprintOutcome.priorSprintId,
+                  });
+                }
+                setSprintOutcome(null);
+                setShowSprintPrompt(false);
+              }}
+            />
+          ) : (
+            <GuardrailBlock
+              detail={sprintOutcome.detail}
+              onDismiss={() => {
+                setSprintOutcome(null);
+                setShowSprintPrompt(false);
+              }}
+            />
+          )}
+        </div>
+      )}
+    </>
   );
 }
