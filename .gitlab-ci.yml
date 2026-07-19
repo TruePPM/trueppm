@@ -1075,7 +1075,23 @@ scheduler:type-check:
       optional: true
   <<: *rules-scheduler
   script:
-    - cd packages/scheduler && mypy
+    - cd packages/scheduler
+    # Self-heal an occasionally-corrupt restored incremental cache (#2233). mypy
+    # exits 2 on a fatal INTERNAL ERROR (distinct from exit 1 = real type errors);
+    # on a crash, drop .mypy_cache and retry once from cold so a corrupt cache
+    # flakes green instead of failing the pipeline, while genuine type errors
+    # still fast-fail. The happy path keeps the incremental speedup.
+    - |
+      mypy || {
+        rc=$?
+        if [ "$rc" -eq 2 ]; then
+          echo "mypy INTERNAL ERROR (exit 2) — clearing .mypy_cache and retrying cold"
+          rm -rf .mypy_cache
+          mypy
+        else
+          exit "$rc"
+        fi
+      }
 
 api:type-check:
   extends: [.api-no-db, .fast-job]
@@ -1104,7 +1120,22 @@ api:type-check:
   <<: *rules-api
   script:
     - cd packages/api
-    - mypy src/trueppm_api
+    # Self-heal an occasionally-corrupt restored incremental cache (#2233). mypy
+    # exits 2 on a fatal INTERNAL ERROR (distinct from exit 1 = real type errors);
+    # on a crash, drop .mypy_cache and retry once from cold so a corrupt cache
+    # flakes green instead of failing the pipeline, while genuine type errors
+    # still fast-fail. The happy path keeps the incremental speedup.
+    - |
+      mypy src/trueppm_api || {
+        rc=$?
+        if [ "$rc" -eq 2 ]; then
+          echo "mypy INTERNAL ERROR (exit 2) — clearing .mypy_cache and retrying cold"
+          rm -rf .mypy_cache
+          mypy src/trueppm_api
+        else
+          exit "$rc"
+        fi
+      }
 
 api:migration-check:
   # makemigrations --check --dry-run compares model state to migration files.
