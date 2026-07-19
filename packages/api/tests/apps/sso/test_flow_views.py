@@ -111,6 +111,19 @@ def test_login_redirects_to_idp_with_pkce(provider_ctx: Any, fake_discovery: Non
 
 
 @pytest.mark.django_db
+def test_login_null_byte_provider_400_not_500(provider_ctx: Any) -> None:
+    """A NUL byte in ``?provider`` is rejected as 400 before the ORM (#2229).
+
+    ``x\\x00y`` reaches ``SsoProviderPolicy.objects.filter(slug=...)`` unstripped;
+    PostgreSQL forbids NUL bytes in text comparisons and raises an uncaught
+    ``DataError`` (500). ``RejectNullBytesMiddleware`` short-circuits it to 400.
+    """
+    resp = api_client().get(LOGIN, {"provider": "x\x00y"})
+    assert resp.status_code == 400
+    assert resp["Content-Type"].startswith("application/json")
+
+
+@pytest.mark.django_db
 def test_login_defaults_to_sole_enabled_provider(provider_ctx: Any, fake_discovery: None) -> None:
     # With exactly one enabled provider, ?provider is optional.
     resp = api_client().get(LOGIN)

@@ -1638,6 +1638,20 @@ def test_flag_for_backlog_non_member_denied(stranger_client: APIClient, project:
     assert resp.status_code in (403, 404)
 
 
+def test_flag_for_backlog_options_not_500(member_client: APIClient, project: Project) -> None:
+    """OPTIONS on this serializer-less viewset must not 500 (#2229).
+
+    DRF's default metadata builds action info by calling ``get_serializer()``,
+    which asserts (→ 500) on ``SprintTaskOutcomeViewSet`` since it sets no
+    ``serializer_class``. ``TolerantMetadata`` degrades that to empty action
+    metadata so OPTIONS returns 200.
+    """
+    _, rows = _closed_with_polish(project)
+    url = f"/api/v1/sprint-task-outcomes/{rows['beta'].pk}/flag-for-backlog/"
+    resp = member_client.options(url)
+    assert resp.status_code == 200, resp.content
+
+
 # ---------------------------------------------------------------------------
 # GET /sprints/{id}/incoming_carryover/ — Planning-side carryover preview (#865)
 # ---------------------------------------------------------------------------

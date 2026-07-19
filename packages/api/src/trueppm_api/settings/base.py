@@ -115,6 +115,12 @@ MIDDLEWARE = [
     # CSP header on every response (#897). Placed high so the header is attached
     # even for early short-circuit responses (redirects, errors).
     "trueppm_api.core.csp.ContentSecurityPolicyMiddleware",
+    # Reject NUL bytes in /api/ query strings before the view opens its
+    # ATOMIC_REQUESTS transaction (#2229) — a NUL in a text DB filter otherwise
+    # raises an uncaught psycopg DataError (500). Placed inside RequestID/CSP so
+    # the 400 still carries the correlation id and CSP header, but before Session
+    # so a garbage request skips session/auth work.
+    "trueppm_api.core.middleware.RejectNullBytesMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -911,6 +917,10 @@ REST_FRAMEWORK = {
     # into 404/400 instead of the 500 DRF's default returns for the Django
     # ValidationError / uuid.UUID ValueError those raise (#2125).
     "EXCEPTION_HANDLER": "trueppm_api.core.exception_handlers.trueppm_exception_handler",
+    # Tolerant OPTIONS metadata: DRF's default calls get_serializer() while
+    # building action metadata, which asserts (→ 500) on serializer-less
+    # GenericViewSets. This subclass degrades that to empty action metadata (#2229).
+    "DEFAULT_METADATA_CLASS": "trueppm_api.core.metadata.TolerantMetadata",
     "DEFAULT_FILTER_BACKENDS": [
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
