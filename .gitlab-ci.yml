@@ -2085,8 +2085,19 @@ web:e2e:coverage:
     - retry npm ci --prefer-offline --quiet
   script:
     - npm run build
-    - npx playwright test --project=chromium
+    # Always merge + upload whatever coverage was collected, even when some specs
+    # fail. Capture Playwright's exit code, run the merge unconditionally, then
+    # re-exit with it: without this a single spec failure exits 1 and SKIPS the
+    # merge step, so the coverage from the ~1.1k passing specs is discarded and
+    # Sonar imports nothing (#2228 — this, plus needs: [] on sonar:scan, is why
+    # the dashboard read 0%). The job still reports red on genuine failures (so
+    # they stay visible), but allow_failure + artifacts:when:always mean the
+    # partial LCOV is uploaded and sonar:scan (which needs: this allow_failure
+    # job) still imports it. The merge script already tolerates missing/truncated
+    # per-page snapshots, so a partial .nyc_output merges cleanly.
+    - set +e; npx playwright test --project=chromium; TEST_EXIT=$?; set -e
     - node scripts/merge-e2e-coverage.mjs
+    - exit $TEST_EXIT
   artifacts:
     when: always
     paths:
@@ -2097,26 +2108,39 @@ web:e2e:coverage:
   allow_failure: true
 
 sonar:scan:
-  # Nightly SonarCloud analysis — bugs, code smells, security hotspots, and
-  # duplication on the scheduled pipeline.
+  # Nightly SonarCloud analysis WITH coverage import (#2090, #2092, #2113, #2117).
   #
   # Runs ONLY on the scheduled pipeline (SONAR_SCHEDULED == "true"), never on MR
-  # or push pipelines — so day-to-day pipeline latency is unchanged.
+  # or push pipelines — so day-to-day pipeline latency is unchanged. SonarCloud
+  # does not run tests; it imports the coverage reports produced by the test
+  # stage, via the reportPaths declared in sonar-project.properties.
   #
-  # `needs: []` (decoupled from the coverage producers) so the analysis starts at
-  # the top of the nightly pipeline instead of queueing behind the full test +
-  # coverage fan-out — the Playwright web:e2e:coverage job was the long pole that
-  # held it in the security stage. The trade-off is deliberate (2026-07-19):
-  # coverage % is NO LONGER imported into Sonar — the reportPaths declared in
-  # sonar-project.properties resolve to absent files and are skipped, so the
-  # scanner runs analysis-only. To restore the coverage import (#2090, #2113,
-  # #2117), re-add api:coverage / web:coverage / scheduler:test / mcp:test /
-  # web:e2e:coverage to `needs:` (their reports repopulate the script's `sed`
-  # rewrites below). allow_failure keeps a Sonar/network hiccup from ever
-  # reddening the nightly pipeline.
-  stage: analyze
+  # `needs:` the five coverage producers so their reports land in this job's
+  # workspace. This RE-COUPLES the scan to coverage (reverting the 2026-07-19
+  # `needs: []` decouple, #2228): on a nightly scheduled job, starting the scan
+  # ~5 min earlier bought nothing — SonarCloud stores one analysis per project,
+  # so a later coverage-bearing scan would just overwrite an early analysis-only
+  # one, and nobody watches a 4am pipeline's intermediate state. The only
+  # observable outcome is the final dashboard, which needs coverage. So the scan
+  # correctly waits for the producers. stage: security keeps it after `test`
+  # (a job cannot `needs:` a later-stage job — the producers live in `test`).
+  # allow_failure means a Sonar/network hiccup never turns the nightly red.
+  stage: security
   image: sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9
-  needs: []
+  needs:
+    - job: api:coverage
+      artifacts: true
+    - job: web:coverage
+      artifacts: true
+    - job: scheduler:test
+      artifacts: true
+    - job: mcp:test
+      artifacts: true
+    # Playwright E2E line coverage (#2117) — nightly, same schedule gate as this
+    # job, allow_failure + artifacts:when:always, so even a partial run (some
+    # specs failing) still hands over the merged LCOV it managed to collect.
+    - job: web:e2e:coverage
+      artifacts: true
   variables:
     # Full history so SonarCloud's new-code detection and SCM blame are accurate
     # (the default shallow clone makes Sonar warn and skip blame attribution).
@@ -2128,12 +2152,10 @@ sonar:scan:
     paths:
       - .sonar/cache
   script:
-    # Coverage import is OPTIONAL now that this job runs decoupled from the
-    # coverage producers (needs: [] — see header). Each rewrite is guarded on the
-    # source report existing: when a producer is wired back into `needs:` its
-    # report is present and rewritten; absent, the step is skipped and the scanner
-    # runs analysis-only (the reportPaths in sonar-project.properties resolve to
-    # missing files and Sonar just skips them).
+    # Each report rewrite is guarded on the source file existing. The producers
+    # are in `needs:`, so all reports are normally present; the guards keep a
+    # single producer that failed (e.g. the allow_failure web:e2e:coverage job)
+    # from aborting the scan — its absent report is skipped and the rest import.
     #
     # The web LCOV records `SF:src/...` paths relative to packages/web; the
     # scanner runs from the checkout root, so rewrite them to
