@@ -419,6 +419,7 @@ export default defineConfig({
           label: "Contributing",
           items: [
             { slug: "contributing/guide" },
+            { slug: "contributing/testing" },
             { slug: "contributing/ci-images" },
             { slug: "contributing/release" },
           ],
