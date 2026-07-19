@@ -226,6 +226,75 @@ describe('<SettingsShell>', () => {
     expect(screen.getByText('GENERAL_SECTION')).toBeInTheDocument();
   });
 
+  // ── Route-link items get the active highlight from the URL (#2230) ──
+  // A route-link rail item (System Health tools, Trash) is not a scroll-spy
+  // section, so it must derive its "you are here" state from the pathname.
+  describe('route-link active highlight (#2230)', () => {
+    // Nav with two nested route links so longest-prefix matching is exercised.
+    const ROUTE_NAV: SettingsNavGroup[] = [
+      { label: 'Setup', items: [{ id: 'general', label: 'General', icon: <span /> }] },
+      {
+        label: 'System',
+        items: [
+          { id: 'health', label: 'System health', to: '/settings/health', icon: <span /> },
+          {
+            id: 'retention',
+            label: 'Retention & purge',
+            to: '/settings/health/retention',
+            icon: <span />,
+          },
+          { id: 'trash', label: 'Trash', to: '/settings/trash', icon: <span /> },
+        ],
+      },
+    ];
+
+    function renderAt(pathname: string) {
+      return render(
+        <MemoryRouter initialEntries={[pathname]}>
+          <SettingsShell
+            scope="workspace"
+            scopeLinks={SCOPE_LINKS}
+            contextName="Acme"
+            navGroups={ROUTE_NAV}
+            exitTo="/"
+            exitLabel="Home"
+          >
+            <div>ROUTE_PAGE</div>
+          </SettingsShell>
+        </MemoryRouter>,
+      );
+    }
+
+    it('marks the route-link item for the current path with aria-current="page"', () => {
+      renderAt('/settings/trash');
+      expect(screen.getByRole('button', { name: 'Trash' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      expect(screen.getByRole('button', { name: 'System health' })).not.toHaveAttribute(
+        'aria-current',
+      );
+    });
+
+    it('longest-prefix wins: /settings/health/retention activates Retention, not System health', () => {
+      renderAt('/settings/health/retention');
+      expect(screen.getByRole('button', { name: 'Retention & purge' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      expect(screen.getByRole('button', { name: 'System health' })).not.toHaveAttribute(
+        'aria-current',
+      );
+    });
+
+    it('the mobile jump-to-section select reflects the active route item', () => {
+      mockBreakpoint = 'sm';
+      renderAt('/settings/trash');
+      expect(screen.getByLabelText('Jump to section')).toHaveValue('trash');
+      mockBreakpoint = 'lg';
+    });
+  });
+
   it('"Keep editing" closes the dialog without navigating', () => {
     renderShell();
     act(() => registerSection({ dirty: true }));

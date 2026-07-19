@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useSettingsSaveStore } from './hooks/useSettingsSaveStore';
 import { useScrollSpy } from './hooks/useScrollSpy';
@@ -107,7 +107,7 @@ export function SettingsShell({
   children,
 }: SettingsShellProps) {
   const navigate = useNavigate();
-  const { hash } = useLocation();
+  const { hash, pathname } = useLocation();
 
   // Below md: the 240px rail eats 64% of a 375px phone. Render the rail on
   // md+/desktop and a compact mobile header (scope + context + section select)
@@ -130,6 +130,30 @@ export function SettingsShell({
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const { activeId, scrollTo } = useScrollSpy({ sectionIds: inlineIds, scrollRef });
+
+  // Route-link rail items (`to` is a real path — System Health tools, Trash) are
+  // NOT scroll-spy sections, so `activeId` never marks them. Highlight the one
+  // whose `to` matches the current pathname instead, or an off-route shell
+  // (`/settings/trash`, `/settings/health`) shows no "you are here" cue at all.
+  // Longest prefix wins so `/settings/health/retention` activates Retention, not
+  // its `/settings/health` prefix; hash deep-links (`/settings#general`) are
+  // excluded — they point at a different page, not this pathname.
+  const activeRouteTo = useMemo(() => {
+    const routeTos = navGroups
+      .flatMap((g) => g.items)
+      .map((i) => i.to)
+      .filter((to): to is string => !!to && to.startsWith('/') && !to.includes('#'));
+    const matches = routeTos.filter((to) => pathname === to || pathname.startsWith(`${to}/`));
+    return matches.sort((a, b) => b.length - a.length)[0] ?? null;
+  }, [navGroups, pathname]);
+
+  // Id of the active route-link item, so the mobile "Jump to section" <select>
+  // reflects the current route the same way the desktop rail highlights it.
+  const activeRouteId = useMemo(
+    () =>
+      navGroups.flatMap((g) => g.items).find((i) => i.to === activeRouteTo)?.id ?? null,
+    [navGroups, activeRouteTo],
+  );
 
   // Deep link: on first mount, if the URL carries `#<section>` scroll to it.
   // Runs once per hash change so an in-app hash update from a nav click (which
@@ -295,7 +319,13 @@ export function SettingsShell({
               </h2>
               {group.items.map((item) => {
                 const isInline = !item.to;
-                const isActive = isInline && activeId === item.id;
+                // Inline sections track the scroll-spy; route links track the URL.
+                // On a route-link page the scroll-spy sections aren't mounted (yet
+                // `activeId` still seeds to the first section id), so suppress the
+                // inline highlight there — only the matching route item is active.
+                const isActive = isInline
+                  ? activeRouteTo == null && activeId === item.id
+                  : item.to === activeRouteTo;
                 const className = [
                   'w-full flex items-center gap-2 px-2.5 py-[7px] rounded-control text-[13px] text-left transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
@@ -307,7 +337,7 @@ export function SettingsShell({
                   <button
                     key={item.id}
                     type="button"
-                    aria-current={isActive ? 'true' : undefined}
+                    aria-current={isActive ? (isInline ? 'true' : 'page') : undefined}
                     onClick={() => {
                       if (item.to) {
                         if (guardedNavigate(item.to)) return;
@@ -380,7 +410,7 @@ export function SettingsShell({
           </label>
           <select
             id="settings-section-jump"
-            value={activeId ?? ''}
+            value={activeRouteId ?? activeId ?? ''}
             onChange={(e) => handleSectionSelect(e.target.value)}
             className="w-full min-h-[44px] rounded-control border border-neutral-border bg-neutral-surface px-3 text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
