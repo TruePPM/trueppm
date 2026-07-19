@@ -2000,23 +2000,24 @@ scheduler:diff-coverage:
 
 api:diff-coverage:
   extends: .diff-coverage
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  # Run on the pre-baked ci-api image (same one api:coverage uses) instead of
+  # bare python:3.11-slim + a runtime `pip install diff-cover`. The bare-slim
+  # path booted a fresh image and installed diff-cover on every run, so a single
+  # runner holding a corrupted cached python:3.11-slim layer — pip's own vendored
+  # files failing to decode — reliably reddened this gate with nothing wrong in
+  # the code (#2234). ci-api bakes git + diff-cover (via packages/api[dev]), so
+  # no apt-get / pip install is needed at job time.
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
   needs:
     - job: api:coverage
       artifacts: true
+    - job: ci:build-api-image
+      optional: true
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/api/**/*
         - .gitlab-ci.yml
-  cache:
-    <<: *api-cache
-    policy: pull
-  before_script:
-    # python:3.11-slim ships without git; required by `git fetch` and by
-    # diff-cover internally (it shells out to `git diff`).
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
-    - pip install diff-cover --quiet
   script:
     - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
     - cd packages/api
@@ -2026,22 +2027,22 @@ api:diff-coverage:
 
 web:diff-coverage:
   extends: .diff-coverage
-  # Use a python image (not node) — diff-cover is a pip tool but reads lcov
-  # natively. Avoids npm install just to run diff-cover.
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  # diff-cover is a python tool that reads lcov natively, so run it on the same
+  # pre-baked ci-api image (git + diff-cover resident) rather than bare
+  # python:3.11-slim + a runtime `pip install`. Same corrupted-cached-layer
+  # hazard as api:diff-coverage (#2234); the baked image removes the per-run apt
+  # + pip install entirely. Still a python image (not node) — no npm install.
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
   needs:
     - job: web:coverage
       artifacts: true
+    - job: ci:build-api-image
+      optional: true
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/web/**/*
         - .gitlab-ci.yml
-  before_script:
-    # python:3.11-slim ships without git; required by `git fetch` and by
-    # diff-cover internally (it shells out to `git diff`).
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
-    - pip install diff-cover --quiet
   script:
     - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
     - cd packages/web
