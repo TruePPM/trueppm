@@ -1504,39 +1504,56 @@ export function ScheduleView() {
     }
   }, [hash, engine, scheduleScales, visibleTasks, allTasks]);
 
-  // `?task=<id>` deep-link ⇄ open-drawer round-trip (issue #2031). Notifications
-  // and My Work rows navigate to `/projects/:id/schedule?task=<id>`; previously
-  // nothing read the param, so the user landed on the schedule with nothing
-  // selected. Here the query param is the source of truth for the schedule's own
-  // drawer: on mount we open + scroll to the linked task; from then on the drawer
-  // selection is mirrored back into the URL so a refresh or link-copy round-trips.
-  // Capture the incoming param on first render — the emit effect below rewrites
-  // the URL, so we must read the deep-link value before it can be overwritten.
-  const initialTaskParamRef = useRef(searchParams.get('task'));
-  const taskParamConsumedRef = useRef(false);
+  // `?task=<id>` deep-link ⇄ open-drawer round-trip (issues #2031, #2232).
+  // Notifications and My Work rows navigate to `/projects/:id/schedule?task=<id>`.
+  // The LIVE query param — not just its mount-time value — is the source of
+  // truth for the drawer: whenever it names a task that isn't the current
+  // selection, open + scroll to it. Reading the live param (rather than a
+  // captured mount ref) is what makes the link work when the user is ALREADY on
+  // the schedule and clicks a notification for another task (#2232): the earlier
+  // mount-ref version never re-consumed the new param, and the mirror below then
+  // stripped it back to a bare `/schedule`.
+  const taskParam = searchParams.get('task') || null;
+  // The id of the last `?task=` value we acted on. Keying the consume on this
+  // (not just `param !== selection`) is what stops the effect from *reopening* a
+  // task the user just closed: on close, `selectedTaskId` drops to null while
+  // the URL param still reads `<id>` for one commit, so a bare disagreement
+  // check would re-open it (#2232 regression the direct-mount test caught).
+  const lastConsumedTaskParamRef = useRef<string | null>(null);
   useEffect(() => {
-    if (taskParamConsumedRef.current) return;
-    const id = initialTaskParamRef.current;
-    if (!id) {
-      taskParamConsumedRef.current = true;
+    if (!taskParam) {
+      // Param cleared (drawer closed) — reset so a later re-link to the SAME
+      // task is treated as a fresh deep-link and opens again.
+      lastConsumedTaskParamRef.current = null;
       return;
     }
+    if (taskParam === selectedTaskId) {
+      // Drawer already reflects the param (mount consume, or our own mirror
+      // after an in-app selection). Record it so the close→null transition
+      // below doesn't reopen it.
+      lastConsumedTaskParamRef.current = taskParam;
+      return;
+    }
+    if (taskParam === lastConsumedTaskParamRef.current) return; // handled this instance already
     // Wait for the task tree to load before deciding the id is unknown.
     if (allTasks.length === 0) return;
-    const exists = allTasks.some((t) => t.id === id);
-    taskParamConsumedRef.current = true;
-    if (exists) {
-      setSelectedTaskId(id);
-      scrollToTask(id);
+    lastConsumedTaskParamRef.current = taskParam;
+    if (allTasks.some((t) => t.id === taskParam)) {
+      setSelectedTaskId(taskParam);
+      scrollToTask(taskParam);
     }
-    // If the linked task no longer exists, latch without selecting: the drawer
-    // stays closed. The (now dead) `?task=` param is left as-is — harmless URL
+    // Unknown id: latch (don't retry) and leave the drawer closed — harmless
     // residue on an already-stale link, not worth an extra strip-on-mount write.
-  }, [allTasks, setSelectedTaskId, scrollToTask]);
-  // Mirror drawer selection into `?task=` once the initial param is consumed, so
-  // the two never race on mount (the consume effect wins first).
+  }, [taskParam, selectedTaskId, allTasks, setSelectedTaskId, scrollToTask]);
+  // Mirror an explicit drawer-selection change back into `?task=` so a refresh
+  // or link-copy round-trips. Fire ONLY on a real selection transition (tracked
+  // via a ref) — never on a navigation that merely changed `setSearchParams`
+  // identity, which would strip a fresh deep-link param before the consume
+  // effect above (possibly still waiting on the task tree) can open it (#2232).
+  const mirroredSelectionRef = useRef(selectedTaskId);
   useEffect(() => {
-    if (!taskParamConsumedRef.current) return;
+    if (mirroredSelectionRef.current === selectedTaskId) return;
+    mirroredSelectionRef.current = selectedTaskId;
     setSearchParam(setSearchParams, 'task', selectedTaskId);
   }, [selectedTaskId, setSearchParams]);
 
