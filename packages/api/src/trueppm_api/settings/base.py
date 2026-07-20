@@ -622,17 +622,18 @@ AUTH_REFRESH_COOKIE_SECURE = env.bool(
 # carries wss: for the WebSocket collaboration channel; the host is overridable
 # per deploy. style-src keeps 'unsafe-inline' because the SPA emits inline style
 # attributes (Tailwind/JS-driven) — tightening this is tracked separately.
-CSP_CONNECT_SRC = env.list("CSP_CONNECT_SRC", default=["'self'", "wss:"])
+_CSP_SELF = "'self'"
+CSP_CONNECT_SRC = env.list("CSP_CONNECT_SRC", default=[_CSP_SELF, "wss:"])
 CSP_DIRECTIVES: dict[str, list[str]] = {
-    "default-src": ["'self'"],
-    "script-src": ["'self'"],
-    "style-src": ["'self'", "'unsafe-inline'", "fonts.googleapis.com"],
+    "default-src": [_CSP_SELF],
+    "script-src": [_CSP_SELF],
+    "style-src": [_CSP_SELF, "'unsafe-inline'", "fonts.googleapis.com"],
     "font-src": ["fonts.gstatic.com"],
-    "img-src": ["'self'", "data:"],
+    "img-src": [_CSP_SELF, "data:"],
     "connect-src": CSP_CONNECT_SRC,
     "frame-ancestors": ["'none'"],
     "base-uri": ["'none'"],
-    "form-action": ["'self'"],
+    "form-action": [_CSP_SELF],
 }
 
 # ---------------------------------------------------------------------------
@@ -889,6 +890,14 @@ SEED_MAX_UPLOAD_MB: int = env.int("SEED_MAX_UPLOAD_MB", default=5)
 # constant so the rate lives in a single place rather than a repeated literal.
 _STRICT_ABUSE_RATE = "6/min"
 
+# The remaining scoped-throttle tiers, from the general per-user default down
+# to the credential-shaped endpoints (login, password reset, invite resend).
+# Named once for the same reason as _STRICT_ABUSE_RATE above.
+_STANDARD_RATE = "60/min"
+_MODERATE_RATE = "20/min"
+_STRICT_RATE = "10/min"
+_STRICTEST_RATE = "5/min"
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -959,9 +968,9 @@ REST_FRAMEWORK = {
         # "anon" bounds unauthenticated traffic per client IP; "user" bounds an
         # authenticated account. Both are generous enough that a normal
         # interactive client never trips them.
-        "anon": env("TRUEPPM_THROTTLE_ANON_RATE", default="60/min"),
+        "anon": env("TRUEPPM_THROTTLE_ANON_RATE", default=_STANDARD_RATE),
         "user": env("TRUEPPM_THROTTLE_USER_RATE", default="1000/min"),
-        "login": "10/min",
+        "login": _STRICT_RATE,
         # Per-account login lockout (#1717). The "login" scope above keys on the
         # client IP, so it only bounds guesses per source address; a distributed
         # credential-stuffing attack from a rotating IP pool gets the full per-IP
@@ -972,7 +981,7 @@ REST_FRAMEWORK = {
         # to the login view. Env-tunable so an operator can tighten or loosen it.
         # 5/min still leaves room for a human who fat-fingers a password a few
         # times, while making cross-IP account targeting expensive.
-        "login_account": env("TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE", default="5/min"),
+        "login_account": env("TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE", default=_STRICTEST_RATE),
         # Self-service password reset (#765, ADR-0209). Covers BOTH the request
         # endpoint (which emails a reset link) and the confirm endpoint (which sets
         # the new password). 5/min per IP bounds two abuses at once: email-bombing a
@@ -981,22 +990,22 @@ REST_FRAMEWORK = {
         # 200 either way, so the throttle is the primary enumeration defense — see
         # ADR-0209). 5/min still leaves ample room for a human who mistypes, resends,
         # and retries a confirm a couple of times.
-        "password_reset": "5/min",
+        "password_reset": _STRICTEST_RATE,
         # JWT refresh (#814). 60/min is loose enough that any realistic
         # web/mobile client (5-minute access-token TTL → ~12 refreshes/hour)
         # never trips it, but tight enough that a stolen/leaked refresh token
         # cannot be exchanged for access tokens at unbounded rate.
-        "refresh": "60/min",
+        "refresh": _STANDARD_RATE,
         # User typeahead for member invite (#815). Tight enough that a single
         # account cannot bulk-scrape the workspace user list, loose enough that
         # interactive typeahead (debounced, >=2 chars) never trips it.
-        "user_search": "60/min",
+        "user_search": _STANDARD_RATE,
         # ⌘K global Epic/Story omni-search (ADR-0508 D4, #2103). A debounced,
         # >=2-char typeahead over the caller's own membership; the 60/min bound
         # matches user_search — snug enough that a scripted loop cannot bulk-map
         # every epic/story title the account can see, loose enough that live typing
         # never trips it.
-        "omni_search": env("TRUEPPM_THROTTLE_OMNI_SEARCH_RATE", default="60/min"),
+        "omni_search": env("TRUEPPM_THROTTLE_OMNI_SEARCH_RATE", default=_STANDARD_RATE),
         # WebSocket connection tickets (#818, ADR-0141). One ticket is minted per
         # socket open (and per reconnect, since tickets are single-use); 120/min
         # covers aggressive reconnect storms without letting one account flood
@@ -1007,7 +1016,7 @@ REST_FRAMEWORK = {
         # ample room for a human clicking "Resend" on a handful of stuck invites.
         # "Resend all" is one request → one bucket hit, so it cannot be looped past
         # the cap.
-        "invite_resend": "5/min",
+        "invite_resend": _STRICTEST_RATE,
         # Workspace SMTP config (#712, ADR-0213). Writes re-open a candidate SMTP
         # connection (validate-before-persist); "probe" covers the two outbound
         # amplifiers — send-test (opens a real SMTP socket) and the deliverability
@@ -1023,7 +1032,7 @@ REST_FRAMEWORK = {
         # SSO login start (ADR-0187). Each hit mints a single-use state/PKCE/nonce
         # cache entry and 302s to the IdP; this also implicitly bounds the callback
         # (every callback requires a state minted here). Snug but ample for humans.
-        "oidc_login": "20/min",
+        "oidc_login": _MODERATE_RATE,
         # SSO callback (ADR-0187). A token-issuing endpoint; the implicit bound via
         # oidc_login already caps legitimate use, but an explicit cap blunts a flood
         # of forged callbacks (each fails fast at the browser-state-cookie check).
@@ -1032,7 +1041,7 @@ REST_FRAMEWORK = {
         # server-side egress (OIDC discovery + JWKS, or the GitHub API), so it needs
         # an abuse bound so an admin cannot drive unbounded outbound requests.
         # 20/min is ample for a human wiring up a provider.
-        "sso_test_connection": "20/min",
+        "sso_test_connection": _MODERATE_RATE,
         # Integration-credential and Git webhook-secret endpoints (#1551). Covers the
         # per-user credential store (connect/rotate/revoke/read) and the project-admin
         # Git-automation config + secret-rotation views. Each of these mints, returns,
@@ -1040,14 +1049,14 @@ REST_FRAMEWORK = {
         # same brute-force/abuse bound the other credential-adjacent endpoints already
         # carry. 10/min is snug for a human wiring up integrations yet far below any
         # automated rotation-scraping rate.
-        "credential_rotate": "10/min",
+        "credential_rotate": _STRICT_RATE,
         # Manual external-source pull trigger (POST /me/connections/{source}/sync/,
         # ADR-0097 §4, #1419). The service-layer 60 s per-connection cooldown is the
         # primary spacing control; this scope is the coarse abuse bound so a scripted
         # loop cannot spam the outbox faster than a human ever would. 20/min sits
         # above the cooldown's ~1/min steady state with headroom for multiple
         # connected sources.
-        "external_sync": "20/min",
+        "external_sync": _MODERATE_RATE,
         # Synchronous Monte Carlo simulation (#1552). run_monte_carlo executes an
         # expensive (up to MC_SIMULATION_CAP iterations, caller-controlled
         # n_simulations) simulation inline in the request/response cycle, gated only
@@ -1055,7 +1064,7 @@ REST_FRAMEWORK = {
         # endpoint to exhaust CPU. 10/min leaves ample headroom for a human tuning
         # estimates and re-running the forecast a handful of times, while blunting a
         # scripted resource-exhaustion flood.
-        "monte_carlo": "10/min",
+        "monte_carlo": _STRICT_RATE,
         # Non-mutating Monte Carlo what-if (#993). The what-if endpoint runs *two*
         # CPM passes and *two* Monte Carlo simulations per call (baseline vs the
         # perturbed schedule, so the delta isolates the perturbation) — roughly
@@ -1083,8 +1092,8 @@ REST_FRAMEWORK = {
         # scraping/abuse of the unauthenticated public board endpoint (the 256-bit
         # token is already non-enumerable — this stops a leaked/viral link becoming
         # an unthrottled load source on a self-hosted box, per Omar's VoC concern).
-        "share_mint": env("TRUEPPM_THROTTLE_SHARE_MINT_RATE", default="20/min"),
-        "share_access": env("TRUEPPM_THROTTLE_SHARE_ACCESS_RATE", default="60/min"),
+        "share_mint": env("TRUEPPM_THROTTLE_SHARE_MINT_RATE", default=_MODERATE_RATE),
+        "share_access": env("TRUEPPM_THROTTLE_SHARE_ACCESS_RATE", default=_STANDARD_RATE),
         # Telemetry test-export probe (#2110). An admin-only button that opens one
         # outbound canary/reachability probe to the configured OTLP collector;
         # scoped-throttled so it can't be used to hammer the collector.

@@ -130,6 +130,9 @@ _DISCOVERY_TTL_SECONDS = getattr(settings, "OIDC_DISCOVERY_TTL_SECONDS", 3600)
 _STATE_KEY_PREFIX = "oidc:state:"
 _DISCOVERY_KEY_PREFIX = "oidc:discovery:"
 
+# Accept header for provider metadata / JWKS / token-endpoint fetches.
+_ACCEPT_JSON = "application/json"
+
 
 class OIDCError(Exception):
     """Base error for the SSO flow, carrying a stable machine code + HTTP status.
@@ -329,7 +332,7 @@ def get_discovery_document(issuer_url: str) -> dict[str, Any]:
 
     url = _discovery_url(issuer_url)
     try:
-        resp = egress.get(url, headers={"Accept": "application/json"})
+        resp = egress.get(url, headers={"Accept": _ACCEPT_JSON})
     except egress.EgressBlocked as exc:
         raise OIDCProviderUnreachable(f"issuer URL blocked by SSRF guard: {exc}") from exc
     except (egress.EgressTimeout, egress.EgressError) as exc:
@@ -509,7 +512,7 @@ def _signing_key_for(jwks_uri: str, id_token: str) -> PyJWK:
     """
     try:
         egress.assert_url_allowed(jwks_uri)
-        resp = egress.get(jwks_uri, headers={"Accept": "application/json"})
+        resp = egress.get(jwks_uri, headers={"Accept": _ACCEPT_JSON})
     except egress.EgressBlocked as exc:
         raise OIDCProviderUnreachable(f"jwks URL blocked by SSRF guard: {exc}") from exc
     except (egress.EgressTimeout, egress.EgressError) as exc:
@@ -895,7 +898,7 @@ def _check_oidc_reachability(issuer_url: str) -> dict[str, Any]:
     jwks_uri = doc.get("jwks_uri", "")
     try:
         egress.assert_url_allowed(jwks_uri)
-        jwks_resp = egress.get(jwks_uri, headers={"Accept": "application/json"})
+        jwks_resp = egress.get(jwks_uri, headers={"Accept": _ACCEPT_JSON})
     except (egress.EgressBlocked, egress.EgressTimeout, egress.EgressError) as exc:
         return {"ok": False, "issuer": issuer_url, "error": "jwks_unreachable", "detail": str(exc)}
 

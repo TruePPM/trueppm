@@ -38,6 +38,9 @@ from mcp.server.fastmcp import FastMCP
 
 from trueppm_mcp.client import TruePPMClient
 
+#: API path for the task collection, relative to the client's /api/v1/ base.
+_TASKS_PATH = "tasks/"
+
 #: Free-text fields truncated to keep tool results within an LLM context budget.
 _TEXT_FIELDS = frozenset({"description", "notes", "mitigation", "response", "summary", "narrative"})
 
@@ -386,7 +389,7 @@ async def _list_tasks(
         task_type=task_type,
         updated_after=updated_after,
     )
-    rows, total, truncated = await client.get_paginated("tasks/", params=params)
+    rows, total, truncated = await client.get_paginated(_TASKS_PATH, params=params)
     return _list_result(rows, total, truncated)
 
 
@@ -411,7 +414,7 @@ async def _get_board_state(client: TruePPMClient, project_id: str) -> dict[str, 
     """Board columns composed with the project's task cards (two endpoints)."""
     board_config = await client.get(f"projects/{project_id}/board-config/")
     cards, total_cards, truncated = await client.get_paginated(
-        "tasks/", params={"project": project_id}
+        _TASKS_PATH, params={"project": project_id}
     )
     columns = board_config.get("columns") if isinstance(board_config, Mapping) else board_config
     result: dict[str, Any] = {
@@ -433,7 +436,7 @@ async def _get_schedule_summary(client: TruePPMClient, project_id: str) -> dict[
     driver count, with a pointer to ``get_schedule_derivation`` for the full chain.
     """
     forecast = await client.get(f"projects/{project_id}/forecast/")
-    critical = await client.get("tasks/", params={"project": project_id, "is_critical": "true"})
+    critical = await client.get(_TASKS_PATH, params={"project": project_id, "is_critical": "true"})
     data = forecast if isinstance(forecast, Mapping) else {}
     result = _compact_mapping(data)
     result["critical_task_count"] = _count(critical)

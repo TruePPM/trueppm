@@ -60,6 +60,10 @@ from trueppm_api.apps.workspace.permissions import IsWorkspaceMember
 
 _PK = str | uuid.UUID
 
+_PERMISSION_DENIED_DETAIL = "You do not have permission to perform this action."
+_ROLE_NOT_BELOW_OWN_ERROR = "You cannot assign a role equal to or higher than your own."
+_PROGRAM_NOT_FOUND_DETAIL = "Program not found."
+
 
 class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[ProjectMembership]):
     """Nested CRUD for project memberships.
@@ -187,7 +191,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         if role is None or role < minimum:
             from rest_framework.exceptions import PermissionDenied
 
-            raise PermissionDenied("You do not have permission to perform this action.")
+            raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
     def _check_last_owner_guard(self, project_id: _PK, exclude_pk: _PK | None = None) -> None:
@@ -259,9 +263,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             new_role = project.default_member_role
         # Caller may only assign roles strictly below their own.
         if actor_role is not None and new_role >= actor_role:
-            raise drf_serializers.ValidationError(
-                {"role": "You cannot assign a role equal to or higher than your own."}
-            )
+            raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
 
         # Detect duplicate membership (unique_together enforces at DB level, but
         # return a clean 409 rather than a 500 IntegrityError).
@@ -321,14 +323,12 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             if actor_role < Role.OWNER:
                 from rest_framework.exceptions import PermissionDenied
 
-                raise PermissionDenied("You do not have permission to perform this action.")
+                raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
 
             if new_role is not None:
                 # Cannot assign role >= actor's own.
                 if new_role >= actor_role:
-                    raise drf_serializers.ValidationError(
-                        {"role": "You cannot assign a role equal to or higher than your own."}
-                    )
+                    raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
                 # Last-Owner guard: if demoting an Owner, ensure another Owner exists.
                 if instance.role == Role.OWNER and new_role < Role.OWNER:
                     self._check_last_owner_guard(project.pk, exclude_pk=instance.pk)
@@ -452,7 +452,7 @@ class UserDefinedMentionGroupViewSet(
         if role is None or role < minimum:
             from rest_framework.exceptions import PermissionDenied
 
-            raise PermissionDenied("You do not have permission to perform this action.")
+            raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
     def _broadcast(self, project_id: str, group_id: str, change: str) -> None:
@@ -668,14 +668,14 @@ class ProgramUserDefinedMentionGroupViewSet(
         except Program.DoesNotExist as err:
             from rest_framework.exceptions import NotFound
 
-            raise NotFound("Program not found.") from err
+            raise NotFound(_PROGRAM_NOT_FOUND_DETAIL) from err
 
     def _require_actor_role(self, request: Request, program_id: _PK, minimum: int) -> int:
         role = _program_membership_role(request, program_id)
         if role is None or role < minimum:
             from rest_framework.exceptions import PermissionDenied
 
-            raise PermissionDenied("You do not have permission to perform this action.")
+            raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
     def _broadcast(self, program_id: str, group_id: str, change: str) -> None:
@@ -905,7 +905,7 @@ class ExternalStakeholderViewSet(IdempotencyMixin, viewsets.ModelViewSet[Externa
         except Program.DoesNotExist as err:
             from rest_framework.exceptions import NotFound
 
-            raise NotFound("Program not found.") from err
+            raise NotFound(_PROGRAM_NOT_FOUND_DETAIL) from err
 
     def perform_create(self, serializer: BaseSerializer[ExternalStakeholder]) -> None:
         program = self._get_program_or_404()
@@ -1043,7 +1043,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         except Program.DoesNotExist as err:
             from rest_framework.exceptions import NotFound
 
-            raise NotFound("Program not found.") from err
+            raise NotFound(_PROGRAM_NOT_FOUND_DETAIL) from err
 
     def _require_actor_role(self, request: Request, program_id: _PK, minimum: int) -> int:
         """Return the actor's program role, raising 403 if below minimum."""
@@ -1051,7 +1051,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         if role is None or role < minimum:
             from rest_framework.exceptions import PermissionDenied
 
-            raise PermissionDenied("You do not have permission to perform this action.")
+            raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
     def _check_last_owner_guard(self, program_id: _PK, exclude_pk: _PK | None = None) -> None:
@@ -1104,9 +1104,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         actor_role = _program_membership_role(request, program.pk)
         new_role = serializer.validated_data["role"]
         if actor_role is not None and new_role >= actor_role:
-            raise drf_serializers.ValidationError(
-                {"role": "You cannot assign a role equal to or higher than your own."}
-            )
+            raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
 
         user = serializer.validated_data["user"]
         if ProgramMembership.objects.filter(program=program, user=user, is_deleted=False).exists():
@@ -1156,13 +1154,11 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             if actor_role < required_role:
                 from rest_framework.exceptions import PermissionDenied
 
-                raise PermissionDenied("You do not have permission to perform this action.")
+                raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
 
             if new_role is not None:
                 if new_role >= actor_role:
-                    raise drf_serializers.ValidationError(
-                        {"role": "You cannot assign a role equal to or higher than your own."}
-                    )
+                    raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
                 if instance.role == Role.OWNER and new_role < Role.OWNER:
                     self._check_last_owner_guard(program.pk, exclude_pk=instance.pk)
                 # Stamp role_changed_at only on an actual role change (#878) so a

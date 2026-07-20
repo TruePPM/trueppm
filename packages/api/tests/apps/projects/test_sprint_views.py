@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from uuid import uuid4
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -2119,3 +2120,33 @@ def test_daily_delta_sprint_load_block(member_client: APIClient, project: Projec
     assert load["delta_points"] == 2  # 12 current − 10 committed snapshot
     # pct_loaded measured against capacity (20): 12 / 20 = 0.6.
     assert load["pct_loaded"] == 0.6
+
+
+# ---------------------------------------------------------------------------
+# Detail actions return 404 for a non-existent sprint id
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("method", "url_suffix"),
+    [
+        ("post", "activate"),
+        ("post", "cancel"),
+        ("post", "promote-to-milestone"),
+        ("post", "unbind-milestone"),
+        ("get", "reforecast-preview"),
+    ],
+)
+def test_sprint_detail_action_404_for_unknown_id(
+    client: APIClient, method: str, url_suffix: str
+) -> None:
+    """An unknown sprint id yields 404 (never 403/500) on every detail action.
+
+    activate/cancel resolve the sprint inside the action body (the id-missing
+    guard fires there); promote/unbind/reforecast resolve it in their permission
+    gate, which 404s first. Either way the user-facing contract is a clean 404.
+    """
+    resp = getattr(client, method)(f"/api/v1/sprints/{uuid4()}/{url_suffix}/")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Not found."

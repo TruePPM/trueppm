@@ -244,6 +244,24 @@ _VALID_SOURCE = re.compile(r"[a-z_]{1,64}")
 # have the schedule silently drift stale.
 _NON_SCHEDULE_TASK_FIELDS = frozenset({"notes", "name"})
 
+# Root-task discriminator — wbs_path matches a single integer with no dot. The
+# Workflow settings (phases) surface edits these and nothing else.
+_ROOT_WBS_RE = r"^\d+$"
+
+# Webhook/notification event key for a task gaining an assignee.
+_TASK_ASSIGNED_EVENT = "task.assigned"
+
+# Shared user-facing response details / validation messages.
+_NOT_FOUND_DETAIL = "Not found."
+_SUGGESTION_NOT_FOUND_DETAIL = "Suggestion not found."
+_MEMBER_REQUIRED_DETAIL = "You must be a member of this project."
+_TASK_NO_WBS_PATH_DETAIL = "Task has no WBS path."
+_SCHEDULE_NOT_COMPUTED = "Schedule has not been computed. Run the scheduler first."
+_MILESTONE_NO_CHILDREN = "A milestone is a single point and cannot have children."
+_NON_EMPTY_LIST_REQUIRED = "This field is required and must be a non-empty list."
+_REORDER_TOO_MANY = "Too many entries to reorder in one request (max 2000)."
+_REORDER_DUPLICATE_IDS = "Duplicate task ids in the ordered list."
+
 
 # ---------------------------------------------------------------------------
 # OpenAPI response serializers (#781)
@@ -1170,7 +1188,7 @@ class ProjectViewSet(
         stories_data = request.data.get("stories") if isinstance(request.data, dict) else None
         if not isinstance(stories_data, list) or not stories_data:
             return Response(
-                {"stories": ["This field is required and must be a non-empty list."]},
+                {"stories": [_NON_EMPTY_LIST_REQUIRED]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1179,7 +1197,7 @@ class ProjectViewSet(
         # a giant list from exhausting CPU and locking every backlog row (DoS guard).
         if len(stories_data) > 2000:
             return Response(
-                {"stories": ["Too many entries to reorder in one request (max 2000)."]},
+                {"stories": [_REORDER_TOO_MANY]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1214,7 +1232,7 @@ class ProjectViewSet(
         ids = [tid for tid, _ in parsed]
         if len(set(ids)) != len(ids):
             return Response(
-                {"stories": ["Duplicate task ids in the ordered list."]},
+                {"stories": [_REORDER_DUPLICATE_IDS]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1274,7 +1292,7 @@ class ProjectViewSet(
         tasks_data = request.data.get("tasks") if isinstance(request.data, dict) else None
         if not isinstance(tasks_data, list) or not tasks_data:
             return Response(
-                {"tasks": ["This field is required and must be a non-empty list."]},
+                {"tasks": [_NON_EMPTY_LIST_REQUIRED]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1283,7 +1301,7 @@ class ProjectViewSet(
         # giant list from locking every task row (DoS guard). Mirrors product_backlog_reorder.
         if len(tasks_data) > 2000:
             return Response(
-                {"tasks": ["Too many entries to reorder in one request (max 2000)."]},
+                {"tasks": [_REORDER_TOO_MANY]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1316,7 +1334,7 @@ class ProjectViewSet(
         ids = [tid for tid, _ in parsed]
         if len(set(ids)) != len(ids):
             return Response(
-                {"tasks": ["Duplicate task ids in the ordered list."]},
+                {"tasks": [_REORDER_DUPLICATE_IDS]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -2070,7 +2088,7 @@ class ProjectViewSet(
                 )
                 if first is None:
                     return Response(
-                        {"detail": "Schedule has not been computed. Run the scheduler first."},
+                        {"detail": _SCHEDULE_NOT_COMPUTED},
                         status=status.HTTP_409_CONFLICT,
                     )
                 last = (
@@ -2202,7 +2220,7 @@ class ProjectViewSet(
                 )
                 if first is None:
                     return Response(
-                        {"detail": "Schedule has not been computed. Run the scheduler first."},
+                        {"detail": _SCHEDULE_NOT_COMPUTED},
                         status=status.HTTP_409_CONFLICT,
                     )
                 window_start = first
@@ -2398,7 +2416,7 @@ class ProjectViewSet(
         has_cpm = project.tasks.filter(is_deleted=False, early_start__isnull=False).exists()
         if not has_cpm:
             return Response(
-                {"detail": "Schedule has not been computed. Run the scheduler first."},
+                {"detail": _SCHEDULE_NOT_COMPUTED},
                 status=status.HTTP_409_CONFLICT,
             )
 
@@ -2436,7 +2454,7 @@ class ProjectViewSet(
         has_cpm = project.tasks.filter(is_deleted=False, early_start__isnull=False).exists()
         if not has_cpm:
             return Response(
-                {"detail": "Schedule has not been computed. Run the scheduler first."},
+                {"detail": _SCHEDULE_NOT_COMPUTED},
                 status=status.HTTP_409_CONFLICT,
             )
 
@@ -3812,7 +3830,7 @@ class TaskViewSet(
                             {
                                 "parent_id": [
                                     ErrorDetail(
-                                        "A milestone is a single point and cannot have children.",
+                                        _MILESTONE_NO_CHILDREN,
                                         code="child_of_milestone",
                                     )
                                 ]
@@ -3852,7 +3870,7 @@ class TaskViewSet(
                 else:
                     root_count = (
                         Task.objects.select_for_update()
-                        .filter(project=project, is_deleted=False, wbs_path__regex=r"^\d+$")
+                        .filter(project=project, is_deleted=False, wbs_path__regex=_ROOT_WBS_RE)
                         .count()
                     )
                     wbs_path = str(root_count + 1)
@@ -4064,7 +4082,7 @@ class TaskViewSet(
             # Clearing the assignee (user → None) is just task.updated.
             if old_assignee_id is None and new_assignee_id is not None:
                 transaction.on_commit(
-                    lambda: _dispatch_webhooks(project_id, "task.assigned", assignee_payload)
+                    lambda: _dispatch_webhooks(project_id, _TASK_ASSIGNED_EVENT, assignee_payload)
                 )
             elif new_assignee_id is not None:
                 transaction.on_commit(
@@ -4078,7 +4096,9 @@ class TaskViewSet(
                 a_body = f'You were assigned to the task "{task_name}" in TruePPM.'
                 a_rcpt = new_assignee_id
                 transaction.on_commit(
-                    lambda: _notify_event("task.assigned", [a_rcpt], a_subj, a_body, project_id)
+                    lambda: _notify_event(
+                        _TASK_ASSIGNED_EVENT, [a_rcpt], a_subj, a_body, project_id
+                    )
                 )
 
         # task.due_date_changed binds to planned_start (the PM-committed date) —
@@ -4655,8 +4675,8 @@ class TaskViewSet(
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        if pk is None or suggestion_pk is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if pk is None or suggestion_pk is None:  # pragma: no cover - pk from URL route
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         suggestion = (
             TaskSuggestedAssignee.objects.select_related("task")
             .filter(pk=suggestion_pk, task_id=pk, is_deleted=False)
@@ -4664,7 +4684,7 @@ class TaskViewSet(
         )
         if suggestion is None:
             return Response(
-                {"detail": "Suggestion not found."},
+                {"detail": _SUGGESTION_NOT_FOUND_DETAIL},
                 status=status.HTTP_404_NOT_FOUND,
             )
         # Re-check actor membership at call time (#1373). The suggestion row's
@@ -4675,7 +4695,7 @@ class TaskViewSet(
         # before any further gate or write.
         if _membership_role(request, suggestion.task.project_id) is None:
             return Response(
-                {"detail": "You must be a member of this project."},
+                {"detail": _MEMBER_REQUIRED_DETAIL},
                 status=status.HTTP_403_FORBIDDEN,
             )
         caller = cast(_User, request.user)
@@ -4720,7 +4740,7 @@ class TaskViewSet(
                     "previous_assignee": None,
                 }
                 transaction.on_commit(
-                    lambda: _dispatch_webhooks(project_id, "task.assigned", assigned_payload)
+                    lambda: _dispatch_webhooks(project_id, _TASK_ASSIGNED_EVENT, assigned_payload)
                 )
 
         if assignee_conflict:
@@ -4771,8 +4791,8 @@ class TaskViewSet(
             TaskSuggestedAssignee,
         )
 
-        if pk is None or suggestion_pk is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if pk is None or suggestion_pk is None:  # pragma: no cover - pk from URL route
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         suggestion = (
             TaskSuggestedAssignee.objects.select_related("task")
             .filter(pk=suggestion_pk, task_id=pk, is_deleted=False)
@@ -4780,14 +4800,14 @@ class TaskViewSet(
         )
         if suggestion is None:
             return Response(
-                {"detail": "Suggestion not found."},
+                {"detail": _SUGGESTION_NOT_FOUND_DETAIL},
                 status=status.HTTP_404_NOT_FOUND,
             )
         # Re-check actor membership at call time (#1373) — an ex-member named as
         # suggested_user must not be able to mutate the suggestion's state.
         if _membership_role(request, suggestion.task.project_id) is None:
             return Response(
-                {"detail": "You must be a member of this project."},
+                {"detail": _MEMBER_REQUIRED_DETAIL},
                 status=status.HTTP_403_FORBIDDEN,
             )
         caller = cast(_User, request.user)
@@ -4850,8 +4870,8 @@ class TaskViewSet(
             TaskSuggestedAssignee,
         )
 
-        if pk is None or suggestion_pk is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if pk is None or suggestion_pk is None:  # pragma: no cover - pk from URL route
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         suggestion = (
             TaskSuggestedAssignee.objects.select_related("task")
             .filter(pk=suggestion_pk, task_id=pk, is_deleted=False)
@@ -4859,7 +4879,7 @@ class TaskViewSet(
         )
         if suggestion is None:
             return Response(
-                {"detail": "Suggestion not found."},
+                {"detail": _SUGGESTION_NOT_FOUND_DETAIL},
                 status=status.HTTP_404_NOT_FOUND,
             )
         caller = cast(_User, request.user)
@@ -4873,7 +4893,7 @@ class TaskViewSet(
         caller_role = _membership_role(request, suggestion.task.project_id)
         if caller_role is None:
             return Response(
-                {"detail": "You must be a member of this project."},
+                {"detail": _MEMBER_REQUIRED_DETAIL},
                 status=status.HTTP_403_FORBIDDEN,
             )
         is_originator = suggestion.suggested_by_id == caller.pk
@@ -6220,7 +6240,7 @@ class TaskReorderView(IdempotencyMixin, APIView):
             )
         else:
             # Root-level siblings have no dot in their path.
-            siblings_qs = siblings_qs.filter(wbs_path__regex=r"^\d+$")
+            siblings_qs = siblings_qs.filter(wbs_path__regex=_ROOT_WBS_RE)
 
         siblings_by_id = {t.pk: t for t in siblings_qs}
 
@@ -6284,7 +6304,7 @@ def _get_siblings(project_id: str, parent_path: str, *, lock: bool = False) -> l
             wbs_path__regex=rf"^{parent_path}\.\d+\."
         )
     else:
-        qs = qs.filter(wbs_path__regex=r"^\d+$")
+        qs = qs.filter(wbs_path__regex=_ROOT_WBS_RE)
     return list(qs.order_by("wbs_path"))
 
 
@@ -6384,7 +6404,7 @@ class TaskIndentView(IdempotencyMixin, APIView):
             _require_wbs_restructure_permission(request, task)
             if not task.wbs_path:
                 return Response(
-                    {"detail": "Task has no WBS path."},
+                    {"detail": _TASK_NO_WBS_PATH_DETAIL},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -6405,7 +6425,7 @@ class TaskIndentView(IdempotencyMixin, APIView):
                 return Response(
                     {
                         "code": "child_of_milestone",
-                        "detail": "A milestone is a single point and cannot have children.",
+                        "detail": _MILESTONE_NO_CHILDREN,
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
@@ -6486,7 +6506,7 @@ class TaskOutdentView(IdempotencyMixin, APIView):
             _require_wbs_restructure_permission(request, task)
             if not task.wbs_path:
                 return Response(
-                    {"detail": "Task has no WBS path."},
+                    {"detail": _TASK_NO_WBS_PATH_DETAIL},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -6651,7 +6671,7 @@ class TaskReparentView(IdempotencyMixin, APIView):
             _require_wbs_restructure_permission(request, task)
             if not task.wbs_path:
                 return Response(
-                    {"detail": "Task has no WBS path."},
+                    {"detail": _TASK_NO_WBS_PATH_DETAIL},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -6687,7 +6707,7 @@ class TaskReparentView(IdempotencyMixin, APIView):
                     return Response(
                         {
                             "code": "child_of_milestone",
-                            "detail": "A milestone is a single point and cannot have children.",
+                            "detail": _MILESTONE_NO_CHILDREN,
                         },
                         status=status.HTTP_400_BAD_REQUEST,
                     )
@@ -9755,7 +9775,7 @@ class PhaseReorderView(IdempotencyMixin, APIView):
         phases_data = request.data.get("phases")
         if not isinstance(phases_data, list) or not phases_data:
             return Response(
-                {"phases": ["This field is required and must be a non-empty list."]},
+                {"phases": [_NON_EMPTY_LIST_REQUIRED]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -9789,7 +9809,7 @@ class PhaseReorderView(IdempotencyMixin, APIView):
         with transaction.atomic():
             # Lock rows first to serialise concurrent reorders.
             root_tasks = Task.objects.select_for_update().filter(
-                project_id=pk, is_deleted=False, wbs_path__regex=r"^\d+$"
+                project_id=pk, is_deleted=False, wbs_path__regex=_ROOT_WBS_RE
             )
             root_by_id = {str(t.pk): t for t in root_tasks}
 
@@ -9827,11 +9847,6 @@ class PhaseReorderView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 # Workflow settings — Phase (root-task) and ProjectCustomField viewsets (#521)
 # ---------------------------------------------------------------------------
-
-
-# Root-task discriminator — wbs_path matches a single integer with no dot.  The
-# Workflow settings page edits these and nothing else.
-_ROOT_WBS_RE = r"^\d+$"
 
 
 class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
@@ -10349,8 +10364,8 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        if pk is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if pk is None:  # pragma: no cover - pk from URL route
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         with transaction.atomic():
             sprint = (
                 Sprint.objects.select_for_update()
@@ -10359,7 +10374,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 .first()
             )
             if sprint is None:
-                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+                return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
             self.check_object_permissions(request, sprint)
             if sprint.state != SprintState.PLANNED:
                 return Response(
@@ -10540,12 +10555,12 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         """
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        if pk is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if pk is None:  # pragma: no cover - pk from URL route
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         with transaction.atomic():
             sprint = Sprint.objects.select_for_update().filter(pk=pk, is_deleted=False).first()
             if sprint is None:
-                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+                return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
             self.check_object_permissions(request, sprint)
             if sprint.state != SprintState.PLANNED:
                 return Response(
@@ -10605,8 +10620,8 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             promote_sprint_to_milestone,
         )
 
-        if pk is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if pk is None:  # pragma: no cover - pk from URL route
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         body = PromoteToMilestoneRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         milestone_id = body.validated_data.get("milestone_id")
@@ -10623,8 +10638,8 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 .filter(pk=pk, is_deleted=False)
                 .first()
             )
-            if sprint is None:
-                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            if sprint is None:  # pragma: no cover - sprint resolved by permission gate
+                return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
             self.check_object_permissions(request, sprint)
             try:
                 sprint, created = promote_sprint_to_milestone(
@@ -10666,8 +10681,8 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         """
         from trueppm_api.apps.projects.services import unbind_sprint_milestone
 
-        if pk is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if pk is None:  # pragma: no cover - pk from URL route
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         with transaction.atomic():
             sprint = (
                 # NB: do not select_related the nullable target_milestone here —
@@ -10679,8 +10694,8 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 .filter(pk=pk, is_deleted=False)
                 .first()
             )
-            if sprint is None:
-                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            if sprint is None:  # pragma: no cover - sprint resolved by permission gate
+                return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
             self.check_object_permissions(request, sprint)
             sprint = unbind_sprint_milestone(sprint)
         return Response(SprintSerializer(sprint).data, status=status.HTTP_200_OK)
@@ -10712,11 +10727,11 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         """
         from trueppm_api.apps.projects.services import MilestoneNotFound, reforecast_preview
 
-        if pk is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if pk is None:  # pragma: no cover - pk from URL route
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         sprint = Sprint.objects.select_related("project").filter(pk=pk, is_deleted=False).first()
-        if sprint is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if sprint is None:  # pragma: no cover - sprint resolved by permission gate
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         self.check_object_permissions(request, sprint)
         milestone_id = request.query_params.get("milestone_id") or None
         try:
@@ -11077,7 +11092,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         ids = request.data.get("outcome_ids")
         if not isinstance(ids, list) or not ids:
             return Response(
-                {"outcome_ids": ["This field is required and must be a non-empty list."]},
+                {"outcome_ids": [_NON_EMPTY_LIST_REQUIRED]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         # Bound the payload (DoS guard) — a demo list is realistically a handful of
@@ -11164,14 +11179,14 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         tasks_data = request.data.get("tasks") if isinstance(request.data, dict) else None
         if not isinstance(tasks_data, list) or not tasks_data:
             return Response(
-                {"tasks": ["This field is required and must be a non-empty list."]},
+                {"tasks": [_NON_EMPTY_LIST_REQUIRED]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         # Bound the payload before the parse loop + select_for_update (DoS guard): a sprint
         # holds at most a few dozen stories, so 2000 is generous headroom.
         if len(tasks_data) > 2000:
             return Response(
-                {"tasks": ["Too many entries to reorder in one request (max 2000)."]},
+                {"tasks": [_REORDER_TOO_MANY]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -11204,7 +11219,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         ids = [tid for tid, _ in parsed]
         if len(set(ids)) != len(ids):
             return Response(
-                {"tasks": ["Duplicate task ids in the ordered list."]},
+                {"tasks": [_REORDER_DUPLICATE_IDS]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -11801,8 +11816,8 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         )
         from trueppm_api.apps.projects.serializers import TaskSerializer
 
-        if pk is None or item_pk is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if pk is None or item_pk is None:  # pragma: no cover - pk from URL route
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         sprint = get_object_or_404(
             Sprint.objects.select_related("project"),
             pk=pk,
@@ -11876,8 +11891,8 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         )
         from trueppm_api.apps.projects.serializers import TaskSerializer
 
-        if pk is None or item_pk is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if pk is None or item_pk is None:  # pragma: no cover - pk from URL route
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         sprint = get_object_or_404(
             Sprint.objects.select_related("project"),
             pk=pk,

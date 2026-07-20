@@ -65,6 +65,9 @@ def edition(request: Request) -> Response:
     return Response({"edition": settings.TRUEPPM_EDITION})
 
 
+# Versioned prefix every app router mounts under.
+_API_V1_PREFIX = "api/v1/"
+
 urlpatterns = [
     path("api/v1/health/", health, name="health"),
     # Dependency-aware readiness probe (#1894). Unauthenticated like /health/ so
@@ -107,26 +110,26 @@ urlpatterns = [
         name="password_reset_confirm",
     ),
     # Versioned API
-    path("api/v1/", include("trueppm_api.apps.access.urls")),
-    path("api/v1/", include("trueppm_api.apps.projects.urls")),
-    path("api/v1/", include("trueppm_api.apps.resources.urls")),
-    path("api/v1/", include("trueppm_api.apps.scheduling.urls")),
-    path("api/v1/", include("trueppm_api.apps.sync.urls")),
-    path("api/v1/", include("trueppm_api.apps.history.urls")),
-    path("api/v1/", include("trueppm_api.apps.msproject.urls")),
-    path("api/v1/", include("trueppm_api.apps.jiraimport.urls")),
-    path("api/v1/", include("trueppm_api.apps.webhooks.urls")),
-    path("api/v1/", include("trueppm_api.apps.taskruns.urls")),
-    path("api/v1/", include("trueppm_api.apps.workshops.urls")),
-    path("api/v1/", include("trueppm_api.apps.notifications.urls")),
-    path("api/v1/", include("trueppm_api.apps.integrations.urls")),
-    path("api/v1/", include("trueppm_api.apps.observability.urls")),
-    path("api/v1/", include("trueppm_api.apps.workspace.urls")),
-    path("api/v1/", include("trueppm_api.apps.teams.urls")),
-    path("api/v1/", include("trueppm_api.apps.timetracking.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.access.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.projects.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.resources.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.scheduling.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.sync.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.history.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.msproject.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.jiraimport.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.webhooks.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.taskruns.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.workshops.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.notifications.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.integrations.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.observability.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.workspace.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.teams.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.timetracking.urls")),
     # Basic SSO — OIDC relying party (ADR-0187). Flow endpoints under
     # auth/oidc/*, admin config under workspace/sso/*.
-    path("api/v1/", include("trueppm_api.apps.sso.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.sso.urls")),
     # Team-readable agent-action audit log (ADR-0112 RC1, #1805).
-    path("api/v1/", include("trueppm_api.apps.agents.urls")),
+    path(_API_V1_PREFIX, include("trueppm_api.apps.agents.urls")),
 ]

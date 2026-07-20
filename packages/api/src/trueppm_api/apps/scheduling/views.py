@@ -92,6 +92,10 @@ FAILED_TASK_BULK_ACTION_MAX = getattr(settings, "FAILED_TASK_BULK_ACTION_MAX", 5
 # terminal and is skipped by bulk actions / rejected by single actions.
 _ACTIONABLE_FAILED_STATUSES = (FailedTaskStatus.DEAD, FailedTaskStatus.PENDING_RETRY)
 
+# Shared user-facing response details.
+_NOT_FOUND_DETAIL = "Not found."
+_DATE_RANGE_EXCEEDED_DETAIL = "Project schedule exceeds the representable date range."
+
 
 @extend_schema(
     summary="Trigger a CPM recalculation for a project",
@@ -120,7 +124,7 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     try:
         project = Project.objects.get(pk=pk)
     except Project.DoesNotExist:
-        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
 
     # Permission check against the project object.
     if not IsProjectScheduler().has_object_permission(request, None, project):  # type: ignore[arg-type]
@@ -340,7 +344,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             .get(pk=pk, is_deleted=False)
         )
     except Project.DoesNotExist:
-        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
 
     if not IsProjectMember().has_object_permission(request, None, project):  # type: ignore[arg-type]
         return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
@@ -458,7 +462,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         # unreachable for any realistic start date, but never let a date-range
         # overflow surface as a 500 (OverflowError is not a ValueError).
         return Response(
-            {"detail": "Project schedule exceeds the representable date range."},
+            {"detail": _DATE_RANGE_EXCEEDED_DETAIL},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -797,7 +801,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 .get(pk=pk, is_deleted=False)
             )
         except Project.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
 
         # Object-level membership + not-archived gate (same read level as the
         # forecast endpoints). APIView.get has no get_object(), so enforce explicitly.
@@ -939,7 +943,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except OverflowError:
             return Response(
-                {"detail": "Project schedule exceeds the representable date range."},
+                {"detail": _DATE_RANGE_EXCEEDED_DETAIL},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1919,7 +1923,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except OverflowError:
             return Response(
-                {"detail": "Project schedule exceeds the representable date range."},
+                {"detail": _DATE_RANGE_EXCEEDED_DETAIL},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(derivation.to_dict())
