@@ -51,6 +51,11 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.4.0b1`).
 
 ### Fixed
 
+- **`UnknownTaskError` is now caught by `except SchedulerError`.** It subclassed a
+  bare `ValueError`, so the exception raised by `derive_value()` on an unknown task
+  id escaped the `SchedulerError` catch-all the base class documents. Reparented to
+  `SchedulerError` (still an `is-a ValueError`) ahead of the 1.0 public-surface
+  freeze, where interposing the common base would become a breaking change (#2180).
 - **`Task.percent_complete` now holds the documented exception contract on the
   direct-object API.** A non-finite value (`NaN`/`±inf`) or a non-numeric value
   passed to a `Task` built directly (not via `from_dict`/`from_json`) previously

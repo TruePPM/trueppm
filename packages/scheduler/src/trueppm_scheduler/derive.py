@@ -34,6 +34,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from trueppm_scheduler.engine import (
+    SchedulerError,
     ScheduleResult,
     _effective_duration_days,
     _is_complete,
@@ -160,11 +161,16 @@ class Derivation:
         }
 
 
-class UnknownTaskError(ValueError):
+class UnknownTaskError(SchedulerError):
     """Raised when ``task_id`` names no task in the project.
 
-    Subclasses :class:`ValueError` so existing ``except ValueError`` callers keep
-    working; the API maps it to a ``404``.
+    Subclasses :class:`~trueppm_scheduler.engine.SchedulerError` (which is itself
+    a :class:`ValueError`) so a single ``except SchedulerError`` catches every
+    scheduler-originated failure — including this one from the exported
+    :func:`derive_value` — while existing ``except ValueError`` callers keep
+    working. Reparented from a bare ``ValueError`` ahead of the 1.0 public-surface
+    freeze: interposing the common base is backward compatible to add now but
+    would be a breaking change to add later. The API maps it to a ``404``.
     """
 
 
