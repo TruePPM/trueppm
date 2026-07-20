@@ -7,12 +7,13 @@
  * the detail pane driven by ?selected= over a mocked useFailedTask. Fixtures use
  * the REAL FailedTask / PaginatedResponse shape — no invented keys.
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DeadLetterInspectorPage } from './DeadLetterInspectorPage';
+import { toast } from '@/components/Toast';
 import type { FailedTask, FailedTaskStatus } from '@/hooks/useFailedTasks';
 import type { PaginatedResponse } from '@/api/types';
 
@@ -27,6 +28,31 @@ vi.mock('@/hooks/useFailedTasks', async () => {
     useFailedTask: () => useFailedTask() as unknown,
   };
 });
+
+// Mutation hooks are stubbed so the confirm dialog's success/error paths can be
+// driven deterministically without a real apiClient round-trip. Each `mutate`
+// mock forwards to the `onSuccess`/`onError` callbacks the page supplies.
+const { requeueMutate, dropMutate, requeueAllMutate, dropAllMutate } = vi.hoisted(() => ({
+  requeueMutate: vi.fn(),
+  dropMutate: vi.fn(),
+  requeueAllMutate: vi.fn(),
+  dropAllMutate: vi.fn(),
+}));
+
+vi.mock('@/hooks/useFailedTaskActions', async () => {
+  const actual = await vi.importActual('@/hooks/useFailedTaskActions');
+  return {
+    ...actual, // preserve BACKOFF_OPTIONS (read by the dialog)
+    useRequeueFailedTask: () => ({ mutate: requeueMutate, isPending: false }),
+    useDropFailedTask: () => ({ mutate: dropMutate, isPending: false }),
+    useRequeueAllFailedTasks: () => ({ mutate: requeueAllMutate, isPending: false }),
+    useDropAllFailedTasks: () => ({ mutate: dropAllMutate, isPending: false }),
+  };
+});
+
+vi.mock('@/components/Toast', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 function makeTask(over: Partial<FailedTask> = {}): FailedTask {
   return {
@@ -75,6 +101,12 @@ function renderPage(initialPath = '/settings/health/dead-letters') {
 describe('DeadLetterInspectorPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks wipes call history but NOT implementations — reset the mutate
+    // stubs to inert no-ops so one test's onSuccess/onError forwarder can't leak.
+    requeueMutate.mockReset();
+    dropMutate.mockReset();
+    requeueAllMutate.mockReset();
+    dropAllMutate.mockReset();
     // Detail pane hook defaults to idle (no selection) for the list-focused tests.
     useFailedTask.mockReturnValue(detailResult());
   });
@@ -173,5 +205,251 @@ describe('DeadLetterInspectorPage', () => {
     await user.selectOptions(screen.getByLabelText('Filter by status'), 'dismissed');
     expect(screen.queryByRole('button', { name: /Requeue all/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Drop all/ })).not.toBeInTheDocument();
+  });
+
+  it('renders the detail loading placeholder while the selected task loads', () => {
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([makeTask({ id: 'task-1' })]) }));
+    useFailedTask.mockReturnValue(detailResult({ isLoading: true }));
+    renderPage('/settings/health/dead-letters?selected=task-1');
+    expect(screen.getByText(/Loading/)).toBeInTheDocument();
+  });
+
+  it('selecting a list row opens its detail pane via the URL', async () => {
+    const user = userEvent.setup();
+    const task = makeTask({ id: 'task-1', status: 'dead' });
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([task]) }));
+    useFailedTask.mockReturnValue(detailResult({ data: task }));
+    renderPage('/settings/health/dead-letters');
+
+    // No selection yet → right pane shows the empty prompt.
+    expect(screen.getByText('Select a task to inspect.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'trueppm.drain_outbox' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /trueppm\.drain_outbox/ }));
+
+    expect(screen.getByRole('heading', { name: 'trueppm.drain_outbox' })).toBeInTheDocument();
+  });
+
+  it('the mobile "Back to list" control clears the selection', async () => {
+    const user = userEvent.setup();
+    const task = makeTask({ id: 'task-1', status: 'dead' });
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([task]) }));
+    useFailedTask.mockReturnValue(detailResult({ data: task }));
+    renderPage('/settings/health/dead-letters?selected=task-1');
+
+    expect(screen.getByRole('heading', { name: 'trueppm.drain_outbox' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Back to list/ }));
+
+    expect(screen.queryByRole('heading', { name: 'trueppm.drain_outbox' })).not.toBeInTheDocument();
+    expect(screen.getByText('Select a task to inspect.')).toBeInTheDocument();
+  });
+
+  it('shows Requeue + Drop on an actionable (dead) task', () => {
+    const task = makeTask({ id: 'task-1', status: 'dead' });
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([task]) }));
+    useFailedTask.mockReturnValue(detailResult({ data: task }));
+    renderPage('/settings/health/dead-letters?selected=task-1');
+    expect(screen.getByRole('button', { name: 'Requeue' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Drop' })).toBeInTheDocument();
+  });
+
+  it('hides Requeue but keeps Drop on a terminal (retried) task', () => {
+    const task = makeTask({ id: 'task-1', status: 'retried' });
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([task]) }));
+    useFailedTask.mockReturnValue(detailResult({ data: task }));
+    renderPage('/settings/health/dead-letters?selected=task-1');
+    // retried is not requeueable, but is still droppable (not yet dismissed).
+    expect(screen.queryByRole('button', { name: 'Requeue' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Drop' })).toBeInTheDocument();
+  });
+
+  it('hides both actions and shows the resolution audit line for a dismissed task', () => {
+    const task = makeTask({
+      id: 'task-1',
+      status: 'dismissed',
+      resolved_at: '2026-05-26T10:00:00Z',
+      resolved_by_display: 'Ada Ops',
+      resolution_note: 'duplicate submission',
+    });
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([task]) }));
+    useFailedTask.mockReturnValue(detailResult({ data: task }));
+    renderPage('/settings/health/dead-letters?selected=task-1');
+
+    expect(screen.queryByRole('button', { name: 'Requeue' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Drop' })).not.toBeInTheDocument();
+    // Audit line reports the drop, the actor, and the note (one merged paragraph).
+    expect(screen.getByText(/Dropped by Ada Ops/)).toBeInTheDocument();
+    expect(screen.getByText(/duplicate submission/)).toBeInTheDocument();
+  });
+
+  it('requeues a single task and toasts on success, closing the dialog', async () => {
+    const user = userEvent.setup();
+    const task = makeTask({ id: 'task-1', status: 'dead' });
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([task]) }));
+    useFailedTask.mockReturnValue(detailResult({ data: task }));
+    requeueMutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess?: () => void }) => opts.onSuccess?.(),
+    );
+    renderPage('/settings/health/dead-letters?selected=task-1');
+
+    await user.click(screen.getByRole('button', { name: 'Requeue' }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(within(dialog).getByText('Requeue task?')).toBeInTheDocument();
+
+    // Choose a non-default backoff before confirming.
+    await user.selectOptions(within(dialog).getByLabelText('Backoff'), '300');
+    await user.click(within(dialog).getByRole('button', { name: 'Requeue' }));
+
+    expect(requeueMutate).toHaveBeenCalledWith(
+      { id: 'task-1', backoffSeconds: 300 },
+      expect.objectContaining({
+        onSuccess: expect.any(Function) as unknown,
+        onError: expect.any(Function) as unknown,
+      }),
+    );
+    expect(toast.success).toHaveBeenCalledWith('Requeued trueppm.drain_outbox.');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('surfaces an inline alert + toast and keeps the dialog open on a requeue error', async () => {
+    const user = userEvent.setup();
+    const task = makeTask({ id: 'task-1', status: 'dead' });
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([task]) }));
+    useFailedTask.mockReturnValue(detailResult({ data: task }));
+    requeueMutate.mockImplementation((_vars: unknown, opts: { onError?: (e: unknown) => void }) =>
+      opts.onError?.({ response: { data: { detail: 'Worker offline' } } }),
+    );
+    renderPage('/settings/health/dead-letters?selected=task-1');
+
+    await user.click(screen.getByRole('button', { name: 'Requeue' }));
+    const dialog = screen.getByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Requeue' }));
+
+    // Server detail surfaces both inline (alert role) and via toast; dialog stays open.
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Worker offline');
+    expect(toast.error).toHaveBeenCalledWith('Worker offline');
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
+  it('drops a single task with a note and toasts on success', async () => {
+    const user = userEvent.setup();
+    const task = makeTask({ id: 'task-1', status: 'dead' });
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([task]) }));
+    useFailedTask.mockReturnValue(detailResult({ data: task }));
+    dropMutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess?: () => void }) => opts.onSuccess?.(),
+    );
+    renderPage('/settings/health/dead-letters?selected=task-1');
+
+    await user.click(screen.getByRole('button', { name: 'Drop' }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(within(dialog).getByText('Drop task?')).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText(/Note/), 'poison message');
+    await user.click(within(dialog).getByRole('button', { name: 'Drop' }));
+
+    expect(dropMutate).toHaveBeenCalledWith(
+      { id: 'task-1', note: 'poison message' },
+      expect.objectContaining({ onSuccess: expect.any(Function) as unknown }),
+    );
+    expect(toast.success).toHaveBeenCalledWith('Dropped trueppm.drain_outbox.');
+  });
+
+  it('uses the generic fallback message when a requeue error has no server detail', async () => {
+    const user = userEvent.setup();
+    const task = makeTask({ id: 'task-1', status: 'dead' });
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([task]) }));
+    useFailedTask.mockReturnValue(detailResult({ data: task }));
+    requeueMutate.mockImplementation((_vars: unknown, opts: { onError?: (e: unknown) => void }) =>
+      opts.onError?.(new Error('network')),
+    );
+    renderPage('/settings/health/dead-letters?selected=task-1');
+
+    await user.click(screen.getByRole('button', { name: 'Requeue' }));
+    const dialog = screen.getByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Requeue' }));
+
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Action failed — please try again.');
+  });
+
+  it('bulk-requeues the filter set and reports a capped, pluralized count', async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      makeTask({ id: 'a', status: 'dead' }),
+      makeTask({ id: 'b', status: 'dead' }),
+      makeTask({ id: 'c', status: 'dead' }),
+    ];
+    useFailedTasks.mockReturnValue(listResult({ data: makeList(tasks) }));
+    requeueAllMutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess?: (r: unknown) => void }) =>
+        opts.onSuccess?.({ processed: 3, matched: 5, capped: true }),
+    );
+    renderPage('/settings/health/dead-letters');
+
+    await user.click(screen.getByRole('button', { name: /Requeue all \(3\)/ }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(within(dialog).getByText('Requeue 3 tasks?')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Requeue 3' }));
+
+    expect(requeueAllMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ filters: expect.any(Object) as unknown, backoffSeconds: 0 }),
+      expect.objectContaining({ onSuccess: expect.any(Function) as unknown }),
+    );
+    expect(toast.success).toHaveBeenCalledWith(
+      'Requeued 3 tasks. (batch capped — repeat to continue)',
+    );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('bulk-drops the filter set and reports a singular, uncapped count', async () => {
+    const user = userEvent.setup();
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([makeTask({ status: 'dead' })]) }));
+    dropAllMutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess?: (r: unknown) => void }) =>
+        opts.onSuccess?.({ processed: 1, matched: 1, capped: false }),
+    );
+    renderPage('/settings/health/dead-letters');
+
+    await user.click(screen.getByRole('button', { name: /Drop all \(1\)/ }));
+    const dialog = screen.getByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Drop 1' }));
+
+    expect(dropAllMutate).toHaveBeenCalled();
+    // Singular "task", no capped suffix.
+    expect(toast.success).toHaveBeenCalledWith('Dropped 1 task.');
+  });
+
+  it('surfaces a bulk error inline and via toast without closing the dialog', async () => {
+    const user = userEvent.setup();
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([makeTask({ status: 'dead' })]) }));
+    requeueAllMutate.mockImplementation(
+      (_vars: unknown, opts: { onError?: (e: unknown) => void }) =>
+        opts.onError?.({ response: { data: { detail: 'Rate limited' } } }),
+    );
+    renderPage('/settings/health/dead-letters');
+
+    await user.click(screen.getByRole('button', { name: /Requeue all \(1\)/ }));
+    const dialog = screen.getByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Requeue 1' }));
+
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Rate limited');
+    expect(toast.error).toHaveBeenCalledWith('Rate limited');
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
+  it('narrows the query when the time-window filter changes', async () => {
+    const user = userEvent.setup();
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([makeTask()]) }));
+    renderPage('/settings/health/dead-letters');
+
+    const windowSelect = screen.getByLabelText('Filter by time window');
+    expect(windowSelect).toHaveValue('');
+    await user.selectOptions(windowSelect, '24h');
+    expect(windowSelect).toHaveValue('24h');
+
+    // Task-name search is debounced; typing must update the controlled input.
+    const search = screen.getByLabelText('Search by task name');
+    await user.type(search, 'drain');
+    expect(search).toHaveValue('drain');
   });
 });

@@ -361,4 +361,181 @@ describe('QueueRow overflow menu (issue 1610)', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).toBeNull();
   });
+
+  it('demote emits the group with the moved row swapped one slot down', async () => {
+    const user = userEvent.setup();
+    const onReorderGroup = vi.fn();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={onReorderGroup}
+        tasks={[
+          makeTask({ id: 'a', status: 'NOT_STARTED', priorityRank: 1, serverVersion: 4 }),
+          makeTask({ id: 'b', status: 'NOT_STARTED', priorityRank: 2, serverVersion: 7 }),
+        ]}
+      />,
+    );
+    // Demote the TOP row → it swaps below the second, yielding [b, a].
+    await user.click(screen.getByTestId('queue-row-menu-a'));
+    await user.click(screen.getByRole('menuitem', { name: /Demote/ }));
+    expect(onReorderGroup).toHaveBeenCalledWith([
+      { id: 'b', serverVersion: 7 },
+      { id: 'a', serverVersion: 4 },
+    ]);
+  });
+
+  it('omits Promote / Demote when canReorder is set but no onReorderGroup handler is wired', async () => {
+    const user = userEvent.setup();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        tasks={[makeTask({ id: 'a', status: 'NOT_STARTED', serverVersion: 1 })]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-a'));
+    expect(screen.queryByRole('menuitem', { name: /Promote/ })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: /Open details/ })).toBeInTheDocument();
+  });
+});
+
+describe('QueueLayout row callbacks', () => {
+  const NOW = new Date('2026-05-09T00:00:00Z');
+
+  it('reports focus with the task id, status, and phase id (root when unparented)', () => {
+    const onCardFocus = vi.fn();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        onCardFocus={onCardFocus}
+        now={NOW}
+        tasks={[makeTask({ id: 'a', status: 'IN_PROGRESS', parentId: null, name: 'Free task' })]}
+      />,
+    );
+    screen.getByRole('button', { name: /^Free task,/ }).focus();
+    expect(onCardFocus).toHaveBeenCalledWith('a', 'IN_PROGRESS', 'root');
+  });
+
+  it('reports focus with the parent id as the phase id when the task is nested', () => {
+    const onCardFocus = vi.fn();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        onCardFocus={onCardFocus}
+        now={NOW}
+        tasks={[
+          makeTask({ id: 'a', status: 'NOT_STARTED', parentId: 'phase-9', name: 'Nested task' }),
+        ]}
+      />,
+    );
+    screen.getByRole('button', { name: /^Nested task,/ }).focus();
+    expect(onCardFocus).toHaveBeenCalledWith('a', 'NOT_STARTED', 'phase-9');
+  });
+
+  it('forwards a row click to onCardClick with the task and its anchor element', async () => {
+    const user = userEvent.setup();
+    const onCardClick = vi.fn();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        onCardClick={onCardClick}
+        now={NOW}
+        tasks={[makeTask({ id: 'a', status: 'NOT_STARTED', name: 'Click me' })]}
+      />,
+    );
+    const button = screen.getByRole('button', { name: /^Click me,/ });
+    await user.click(button);
+    expect(onCardClick).toHaveBeenCalledTimes(1);
+    expect(onCardClick.mock.calls[0][0]).toMatchObject({ id: 'a' });
+    expect(onCardClick.mock.calls[0][1]).toBe(button);
+  });
+});
+
+describe('groupTasksForQueue sort tie-breakers', () => {
+  const NOW = new Date('2026-05-09T00:00:00Z');
+
+  it('breaks equal priorityRank by statusEnteredAt (newer first) in next-up', () => {
+    const nextUp = groupTasksForQueue(
+      [
+        makeTask({
+          id: 'older',
+          status: 'NOT_STARTED',
+          priorityRank: 2,
+          statusEnteredAt: '2026-01-01T00:00:00Z',
+        }),
+        makeTask({
+          id: 'newer',
+          status: 'NOT_STARTED',
+          priorityRank: 2,
+          statusEnteredAt: '2026-04-01T00:00:00Z',
+        }),
+      ],
+      NOW,
+    ).find((g) => g.key === 'nextUp');
+    expect(nextUp?.tasks.map((t) => t.id)).toEqual(['newer', 'older']);
+  });
+
+  it('breaks equal priorityRank AND equal statusEnteredAt by name in next-up', () => {
+    const nextUp = groupTasksForQueue(
+      [
+        makeTask({ id: 'b', name: 'Beta', status: 'NOT_STARTED', priorityRank: 1, statusEnteredAt: '2026-01-01T00:00:00Z' }),
+        makeTask({ id: 'a', name: 'Alpha', status: 'NOT_STARTED', priorityRank: 1, statusEnteredAt: '2026-01-01T00:00:00Z' }),
+      ],
+      NOW,
+    ).find((g) => g.key === 'nextUp');
+    expect(nextUp?.tasks.map((t) => t.name)).toEqual(['Alpha', 'Beta']);
+  });
+
+  it('breaks equal statusEnteredAt by name in the backlog group', () => {
+    const backlog = groupTasksForQueue(
+      [
+        makeTask({ id: 'z', name: 'Zebra', status: 'BACKLOG', statusEnteredAt: '2026-01-01T00:00:00Z' }),
+        makeTask({ id: 'a', name: 'Apple', status: 'BACKLOG', statusEnteredAt: '2026-01-01T00:00:00Z' }),
+      ],
+      NOW,
+    ).find((g) => g.key === 'backlog');
+    expect(backlog?.tasks.map((t) => t.name)).toEqual(['Apple', 'Zebra']);
+  });
+
+  it('falls back to `finish` for recently-done when actualFinish is absent', () => {
+    const recent = groupTasksForQueue(
+      [
+        makeTask({ id: 'usesFinish', status: 'COMPLETE', actualFinish: undefined, finish: '2026-05-02' }),
+      ],
+      NOW,
+    ).find((g) => g.key === 'recentlyDone');
+    // No actualFinish, but `finish` is inside the 14-day window → included.
+    expect(recent?.tasks.map((t) => t.id)).toEqual(['usesFinish']);
+  });
+
+  it('sorts recently-done by finish date descending, breaking ties by name', () => {
+    const recent = groupTasksForQueue(
+      [
+        makeTask({ id: 'early', name: 'B', status: 'COMPLETE', actualFinish: '2026-05-01T00:00:00Z' }),
+        makeTask({ id: 'late', name: 'A', status: 'COMPLETE', actualFinish: '2026-05-06T00:00:00Z' }),
+        makeTask({ id: 'tieA', name: 'A', status: 'COMPLETE', actualFinish: '2026-05-06T00:00:00Z' }),
+      ],
+      NOW,
+    ).find((g) => g.key === 'recentlyDone');
+    // Newest finish first (late/tieA), and the two equal-finish tasks order by name.
+    expect(recent?.tasks.map((t) => t.id)).toEqual(['late', 'tieA', 'early']);
+  });
+
+  it('excludes a COMPLETE task with an unparseable / missing finish date (NaN guard)', () => {
+    const recent = groupTasksForQueue(
+      [makeTask({ id: 'noDate', status: 'COMPLETE', actualFinish: undefined, finish: '' })],
+      NOW,
+    ).find((g) => g.key === 'recentlyDone');
+    expect(recent?.tasks).toHaveLength(0);
+  });
+});
+
+describe('reorderGroupTasks from === to', () => {
+  it('returns the same array reference when source and target index are identical', () => {
+    const tasks = [makeTask({ id: 'a' }), makeTask({ id: 'b' })];
+    expect(reorderGroupTasks(tasks, 1, 1)).toBe(tasks);
+  });
 });

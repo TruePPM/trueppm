@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, render as rtlRender } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
@@ -21,14 +21,37 @@ const reorderMutate = vi.fn();
 const presenterMutate = vi.fn();
 const noteMutate = vi.fn();
 const flagMutate = vi.fn();
+// Mutable mutation state so a handful of tests can exercise the pending/error
+// branches (the disabled toggle and the "Couldn't update the demo list" alert).
+// Defaults are reset to a happy/idle state before every test.
+const mutationState = { toggleIsPending: false, toggleIsError: false, reorderIsError: false };
 vi.mock('@/hooks/useSprints', async (orig) => ({
   ...(await orig<typeof import('@/hooks/useSprints')>()),
-  useToggleDemo: () => ({ mutate: toggleMutate, isPending: false, isError: false }),
-  useReorderDemoList: () => ({ mutate: reorderMutate, isPending: false, isError: false }),
+  useToggleDemo: () => ({
+    mutate: toggleMutate,
+    isPending: mutationState.toggleIsPending,
+    isError: mutationState.toggleIsError,
+  }),
+  useReorderDemoList: () => ({
+    mutate: reorderMutate,
+    isPending: false,
+    isError: mutationState.reorderIsError,
+  }),
   useSetPresenter: () => ({ mutate: presenterMutate, isPending: false, isError: false }),
   useSetReviewNote: () => ({ mutate: noteMutate, isPending: false, isError: false }),
   useFlagForBacklog: () => ({ mutate: flagMutate, isPending: false, isError: false }),
 }));
+
+beforeEach(() => {
+  toggleMutate.mockClear();
+  reorderMutate.mockClear();
+  presenterMutate.mockClear();
+  noteMutate.mockClear();
+  flagMutate.mockClear();
+  mutationState.toggleIsPending = false;
+  mutationState.toggleIsError = false;
+  mutationState.reorderIsError = false;
+});
 
 function shippedStory(
   over: Partial<SprintOutcome['review']['shipped'][number]> = {},
@@ -536,5 +559,352 @@ describe('SprintClosedOutcome — milestone slip line (#1098)', () => {
     const line = screen.getByTestId('milestone-slip-line');
     expect(line).not.toHaveTextContent('Rolled over');
     expect(line).toHaveTextContent('now +12d vs baseline');
+  });
+
+  it('reads "now on baseline" when the forecast lands exactly on baseline (slip 0)', () => {
+    render(<SprintClosedOutcome outcome={outcome({ milestone_slip: slip({ slip_days: 0 }) })} />);
+    const line = screen.getByTestId('milestone-slip-line');
+    expect(line).toHaveTextContent('now on baseline');
+    // The sr-only band for an on-baseline milestone.
+    expect(line).toHaveTextContent('(on baseline)');
+  });
+
+  it('reads "finished on baseline" once actually finished exactly on baseline', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({ milestone_slip: slip({ basis: 'actual', slip_days: 0 }) })}
+      />,
+    );
+    expect(screen.getByTestId('milestone-slip-line')).toHaveTextContent('finished on baseline');
+  });
+
+  it('reads "finished Xd ahead" once actually finished early (basis actual, negative slip)', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({ milestone_slip: slip({ basis: 'actual', slip_days: -2 }) })}
+      />,
+    );
+    const line = screen.getByTestId('milestone-slip-line');
+    expect(line).toHaveTextContent('finished 2d ahead of baseline');
+    expect(line).toHaveTextContent('(ahead of schedule)');
+  });
+
+  it('tags a small slip (≤5d) as the amber "at risk" band, not critical', () => {
+    render(<SprintClosedOutcome outcome={outcome({ milestone_slip: slip({ slip_days: 3 }) })} />);
+    const line = screen.getByTestId('milestone-slip-line');
+    expect(line).toHaveTextContent('now +3d vs baseline');
+    expect(line).toHaveTextContent('(at risk)');
+    expect(line.className).toContain('semantic-at-risk');
+  });
+
+  it('tags a large slip (>5d) as the red "critical slip" band', () => {
+    render(<SprintClosedOutcome outcome={outcome({ milestone_slip: slip({ slip_days: 12 }) })} />);
+    const line = screen.getByTestId('milestone-slip-line');
+    expect(line).toHaveTextContent('(critical slip)');
+    expect(line.className).toContain('semantic-critical');
+  });
+
+  it('omits the rolled-over clause when carried points are zero', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          milestone_slip: slip(),
+          didnt_ship_summary: {
+            carried_count: 0,
+            carried_points: 0,
+            dropped_count: 1,
+            dropped_points: 4,
+          },
+        })}
+      />,
+    );
+    expect(screen.getByTestId('milestone-slip-line')).not.toHaveTextContent('Rolled over');
+  });
+});
+
+describe('SprintClosedOutcome — GoalVerdict + Velocity Δ tones', () => {
+  it('renders a PARTIAL goal verdict with the half glyph', () => {
+    render(<SprintClosedOutcome outcome={outcome({ goal_outcome: 'PARTIAL' })} />);
+    const verdict = screen.getByLabelText('Goal Partial');
+    expect(verdict).toHaveTextContent('Partial');
+    expect(verdict.className).toContain('semantic-at-risk');
+  });
+
+  it('renders a MISSED goal verdict with the critical tone', () => {
+    render(<SprintClosedOutcome outcome={outcome({ goal_outcome: 'MISSED' })} />);
+    const verdict = screen.getByLabelText('Goal Missed');
+    expect(verdict).toHaveTextContent('Missed');
+    expect(verdict.className).toContain('semantic-critical');
+  });
+
+  it('shows a dash for the goal card when no verdict was recorded (null)', () => {
+    render(<SprintClosedOutcome outcome={outcome({ goal_outcome: null })} />);
+    expect(screen.queryByLabelText(/^Goal /)).toBeNull();
+  });
+
+  it('renders a velocity DROP as the amber down-arrow signal', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          velocity: { ...outcome().velocity!, velocity_delta_points: -6 },
+        })}
+      />,
+    );
+    const delta = screen.getByLabelText(/Velocity down 6 points/i);
+    expect(delta).toHaveTextContent('-6');
+    expect(delta.className).toContain('semantic-at-risk');
+  });
+
+  it('renders an unchanged velocity Δ with the neutral marker', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          velocity: { ...outcome().velocity!, velocity_delta_points: 0 },
+        })}
+      />,
+    );
+    const delta = screen.getByLabelText(/Velocity unchanged/i);
+    expect(delta).toHaveTextContent('0');
+  });
+
+  it('hides the completion ratio when the server sends none (null)', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          commitment: { ...outcome().commitment, completion_ratio_points: null },
+        })}
+      />,
+    );
+    // No "(NN%)" chip when the ratio is null.
+    expect(screen.queryByText(/\(\d+%\)/)).toBeNull();
+  });
+});
+
+describe('SprintClosedOutcome — didn\'t-ship dispositions (#1097)', () => {
+  const item = (over: Partial<SprintOutcome['didnt_ship'][number]> = {}) => ({
+    task_id: 't1',
+    task_short_id: 'T-101',
+    task_title: 'Refresh-token rotation',
+    story_points: 5,
+    final_status: 'IN_PROGRESS',
+    disposition: 'carried' as const,
+    next_sprint_id: 's2',
+    next_sprint_name: 'Sprint 8',
+    was_pending: false,
+    ...over,
+  });
+
+  it('renders a "dropped" chip and the dropped count in the header', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          didnt_ship: [item({ task_short_id: 'T-500', disposition: 'dropped' })],
+          didnt_ship_summary: {
+            carried_count: 0,
+            carried_points: 0,
+            dropped_count: 1,
+            dropped_points: 5,
+          },
+        })}
+      />,
+    );
+    const list = screen.getByTestId('didnt-ship');
+    expect(list).toHaveTextContent('dropped');
+    expect(list).toHaveTextContent('1 dropped');
+    expect(list).not.toHaveTextContent('carried');
+  });
+
+  it('falls back to "next sprint" when the carry target has no name yet', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          didnt_ship: [item({ next_sprint_id: null, next_sprint_name: null })],
+        })}
+      />,
+    );
+    expect(screen.getByTestId('didnt-ship')).toHaveTextContent('→ next sprint');
+  });
+
+  it('renders no disposition chip for an item that was neither carried nor dropped', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          didnt_ship: [
+            item({
+              task_short_id: 'T-600',
+              task_title: 'Untriaged item',
+              disposition: 'none' as unknown as 'carried',
+            }),
+          ],
+        })}
+      />,
+    );
+    const list = screen.getByTestId('didnt-ship');
+    expect(list).toHaveTextContent('Untriaged item');
+    expect(list).not.toHaveTextContent('dropped');
+    expect(list).not.toHaveTextContent('→');
+  });
+});
+
+describe('SprintClosedOutcome — shipped-list edges + curation errors', () => {
+  it('shows the empty "no stories shipped" state when nothing shipped', () => {
+    render(<SprintClosedOutcome outcome={outcome({ review: review({ shipped: [] }) })} />);
+    expect(screen.getByText(/No stories shipped this sprint/i)).toBeInTheDocument();
+  });
+
+  it('omits the commitment line entirely when committed_count is null', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            commitment: { committed_count: null, shipped_count: 0, carried_count: null },
+          }),
+        })}
+      />,
+    );
+    expect(screen.queryByTestId('review-commitment-line')).toBeNull();
+  });
+
+  it('lets a curator remove an already-demoed story (fires toggle with false)', async () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({ review: review({ shipped: [shippedStory({ demo_ready: true })] }) })}
+        canCurateDemo
+      />,
+    );
+    const toggle = screen.getByRole('switch', { name: /Remove from demo list: Checkout flow/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(toggle);
+    expect(toggleMutate).toHaveBeenCalledWith({ outcomeId: 'o1', demoReady: false });
+  });
+
+  it('disables the demo toggle while a toggle mutation is pending', () => {
+    mutationState.toggleIsPending = true;
+    render(<SprintClosedOutcome outcome={outcome()} canCurateDemo />);
+    expect(screen.getByRole('switch', { name: /demo list/i })).toBeDisabled();
+  });
+
+  it('surfaces the demo-list error alert when the toggle mutation failed', () => {
+    mutationState.toggleIsError = true;
+    render(<SprintClosedOutcome outcome={outcome()} canCurateDemo />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/Couldn't update the demo list/i);
+  });
+
+  it('does not re-fire set-note when the note is blurred unchanged', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-not',
+                task_id: 't-not',
+                task_short_id: 'T-302',
+                task_title: 'Receipt email',
+                acceptance: { met: 0, total: 0 },
+                review_note: 'Existing note',
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    const note = screen.getByPlaceholderText(/Optional note for reviewers/i);
+    note.focus();
+    note.blur();
+    expect(noteMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe('SprintClosedOutcome — demo reorder (curator, ≥2 demo stories) #1130', () => {
+  const twoDemo = () =>
+    outcome({
+      review: review({
+        shipped: [
+          shippedStory({
+            outcome_id: 'o-a',
+            task_short_id: 'T-1',
+            task_title: 'Alpha story',
+            demo_ready: true,
+            demo_order: 0,
+          }),
+          shippedStory({
+            outcome_id: 'o-b',
+            task_short_id: 'T-2',
+            task_title: 'Beta story',
+            demo_ready: true,
+            demo_order: 1,
+          }),
+        ],
+      }),
+    });
+
+  it('renders drag handles and the reorder hint once there are 2+ demo stories', () => {
+    render(<SprintClosedOutcome outcome={twoDemo()} canCurateDemo />);
+    const sec = screen.getByTestId('sprint-review');
+    expect(sec).toHaveTextContent('2 for demo');
+    expect(sec).toHaveTextContent(/Drag the ⠿ handle to set demo order/i);
+    // One reorder handle per demo-flagged story.
+    expect(screen.getByRole('button', { name: /Reorder demo: Alpha story/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Reorder demo: Beta story/i })).toBeInTheDocument();
+  });
+
+  it('does not render drag handles for a read-only viewer even with 2 demo stories', () => {
+    render(<SprintClosedOutcome outcome={twoDemo()} canCurateDemo={false} />);
+    expect(screen.queryByRole('button', { name: /Reorder demo:/i })).toBeNull();
+    expect(screen.getByTestId('sprint-review')).not.toHaveTextContent('Drag the ⠿ handle');
+  });
+
+  it('surfaces the error alert when the reorder mutation failed', () => {
+    mutationState.reorderIsError = true;
+    render(<SprintClosedOutcome outcome={twoDemo()} canCurateDemo />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/Couldn't update the demo list/i);
+  });
+
+  it('wires the demo toggle and presenter input on a sortable row', async () => {
+    render(<SprintClosedOutcome outcome={twoDemo()} canCurateDemo />);
+    // Toggle off the first demo story from within the sortable list path.
+    await userEvent.click(
+      screen.getByRole('switch', { name: /Remove from demo list: Alpha story/i }),
+    );
+    expect(toggleMutate).toHaveBeenCalledWith({ outcomeId: 'o-a', demoReady: false });
+
+    // Presenter blur on a sortable demo-flagged row fires set-presenter.
+    const presenters = screen.getAllByLabelText('Presenter');
+    await userEvent.type(presenters[0], 'Sam');
+    presenters[0].blur();
+    expect(presenterMutate).toHaveBeenCalledWith({ outcomeId: 'o-a', presenter: 'Sam' });
+  });
+
+  it('wires note + flag-for-backlog on a demo-flagged, criteria-incomplete sortable row', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-a',
+                task_short_id: 'T-1',
+                task_title: 'Alpha story',
+                demo_ready: true,
+                acceptance: { met: 1, total: 2 },
+                unmet_criteria: [{ id: 'ac1', text: 'Edge case' }],
+              }),
+              shippedStory({
+                outcome_id: 'o-b',
+                task_short_id: 'T-2',
+                task_title: 'Beta story',
+                demo_ready: true,
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    // The flag-for-backlog button on the sortable incomplete row fires the mutation.
+    screen.getByRole('button', { name: /Flag for backlog/i }).click();
+    expect(flagMutate).toHaveBeenCalledWith({ outcomeId: 'o-a' });
   });
 });

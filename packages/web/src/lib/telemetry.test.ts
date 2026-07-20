@@ -48,8 +48,14 @@ describe('telemetry', () => {
   afterEach(() => {
     disableTelemetry();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
+
+  /** Decode every beacon body sent so far into parsed envelopes. */
+  async function beaconPayloads(): Promise<Array<Record<string, unknown>>> {
+    return Promise.all(beacon.mock.calls.map(([, blob]) => readBeaconBody(blob)));
+  }
 
   describe('getTelemetryEndpoint / isTelemetryEnabled', () => {
     it('returns null and disabled when nothing is configured', () => {
@@ -194,6 +200,191 @@ describe('telemetry', () => {
       const firstConstructed = constructed;
       initWebVitals();
       expect(constructed).toBe(firstConstructed);
+    });
+  });
+
+  // The observer callbacks and the page-hide flush hold the bulk of the vitals
+  // logic. A capturing observer records each callback by entry type so a test can
+  // feed it synthetic PerformanceEntries and assert the resulting beacons.
+  describe('initWebVitals — vital callbacks and flush', () => {
+    const callbacks: Record<string, (entries: PerformanceEntry[]) => void> = {};
+
+    class CapturingObserver {
+      private readonly cb: PerformanceObserverCallback;
+      constructor(cb: PerformanceObserverCallback) {
+        this.cb = cb;
+      }
+      observe(init: PerformanceObserverInit & { type?: string }): void {
+        const type = init.type ?? '';
+        callbacks[type] = (entries) =>
+          this.cb(
+            { getEntries: () => entries } as unknown as PerformanceObserverEntryList,
+            this as unknown as PerformanceObserver,
+          );
+      }
+      disconnect(): void {}
+      takeRecords(): PerformanceEntry[] {
+        return [];
+      }
+    }
+
+    function setVisibility(state: DocumentVisibilityState): void {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+    }
+
+    beforeEach(() => {
+      for (const key of Object.keys(callbacks)) delete callbacks[key];
+      enableTelemetry();
+      vi.stubGlobal('PerformanceObserver', CapturingObserver);
+      // Default: no navigation entry so no TTFB beacon muddies the vital assertions.
+      vi.spyOn(performance, 'getEntriesByType').mockReturnValue([]);
+    });
+
+    afterEach(() => {
+      // initWebVitals attaches anonymous visibilitychange/pagehide listeners that
+      // outlive the test. Force any closure still holding unflushed vitals to flush
+      // now (marking its `flushed` guard) so it can't fire — and beacon — during a
+      // later test's dispatch. Beacons emitted here hit the outgoing test's mock.
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('pagehide'));
+      setVisibility('visible');
+    });
+
+    it('reports FCP only for the first-contentful-paint paint entry', async () => {
+      initWebVitals();
+      callbacks.paint([
+        { name: 'first-paint', startTime: 10 } as PerformanceEntry,
+        { name: 'first-contentful-paint', startTime: 42 } as PerformanceEntry,
+      ]);
+
+      const payloads = await beaconPayloads();
+      const fcp = payloads.filter((p) => p.metric === 'FCP');
+      expect(fcp).toHaveLength(1);
+      expect(fcp[0]).toMatchObject({ type: 'web-vital', metric: 'FCP', value: 42 });
+      // first-paint must not produce a beacon.
+      expect(payloads.some((p) => p.value === 10)).toBe(false);
+    });
+
+    it('accumulates LCP/CLS/INP and flushes them once on visibility hidden', async () => {
+      initWebVitals();
+
+      // LCP keeps the latest candidate.
+      callbacks['largest-contentful-paint']([
+        { startTime: 100 } as PerformanceEntry,
+        { startTime: 250 } as PerformanceEntry,
+      ]);
+      // CLS sums only shifts NOT tied to a recent interaction.
+      callbacks['layout-shift']([
+        { value: 0.1, hadRecentInput: false } as unknown as PerformanceEntry,
+        { value: 0.05, hadRecentInput: true } as unknown as PerformanceEntry,
+      ]);
+      // INP tracks the worst interaction latency; the no-interactionId entry is ignored.
+      callbacks.event([
+        { interactionId: 1, duration: 80 } as unknown as PerformanceEntry,
+        { interactionId: 2, duration: 40 } as unknown as PerformanceEntry,
+        { duration: 500 } as unknown as PerformanceEntry,
+      ]);
+
+      // Nothing flushed yet — these evolve until page-hide.
+      expect((await beaconPayloads()).some((p) => p.metric === 'LCP')).toBe(false);
+
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      const payloads = await beaconPayloads();
+      expect(payloads.find((p) => p.metric === 'LCP')).toMatchObject({ value: 250 });
+      expect(payloads.find((p) => p.metric === 'CLS')).toMatchObject({ value: 0.1 });
+      expect(payloads.find((p) => p.metric === 'INP')).toMatchObject({ value: 80 });
+    });
+
+    it('flushes at most once even across a second hide/pagehide', () => {
+      initWebVitals();
+      callbacks['largest-contentful-paint']([{ startTime: 120 } as PerformanceEntry]);
+
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      const afterFirst = beacon.mock.calls.length;
+      expect(afterFirst).toBeGreaterThan(0);
+
+      // A second hide and a pagehide must not re-flush (the `flushed` guard).
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('pagehide'));
+      expect(beacon.mock.calls.length).toBe(afterFirst);
+    });
+
+    it('does not flush while the page is still visible', async () => {
+      initWebVitals();
+      callbacks['largest-contentful-paint']([{ startTime: 300 } as PerformanceEntry]);
+
+      // visibilitychange fires but state is 'visible' → the hidden-guard skips flush.
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect((await beaconPayloads()).some((p) => p.metric === 'LCP')).toBe(false);
+    });
+
+    it('emits no LCP/CLS/INP beacons when the vitals never moved off zero', () => {
+      initWebVitals();
+      // No callbacks invoked → lcp/cls/inp stay 0 → flush is a no-op.
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(beacon).not.toHaveBeenCalled();
+    });
+
+    it('skips TTFB when the navigation entry has responseStart 0', async () => {
+      vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
+        { entryType: 'navigation', responseStart: 0 } as unknown as PerformanceEntry,
+      ]);
+      initWebVitals();
+      expect((await beaconPayloads()).some((p) => p.metric === 'TTFB')).toBe(false);
+    });
+  });
+
+  describe('send edge cases', () => {
+    it('swallows a throwing sendBeacon and does not fall through to fetch', () => {
+      enableTelemetry();
+      beacon.mockImplementation(() => {
+        throw new Error('blocked by CSP');
+      });
+      expect(() => reportError(new Error('x'))).not.toThrow();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('is an inert no-op when neither sendBeacon nor fetch is available', () => {
+      enableTelemetry();
+      Object.defineProperty(navigator, 'sendBeacon', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+      vi.stubGlobal('fetch', undefined);
+      expect(() => reportError(new Error('x'))).not.toThrow();
+    });
+
+    it('omits the stack field when the Error carries no stack', async () => {
+      enableTelemetry();
+      const err = new Error('stackless');
+      Object.defineProperty(err, 'stack', { value: undefined, configurable: true });
+      reportError(err);
+      const [payload] = await beaconPayloads();
+      expect(payload).toMatchObject({ type: 'error', name: 'Error', message: 'stackless' });
+      expect(payload.stack).toBeUndefined();
+    });
+  });
+
+  describe('build-time endpoint fallback', () => {
+    it('falls back to VITE_TELEMETRY_ENDPOINT when no runtime config is set', () => {
+      disableTelemetry();
+      vi.stubEnv('VITE_TELEMETRY_ENDPOINT', ENDPOINT);
+      expect(getTelemetryEndpoint()).toBe(ENDPOINT);
+      expect(isTelemetryEnabled()).toBe(true);
+    });
+
+    it('lets the runtime window config win over the build-time env', () => {
+      vi.stubEnv('VITE_TELEMETRY_ENDPOINT', 'https://build.example.test/otlp');
+      enableTelemetry('https://runtime.example.test/otlp');
+      expect(getTelemetryEndpoint()).toBe('https://runtime.example.test/otlp');
     });
   });
 });

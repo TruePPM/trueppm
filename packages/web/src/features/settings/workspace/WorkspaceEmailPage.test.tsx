@@ -1,6 +1,7 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WorkspaceEmailPage } from './WorkspaceEmailPage';
+import { useSettingsSaveStore } from '../hooks/useSettingsSaveStore';
 import type { EmailSettings } from '@/hooks/useEmailSettings';
 
 const useEmailSettings = vi.fn();
@@ -54,6 +55,9 @@ beforeEach(() => {
   useSendTestEmail.mockReset();
   useEmailHealth.mockReset();
   mockHooks();
+  // The dirty-form save contract publishes onSave/onReset into this global
+  // store; reset it so a prior test's registration can't leak into the next.
+  useSettingsSaveStore.getState().reset();
 });
 
 describe('WorkspaceEmailPage (writable)', () => {
@@ -174,5 +178,301 @@ describe('WorkspaceEmailPage (writable)', () => {
     expect(screen.getByText(/Couldn.t load email settings/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(refetch).toHaveBeenCalled();
+  });
+});
+
+describe('WorkspaceEmailPage — SES provider', () => {
+  it('shows the region select and derives the relay host when SES is picked', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'ses' } });
+    const region = screen.getByLabelText<HTMLSelectElement>('SES region');
+    expect(region.value).toBe('us-east-1');
+    expect(screen.getByText('email-smtp.us-east-1.amazonaws.com · 587 · STARTTLS')).toBeInTheDocument();
+    // Credential placeholder switches to the API-key wording.
+    expect(screen.getByLabelText<HTMLInputElement>('API key / SMTP password').placeholder).toMatch(
+      /Paste API key/i,
+    );
+  });
+
+  it('recomputes the relay host when the region changes', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'ses' } });
+    fireEvent.change(screen.getByLabelText('SES region'), { target: { value: 'eu-west-1' } });
+    expect(screen.getByText('email-smtp.eu-west-1.amazonaws.com · 587 · STARTTLS')).toBeInTheDocument();
+  });
+
+  it('derives the SES provider and region from a saved SES relay host', () => {
+    mockHooks({ transport_mode: 'ses', host: 'email-smtp.ap-southeast-2.amazonaws.com' });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByLabelText<HTMLSelectElement>('Provider').value).toBe('ses');
+    expect(screen.getByLabelText<HTMLSelectElement>('SES region').value).toBe('ap-southeast-2');
+  });
+});
+
+describe('WorkspaceEmailPage — SendGrid provider', () => {
+  it('shows the SendGrid relay card and API-key credential label', () => {
+    mockHooks({ transport_mode: 'sendgrid', host: 'smtp.sendgrid.net' });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByLabelText<HTMLSelectElement>('Provider').value).toBe('sendgrid');
+    expect(screen.getByText(/smtp\.sendgrid\.net · 587 · STARTTLS/)).toBeInTheDocument();
+    expect(screen.getByLabelText('API key / SMTP password')).toBeInTheDocument();
+  });
+});
+
+describe('WorkspaceEmailPage — credential field', () => {
+  it('toggles the password between hidden and visible', () => {
+    mockHooks({ transport_mode: 'smtp', host: 'mail.example.com' });
+    render(<WorkspaceEmailPage />);
+    const pw = screen.getByLabelText<HTMLInputElement>('Password');
+    expect(pw.type).toBe('password');
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
+    expect(screen.getByLabelText<HTMLInputElement>('Password').type).toBe('text');
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }));
+    expect(screen.getByLabelText<HTMLInputElement>('Password').type).toBe('password');
+  });
+
+  it('shows the Fastmail App-Password hint when no secret is set', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'fastmail' } });
+    expect(screen.getByLabelText('App password')).toBeInTheDocument();
+    expect(screen.getByText(/Use an App Password, not your account password/i)).toBeInTheDocument();
+  });
+
+  it('auto-expands Advanced when a preset host diverges from its default', () => {
+    // Gmail host but a non-default port → prior customization must be visible.
+    mockHooks({ transport_mode: 'smtp', host: 'smtp.gmail.com', port: 2525, security: 'tls' });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByLabelText<HTMLSelectElement>('Provider').value).toBe('gmail');
+    expect(screen.getByRole('button', { name: /Advanced — server settings/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+});
+
+describe('WorkspaceEmailPage — Security select', () => {
+  it('updates the inline hint as the security mode changes', () => {
+    mockHooks({ transport_mode: 'smtp', host: 'mail.example.com', security: 'tls' });
+    render(<WorkspaceEmailPage />);
+    // Security select is present (custom provider renders transport fields flat).
+    fireEvent.change(screen.getByRole('combobox', { name: 'Security' }), {
+      target: { value: 'ssl' },
+    });
+    expect(screen.getByText(/Encrypted from the first byte/i)).toBeInTheDocument();
+    // Back to None → the plaintext warning callout appears.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Security' }), {
+      target: { value: 'none' },
+    });
+    expect(screen.getByText('Unencrypted connection')).toBeInTheDocument();
+  });
+});
+
+describe('WorkspaceEmailPage — save contract', () => {
+  it('composes the SES relay host and PUTs the form on save', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'ses' } });
+    fireEvent.change(screen.getByLabelText('SES region'), { target: { value: 'eu-central-1' } });
+    // Make the form dirty so triggerSave runs this section.
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transport_mode: 'ses',
+        host: 'email-smtp.eu-central-1.amazonaws.com',
+      }),
+    );
+  });
+
+  it('PUTs the edited From name and re-snapshots clean on success', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('From name'), { target: { value: 'Ops Bot' } });
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ from_name: 'Ops Bot' }));
+    // Success re-snapshots initial to the saved values → section is clean again.
+    await waitFor(() => expect(useSettingsSaveStore.getState().dirty).toBe(false));
+  });
+
+  it('surfaces a DRF field error inline and keeps the entered values on save failure', async () => {
+    const mutateAsync = vi.fn().mockRejectedValue({
+      response: { data: { host: ['Could not connect to that host.'] } },
+    });
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    mockHooks({ transport_mode: 'smtp', host: 'mail.example.com' });
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('SMTP host'), { target: { value: 'bad.host' } });
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(await screen.findByText('Transport validation failed')).toBeInTheDocument();
+    expect(screen.getByText('Could not connect to that host.')).toBeInTheDocument();
+    // The bad value is kept for the operator to correct.
+    expect(screen.getByLabelText<HTMLInputElement>('SMTP host').value).toBe('bad.host');
+  });
+
+  it('falls back to a generic message for a non-DRF error', async () => {
+    const mutateAsync = vi.fn().mockRejectedValue(new Error('network down'));
+    mockHooks({ transport_mode: 'smtp', host: 'mail.example.com' });
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('SMTP host'), { target: { value: 'other.host' } });
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(await screen.findByText(/Could not save the email settings/i)).toBeInTheDocument();
+  });
+
+  it('reverts every field and re-derives the provider on discard', async () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('From name'), { target: { value: 'Changed' } });
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+
+    act(() => {
+      useSettingsSaveStore.getState().triggerDiscard();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText<HTMLInputElement>('From name').value).toBe('TrueScope'),
+    );
+    expect(useSettingsSaveStore.getState().dirty).toBe(false);
+  });
+});
+
+describe('WorkspaceEmailPage — send test email', () => {
+  it('dispatches the test-send mutation when the saved form is clean', () => {
+    const mutate = vi.fn();
+    useSendTestEmail.mockReturnValue({ mutate, isPending: false, data: undefined });
+    render(<WorkspaceEmailPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send test email' }));
+    expect(mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the test-send button and explains why while the form is dirty', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('From name'), { target: { value: 'Dirty' } });
+    expect(screen.getByRole('button', { name: 'Send test email' })).toBeDisabled();
+    expect(screen.getByText(/Save your changes first to test the new transport/i)).toBeInTheDocument();
+  });
+
+  it('renders the send-test failure result', () => {
+    useSendTestEmail.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: { sent: false, error: 'Connection refused' },
+    });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByText(/✗ Connection refused/)).toBeInTheDocument();
+  });
+
+  it('shows the pending label while a test send is in flight', () => {
+    useSendTestEmail.mockReturnValue({ mutate: vi.fn(), isPending: true, data: undefined });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByRole('button', { name: 'Sending…' })).toBeDisabled();
+  });
+});
+
+describe('WorkspaceEmailPage — deliverability health', () => {
+  it('triggers the health check and renders per-record chips with their statuses', () => {
+    const refetch = vi.fn();
+    useEmailHealth.mockReturnValue({
+      data: { available: true, domain: 'truescope.io', spf: 'pass', dkim: 'warn', dmarc: 'fail' },
+      isFetching: false,
+      refetch,
+    });
+    render(<WorkspaceEmailPage />);
+    // Button reads "Re-check" once data exists.
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    expect(refetch).toHaveBeenCalled();
+    // Each record's word-status renders.
+    expect(screen.getByText('Pass')).toBeInTheDocument();
+    expect(screen.getByText('Warn')).toBeInTheDocument();
+    expect(screen.getByText('Fail')).toBeInTheDocument();
+  });
+
+  it('shows the unavailable message when the server cannot run checks', () => {
+    useEmailHealth.mockReturnValue({
+      data: { available: false, domain: '', spf: 'unknown', dkim: 'unknown', dmarc: 'unknown' },
+      isFetching: false,
+      refetch: vi.fn(),
+    });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByText(/Deliverability checks are unavailable/i)).toBeInTheDocument();
+  });
+
+  it('shows the checking label and disables the button while fetching', () => {
+    useEmailHealth.mockReturnValue({ data: undefined, isFetching: true, refetch: vi.fn() });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByRole('button', { name: 'Checking…' })).toBeDisabled();
+  });
+});
+
+describe('WorkspaceEmailPage — field editing', () => {
+  it('edits every From-identity and delivery field and PUTs the new values', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('Reply-to address'), {
+      target: { value: 'support@truescope.io' },
+    });
+    fireEvent.change(screen.getByLabelText('DKIM selector'), { target: { value: 'sel1' } });
+    fireEvent.change(screen.getByLabelText('Max recipients'), { target: { value: '25' } });
+    fireEvent.change(screen.getByLabelText('Throttle per minute'), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText('Bounce webhook URL'), {
+      target: { value: 'https://hooks.truescope.io/bounce' },
+    });
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reply_to: 'support@truescope.io',
+        dkim_selector: 'sel1',
+        max_recipients: 25,
+        throttle_per_min: 10,
+        bounce_webhook_url: 'https://hooks.truescope.io/bounce',
+      }),
+    );
+  });
+
+  it('edits the SES username and the write-only credential', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    mockHooks({ transport_mode: 'ses', host: 'email-smtp.us-east-1.amazonaws.com' });
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('SES SMTP username'), { target: { value: 'AKIA123' } });
+    fireEvent.change(screen.getByLabelText('API key / SMTP password'), {
+      target: { value: 'secret-key' },
+    });
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ username: 'AKIA123', password: 'secret-key' }),
+    );
   });
 });

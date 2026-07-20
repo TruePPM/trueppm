@@ -1970,3 +1970,692 @@ describe('per-cell card cap (issue 1967, ADR-0420)', () => {
     expect(screen.getByRole('checkbox', { name: /Cap tall cells/i })).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Card sort order (sortTasksBy) — the Sort chip reorders every column's stack.
+// Each sort key produces a distinct order for the fixture below so the three
+// branches (priority / start_date / percent_complete) are exercised, not just
+// selected.
+// ---------------------------------------------------------------------------
+describe('card sort order (Sort chip)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  // Three leaf cards in a single TO DO (NOT_STARTED) root cell whose priority,
+  // start date, and progress each impose a *different* order.
+  const sortLeaf = (
+    id: string,
+    name: string,
+    o: { priorityRank: number; start: string; progress: number },
+  ): Task => ({
+    ...FIXTURE_TASKS[4], // t5: NOT_STARTED, unassigned, committed
+    id,
+    name,
+    isSummary: false,
+    isMilestone: false,
+    isCritical: false,
+    parentId: null,
+    status: 'NOT_STARTED',
+    priorityRank: o.priorityRank,
+    start: o.start,
+    plannedStart: o.start,
+    progress: o.progress,
+  });
+
+  function setSortCards() {
+    mockTasks = [
+      sortLeaf('a', 'Apple', { priorityRank: 2, start: '2026-03-01', progress: 10 }),
+      sortLeaf('b', 'Banana', { priorityRank: 3, start: '2026-01-01', progress: 50 }),
+      sortLeaf('c', 'Cherry', { priorityRank: 1, start: '2026-02-01', progress: 90 }),
+    ];
+  }
+
+  const cardOrder = () =>
+    screen
+      .getAllByRole('button', { name: /% complete/i })
+      .map((b) => b.getAttribute('aria-label')!.split(',')[0]);
+
+  async function chooseSort(user: UE, optionLabel: string) {
+    await user.click(screen.getByRole('button', { name: 'Sort tasks by' }));
+    await user.click(screen.getByRole('radio', { name: optionLabel }));
+  }
+
+  it('sorts by priority rank ascending (lowest rank first)', async () => {
+    const user = userEvent.setup();
+    setSortCards();
+    renderBoard();
+    await chooseSort(user, 'Priority');
+    // rank 1 (Cherry) → 2 (Apple) → 3 (Banana)
+    expect(cardOrder()).toEqual(['Cherry', 'Apple', 'Banana']);
+  });
+
+  it('sorts by start date ascending (earliest first)', async () => {
+    const user = userEvent.setup();
+    setSortCards();
+    renderBoard();
+    await chooseSort(user, 'Start date');
+    // Jan (Banana) → Feb (Cherry) → Mar (Apple)
+    expect(cardOrder()).toEqual(['Banana', 'Cherry', 'Apple']);
+  });
+
+  it('sorts by percent complete descending (most complete first)', async () => {
+    const user = userEvent.setup();
+    setSortCards();
+    renderBoard();
+    await chooseSort(user, '% complete');
+    // 90 (Cherry) → 50 (Banana) → 10 (Apple)
+    expect(cardOrder()).toEqual(['Cherry', 'Banana', 'Apple']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Swimlane grouping (Group chip) — assignee and epic lenses build lanes from a
+// different axis than the default WBS phase grouping.
+// ---------------------------------------------------------------------------
+describe('swimlane grouping (Group chip)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  async function chooseGroup(user: UE, optionLabel: string) {
+    await user.click(screen.getByRole('button', { name: 'Group lanes by' }));
+    await user.click(screen.getByRole('radio', { name: optionLabel }));
+  }
+
+  it('groups lanes by primary assignee with an Unassigned lane pinned last', async () => {
+    const user = userEvent.setup();
+    renderBoard(); // default fixture has Alice/Bob/Carol assignees + unassigned t5/t6
+    await chooseGroup(user, 'By assignee');
+
+    // A lane per primary assignee (t2/t3 → Alice, t7 → Bob, t4 → Carol) …
+    expect(screen.getByRole('group', { name: 'Alice Chen swimlane' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Bob Martinez swimlane' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Carol Park swimlane' })).toBeInTheDocument();
+    // … plus the catch-all for the unassigned leaves (t5 QA, t6 Go-Live).
+    expect(screen.getByRole('group', { name: 'Unassigned swimlane' })).toBeInTheDocument();
+    // The WBS phase lane header is gone in assignee mode.
+    expect(
+      screen.queryByRole('group', { name: 'Alpha Platform Upgrade swimlane' }),
+    ).toBeNull();
+  });
+
+  it('collapses every card into a single "(No epic)" lane when no task has a parent epic', async () => {
+    const user = userEvent.setup();
+    renderBoard(); // fixture tasks carry no parentEpic
+    await chooseGroup(user, 'By epic');
+
+    expect(screen.getByRole('group', { name: '(No epic) swimlane' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Unassigned swimlane' })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mobile snap-scroll board (v3 case 8). Rendered only when the viewport reports
+// the mobile tier — the phase × status grid collapses to per-status pages.
+// ---------------------------------------------------------------------------
+describe('mobile snap-scroll board', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(makeMq(true));
+    // Without an *explicit* layout choice the board auto-selects the queue layout
+    // on mobile (resolveBoardLayout), which suppresses MobileBoard. Pin an explicit
+    // 'rail' layout so the snap-scroll board renders on the mobile tier.
+    localStorage.setItem('trueppm.board.toolbarPrefs.v1', JSON.stringify({ layout: 'rail' }));
+    // jsdom has no layout — stub the scroll used by tap-to-jump.
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('renders the snap-scroll scroller with one page per visible status column', () => {
+    renderBoard();
+    expect(screen.getByTestId('mobile-board-scroller')).toBeInTheDocument();
+    // BACKLOG is lifted to the band (ADR-0057); the four grid statuses page.
+    const pages = screen
+      .getByTestId('mobile-board-scroller')
+      .querySelectorAll('[data-mobile-column="true"]');
+    expect(pages).toHaveLength(4);
+  });
+
+  it('renders the per-column empty prompt for a status with no cards', () => {
+    renderBoard(); // REVIEW holds 0 fixture cards
+    expect(screen.getByText('Nothing here yet — drag a card in.')).toBeInTheDocument();
+  });
+
+  it('surfaces each column as a labeled region with its task count', () => {
+    renderBoard();
+    // IN_PROGRESS holds t3/t4/t7 → 3 cards.
+    expect(screen.getByRole('region', { name: 'IN PROGRESS, 3 tasks' })).toBeInTheDocument();
+    // NOT_STARTED holds t5/t6 → 2 cards.
+    expect(screen.getByRole('region', { name: 'TO DO, 2 tasks' })).toBeInTheDocument();
+  });
+
+  it('tapping a strip segment jumps to and marks that column active', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    renderBoard();
+    // The strip's first segment (TO DO) starts active.
+    const todoSeg = screen.getByRole('button', { name: 'TO DO, 2 tasks' });
+    expect(todoSeg).toHaveAttribute('aria-current', 'true');
+
+    // Jump to DONE — scrollIntoView is invoked and the active marker moves.
+    const doneSeg = screen.getByRole('button', { name: 'DONE, 1 task' });
+    await user.click(doneSeg);
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(doneSeg).toHaveAttribute('aria-current', 'true');
+    expect(todoSeg).not.toHaveAttribute('aria-current');
+  });
+
+  it('does not render the desktop phase swimlane grid on mobile', () => {
+    renderBoard();
+    expect(screen.queryByRole('group', { name: 'Alpha Platform Upgrade swimlane' })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board zoom stepper (issue 379) — an independent spacing axis from Density.
+// ---------------------------------------------------------------------------
+describe('board zoom stepper', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  it('steps zoom up and down and persists the choice, board still renders', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    // BoardZoomControl exposes two stepper buttons.
+    const zoomIn = screen.getByRole('button', { name: /zoom in/i });
+    const zoomOut = screen.getByRole('button', { name: /zoom out/i });
+    await user.click(zoomIn);
+    // Board is unaffected structurally — phase lane still present.
+    expect(screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' })).toBeInTheDocument();
+    await user.click(zoomOut);
+    expect(screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Queue layout (effectiveLayout === 'queue') — the flat, priority-ordered list
+// alternative to the phase × status grid.
+// ---------------------------------------------------------------------------
+describe('queue layout', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+    // Explicit queue layout — on desktop resolveBoardLayout returns the stored
+    // value verbatim, so the queue list renders in place of the phase grid.
+    localStorage.setItem('trueppm.board.toolbarPrefs.v1', JSON.stringify({ layout: 'queue' }));
+  });
+
+  it('renders the flat queue list (rows) instead of the phase swimlane grid', () => {
+    renderBoard();
+    // Leaf fixture tasks become queue rows …
+    expect(screen.getByTestId('queue-row-t3')).toBeInTheDocument();
+    expect(screen.getByTestId('queue-row-t7')).toBeInTheDocument();
+    // … and the phase-grid swimlane is not rendered in queue mode.
+    expect(screen.queryByRole('group', { name: 'Alpha Platform Upgrade swimlane' })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lens filters (At-risk / Tech debt) in the queue layout — the quiet pill
+// toggles remove non-matching rows from the flat queue (queueTasks filter).
+// ---------------------------------------------------------------------------
+describe('lens filters (At-risk / Tech debt)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+    localStorage.setItem('trueppm.board.toolbarPrefs.v1', JSON.stringify({ layout: 'queue' }));
+  });
+
+  const leaf = (id: string, name: string, extra: Partial<Task> = {}): Task => ({
+    ...FIXTURE_TASKS[4], // NOT_STARTED, unassigned, committed
+    id,
+    name,
+    isSummary: false,
+    isMilestone: false,
+    isCritical: false,
+    parentId: null,
+    status: 'NOT_STARTED',
+    assignees: [],
+    ...extra,
+  });
+
+  it('At-risk toggle removes cards with no linked risk from the queue', async () => {
+    const user = userEvent.setup();
+    mockTasks = [
+      leaf('risky', 'Has Risk', { linkedRisksCount: 2 }),
+      leaf('clean', 'No Risk', { linkedRisksCount: 0 }),
+    ];
+    renderBoard();
+    // Both rows present before the lens is applied.
+    expect(screen.getByTestId('queue-row-risky')).toBeInTheDocument();
+    expect(screen.getByTestId('queue-row-clean')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Risk-linked only' }));
+    expect(screen.getByTestId('queue-row-risky')).toBeInTheDocument();
+    expect(screen.queryByTestId('queue-row-clean')).toBeNull();
+  });
+
+  it('Tech debt toggle removes non-tech-debt cards from the queue', async () => {
+    const user = userEvent.setup();
+    mockTasks = [
+      leaf('debt', 'Refactor', { taskType: 'tech_debt' }),
+      leaf('feature', 'New Feature', { taskType: 'task' }),
+    ];
+    renderBoard();
+    expect(screen.getByTestId('queue-row-debt')).toBeInTheDocument();
+    expect(screen.getByTestId('queue-row-feature')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Tech-debt only' }));
+    expect(screen.getByTestId('queue-row-debt')).toBeInTheDocument();
+    expect(screen.queryByTestId('queue-row-feature')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Workshop exit-confirm dialog focus trap (Tab cycling). The Escape path is
+// covered above; this exercises the Tab / Shift+Tab wrap.
+// ---------------------------------------------------------------------------
+describe('workshop exit dialog focus trap', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  async function openExitDialog(user: UE) {
+    mockWorkshopSession = {
+      id: 'session-uuid',
+      project_id: 'project-1',
+      started_by_id: 'user-1',
+      started_at: '2026-04-29T10:00:00Z',
+      ended_at: null,
+      participants: [],
+    };
+    startWorkshopMutate.mockImplementation(
+      (_input: undefined, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
+    );
+    renderBoard();
+    await openMore(user);
+    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
+    await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
+    return screen.getByRole('dialog', { name: /End workshop session/ });
+  }
+
+  it('Tab from the last control wraps focus to the first', async () => {
+    const user = userEvent.setup();
+    const dialog = await openExitDialog(user);
+    const buttons = within(dialog).getAllByRole('button');
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    last.focus();
+    expect(document.activeElement).toBe(last);
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('Shift+Tab from the first control wraps focus to the last', async () => {
+    const user = userEvent.setup();
+    const dialog = await openExitDialog(user);
+    const buttons = within(dialog).getAllByRole('button');
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    first.focus();
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Collapsed-column WIP-breach popover (issue 1459, VoC Alex). Folding a column
+// that sits at/over its WIP limit keeps the breach visible as a tappable chip
+// in the collapsed-columns banner; the popover lists every breaching column and
+// each row re-expands its column. Default fixture: IN_PROGRESS holds t3/t4/t7 =
+// 3 cards against its limit of 3 → an at-limit breach the instant it folds.
+// ---------------------------------------------------------------------------
+describe('collapsed-column WIP breach popover (#1459)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  const collapse = (user: UE, label: string) =>
+    user.click(screen.getByRole('button', { name: `Collapse ${label} column` }));
+
+  it('surfaces an "at WIP limit" breach chip when a full column is collapsed', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await collapse(user, 'IN PROGRESS');
+
+    expect(screen.getByTestId('collapsed-columns-banner')).toHaveTextContent('1 column collapsed');
+    const trigger = screen.getByTestId('collapsed-wip-trigger');
+    expect(trigger).toHaveTextContent('1 at WIP limit');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // The folded column renders as a header stub, not a full column.
+    expect(screen.getByTestId('column-stub-IN_PROGRESS')).toBeInTheDocument();
+  });
+
+  it('opens the breach popover and re-expands the column from a row click', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await collapse(user, 'IN PROGRESS');
+
+    await user.click(screen.getByTestId('collapsed-wip-trigger'));
+    const popover = screen.getByTestId('collapsed-wip-popover');
+    expect(popover).toBeInTheDocument();
+    // The row carries the column label, its N/limit, and the at/over verdict.
+    const row = within(popover).getByRole('button', {
+      name: 'Expand IN PROGRESS column, 3 of 3, at limit',
+    });
+    await user.click(row);
+    // Column restored (stub gone) and popover dismissed.
+    expect(screen.queryByTestId('column-stub-IN_PROGRESS')).toBeNull();
+    expect(screen.queryByTestId('collapsed-wip-popover')).toBeNull();
+  });
+
+  it('closes the breach popover on Escape', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await collapse(user, 'IN PROGRESS');
+    await user.click(screen.getByTestId('collapsed-wip-trigger'));
+    expect(screen.getByTestId('collapsed-wip-popover')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByTestId('collapsed-wip-popover')).toBeNull();
+  });
+
+  it('closes the breach popover on an outside pointerdown', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await collapse(user, 'IN PROGRESS');
+    await user.click(screen.getByTestId('collapsed-wip-trigger'));
+    expect(screen.getByTestId('collapsed-wip-popover')).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByTestId('collapsed-wip-popover')).toBeNull();
+  });
+
+  it('"Expand all →" restores every collapsed column and clears the banner', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await collapse(user, 'IN PROGRESS');
+    await collapse(user, 'DONE');
+    expect(screen.getByTestId('collapsed-columns-banner')).toHaveTextContent(
+      '2 columns collapsed',
+    );
+
+    await user.click(screen.getByTestId('expand-all-columns'));
+    expect(screen.queryByTestId('collapsed-columns-banner')).toBeNull();
+    expect(screen.queryByTestId('column-stub-IN_PROGRESS')).toBeNull();
+  });
+
+  it('shows no breach chip when only an under-limit column is collapsed', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    // DONE holds one card and carries no WIP limit → banner, but no breach chip.
+    await collapse(user, 'DONE');
+    expect(screen.getByTestId('collapsed-columns-banner')).toBeInTheDocument();
+    expect(screen.queryByTestId('collapsed-wip-trigger')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase-lane focus mode (issue 1460, ADR-0192 Part 3). Focusing a lane zooms
+// the board to that single lane (?focus=<id>) and renders an inescapable exit
+// banner so a board narrowed to one lane never reads as "lost lanes".
+// ---------------------------------------------------------------------------
+describe('phase-lane focus mode (#1460)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  it('focusing a lane hides the other lanes and shows an escape banner', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    // Both the Alpha phase lane and the Project Tasks (root) lane render by default.
+    expect(
+      screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Project Tasks swimlane' })).toBeInTheDocument();
+
+    // Focus the Alpha lane via its focus toggle (keyed by summary-task id t1).
+    await user.click(screen.getByTestId('focus-lane-t1'));
+
+    const banner = screen.getByTestId('focus-banner');
+    expect(banner).toHaveTextContent('Alpha Platform Upgrade');
+    // Only the focused lane survives; the root lane is hidden.
+    expect(
+      screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Project Tasks swimlane' })).toBeNull();
+  });
+
+  it('exits focus mode from the banner, restoring all lanes', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByTestId('focus-lane-t1'));
+    expect(screen.getByTestId('focus-banner')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('exit-focus'));
+    expect(screen.queryByTestId('focus-banner')).toBeNull();
+    expect(screen.getByRole('group', { name: 'Project Tasks swimlane' })).toBeInTheDocument();
+  });
+
+  it('re-clicking the focused lane toggle clears focus', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByTestId('focus-lane-t1'));
+    expect(screen.getByTestId('focus-banner')).toBeInTheDocument();
+    // The toggle is now pressed; clicking it again exits focus.
+    expect(screen.getByTestId('focus-lane-t1')).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByTestId('focus-lane-t1'));
+    expect(screen.queryByTestId('focus-banner')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Keyboard card navigation (issue #195). J/K move focus within a status column
+// across phases; L/H move across columns within a phase, skipping empty cells.
+// Focus is set by a pointer-down on a card (no popover) and the keyboard-focus
+// ring class (unique `ring-offset-neutral-surface-sunken`) marks the target.
+// ---------------------------------------------------------------------------
+describe('keyboard card navigation (#195)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  const FOCUS_RING = 'ring-offset-neutral-surface-sunken';
+  // A card's child controls (chain icon, ··· menu) also match by accessible
+  // name; the draggable root is the one carrying aria-roledescription.
+  const card = (name: RegExp): HTMLElement =>
+    screen
+      .getAllByRole('button', { name })
+      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+
+  it('j/k move focus down and up within a column across phases', () => {
+    renderBoard();
+    // IN_PROGRESS flat order across phases: t3, t4 (Alpha) then t7 (root).
+    const t3 = card(/Backend Implementation/);
+    fireEvent.pointerDown(t3);
+    expect(t3.className).toContain(FOCUS_RING);
+
+    fireEvent.keyDown(window, { key: 'j' });
+    expect(card(/Frontend Build/).className).toContain(FOCUS_RING);
+    expect(card(/Backend Implementation/).className).not.toContain(FOCUS_RING);
+
+    fireEvent.keyDown(window, { key: 'j' });
+    expect(card(/Documentation/).className).toContain(FOCUS_RING);
+
+    fireEvent.keyDown(window, { key: 'k' });
+    expect(card(/Frontend Build/).className).toContain(FOCUS_RING);
+    expect(card(/Documentation/).className).not.toContain(FOCUS_RING);
+  });
+
+  it('l/h move focus across columns within a phase, skipping the empty REVIEW cell', () => {
+    renderBoard();
+    // Focus t3 in the Alpha lane's IN_PROGRESS column.
+    fireEvent.pointerDown(card(/Backend Implementation/));
+
+    // Right → next non-empty column is COMPLETE (t2); REVIEW between is empty.
+    fireEvent.keyDown(window, { key: 'l' });
+    expect(card(/Discovery & Design/).className).toContain(FOCUS_RING);
+
+    // Left from COMPLETE → wraps back through empty REVIEW to IN_PROGRESS (t3).
+    fireEvent.keyDown(window, { key: 'h' });
+    expect(card(/Backend Implementation/).className).toContain(FOCUS_RING);
+    expect(card(/Discovery & Design/).className).not.toContain(FOCUS_RING);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lens filter chips in the phase grid (My tasks / Tech debt / At-risk). The
+// quiet toolbar toggles narrow the grid AND surface an inescapable chip so a
+// filtered board never reads as data loss.
+// ---------------------------------------------------------------------------
+describe('lens filter chips in the phase grid', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  // A card's child controls share its accessible name; count only draggable roots.
+  const cardRootCount = (name: RegExp) =>
+    screen
+      .queryAllByRole('button', { name })
+      .filter((el) => el.getAttribute('aria-roledescription') === 'draggable').length;
+
+  it('Tech-debt lens hides non-debt cards, shows a chip, and "Show all →" restores', async () => {
+    const user = userEvent.setup();
+    mockTasks = [
+      { ...FIXTURE_TASKS[2], id: 'debt', name: 'Debt Card', parentId: null, taskType: 'tech_debt' },
+      { ...FIXTURE_TASKS[2], id: 'feat', name: 'Feature Card', parentId: null, taskType: 'task' },
+    ];
+    renderBoard();
+    expect(cardRootCount(/Debt Card/)).toBe(1);
+    expect(cardRootCount(/Feature Card/)).toBe(1);
+
+    await user.click(screen.getByRole('button', { name: 'Tech-debt only' }));
+    expect(screen.getByText('Filter: Tech debt')).toBeInTheDocument();
+    expect(cardRootCount(/Debt Card/)).toBe(1);
+    expect(cardRootCount(/Feature Card/)).toBe(0);
+
+    await user.click(screen.getByRole('button', { name: 'Show all →' }));
+    expect(screen.queryByText('Filter: Tech debt')).toBeNull();
+    expect(cardRootCount(/Feature Card/)).toBe(1);
+  });
+
+  it('At-risk lens hides phases whose tasks carry no linked risk', async () => {
+    const user = userEvent.setup();
+    // Alpha lane tasks have no linked risks; give the root Documentation task one.
+    mockTasks = [
+      ...FIXTURE_TASKS.slice(0, 6),
+      { ...FIXTURE_TASKS[6], linkedRisksCount: 1 },
+    ];
+    renderBoard();
+    expect(
+      screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Risk-linked only' }));
+    // The Alpha lane (no risk-linked tasks) drops out; the root lane survives.
+    expect(screen.queryByRole('group', { name: 'Alpha Platform Upgrade swimlane' })).toBeNull();
+    expect(screen.getByRole('group', { name: 'Project Tasks swimlane' })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Empty-state create affordance. With no leaf cards the board shows the "No
+// tasks yet" empty state whose "+ Add task" button opens the create modal.
+// ---------------------------------------------------------------------------
+describe('empty-state create affordance', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  it('opens the create modal from the "No tasks yet" empty state', async () => {
+    const user = userEvent.setup();
+    mockTasks = [FIXTURE_TASKS[0]]; // summary only — no leaf cards, no backlog
+    renderBoard();
+    expect(screen.getByText('No tasks yet')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '+ Add task' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Activity feed panel toggle (ADR-0160, issue 1261). A first-class board
+// surface toggled from the toolbar; the open state persists per project.
+// ---------------------------------------------------------------------------
+describe('activity feed panel toggle (ADR-0160)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  it('toggles the activity feed open/closed and persists the choice per project', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    const toggle = screen.getByRole('button', { name: 'Board activity feed' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(window.localStorage.getItem('trueppm.board.project-1.activityPanel.open')).toBe('true');
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(window.localStorage.getItem('trueppm.board.project-1.activityPanel.open')).toBe('false');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Public board share (#1486). Admin+ actors get a "Share this board" item in
+// the More overflow that opens the ShareViewDialog. The mocked role is 300
+// (ADMIN) so the affordance is present.
+// ---------------------------------------------------------------------------
+describe('public board share (#1486)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  it('opens the share dialog from the More menu for an admin', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await openMore(user);
+    await user.click(screen.getByRole('button', { name: 'Share this board with a public link' }));
+    // ShareViewDialog mounts — its create-mode "Link expiry" control is unique to it.
+    expect(await screen.findByLabelText('Link expiry')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mobile create FAB (issue 605). On a phone the floating "+" opens the create
+// modal targeting the group in view (the snapped-to status column).
+// ---------------------------------------------------------------------------
+describe('mobile create FAB (#605)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(makeMq(true));
+    // Pin an explicit 'rail' layout so the mobile snap board (not the queue) renders.
+    localStorage.setItem('trueppm.board.toolbarPrefs.v1', JSON.stringify({ layout: 'rail' }));
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('opens the create modal targeting the visible status column', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    // The FAB is the only "Add task" affordance on the mobile snap board.
+    await user.click(screen.getByRole('button', { name: 'Add task' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+});

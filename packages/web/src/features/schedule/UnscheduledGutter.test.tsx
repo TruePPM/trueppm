@@ -8,7 +8,7 @@
  *  - per-section role="status" empty rows (never hide one while the other fills)
  *  - backlog chips carry the dashed left edge + readiness label variant
  */
-import { screen, within, waitFor } from '@testing-library/react';
+import { screen, within, waitFor, fireEvent, render as rtlRender } from '@testing-library/react';
 import { renderWithProviders as render } from '@/test/utils';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -17,8 +17,12 @@ import type { ApiSprint, Task } from '@/types';
 import { UnscheduledGutter } from './UnscheduledGutter';
 import { useScheduleStore } from '@/stores/scheduleStore';
 
+const { patchMock } = vi.hoisted(() => ({
+  patchMock: vi.fn(() => Promise.resolve({ data: {} })),
+}));
+
 vi.mock('@/api/client', () => ({
-  apiClient: { patch: vi.fn().mockResolvedValue({ data: {} }) },
+  apiClient: { patch: patchMock },
 }));
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -74,6 +78,13 @@ function renderGutter(tasks: Task[], sprints?: ApiSprint[]): ReturnType<typeof r
 
 beforeEach(() => {
   localStorage.removeItem('trueppm.gantt.unscheduledGutter.collapsed');
+  patchMock.mockClear();
+  // navigator.onLine defaults true in jsdom; restore it so an offline test
+  // that flips it can't bleed into the next case.
+  Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+  // The reveal-bridge test writes revealGutterSprint into the global zustand
+  // store; without a reset it force-expands a collapsed tray in later tests.
+  useScheduleStore.setState({ revealGutterSprint: null, scheduleActionToast: null });
 });
 
 describe('UnscheduledGutter — two-section tray', () => {
@@ -230,5 +241,132 @@ describe('UnscheduledGutter — reveal bridge (#1798)', () => {
     // The tray expands (group renders) and the group is scrolled into view.
     expect(await screen.findByText('Stretch item')).toBeInTheDocument();
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+  });
+});
+
+describe('UnscheduledGutter — collapse / empty header states', () => {
+  it('renders the empty header note and no collapse control when there are no tasks', () => {
+    renderGutter([]);
+    expect(screen.getByText('(0)')).toBeInTheDocument();
+    expect(
+      screen.getByText('All To Do and Backlog tasks have planned dates'),
+    ).toBeInTheDocument();
+    // The collapse/expand button is gated on totalCount > 0.
+    expect(screen.queryByRole('button', { name: /unscheduled tasks/i })).toBeNull();
+    // And with an empty list the tray itself is not rendered.
+    expect(screen.queryByText(/To Do · Unscheduled/)).toBeNull();
+  });
+
+  it('collapses the tray and persists the choice, then re-expands', () => {
+    renderGutter([makeTask({ id: 'a', name: 'Wire login', status: 'NOT_STARTED' })]);
+
+    // Expanded by default: the To Do sub-header is visible.
+    expect(screen.getByText('To Do · Unscheduled (1)')).toBeInTheDocument();
+
+    const collapseBtn = screen.getByRole('button', { name: 'Collapse unscheduled tasks' });
+    fireEvent.click(collapseBtn);
+
+    // The tray content is gone and the preference is persisted.
+    expect(screen.queryByText('To Do · Unscheduled (1)')).toBeNull();
+    expect(localStorage.getItem('trueppm.gantt.unscheduledGutter.collapsed')).toBe('true');
+
+    // The same control now offers to expand.
+    const expandBtn = screen.getByRole('button', { name: 'Expand unscheduled tasks' });
+    fireEvent.click(expandBtn);
+    expect(screen.getByText('To Do · Unscheduled (1)')).toBeInTheDocument();
+    expect(localStorage.getItem('trueppm.gantt.unscheduledGutter.collapsed')).toBe('false');
+  });
+
+  it('starts collapsed when the persisted preference is "true"', () => {
+    localStorage.setItem('trueppm.gantt.unscheduledGutter.collapsed', 'true');
+    renderGutter([makeTask({ id: 'a', name: 'Wire login', status: 'NOT_STARTED' })]);
+
+    // Tray hidden on first paint; the control invites expansion.
+    expect(screen.queryByText('To Do · Unscheduled (1)')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Expand unscheduled tasks' }),
+    ).toBeInTheDocument();
+  });
+
+  it('auto-expands the first time tasks appear (0 → N)', () => {
+    // Persist collapsed so the initial mount with zero tasks is collapsed, then
+    // rerender with a task — the count-transition effect must force it open.
+    localStorage.setItem('trueppm.gantt.unscheduledGutter.collapsed', 'true');
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const canvasScrollRef = createRef<HTMLDivElement>();
+    const tree = (tasks: Task[]): ReactElement => (
+      <QueryClientProvider client={qc}>
+        <UnscheduledGutter
+          tasks={tasks}
+          projectId="proj1"
+          scaleData={null}
+          canvasScrollRef={canvasScrollRef}
+          taskListWidth={200}
+        />
+      </QueryClientProvider>
+    );
+
+    const { rerender } = rtlRender(tree([]));
+    // Zero tasks → collapsed, no tray.
+    expect(screen.queryByText(/To Do · Unscheduled/)).toBeNull();
+
+    rerender(tree([makeTask({ id: 'a', name: 'Fresh task', status: 'NOT_STARTED' })]));
+    // The 0 → 1 transition forces the tray open.
+    expect(screen.getByText('To Do · Unscheduled (1)')).toBeInTheDocument();
+  });
+});
+
+describe('UnscheduledGutter — set-date (menu) promote path', () => {
+  it('PATCHes planned_start when a To Do row is dated via the ··· menu', async () => {
+    renderGutter([makeTask({ id: 'todo-1', name: 'Wire login', status: 'NOT_STARTED' })]);
+
+    // Open the To Do row's overflow menu (keyboard/menu alternative to drag).
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Wire login' }));
+
+    const dateInput = await screen.findByLabelText('Set planned start');
+    fireEvent.change(dateInput, { target: { value: '2026-08-01' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Promote to schedule' }));
+
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+    expect(patchMock).toHaveBeenCalledWith(
+      '/tasks/todo-1/',
+      expect.objectContaining({ planned_start: '2026-08-01' }),
+    );
+  });
+
+  it('does NOT PATCH when offline — the chip stays put (rule 29)', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    renderGutter([makeTask({ id: 'todo-2', name: 'Offline task', status: 'NOT_STARTED' })]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Offline task' }));
+    const dateInput = await screen.findByLabelText('Set planned start');
+    fireEvent.change(dateInput, { target: { value: '2026-08-02' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Promote to schedule' }));
+
+    // Offline guard short-circuits before the mutation fires.
+    await Promise.resolve();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('UnscheduledGutter — backlog Schedule… dialog (rule 135)', () => {
+  it('opens the ScheduleTaskDialog from a backlog chip ··· menu and closes it', async () => {
+    renderGutter([makeTask({ id: 'bk-1', name: 'Spike auth', status: 'BACKLOG' })]);
+
+    // A backlog chip routes its ··· to the shared dialog (aria-haspopup=dialog).
+    const trigger = screen.getByRole('button', { name: 'Actions for Spike auth' });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+    fireEvent.click(trigger);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: /Add .*Spike auth.* to a/ })).toBeInTheDocument();
+
+    // Cancel closes it (focus-return is the caller's contract). The dialog has
+    // both a ✕ icon button and a footer button that share the "Cancel" name;
+    // clicking either dismisses it.
+    fireEvent.click(within(dialog).getAllByRole('button', { name: 'Cancel' })[0]);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });

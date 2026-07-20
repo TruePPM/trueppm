@@ -1726,3 +1726,307 @@ describe('drawHoverRowBand (#2096)', () => {
     expect(calls.filter((c) => c.name === 'fillRect')).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// calculateDependencyPath — Manhattan routing decision tree (ADR-0063)
+//
+// A pure geometry function: given source/target/obstacle boxes it returns the
+// polyline waypoints, no canvas needed. Each branch of the decision tree is a
+// distinct visible routing shape, so we assert the exact waypoint geometry.
+// ---------------------------------------------------------------------------
+
+import {
+  calculateDependencyPath,
+  EXIT_STUB,
+  APPROACH_STUB,
+  ROUTING_PADDING,
+  type RoutingBox,
+} from './GanttRenderer';
+
+describe('calculateDependencyPath — routing decision tree (ADR-0063)', () => {
+  const box = (x: number, y: number, width = 100, height = 18): RoutingBox => ({
+    x,
+    y,
+    width,
+    height,
+  });
+  // Unused viewport-height arg (retained only for API compatibility).
+  const VP = 600;
+
+  it('same-row link returns a flat 3-point polyline (exit stub → run-in)', () => {
+    const src = box(0, 0);
+    const tgt = box(200, 0);
+    const pts = calculateDependencyPath(src, tgt, [], VP);
+    // startX = 100, startY = 9, exitX = 105, targetX = 200
+    expect(pts).toEqual([
+      { x: 100, y: 9 },
+      { x: 100 + EXIT_STUB, y: 9 },
+      { x: 200, y: 9 },
+    ]);
+  });
+
+  it('forward gap with no obstacles takes the SIMPLE-L (4 points, V at midpoint)', () => {
+    const src = box(0, 0); // startX 100, startY 9
+    const tgt = box(200, 40); // targetX 200, targetY 49
+    const pts = calculateDependencyPath(src, tgt, [], VP);
+    const midpoint = Math.round((100 + 200) / 2); // 150
+    expect(pts).toHaveLength(4);
+    expect(pts[1]).toEqual({ x: midpoint, y: 9 }); // V drop column
+    expect(pts[2]).toEqual({ x: midpoint, y: 49 });
+    expect(pts[3]).toEqual({ x: 200, y: 49 }); // arrowhead base
+  });
+
+  it('right-sweeps the V drop column past an obstacle straddling the midpoint (#1184)', () => {
+    const src = box(0, 0); // startX 100
+    const tgt = box(200, 40); // midpoint drop = 150
+    // Obstacle spans x[140,170] over the intervening row — blocks the x=150 drop.
+    const obstacle = box(140, 20, 30, 18);
+    const pts = calculateDependencyPath(src, tgt, [obstacle], VP);
+    const sweptColumn = obstacle.x + obstacle.width + ROUTING_PADDING; // 178
+    expect(pts).toHaveLength(4);
+    expect(pts[1].x).toBe(sweptColumn);
+    expect(pts[2].x).toBe(sweptColumn);
+  });
+
+  it('does not perturb the drop column for an obstacle that misses the midpoint', () => {
+    const src = box(0, 0);
+    const tgt = box(200, 40);
+    // Obstacle far from the x=150 midpoint drop column.
+    const obstacle = box(180, 20, 10, 18);
+    const pts = calculateDependencyPath(src, tgt, [obstacle], VP);
+    expect(pts[1].x).toBe(150); // untouched midpoint
+  });
+
+  it('stacked/overlapping target (target.x ≤ source.right) routes the 5-segment gutter dogleg', () => {
+    const src = box(0, 0); // startX 100, startY 9
+    const tgt = box(50, 40); // targetBox.x 50 ≤ 100 → skips SIMPLE-L
+    const pts = calculateDependencyPath(src, tgt, [], VP);
+    // 6 waypoints: start, exit, gutter-in, gutter-out, V-into-row, run-in.
+    expect(pts).toHaveLength(6);
+    // Gutter Y sits ROW_HEIGHT/2 (14) above the target row for a short span.
+    const gutterY = 49 - ROW_HEIGHT / 2; // 35
+    expect(pts[2].y).toBe(gutterY);
+    expect(pts[3].y).toBe(gutterY);
+    // Approach V drops APPROACH_STUB west of the arrowhead base.
+    expect(pts[3].x).toBe(50 - APPROACH_STUB);
+    expect(pts[pts.length - 1]).toEqual({ x: 50, y: 49 });
+  });
+
+  it('lifts the gutter higher (ROW_HEIGHT*1.5) for long-span arrows (≥4 rows)', () => {
+    const src = box(0, 0); // startY 9
+    const tgt = box(50, 120); // targetY 129, span = 120px ≈ 4.3 rows
+    const pts = calculateDependencyPath(src, tgt, [], VP);
+    const gutterY = 129 - ROW_HEIGHT * 1.5; // 87
+    expect(pts[2].y).toBe(gutterY);
+  });
+
+  it('routes upward (target above source) with the gutter below the target row', () => {
+    const src = box(0, 40); // startY 49
+    const tgt = box(50, 0); // targetY 9, above the source
+    const pts = calculateDependencyPath(src, tgt, [], VP);
+    // Descending direction is -1 → gutter sits ROW_HEIGHT/2 BELOW the target.
+    const gutterY = 9 + ROW_HEIGHT / 2; // 23
+    expect(pts[2].y).toBe(gutterY);
+  });
+
+  it('inserts a source-row jog when a blocker at the exit stub shifts the V column', () => {
+    const src = box(0, 0); // startX 100, exitX 105
+    const tgt = box(200, 40);
+    // Obstacle covers the exit column x[100,140].
+    const obstacle = box(100, 20, 40, 18);
+    const pts = calculateDependencyPath(src, tgt, [obstacle], VP);
+    const vColumn = obstacle.x + obstacle.width + EXIT_STUB; // 145
+    // 7 waypoints: the extra jog to (vColumn, startY) at source-row level.
+    expect(pts).toHaveLength(7);
+    expect(pts[2]).toEqual({ x: vColumn, y: 9 });
+    expect(pts[3]).toEqual({ x: vColumn, y: 35 });
+  });
+
+  it('collapses the run-in for a merge predecessor (approachX === targetX)', () => {
+    const src = box(0, 0);
+    const tgt = box(50, 40); // stacked → 5-segment path
+    const junctionX = 50;
+    const merge = calculateDependencyPath(src, tgt, [], VP, junctionX, /* isMergePredecessor */ true);
+    // No trailing arrowhead-base waypoint — the line ends AT the junction.
+    expect(merge).toHaveLength(5);
+    expect(merge[merge.length - 1]).toEqual({ x: 50, y: 49 });
+
+    // The non-merge variant keeps the APPROACH_STUB shaft → one extra waypoint.
+    const single = calculateDependencyPath(src, tgt, [], VP);
+    expect(single).toHaveLength(6);
+    expect(single[3].x).toBe(50 - APPROACH_STUB);
+  });
+
+  it('falls through to the gutter path when the SIMPLE-L entry gap is too tight (minV > maxV)', () => {
+    const src = box(0, 0); // startX 100
+    const tgt = box(150, 40); // targetBox.x 150 > 100 → enters SIMPLE-L block…
+    // …but targetEntryX 101 makes maxV = 100 < minV = 101, so the inner L is skipped.
+    const pts = calculateDependencyPath(src, tgt, [], VP, 101);
+    // A SIMPLE-L would be 4 points; the fall-through gutter path is longer.
+    expect(pts.length).toBeGreaterThan(4);
+    expect(pts.some((p) => p.y === 49 - ROW_HEIGHT / 2)).toBe(true); // gutter waypoint
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drawLinkPreview — drag-to-link gesture cue (#1666)
+// ---------------------------------------------------------------------------
+
+import { drawLinkPreview } from './GanttRenderer';
+
+describe('drawLinkPreview (#1666)', () => {
+  // drawLinkPreview uses closePath (for the arrowhead triangle), absent from the
+  // bare spy — augment it.
+  function makePreviewCtx() {
+    const { ctx, calls } = makeCtxSpy();
+    (ctx as unknown as Record<string, unknown>).closePath = vi.fn(() =>
+      calls.push({ name: 'closePath', args: [] }),
+    );
+    return { ctx, calls };
+  }
+
+  const dashPatterns = (calls: Array<{ name: string; args: unknown[] }>) =>
+    calls.filter((c) => c.name === 'setLineDash').map((c) => c.args[0]);
+
+  it('draws a DASHED line and no target ring while hunting (unsnapped)', () => {
+    const { ctx, calls } = makePreviewCtx();
+    drawLinkPreview(ctx, {
+      originX: 10,
+      originY: 20,
+      endX: 100,
+      endY: 20,
+      snapped: false,
+      targetRing: null,
+    });
+    // The preview line uses the [4,3] dash pattern.
+    expect(dashPatterns(calls)).toContainEqual([4, 3]);
+    // No ring: the only roundRect (ring) is absent — no roundRect calls at all.
+    expect(calls.filter((c) => c.name === 'roundRect')).toHaveLength(0);
+    // Line drawn from origin to endpoint.
+    const moveTo = calls.find((c) => c.name === 'moveTo');
+    expect(moveTo!.args).toEqual([10, 20]);
+    // Arrowhead triangle: closePath + fill.
+    expect(calls.filter((c) => c.name === 'closePath')).toHaveLength(1);
+    expect(calls.filter((c) => c.name === 'fill')).toHaveLength(1);
+  });
+
+  it('draws a SOLID line and a target ring once snapped to a valid target', () => {
+    const { ctx, calls } = makePreviewCtx();
+    drawLinkPreview(ctx, {
+      originX: 10,
+      originY: 20,
+      endX: 100,
+      endY: 40,
+      snapped: true,
+      targetRing: { left: 90, top: 30, width: 120, height: 18 },
+    });
+    // Snapped → solid line: the dash pattern is reset to [] (never [4,3]).
+    expect(dashPatterns(calls)).not.toContainEqual([4, 3]);
+    expect(dashPatterns(calls)).toContainEqual([]);
+    // The valid-target ring is a roundRect at the ring rect.
+    const ring = calls.find((c) => c.name === 'roundRect');
+    expect(ring).toBeDefined();
+    expect(ring!.args.slice(0, 2)).toEqual([90, 30]);
+    // Ring + line + arrowhead → uses the linkPreview brand token as stroke.
+    const strokes = calls.filter((c) => c.name === 'strokeStyle').map((c) => c.args[0]);
+    expect(strokes).toContain(COLOR.linkPreview);
+  });
+
+  it('draws a solid line but NO ring when snapped with a null targetRing', () => {
+    const { ctx, calls } = makePreviewCtx();
+    drawLinkPreview(ctx, {
+      originX: 0,
+      originY: 0,
+      endX: 50,
+      endY: 0,
+      snapped: true,
+      targetRing: null,
+    });
+    // snapped && targetRing is false → the ring branch is skipped.
+    expect(calls.filter((c) => c.name === 'roundRect')).toHaveLength(0);
+    // …but the line is still solid.
+    expect(dashPatterns(calls)).not.toContainEqual([4, 3]);
+    // Arrowhead still drawn.
+    expect(calls.filter((c) => c.name === 'fill')).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// setRendererChartOptions / getRendererChartOptions — module-state round-trip
+// ---------------------------------------------------------------------------
+
+import { getRendererChartOptions } from './GanttRenderer';
+
+describe('chart render options round-trip (#2097)', () => {
+  afterEach(() => setRendererChartOptions(DEFAULT_CHART));
+
+  it('getRendererChartOptions returns the last set options', () => {
+    const opts = {
+      taskNamePlacement: 'left' as const,
+      showProgressPills: false,
+      showNameGutter: true,
+    };
+    setRendererChartOptions(opts);
+    expect(getRendererChartOptions()).toEqual(opts);
+  });
+
+  it('drawTaskBar suppresses the % chip when showProgressPills is false', () => {
+    const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+    setRendererChartOptions({ ...DEFAULT_CHART, showProgressPills: false });
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, makeBarTask({ progress: 50 }), 0, scales, 0, false, 800);
+    // The chip pill fill is never laid down when pills are disabled.
+    const chipFill = calls.find((c) => c.name === 'fillStyle' && c.args[0] === 'rgba(0,0,0,0.18)');
+    expect(chipFill).toBeUndefined();
+  });
+
+  it('drawTaskBar draws the % chip when showProgressPills is true', () => {
+    const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+    setRendererChartOptions({ ...DEFAULT_CHART, showProgressPills: true });
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, makeBarTask({ progress: 50 }), 0, scales, 0, false, 800);
+    const chipFill = calls.find((c) => c.name === 'fillStyle' && c.args[0] === 'rgba(0,0,0,0.18)');
+    expect(chipFill).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drawTimelineNameGutter — truncation + summary vs leaf color (#2096)
+// ---------------------------------------------------------------------------
+
+describe('drawTimelineNameGutter — truncation + row styling (#2096)', () => {
+  it('truncates an over-wide name with an ellipsis', () => {
+    const { ctx, calls } = makeCtxSpy();
+    // Width ∝ length so the binary-search truncation actually fires: a 40-char
+    // name measures 400px, well past the ~156px gutter text budget.
+    (ctx.measureText as ReturnType<typeof vi.fn>).mockImplementation((t: string) => ({
+      width: t.length * 10,
+    }));
+    const tasks = [makeBarTask({ id: 't1', name: 'A very very long task name that overflows' })];
+    drawTimelineNameGutter(ctx, tasks, 0, 0, 0, 600);
+    const drawn = calls.find((c) => c.name === 'fillText')!.args[0] as string;
+    expect(drawn.endsWith('…')).toBe(true);
+    expect(drawn.length).toBeLessThan(tasks[0].name.length);
+  });
+
+  it('uses primary text for summary rows and secondary for leaf rows', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const tasks = [
+      makeBarTask({ id: 's1', name: 'Phase', isSummary: true }),
+      makeBarTask({ id: 't1', name: 'Leaf', isSummary: false }),
+    ];
+    drawTimelineNameGutter(ctx, tasks, 0, 1, 0, 600);
+    const fills = calls.filter((c) => c.name === 'fillStyle').map((c) => c.args[0]);
+    expect(fills).toContain(COLOR.text); // summary row = primary ink
+    expect(fills).toContain(COLOR.textSecondary); // leaf row = secondary
+  });
+
+  it('skips rows with no task in the array (sparse range guard)', () => {
+    const { ctx, calls } = makeCtxSpy();
+    // Only one task, but asked to render rows 0..2 — rows 1 and 2 are undefined.
+    const tasks = [makeBarTask({ id: 't1', name: 'Only' })];
+    drawTimelineNameGutter(ctx, tasks, 0, 2, 0, 600);
+    const names = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
+    expect(names).toEqual(['Only']);
+  });
+});

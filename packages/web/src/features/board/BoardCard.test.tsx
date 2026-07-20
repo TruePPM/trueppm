@@ -30,6 +30,16 @@ vi.mock('@/hooks/useIsOverflowing', () => ({
   useIsOverflowing: () => overflowState.value,
 }));
 
+// Control the offline-outbox "pending sync" verdict per test. The real hook
+// reads a zustand store whose ops map is empty in the test harness (always
+// false); the mock lets a test flip it to true to render the PendingSyncBadge
+// without wiring the whole IndexedDB outbox. Defaults to false so every other
+// test sees the unchanged (no-badge) behavior.
+const pendingSyncState = vi.hoisted(() => ({ value: false }));
+vi.mock('./offline/boardOutboxStore', () => ({
+  useIsCardPendingSync: () => pendingSyncState.value,
+}));
+
 // 5-column model (issue #178). SLA defaults match useBoardConfig (issue #192).
 const COLUMNS: { status: TaskStatus; label: string; slaDays?: number }[] = [
   { status: 'BACKLOG', label: 'BACKLOG', slaDays: 14 },
@@ -1295,5 +1305,298 @@ describe('BoardCard compact bar touch affordances (#1947)', () => {
     stubPointer(true);
     renderCard({ task: { ...baseTask, isCritical: true }, density: 'compact' });
     expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Additional branch coverage — direct-prop render for props renderCard doesn't
+// forward (readOnly, isFilteredOut, onChainHover, isPendingSync via mock), plus
+// currency/severity/EVM-band branches the earlier suite left uncovered.
+// ---------------------------------------------------------------------------
+function renderCardFull(props: Partial<ComponentProps<typeof BoardCard>>) {
+  return render(
+    <DndContext>
+      <BoardCard
+        task={props.task ?? baseTask}
+        onMenuMove={props.onMenuMove ?? (() => {})}
+        columns={props.columns ?? COLUMNS}
+        density={props.density}
+        onCardClick={props.onCardClick}
+        onChainHover={props.onChainHover}
+        scopeActions={props.scopeActions}
+        showEvm={props.showEvm}
+        showCost={props.showCost}
+        isFilteredOut={props.isFilteredOut}
+        readOnly={props.readOnly}
+      />
+    </DndContext>,
+  );
+}
+
+function cardRoot(): HTMLElement {
+  return screen
+    .getAllByRole('button', { hidden: true })
+    .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+}
+
+describe('BoardCard additional branch coverage', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-15T12:00:00Z'));
+    overflowState.value = false;
+    pendingSyncState.value = false;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    pendingSyncState.value = false;
+  });
+
+  // fmtCurrency millions + sub-thousand branches (issue #189)
+  it('formats a budget in the millions with an "M" suffix', () => {
+    renderCard({
+      task: { ...baseTask, budgetAtCompletion: 2_000_000, actualCost: 1_500_000 },
+      showCost: true,
+      density: 'comfortable',
+    });
+    expect(screen.getByText(/\$1\.5M.*\/.*\$2\.0M/)).toBeInTheDocument();
+  });
+
+  it('formats a sub-thousand budget as whole dollars (no K/M suffix)', () => {
+    renderCard({
+      task: { ...baseTask, budgetAtCompletion: 500, actualCost: 250 },
+      showCost: true,
+      density: 'comfortable',
+    });
+    expect(screen.getByText(/\$250.*\/.*\$500/)).toBeInTheDocument();
+  });
+
+  // riskChipToneClass amber / green bands (ADR-0035)
+  it('renders an amber-band risk chip for a mid severity (6–14)', () => {
+    renderCard({ task: { ...baseTask, linkedRisksCount: 2, linkedRisksMaxSeverity: 10 } });
+    expect(screen.getByLabelText(/2 linked risks, severity amber\. Click to view\./)).toBeInTheDocument();
+  });
+
+  it('renders a green-band risk chip for a low severity (1–5) and singularizes one risk', () => {
+    renderCard({ task: { ...baseTask, linkedRisksCount: 1, linkedRisksMaxSeverity: 3 } });
+    // singular "risk" (not "risks") + green band
+    expect(screen.getByLabelText(/1 linked risk, severity green\. Click to view\./)).toBeInTheDocument();
+  });
+
+  // non-blocked singular dependency aria-label (L488)
+  it('labels a single non-blocked predecessor with the singular "dependency"', () => {
+    renderCard({ task: { ...baseTask, predecessorCount: 1, isBlocked: false } });
+    expect(screen.getByLabelText(/^1 dependency\. Press D to view\.$/)).toBeInTheDocument();
+  });
+
+  // onChainHover enter/leave/focus/blur (L246, L247)
+  it('drives board dep-highlight hover via onChainHover on the chain chip', () => {
+    const onChainHover = vi.fn();
+    renderCardFull({ task: { ...baseTask, predecessorCount: 2 }, onChainHover });
+    const chip = screen.getByLabelText(/2 dependencies\. Press D to view\./);
+
+    fireEvent.pointerEnter(chip);
+    expect(onChainHover).toHaveBeenLastCalledWith(baseTask.id);
+    fireEvent.pointerLeave(chip);
+    expect(onChainHover).toHaveBeenLastCalledWith(null);
+
+    // focus / blur mirror pointer enter / leave for keyboard users.
+    fireEvent.focus(chip);
+    expect(onChainHover).toHaveBeenLastCalledWith(baseTask.id);
+    fireEvent.blur(chip);
+    expect(onChainHover).toHaveBeenLastCalledWith(null);
+    expect(onChainHover).toHaveBeenCalledTimes(4);
+  });
+
+  // onMenuKeyDown ArrowUp wrap + non-navigation key early return (L290, L301)
+  it('ArrowUp from the first menuitem wraps focus to the last', () => {
+    renderCard({});
+    fireEvent.click(screen.getByLabelText(`Actions for ${baseTask.name}`));
+    const moveTo = screen.getByRole('menuitem', { name: 'Move to…' });
+    expect(document.activeElement).toBe(moveTo);
+    // current index 0 → ArrowUp wraps to the last item.
+    fireEvent.keyDown(moveTo, { key: 'ArrowUp' });
+    const items = screen.getAllByRole('menuitem');
+    expect(document.activeElement).toBe(items[items.length - 1]);
+  });
+
+  it('ignores a non-navigation key inside the menu without moving focus', () => {
+    renderCard({});
+    fireEvent.click(screen.getByLabelText(`Actions for ${baseTask.name}`));
+    const moveTo = screen.getByRole('menuitem', { name: 'Move to…' });
+    expect(document.activeElement).toBe(moveTo);
+    fireEvent.keyDown(moveTo, { key: 'a' });
+    // focus unchanged; menu still open.
+    expect(document.activeElement).toBe(moveTo);
+    expect(screen.getByRole('menuitem', { name: 'Move to…' })).toBeInTheDocument();
+  });
+
+  // readOnly closed-sprint card drops the grab cursor (L646)
+  it('read-only card uses the default cursor and stays draggable-disabled', () => {
+    renderCardFull({ readOnly: true });
+    const card = cardRoot();
+    expect(card.className).toContain('cursor-default');
+    expect(card.className).not.toContain('cursor-grab');
+  });
+
+  it('a non-read-only card keeps the grab cursor', () => {
+    renderCardFull({ readOnly: false });
+    const card = cardRoot();
+    expect(card.className).toContain('cursor-grab');
+    expect(card.className).not.toContain('cursor-default');
+  });
+
+  // isFilteredOut hard-dim + removal from tab order / a11y tree (L662, L862, L720)
+  it('comfortable: a filtered-out card is hard-dimmed, aria-hidden, and out of tab order', () => {
+    renderCardFull({ isFilteredOut: true, density: 'comfortable' });
+    const card = cardRoot();
+    expect(card.className).toContain('opacity-30');
+    expect(card.className).toContain('pointer-events-none');
+    expect(card).toHaveAttribute('tabindex', '-1');
+    expect(card).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('compact: a filtered-out card is also aria-hidden and out of tab order', () => {
+    renderCardFull({ isFilteredOut: true, density: 'compact' });
+    const card = cardRoot();
+    expect(card).toHaveAttribute('tabindex', '-1');
+    expect(card).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  // compact click open (L711)
+  it('compact: a root click fires onCardClick with the task and card anchor', () => {
+    const onCardClick = vi.fn();
+    renderCard({ onCardClick, density: 'compact' });
+    const card = cardRoot();
+    fireEvent.click(card);
+    expect(onCardClick).toHaveBeenCalledTimes(1);
+    expect(onCardClick).toHaveBeenCalledWith(baseTask, card);
+  });
+
+  // compact keyboard open (L713)
+  it('compact: Enter/Space on the card root fires onCardClick', () => {
+    const onCardClick = vi.fn();
+    renderCard({ onCardClick, density: 'compact' });
+    const card = cardRoot();
+    fireEvent.keyDown(card, { key: 'Enter' });
+    expect(onCardClick).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(card, { key: ' ' });
+    expect(onCardClick).toHaveBeenCalledTimes(2);
+    // a non-activating key does nothing.
+    fireEvent.keyDown(card, { key: 'x' });
+    expect(onCardClick).toHaveBeenCalledTimes(2);
+  });
+
+  // compact idea title styling (L736)
+  it('compact: an idea card renders its title in disabled italic', () => {
+    renderCard({ task: { ...baseTask, readiness: 'idea' }, density: 'compact' });
+    const title = screen.getByText('Backend Implementation');
+    expect(title.className).toContain('italic');
+    expect(title.className).toContain('text-neutral-text-disabled');
+  });
+
+  // compact labels dot row (L810, L811)
+  it('compact: renders label dots when the task carries labels', () => {
+    const task: Task = {
+      ...baseTask,
+      labels: [{ id: 'l1', name: 'frontend', color: '#3366ff' }],
+    };
+    renderCard({ task, density: 'compact' });
+    expect(screen.getByLabelText('Label: frontend')).toBeInTheDocument();
+  });
+
+  // tech-debt badge (L887)
+  it('surfaces a tech-debt badge on the card face for a tech_debt task', () => {
+    renderCard({ task: { ...baseTask, taskType: 'tech_debt' }, density: 'comfortable' });
+    expect(screen.getByText(/tech debt/i)).toBeInTheDocument();
+  });
+
+  it('omits the tech-debt badge for a non-tech_debt task', () => {
+    renderCard({ task: { ...baseTask, taskType: 'story' }, density: 'comfortable' });
+    expect(screen.queryByText(/tech debt/i)).not.toBeInTheDocument();
+  });
+
+  // notes freshness stamp (L1087)
+  it('shows a notes-freshness stamp when the task has a latest note (comfortable)', () => {
+    renderCard({
+      task: { ...baseTask, latestNoteAt: '2026-01-14T12:00:00Z' },
+      density: 'comfortable',
+    });
+    expect(screen.getByLabelText(/Last note/)).toBeInTheDocument();
+  });
+
+  it('omits the notes-freshness stamp in compact density even with a latest note', () => {
+    renderCard({
+      task: { ...baseTask, latestNoteAt: '2026-01-14T12:00:00Z' },
+      density: 'compact',
+    });
+    expect(screen.queryByLabelText(/Last note/)).not.toBeInTheDocument();
+  });
+
+  // pending-sync badge — compact (L767) and comfortable (L977)
+  it('compact: renders the pending-sync badge when a status move is queued offline', () => {
+    pendingSyncState.value = true;
+    renderCard({ task: baseTask, density: 'compact' });
+    expect(
+      screen.getByLabelText(/Sync pending — this move will save when you reconnect\./),
+    ).toBeInTheDocument();
+  });
+
+  it('comfortable: renders the pending-sync badge when a status move is queued offline', () => {
+    pendingSyncState.value = true;
+    renderCard({ task: baseTask, density: 'comfortable' });
+    expect(
+      screen.getByLabelText(/Sync pending — this move will save when you reconnect\./),
+    ).toBeInTheDocument();
+  });
+
+  it('renders no pending-sync badge when nothing is queued', () => {
+    pendingSyncState.value = false;
+    renderCard({ task: baseTask, density: 'comfortable' });
+    expect(
+      screen.queryByLabelText(/Sync pending/),
+    ).not.toBeInTheDocument();
+  });
+
+  // compact pending chip (L765)
+  it('compact: a pending scope-injection renders the pending-acceptance chip', () => {
+    const task: Task = { ...baseTask, sprintPending: true };
+    const scopeActions = {
+      canManage: true,
+      offline: false,
+      onAccept: vi.fn(),
+      onReject: vi.fn(),
+    };
+    renderCardFull({ task, scopeActions, density: 'compact' });
+    expect(
+      screen.getByRole('button', { name: /Pending acceptance\. What does this mean\?/ }),
+    ).toBeInTheDocument();
+  });
+
+  // SPI band branches: on_track (green) + at_risk (amber) (L1160, L1162, L1166)
+  it('renders an on-track SPI chip with the on-track aria-label', () => {
+    renderCard({
+      task: { ...baseTask, spi: 1.05, spiBand: 'on_track' },
+      showEvm: 'spi',
+      density: 'comfortable',
+    });
+    expect(screen.getByText('SPI 1.05')).toBeInTheDocument();
+    expect(screen.getByLabelText(/SPI 1\.05 — on track/)).toBeInTheDocument();
+  });
+
+  it('renders an at-risk SPI chip with the at-risk aria-label', () => {
+    renderCard({
+      task: { ...baseTask, spi: 0.9, spiBand: 'at_risk' },
+      showEvm: 'spi',
+      density: 'comfortable',
+    });
+    expect(screen.getByText('SPI 0.90')).toBeInTheDocument();
+    expect(screen.getByLabelText(/SPI 0\.90 — at risk/)).toBeInTheDocument();
+  });
+
+  // CPI on-budget branch (L1180, L1186)
+  it('renders an on-budget CPI chip when CPI ≥ 0.95', () => {
+    renderCard({ task: { ...baseTask, cpi: 0.98 }, showEvm: 'cpi', density: 'comfortable' });
+    expect(screen.getByText('CPI 0.98')).toBeInTheDocument();
+    expect(screen.getByLabelText(/CPI 0\.98 — on budget/)).toBeInTheDocument();
   });
 });
