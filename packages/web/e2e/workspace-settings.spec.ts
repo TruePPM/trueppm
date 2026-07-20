@@ -752,7 +752,10 @@ test.describe('Workspace settings nav entry (#2033)', () => {
     await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Account — Alice' }).last().click();
-    const row = page.getByRole('menuitem', { name: 'Workspace settings' });
+    // The account menu is a non-modal dialog (#2167); its rows are links/buttons,
+    // not menuitems. Scope to the dialog so the row name is unambiguous.
+    const menu = page.getByRole('dialog', { name: 'User menu' });
+    const row = menu.getByRole('link', { name: 'Workspace settings' });
     await expect(row).toBeVisible();
     await row.click();
 
@@ -785,8 +788,10 @@ test.describe('Workspace settings nav entry (#2033)', () => {
     await expect(page.getByRole('heading', { name: 'Preferences' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Account — Alice' }).last().click();
-    await expect(page.getByRole('menuitem', { name: 'My Work' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Workspace settings' })).toHaveCount(0);
+    // Account menu is a non-modal dialog (#2167); rows are links, not menuitems.
+    const menu = page.getByRole('dialog', { name: 'User menu' });
+    await expect(menu.getByRole('link', { name: 'My Work' })).toBeVisible();
+    await expect(menu.getByRole('link', { name: 'Workspace settings' })).toHaveCount(0);
   });
 });
 
