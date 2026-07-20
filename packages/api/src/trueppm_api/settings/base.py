@@ -630,6 +630,23 @@ AUTH_REFRESH_COOKIE_SECURE = env.bool(
 )
 
 # ---------------------------------------------------------------------------
+# Django session + CSRF cookie hardening (#2248)
+# ---------------------------------------------------------------------------
+# These cookies are effectively exercised only by the Django admin site — the SPA
+# authenticates with the JWT bearer/refresh-cookie scheme above and the DRF
+# browsable API is disabled (JSON-only renderer). Django's implicit defaults for
+# these three already match what we want, but pin them explicitly so the posture
+# is auditable and cannot silently change across a Django upgrade. `*_SECURE` is
+# intentionally NOT pinned here: it stays False in dev (plain-HTTP localhost) and
+# prod.py sets both to True.
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+# CSRF_COOKIE_HTTPONLY stays False (Django default): the token must be readable by
+# JavaScript to be echoed in the X-CSRFToken header. This is the standard,
+# correct posture and is not a leak — the CSRF cookie is not a credential.
+
+# ---------------------------------------------------------------------------
 # Content-Security-Policy (#897)
 # ---------------------------------------------------------------------------
 
@@ -916,9 +933,14 @@ _STRICT_RATE = "10/min"
 _STRICTEST_RATE = "5/min"
 
 REST_FRAMEWORK = {
+    # JWT only in the base/prod posture (#2248). The SPA authenticates with the
+    # bearer access token; there is no Django-session login path for the API and
+    # the browsable API is disabled (JSON-only renderer below), so
+    # SessionAuthentication would be an unused second auth surface (and its CSRF
+    # coupling) in production. Dev settings re-add SessionAuthentication so
+    # `client.force_login()` in the test suite can populate request.user.
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
-        "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -1173,6 +1195,14 @@ SHARE_SCHEDULE_MAX_TASKS = env.int("TRUEPPM_SHARE_SCHEDULE_MAX_TASKS", default=1
 # ---------------------------------------------------------------------------
 
 SITE_ID = 1
+# "none" is safe *because allauth's self-service account flows are never reached*
+# (#2248): we do NOT mount `allauth.urls`, so there is no allauth signup/login/
+# email-confirmation surface. Account creation flows only through (a) the invite
+# path — the email is fixed to the invite, not user-chosen — and (b) SSO, which
+# enforces its own `email_verified is True` + admin domain allow-list gate in
+# `apps.sso.services.resolve_user`. Do NOT mount `allauth.urls` (which would open
+# self-service registration) without first flipping this to a real verification
+# policy — otherwise unverified self-service signup would be silently enabled.
 ACCOUNT_EMAIL_VERIFICATION = "none"
 
 # ModelBackend FIRST so username/password login keeps working exactly as before

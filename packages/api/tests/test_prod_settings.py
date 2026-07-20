@@ -119,6 +119,24 @@ def test_prod_boots_and_sets_security_headers() -> None:
     assert "^api/v1/edition/$" in prod.SECURE_REDIRECT_EXEMPT
 
 
+def test_prod_authenticates_with_jwt_only() -> None:
+    """Prod drops SessionAuthentication — no unused second auth surface (#2248)."""
+    prod = _load_prod(backend=_S3, allow_local=False)
+    assert prod.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"] == [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ]
+
+
+def test_prod_pins_secure_session_and_csrf_cookies() -> None:
+    """Prod keeps the base SameSite/HttpOnly pins and adds Secure (#2248)."""
+    prod = _load_prod(backend=_S3, allow_local=False)
+    assert prod.SESSION_COOKIE_HTTPONLY is True
+    assert prod.SESSION_COOKIE_SAMESITE == "Lax"
+    assert prod.CSRF_COOKIE_SAMESITE == "Lax"
+    assert prod.SESSION_COOKIE_SECURE is True
+    assert prod.CSRF_COOKIE_SECURE is True
+
+
 def test_prod_refuses_local_attachment_storage() -> None:
     """A local-disk attachment backend without opt-in stops the boot (#775)."""
     with pytest.raises(RuntimeError, match="Refusing to start"):
