@@ -12,6 +12,7 @@ from trueppm_api.core.security_checks import (
     validate_attachment_storage,
     validate_integration_encryption_key,
     validate_secret_key,
+    validate_signing_key,
 )
 
 from .base import *  # noqa: F403
@@ -21,6 +22,7 @@ from .base import (
     DATABASES,
     DJANGO_LOG_LEVEL,
     INTEGRATION_ENCRYPTION_KEY,
+    SIMPLE_JWT,
     STORAGES,
 )
 
@@ -49,6 +51,17 @@ SECRET_KEY = env("SECRET_KEY")  # required; no default in prod
 _secret_key_errors = validate_secret_key(SECRET_KEY, debug=DEBUG)
 if _secret_key_errors:
     raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _secret_key_errors))
+
+# Dedicated JWT signing key (#2247). base.py already derived JWT_SIGNING_KEY from
+# the SECRET_KEY env var; re-derive it here against the prod-required SECRET_KEY so
+# the binding is explicit and cannot drift, and mirror the value into SIMPLE_JWT.
+# Then refuse to boot on a weak *explicit* key — an unset key inherits the
+# already-validated SECRET_KEY, so validate_signing_key returns clean for it.
+JWT_SIGNING_KEY = env("JWT_SIGNING_KEY", default=SECRET_KEY)
+SIMPLE_JWT["SIGNING_KEY"] = JWT_SIGNING_KEY
+_signing_key_errors = validate_signing_key(JWT_SIGNING_KEY, SECRET_KEY, debug=DEBUG)
+if _signing_key_errors:
+    raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _signing_key_errors))
 
 # Persistent connections for production load.
 DATABASES["default"]["CONN_MAX_AGE"] = 600

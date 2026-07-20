@@ -96,6 +96,75 @@ def check_secret_key(
     )
 
 
+def validate_signing_key(
+    signing_key: str | None,
+    secret_key: str | None,
+    *,
+    debug: bool,
+) -> list[CheckMessage]:
+    """Return deploy errors for a weak, explicitly-set JWT ``SIGNING_KEY`` (#2247).
+
+    When ``JWT_SIGNING_KEY`` is left unset it defaults to ``SECRET_KEY`` (see
+    ``settings/base.py``), and :func:`validate_secret_key` already covers that
+    value — re-validating here would double-report the same error. So this only
+    fires when the operator has set a *distinct* signing key, and it applies the
+    same strength bar (non-placeholder, ``>= MIN_SECRET_KEY_LENGTH``) because a
+    separate-but-weak signing key would defeat the whole point of separating it.
+    Returns an empty list under DEBUG so developer workstations keep booting.
+    """
+    if debug:
+        return []
+    if not signing_key or signing_key == secret_key:
+        return []
+
+    errors: list[CheckMessage] = []
+
+    if signing_key.startswith(INSECURE_PREFIX):
+        errors.append(
+            Error(
+                f"JWT_SIGNING_KEY starts with {INSECURE_PREFIX!r} — this is the "
+                "Django placeholder and must not be used to sign tokens.",
+                hint=(
+                    'Generate one with: python3 -c "import secrets; '
+                    'print(secrets.token_urlsafe(50))"'
+                ),
+                id="trueppm.E004",
+            )
+        )
+
+    if len(signing_key) < MIN_SECRET_KEY_LENGTH:
+        errors.append(
+            Error(
+                f"JWT_SIGNING_KEY is {len(signing_key)} characters; "
+                f"minimum is {MIN_SECRET_KEY_LENGTH}.",
+                hint=(
+                    "A separate JWT signing key must be at least as strong as "
+                    "SECRET_KEY, or a leak of it forges tokens for any user. "
+                    'Generate one with: python3 -c "import secrets; '
+                    'print(secrets.token_urlsafe(50))"'
+                ),
+                id="trueppm.E005",
+            )
+        )
+
+    return errors
+
+
+@register(Tags.security, deploy=True)
+def check_signing_key(
+    app_configs: Sequence[object] | None = None,
+    **kwargs: object,
+) -> list[CheckMessage]:
+    """Django system check entry point — reads live settings."""
+    from django.conf import settings
+
+    return validate_signing_key(
+        getattr(settings, "JWT_SIGNING_KEY", None),
+        getattr(settings, "SECRET_KEY", None),
+        debug=bool(getattr(settings, "DEBUG", False)),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Attachment storage hardening — refuse to boot in prod when uploads would land
 # on ephemeral local disk (#775).

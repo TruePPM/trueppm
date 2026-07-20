@@ -17,6 +17,20 @@ env = environ.Env()
 
 SECRET_KEY = env("SECRET_KEY", default="django-insecure-change-me-in-prod")
 
+# Dedicated JWT signing key (#2247). Defaults to SECRET_KEY so a default install
+# stays single-knob, but can be set independently via JWT_SIGNING_KEY to:
+#   (a) limit the blast radius of a SECRET_KEY leak — a leaked SECRET_KEY alone
+#       can no longer forge access/refresh tokens for any user; and
+#   (b) give operators a deliberate "log everyone out now" lever: rotating
+#       JWT_SIGNING_KEY invalidates every outstanding token without also
+#       rotating the general Django secret (which would churn CSRF/session
+#       signing too).
+# When set explicitly it is strength-validated in prod exactly like SECRET_KEY
+# (see core.security_checks.validate_signing_key); when it defaults to SECRET_KEY
+# the SECRET_KEY validation already covers it. Rotation runbook:
+# docs/administration/secret-rotation.md.
+JWT_SIGNING_KEY = env("JWT_SIGNING_KEY", default=SECRET_KEY)
+
 DEBUG = False
 
 ALLOWED_HOSTS: list[str] = []
@@ -572,6 +586,9 @@ PASSWORD_RESET_TIMEOUT = env.int("TRUEPPM_PASSWORD_RESET_TIMEOUT", default=1800)
 # short enough that a stolen refresh token (cookie) self-expires within a week.
 # Rotation + (optional) blacklist further limit replay of a leaked refresh token.
 SIMPLE_JWT = {
+    # Sign tokens with the dedicated JWT key (#2247). Defaults to SECRET_KEY, so
+    # existing deploys are unaffected; set JWT_SIGNING_KEY to separate the two.
+    "SIGNING_KEY": JWT_SIGNING_KEY,
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,

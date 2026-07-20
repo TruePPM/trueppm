@@ -131,13 +131,34 @@ Enterprise hardening.
 
 | Secret | Where it's used | Impact if leaked |
 |--------|----------------|-----------------|
-| `SECRET_KEY` | Django session signing, JWT signing | Full account takeover — attacker can forge any session or token |
+| `SECRET_KEY` | Django session/CSRF signing; JWT signing when `JWT_SIGNING_KEY` is unset | Full account takeover — attacker can forge any session or token |
+| `JWT_SIGNING_KEY` *(optional)* | Access/refresh JWT signing only | Token forgery for any user — but a leak no longer also compromises session/CSRF signing |
 | `DATABASE_URL` | PostgreSQL connection | Full data access |
 | `REDIS_URL` | Celery broker, Channels layer | Task injection, event spoofing |
 
 :::danger
 Never commit secrets to version control. Use environment variables, Docker secrets, or a secrets manager (Vault, AWS Secrets Manager, etc.).
 :::
+
+### Separating the JWT signing key and forcing a global sign-out
+
+By default the JWT signing key **is** `SECRET_KEY`. Setting a dedicated
+`JWT_SIGNING_KEY` (optional; same strength rules — ≥ 32 chars, not the
+`django-insecure-` placeholder, enforced at boot in production) decouples the
+two so that:
+
+- a leaked `SECRET_KEY` alone can no longer forge tokens; and
+- you gain a **rotate-to-sign-everyone-out** lever that does not also churn
+  Django's session/CSRF signing.
+
+**To force every user to sign in again** (after a suspected token leak or an
+admin offboarding), rotate the JWT signing key: set `JWT_SIGNING_KEY` to a fresh
+value and restart the API and Celery workers. Every outstanding access and
+refresh token immediately fails signature verification; the web app treats the
+next call as a `401`, attempts one (also-failing) refresh, and routes users to
+the sign-in screen. No data is lost. If you have not set a separate
+`JWT_SIGNING_KEY`, rotating `SECRET_KEY` has the same effect but also rotates
+session/CSRF signing.
 
 ## Helm secure-by-default
 
