@@ -1479,7 +1479,9 @@ scheduler:notebooks:
     # --user` is not enough: it routes the Python packages to ~/.local but still
     # writes jupyter's data_files to that root-owned prefix (Errno 13). Install
     # into a throwaway venv under $HOME whose prefix is fully writable by uid 1000.
-    - python -m venv "$HOME/nbenv"
+    # --system-site-packages so the venv's kernel still imports the editable
+    # trueppm_scheduler from the system site-packages (the notebooks execute it).
+    - python -m venv --system-site-packages "$HOME/nbenv"
     - $HOME/nbenv/bin/pip install --quiet jupyter nbconvert
     - $HOME/nbenv/bin/jupyter nbconvert --to notebook --execute --inplace notebooks/*.ipynb
   artifacts:
