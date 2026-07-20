@@ -41,8 +41,12 @@ export function WorkspaceSettingsPage() {
       scope="workspace"
       scopeLinks={[
         { scope: 'workspace', label: 'Workspace', to: '/settings' },
-        { scope: 'program',   label: 'Program',   to: firstProgramId ? `/programs/${firstProgramId}/settings` : null, disabledReason: 'No programs yet' },
-        { scope: 'project',   label: 'Project',   to: firstProjectId ? `/projects/${firstProjectId}/settings` : null, disabledReason: 'No projects yet' },
+        // Not-yet case (rule 125): keep the segment disabled so the tri-scope model
+        // still teaches, but with guiding, non-imperative copy — never a command the
+        // user can't obey (#2251). Contrast the workspace-only tool pages, which
+        // HIDE these segments because the scope can never apply there.
+        { scope: 'program',   label: 'Program',   to: firstProgramId ? `/programs/${firstProgramId}/settings` : null, disabledReason: 'Scoped settings appear once you create a program' },
+        { scope: 'project',   label: 'Project',   to: firstProjectId ? `/projects/${firstProjectId}/settings` : null, disabledReason: 'Scoped settings appear once you create a project' },
       ]}
       contextName={ws?.name ?? 'Workspace'}
       navGroups={NAV_GROUPS}

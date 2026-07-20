@@ -21,7 +21,7 @@ import {
   type SystemHealthComponent,
 } from '@/hooks/useSystemHealth';
 import { formatAge, formatUpdatedAgo } from './formatAge';
-import { TelemetryCard } from './TelemetryCard';
+import { StatusPill, telemetryStatus } from './TelemetryCard';
 import { docsUrl } from '@/lib/docsUrl';
 import axios from 'axios';
 
@@ -654,14 +654,33 @@ export function SystemHealthOverviewPage() {
             </div>
           </SettingsCard>
 
-          {/* Telemetry (OpenTelemetry export) — guided setup + verification (#2110).
-              Read-only; export is configured via env/Helm only (ADR-0223). The OTLP
-              bearer token is never surfaced by the API, so it can't appear here.
-              Spans both grid columns — it is the most content-dense card (guided
-              setup + code snippets) and reads cramped at half width on xl. */}
-          <div className="xl:col-span-2">
-            <TelemetryCard telemetry={health.telemetry} />
-          </div>
+          {/* Telemetry export — status only (#2250). The full guided OTLP config
+              (setup snippets, config summary, test-export probe) now lives on its
+              own Observability page, discoverable in the settings rail, so it isn't
+              buried at the bottom of this monitoring readout. System Health keeps a
+              one-line export-status readout that cross-links there — monitoring and
+              configuration each live where they belong. */}
+          <SettingsCard>
+            <div className="px-4 py-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <h2 className="text-[13px] font-semibold text-neutral-text-primary">
+                    Telemetry export
+                  </h2>
+                  <StatusPill status={telemetryStatus(health.telemetry)} />
+                </div>
+                <Link
+                  to="/settings/observability"
+                  className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
+                >
+                  Configure in Observability →
+                </Link>
+              </div>
+              <p className="text-[12px] text-neutral-text-secondary mt-1 leading-snug">
+                OTLP trace &amp; metric export to your observability backend.
+              </p>
+            </div>
+          </SettingsCard>
         </div>
       </div>
     </div>

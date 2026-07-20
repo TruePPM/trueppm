@@ -26,8 +26,11 @@ export function WorkspaceSystemHealthShell() {
       scope="workspace"
       scopeLinks={[
         { scope: 'workspace', label: 'Workspace', to: '/settings' },
-        { scope: 'program', label: 'Program', to: null, disabledReason: 'Switch from the workspace page' },
-        { scope: 'project', label: 'Project', to: null, disabledReason: 'Switch from the workspace page' },
+        // System Health is inherently workspace-only — no program/project-scoped
+        // health tool exists — so hide those segments rather than showing them
+        // permanently disabled with an imperative the user can't act on (#2251).
+        { scope: 'program', label: 'Program', to: null, hidden: true },
+        { scope: 'project', label: 'Project', to: null, hidden: true },
       ]}
       contextName={ws?.name ?? 'Workspace'}
       navGroups={NAV_GROUPS}

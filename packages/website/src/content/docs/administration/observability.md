@@ -127,8 +127,9 @@ kubectl create secret generic trueppm-otlp \
 ## Verifying export from the app
 
 Once the pods restart with an endpoint set, a workspace admin can confirm export
-is actually working from **Settings → Workspace → System Health → Telemetry**,
-without shelling into a pod. The card shows the effective configuration —
+is actually working from **Settings → Workspace → Observability**, without
+shelling into a pod. (The **System Health** page keeps a one-line export-status
+readout that links across to Observability.) The card shows the effective configuration —
 endpoint, protocol, service name and version, sampler, and per-signal (traces /
 metrics) on/off — and reports whether export is live, switched off, or
 unconfigured. The OTLP headers are **never** shown: the bearer token stays in

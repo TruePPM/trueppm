@@ -245,50 +245,14 @@ test.describe('Workspace Settings → System health', () => {
     // Retention config row.
     await expect(page.getByText('Webhook deliveries')).toBeVisible();
 
-    // Telemetry card (#2110): exporting, with endpoint surfaced + Test export.
-    await expect(page.getByRole('heading', { name: 'Telemetry' })).toBeVisible();
+    // Telemetry export status line (#2250): System Health keeps only a one-line
+    // export-status readout + cross-link; the full guided config lives on its own
+    // Observability page (asserted in the Observability describe below).
+    await expect(page.getByRole('heading', { name: 'Telemetry export' })).toBeVisible();
     await expect(page.getByText('Exporting')).toBeVisible();
-    await expect(page.getByText('otel-collector.internal:4317')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Test export' })).toBeVisible();
-  });
-
-  test('telemetry card offers guided setup when export is unconfigured', async ({ page }) => {
-    await setup(page, { telemetry: TELEMETRY_UNCONFIGURED });
-    await page.goto('/settings/health');
-
-    // Gate on the page having rendered before asserting card chrome.
-    await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
-
-    await expect(page.getByText('Not configured')).toBeVisible();
-    await expect(page.getByText('Export is off — no collector endpoint set')).toBeVisible();
-    // Backend picker + env snippet.
-    await expect(page.getByRole('button', { name: 'Grafana Tempo' })).toBeVisible();
-    await expect(page.getByText(/OTEL_EXPORTER_OTLP_ENDPOINT=/)).toBeVisible();
-
-    // Toggle to the Helm-values snippet.
-    await page.getByRole('button', { name: 'Helm values' }).click();
-    await expect(page.getByText(/helm upgrade trueppm/)).toBeVisible();
-  });
-
-  test('Test export golden path reports a collector ACK', async ({ page }) => {
-    await setup(page, { testResult: TELEMETRY_TEST_SUCCESS });
-    await page.goto('/settings/health');
-
-    await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
-    await page.getByRole('button', { name: 'Test export' }).click();
-
-    await expect(page.getByText('Collector accepted the canary span')).toBeVisible();
-    await expect(page.getByText(/working end to end/i)).toBeVisible();
-  });
-
-  test('Test export surfaces a failure outcome', async ({ page }) => {
-    await setup(page, { testResult: TELEMETRY_TEST_FAILURE });
-    await page.goto('/settings/health');
-
-    await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
-    await page.getByRole('button', { name: 'Test export' }).click();
-
-    await expect(page.getByText('Export could not reach the collector')).toBeVisible();
+    await expect(page.getByRole('link', { name: /Configure in Observability/i })).toBeVisible();
+    // The deep config no longer renders here — it moved to /settings/observability.
+    await expect(page.getByRole('button', { name: 'Test export' })).toHaveCount(0);
   });
 
   test('overview shows an error state with Retry when the health API 500s', async ({ page }) => {
@@ -384,5 +348,73 @@ test.describe('Workspace Settings → System health', () => {
     await dialog.getByRole('button', { name: /Requeue 1/ }).click();
 
     await expect(page.getByText(/Requeued 1 task\./)).toBeVisible();
+  });
+});
+
+// The OTLP telemetry-export config now lives on its own Observability page (#2250),
+// discoverable in the settings rail instead of buried at the bottom of System Health.
+test.describe('Workspace Settings → Observability (#2250)', () => {
+  test('has a rail entry that navigates to the Observability page', async ({ page }) => {
+    await setup(page);
+    await page.goto('/settings/health');
+    await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
+
+    // The rail's "Observability" tool item (a route departure) opens the page.
+    await page.getByRole('button', { name: 'Observability' }).click();
+    await expect(page).toHaveURL(/\/settings\/observability$/);
+    await expect(page.getByRole('heading', { name: 'Observability' })).toBeVisible();
+  });
+
+  test("System Health's status line cross-links to the Observability page", async ({ page }) => {
+    await setup(page);
+    await page.goto('/settings/health');
+    await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
+
+    await page.getByRole('link', { name: /Configure in Observability/i }).click();
+    await expect(page).toHaveURL(/\/settings\/observability$/);
+    await expect(page.getByRole('heading', { name: 'Telemetry' })).toBeVisible();
+  });
+
+  test('offers guided setup when export is unconfigured', async ({ page }) => {
+    await setup(page, { telemetry: TELEMETRY_UNCONFIGURED });
+    await page.goto('/settings/observability');
+    await expect(page.getByRole('heading', { name: 'Observability' })).toBeVisible();
+
+    await expect(page.getByText('Not configured')).toBeVisible();
+    await expect(page.getByText('Export is off — no collector endpoint set')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Grafana Tempo' })).toBeVisible();
+    await expect(page.getByText(/OTEL_EXPORTER_OTLP_ENDPOINT=/)).toBeVisible();
+
+    await page.getByRole('button', { name: 'Helm values' }).click();
+    await expect(page.getByText(/helm upgrade trueppm/)).toBeVisible();
+  });
+
+  test('Test export golden path reports a collector ACK', async ({ page }) => {
+    await setup(page, { testResult: TELEMETRY_TEST_SUCCESS });
+    await page.goto('/settings/observability');
+    await expect(page.getByRole('heading', { name: 'Observability' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Test export' }).click();
+    await expect(page.getByText('Collector accepted the canary span')).toBeVisible();
+    await expect(page.getByText(/working end to end/i)).toBeVisible();
+  });
+
+  test('Test export surfaces a failure outcome', async ({ page }) => {
+    await setup(page, { testResult: TELEMETRY_TEST_FAILURE });
+    await page.goto('/settings/observability');
+    await expect(page.getByRole('heading', { name: 'Observability' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Test export' }).click();
+    await expect(page.getByText('Export could not reach the collector')).toBeVisible();
+  });
+
+  test('hides the program/project scope segments (workspace-only tool) (#2251)', async ({ page }) => {
+    await setup(page);
+    await page.goto('/settings/observability');
+    await expect(page.getByRole('heading', { name: 'Observability' })).toBeVisible();
+
+    // Inapplicable scopes are hidden, not shown disabled with a false imperative.
+    await expect(page.getByRole('button', { name: 'Program', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Project', exact: true })).toHaveCount(0);
   });
 });
