@@ -54,10 +54,13 @@ RUN mkdir -p scheduler/src/trueppm_scheduler \
 RUN pip install --only-binary :all: --no-cache-dir cyclonedx-bom==7.3.0
 
 # Run the CI jobs as a non-root user (Sonar dockerfile:S6471). uid 1000 owns the
-# system site-packages and bin so the job-time `pip install -e
-# packages/scheduler[dev]` editable re-link still writes without root.
+# whole /usr/local tree so any job-time `pip install` writes without root — not
+# just the editable re-link into site-packages/bin, but also packages that drop
+# data files under etc/ or share/ (e.g. scheduler:notebooks installs jupyter,
+# which writes /usr/local/etc/jupyter and /usr/local/share/jupyter). Chowning
+# only lib+bin left those unwritable and failed the install with EACCES (#2236).
 RUN useradd --uid 1000 --create-home --shell /bin/bash ci \
- && chown -R ci /usr/local/lib/python3.11 /usr/local/bin
+ && chown -R ci /usr/local
 USER ci
 
 WORKDIR /
