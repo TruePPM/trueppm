@@ -58,6 +58,29 @@ export interface UserSearchResult {
   initials: string;
 }
 
+/**
+ * One result row from `GET /api/v1/me/search/` — the ⌘K global cross-program
+ * Epic/Story omni-search (ADR-0508 D4, #2103). Hand-maintained (types.ts is not
+ * codegen'd). `kind` distinguishes a committed schedule task from a program
+ * backlog intake item so the palette routes to the schedule drawer vs. the
+ * program backlog; `type` is the agile taxonomy value for the "Epic ▸ Story"
+ * label. The breadcrumb is deliberately agile vocabulary (program / project /
+ * parent epic names) and never a WBS code — `project_*` is null for a backlog
+ * item, `parent_epic_*` is populated only for a story grouped under an epic.
+ */
+export interface OmniSearchResult {
+  id: string;
+  kind: 'task' | 'backlog_item';
+  type: 'epic' | 'story' | 'task';
+  title: string;
+  program_id: string | null;
+  program_name: string | null;
+  project_id: string | null;
+  project_name: string | null;
+  parent_epic_id: string | null;
+  parent_epic_name: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Program types (ADR-0070, #502)
 // ---------------------------------------------------------------------------

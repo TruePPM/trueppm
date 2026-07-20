@@ -61,6 +61,7 @@ from trueppm_api.apps.projects.views import (
     LabelViewSet,
     MeActiveSprintsView,
     MeRecentProjectsView,
+    MeSearchView,
     MeWorkView,
     MyApiTokenViewSet,
     PhaseReorderView,
@@ -660,6 +661,12 @@ urlpatterns = [
         "me/recent-projects/",
         MeRecentProjectsView.as_view(),
         name="me-recent-projects",
+    ),
+    # Global cross-program Epic/Story omni-search — ⌘K palette (ADR-0508 D4, #2103)
+    path(
+        "me/search/",
+        MeSearchView.as_view(),
+        name="me-search",
     ),
     # My Work — contributor surface (ADR-0065 Gap 2, issue #499)
     path(

@@ -54,6 +54,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -87,6 +88,8 @@ from trueppm_api.apps.projects.models import (
     SCOPE_LEGACY_FULL,
     AcceptanceCriterion,
     ApiToken,
+    BacklogItem,
+    BacklogItemType,
     Baseline,
     BaselineTask,
     BoardColumnConfig,
@@ -125,6 +128,7 @@ from trueppm_api.apps.projects.models import (
     TaskRecurrenceRule,
     TaskRelation,
     TaskStatus,
+    TaskType,
 )
 from trueppm_api.apps.projects.schema_migrations import (
     SURFACE_BOARD_SAVED_VIEW,
@@ -162,6 +166,7 @@ from trueppm_api.apps.projects.serializers import (
     MilestoneRollupLockedError,
     MyApiTokenCreateSerializer,
     MyApiTokenSerializer,
+    OmniSearchResultSerializer,
     PhaseSerializer,
     ProgressAnchorError,
     ProjectApiTokenCreateSerializer,
@@ -11920,6 +11925,226 @@ class MeRecentProjectsView(APIView):
             limit = 5
         visits = recent_projects(request.user, limit=limit)
         return Response(RecentProjectSerializer(visits, many=True).data, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Global cross-program Epic/Story omni-search (ADR-0508 D4, #2103)
+# ---------------------------------------------------------------------------
+
+# The agile-taxonomy values the palette omni-search understands. Each maps 1:1 onto
+# a ``TaskType`` and a ``BacklogItemType`` value (they share the string literals), so
+# one requested set filters both sources uniformly.
+_OMNI_SEARCH_TYPES: dict[str, tuple[str, str]] = {
+    "epic": (TaskType.EPIC, BacklogItemType.EPIC),
+    "story": (TaskType.STORY, BacklogItemType.STORY),
+    "task": (TaskType.TASK, BacklogItemType.TASK),
+}
+# Default result kinds when ``?type`` is absent — the marquee "Epic ▸ Story" ask
+# (ADR-0508 D4). ``task`` is opt-in via ``?type=…,task`` so a cold search never
+# dumps every plain task the user can see.
+_OMNI_SEARCH_DEFAULT_TYPES = ("epic", "story")
+# Minimum query length. A one-character search is not selective enough to be useful
+# and would scan a large fraction of the trigram index; mirror the user_search /
+# board-search floor.
+_OMNI_SEARCH_MIN_Q = 2
+# DoS guard: cap the term length so a pathological string cannot force an unbounded
+# ILIKE scan (mirrors the board search's raw_q[:100]).
+_OMNI_SEARCH_MAX_Q = 100
+# Per-source scan bound. Each of the two membership-scoped queries returns at most
+# this many rows before the in-Python merge/rank; the merged, ranked list is then
+# paginated. A search palette reads the first page only, so a bounded top-N is the
+# right trade — it keeps the endpoint's DB work O(scan_cap) regardless of how many
+# epics/stories the term matches across every project the user can see.
+_OMNI_SEARCH_SCAN_CAP = 100
+
+
+class MeSearchView(McpReadableViewMixin, APIView):
+    """``GET /api/v1/me/search/`` — global cross-program Epic/Story omni-search (ADR-0508 D4).
+
+    The ⌘K palette's Epic/Story result type (the marquee #1557 VoC ask). Spans two
+    sources with **different** RBAC scopes and merges them into one ranked, paginated
+    list, each row carrying an **agile-vocabulary** breadcrumb (program / project /
+    parent epic) — never a WBS code (the Product-Owner persona's hard-NO):
+
+    * committed ``Task`` rows of type EPIC / STORY / TASK — **project-membership** scope;
+    * program ``BacklogItem`` intake rows — **program-membership** scope.
+
+    **🔴 RBAC / IDOR contract**: every row is filtered to the requesting user's *live*
+    membership — a ``Task`` only via ``project__memberships__user`` (project not
+    deleted, membership not deleted) and a ``BacklogItem`` only via
+    ``program__memberships__user`` (program not deleted, membership not deleted). There
+    is no ``?user=`` / ``?project=`` / ``?program=`` escape hatch: the search is keyed
+    on ``request.user`` alone, so it can never surface an epic/story/backlog title from
+    a project or program the caller is not a member of. Mirrors the membership
+    re-filter of ``MeWorkView`` / ``/me/recent-projects/``.
+
+    **Query params**:
+      * ``q`` — the search term. Fewer than :data:`_OMNI_SEARCH_MIN_Q` characters
+        (after trim) returns an empty page; the term is truncated to
+        :data:`_OMNI_SEARCH_MAX_Q` characters as a DoS guard.
+      * ``type`` — comma-separated agile kinds to include, from
+        ``epic`` / ``story`` / ``task``. Unknown values are ignored; an empty/absent
+        value defaults to ``epic,story`` (:data:`_OMNI_SEARCH_DEFAULT_TYPES`).
+      * ``page`` — standard DRF page number over the merged result list.
+
+    **Response**: the standard ``{count, next, previous, results}`` envelope where each
+    result is an :class:`~trueppm_api.apps.projects.serializers.OmniSearchResultSerializer`
+    row. Results are bounded to the top :data:`_OMNI_SEARCH_SCAN_CAP` matches per source
+    (a search palette reads only the first page), ranked title-prefix-first then
+    alphabetically.
+
+    **API-first / agent**: ``McpReadableViewMixin`` exposes the read to a personal
+    ``mcp:read`` token so an MCP agent can resolve "find the Login epic" under its own
+    owner-scoped token — the resolution fact is not stranded in the web client.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    # A per-keystroke (debounced) search surface; bound it like the other
+    # typeahead/search endpoints so one account cannot bulk-enumerate titles.
+    throttle_scope = "omni_search"
+
+    def _requested_types(self) -> list[str]:
+        raw = self.request.query_params.get("type")
+        if raw is None:
+            return list(_OMNI_SEARCH_DEFAULT_TYPES)
+        requested = [t.strip().lower() for t in raw.split(",") if t.strip()]
+        # Preserve the caller's set but drop anything we don't support; fall back to
+        # the default when the filter is present but names nothing we recognize.
+        allowed = [t for t in requested if t in _OMNI_SEARCH_TYPES]
+        return allowed or list(_OMNI_SEARCH_DEFAULT_TYPES)
+
+    def _task_results(self, user_pk: Any, q: str, types: list[str]) -> list[dict[str, Any]]:
+        task_types = [_OMNI_SEARCH_TYPES[t][0] for t in types]
+        rows = (
+            Task.objects.filter(
+                type__in=task_types,
+                name__icontains=q,
+                is_deleted=False,
+                project__is_deleted=False,
+                # The 🔴 IDOR gate: live project membership only.
+                project__memberships__user_id=user_pk,
+                project__memberships__is_deleted=False,
+            )
+            # Fold the whole breadcrumb (project → program, parent epic) in one query
+            # so building the rows below is N+1-free.
+            .select_related("project", "project__program", "parent_epic")
+            .distinct()[:_OMNI_SEARCH_SCAN_CAP]
+        )
+        results: list[dict[str, Any]] = []
+        for task in rows:
+            program = task.project.program
+            parent_epic = task.parent_epic
+            results.append(
+                {
+                    "id": str(task.id),
+                    "kind": "task",
+                    "type": task.type,
+                    "title": task.name,
+                    "program_id": str(program.id) if program else None,
+                    "program_name": program.name if program else None,
+                    "project_id": str(task.project_id),
+                    "project_name": task.project.name,
+                    "parent_epic_id": str(parent_epic.id) if parent_epic else None,
+                    "parent_epic_name": parent_epic.name if parent_epic else None,
+                }
+            )
+        return results
+
+    def _backlog_results(self, user_pk: Any, q: str, types: list[str]) -> list[dict[str, Any]]:
+        item_types = [_OMNI_SEARCH_TYPES[t][1] for t in types]
+        rows = (
+            BacklogItem.objects.filter(
+                item_type__in=item_types,
+                title__icontains=q,
+                is_deleted=False,
+                program__is_deleted=False,
+                # The 🔴 IDOR gate: live program membership only.
+                program__memberships__user_id=user_pk,
+                program__memberships__is_deleted=False,
+            )
+            .select_related("program")
+            .distinct()[:_OMNI_SEARCH_SCAN_CAP]
+        )
+        return [
+            {
+                "id": str(item.id),
+                "kind": "backlog_item",
+                "type": item.item_type,
+                "title": item.title,
+                "program_id": str(item.program_id),
+                "program_name": item.program.name,
+                # A backlog item is program-level intake, not yet pulled into any
+                # project — so it has no project or parent-epic breadcrumb.
+                "project_id": None,
+                "project_name": None,
+                "parent_epic_id": None,
+                "parent_epic_name": None,
+            }
+            for item in rows
+        ]
+
+    @extend_schema(
+        summary="Global cross-program Epic/Story omni-search",
+        parameters=[
+            OpenApiParameter(
+                name="q",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Search term. Fewer than 2 characters returns an empty page; "
+                    "truncated to 100 characters."
+                ),
+            ),
+            OpenApiParameter(
+                name="type",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Comma-separated agile kinds to include, from epic,story,task. "
+                    "Absent defaults to epic,story."
+                ),
+            ),
+        ],
+        responses={200: OmniSearchResultSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        # IsAuthenticated guarantees a concrete user; ``or -1`` keeps mypy happy about
+        # the ``int | None`` from ``.pk`` (matches MeWorkView) and can never match a
+        # real membership row at runtime.
+        user_pk = request.user.pk or -1
+
+        raw_q = (request.query_params.get("q") or "").strip()
+        paginator = pagination.PageNumberPagination()
+        if len(raw_q) < _OMNI_SEARCH_MIN_Q:
+            # A merged Python list, not a QuerySet, is a valid paginate_queryset
+            # argument (Django's Paginator accepts sequences); the stub types the
+            # first arg as QuerySet, hence the ignore (mirrors the task-activity
+            # feed pagination).
+            empty: list[dict[str, Any]] = []
+            page: list[Any] | None = paginator.paginate_queryset(empty, request, view=self)  # type: ignore[arg-type]
+            return paginator.get_paginated_response(
+                OmniSearchResultSerializer(page or [], many=True).data
+            )
+        q = raw_q[:_OMNI_SEARCH_MAX_Q]
+        types = self._requested_types()
+
+        merged = self._task_results(user_pk, q, types) + self._backlog_results(user_pk, q, types)
+        # Rank: exact prefix matches first (what the user most likely means), then
+        # alphabetically, then id for a stable total order across pages.
+        lowered = q.lower()
+        merged.sort(
+            key=lambda r: (
+                0 if r["title"].lower().startswith(lowered) else 1,
+                r["title"].lower(),
+                r["id"],
+            )
+        )
+
+        page = paginator.paginate_queryset(merged, request, view=self)  # type: ignore[arg-type]
+        return paginator.get_paginated_response(
+            OmniSearchResultSerializer(page or [], many=True).data
+        )
 
 
 @extend_schema_view(
