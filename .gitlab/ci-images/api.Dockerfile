@@ -83,6 +83,22 @@ RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api mcp/src/trueppm
  && pip uninstall --yes trueppm-scheduler trueppm-api trueppm-mcp \
  && rm -rf /opt/ci-deps
 
+# Pin drf-spectacular to the exact version docs/api/openapi.json was generated
+# with. The editable install above resolves it from the pyproject range
+# (>=0.27,<1.0), so an unpinned rebuild silently adopts a new release whose
+# schema output differs — the 0.29->0.30 blank-field `oneOf` change that broke
+# api:schema-drift fleet-wide. Adopting a new version is deliberate: bump this
+# pin, `uv lock --upgrade-package drf-spectacular`, and regenerate the schema in
+# lockstep (scripts/export-openapi.sh) in one MR.
+RUN pip install --no-cache-dir "drf-spectacular[sidecar]==0.30.0"
+
+# Trust the CI checkout dir regardless of owner. GitLab's helper clones the repo
+# as root into /tmp/builds, but the job's step_script runs as `ci` (uid 1000),
+# so git aborts `git fetch origin` with "detected dubious ownership" unless the
+# build dir is marked safe. Baking it here fixes every ci-api job at once, with
+# no per-job `git config` line in .gitlab-ci.yml.
+RUN git config --system --add safe.directory '*'
+
 # Run the CI jobs as a non-root user (Sonar dockerfile:S6471, defense-in-depth
 # for a build container that pulls the repo + third-party deps). uid 1000 owns
 # the system site-packages and bin so the job-time

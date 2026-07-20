@@ -41494,9 +41494,17 @@
                         "maxLength": 512
                     },
                     "account_email": {
-                        "type": "string",
-                        "format": "email",
-                        "default": ""
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "email",
+                                "default": ""
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     },
                     "jql": {
                         "type": "string",
@@ -42242,8 +42250,16 @@
                         "maxLength": 64
                     },
                     "assignee_email": {
-                        "type": "string",
-                        "format": "email"
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "email"
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     },
                     "story_points": {
                         "type": "integer",
@@ -42251,9 +42267,17 @@
                         "minimum": 0
                     },
                     "external_url": {
-                        "type": "string",
-                        "format": "uri",
-                        "maxLength": 2000
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "uri",
+                                "maxLength": 2000
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     },
                     "parent_external_id": {
                         "type": "string",
@@ -53008,7 +53032,8 @@
                     },
                     "file": {
                         "type": "string",
-                        "format": "uri"
+                        "format": "uri",
+                        "nullable": true
                     },
                     "file_name": {
                         "type": "string",
@@ -53024,9 +53049,17 @@
                         "readOnly": true
                     },
                     "external_url": {
-                        "type": "string",
-                        "format": "uri",
-                        "maxLength": 2048
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "uri",
+                                "maxLength": 2048
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     },
                     "external_title": {
                         "type": "string",
@@ -53091,9 +53124,17 @@
                         "maxLength": 255
                     },
                     "external_url": {
-                        "type": "string",
-                        "format": "uri",
-                        "maxLength": 2048
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "uri",
+                                "maxLength": 2048
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     },
                     "external_title": {
                         "type": "string",
@@ -56068,10 +56109,18 @@
                         "maxLength": 150
                     },
                     "email": {
-                        "type": "string",
-                        "format": "email",
                         "title": "Email address",
-                        "maxLength": 254
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "email",
+                                "maxLength": 254
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     }
                 },
                 "required": [
@@ -56094,10 +56143,18 @@
                         "maxLength": 150
                     },
                     "email": {
-                        "type": "string",
-                        "format": "email",
                         "title": "Email address",
-                        "maxLength": 254
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "email",
+                                "maxLength": 254
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     }
                 },
                 "required": [
@@ -56117,10 +56174,18 @@
                         "maxLength": 150
                     },
                     "email": {
-                        "type": "string",
-                        "format": "email",
                         "title": "Email address",
-                        "maxLength": 254
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "email",
+                                "maxLength": 254
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     }
                 },
                 "required": [
