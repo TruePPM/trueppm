@@ -18,6 +18,7 @@ import { useActiveSprint, useProjectVelocity, useSprintMutations } from '@/hooks
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
+import { toast } from '@/components/Toast/toast';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { ApiSprint, BoardCadence } from '@/types';
 
@@ -87,12 +88,21 @@ export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
     writeStoredOpen(storageKey, next);
   };
 
+  // Inline capacity/WIP saves have no optimistic UI, so without an error path a
+  // failed PATCH just silently doesn't stick — the field reverts on the next
+  // refetch with no explanation (#2150).
   const handleSaveCapacity = (value: number | null) => {
-    updateSprint.mutate({ sprintId: sprint.id, payload: { capacity_points: value } });
+    updateSprint.mutate(
+      { sprintId: sprint.id, payload: { capacity_points: value } },
+      { onError: () => toast.error(`Couldn't save the ${itl.lower} capacity — try again.`) },
+    );
   };
 
   const handleSaveWip = (value: number | null) => {
-    updateSprint.mutate({ sprintId: sprint.id, payload: { wip_limit: value } });
+    updateSprint.mutate(
+      { sprintId: sprint.id, payload: { wip_limit: value } },
+      { onError: () => toast.error(`Couldn't save the WIP limit — try again.`) },
+    );
   };
 
   const isOpen = open ?? false;

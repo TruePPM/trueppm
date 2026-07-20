@@ -5,11 +5,13 @@ import type { ReactNode } from 'react';
 import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
 import type { Task } from '@/types';
 
-const { postMock } = vi.hoisted(() => ({
+const { postMock, toastMock } = vi.hoisted(() => ({
   postMock: vi.fn().mockResolvedValue({ data: { pending_count: 0 } }),
+  toastMock: { success: vi.fn(), error: vi.fn(), action: vi.fn(), info: vi.fn() },
 }));
 
 vi.mock('@/api/client', () => ({ apiClient: { post: postMock } }));
+vi.mock('@/components/Toast/toast', () => ({ toast: toastMock }));
 
 function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>;
@@ -54,7 +56,12 @@ const pendingTask = task({
 });
 
 describe('ScopePendingReviewPanel (ADR-0102 §5)', () => {
-  beforeEach(() => postMock.mockClear());
+  beforeEach(() => {
+    postMock.mockClear();
+    toastMock.success.mockClear();
+    toastMock.error.mockClear();
+    toastMock.action.mockClear();
+  });
 
   it('golden path: single Accept POSTs the scope-change accept endpoint', async () => {
     render(
@@ -68,6 +75,35 @@ describe('ScopePendingReviewPanel (ADR-0102 §5)', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /Accept Urgent hotfix into the sprint/ }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith('/scope-changes/sc-1/accept/'));
+  });
+
+  it('accept confirms with a success toast (rule 149 — #2149)', async () => {
+    render(
+      <ScopePendingReviewPanel projectId="p1" sprintId="s1" tasks={[pendingTask]} onClose={() => {}} />,
+      { wrapper },
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Accept Urgent hotfix into the sprint/ }));
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith('Urgent hotfix accepted into the sprint.'),
+    );
+  });
+
+  it('single reject offers a proceed-then-Undo toast (rule 150 — #2149)', async () => {
+    render(
+      <ScopePendingReviewPanel projectId="p1" sprintId="s1" tasks={[pendingTask]} onClose={() => {}} />,
+      { wrapper },
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: /Reject Urgent hotfix and remove it from the sprint/ }),
+    );
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/scope-changes/sc-1/reject/'));
+    expect(toastMock.action).toHaveBeenCalledTimes(1);
+    const [message, action] = toastMock.action.mock.calls[0] as [
+      string,
+      { label: string },
+    ];
+    expect(message).toBe('Urgent hotfix removed from the sprint.');
+    expect(action.label).toBe('Undo');
   });
 
   it('bulk reject goes through a confirm step before POSTing (rule 150)', async () => {

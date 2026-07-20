@@ -2347,3 +2347,84 @@ describe('useProjectWebSocket — ticket-mint failure path (ADR-0141)', () => {
     expect(MockWebSocket.instances[0].url).toContain('ticket=test-ticket');
   });
 });
+
+describe('useProjectWebSocket — async import failure surfacing (#2151)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    wsTicketControl.mode = 'success';
+    toastMock.error.mockClear();
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-abc', isAuthenticated: true });
+      useTaskRunStore.setState({ runs: {} });
+    });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  afterEach(() => {
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
+      useTaskRunStore.setState({ runs: {} });
+    });
+  });
+
+  function dispatchFailed(taskRunId: string) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({
+          event_type: 'task_run_failed',
+          payload: { task_run_id: taskRunId, error_detail: 'worker exploded' },
+        }),
+      });
+    });
+  }
+
+  function seedRun(taskRunId: string, taskName: string) {
+    act(() => {
+      useTaskRunStore.getState().addRun({
+        taskRunId,
+        taskName,
+        projectId: 'proj-1',
+        pct: 50,
+        msg: '',
+        status: 'running',
+      });
+    });
+  }
+
+  it('toasts when an async MS Project import run fails', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    seedRun('run-imp', 'import.msproject');
+
+    dispatchFailed('run-imp');
+
+    expect(toastMock.error).toHaveBeenCalledWith(
+      'Import failed — see recent imports on the project Overview.',
+    );
+  });
+
+  it('toasts for any import.* run (e.g. Jira import)', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    seedRun('run-jira', 'import.jira');
+
+    dispatchFailed('run-jira');
+
+    expect(toastMock.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT toast an import failure for a scheduling recalc run', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    seedRun('run-cpm', 'scheduling.recalculate');
+
+    dispatchFailed('run-cpm');
+
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+});

@@ -16,10 +16,17 @@
  * reconcile from the DB (the WS `sprint_scope_changed` broadcast is best-effort
  * — clients reconcile on the next load regardless). The render-gate is
  * `useCanManageScope`; the server 403 (`scope_accept_forbidden`) is the real
- * gate and is surfaced to the caller via the mutation's `error`.
+ * gate — every mutation carries an `onError` that toasts the failure (including
+ * that authoritative 403) so a denied or failed decision is never silent (#2149).
+ * Callers add the success/undo half of the feedback contract (ADR-0102, rules
+ * 149/150): accept confirms with a toast, single reject offers a re-add undo.
  */
+import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { toast } from '@/components/Toast/toast';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useUpdateTask } from '@/hooks/useTaskMutations';
 import type { ScopeChangeStatus } from '@/types';
 
 /** One scope-change row as returned by the single accept/reject action. */
@@ -76,6 +83,7 @@ export function useScopeChangeActions(
       return res.data;
     },
     onSuccess: invalidate,
+    onError: () => toast.error("Couldn't accept the scope change — try again."),
   });
 
   const rejectOne = useMutation({
@@ -86,6 +94,7 @@ export function useScopeChangeActions(
       return res.data;
     },
     onSuccess: invalidate,
+    onError: () => toast.error("Couldn't reject the scope change — try again."),
   });
 
   const acceptBulk = useMutation({
@@ -100,6 +109,7 @@ export function useScopeChangeActions(
       return res.data;
     },
     onSuccess: invalidate,
+    onError: () => toast.error("Couldn't accept the pending items — try again."),
   });
 
   const rejectBulk = useMutation({
@@ -111,7 +121,65 @@ export function useScopeChangeActions(
       return res.data;
     },
     onSuccess: invalidate,
+    onError: () => toast.error("Couldn't reject the pending items — try again."),
   });
 
   return { acceptOne, rejectOne, acceptBulk, rejectBulk };
+}
+
+/**
+ * The success/undo half of the scope-decision feedback contract (ADR-0102, web
+ * rules 149/150, #2149). The hook above owns the *error* path (a toast on every
+ * failed decision); this owns the *positive* path so both callers — the Sprints
+ * review panel and the board card — behave identically:
+ *
+ *  - **accept** = one tap WITH a confirmation toast (rule 149). Accept is not
+ *    reversible from here (the task is now part of the commitment), so no undo.
+ *  - **single reject** = proceed, then offer an Undo (rule 150). Reject removed
+ *    the task from the sprint; Undo re-assigns it (a plain task PATCH), which the
+ *    server re-records as a pending injection — restoring the prior pending state.
+ *
+ * Fire these from the mutation's own `onSuccess` at the call site, where the task
+ * name is known. `projectId`/`sprintId` are needed only for the Undo re-assign;
+ * when either is absent the reject still confirms, just without the Undo action.
+ */
+export function useScopeDecisionFeedback(
+  projectId: string | null | undefined,
+  sprintId: string | null | undefined,
+) {
+  const itl = useIterationLabel(projectId ?? undefined);
+  const updateTask = useUpdateTask();
+
+  // Memoized so a caller can list them in a useMemo/useCallback dep array (the
+  // board's `scopeActions`) without thrashing on every render.
+  const confirmAccepted = useCallback(
+    (taskName: string) => {
+      toast.success(`${taskName} accepted into the ${itl.lower}.`);
+    },
+    [itl.lower],
+  );
+
+  const confirmRejectedWithUndo = useCallback(
+    (taskId: string, taskName: string) => {
+      const removed = `${taskName} removed from the ${itl.lower}.`;
+      if (!projectId || !sprintId) {
+        toast.success(removed);
+        return;
+      }
+      toast.action(
+        removed,
+        {
+          label: 'Undo',
+          ariaLabel: `Re-add ${taskName} to the ${itl.lower}`,
+          onClick: () => {
+            updateTask.mutate({ id: taskId, projectId, sprint: sprintId });
+          },
+        },
+        { variant: 'info' },
+      );
+    },
+    [itl.lower, projectId, sprintId, updateTask],
+  );
+
+  return { confirmAccepted, confirmRejectedWithUndo };
 }

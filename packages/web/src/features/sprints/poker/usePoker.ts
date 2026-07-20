@@ -9,6 +9,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { toast } from '@/components/Toast/toast';
 import type { PokerSession } from '@/types';
 
 export const pokerKey = (sprintId: string) => ['poker', sprintId];
@@ -48,6 +49,11 @@ export function useOpenPoker() {
     onSuccess: (_d, { sprintId }) => {
       void qc.invalidateQueries({ queryKey: pokerKey(sprintId) });
     },
+    // Opening a round is a facilitator write with no optimistic UI, so a failure
+    // is otherwise silent — the "Estimate" button just does nothing (#2150).
+    onError: () => {
+      toast.error("Couldn't open the estimation round — try again.");
+    },
   });
 }
 
@@ -86,7 +92,10 @@ export function useCastVote() {
       return { previous };
     },
     onError: (_e, { sprintId }, ctx) => {
+      // Roll the optimistic card flip back, then tell the voter their vote did
+      // not land — the rollback alone is visually silent (#2150).
       if (ctx?.previous) qc.setQueryData(pokerKey(sprintId), ctx.previous);
+      toast.error("Couldn't record your vote — try again.");
     },
     onSettled: (_d, _e, { sprintId }) => {
       void qc.invalidateQueries({ queryKey: pokerKey(sprintId) });
@@ -99,6 +108,12 @@ interface ActionVars {
   sessionId: string;
 }
 
+const SESSION_ACTION_ERROR: Record<'reveal' | 'reopen' | 'cancel', string> = {
+  reveal: "Couldn't reveal the estimates — try again.",
+  reopen: "Couldn't reopen the round — try again.",
+  cancel: "Couldn't cancel the round — try again.",
+};
+
 function useSessionAction(action: 'reveal' | 'reopen' | 'cancel') {
   const qc = useQueryClient();
   return useMutation<PokerSession, Error, ActionVars>({
@@ -108,6 +123,11 @@ function useSessionAction(action: 'reveal' | 'reopen' | 'cancel') {
     },
     onSuccess: (_d, { sprintId }) => {
       void qc.invalidateQueries({ queryKey: pokerKey(sprintId) });
+    },
+    // Facilitator lifecycle writes have no optimistic UI, so a failure is
+    // otherwise silent — the round just doesn't change state (#2150).
+    onError: () => {
+      toast.error(SESSION_ACTION_ERROR[action]);
     },
   });
 }
@@ -134,6 +154,11 @@ export function useCommitPoker() {
       void qc.invalidateQueries({ queryKey: pokerKey(sprintId) });
       // The committed story_points lands on the task → refresh the planning backlog.
       void qc.invalidateQueries({ queryKey: ['sprint-backlog'] });
+    },
+    // Committing the agreed estimate has no optimistic UI; a failure otherwise
+    // leaves the story_points unwritten with no signal (#2150).
+    onError: () => {
+      toast.error("Couldn't commit the estimate — try again.");
     },
   });
 }

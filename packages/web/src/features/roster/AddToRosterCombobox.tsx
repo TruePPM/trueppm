@@ -10,6 +10,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { toast } from '@/components/Toast/toast';
 import type { PaginatedResponse } from '@/api/types';
 
 interface ResourceOption {
@@ -101,6 +102,9 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
   function handleCreateNew() {
     inlineCreate.mutate(trimmedQuery, {
       onSuccess: (resourceId) => onSelect(resourceId),
+      // The inline-create had no error path — a failed create just did nothing,
+      // leaving the user staring at the option with no idea why (#2150).
+      onError: () => toast.error("Couldn't create the resource — try again."),
     });
   }
 

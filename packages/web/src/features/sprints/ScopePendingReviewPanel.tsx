@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Task } from '@/types';
-import { useScopeChangeActions } from '@/hooks/useScopeChangeActions';
+import { useScopeChangeActions, useScopeDecisionFeedback } from '@/hooks/useScopeChangeActions';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 /**
@@ -67,6 +67,12 @@ export function ScopePendingReviewPanel({
   const itl = useIterationLabel(projectId);
   const items = derivePending(tasks);
   const { acceptOne, rejectOne, acceptBulk, rejectBulk } = useScopeChangeActions(
+    projectId,
+    sprintId,
+  );
+  // rules 149/150: accept confirms with a toast; single reject offers an Undo
+  // that re-adds the task (#2149). Failures are toasted by the hook itself.
+  const { confirmAccepted, confirmRejectedWithUndo } = useScopeDecisionFeedback(
     projectId,
     sprintId,
   );
@@ -159,7 +165,11 @@ export function ScopePendingReviewPanel({
                   </div>
                   <button
                     type="button"
-                    onClick={() => acceptOne.mutate(item.scopeChangeId)}
+                    onClick={() =>
+                      acceptOne.mutate(item.scopeChangeId, {
+                        onSuccess: () => confirmAccepted(item.taskName),
+                      })
+                    }
                     disabled={controlsDisabled}
                     title={offlineTitle}
                     aria-label={`Accept ${item.taskName} into the ${itl.lower}`}
@@ -172,7 +182,11 @@ export function ScopePendingReviewPanel({
                   </button>
                   <button
                     type="button"
-                    onClick={() => rejectOne.mutate(item.scopeChangeId)}
+                    onClick={() =>
+                      rejectOne.mutate(item.scopeChangeId, {
+                        onSuccess: () => confirmRejectedWithUndo(item.taskId, item.taskName),
+                      })
+                    }
                     disabled={controlsDisabled}
                     title={offlineTitle}
                     aria-label={`Reject ${item.taskName} and remove it from the ${itl.lower}`}

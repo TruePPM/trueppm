@@ -27,13 +27,18 @@ import {
   useCommitPoker,
 } from './usePoker';
 
-const { getMock, postMock } = vi.hoisted(() => ({
+const { getMock, postMock, toastErrorMock } = vi.hoisted(() => ({
   getMock: vi.fn(),
   postMock: vi.fn(),
+  toastErrorMock: vi.fn(),
 }));
 
 vi.mock('@/api/client', () => ({
   apiClient: { get: getMock, post: postMock },
+}));
+
+vi.mock('@/components/Toast/toast', () => ({
+  toast: { error: toastErrorMock },
 }));
 
 function makeSession(overrides: Partial<PokerSession> = {}): PokerSession {
@@ -248,5 +253,66 @@ describe('useCommitPoker', () => {
     // The committed story_points lands on the task → both the round and the planning backlog refresh.
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: pokerKey('sp1') });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprint-backlog'] });
+  });
+});
+
+describe('silent-write feedback (#2150)', () => {
+  it('useOpenPoker toasts when opening a round fails', async () => {
+    postMock.mockRejectedValueOnce(new Error('boom'));
+    const qc = makeQC();
+    const { result } = renderHook(() => useOpenPoker(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ sprintId: 'sp1', taskId: 't9' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toastErrorMock).toHaveBeenCalledWith("Couldn't open the estimation round — try again.");
+  });
+
+  it('useCastVote toasts (alongside the rollback) when the vote fails', async () => {
+    postMock.mockRejectedValueOnce(new Error('boom'));
+    const qc = makeQC();
+    qc.setQueryData<PokerSession[]>(pokerKey('sp1'), [makeSession({ id: 's1', my_vote: null })]);
+    const { result } = renderHook(() => useCastVote(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ sprintId: 'sp1', sessionId: 's1', value: 3 });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toastErrorMock).toHaveBeenCalledWith("Couldn't record your vote — try again.");
+    // Rollback still happened (regression guard).
+    expect(qc.getQueryData<PokerSession[]>(pokerKey('sp1'))?.[0].my_vote).toBeNull();
+  });
+
+  const actionCases: Array<
+    ['reveal' | 'reopen' | 'cancel', () => ReturnType<typeof useRevealPoker>, string]
+  > = [
+    ['reveal', useRevealPoker, "Couldn't reveal the estimates — try again."],
+    ['reopen', useReopenPoker, "Couldn't reopen the round — try again."],
+    ['cancel', useCancelPoker, "Couldn't cancel the round — try again."],
+  ];
+
+  it.each(actionCases)('use%sPoker toasts the action-specific message on failure', async (
+    _action,
+    hook,
+    message,
+  ) => {
+    postMock.mockRejectedValueOnce(new Error('boom'));
+    const qc = makeQC();
+    const { result } = renderHook(() => hook(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ sprintId: 'sp1', sessionId: 's1' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toastErrorMock).toHaveBeenCalledWith(message);
+  });
+
+  it('useCommitPoker toasts when committing the estimate fails', async () => {
+    postMock.mockRejectedValueOnce(new Error('boom'));
+    const qc = makeQC();
+    const { result } = renderHook(() => useCommitPoker(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ sprintId: 'sp1', sessionId: 's1', points: 5 });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toastErrorMock).toHaveBeenCalledWith("Couldn't commit the estimate — try again.");
   });
 });
