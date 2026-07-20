@@ -148,26 +148,49 @@ function renderOutline() {
 }
 
 describe('OutlineMode — keyboard handlers', () => {
-  it('Tab triggers indent on the selected task', () => {
+  it('Alt+ArrowRight triggers indent on the selected task', () => {
     renderOutline();
     act(() => useWbsStore.setState({ selectedTaskId: 't2' }));
     const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
-    fireEvent.keyDown(grid, { key: 'Tab' });
+    fireEvent.keyDown(grid, { key: 'ArrowRight', altKey: true });
     expect(indentMutate).toHaveBeenCalledWith('t2', expect.any(Object));
   });
 
-  it('Shift+Tab triggers outdent on the selected task', () => {
+  it('Alt+ArrowLeft triggers outdent on the selected task', () => {
     renderOutline();
     act(() => useWbsStore.setState({ selectedTaskId: 't1' }));
     const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
-    fireEvent.keyDown(grid, { key: 'Tab', shiftKey: true });
+    fireEvent.keyDown(grid, { key: 'ArrowLeft', altKey: true });
     expect(outdentMutate).toHaveBeenCalledWith('t1', expect.any(Object));
   });
 
-  it('Tab is a no-op when nothing is selected', () => {
+  it('Alt+ArrowRight is a no-op when nothing is selected', () => {
     renderOutline();
     const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
-    fireEvent.keyDown(grid, { key: 'Tab' });
+    fireEvent.keyDown(grid, { key: 'ArrowRight', altKey: true });
+    expect(indentMutate).not.toHaveBeenCalled();
+  });
+
+  // Regression for the #2192 keyboard trap: plain Tab must neither mutate the WBS
+  // nor be preventDefault'd, so focus can leave the treegrid normally.
+  it('Tab does not mutate and is allowed to propagate (no keyboard trap)', () => {
+    renderOutline();
+    act(() => useWbsStore.setState({ selectedTaskId: 't2' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    const notPrevented = fireEvent.keyDown(grid, { key: 'Tab' });
+    // fireEvent returns false when preventDefault was called; true means it propagates.
+    expect(notPrevented).toBe(true);
+    expect(indentMutate).not.toHaveBeenCalled();
+    expect(outdentMutate).not.toHaveBeenCalled();
+  });
+
+  it('Shift+Tab does not mutate and is allowed to propagate (no keyboard trap)', () => {
+    renderOutline();
+    act(() => useWbsStore.setState({ selectedTaskId: 't1' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    const notPrevented = fireEvent.keyDown(grid, { key: 'Tab', shiftKey: true });
+    expect(notPrevented).toBe(true);
+    expect(outdentMutate).not.toHaveBeenCalled();
     expect(indentMutate).not.toHaveBeenCalled();
   });
 
@@ -387,7 +410,7 @@ describe('OutlineMode — onDragCancel', () => {
 });
 
 describe('OutlineMode — indent / outdent error paths', () => {
-  it('Tab onError announces "Cannot indent" when the API rejects', () => {
+  it('Alt+ArrowRight onError announces "Cannot indent" when the API rejects', () => {
     indentMutate.mockImplementation(
       (_id: string, opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void }) => {
         opts?.onError?.();
@@ -396,11 +419,11 @@ describe('OutlineMode — indent / outdent error paths', () => {
     renderOutline();
     act(() => useWbsStore.setState({ selectedTaskId: 't1' }));
     const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
-    fireEvent.keyDown(grid, { key: 'Tab' });
+    fireEvent.keyDown(grid, { key: 'ArrowRight', altKey: true });
     expect(indentMutate).toHaveBeenCalled();
   });
 
-  it('Shift+Tab onError announces "Cannot outdent" when the API rejects', () => {
+  it('Alt+ArrowLeft onError announces "Cannot outdent" when the API rejects', () => {
     outdentMutate.mockImplementation(
       (_id: string, opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void }) => {
         opts?.onError?.();
@@ -409,7 +432,7 @@ describe('OutlineMode — indent / outdent error paths', () => {
     renderOutline();
     act(() => useWbsStore.setState({ selectedTaskId: 't1' }));
     const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
-    fireEvent.keyDown(grid, { key: 'Tab', shiftKey: true });
+    fireEvent.keyDown(grid, { key: 'ArrowLeft', altKey: true });
     expect(outdentMutate).toHaveBeenCalled();
   });
 });

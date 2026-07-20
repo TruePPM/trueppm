@@ -155,14 +155,20 @@ new `ordered_ids` and calls the existing reorder endpoint.
 
 | Key | Action | Condition |
 |-----|--------|-----------|
-| Tab | Indent | Task selected, not first at level |
-| Shift+Tab | Outdent | Task selected, not at root |
+| Alt+→ | Indent | Task selected, not first at level |
+| Alt+← | Outdent | Task selected, not at root |
 | Alt+↑ | Move up within siblings | Task selected, not first sibling |
 | Alt+↓ | Move down within siblings | Task selected, not last sibling |
 | ↑/↓ | Navigate between rows | Always (standard navigation) |
 
-Plain arrow keys are navigation only — reorder requires Alt modifier to avoid
+Plain arrow keys are navigation only — reorder requires the Alt modifier to avoid
 conflicting with basic row navigation.
+
+> **Amended (#2192, a11y audit 2026-07-18):** indent/outdent were originally bound
+> to Tab / Shift+Tab. Intercepting Tab inside the `role="treegrid"` container created
+> a WCAG 2.1.2 keyboard trap — focus could never leave the tree, and every escape
+> attempt fired a WBS mutation. They are now bound to Alt+→ / Alt+←, consistent with
+> the Alt+↑/↓ move bindings; plain Tab propagates normally.
 
 ### 7. Schedule Summary Bar Rendering
 
