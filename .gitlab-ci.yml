@@ -1185,6 +1185,12 @@ api:migration-numbering:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script: []
   script:
+    # The ci-api image's step_script runs as a different UID than the runner's
+    # get_sources checkout, so git 2.35.2+ refuses the fetch with "detected
+    # dubious ownership" unless the build dir is marked safe. This is the only
+    # ci-api job that runs git on the main pipeline (before_script:[] skips the
+    # pip install too), so the exception is scoped here rather than shared.
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
     - git fetch origin "$CI_DEFAULT_BRANCH" --quiet
     - python3 scripts/check-migration-numbering.py "origin/$CI_DEFAULT_BRANCH"
 
