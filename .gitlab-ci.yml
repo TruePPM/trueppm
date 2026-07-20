@@ -1480,8 +1480,8 @@ scheduler:notebooks:
     # writes jupyter's data_files to that root-owned prefix (Errno 13). Install
     # into a throwaway venv under $HOME whose prefix is fully writable by uid 1000.
     - python -m venv "$HOME/nbenv"
-    - "$HOME/nbenv/bin/pip" install --quiet jupyter nbconvert
-    - "$HOME/nbenv/bin/jupyter" nbconvert --to notebook --execute --inplace notebooks/*.ipynb
+    - $HOME/nbenv/bin/pip install --quiet jupyter nbconvert
+    - $HOME/nbenv/bin/jupyter nbconvert --to notebook --execute --inplace notebooks/*.ipynb
   artifacts:
     paths:
       - packages/scheduler/notebooks/*.ipynb
