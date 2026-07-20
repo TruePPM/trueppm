@@ -24,9 +24,14 @@ const SIZE: Record<ButtonSize, string> = {
 };
 
 const VARIANT: Record<ButtonVariant, string> = {
-  // brand btn-primary — vivid sage fill, navy ink, sage-600 boundary
+  // brand btn-primary — vivid sage fill, navy ink, sage-600 boundary. Hover
+  // BRIGHTENS to sage-400 (not darkens to sage-600): navy-900 on sage-600 is
+  // only 4.46:1 (marginally below the 4.5:1 AA floor for the 13px label),
+  // while navy-900 on sage-400 is the same AA-safe pair the dark recipe already
+  // ships as its fill — so light-mode hover now mirrors dark mode's own
+  // brighten-on-hover (sage-400 → sage-300). (WCAG 1.4.3, #2196.)
   primary:
-    'bg-sage-500 text-navy-900 border border-sage-600 hover:bg-sage-600 ' +
+    'bg-sage-500 text-navy-900 border border-sage-600 hover:bg-sage-400 ' +
     'dark:bg-sage-400 dark:text-navy-900 dark:border-sage-500 dark:hover:bg-sage-300',
   secondary:
     'bg-neutral-surface text-neutral-text-primary border border-neutral-border ' +
@@ -34,9 +39,14 @@ const VARIANT: Record<ButtonVariant, string> = {
   ghost:
     'bg-transparent text-brand-primary border border-transparent ' +
     'hover:bg-brand-primary/10',
+  // danger — semantic-critical fill. The fill is mode-aware (#B91C1C light /
+  // #F87171 dark via the CSS var), but white ink is not: white on the light-red
+  // dark fill is only 2.77:1. `dark:text-navy-900` puts dark ink on the light
+  // fill (4.9:1), mirroring the primary variant's dark treatment. Light mode is
+  // unchanged (white on #B91C1C = 6.47:1). (WCAG 1.4.3, #2196; sibling of #2041.)
   danger:
-    'bg-semantic-critical text-white border border-semantic-critical ' +
-    'hover:opacity-90',
+    'bg-semantic-critical text-white dark:text-navy-900 ' +
+    'border border-semantic-critical hover:opacity-90',
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
