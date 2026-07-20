@@ -565,6 +565,40 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('toasts the server reason when activating a sprint fails (#2150)', async () => {
+    const userEvent = (await import('@testing-library/user-event')).default;
+    // The activate mutate rejects with a DRF 409 body (single-active-sprint rule).
+    const activateMutate = vi.fn(
+      (_id: string, opts: { onError?: (e: unknown) => void }) =>
+        opts.onError?.({
+          isAxiosError: true,
+          response: { status: 409, data: { detail: 'Another sprint is already active.' } },
+        }),
+    );
+    useSprintMutationsMock.mockReturnValue({
+      closeSprint: { mutate: vi.fn(), isPending: false },
+      createSprint: { mutate: vi.fn() },
+      activateSprint: { mutate: activateMutate },
+      updateSprint: { mutate: vi.fn(), isPending: false },
+    });
+    const readyPlanned = makeSprint({
+      id: 'sp-planned',
+      state: 'PLANNED',
+      name: 'Next up',
+      start_date: '2026-04-01',
+      finish_date: '2026-04-14',
+    });
+    useSprintsMock.mockReturnValue({ sprints: [readyPlanned], isLoading: false, error: null });
+    useSprintsByStateMock.mockReturnValue({
+      closed: [], active: null, planned: [readyPlanned], isLoading: false, error: null,
+    });
+    renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
+
+    await userEvent.click(screen.getByRole('button', { name: /Activate/i }));
+    // The server's own reason is surfaced, not a generic fallback.
+    expect(toastMocks.error).toHaveBeenCalledWith('Another sprint is already active.');
+  });
+
   it('opens the edit modal from the timeline Edit action on a far-future planned sprint', async () => {
     const userEvent = (await import('@testing-library/user-event')).default;
     useSprintsMock.mockReturnValue({ sprints: [PLANNED_FAR], isLoading: false, error: null });

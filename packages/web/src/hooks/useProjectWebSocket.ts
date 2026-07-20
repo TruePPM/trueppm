@@ -251,11 +251,20 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
     on('task_run_failed', (payload) => {
       const taskRunId = payload.task_run_id as string;
       const errorDetail = typeof payload.error_detail === 'string' ? payload.error_detail : '';
+      // Capture the run's identity before failRun mutates the store.
+      const taskName = useTaskRunStore.getState().runs[taskRunId]?.taskName;
       failRun(taskRunId, errorDetail);
       // Scheduling integration: if this was the CPM task, set error state.
-      const run = useTaskRunStore.getState().runs[taskRunId];
-      if (run?.taskName === 'scheduling.recalculate') {
+      if (taskName === 'scheduling.recalculate') {
         setCpmError({ error: 'internal_error', cycle: [] } as CpmError);
+      } else if (taskName?.startsWith('import.')) {
+        // An async import (MS Project / Jira) that fails is otherwise invisible on
+        // the Schedule that launched it: `task_run_failed` only updates the run
+        // store, and the sole trace is a "Failed" chip in the Overview's import
+        // provenance section — which the user has no reason to open. Without this
+        // they wait on the Schedule for tasks that never arrive (#2151). Toast so
+        // the failure surfaces on whatever project surface they are looking at.
+        toast.error('Import failed — see recent imports on the project Overview.');
       }
     });
     on('task_run_cancelled', (payload) => {

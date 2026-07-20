@@ -11,6 +11,9 @@ vi.mock('@/hooks/useTaskMutations', () => ({
   useUpdateTask: () => ({ mutate: mutateMock, isPending: false }),
 }));
 
+const { toastErrorMock } = vi.hoisted(() => ({ toastErrorMock: vi.fn() }));
+vi.mock('@/components/Toast/toast', () => ({ toast: { error: toastErrorMock } }));
+
 function makeStory(over: Partial<Task>): Task {
   return {
     id: 'story-1',
@@ -39,7 +42,10 @@ function renderBtn(props: Partial<ComponentProps<typeof SprintCommitButton>> = {
   );
 }
 
-beforeEach(() => mutateMock.mockReset());
+beforeEach(() => {
+  mutateMock.mockReset();
+  toastErrorMock.mockReset();
+});
 
 describe('SprintCommitButton', () => {
   it('shows "+ Add" for an uncommitted story and commits it into the planned sprint on click', () => {
@@ -73,5 +79,27 @@ describe('SprintCommitButton', () => {
   it('stays read-only for a story committed to a different sprint', () => {
     renderBtn({ story: makeStory({ sprintId: 'other-sprint' }) });
     expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('toasts a generic error when a non-conflict write fails (#2150)', () => {
+    renderBtn({ story: makeStory({ sprintId: null }) });
+    fireEvent.click(screen.getByRole('button', { name: /Add Pay with card to SP-A1/i }));
+    // useUpdateTask already handles the 409 toast; the call-site fallback covers
+    // the 403/500/network case that otherwise rolled back silently.
+    const opts = mutateMock.mock.calls[0][1] as { onError: (e: unknown) => void };
+    opts.onError(new Error('network'));
+    expect(toastErrorMock).toHaveBeenCalledWith("Couldn't add the story — try again.");
+  });
+
+  it('does NOT double-toast when the write fails with a sync conflict (409)', () => {
+    renderBtn({ story: makeStory({ sprintId: null }) });
+    fireEvent.click(screen.getByRole('button', { name: /Add Pay with card to SP-A1/i }));
+    const opts = mutateMock.mock.calls[0][1] as { onError: (e: unknown) => void };
+    // Shape of a sync-conflict axios error (useUpdateTask owns that toast).
+    opts.onError({
+      isAxiosError: true,
+      response: { status: 409, data: { code: 'sync_conflict' } },
+    });
+    expect(toastErrorMock).not.toHaveBeenCalled();
   });
 });

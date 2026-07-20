@@ -7,6 +7,8 @@ import { setSearchParam, useUrlSelectedId } from '@/hooks/useUrlSelectedId';
 import { useProject } from '@/hooks/useProject';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
+import { isSyncConflict } from '@/api/conflict';
+import { extractValidationMessage } from '@/lib/apiError';
 import {
   useSprints,
   useSprintsByState,
@@ -437,6 +439,15 @@ export function SprintsView() {
       onSuccess: (data) => {
         setCapacityWarnings(data.warnings ?? []);
       },
+      // A failed activation — including the DESIGNED single-active-sprint 409
+      // (ADR-0037) — otherwise does nothing on screen. Surface the server's own
+      // reason so the user learns why the sprint didn't start, mirroring the
+      // explicit close-sprint error toast in the same view (#2150, #1631).
+      onError: (error) => {
+        toast.error(
+          extractValidationMessage(error, `Couldn't start the ${itl.lower} — try again.`),
+        );
+      },
     });
   }
 
@@ -452,6 +463,15 @@ export function SprintsView() {
         onSuccess: () => {
           // Invalidate both active and planned sprint backlog caches.
           void queryClient.invalidateQueries({ queryKey: ['sprint-backlog', projectId] });
+        },
+        // useUpdateTask already toasts + rolls back the optimistic patch on a 409
+        // conflict; a 403/500/network failure otherwise rolls back silently. Add
+        // a generic fallback for those, guarded so it never stacks with the
+        // conflict toast (#2150).
+        onError: (error) => {
+          if (!isSyncConflict(error)) {
+            toast.error(`Couldn't remove the task from the ${itl.lower} — try again.`);
+          }
         },
       },
     );

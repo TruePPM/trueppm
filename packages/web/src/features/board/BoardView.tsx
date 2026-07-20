@@ -136,7 +136,7 @@ import { useBoardCardSearch } from '@/hooks/useBoardCardSearch';
 import { useProject } from '@/hooks/useProject';
 import { useActiveSprint, useFlowMetrics, useSprints } from '@/hooks/useSprints';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
-import { useScopeChangeActions } from '@/hooks/useScopeChangeActions';
+import { useScopeChangeActions, useScopeDecisionFeedback } from '@/hooks/useScopeChangeActions';
 import { ScopePendingReviewPanel } from '@/features/sprints/ScopePendingReviewPanel';
 import { BoardSprintHeader } from './BoardSprintHeader';
 import { BoardDropNotice } from './BoardDropNotice';
@@ -2179,6 +2179,12 @@ export function BoardView() {
     projectId || null,
     activeSprint?.id ?? null,
   );
+  // rules 149/150: accept confirms, single reject offers an Undo re-add (#2149).
+  // The hook toasts failures; this adds the positive path, same as the panel.
+  const { confirmAccepted, confirmRejectedWithUndo } = useScopeDecisionFeedback(
+    projectId || null,
+    activeSprint?.id ?? null,
+  );
   // Map a pending card to its latest pending scope-change row id (the
   // accept/reject target) before firing the mutation. ADR-0102.
   const pendingScopeChangeId = useCallback((task: Task): string | undefined => {
@@ -2191,14 +2197,24 @@ export function BoardView() {
       offline: typeof navigator !== 'undefined' && !navigator.onLine,
       onAccept: (task: Task) => {
         const id = pendingScopeChangeId(task);
-        if (id) acceptScope.mutate(id);
+        if (id) acceptScope.mutate(id, { onSuccess: () => confirmAccepted(task.name) });
       },
       onReject: (task: Task) => {
         const id = pendingScopeChangeId(task);
-        if (id) rejectScope.mutate(id);
+        if (id)
+          rejectScope.mutate(id, {
+            onSuccess: () => confirmRejectedWithUndo(task.id, task.name),
+          });
       },
     }),
-    [canManageScope, pendingScopeChangeId, acceptScope, rejectScope],
+    [
+      canManageScope,
+      pendingScopeChangeId,
+      acceptScope,
+      rejectScope,
+      confirmAccepted,
+      confirmRejectedWithUndo,
+    ],
   );
 
   // Space-held click-drag panning of the board grid (issue 1265). While Space is

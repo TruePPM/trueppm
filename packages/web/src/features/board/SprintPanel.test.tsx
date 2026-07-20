@@ -9,6 +9,9 @@ import type { ApiSprint } from '@/types';
 
 const updateSprintMock = vi.fn();
 
+const { toastErrorMock } = vi.hoisted(() => ({ toastErrorMock: vi.fn() }));
+vi.mock('@/components/Toast/toast', () => ({ toast: { error: toastErrorMock } }));
+
 vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: vi.fn(),
 }));
@@ -123,6 +126,7 @@ function expandPanel() {
 
 beforeEach(() => {
   updateSprintMock.mockReset();
+  toastErrorMock.mockReset();
   window.localStorage.clear();
 });
 
@@ -247,10 +251,10 @@ describe('SprintPanel', () => {
     const input = screen.getByLabelText(/planned story-point capacity/i);
     fireEvent.change(input, { target: { value: '42' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(updateSprintMock).toHaveBeenCalledWith({
-      sprintId: 'sp-id',
-      payload: { capacity_points: 42 },
-    });
+    expect(updateSprintMock).toHaveBeenCalledWith(
+      { sprintId: 'sp-id', payload: { capacity_points: 42 } },
+      expect.anything(),
+    );
   });
 
   it('clears capacity_points to null when input emptied and committed', () => {
@@ -263,10 +267,26 @@ describe('SprintPanel', () => {
     const input = screen.getByLabelText(/planned story-point capacity/i);
     fireEvent.change(input, { target: { value: '' } });
     fireEvent.blur(input);
-    expect(updateSprintMock).toHaveBeenCalledWith({
-      sprintId: 'sp-id',
-      payload: { capacity_points: null },
+    expect(updateSprintMock).toHaveBeenCalledWith(
+      { sprintId: 'sp-id', payload: { capacity_points: null } },
+      expect.anything(),
+    );
+  });
+
+  it('toasts when a capacity save fails (#2150 — no optimistic UI otherwise)', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', capacity_points: null }),
     });
+    expandPanel();
+    fireEvent.click(screen.getByRole('button', { name: /set planned story-point capacity/i }));
+    const input = screen.getByLabelText(/planned story-point capacity/i);
+    fireEvent.change(input, { target: { value: '42' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    // Drive the onError the component passed to updateSprint.mutate.
+    const opts = updateSprintMock.mock.calls[0][1] as { onError: () => void };
+    opts.onError();
+    expect(toastErrorMock).toHaveBeenCalledWith("Couldn't save the sprint capacity — try again.");
   });
 
   it('reverts edit on Escape without saving', () => {
@@ -393,10 +413,10 @@ describe('SprintPanel WIP limit (#546)', () => {
     const input = screen.getByLabelText(/wip limit/i);
     fireEvent.change(input, { target: { value: '5' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(updateSprintMock).toHaveBeenCalledWith({
-      sprintId: 'sp-id',
-      payload: { wip_limit: 5 },
-    });
+    expect(updateSprintMock).toHaveBeenCalledWith(
+      { sprintId: 'sp-id', payload: { wip_limit: 5 } },
+      expect.anything(),
+    );
   });
 
   it('clears the WIP limit to null when the input is emptied', () => {
@@ -409,10 +429,10 @@ describe('SprintPanel WIP limit (#546)', () => {
     const input = screen.getByLabelText(/wip limit/i);
     fireEvent.change(input, { target: { value: '' } });
     fireEvent.blur(input);
-    expect(updateSprintMock).toHaveBeenCalledWith({
-      sprintId: 'sp-id',
-      payload: { wip_limit: null },
-    });
+    expect(updateSprintMock).toHaveBeenCalledWith(
+      { sprintId: 'sp-id', payload: { wip_limit: null } },
+      expect.anything(),
+    );
   });
 
   it('does not save a zero WIP limit (PositiveInteger floor)', () => {

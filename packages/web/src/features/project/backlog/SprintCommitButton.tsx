@@ -3,6 +3,8 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { Button } from '@/components/Button';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
+import { isSyncConflict } from '@/api/conflict';
+import { toast } from '@/components/Toast/toast';
 import type { Task } from '@/types';
 import { SprintCommitmentChip } from './components/atoms';
 
@@ -52,6 +54,18 @@ export function SprintCommitButton({ story, projectId, plannedSprint, canManage 
       {
         onSuccess: () => {
           void queryClient.invalidateQueries({ queryKey: ['product-backlog', projectId] });
+        },
+        // useUpdateTask toasts + rolls back on a 409; a 403/500/network failure
+        // otherwise rolls the optimistic "+ Add"/"✓ In" flip back with no signal.
+        // Add a generic fallback, guarded so it never stacks the conflict toast (#2150).
+        onError: (error) => {
+          if (!isSyncConflict(error)) {
+            toast.error(
+              inSprint
+                ? "Couldn't remove the story — try again."
+                : "Couldn't add the story — try again.",
+            );
+          }
         },
       },
     );

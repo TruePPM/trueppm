@@ -8,6 +8,7 @@ import { PROFICIENCY_LABEL } from '@/types';
 import { CapacityInput } from './CapacityInput';
 import { CascadeDeleteDialog } from './CascadeDeleteDialog';
 import { useUpdateProjectResource, useRemoveProjectResource } from '@/hooks/useProjectResourcePool';
+import { toast } from '@/components/Toast/toast';
 
 interface RosterDetailPanelProps {
   projectResource: ProjectResource;
@@ -33,7 +34,12 @@ export function RosterDetailPanel({
   const removeMutation = useRemoveProjectResource(projectResource.projectId);
 
   function handleCapacityChange(value: number) {
-    updateMutation.mutate({ id: projectResource.id, unitsOverride: value });
+    // The capacity editor has no optimistic UI — a failed PATCH otherwise just
+    // silently doesn't stick. Surface it so the user knows to retry (#2150).
+    updateMutation.mutate(
+      { id: projectResource.id, unitsOverride: value },
+      { onError: () => toast.error("Couldn't save the capacity override — try again.") },
+    );
   }
 
   function handleRemoveClick() {
@@ -53,6 +59,10 @@ export function RosterDetailPanel({
               (err as { response?: { data: { cascaded_assignment_count?: number } } }).response
                 ?.data?.cascaded_assignment_count ?? 1;
             setRemoveState({ phase: 'confirm-cascade', assignmentCount: count });
+          } else {
+            // A 403/500/network failure isn't the cascade case — it produced zero
+            // feedback before (#2150). Toast so the removal doesn't fail silently.
+            toast.error("Couldn't remove the resource — try again.");
           }
         },
       },
@@ -65,7 +75,12 @@ export function RosterDetailPanel({
       { id: projectResource.id, force: true },
       {
         onSuccess: () => onClose?.(),
-        onError: () => setRemoveState({ phase: 'idle' }),
+        onError: () => {
+          // The force (cascade) removal failed — reset out of the removing state
+          // and tell the user, or the dialog just silently reverts (#2150).
+          setRemoveState({ phase: 'idle' });
+          toast.error("Couldn't remove the resource — try again.");
+        },
       },
     );
   }
