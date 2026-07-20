@@ -81,6 +81,13 @@ INTEGRATION_ENCRYPTION_KEY = "cNHot7PnbAHGIuY4zUht8FwB5wYGv06O7ppzGyhzR84="
 REST_FRAMEWORK = {  # nosemgrep: missing-throttle-config
     **REST_FRAMEWORK,  # nosemgrep: missing-throttle-config
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
+    # Re-add SessionAuthentication on top of base's JWT-only posture (#2248) so the
+    # test suite's `client.force_login()` populates request.user without minting a
+    # JWT. Never loaded in staging/prod (fenced by _assert_dev_environment_safe).
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
 }
 
 # The refresh cookie must work over plain HTTP on localhost — a Secure cookie is
