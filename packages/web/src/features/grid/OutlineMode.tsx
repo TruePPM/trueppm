@@ -237,10 +237,15 @@ export function OutlineMode({
       const visible = flattenVisible(tree, expandedIds);
       const currentIdx = visible.findIndex((n) => n.task.id === selectedTaskId);
 
-      if (e.key === 'Tab') {
+      // Indent/outdent are bound to Alt+ArrowRight / Alt+ArrowLeft (mirroring the
+      // Alt+ArrowUp/Down move bindings below), NOT Tab. Binding these to Tab created
+      // a WCAG 2.1.2 keyboard trap — every Tab was intercepted and preventDefault'd,
+      // so a keyboard user could never leave the treegrid, and each escape attempt
+      // fired a WBS mutation (#2192). Plain Tab now falls through untouched.
+      if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && e.altKey) {
         e.preventDefault();
         if (!selectedTaskId) return;
-        if (e.shiftKey) {
+        if (e.key === 'ArrowLeft') {
           outdentTask.mutate(selectedTaskId, {
             onSuccess: (data) => {
               const warning = data.warning === 'has_assignments'
@@ -347,10 +352,16 @@ export function OutlineMode({
         <span className="w-36 flex-shrink-0 pl-2">Predecessors</span>
       </div>
 
+      <p id="outline-tree-keys" className="sr-only">
+        Use up and down arrows to move between tasks. Hold Alt with the arrow keys to
+        reorganize the selected task: Alt plus Right indents it, Alt plus Left outdents it,
+        Alt plus Up or Down moves it among its siblings.
+      </p>
       {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus -- roving tabindex on rows */}
       <div
         role="treegrid"
         aria-label="Outline task tree"
+        aria-describedby="outline-tree-keys"
         className="flex-1 overflow-y-auto"
         onKeyDown={handleTreeKeyDown}
       >
