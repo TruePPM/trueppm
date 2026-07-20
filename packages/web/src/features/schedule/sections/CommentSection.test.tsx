@@ -49,6 +49,13 @@ vi.mock('@/hooks/useProject', () => ({
   useProject: () => ({ data: { program: null } }),
 }));
 
+// #2254: CommentComposer reads useMentionGroups (a query) to surface project
+// mention groups in the @ menu. These tests render without a QueryClientProvider
+// and don't exercise mentions, so stub it with no groups.
+vi.mock('@/features/settings/hooks/useMentionGroups', () => ({
+  useMentionGroups: () => ({ data: [] }),
+}));
+
 function comment(overrides: Partial<TaskComment> = {}): TaskComment {
   return {
     id: 'c1',
