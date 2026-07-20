@@ -33,10 +33,14 @@ export function FibonacciCardRow({
   const selectedIndex = CARDS.findIndex((c) => c === value);
   const anchor = selectedIndex === -1 ? 0 : selectedIndex;
 
+  // Arrow keys move focus ONLY — they never commit a vote (web-rule 167). A vote
+  // is a server write (EstimationPokerCard wires onSelect to vote.mutate), so
+  // routing arrow navigation through onSelect would record a throwaway vote per
+  // keypress as a keyboard user scans the row. Commit happens on activation
+  // (click / Enter / Space), which the native <button>'s onClick already handles.
   function move(delta: number, from: number) {
     const next = (from + delta + CARDS.length) % CARDS.length;
     refs.current[next]?.focus();
-    onSelect(CARDS[next]);
   }
 
   return (
