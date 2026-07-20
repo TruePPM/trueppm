@@ -385,7 +385,11 @@ export function SettingsShell({
                         height="11"
                         viewBox="0 0 16 16"
                         aria-hidden="true"
-                        className="ml-auto shrink-0 text-neutral-text-disabled"
+                        // The ↗ is the sole visual "opens a separate page" signifier
+                        // (#2252), so it must clear WCAG 1.4.11 3:1 — text-secondary,
+                        // not text-disabled, which fails on the active item's sunken
+                        // background (rule 87).
+                        className="ml-auto shrink-0 text-neutral-text-secondary"
                       >
                         <path
                           d="M6 3.5h6.5V10 M12.5 3.5L4 12"
