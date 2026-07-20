@@ -42,6 +42,13 @@ export interface LaneMetaProps {
    * ⋮⋮ handle activates the sortable drag for phase reordering.
    */
   dragHandleListeners?: Record<string, unknown>;
+  /**
+   * @dnd-kit sortable attributes (role, tabIndex, aria-*) for the drag handle in
+   * workshop mode. These belong on the real ⋮⋮ handle button — not on the lane
+   * wrapper, which would turn the whole swimlane into one giant role="button" and
+   * leave the actual handle keyboard/SR-inert (#2201).
+   */
+  dragHandleAttributes?: Record<string, unknown>;
   onAddTask?: () => void;
   /**
    * Override for the "+" button's title and aria-label. Defaults to
@@ -79,6 +86,7 @@ export function LaneMeta({
   workshop = false,
   onPhaseRename,
   dragHandleListeners,
+  dragHandleAttributes,
   onAddTask,
   addTaskLabel,
   collapseToggle,
@@ -147,14 +155,16 @@ export function LaneMeta({
         {/* Header row: name + add button */}
         <div className="flex items-center gap-2 min-w-0">
           {workshop && (
-            <span
-              aria-hidden="true"
-              className="text-neutral-text-disabled text-sm cursor-grab select-none flex-shrink-0"
+            <button
+              type="button"
+              aria-label={`Reorder phase: ${phaseName}`}
+              className="text-neutral-text-disabled text-sm cursor-grab active:cursor-grabbing select-none flex-shrink-0"
               title="Drag to reorder phase"
+              {...(dragHandleAttributes as Record<string, unknown>)}
               {...(dragHandleListeners as Record<string, (e: unknown) => void>)}
             >
               ⋮⋮
-            </span>
+            </button>
           )}
 
           {collapseToggle}

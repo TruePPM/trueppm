@@ -125,7 +125,7 @@ export function OutlineRow({
         <span
           {...attributes}
           {...listeners}
-          aria-hidden="true"
+          aria-label={`Reorder ${task.name}`}
           className={`
             relative w-4 h-4 flex items-center justify-center flex-shrink-0
             cursor-grab active:cursor-grabbing text-neutral-text-secondary

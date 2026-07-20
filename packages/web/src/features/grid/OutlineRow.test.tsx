@@ -65,6 +65,16 @@ describe('OutlineRow', () => {
     expect(screen.getByText('1.0 FS+2')).toBeInTheDocument();
   });
 
+  // #2201: the dnd-kit reorder handle must expose an accessible name instead of
+  // aria-hidden, so keyboard/SR users hit a labeled control rather than an
+  // unnamed, unexplained tab stop.
+  it('exposes an accessible label on the reorder drag handle', () => {
+    const node = makeNode({ id: 't1', wbs: '1.1', name: 'Discovery' });
+    renderRow(node);
+    const handle = screen.getByLabelText('Reorder Discovery');
+    expect(handle).not.toHaveAttribute('aria-hidden');
+  });
+
   it('shows the expand button when the node has children', () => {
     const child = makeNode({ id: 'c', wbs: '1.1' }, 1);
     const parent = makeNode({ id: 'p', wbs: '1', isSummary: true }, 0, [child]);
