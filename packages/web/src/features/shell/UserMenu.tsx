@@ -12,6 +12,12 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { RoleContextMenuRow } from '@/features/shell/RoleContextMenuRow';
 import { useShortcutsModalStore } from '@/stores/shortcutsModalStore';
 
+// Focusable-descendant selector for seating focus into the desktop dropdown on
+// open (mirrors useFocusTrap's own selector). The dropdown container carries
+// tabIndex={-1} and is excluded, so this lands on the first real control.
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 // ---------------------------------------------------------------------------
 // Menu content — shared between desktop dropdown and mobile bottom sheet
 // ---------------------------------------------------------------------------
@@ -94,7 +100,6 @@ function MenuContent({
           Placed above project-scoped items so it's reachable without a project. */}
       <NavLink
         to="/me/work"
-        role="menuitem"
         onClick={onClose}
         className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
       >
@@ -107,7 +112,6 @@ function MenuContent({
       {projectId && canAccessProjectSettings && (
         <NavLink
           to={`/projects/${projectId}/settings/members`}
-          role="menuitem"
           onClick={onClose}
           className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
         >
@@ -124,7 +128,6 @@ function MenuContent({
       {canAccessWorkspaceSettings && (
         <NavLink
           to="/settings#members"
-          role="menuitem"
           onClick={onClose}
           className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
         >
@@ -147,7 +150,6 @@ function MenuContent({
             Placed directly above Notifications. */}
         <NavLink
           to="/me/settings/general"
-          role="menuitem"
           onClick={onClose}
           className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
         >
@@ -157,7 +159,6 @@ function MenuContent({
         {/* Notifications row */}
         <NavLink
           to="/me/settings/notifications"
-          role="menuitem"
           onClick={onClose}
           className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
         >
@@ -168,7 +169,6 @@ function MenuContent({
             /me/settings subnav so the two surfaces agree. */}
         <NavLink
           to="/me/settings/connected-accounts"
-          role="menuitem"
           onClick={onClose}
           className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
         >
@@ -178,7 +178,6 @@ function MenuContent({
         {/* Personal access tokens row (issue 648) */}
         <NavLink
           to="/me/settings/api-tokens"
-          role="menuitem"
           onClick={onClose}
           className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
         >
@@ -189,7 +188,6 @@ function MenuContent({
       {/* Keyboard shortcuts row */}
       <button
         type="button"
-        role="menuitem"
         onClick={() => {
           onClose();
           onOpenShortcuts();
@@ -205,7 +203,6 @@ function MenuContent({
       {/* Sign out row */}
       <button
         type="button"
-        role="menuitem"
         onClick={onSignOut}
         className={[
           rowInteractive,
@@ -249,7 +246,7 @@ function AvatarChip({
         ref={buttonRef}
         type="button"
         aria-label="Account"
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
         aria-expanded={isOpen}
         onClick={onClick}
         className="motion-safe:animate-pulse bg-brand-primary/30 rounded-full w-8 h-8 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary"
@@ -263,7 +260,7 @@ function AvatarChip({
       type="button"
       aria-label={accessibleName}
       title={accessibleName}
-      aria-haspopup="menu"
+      aria-haspopup="dialog"
       aria-expanded={isOpen}
       onClick={onClick}
       className={[
@@ -292,12 +289,14 @@ export function UserMenu() {
   const openShortcutsModal = useShortcutsModalStore((s) => s.openModal);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   // Mobile bottom sheet is a modal dialog (role="dialog" aria-modal="true"): trap
   // Tab/Shift+Tab inside it and land focus on its first control on open so a
   // keyboard user can't tab out into the obscured app behind it (WCAG 2.4.3 /
   // 2.1.2). Escape is handled by the existing document listener below, which also
   // restores focus to the trigger, so no onEscape is passed here. The desktop
-  // dropdown is a non-modal role="menu" and is intentionally not trapped.
+  // dropdown is a NON-modal role="dialog" (#2167) — the app behind stays live, so
+  // it is deliberately not trapped; it seats focus via the effect below instead.
   const sheetRef = useFocusTrap<HTMLDivElement>(isOpen);
   const navigate = useNavigate();
 
@@ -363,6 +362,19 @@ export function UserMenu() {
     // sheetRef is a stable ref from useFocusTrap; listed to satisfy exhaustive-deps.
   }, [isOpen, sheetRef]);
 
+  // Seat focus into the desktop dropdown when it opens (WCAG 2.4.3 / rule 260).
+  // The old role="menu" never moved focus in, so a keyboard user was told (by the
+  // menu role) that Tab wouldn't work while focus stayed on the trigger. As a
+  // non-modal dialog it seats focus on its first control on open; Escape (handler
+  // above) restores focus to the trigger. Declared AFTER useFocusTrap so on
+  // desktop this seat wins the initial-focus race; on mobile the dropdown is
+  // display:none, so focusing its (hidden) first control is a no-op and the
+  // mobile sheet's own trap seats focus instead.
+  useEffect(() => {
+    if (!isOpen) return;
+    dropdownRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+  }, [isOpen]);
+
   // Client-side identity fallback (display_name → username → email local-part).
   // The chip must never degrade to a literal "?" nor a generic "User menu" — a
   // "?" top-right reads as Help, not "your account" (#1792).
@@ -403,10 +415,22 @@ export function UserMenu() {
         />
 
         {isOpen && (
+          // Non-modal dialog, NOT role="menu" (#2167): the dropdown holds
+          // heterogeneous interactive content — the Theme and View-focus toggle
+          // groups are plain buttons-in-divs, which are invalid `menuitem`
+          // children — so a menu role mis-advertised a keyboard model (arrow
+          // roving, no Tab) the surface never implemented. A non-modal dialog is
+          // the correct pattern (matching NotificationPanel): Tab navigates the
+          // controls, focus is seated on open (effect above) and restored to the
+          // trigger on Escape, and the app behind stays live (aria-modal="false").
           <div
-            role="menu"
+            ref={dropdownRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="false"
             aria-label="User menu"
-            className="absolute top-full right-0 mt-1 z-50 w-64 bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1"
+            data-testid="user-menu-dropdown"
+            className="absolute top-full right-0 mt-1 z-50 w-64 bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1 focus:outline-none"
           >
             <MenuContent {...sharedContentProps} isMobile={false} />
           </div>
@@ -438,6 +462,7 @@ export function UserMenu() {
               role="dialog"
               aria-modal="true"
               aria-label="User menu"
+              data-testid="user-menu-sheet"
               className="fixed bottom-0 inset-x-0 z-50 bg-chrome-surface rounded-t-card border-t border-neutral-border flex flex-col py-2 focus:outline-none"
             >
               <MenuContent {...sharedContentProps} isMobile={true} />

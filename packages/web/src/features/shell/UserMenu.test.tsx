@@ -153,20 +153,49 @@ describe('UserMenu', () => {
     expect(screen.queryByText('Sarah Chen')).toBeNull();
   });
 
-  it('renders the "My Work" menu item linking to /me/work', () => {
+  it('the desktop dropdown is a non-modal dialog, not a menu (#2167)', () => {
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    // The desktop surface holds heterogeneous controls (theme/view toggle groups),
+    // so it must be a dialog — a role="menu" advertised an arrow-roving keyboard
+    // model it never implemented and made its non-menuitem children invalid.
+    const dropdown = screen.getByTestId('user-menu-dropdown');
+    expect(dropdown).toHaveAttribute('role', 'dialog');
+    expect(dropdown).toHaveAttribute('aria-modal', 'false');
+    expect(dropdown).toHaveAttribute('aria-label', 'User menu');
+    // No row still claims the menuitem role anywhere in the tree.
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(0);
+  });
+
+  it('the avatar chip advertises aria-haspopup="dialog" (#2167)', () => {
+    renderWithRouter(<UserMenu />);
+    const chips = screen.getAllByRole('button', { name: /account/i });
+    expect(chips[0]).toHaveAttribute('aria-haspopup', 'dialog');
+  });
+
+  it('seats focus inside the desktop dropdown on open (WCAG 2.4.3, rule 260, #2167)', () => {
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    const dropdown = screen.getByTestId('user-menu-dropdown');
+    // Focus must move into the dropdown (the old role="menu" never seated it).
+    expect(dropdown.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('renders the "My Work" item linking to /me/work', () => {
     renderWithRouter(<UserMenu />);
     openMenu();
     // Both desktop + mobile variants render in JSDOM (CSS media queries not applied).
-    const items = screen.getAllByRole('menuitem', { name: /my work/i });
+    const items = screen.getAllByRole('link', { name: /my work/i });
     expect(items.length).toBeGreaterThan(0);
     expect(items[0].getAttribute('href')).toBe('/me/work');
   });
 
-  it('renders the "General" menu item linking to /me/settings/general (ADR-0129, #1181)', () => {
+  it('renders the "General" item linking to /me/settings/general (ADR-0129, #1181)', () => {
     renderWithRouter(<UserMenu />);
     openMenu();
     // Both desktop + mobile variants render in JSDOM.
-    const items = screen.getAllByRole('menuitem', { name: /^General$/i });
+    const items = screen.getAllByRole('link', { name: /^General$/i });
     expect(items.length).toBeGreaterThan(0);
     expect(items[0].getAttribute('href')).toBe('/me/settings/general');
   });
@@ -188,7 +217,7 @@ describe('UserMenu', () => {
     renderWithRouter(<UserMenu />);
     openMenu();
     // Both desktop + mobile variants render in JSDOM.
-    const items = screen.getAllByRole('menuitem', { name: /workspace settings/i });
+    const items = screen.getAllByRole('link', { name: /workspace settings/i });
     expect(items.length).toBeGreaterThan(0);
     expect(items[0].getAttribute('href')).toBe('/settings#members');
   });
@@ -210,7 +239,7 @@ describe('UserMenu', () => {
     };
     renderWithRouter(<UserMenu />);
     openMenu();
-    expect(screen.queryByRole('menuitem', { name: /workspace settings/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /workspace settings/i })).toBeNull();
   });
 
   it('project in context + admin → renders "Project settings" linking to the members section (#2147)', () => {
@@ -228,7 +257,7 @@ describe('UserMenu', () => {
     };
     renderWithRouter(<UserMenu />);
     openMenu();
-    const items = screen.getAllByRole('menuitem', { name: /project settings/i });
+    const items = screen.getAllByRole('link', { name: /project settings/i });
     expect(items.length).toBeGreaterThan(0);
     expect(items[0].getAttribute('href')).toBe('/projects/proj-1/settings/members');
   });
@@ -248,7 +277,7 @@ describe('UserMenu', () => {
     };
     renderWithRouter(<UserMenu />);
     openMenu();
-    expect(screen.queryByRole('menuitem', { name: /project settings/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /project settings/i })).toBeNull();
   });
 
   it('groups personal settings under a "Personal" header (design §10, #1804)', () => {
@@ -257,7 +286,7 @@ describe('UserMenu', () => {
     // Both desktop + mobile variants render in JSDOM.
     const groups = screen.getAllByRole('group', { name: 'Personal' });
     expect(groups.length).toBeGreaterThan(0);
-    const items = within(groups[0]).getAllByRole('menuitem');
+    const items = within(groups[0]).getAllByRole('link');
     expect(items.map((i) => i.textContent)).toEqual([
       'General',
       'Notifications',
@@ -270,7 +299,7 @@ describe('UserMenu', () => {
     renderWithRouter(<UserMenu />);
     openMenu();
     // JSDOM renders both desktop and mobile variants — use the first match.
-    const signOutBtns = screen.getAllByRole('menuitem', { name: /sign out/i });
+    const signOutBtns = screen.getAllByRole('button', { name: /sign out/i });
     fireEvent.click(signOutBtns[0]);
     expect(mockClearTokens).toHaveBeenCalledOnce();
     expect(mockQueryClientClear).toHaveBeenCalledOnce();
@@ -327,28 +356,27 @@ describe('UserMenu', () => {
     // so it did not catch this — the real pointer sequence must be simulated.
     renderWithRouter(<UserMenu />);
     openMenu();
-    const sheet = screen.getByRole('dialog', { name: /user menu/i });
+    const sheet = screen.getByTestId('user-menu-sheet');
     const darkBtn = within(sheet).getByRole('button', { name: /dark mode/i });
 
     fireEvent.pointerDown(darkBtn);
     // The sheet must still be open after pointerdown lands on one of its controls.
-    expect(screen.queryByRole('dialog', { name: /user menu/i })).not.toBeNull();
+    expect(screen.queryByTestId('user-menu-sheet')).not.toBeNull();
 
     fireEvent.click(darkBtn);
     expect(mockSetTheme).toHaveBeenCalledWith('dark');
   });
 
-  // The mobile bottom sheet is the modal (role="dialog" aria-modal="true") variant;
-  // the desktop dropdown is a non-modal role="menu" and is intentionally untrapped.
-  // getByRole('dialog') therefore uniquely targets the sheet even though JSDOM
-  // renders both variants.
+  // Both surfaces are now role="dialog" (the desktop dropdown became a non-modal
+  // dialog in #2167), so JSDOM renders two dialogs named "User menu" — target the
+  // modal mobile sheet by its data-testid instead of getByRole('dialog').
   const TRAP_FOCUSABLES =
     'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
   it('traps Tab focus inside the mobile bottom sheet (Tab from last → first)', () => {
     renderWithRouter(<UserMenu />);
     openMenu();
-    const sheet = screen.getByRole('dialog', { name: /user menu/i });
+    const sheet = screen.getByTestId('user-menu-sheet');
     const focusables = sheet.querySelectorAll<HTMLElement>(TRAP_FOCUSABLES);
     const last = focusables[focusables.length - 1];
     last.focus();
@@ -360,7 +388,7 @@ describe('UserMenu', () => {
   it('traps Shift+Tab focus inside the mobile bottom sheet (Shift+Tab from first → last)', () => {
     renderWithRouter(<UserMenu />);
     openMenu();
-    const sheet = screen.getByRole('dialog', { name: /user menu/i });
+    const sheet = screen.getByTestId('user-menu-sheet');
     const focusables = sheet.querySelectorAll<HTMLElement>(TRAP_FOCUSABLES);
     const first = focusables[0];
     first.focus();
