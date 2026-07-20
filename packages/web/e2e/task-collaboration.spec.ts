@@ -33,10 +33,11 @@ import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
  *     Panel-side count behaviour (open → list → click → auto-mark-read →
  *     count decrements) is asserted in its own dedicated block.
  *   - NotificationRow.handleNavigate navigates to
- *     `/projects/{project}/schedule?task={task_id}` — the schedule view does
- *     not currently consume the `?task=` query param (no useSearchParams
- *     hook), so we only assert the URL change, not that the drawer
- *     re-opens for the linked task.
+ *     `/projects/{project}/schedule?task={task_id}` — the schedule view
+ *     consumes the live `?task=` query param (#2031, #2232), so clicking a
+ *     row both routes to the task URL and opens the drawer even when already
+ *     on the schedule. We assert that outcome (drawer visible), not just the
+ *     URL — the URL alone was a strip-race flake.
  */
 
 const PROJECT_ID = 'e2e-collab-00000000-0000-0000-0000-000000000311';
@@ -934,9 +935,13 @@ test.describe('Task collaboration — notification panel (#311)', () => {
     // <article> + nested <button>.
     await panel.getByRole('button', { name: /Sarah Chen mentioned you/ }).click();
 
-    // URL changes to the source task path. The schedule view does NOT
-    // currently consume ?task=, so we don't assert the drawer re-opens —
-    // only that the navigation fired.
+    // The schedule consumes the live ?task= param even when already mounted
+    // (#2232), so the click both routes to the task URL and OPENS the drawer.
+    // Assert the outcome (drawer open) — the URL alone was a strip-race flake:
+    // the selection-mirror used to wipe ?task= back to a bare /schedule.
+    await expect(
+      page.getByRole('dialog', { name: new RegExp(FIXTURE_TASK.name) }).first(),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/schedule\\?task=${TASK_ID}`));
 
     // Reopen the bell — count should be 0 (auto-mark-read fired). Bell
