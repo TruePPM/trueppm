@@ -205,6 +205,52 @@ interface BuildKeyDownCtx {
 }
 
 /**
+ * Option/Alt+↑/↓ sibling reorder (#347). Returns `true` when the event is an
+ * Alt+Arrow reorder (and has been consumed, even if it resolves to a no-op such
+ * as an out-of-range move), so the caller stops dispatching. Split from
+ * handleBuildModeKeyDown (#2245); branch semantics verbatim.
+ */
+function tryBuildModeReorder(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): boolean {
+  const { siblingIds, task, reorderTasks } = ctx;
+  if (!(e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && siblingIds)) return false;
+  e.preventDefault();
+  const currentIdx = siblingIds.indexOf(task.id);
+  if (currentIdx === -1) return true;
+  const delta = e.key === 'ArrowDown' ? 1 : -1;
+  const newIdx = currentIdx + delta;
+  if (newIdx < 0 || newIdx >= siblingIds.length) return true;
+  const newOrder = [...siblingIds];
+  newOrder.splice(currentIdx, 1);
+  newOrder.splice(newIdx, 0, task.id);
+  reorderTasks.mutate({ parent_path: wbsParentPath(task.wbs), ordered_ids: newOrder });
+  return true;
+}
+
+/**
+ * Arrow up/down row-focus traversal in build mode — move focus to the
+ * previous/next visible row (documented in useScheduleFocus; #340 follow-up).
+ * Returns `true` when it consumes the event. Split from handleBuildModeKeyDown
+ * (#2245); branch semantics verbatim.
+ */
+function tryBuildModeFocusMove(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): boolean {
+  const { buildMode, prevTaskId, nextTaskId, focusRowDom } = ctx;
+  if (e.altKey || !buildMode) return false;
+  if (e.key === 'ArrowDown' && nextTaskId) {
+    e.preventDefault();
+    buildMode.focus.focusRow(nextTaskId);
+    focusRowDom(nextTaskId);
+    return true;
+  }
+  if (e.key === 'ArrowUp' && prevTaskId) {
+    e.preventDefault();
+    buildMode.focus.focusRow(prevTaskId);
+    focusRowDom(prevTaskId);
+    return true;
+  }
+  return false;
+}
+
+/**
  * Build-mode keyboard reducer for a task row. Handles Option/Alt+↑/↓ sibling
  * reorder (#347), arrow-key row focus traversal, Tab/Shift-Tab indent/outdent,
  * single-letter Name cell-edit entry, Delete/Backspace, and Esc. Returns early
@@ -213,38 +259,10 @@ interface BuildKeyDownCtx {
  * shortcuts, so this function's preventDefault contract is load-bearing.
  */
 function handleBuildModeKeyDown(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): void {
-  const { buildMode, anyCellInEdit, siblingIds, task, prevTaskId, nextTaskId, reorderTasks, focusRowDom } =
-    ctx;
+  const { buildMode, anyCellInEdit, task } = ctx;
   if (!buildMode || anyCellInEdit) return;
-  // Option/Alt+↑/↓ — reorder among same-indent siblings (#347)
-  if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && siblingIds) {
-    e.preventDefault();
-    const currentIdx = siblingIds.indexOf(task.id);
-    if (currentIdx === -1) return;
-    const delta = e.key === 'ArrowDown' ? 1 : -1;
-    const newIdx = currentIdx + delta;
-    if (newIdx < 0 || newIdx >= siblingIds.length) return;
-    const newOrder = [...siblingIds];
-    newOrder.splice(currentIdx, 1);
-    newOrder.splice(newIdx, 0, task.id);
-    reorderTasks.mutate({ parent_path: wbsParentPath(task.wbs), ordered_ids: newOrder });
-    return;
-  }
-
-  // Arrow up/down — move row focus to the previous/next visible row.
-  // Documented in useScheduleFocus's docstring; previously unimplemented (#340 follow-up).
-  if (!e.altKey && e.key === 'ArrowDown' && nextTaskId) {
-    e.preventDefault();
-    buildMode.focus.focusRow(nextTaskId);
-    focusRowDom(nextTaskId);
-    return;
-  }
-  if (!e.altKey && e.key === 'ArrowUp' && prevTaskId) {
-    e.preventDefault();
-    buildMode.focus.focusRow(prevTaskId);
-    focusRowDom(prevTaskId);
-    return;
-  }
+  if (tryBuildModeReorder(e, ctx)) return;
+  if (tryBuildModeFocusMove(e, ctx)) return;
   // Tab on a focused row → indent (Shift-Tab → outdent). The focus reducer
   // ignores Tab in RowFocused — caller (this) handles the structural action.
   if (e.key === 'Tab') {
@@ -301,54 +319,66 @@ interface RowKeyDownCtx {
 }
 
 /**
- * Row-level keyboard reducer. Dispatches build-mode keys first (via
- * runBuildKeyDown) and returns if build mode consumed the event, then handles
- * the flag-off shortcuts: arrow-key selection, Space→Mark complete (ADR-0066
- * Q5), ⌘D/Ctrl+D duplicate (Q1), Enter select/insert, and F2 rename. Branch
- * order preserved verbatim from the previous inline handler (#2081).
+ * Arrow up/down row selection on the flag-off path (build mode handles its own
+ * arrow traversal). Returns `true` when it consumes the event. Split from
+ * handleRowKeyDown (#2245); branch semantics verbatim.
  */
-function handleRowKeyDown(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
-  const {
-    sprintOutcome,
-    buildMode,
-    runBuildKeyDown,
-    isEditing,
-    anyCellInEdit,
-    nextTaskId,
-    prevTaskId,
-    isSelected,
-    task,
-    setSelectedTaskId,
-    focusRowDom,
-    handleToggleComplete,
-    handleDuplicate,
-    startEdit,
-  } = ctx;
-  // When the sprint-outcome panel is mounted (warn/block after SprintPrompt
-  // committed), any key originating inside it — especially Space typed into
-  // the optional reason input, or Esc to dismiss — must not bubble into
-  // the row's Mark-Complete / clear-focus shortcuts. ADR-0101 §2: the
-  // warn reason field is always optional and never blocked from input.
-  if (sprintOutcome && e.target !== e.currentTarget) return;
-  // Build-mode owns Tab/Letter/Delete/Esc on the row; let it run first.
-  if (buildMode) {
-    runBuildKeyDown(e);
-    if (e.defaultPrevented) return;
-  }
-  if (isEditing || anyCellInEdit) return;
-  // Arrow up/down — flag-off path. Build-mode path is handled above.
-  if (!buildMode && e.key === 'ArrowDown' && nextTaskId) {
+function tryRowArrowSelect(e: React.KeyboardEvent, ctx: RowKeyDownCtx): boolean {
+  const { buildMode, nextTaskId, prevTaskId, setSelectedTaskId, focusRowDom } = ctx;
+  if (buildMode) return false;
+  if (e.key === 'ArrowDown' && nextTaskId) {
     e.preventDefault();
     setSelectedTaskId(nextTaskId);
     focusRowDom(nextTaskId);
-    return;
+    return true;
   }
-  if (!buildMode && e.key === 'ArrowUp' && prevTaskId) {
+  if (e.key === 'ArrowUp' && prevTaskId) {
     e.preventDefault();
     setSelectedTaskId(prevTaskId);
     focusRowDom(prevTaskId);
-    return;
+    return true;
   }
+  return false;
+}
+
+/**
+ * Enter on a focused row. In build mode it inserts a new sibling below (same
+ * parent / depth) and drops the cursor into its Name cell (#1666); otherwise it
+ * toggles row selection. F2 remains the "edit this row's name" affordance. One
+ * mental model: Enter always ends with the cursor in an editable Name cell.
+ * Split from handleRowKeyDown (#2245); semantics verbatim.
+ */
+function handleRowEnter(ctx: RowKeyDownCtx): void {
+  const { buildMode, task, isSelected, setSelectedTaskId } = ctx;
+  if (buildMode) {
+    buildMode.insertBelow(task.id);
+  } else {
+    setSelectedTaskId(isSelected ? null : task.id);
+  }
+}
+
+/**
+ * F2 on a focused row: enter the Name cell edit in build mode, or the classic
+ * inline rename otherwise. Split from handleRowKeyDown (#2245); semantics verbatim.
+ */
+function handleRowF2(ctx: RowKeyDownCtx): void {
+  const { buildMode, task, startEdit } = ctx;
+  if (buildMode) {
+    buildMode.focus.enterCellEdit(task.id, 'name');
+  } else {
+    startEdit();
+  }
+}
+
+/**
+ * Flag-off keyboard shortcuts for a row, run after the build-mode reducer has
+ * declined the event: arrow-key selection, Space→Mark complete (ADR-0066 Q5),
+ * ⌘D/Ctrl+D duplicate (Q1), Enter select/insert, and F2 rename. Branch order
+ * preserved verbatim from handleRowKeyDown (#2245, originally #2081).
+ */
+function handleRowShortcuts(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
+  const { handleToggleComplete, handleDuplicate } = ctx;
+  if (tryRowArrowSelect(e, ctx)) return;
   // Space rebinds to Mark complete on the focused row (ADR-0066 Q5).
   // Today both Enter and Space were redundant ("open drawer"); Enter
   // keeps that meaning, Space gets the new high-frequency action.
@@ -366,24 +396,36 @@ function handleRowKeyDown(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
   }
   if (e.key === 'Enter') {
     e.preventDefault();
-    if (buildMode) {
-      // Enter on a focused row inserts a new sibling below (same parent /
-      // depth) and drops the cursor into its Name cell (#1666). F2 remains
-      // the "edit this row's name" affordance. One mental model: Enter
-      // always ends with the cursor in an editable Name cell.
-      buildMode.insertBelow(task.id);
-    } else {
-      setSelectedTaskId(isSelected ? null : task.id);
-    }
+    handleRowEnter(ctx);
+    return;
   }
   if (e.key === 'F2') {
     e.preventDefault();
-    if (buildMode) {
-      buildMode.focus.enterCellEdit(task.id, 'name');
-    } else {
-      startEdit();
-    }
+    handleRowF2(ctx);
   }
+}
+
+/**
+ * Row-level keyboard reducer. Dispatches build-mode keys first (via
+ * runBuildKeyDown) and returns if build mode consumed the event, then handles
+ * the flag-off shortcuts (via handleRowShortcuts). Branch order preserved
+ * verbatim from the previous inline handler (#2081).
+ */
+function handleRowKeyDown(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
+  const { sprintOutcome, buildMode, runBuildKeyDown, isEditing, anyCellInEdit } = ctx;
+  // When the sprint-outcome panel is mounted (warn/block after SprintPrompt
+  // committed), any key originating inside it — especially Space typed into
+  // the optional reason input, or Esc to dismiss — must not bubble into
+  // the row's Mark-Complete / clear-focus shortcuts. ADR-0101 §2: the
+  // warn reason field is always optional and never blocked from input.
+  if (sprintOutcome && e.target !== e.currentTarget) return;
+  // Build-mode owns Tab/Letter/Delete/Esc on the row; let it run first.
+  if (buildMode) {
+    runBuildKeyDown(e);
+    if (e.defaultPrevented) return;
+  }
+  if (isEditing || anyCellInEdit) return;
+  handleRowShortcuts(e, ctx);
 }
 
 /**
@@ -1285,37 +1327,24 @@ interface TaskNameContentProps {
   onAddPhaseFirstChild: Props['onAddPhaseFirstChild'];
 }
 
-function TaskNameContent({
-  buildMode,
-  editingColumnName,
-  task,
-  projectId,
-  updateTask,
-  setShowSprintPrompt,
-  autocompleteQuery,
-  setAutocompleteQuery,
-  nameSuggestions,
-  isEditing,
-  inputRef,
-  editValue,
-  setEditValue,
-  commitEdit,
-  cancelEdit,
-  isCriticalStyle,
-  isSummaryStyle,
-  taskNameWidth,
-  plannedBadge,
-  requestRevealGutterSprint,
-  itl,
-  hasMissingDatesWarning,
-  recalcPrompt,
-  setRecalcPrompt,
-  isSelected,
-  depChips,
-  phaseInWaiting,
-  onAddPhaseFirstChild,
-}: TaskNameContentProps) {
-  return buildMode && editingColumnName ? (
+/**
+ * Build-mode Name cell in edit state: the inline EditableCell plus its
+ * name-autocomplete popover. Split out of TaskNameContent (#2245) so each render
+ * branch stays under the cognitive-complexity budget; markup is verbatim.
+ */
+function TaskNameBuildEditCell(props: TaskNameContentProps) {
+  const {
+    buildMode,
+    task,
+    projectId,
+    updateTask,
+    setShowSprintPrompt,
+    autocompleteQuery,
+    setAutocompleteQuery,
+    nameSuggestions,
+  } = props;
+  if (!buildMode) return null;
+  return (
     <div className="relative flex-1 min-w-0">
       <EditableCell
         column="name"
@@ -1361,7 +1390,16 @@ function TaskNameContent({
         />
       )}
     </div>
-  ) : isEditing ? (
+  );
+}
+
+/**
+ * Name cell in classic inline-edit state (double-click rename outside build
+ * mode). Split from TaskNameContent (#2245); behavior and markup verbatim.
+ */
+function TaskNameEditInput(props: TaskNameContentProps) {
+  const { inputRef, editValue, setEditValue, commitEdit, cancelEdit, task } = props;
+  return (
     <input
       ref={inputRef}
       value={editValue}
@@ -1382,11 +1420,17 @@ function TaskNameContent({
       style={{ height: 20 }}
       aria-label={`Rename task ${task.name}`}
     />
-  ) : (
-    <div
-      className="flex shrink-0 min-w-0 items-center gap-1 overflow-hidden"
-      style={{ width: taskNameWidth }}
-    >
+  );
+}
+
+/**
+ * Read-only task name label span plus the note-freshness glyph. Split from
+ * TaskNameContent (#2245); markup and aria/title strings verbatim.
+ */
+function TaskNameLabel(props: TaskNameContentProps) {
+  const { task, isCriticalStyle, isSummaryStyle } = props;
+  return (
+    <>
       <span
         className={`min-w-0 shrink truncate ${isCriticalStyle} ${isSummaryStyle}`}
         title={
@@ -1413,6 +1457,60 @@ function TaskNameContent({
           📝
         </span>
       )}
+    </>
+  );
+}
+
+/**
+ * At-a-glance external-link status chip (issue 767, ADR-0155): link glyph +
+ * count, tinted by the worst link status. Self-guards to null for
+ * summary/milestone rows and rows with no live links. Split from
+ * TaskNameContent (#2245); markup verbatim.
+ */
+function ExternalLinkChip({ task }: { task: Task }) {
+  const summary = task.externalLinkSummary;
+  // Exact negation of the original `!isSummary && !isMilestone && summary && count > 0`.
+  if (task.isSummary || task.isMilestone || !summary || !(summary.count > 0)) return null;
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-0.5 text-xs font-medium ${
+        summary.worstStatus
+          ? LINK_STATUS_TEXT_CLASS[summary.worstStatus]
+          : 'text-neutral-text-secondary'
+      }`}
+      title={`${summary.count} link${summary.count === 1 ? '' : 's'}${
+        summary.worstStatus ? ` · worst status: ${summary.worstStatus}` : ''
+      }`}
+      aria-label={`${summary.count} external link${summary.count === 1 ? '' : 's'}${
+        summary.worstStatus ? `, worst status: ${summary.worstStatus}` : ''
+      }`}
+      data-testid="link-status-chip"
+    >
+      <LinkIcon className="w-3 h-3" aria-hidden="true" />
+      <span>{summary.count}</span>
+    </span>
+  );
+}
+
+/**
+ * Trailing status badges of the name cell: "N planned", missing-dates,
+ * the inline recalc-% prompt, and the external-link chip. Split from
+ * TaskNameContent (#2245); markup verbatim.
+ */
+function TaskNameBadges(props: TaskNameContentProps) {
+  const {
+    task,
+    plannedBadge,
+    itl,
+    requestRevealGutterSprint,
+    hasMissingDatesWarning,
+    recalcPrompt,
+    updateTask,
+    projectId,
+    setRecalcPrompt,
+  } = props;
+  return (
+    <>
       {/* "N planned" badge (#1798): a phase row whose subtree holds sprint-
           assigned backlog. Muted + dashed neutral (never a semantic/critical
           token) — planned work is a read-state, not a risk. It is a
@@ -1463,39 +1561,20 @@ function TaskNameContent({
           onDismiss={() => setRecalcPrompt(null)}
         />
       )}
-      {/* At-a-glance external-link status (issue 767, ADR-0155): link glyph + count,
-          tinted by the worst link status, immediately left of the assignee chips.
-          Hidden for summary/milestone tasks and when the task has no live links. */}
-      {!task.isSummary &&
-        !task.isMilestone &&
-        task.externalLinkSummary &&
-        task.externalLinkSummary.count > 0 && (
-          <span
-            className={`inline-flex shrink-0 items-center gap-0.5 text-xs font-medium ${
-              task.externalLinkSummary.worstStatus
-                ? LINK_STATUS_TEXT_CLASS[task.externalLinkSummary.worstStatus]
-                : 'text-neutral-text-secondary'
-            }`}
-            title={`${task.externalLinkSummary.count} link${
-              task.externalLinkSummary.count === 1 ? '' : 's'
-            }${
-              task.externalLinkSummary.worstStatus
-                ? ` · worst status: ${task.externalLinkSummary.worstStatus}`
-                : ''
-            }`}
-            aria-label={`${task.externalLinkSummary.count} external link${
-              task.externalLinkSummary.count === 1 ? '' : 's'
-            }${
-              task.externalLinkSummary.worstStatus
-                ? `, worst status: ${task.externalLinkSummary.worstStatus}`
-                : ''
-            }`}
-            data-testid="link-status-chip"
-          >
-            <LinkIcon className="w-3 h-3" aria-hidden="true" />
-            <span>{task.externalLinkSummary.count}</span>
-          </span>
-        )}
+      <ExternalLinkChip task={task} />
+    </>
+  );
+}
+
+/**
+ * Trailing region of the name cell: dependency count chips (in focus mode)
+ * or assignee chips, plus the phase-in-waiting ghost affordance. Split from
+ * TaskNameContent (#2245); markup verbatim.
+ */
+function TaskNameTrailing(props: TaskNameContentProps) {
+  const { isSelected, depChips, task, phaseInWaiting, onAddPhaseFirstChild } = props;
+  return (
+    <>
       {/* Dep chips — shown when task is selected in focus mode; replaces
           assignee chips. Passive counters, not buttons: click-to-highlight
           is tracked in issue 1608. */}
@@ -1547,6 +1626,28 @@ function TaskNameContent({
           <span>Add first task to this phase</span>
         </button>
       )}
+    </>
+  );
+}
+
+/**
+ * Name-column content dispatcher: build-mode edit cell, classic inline-edit
+ * input, or the read-only label + badges + trailing region. Refactored into
+ * per-branch subcomponents (#2245) to keep each function's cognitive complexity
+ * within budget; every branch's markup and behavior is verbatim.
+ */
+function TaskNameContent(props: TaskNameContentProps) {
+  const { buildMode, editingColumnName, isEditing, taskNameWidth } = props;
+  if (buildMode && editingColumnName) return <TaskNameBuildEditCell {...props} />;
+  if (isEditing) return <TaskNameEditInput {...props} />;
+  return (
+    <div
+      className="flex shrink-0 min-w-0 items-center gap-1 overflow-hidden"
+      style={{ width: taskNameWidth }}
+    >
+      <TaskNameLabel {...props} />
+      <TaskNameBadges {...props} />
+      <TaskNameTrailing {...props} />
     </div>
   );
 }
@@ -1657,38 +1758,43 @@ function TaskStartCell({
   projectId,
   updateTask,
 }: TaskStartCellProps) {
+  // A build-mode milestone's Start cell is the click/keyboard target for the
+  // date popover; every other row renders a static, non-interactive cell.
+  // Hoisted once so the five call sites below stay flat (#2245).
+  const isMilestoneEditable = Boolean(buildMode && task.isMilestone);
+  const toggleMilestonePicker = () => setShowMilestonePicker((v) => !v);
   return (
     <div
       className={[
         'relative flex items-center justify-end shrink-0 border-r border-neutral-border/20',
         'text-right text-neutral-text-secondary tabular-nums pr-2',
-        buildMode && task.isMilestone ? 'cursor-pointer hover:text-neutral-text-primary' : '',
+        isMilestoneEditable ? 'cursor-pointer hover:text-neutral-text-primary' : '',
       ].join(' ')}
       style={{ width: widthPx }}
       role="gridcell"
       aria-label={task.start ? `starts ${formatDate(task.start)}` : 'unscheduled'}
-      tabIndex={buildMode && task.isMilestone ? 0 : undefined}
+      tabIndex={isMilestoneEditable ? 0 : undefined}
       onClick={
-        buildMode && task.isMilestone
+        isMilestoneEditable
           ? (e) => {
               e.stopPropagation();
-              setShowMilestonePicker((v) => !v);
+              toggleMilestonePicker();
             }
           : undefined
       }
       onKeyDown={
-        buildMode && task.isMilestone
+        isMilestoneEditable
           ? (e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                setShowMilestonePicker((v) => !v);
+                toggleMilestonePicker();
               }
             }
           : undefined
       }
     >
       {task.isMilestone ? formatDate(task.start) : task.start ? formatDate(task.start) : '—'}
-      {buildMode && task.isMilestone && (
+      {isMilestoneEditable && (
         <MilestoneDatePopover
           open={showMilestonePicker}
           parents={milestoneParents ?? []}

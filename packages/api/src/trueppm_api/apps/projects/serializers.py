@@ -3156,6 +3156,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         else:
             self._tripped_guardrails = []
 
+    def _merged_value(self, attrs: dict[str, Any], field: str) -> Any:
+        """Effective value of ``field`` after applying a partial update.
+
+        Returns the incoming value when ``field`` is present in ``attrs`` (even if
+        that value is ``None``), otherwise the current instance's value (or ``None``
+        on create). Mirrors ``dict.get(field, instance_value)`` presence semantics.
+        """
+        if field in attrs:
+            return attrs[field]
+        return getattr(self.instance, field) if self.instance is not None else None
+
     def _enforce_progress_anchor(self, attrs: dict[str, Any]) -> None:
         """Progress-anchor gate (ADR-0057 Q5): percent_complete > 0 needs an anchor.
 
@@ -3165,23 +3176,19 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         managers can correct imported or manually-entered data.
         """
         new_pc = attrs.get("percent_complete")
-        if new_pc is not None and new_pc > 0:
-            eff_planned_start = attrs.get(
-                "planned_start",
-                self.instance.planned_start if self.instance is not None else None,
-            )
-            eff_sprint = (
-                attrs.get("sprint")
-                if "sprint" in attrs
-                else (self.instance.sprint if self.instance is not None else None)
-            )
-            if eff_planned_start is None and eff_sprint is None:
-                project = (
-                    self.instance.project if self.instance is not None else attrs.get("project")
-                )
-                role = self._get_caller_role(project)
-                if role is None or role < Role.ADMIN:
-                    raise ProgressAnchorError()
+        # Exact negation of the original `new_pc is not None and new_pc > 0`
+        # guard — `not (new_pc > 0)` (rather than `new_pc <= 0`) so a NaN
+        # percent still skips the gate exactly as before.
+        if new_pc is None or not (new_pc > 0):
+            return
+        if self._merged_value(attrs, "planned_start") is not None:
+            return
+        if self._merged_value(attrs, "sprint") is not None:
+            return
+        project = self.instance.project if self.instance is not None else attrs.get("project")
+        role = self._get_caller_role(project)
+        if role is None or role < Role.ADMIN:
+            raise ProgressAnchorError()
 
     def _enforce_milestone_rollup_lock(self, attrs: dict[str, Any]) -> None:
         """Milestone-rollup lock (ADR-0074): a targeted milestone's percent is computed.
