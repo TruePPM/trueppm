@@ -13,6 +13,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useDecisions } from '@/hooks/useDecisions';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useRovingTabIndex } from '@/hooks/useRovingTabIndex';
 import { useSprints } from '@/hooks/useSprints';
 import { formatRelative } from '@/lib/formatRelative';
 import type { DecisionNote } from '@/types';
@@ -81,6 +82,27 @@ export function DecisionsPanel({ projectId }: { projectId: string }) {
   const sprintId = scope === 'sprint' ? (activeSprint?.id ?? null) : null;
   const effectiveScope: Scope = scope === 'sprint' && !activeSprint ? 'all' : scope;
 
+  const scopeOptions = useMemo(
+    () =>
+      [
+        { key: 'all', label: 'All decisions' },
+        { key: 'sprint', label: `Current ${itl.lower}` },
+      ] as const,
+    [itl.lower],
+  );
+
+  // Roving tabindex for the scope radiogroup (rule 167): Arrow/Home/End move DOM
+  // focus across the options; activation (click / Enter / Space) applies the
+  // scope. Without this, only the selected option is tabbable and "Current
+  // sprint" was keyboard-unreachable (WCAG 2.1.1, #2158). The disabled
+  // no-active-sprint option is skipped so roving focus never lands on it.
+  const selectedScopeIdx = scopeOptions.findIndex((o) => o.key === effectiveScope);
+  const { focusIdx, itemRefs, onKeyDown } = useRovingTabIndex(
+    scopeOptions.length,
+    selectedScopeIdx,
+    { disabled: (i) => scopeOptions[i].key === 'sprint' && !activeSprint },
+  );
+
   const { decisions, isLoading, isLocked, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
     useDecisions(projectId, sprintId);
 
@@ -94,26 +116,26 @@ export function DecisionsPanel({ projectId }: { projectId: string }) {
       <div
         role="radiogroup"
         aria-label="Decisions scope"
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
         className="inline-flex self-start rounded border border-neutral-border p-0.5"
       >
-        {(
-          [
-            { key: 'all', label: 'All decisions' },
-            { key: 'sprint', label: `Current ${itl.lower}` },
-          ] as const
-        ).map((opt) => {
+        {scopeOptions.map((opt, i) => {
           const selected = effectiveScope === opt.key;
           const disabled = opt.key === 'sprint' && !activeSprint;
           return (
             <button
               key={opt.key}
+              ref={(el) => {
+                itemRefs.current[i] = el;
+              }}
               type="button"
               role="radio"
               aria-checked={selected}
               disabled={disabled}
               title={disabled ? `No active ${itl.lower}` : undefined}
               onClick={() => setScope(opt.key)}
-              tabIndex={selected ? 0 : -1}
+              tabIndex={i === focusIdx ? 0 : -1}
               className={`rounded px-3 h-7 text-xs font-medium
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                 disabled:opacity-40 disabled:cursor-not-allowed ${

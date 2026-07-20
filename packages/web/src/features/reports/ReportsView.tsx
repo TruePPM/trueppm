@@ -4,6 +4,7 @@ import { DecisionsPanel } from '@/features/decisions/DecisionsPanel';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useSprints } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useRovingTabIndex } from '@/hooks/useRovingTabIndex';
 import type { ApiSprint } from '@/types';
 
 type ReportsTab = 'metrics' | 'decisions';
@@ -31,6 +32,13 @@ export function ReportsView() {
   const { sprints } = useSprints(projectId);
   const itl = useIterationLabel(projectId);
 
+  // Roving tabindex for the Reports tablist (rule 167): Arrow/Home/End move DOM
+  // focus across the tabs; activation (click / Enter / Space) selects. Without
+  // this, only the selected tab is tabbable and the Decisions tab is
+  // keyboard-unreachable (WCAG 2.1.1, #2158).
+  const selectedTabIdx = TABS.findIndex((t) => t.key === tab);
+  const { focusIdx, itemRefs, onKeyDown } = useRovingTabIndex(TABS.length, selectedTabIdx);
+
   const ordered = useMemo(() => orderSprints(sprints), [sprints]);
   // The sprint-scoped burndown is the full analytical home the board demotes to
   // (#1983). Default to the ordered head (active sprint, else newest); a null
@@ -50,16 +58,25 @@ export function ReportsView() {
         </p>
       </div>
 
-      <div role="tablist" aria-label="Reports sections" className="flex gap-1 border-b border-neutral-border">
-        {TABS.map((t) => {
+      <div
+        role="tablist"
+        aria-label="Reports sections"
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        className="flex gap-1 border-b border-neutral-border"
+      >
+        {TABS.map((t, i) => {
           const selected = tab === t.key;
           return (
             <button
               key={t.key}
+              ref={(el) => {
+                itemRefs.current[i] = el;
+              }}
               type="button"
               role="tab"
               aria-selected={selected}
-              tabIndex={selected ? 0 : -1}
+              tabIndex={i === focusIdx ? 0 : -1}
               onClick={() => setTab(t.key)}
               className={`-mb-px rounded-t px-3 h-9 text-sm font-medium border-b-2
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 ${
