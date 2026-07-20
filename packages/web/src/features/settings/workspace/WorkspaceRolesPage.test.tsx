@@ -60,18 +60,15 @@ describe('WorkspaceRolesPage', () => {
 });
 
 describe('WorkspaceRolesPage — Enterprise upsell (#541)', () => {
-  const EE_ROWS = [
-    'View audit log',
-    'Manage SSO',
-    'Manage integrations',
-    'Manage billing',
-    'Export workspace data',
-  ];
+  // Basic OIDC/OAuth SSO and workspace data export ship in the OSS core, so
+  // "Manage SSO" and "Export workspace data" are NOT badged (#2165). The
+  // remaining Enterprise-only workspace capabilities keep their badge.
+  const EE_ROWS = ['View audit log', 'Manage integrations', 'Manage billing'];
 
   it('renders an EE badge on every Enterprise-only matrix row in the community edition', () => {
     render(<WorkspaceRolesPage />);
     // Scope to the matrix — the custom-roles upsell caption (#1649) carries its
-    // own EE badge outside the matrix, so a whole-document count would be 6.
+    // own EE badge outside the matrix, so a whole-document count would be one more.
     const matrix = screen.getByTestId('roles-matrix');
     const badges = within(matrix).getAllByRole('link', {
       name: /Available in TruePPM Enterprise/i,
@@ -79,10 +76,21 @@ describe('WorkspaceRolesPage — Enterprise upsell (#541)', () => {
     expect(badges).toHaveLength(EE_ROWS.length);
   });
 
+  it('does not badge Manage SSO — basic OIDC/OAuth SSO is OSS (#2165)', () => {
+    render(<WorkspaceRolesPage />);
+    // The "Manage SSO" row header must carry no Enterprise upsell link — the
+    // shipped WorkspaceSsoPage is fully functional in the community edition.
+    const ssoRowHeader = screen.getByRole('rowheader', { name: /Manage SSO/i });
+    expect(within(ssoRowHeader).queryByRole('link')).toBeNull();
+    // "Export workspace data" is OSS too — no badge.
+    const exportRowHeader = screen.getByRole('rowheader', { name: /Export workspace data/i });
+    expect(within(exportRowHeader).queryByRole('link')).toBeNull();
+  });
+
   it('points each EE badge at the Enterprise page (no dead cells)', () => {
     render(<WorkspaceRolesPage />);
     const badges = screen.getAllByRole('link', { name: /Available in TruePPM Enterprise/i });
-    // Matrix rows (5) + the custom-roles caption (1).
+    // Matrix rows (3) + the custom-roles caption (1).
     expect(badges).toHaveLength(EE_ROWS.length + 1);
     for (const badge of badges) {
       expect(badge).toHaveAttribute('href', 'https://trueppm.com/enterprise');
@@ -106,6 +114,67 @@ describe('WorkspaceRolesPage — Enterprise upsell (#541)', () => {
     expect(
       within(matrix).getAllByRole('link', { name: /Available in TruePPM Enterprise/i }),
     ).toHaveLength(EE_ROWS.length);
+  });
+});
+
+describe('WorkspaceRolesPage — no fabricated member counts (#2165)', () => {
+  it('renders no hardcoded "{n} people" count on the role cards', () => {
+    render(<WorkspaceRolesPage />);
+    // The old cards rendered static fiction (18/32/12/6/2 "people"). No count
+    // source exists, so the count line is dropped entirely.
+    expect(screen.queryByText(/\d+\s+people/)).toBeNull();
+    for (const n of ['18', '32', '12', '6', '2']) {
+      expect(screen.queryByText(`${n} people`)).toBeNull();
+    }
+  });
+});
+
+describe('WorkspaceRolesPage — accessible table semantics, WCAG 1.3.1 (#2165)', () => {
+  it('renders the matrix as a table with a column header per role', () => {
+    render(<WorkspaceRolesPage />);
+    const matrix = screen.getByTestId('roles-matrix');
+    expect(within(matrix).getByRole('table')).toBeInTheDocument();
+    // One column header for the capability column plus one per role.
+    for (const role of ['Viewer', 'Member', 'Scheduler', 'Admin', 'Owner']) {
+      expect(within(matrix).getByRole('columnheader', { name: role })).toBeInTheDocument();
+    }
+    expect(within(matrix).getByRole('columnheader', { name: 'Capability' })).toBeInTheDocument();
+  });
+
+  it('exposes each capability as a row header (scope="row")', () => {
+    render(<WorkspaceRolesPage />);
+    const matrix = screen.getByTestId('roles-matrix');
+    expect(within(matrix).getByRole('rowheader', { name: 'View tasks' })).toBeInTheDocument();
+    expect(
+      within(matrix).getByRole('rowheader', { name: /Edit working calendar/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('conveys each grant cell state as text tied to the row and column', () => {
+    render(<WorkspaceRolesPage />);
+    const matrix = screen.getByTestId('roles-matrix');
+    // Every grant cell carries a visually-hidden Granted/Not granted label; the
+    // 5-column × many-row matrix yields both states.
+    expect(within(matrix).getAllByText('Granted').length).toBeGreaterThan(0);
+    expect(within(matrix).getAllByText('Not granted').length).toBeGreaterThan(0);
+  });
+});
+
+describe('WorkspaceRolesPage — gate reconciliation with the server matrix (#2165)', () => {
+  it('gates working-calendar edits at Scheduler+ (not Admin+)', () => {
+    // Scheduler column (index 2) must be granted for "Edit working calendar".
+    const csv = buildRolesMatrixCsv();
+    expect(csv).toContain('Schedule,Edit working calendar,No,No,Yes,Yes,Yes');
+  });
+
+  it('surfaces the ADR-0041 Scheduler-writable methodology/estimation split', () => {
+    const csv = buildRolesMatrixCsv();
+    expect(csv).toContain('Project,Set methodology & estimation mode,No,No,Yes,Yes,Yes');
+  });
+
+  it('gates resource-heatmap reads at Scheduler+ (not Member+)', () => {
+    const csv = buildRolesMatrixCsv();
+    expect(csv).toContain('People,View resource heatmap,No,No,Yes,Yes,Yes');
   });
 });
 

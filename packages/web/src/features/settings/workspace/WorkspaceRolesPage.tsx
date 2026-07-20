@@ -22,15 +22,18 @@ const ROLE_PALETTE: Record<Role, { bg: string; text: string; style?: CSSProperti
   Owner: { bg: '', text: '', style: tintedChipStyle(IDENTITY_VIOLET) },
 };
 
-const ROLE_DESCRIPTIONS: Record<Role, { count: number; hint: string }> = {
-  Viewer: {
-    count: 18,
-    hint: "Read-only across projects they're invited to. Use for execs, auditors.",
-  },
-  Member: { count: 32, hint: 'Default role. Edit own tasks, log time, view boards.' },
-  Scheduler: { count: 12, hint: 'Assign resources, manage roster. No task edit.' },
-  Admin: { count: 6, hint: 'Full task/dependency edit; create baselines; manage members.' },
-  Owner: { count: 2, hint: 'Project Admin: delete project, manage membership. Highest role.' },
+// One-line summary of each role. There is deliberately no member count: this
+// page has no live member-count source (the role model is a static reference,
+// not an API-backed roster), and a hardcoded count would be fiction on a surface
+// admins read as an access-review reference (#2165).
+const ROLE_DESCRIPTIONS: Record<Role, string> = {
+  Viewer: "Read-only across projects they're invited to. Use for execs, auditors.",
+  Member: 'Default role. Edit own tasks, log time, view boards.',
+  Scheduler: 'Assign resources, manage roster, reschedule, edit the working calendar.',
+  Admin: 'Full task/dependency edit; create baselines; manage members.',
+  // Owner is the highest project role — it is not the "Admin" role. Keep the
+  // vocabulary distinct so the hint does not conflate Owner with Admin (#2165).
+  Owner: 'Delete project, transfer ownership, manage membership. Highest role.',
 };
 
 interface Capability {
@@ -70,13 +73,18 @@ const SECTIONS: CapabilitySection[] = [
       { label: 'Edit dependencies', grants: [false, false, true, true, true] },
       { label: 'Save baseline', grants: [false, false, false, true, true] },
       { label: 'Roll back baseline', grants: [false, false, false, true, true] },
-      { label: 'Edit working calendar', grants: [false, false, false, true, true] },
+      // Applying/editing the working calendar is a scheduling decision gated
+      // Scheduler+ on the server (ProjectViewSet.working_calendars) and in the
+      // UI (ProjectCalendarsPage: role >= ROLE_SCHEDULER) — not Admin+ (#2165).
+      { label: 'Edit working calendar', grants: [false, false, true, true, true] },
     ],
   },
   {
     label: 'People',
     capabilities: [
-      { label: 'View resource heatmap', grants: [false, true, true, true, true] },
+      // Resource utilization/heatmap reads are Scheduler+ on the server
+      // (ProjectViewSet: utilization/heatmap/resource_allocation) — not Member+.
+      { label: 'View resource heatmap', grants: [false, false, true, true, true] },
       { label: 'Assign resources', grants: [false, false, true, true, true] },
       { label: 'Invite members', grants: [false, false, false, true, true] },
       { label: 'Manage groups', grants: [false, false, false, false, true] },
@@ -88,6 +96,10 @@ const SECTIONS: CapabilitySection[] = [
     capabilities: [
       { label: 'Create projects', grants: [false, false, false, true, true] },
       { label: 'Edit project settings', grants: [false, false, false, true, true] },
+      // ADR-0041 estimation governance: general project settings are Admin+, but
+      // methodology and estimation mode are Scheduler-writable (enforced
+      // field-by-field in ProjectSerializer.validate) — surface the split (#2165).
+      { label: 'Set methodology & estimation mode', grants: [false, false, true, true, true] },
       { label: 'Archive projects', grants: [false, false, false, false, true] },
       { label: 'Delete projects', grants: [false, false, false, false, true] },
       { label: 'Manage custom fields', grants: [false, false, false, true, true] },
@@ -97,10 +109,16 @@ const SECTIONS: CapabilitySection[] = [
     label: 'Workspace',
     capabilities: [
       { label: 'View audit log', grants: [false, false, false, false, true], ee: true },
-      { label: 'Manage SSO', grants: [false, false, false, false, true], ee: true },
+      // Basic OIDC/OAuth single sign-on (WorkspaceSsoPage) is part of the
+      // Apache-2.0 core (auth carve-out; ADR-0517/ADR-0187 §4) — not Enterprise.
+      // Only enforced org-wide SSO and identity governance (SAML/SCIM/LDAP) are
+      // Enterprise, and those are not represented by this row, so no EE badge (#2165).
+      { label: 'Manage SSO', grants: [false, false, false, false, true] },
       { label: 'Manage integrations', grants: [false, false, false, false, true], ee: true },
       { label: 'Manage billing', grants: [false, false, false, false, true], ee: true },
-      { label: 'Export workspace data', grants: [false, false, false, false, true], ee: true },
+      // Project/program/workspace data export ships in the OSS core (the CSV
+      // export on this very page works in the community edition) — not Enterprise.
+      { label: 'Export workspace data', grants: [false, false, false, false, true] },
     ],
   },
 ];
@@ -199,22 +217,19 @@ export function WorkspaceRolesPage() {
         <div className="px-6 pt-2 pb-4">
           <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
             {ROLES.map((role) => {
-              const { count, hint } = ROLE_DESCRIPTIONS[role];
+              const hint = ROLE_DESCRIPTIONS[role];
               const { bg, text, style } = ROLE_PALETTE[role];
               return (
                 <div
                   key={role}
                   className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 flex flex-col gap-1.5"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center">
                     <span
                       className={`inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold ${bg} ${text}`}
                       style={style}
                     >
                       {role}
-                    </span>
-                    <span className="tppm-mono text-[11px] text-neutral-text-secondary">
-                      {count} people
                     </span>
                   </div>
                   <p className="text-[12px] text-neutral-text-secondary leading-snug">{hint}</p>
@@ -224,68 +239,95 @@ export function WorkspaceRolesPage() {
           </div>
         </div>
 
-        {/* Matrix */}
+        {/* Matrix — a real <table> so assistive tech associates each grant cell
+            with its role column header (scope="col") and capability row header
+            (scope="row"), satisfying WCAG 1.3.1 (#2165). The prior CSS-grid divs
+            carried no header/cell relationship. */}
         <div className="px-6 pb-8" data-testid="roles-matrix">
-          <div className="rounded-card border border-neutral-border overflow-hidden">
-            {/* Header */}
-            <div
-              className="grid gap-2 px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border"
-              style={{ gridTemplateColumns: '2.4fr repeat(5, 1fr)' }}
-            >
-              <span className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary">
-                Capability
-              </span>
-              {ROLES.map((r) => (
-                <span
-                  key={r}
-                  className="text-[12px] font-semibold text-neutral-text-primary text-center"
-                >
-                  {r}
-                </span>
-              ))}
-            </div>
-
-            {/* Sections */}
-            {SECTIONS.map((sec) => (
-              <div key={sec.label}>
-                {/* Section label */}
-                <div className="px-4 py-2 text-[11px] font-bold tracking-[.08em] uppercase text-neutral-text-secondary bg-neutral-surface border-b border-neutral-border/55 font-mono">
-                  {sec.label}
-                </div>
-
-                {/* Capability rows */}
-                {sec.capabilities.map((cap, ci) => (
-                  <div
-                    key={cap.label}
-                    className={[
-                      'grid gap-2 px-4 py-2.5 items-center',
-                      ci < sec.capabilities.length - 1 ? 'border-b border-neutral-border/55' : '',
-                    ].join(' ')}
-                    style={{ gridTemplateColumns: '2.4fr repeat(5, 1fr)' }}
-                  >
-                    <span className="text-[13px] text-neutral-text-primary">
-                      {cap.label}
-                      {cap.ee && <EnterpriseBadge />}
-                    </span>
-                    {cap.grants.map((granted, i) => (
-                      <span
-                        key={i}
-                        className="flex justify-center"
-                        aria-label={granted ? 'Granted' : 'Not granted'}
-                      >
-                        {granted ? (
-                          <span className="w-[18px] h-[18px] rounded-full bg-sage-500 text-navy-900 inline-flex items-center justify-center">
-                            <CheckIcon />
-                          </span>
-                        ) : (
-                          <span className="w-[18px] h-[18px] rounded-full border border-dashed border-neutral-border" />
-                        )}
-                      </span>
-                    ))}
-                  </div>
+          <div className="rounded-card border border-neutral-border overflow-x-auto">
+            <table className="w-full border-collapse text-left">
+              <caption className="sr-only">
+                Role capability matrix: which of the five built-in roles (Viewer, Member, Scheduler,
+                Admin, Owner) grants each capability.
+              </caption>
+              <colgroup>
+                <col style={{ width: '38%' }} />
+                {ROLES.map((r) => (
+                  <col key={r} />
                 ))}
-              </div>
-            ))}
+              </colgroup>
+              <thead>
+                <tr className="bg-neutral-surface-sunken border-b border-neutral-border">
+                  <th
+                    scope="col"
+                    className="px-4 py-2.5 text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary text-left"
+                  >
+                    Capability
+                  </th>
+                  {ROLES.map((r) => (
+                    <th
+                      key={r}
+                      scope="col"
+                      className="px-2 py-2.5 text-[12px] font-semibold text-neutral-text-primary text-center"
+                    >
+                      {r}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+
+              {SECTIONS.map((sec) => (
+                <tbody key={sec.label}>
+                  {/* Section group header spanning the full row. */}
+                  <tr>
+                    <th
+                      scope="colgroup"
+                      colSpan={ROLES.length + 1}
+                      className="px-4 py-2 text-left text-[11px] font-bold tracking-[.08em] uppercase text-neutral-text-secondary bg-neutral-surface border-b border-neutral-border/55 font-mono"
+                    >
+                      {sec.label}
+                    </th>
+                  </tr>
+
+                  {sec.capabilities.map((cap, ci) => (
+                    <tr
+                      key={cap.label}
+                      className={
+                        ci < sec.capabilities.length - 1 ? 'border-b border-neutral-border/55' : ''
+                      }
+                    >
+                      <th
+                        scope="row"
+                        className="px-4 py-2.5 text-[13px] font-normal text-neutral-text-primary text-left"
+                      >
+                        {cap.label}
+                        {cap.ee && <EnterpriseBadge />}
+                      </th>
+                      {cap.grants.map((granted, i) => (
+                        <td key={i} className="px-2 py-2.5 text-center">
+                          <span className="inline-flex justify-center">
+                            <span className="sr-only">{granted ? 'Granted' : 'Not granted'}</span>
+                            {granted ? (
+                              <span
+                                aria-hidden="true"
+                                className="w-[18px] h-[18px] rounded-full bg-sage-500 text-navy-900 inline-flex items-center justify-center"
+                              >
+                                <CheckIcon />
+                              </span>
+                            ) : (
+                              <span
+                                aria-hidden="true"
+                                className="w-[18px] h-[18px] rounded-full border border-dashed border-neutral-border"
+                              />
+                            )}
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+            </table>
           </div>
         </div>
       </div>
