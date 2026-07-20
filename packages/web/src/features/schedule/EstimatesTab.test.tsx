@@ -81,6 +81,40 @@ describe('EstimatesTab — open mode', () => {
     );
     expect(screen.queryByRole('region', { name: /PERT/i })).not.toBeInTheDocument();
   });
+
+  it('marks all three inputs aria-invalid and links them to the ordering error when out of order (#2206)', () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={{ ...baseTask, optimisticDuration: 9, mostLikelyDuration: 5, pessimisticDuration: 3 }}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+      />,
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/Optimistic ≤ Most Likely ≤ Pessimistic/);
+    const errorId = alert.getAttribute('id');
+    for (const label of [/Optimistic/i, /Most Likely/i, /Pessimistic/i]) {
+      const input = screen.getByLabelText(label);
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(input).toHaveAttribute('aria-describedby', errorId);
+    }
+  });
+
+  it('leaves the inputs valid and unlinked when the triple is in order', () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={{ ...baseTask, optimisticDuration: 3, mostLikelyDuration: 5, pessimisticDuration: 9 }}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+      />,
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    const opt = screen.getByLabelText(/Optimistic/i);
+    expect(opt).not.toHaveAttribute('aria-invalid', 'true');
+    expect(opt).not.toHaveAttribute('aria-describedby');
+  });
 });
 
 describe('EstimatesTab — pm_only mode', () => {

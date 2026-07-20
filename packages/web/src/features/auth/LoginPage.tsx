@@ -7,11 +7,7 @@ import type { CurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
 import { LogoMark } from '@/components/Icons';
 import { OSSChip } from '@/components/OSSChip';
-import {
-  discoverSsoProviders,
-  ssoLoginUrl,
-  type SsoProviderSummary,
-} from '@/hooks/ssoLogin';
+import { discoverSsoProviders, ssoLoginUrl, type SsoProviderSummary } from '@/hooks/ssoLogin';
 
 interface TokenResponse {
   // The refresh token is no longer returned in the body — it is set as an
@@ -84,8 +80,9 @@ function MiniGantt() {
                 className="absolute top-0 h-4 w-4 flex items-center justify-center"
                 style={{ left: `${row.offsetPct}%`, transform: 'translateX(-50%)' }}
               >
-                {/* Milestone diamond */}
-                <div className="w-3 h-3 rotate-45" style={{ backgroundColor: '#FCD34D' }} />
+                {/* Milestone diamond — brand-accent amber, matching the Gantt
+                    milestone color (rule 234). */}
+                <div className="w-3 h-3 rotate-45 bg-brand-accent" />
               </div>
             ) : (
               <div
@@ -133,6 +130,7 @@ export function LoginPage() {
   const emailId = useId();
   const passwordId = useId();
   const rememberMeId = useId();
+  const errorId = useId();
 
   const setAccessToken = useAuthStore((s) => s.setAccessToken);
   const navigate = useNavigate();
@@ -262,6 +260,8 @@ export function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={isSubmitting}
+              aria-invalid={error !== null}
+              aria-describedby={error !== null ? errorId : undefined}
               placeholder="anna.khoury@example.com"
               className="
                 h-10 px-3 rounded border border-neutral-border
@@ -289,6 +289,8 @@ export function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={isSubmitting}
+              aria-invalid={error !== null}
+              aria-describedby={error !== null ? errorId : undefined}
               className="
                 h-10 px-3 rounded border border-neutral-border
                 bg-neutral-surface text-neutral-text-primary text-sm font-mono
@@ -340,7 +342,7 @@ export function LoginPage() {
 
           {/* Error */}
           {error !== null && (
-            <p role="alert" className="text-sm text-semantic-critical">
+            <p id={errorId} role="alert" className="text-sm text-semantic-critical">
               {error}
             </p>
           )}
@@ -448,15 +450,13 @@ export function LoginPage() {
 
         {/* Content */}
         <div className="relative flex flex-col gap-8">
-          {/* Status pill */}
+          {/* Status pill — theme-aware brand token; sage-400 (#66B998) is a
+              dark-only weight (rule 143) and failed contrast (~2.5:1) on the
+              light-mode chrome surface (#2183). */}
           <div className="inline-flex items-center gap-2 self-start">
-            <div
-              className="px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
-              style={{ backgroundColor: 'rgba(102, 185, 152, 0.14)', color: '#66B998' }}
-            >
+            <div className="px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase bg-brand-primary/10 text-brand-primary">
               <span
-                className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle"
-                style={{ backgroundColor: '#66B998' }}
+                className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle bg-brand-primary"
                 aria-hidden="true"
               />
               CPM v{__APP_VERSION__} live

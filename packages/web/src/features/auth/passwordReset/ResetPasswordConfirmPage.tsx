@@ -26,6 +26,8 @@ export function ResetPasswordConfirmPage() {
 
   const passwordId = useId();
   const confirmId = useId();
+  const mismatchId = useId();
+  const serverErrorId = useId();
 
   const score = useMemo(() => passwordScore(password), [password]);
   const requirements = useMemo(() => checkRequirements(password), [password]);
@@ -93,6 +95,8 @@ export function ResetPasswordConfirmPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={isSubmitting}
+              aria-invalid={serverErrors.length > 0}
+              aria-describedby={serverErrors.length > 0 ? serverErrorId : undefined}
               className="
                 h-10 w-full pl-3 pr-10 rounded border border-neutral-border
                 bg-neutral-surface text-neutral-text-primary text-sm font-mono
@@ -124,6 +128,8 @@ export function ResetPasswordConfirmPage() {
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             disabled={isSubmitting}
+            aria-invalid={confirm.length > 0 && !passwordsMatch}
+            aria-describedby={confirm.length > 0 && !passwordsMatch ? mismatchId : undefined}
             className="
               h-10 w-full px-3 rounded border border-neutral-border
               bg-neutral-surface text-neutral-text-primary text-sm font-mono
@@ -133,7 +139,9 @@ export function ResetPasswordConfirmPage() {
             "
           />
           {confirm.length > 0 && !passwordsMatch && (
-            <p className="text-xs text-semantic-critical">Passwords don’t match.</p>
+            <p id={mismatchId} role="status" className="text-xs text-semantic-critical">
+              Passwords don’t match.
+            </p>
           )}
         </div>
 
@@ -145,7 +153,11 @@ export function ResetPasswordConfirmPage() {
 
         {/* Server-side policy errors */}
         {serverErrors.length > 0 && (
-          <ul role="alert" className="flex flex-col gap-1 text-sm text-semantic-critical">
+          <ul
+            id={serverErrorId}
+            role="alert"
+            className="flex flex-col gap-1 text-sm text-semantic-critical"
+          >
             {serverErrors.map((msg) => (
               <li key={msg}>{msg}</li>
             ))}

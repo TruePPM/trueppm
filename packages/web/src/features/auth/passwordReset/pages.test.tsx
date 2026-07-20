@@ -92,14 +92,17 @@ describe('ForgotPasswordPage', () => {
   it('surfaces an inline error when the request fails', async () => {
     const user = userEvent.setup();
     mockRequest.mockRejectedValueOnce(new Error('network'));
-    renderAt('/forgot-password', [
-      { path: '/forgot-password', element: <ForgotPasswordPage /> },
-    ]);
+    renderAt('/forgot-password', [{ path: '/forgot-password', element: <ForgotPasswordPage /> }]);
 
-    await user.type(screen.getByLabelText('Work email'), 'anna@example.com');
+    const email = screen.getByLabelText('Work email');
+    await user.type(email, 'anna@example.com');
     await user.click(screen.getByRole('button', { name: 'Send reset link' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/something went wrong/i);
+    // Error is associated with the email input for SR users (#2183).
+    expect(email).toHaveAttribute('aria-invalid', 'true');
+    expect(email).toHaveAttribute('aria-describedby', alert.getAttribute('id'));
   });
 });
 
@@ -108,7 +111,11 @@ describe('ForgotPasswordSentPage', () => {
     const user = userEvent.setup();
     mockRequest.mockResolvedValueOnce(undefined);
     render(
-      <MemoryRouter initialEntries={[{ pathname: '/forgot-password/sent', state: { email: 'anna@example.com' } }]}>
+      <MemoryRouter
+        initialEntries={[
+          { pathname: '/forgot-password/sent', state: { email: 'anna@example.com' } },
+        ]}
+      >
         <Routes>
           <Route path="/forgot-password/sent" element={<ForgotPasswordSentPage />} />
         </Routes>
@@ -194,9 +201,31 @@ describe('ResetPasswordConfirmPage', () => {
     renderAt(START, [{ path: CONFIRM_PATH, element: <ResetPasswordConfirmPage /> }]);
 
     await user.type(screen.getByLabelText('New password'), STRONG_PASSWORD);
-    await user.type(screen.getByLabelText('Confirm new password'), 'different99');
-    expect(screen.getByText(/passwords don’t match/i)).toBeInTheDocument();
+    const confirm = screen.getByLabelText('Confirm new password');
+    await user.type(confirm, 'different99');
+    const mismatch = screen.getByText(/passwords don’t match/i);
+    expect(mismatch).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Update password' })).toBeDisabled();
+    // Mismatch message is associated with the confirm input (#2206).
+    expect(confirm).toHaveAttribute('aria-invalid', 'true');
+    expect(confirm).toHaveAttribute('aria-describedby', mismatch.getAttribute('id'));
+  });
+
+  it('associates server policy errors with the new-password input (#2206)', async () => {
+    const user = userEvent.setup();
+    mockConfirm.mockResolvedValueOnce({
+      kind: 'weak_password',
+      messages: ['This password is too common.'],
+    });
+    renderAt(START, [{ path: CONFIRM_PATH, element: <ResetPasswordConfirmPage /> }]);
+
+    const newPassword = screen.getByLabelText('New password');
+    await fillPasswords(user);
+    await user.click(screen.getByRole('button', { name: 'Update password' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(newPassword).toHaveAttribute('aria-invalid', 'true');
+    expect(newPassword).toHaveAttribute('aria-describedby', alert.getAttribute('id'));
   });
 });
 

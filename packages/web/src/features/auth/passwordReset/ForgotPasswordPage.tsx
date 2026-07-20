@@ -16,6 +16,7 @@ export function ForgotPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const emailId = useId();
+  const errorId = useId();
   const navigate = useNavigate();
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -54,8 +55,8 @@ export function ForgotPasswordPage() {
           <InfoIcon />
         </span>
         <span>
-          If your account uses single sign-on, you’ll be guided to your provider instead —
-          resetting a password here won’t affect SSO sign-in.
+          If your account uses single sign-on, you’ll be guided to your provider instead — resetting
+          a password here won’t affect SSO sign-in.
         </span>
       </div>
 
@@ -78,6 +79,8 @@ export function ForgotPasswordPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={isSubmitting}
+            aria-invalid={error !== null}
+            aria-describedby={error !== null ? errorId : undefined}
             // eslint-disable-next-line jsx-a11y/no-autofocus -- single-purpose recovery screen: focus its only input on open
             autoFocus
             placeholder="you@company.com"
@@ -93,7 +96,7 @@ export function ForgotPasswordPage() {
         </div>
 
         {error !== null && (
-          <p role="alert" className="text-sm text-semantic-critical">
+          <p id={errorId} role="alert" className="text-sm text-semantic-critical">
             {error}
           </p>
         )}
