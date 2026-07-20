@@ -3,16 +3,19 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { useWorkspaceGroups, type WorkspaceGroup } from '../hooks/useWorkspaceGroups';
 import { useCreateGroup, useDeleteGroup } from '../hooks/useWorkspaceGroupMutations';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
+import { GroupManageDrawer } from './GroupManageDrawer';
 import { IDENTITY_SWATCHES } from '@/lib/identityColors';
 
 interface GroupCardProps {
   group: WorkspaceGroup;
   onDelete: (id: string) => void;
+  /** Opens the management drawer for this group. */
+  onManage: (id: string) => void;
   /** True when the most recent delete for this group failed. */
   hasError?: boolean;
 }
 
-function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
+function GroupCard({ group, onDelete, onManage, hasError }: GroupCardProps) {
   // Deleting a group cascades project-access removal for every member, so the
   // ✕ opens a two-step inline confirm rather than firing the DELETE directly.
   const [confirming, setConfirming] = useState(false);
@@ -39,6 +42,14 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
         <span className="tppm-mono text-[11px] px-2 py-0.5 rounded-chip bg-neutral-surface-sunken text-neutral-text-secondary font-semibold shrink-0">
           {group.memberCount} members
         </span>
+        <button
+          type="button"
+          onClick={() => onManage(group.id)}
+          aria-label={`Manage ${group.name}`}
+          className="shrink-0 rounded-control border border-neutral-border px-2 py-0.5 text-[11px] font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+        >
+          Manage
+        </button>
         {confirming ? (
           <span
             className="flex items-center gap-1.5 text-[11px] shrink-0"
@@ -131,9 +142,7 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
         <span className="text-[11px] text-neutral-text-secondary">
           Access to{' '}
           <strong className="text-neutral-text-primary font-semibold">
-            {group.projects[0] === 'all'
-              ? 'all projects'
-              : `${group.projects.length} project${group.projects.length !== 1 ? 's' : ''}`}
+            {`${group.projects.length} project${group.projects.length !== 1 ? 's' : ''}`}
           </strong>
         </span>
       </div>
@@ -142,10 +151,10 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
       <div className="mt-2.5 flex flex-wrap gap-1">
         {group.projects.slice(0, 4).map((p) => (
           <span
-            key={p}
+            key={p.id}
             className="text-[11px] px-2 py-0.5 rounded-chip border border-neutral-border/55 bg-neutral-surface-sunken text-neutral-text-secondary"
           >
-            {p === 'all' ? 'All projects' : p}
+            {p.name}
           </span>
         ))}
       </div>
@@ -168,6 +177,8 @@ export function WorkspaceGroupsPage() {
   const [createError, setCreateError] = useState(false);
   // The group id whose most recent delete failed.
   const [errorGroupId, setErrorGroupId] = useState<string | null>(null);
+  // The group whose management drawer is open, or null when closed.
+  const [manageGroupId, setManageGroupId] = useState<string | null>(null);
 
   function handleCreate(e: FormEvent) {
     e.preventDefault();
@@ -319,12 +330,18 @@ export function WorkspaceGroupsPage() {
                 key={g.id}
                 group={g}
                 onDelete={handleDelete}
+                onManage={setManageGroupId}
                 hasError={errorGroupId === g.id}
               />
             ))}
           </div>
         )}
       </div>
+
+      <GroupManageDrawer
+        group={groups.find((g) => g.id === manageGroupId) ?? null}
+        onClose={() => setManageGroupId(null)}
+      />
     </div>
   );
 }

@@ -37,7 +37,10 @@ const GROUPS = [
     lead_user_id: '3',
     member_count: 4,
     members: [],
-    projects: ['Atlas V', 'Falcon Heavy'],
+    projects: [
+      { id: 'p1', name: 'Atlas V', role: 100, role_label: 'Team Member' },
+      { id: 'p2', name: 'Falcon Heavy', role: 200, role_label: 'Resource Manager' },
+    ],
   },
   {
     id: 'g2',
@@ -47,7 +50,7 @@ const GROUPS = [
     lead_user_id: null,
     member_count: 7,
     members: [],
-    projects: ['all'],
+    projects: [],
   },
 ];
 
@@ -115,9 +118,7 @@ describe('WorkspaceGroupsPage — two-step delete confirm', () => {
     await user.click(screen.getByRole('button', { name: /Delete group Avionics/i }));
     await user.click(screen.getByRole('button', { name: /^Confirm$/i }));
 
-    await waitFor(() =>
-      expect(deleteMock).toHaveBeenCalledWith('/workspace/groups/g1/'),
-    );
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/workspace/groups/g1/'));
   });
 
   it('dismisses the confirm control without calling delete when Cancel is clicked', async () => {
@@ -132,7 +133,9 @@ describe('WorkspaceGroupsPage — two-step delete confirm', () => {
     expect(deleteMock).not.toHaveBeenCalled();
     // The ✕ button should be back, the confirm group gone
     expect(screen.getByRole('button', { name: /Delete group Avionics/i })).toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: /Confirm delete Avionics/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: /Confirm delete Avionics/i }),
+    ).not.toBeInTheDocument();
   });
 });
 

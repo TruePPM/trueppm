@@ -42270,7 +42270,7 @@
                     "projects": {
                         "type": "array",
                         "items": {
-                            "type": "string"
+                            "$ref": "#/components/schemas/GroupProjectLink"
                         }
                     }
                 },
@@ -42295,6 +42295,30 @@
                 },
                 "required": [
                     "user"
+                ]
+            },
+            "GroupProjectLink": {
+                "type": "object",
+                "description": "A project a group grants access to, with the conferred role (#2253).\n\nDocuments the object shape (drf-spectacular) rather than an opaque dict, so\nthe management UI has a typed ``{id, name, role, role_label}`` to render the\ngranted role and revoke by project UUID.",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "role": {
+                        "type": "integer"
+                    },
+                    "role_label": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "role",
+                    "role_label"
                 ]
             },
             "GroupProjectWriteRequest": {

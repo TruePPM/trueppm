@@ -86,3 +86,49 @@ export function useRemoveGroupMember() {
     },
   });
 }
+
+interface GrantGroupProjectPayload {
+  groupId: string;
+  projectId: string;
+  /** Role ordinal to confer on the group's members for this project (< Owner). */
+  role: number;
+}
+
+interface RevokeGroupProjectPayload {
+  groupId: string;
+  projectId: string;
+}
+
+/**
+ * Grant a group access to a project at a conferred role (#2253). The server's
+ * reconcile_group_access cascade materializes a ProjectMembership for every
+ * group member at this role.
+ */
+export function useGrantGroupProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ groupId, projectId, role }: GrantGroupProjectPayload) => {
+      const res = await apiClient.post(`/workspace/groups/${groupId}/projects/`, {
+        project: projectId,
+        role,
+      });
+      return res.data as unknown;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workspace-groups'] });
+    },
+  });
+}
+
+/** Revoke a group's access to a project (#2253). */
+export function useRevokeGroupProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ groupId, projectId }: RevokeGroupProjectPayload) => {
+      await apiClient.delete(`/workspace/groups/${groupId}/projects/${projectId}/`);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workspace-groups'] });
+    },
+  });
+}

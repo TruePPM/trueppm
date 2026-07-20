@@ -264,6 +264,21 @@ Groups let workspace Admins grant multiple users access to multiple projects in
 one operation. A group has a name, an optional description, an optional lead, and
 a list of members.
 
+### Managing a group
+
+Each group card has a **Manage** button that opens a management panel (a side
+drawer on desktop, a bottom sheet on mobile). From there an Admin can:
+
+- **Add or remove members** — pick any workspace member from the searchable list;
+  removing a member revokes the access the group conferred on them.
+- **Grant or revoke project access** — pick a project, choose the role to confer
+  (Viewer, Team Member, Resource Manager, or Project Manager), and grant it; each
+  grant shows its conferred role and can be revoked.
+
+Every change takes effect immediately (there is no separate save step) and runs
+the project-access cascade described below. Directory (LDAP/AD) sync of group
+membership is a TruePPM Enterprise capability.
+
 ### Project access cascade
 
 Linking a group to a project (via `POST /api/v1/workspace/groups/{id}/projects/`)

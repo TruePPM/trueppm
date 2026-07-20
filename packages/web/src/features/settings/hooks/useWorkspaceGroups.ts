@@ -14,7 +14,7 @@ interface WorkspaceGroupRaw {
   lead_user_id: string | null;
   member_count: number;
   members: Array<{ id: string; name: string; initials: string; color: string }>;
-  projects: string[];
+  projects: Array<{ id: string; name: string; role: number; role_label: string }>;
 }
 
 function mapGroup(raw: WorkspaceGroupRaw): WorkspaceGroup {
@@ -26,7 +26,12 @@ function mapGroup(raw: WorkspaceGroupRaw): WorkspaceGroup {
     leadUserId: raw.lead_user_id,
     memberCount: raw.member_count,
     members: raw.members as WorkspaceGroupMember[],
-    projects: raw.projects,
+    projects: raw.projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      role: p.role,
+      roleLabel: p.role_label,
+    })),
   };
 }
 
