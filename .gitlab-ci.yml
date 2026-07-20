@@ -1475,11 +1475,13 @@ scheduler:notebooks:
   script:
     - cd packages/scheduler
     # The non-root ci image (USER ci, #2085/#2236) can't write jupyter's data
-    # files into the root-owned /usr/local/etc/jupyter prefix, so install into
-    # the user site (~/.local) and put its bin dir on PATH.
-    - pip install --user jupyter nbconvert
-    - export PATH="$HOME/.local/bin:$PATH"
-    - jupyter nbconvert --to notebook --execute --inplace notebooks/*.ipynb
+    # files into the root-owned /usr/local/etc/jupyter prefix. `pip install
+    # --user` is not enough: it routes the Python packages to ~/.local but still
+    # writes jupyter's data_files to that root-owned prefix (Errno 13). Install
+    # into a throwaway venv under $HOME whose prefix is fully writable by uid 1000.
+    - python -m venv "$HOME/nbenv"
+    - "$HOME/nbenv/bin/pip" install --quiet jupyter nbconvert
+    - "$HOME/nbenv/bin/jupyter" nbconvert --to notebook --execute --inplace notebooks/*.ipynb
   artifacts:
     paths:
       - packages/scheduler/notebooks/*.ipynb
