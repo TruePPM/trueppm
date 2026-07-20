@@ -1474,7 +1474,11 @@ scheduler:notebooks:
   <<: *rules-scheduler
   script:
     - cd packages/scheduler
-    - pip install jupyter nbconvert
+    # The non-root ci image (USER ci, #2085/#2236) can't write jupyter's data
+    # files into the root-owned /usr/local/etc/jupyter prefix, so install into
+    # the user site (~/.local) and put its bin dir on PATH.
+    - pip install --user jupyter nbconvert
+    - export PATH="$HOME/.local/bin:$PATH"
     - jupyter nbconvert --to notebook --execute --inplace notebooks/*.ipynb
   artifacts:
     paths:
