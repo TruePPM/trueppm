@@ -8,12 +8,13 @@
 
 /**
  * Result sections (ADR-0138, issue 647; `sprint` added issue 1594; `person` added
- * ADR-0401/#1940; `sprintTask` + `recent` added ADR-0508/#1557). `sprint` leads as
- * the first-class "jump to current sprint" action; `sprintTask` (active-sprint
- * tasks) and `task` (all other tasks) and `current` are Tier-2 (current project
- * only); `person` is a global, query-gated people search; `recent` is the
- * cold-only recently-visited-projects strip; the rest are Tier-1 (all reachable
- * projects) or global.
+ * ADR-0401/#1940; `sprintTask` + `recent` added ADR-0508/#1557; `epic` + `story`
+ * added ADR-0508 D4/#2103). `sprint` leads as the first-class "jump to current
+ * sprint" action; `sprintTask` (active-sprint tasks) and `task` (all other tasks)
+ * and `current` are Tier-2 (current project only); `person`, `epic`, and `story`
+ * are global, query-gated cross-program searches; `recent` is the cold-only
+ * recently-visited-projects strip; the rest are Tier-1 (all reachable projects) or
+ * global.
  */
 export type CommandGroup =
   | 'sprint'
@@ -21,6 +22,8 @@ export type CommandGroup =
   | 'task'
   | 'current'
   | 'person'
+  | 'epic'
+  | 'story'
   | 'recent'
   | 'jump'
   | 'backlog'

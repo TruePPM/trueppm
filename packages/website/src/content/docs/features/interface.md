@@ -53,6 +53,13 @@ is the fastest path to:
   you open the palette, before you type a thing.
 - **Find people** — start typing a name to search across your teammates and jump to
   them.
+- **Find an epic or story anywhere** — type a name to search epics and stories across
+  every program and project you belong to, without opening each one first. Results
+  arrive in **Epics** and **Stories** groups, each labeled in agile terms with a
+  program ▸ project ▸ epic breadcrumb (never a WBS code): pick an epic or story to
+  jump to it in the schedule, or a backlog item to land on its program backlog. The
+  search is access-scoped on the server — you only ever see work you already have
+  access to.
 - **Open a task** — on a project, type to find a task and open it inline. When the
   project has an active sprint, that sprint's tasks get their own **Current sprint
   tasks** group with room for more results, so a search scoped to the sprint you're

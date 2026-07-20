@@ -6,6 +6,7 @@ import { usePrograms } from '@/hooks/usePrograms';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useResourceSearch } from '@/hooks/useResourceSearch';
+import { useOmniSearch } from '@/hooks/useOmniSearch';
 import { useRecentProjects } from '@/hooks/useRecentProjects';
 import { useActiveSprint } from '@/hooks/useSprints';
 import { formatRelative } from '@/lib/formatRelative';
@@ -21,6 +22,7 @@ import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import type { Methodology } from '@/types';
 import type { CommandItem } from './commandItems';
+import { buildOmniSearchItems } from './omniSearch';
 
 const THEME_CYCLE: Record<Theme, Theme> = { light: 'dark', dark: 'auto', auto: 'light' };
 
@@ -86,6 +88,14 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
   const trimmedQuery = query.trim();
   const peopleEnabled = enabled && trimmedQuery.length > 0;
   const { data: people } = useResourceSearch(trimmedQuery, peopleEnabled);
+
+  // Global Epic/Story omni-search tier (ADR-0508 D4/#2103): a debounced,
+  // membership-scoped cross-program search. Gated on an open palette with a
+  // non-empty query — the hook additionally holds the request below its 2-char
+  // floor — so a cold palette never fetches. The endpoint enforces access scope
+  // server-side; the client only renders what it is handed.
+  const omniEnabled = enabled && trimmedQuery.length > 0;
+  const { data: omniResults } = useOmniSearch(trimmedQuery, omniEnabled);
 
   // Recent-projects tier (ADR-0508/#1557): the cold-only "recently visited"
   // strip. Gated on an open palette with an EMPTY query — the inverse of the
@@ -222,6 +232,15 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
         }))
       : [];
 
+    // ---- Epic / Story (global, query-gated cross-program omni-search) --------
+    // ADR-0508 D4/#2103. Server-ranked, membership-scoped results split into the
+    // `epic` and `story` groups by agile type; each row carries an agile-vocabulary
+    // "program ▸ project ▸ epic" breadcrumb (never a WBS code) and deep-links to the
+    // schedule drawer (a task) or the program backlog (an intake item).
+    const omniItems: CommandItem[] = omniEnabled ? buildOmniSearchItems(omniResults ?? [], go) : [];
+    const epicItems = omniItems.filter((i) => i.group === 'epic');
+    const storyItems = omniItems.filter((i) => i.group === 'story');
+
     // ---- Recent (cold-only recently-visited projects) ------------------------
     // ADR-0508/#1557. Bare project name + "{program} · {relative}" recency hint.
     // Cold, a project can appear in BOTH `recent` and the full `jump` list — the
@@ -330,6 +349,8 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
       ...taskItems,
       ...currentItems,
       ...peopleItems,
+      ...epicItems,
+      ...storyItems,
       ...recentItems,
       ...jumps,
       ...backlog,
@@ -342,6 +363,8 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     projects,
     people,
     peopleEnabled,
+    omniResults,
+    omniEnabled,
     recentProjects,
     recentEnabled,
     theme,

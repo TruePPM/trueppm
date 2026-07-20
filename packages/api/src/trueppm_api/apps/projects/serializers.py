@@ -7053,6 +7053,43 @@ class MeActiveSprintCardSerializer(serializers.Serializer[Any]):
     velocity = _ActiveSprintCardVelocitySerializer()
 
 
+class OmniSearchResultSerializer(serializers.Serializer[Any]):
+    """One agile-vocabulary result row for ``GET /api/v1/me/search/`` (ADR-0508 D4, #2103).
+
+    Response-schema shape only: :class:`~trueppm_api.apps.projects.views.MeSearchView`
+    assembles plain dicts from two heterogeneous sources — committed ``Task`` rows of
+    type EPIC/STORY/TASK (project-scoped) and program ``BacklogItem`` intake rows
+    (program-scoped) — so this serializer exists to give the merged, paginated payload
+    an accurate typed row for drf-spectacular and the hand-maintained web types.
+
+    The breadcrumb is deliberately **agile vocabulary** — program / project / parent
+    epic names — and never a WBS code (the Product-Owner persona's hard-NO, ADR-0508
+    §Constraints). ``kind`` distinguishes a committed task (``"task"``) from a backlog
+    intake item (``"backlog_item"``) so the client can route to the schedule drawer or
+    the program backlog respectively; ``type`` carries the agile taxonomy value
+    (``epic`` / ``story`` / ``task`` …) for the "Epic ▸ Story" label. ``project_*`` is
+    null for a backlog item (it lives at the program level, un-pulled to any project);
+    ``parent_epic_*`` is populated only for a story grouped under an epic.
+    """
+
+    id = serializers.UUIDField()
+    # Plain CharField (not ChoiceField) deliberately: a ChoiceField would emit a
+    # ``KindEnum`` component that collides with the existing AssetItem ``kind`` enum
+    # (file/link) and force drf-spectacular to rename both. The two values are
+    # documented in the ``help_text`` instead. Values: ``task`` | ``backlog_item``.
+    kind = serializers.CharField(
+        help_text="Result source: 'task' (committed schedule task) or 'backlog_item'.",
+    )
+    type = serializers.CharField()
+    title = serializers.CharField()
+    program_id = serializers.UUIDField(allow_null=True)
+    program_name = serializers.CharField(allow_null=True)
+    project_id = serializers.UUIDField(allow_null=True)
+    project_name = serializers.CharField(allow_null=True)
+    parent_epic_id = serializers.UUIDField(allow_null=True)
+    parent_epic_name = serializers.CharField(allow_null=True)
+
+
 # ---------------------------------------------------------------------------
 # Inbound task-sync — ADR-0068 / issue #500
 # ---------------------------------------------------------------------------

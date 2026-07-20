@@ -32,6 +32,15 @@ vi.mock('@/hooks/useResourceSearch', () => ({
   useResourceSearch: (query: string, enabled?: boolean) => resourceSearch(query, enabled),
 }));
 
+// Epic/Story omni-search tier (ADR-0508 D4/#2103): server search across programs.
+// Default to no results; a test sets `omniResults` + a query to assert epic/story
+// items. `omniSearch` is a spy so the enabled/gating argument can be asserted.
+let omniResults: import('@/api/types').OmniSearchResult[] = [];
+const omniSearch = vi.fn((_query: string, _enabled?: boolean) => ({ data: omniResults }));
+vi.mock('@/hooks/useOmniSearch', () => ({
+  useOmniSearch: (query: string, enabled?: boolean) => omniSearch(query, enabled),
+}));
+
 // Recent-projects tier (ADR-0508/#1557). Default to no rows; a test sets
 // `recentResults` + a cold (empty) query to assert the recent items. `recentSearch`
 // is a spy so the cold-only enabled gating can be asserted.
@@ -133,6 +142,7 @@ afterEach(() => {
   hiddenViews = [];
   peopleResults = [];
   recentResults = [];
+  omniResults = [];
   vi.clearAllMocks();
   canManage.mockImplementation((pid?: string) => !!pid);
   sprintTargets.mockImplementation((pid?: string) =>
@@ -190,6 +200,74 @@ describe('useCommandItems — tier assembly', () => {
     const { result } = renderHook(() => useCommandItems(true, '   '));
     expect(result.current.some((i) => i.group === 'person')).toBe(false);
     expect(resourceSearch).toHaveBeenCalledWith('', false);
+  });
+
+  it('builds Epic/Story omni-search items grouped by agile type with breadcrumbs (#2103)', () => {
+    omniResults = [
+      {
+        id: 'ep1',
+        kind: 'task',
+        type: 'epic',
+        title: 'Login flow',
+        program_id: 'prog1',
+        program_name: 'Platform',
+        project_id: 'p1',
+        project_name: 'Atlas',
+        parent_epic_id: null,
+        parent_epic_name: null,
+      },
+      {
+        id: 'bi1',
+        kind: 'backlog_item',
+        type: 'story',
+        title: 'Login rate limiting',
+        program_id: 'prog1',
+        program_name: 'Platform',
+        project_id: null,
+        project_name: null,
+        parent_epic_id: null,
+        parent_epic_name: null,
+      },
+    ];
+    const { result } = renderHook(() => useCommandItems(true, 'login'));
+    const items = byId(result.current);
+
+    const epic = items.get('omni:task:ep1');
+    expect(epic?.group).toBe('epic');
+    expect(epic?.tag).toBe('Epic');
+    expect(epic?.detail).toBe('Platform ▸ Atlas');
+    epic?.run();
+    expect(navigate).toHaveBeenCalledWith('/projects/p1/schedule?task=ep1');
+
+    const story = items.get('omni:backlog_item:bi1');
+    expect(story?.group).toBe('story');
+    expect(story?.tag).toBe('Story');
+    expect(story?.detail).toBe('Platform ▸ Backlog');
+    story?.run();
+    expect(navigate).toHaveBeenCalledWith('/programs/prog1/backlog');
+
+    // The omni-search hook was gated ON (open + non-empty query).
+    expect(omniSearch).toHaveBeenCalledWith('login', true);
+  });
+
+  it('gates the Epic/Story omni-search OFF when the query is empty', () => {
+    omniResults = [
+      {
+        id: 'ep1',
+        kind: 'task',
+        type: 'epic',
+        title: 'Login flow',
+        program_id: 'prog1',
+        program_name: 'Platform',
+        project_id: 'p1',
+        project_name: 'Atlas',
+        parent_epic_id: null,
+        parent_epic_name: null,
+      },
+    ];
+    const { result } = renderHook(() => useCommandItems(true, '   '));
+    expect(result.current.some((i) => i.group === 'epic' || i.group === 'story')).toBe(false);
+    expect(omniSearch).toHaveBeenCalledWith('', false);
   });
 
   it('gates the Tier-1 Backlog target to non-Waterfall projects; Board is universal', () => {

@@ -5380,6 +5380,76 @@
                 }
             }
         },
+        "/api/v1/me/search/": {
+            "get": {
+                "operationId": "v1_me_search_list",
+                "description": "``GET /api/v1/me/search/`` — global cross-program Epic/Story omni-search (ADR-0508 D4).\n\nThe ⌘K palette's Epic/Story result type (the marquee #1557 VoC ask). Spans two\nsources with **different** RBAC scopes and merges them into one ranked, paginated\nlist, each row carrying an **agile-vocabulary** breadcrumb (program / project /\nparent epic) — never a WBS code (the Product-Owner persona's hard-NO):\n\n* committed ``Task`` rows of type EPIC / STORY / TASK — **project-membership** scope;\n* program ``BacklogItem`` intake rows — **program-membership** scope.\n\n**🔴 RBAC / IDOR contract**: every row is filtered to the requesting user's *live*\nmembership — a ``Task`` only via ``project__memberships__user`` (project not\ndeleted, membership not deleted) and a ``BacklogItem`` only via\n``program__memberships__user`` (program not deleted, membership not deleted). There\nis no ``?user=`` / ``?project=`` / ``?program=`` escape hatch: the search is keyed\non ``request.user`` alone, so it can never surface an epic/story/backlog title from\na project or program the caller is not a member of. Mirrors the membership\nre-filter of ``MeWorkView`` / ``/me/recent-projects/``.\n\n**Query params**:\n  * ``q`` — the search term. Fewer than :data:`_OMNI_SEARCH_MIN_Q` characters\n    (after trim) returns an empty page; the term is truncated to\n    :data:`_OMNI_SEARCH_MAX_Q` characters as a DoS guard.\n  * ``type`` — comma-separated agile kinds to include, from\n    ``epic`` / ``story`` / ``task``. Unknown values are ignored; an empty/absent\n    value defaults to ``epic,story`` (:data:`_OMNI_SEARCH_DEFAULT_TYPES`).\n  * ``page`` — standard DRF page number over the merged result list.\n\n**Response**: the standard ``{count, next, previous, results}`` envelope where each\nresult is an :class:`~trueppm_api.apps.projects.serializers.OmniSearchResultSerializer`\nrow. Results are bounded to the top :data:`_OMNI_SEARCH_SCAN_CAP` matches per source\n(a search palette reads only the first page), ranked title-prefix-first then\nalphabetically.\n\n**API-first / agent**: ``McpReadableViewMixin`` exposes the read to a personal\n``mcp:read`` token so an MCP agent can resolve \"find the Login epic\" under its own\nowner-scoped token — the resolution fact is not stranded in the web client.",
+                "summary": "Global cross-program Epic/Story omni-search",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Search term. Fewer than 2 characters returns an empty page; truncated to 100 characters."
+                    },
+                    {
+                        "in": "query",
+                        "name": "type",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Comma-separated agile kinds to include, from epic,story,task. Absent defaults to epic,story."
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/OmniSearchResult"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/me/time-entries/": {
             "get": {
                 "operationId": "v1_me_time_entries_retrieve",
@@ -43105,6 +43175,65 @@
             "NullEnum": {
                 "enum": [
                     null
+                ]
+            },
+            "OmniSearchResult": {
+                "type": "object",
+                "description": "One agile-vocabulary result row for ``GET /api/v1/me/search/`` (ADR-0508 D4, #2103).\n\nResponse-schema shape only: :class:`~trueppm_api.apps.projects.views.MeSearchView`\nassembles plain dicts from two heterogeneous sources — committed ``Task`` rows of\ntype EPIC/STORY/TASK (project-scoped) and program ``BacklogItem`` intake rows\n(program-scoped) — so this serializer exists to give the merged, paginated payload\nan accurate typed row for drf-spectacular and the hand-maintained web types.\n\nThe breadcrumb is deliberately **agile vocabulary** — program / project / parent\nepic names — and never a WBS code (the Product-Owner persona's hard-NO, ADR-0508\n§Constraints). ``kind`` distinguishes a committed task (``\"task\"``) from a backlog\nintake item (``\"backlog_item\"``) so the client can route to the schedule drawer or\nthe program backlog respectively; ``type`` carries the agile taxonomy value\n(``epic`` / ``story`` / ``task`` …) for the \"Epic ▸ Story\" label. ``project_*`` is\nnull for a backlog item (it lives at the program level, un-pulled to any project);\n``parent_epic_*`` is populated only for a story grouped under an epic.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Result source: 'task' (committed schedule task) or 'backlog_item'."
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "program_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "program_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "project_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "parent_epic_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "parent_epic_name": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "kind",
+                    "parent_epic_id",
+                    "parent_epic_name",
+                    "program_id",
+                    "program_name",
+                    "project_id",
+                    "project_name",
+                    "title",
+                    "type"
                 ]
             },
             "OnFailureEnum": {

@@ -283,6 +283,15 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   // default to empty. Specs exercising Recent override with page.route(...).
   await page.route('**/api/v1/me/recent-projects/**', (route) => route.fulfill(jsonResponse([])));
 
+  // Global Epic/Story omni-search (#2103) — the ⌘K palette's epic/story tier reads
+  // this on a typed query. Returns the standard PAGINATED envelope; default to an
+  // empty page. Specs exercising the tier override with page.route(...). Declared
+  // explicitly (not left to the catch-all) so a data-driven palette query resolves
+  // to the real {count,results} shape the hook expects.
+  await page.route('**/api/v1/me/search/**', (route) =>
+    route.fulfill(jsonResponse(paginated([]))),
+  );
+
   // ----- Project list -----
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill(jsonResponse(paginated(projects))),
