@@ -101,11 +101,13 @@ RUN git config --system --add safe.directory '*'
 
 # Run the CI jobs as a non-root user (Sonar dockerfile:S6471, defense-in-depth
 # for a build container that pulls the repo + third-party deps). uid 1000 owns
-# the system site-packages and bin so the job-time
-# `pip install -e packages/scheduler[dev] packages/api[dev]` editable re-link
-# still writes without root.
+# the whole /usr/local tree so any job-time `pip install` writes without root —
+# not just the `pip install -e packages/...[dev]` editable re-link into
+# site-packages/bin, but also packages that drop data files under etc/ or share/.
+# Chowning only lib+bin left those unwritable and failed installs with EACCES
+# (#2236 — surfaced on scheduler:notebooks' jupyter install, same image pattern).
 RUN useradd --uid 1000 --create-home --shell /bin/bash ci \
- && chown -R ci /usr/local/lib/python3.11 /usr/local/bin
+ && chown -R ci /usr/local
 USER ci
 
 WORKDIR /
