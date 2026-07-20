@@ -1031,3 +1031,76 @@ test.describe('Programs — Projects-tab rollup surfacing (#560 / #564)', () => 
     await expect(dialog.getByText('Riverside Waterfall')).toHaveCount(0);
   });
 });
+
+test.describe('Programs — remove-from-program safety (#2176)', () => {
+  const PROGRAM_PROJECTS = [{ id: 'pp-alpha', name: 'Alpha', methodology: 'WATERFALL', program: PROGRAM_ID }];
+
+  test('Remove asks for confirmation, states the consequence, and only PATCHes on confirm', async ({
+    page,
+  }) => {
+    let patchFired = false;
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROGRAM_PROJECTS) }),
+    );
+    // Record the unassign PATCH; return the project with a null program.
+    await page.route('**/api/v1/projects/pp-alpha/', (r) => {
+      if (r.request().method() === 'PATCH') {
+        patchFired = true;
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 'pp-alpha', name: 'Alpha', program: null }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROGRAM_PROJECTS[0]) });
+    });
+
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    // Page-rendered signal before touching chrome.
+    await expect(page.getByRole('link', { name: 'Alpha' })).toBeVisible();
+
+    await page.getByRole('button', { name: /Remove Alpha from this program/i }).click();
+
+    // Confirm dialog states the consequence — nothing has been PATCHed yet.
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(/shared backlog, rollup, and combined schedule/i);
+    expect(patchFired).toBe(false);
+
+    // Cancel first — still no PATCH.
+    await dialog.getByRole('button', { name: /cancel/i }).click();
+    await expect(dialog).toBeHidden();
+    expect(patchFired).toBe(false);
+
+    // Reopen and confirm — now the PATCH fires.
+    await page.getByRole('button', { name: /Remove Alpha from this program/i }).click();
+    await page
+      .getByRole('alertdialog')
+      .getByRole('button', { name: /Remove from program/i })
+      .click();
+    await expect.poll(() => patchFired).toBe(true);
+  });
+
+  test('surfaces a retryable error state when the projects list fails to load', async ({ page }) => {
+    let attempts = 0;
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    // The queryClient retries a 5xx once (retry: failureCount < 1), so the
+    // initial load makes two attempts — fail both, then succeed on the Retry.
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) => {
+      attempts += 1;
+      if (attempts <= 2) {
+        return r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ detail: 'boom' }) });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROGRAM_PROJECTS) });
+    });
+
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    const errorState = page.getByText(/Couldn't load this program's projects/i);
+    await expect(errorState).toBeVisible();
+
+    // Retry re-runs just the failed request; the second attempt succeeds.
+    await page.getByRole('button', { name: /retry/i }).click();
+    await expect(page.getByRole('link', { name: 'Alpha' })).toBeVisible();
+  });
+});

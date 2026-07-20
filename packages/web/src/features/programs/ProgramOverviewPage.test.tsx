@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -127,12 +127,12 @@ describe('ProgramOverviewPage (#713)', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders an error state when the rollup request fails', async () => {
+  it('renders the shared retryable error state when the rollup request fails (#2176)', async () => {
     mockApi(new Error('boom'));
     renderPage();
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Failed to load the program rollup.',
-    );
+    const alert = await screen.findByRole('status');
+    expect(alert).toHaveTextContent("Couldn't load the program rollup.");
+    expect(within(alert).getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 
   // --- KPI drill-through (#2155) -------------------------------------------

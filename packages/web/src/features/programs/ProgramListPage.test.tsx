@@ -151,14 +151,19 @@ describe('ProgramListPage', () => {
     expect(screen.getByLabelText(/Loading programs/i)).toBeInTheDocument();
   });
 
-  it('renders error state when query fails', () => {
+  it('renders the shared retryable error state when the query fails (#2176)', async () => {
+    const refetch = vi.fn();
     usePrograms.mockReturnValue({
       data: undefined,
       isLoading: false,
       error: new Error('boom'),
+      refetch,
     });
     renderPage();
-    expect(screen.getByRole('alert')).toHaveTextContent(/Failed to load programs/i);
+    const alert = screen.getByRole('status');
+    expect(alert).toHaveTextContent(/Couldn't load programs/i);
+    await userEvent.click(within(alert).getByRole('button', { name: /retry/i }));
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 
   it('renders a card per program with counts and role chip', () => {

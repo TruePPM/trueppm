@@ -726,12 +726,6 @@ export function RiskRegisterView() {
                         </th>
                         <th
                           scope="col"
-                          className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[72px]"
-                        >
-                          Trend
-                        </th>
-                        <th
-                          scope="col"
                           className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[180px]"
                         >
                           Owner
@@ -813,16 +807,6 @@ export function RiskRegisterView() {
                             {/* Severity chip */}
                             <td className="px-4">
                               <RiskChip severity={risk.severity} showScore />
-                            </td>
-
-                            {/* Trend — placeholder arrow (no trend data in API) */}
-                            <td className="px-3 text-center" aria-label="No trend data available">
-                              <span
-                                className="text-base text-neutral-text-disabled"
-                                aria-hidden="true"
-                              >
-                                →
-                              </span>
                             </td>
 
                             {/* Owner — initials avatar + display name (design conformance) */}

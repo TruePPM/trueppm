@@ -6,6 +6,8 @@ import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
 import { NewProjectModal } from '@/features/shell/NewProjectModal';
 import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { AddProjectToProgramModal } from './AddProjectToProgramModal';
+import { RemoveFromProgramConfirmDialog } from './RemoveFromProgramConfirmDialog';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 
@@ -21,7 +23,7 @@ export function ProgramProjectsPage() {
   const programId = params.programId;
   const navigate = useNavigate();
   const { data: program } = useProgram(programId);
-  const { data: projects, isLoading, error } = useProgramProjects(programId);
+  const { data: projects, isLoading, error, refetch } = useProgramProjects(programId);
   const removeProjectFromProgram = useAssignProjectToProgram();
 
   // Optional `?sort=` from a program-overview KPI drill-through (issue #2155):
@@ -40,6 +42,10 @@ export function ProgramProjectsPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  // The project queued for the remove-from-program confirm (null = dialog closed).
+  // Kept as {id,name} rather than just the id so the confirm copy can name the
+  // project even after the list re-renders.
+  const [pendingRemoval, setPendingRemoval] = useState<{ id: string; name: string } | null>(null);
 
   if (!programId) return null;
 
@@ -48,11 +54,18 @@ export function ProgramProjectsPage() {
   // the ROLE_ADMIN ordinal (300) to match the sibling settings page.
   const isAdmin = program ? (program.my_role ?? -1) >= ROLE_ADMIN : false;
 
-  async function handleRemove(projectId: string): Promise<void> {
+  // The unassign PATCH is only fired after the confirm dialog is accepted
+  // (#2176). Removing a project drops it from the program's shared backlog,
+  // rollup, and combined schedule — a consequence the user must acknowledge
+  // first (delete-safety rule 266 / #2029/#2054).
+  async function handleConfirmRemove(): Promise<void> {
+    if (!pendingRemoval) return;
     setRemoveError(null);
     try {
-      await removeProjectFromProgram.mutateAsync({ projectId, programId: null });
+      await removeProjectFromProgram.mutateAsync({ projectId: pendingRemoval.id, programId: null });
+      setPendingRemoval(null);
     } catch (err) {
+      setPendingRemoval(null);
       setRemoveError(
         err instanceof Error && err.message ? err.message : 'Failed to remove project.',
       );
@@ -142,9 +155,11 @@ export function ProgramProjectsPage() {
       )}
 
       {error && (
-        <p role="alert" className="text-sm text-semantic-critical">
-          Failed to load projects.
-        </p>
+        <QueryErrorState
+          variant="inline"
+          message="Couldn't load this program's projects."
+          onRetry={() => void refetch()}
+        />
       )}
 
       {!isLoading && !error && projects && projects.length === 0 && (
@@ -231,7 +246,7 @@ export function ProgramProjectsPage() {
               {isAdmin && (
                 <button
                   type="button"
-                  onClick={() => void handleRemove(p.id)}
+                  onClick={() => setPendingRemoval({ id: p.id, name: p.name })}
                   disabled={removeProjectFromProgram.isPending}
                   aria-label={`Remove ${p.name} from this program`}
                   className="h-8 rounded-control border border-neutral-border px-2 text-xs text-neutral-text-secondary
@@ -244,6 +259,16 @@ export function ProgramProjectsPage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {pendingRemoval && (
+        <RemoveFromProgramConfirmDialog
+          projectName={pendingRemoval.name}
+          programName={program?.name ?? ''}
+          isPending={removeProjectFromProgram.isPending}
+          onCancel={() => setPendingRemoval(null)}
+          onConfirm={() => void handleConfirmRemove()}
+        />
       )}
 
       {showAddExistingModal && (

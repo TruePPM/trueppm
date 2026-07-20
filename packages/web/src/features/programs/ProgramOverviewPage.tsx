@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { apiClient } from '@/api/client';
 import { useProgram } from '@/hooks/useProgram';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 import { SampleDataBanner } from './SampleDataBanner';
 
@@ -354,7 +355,7 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
  */
 export function ProgramOverviewPage() {
   const { programId } = useParams<{ programId: string }>();
-  const { data: rollup, isLoading, error } = useProgramRollup(programId);
+  const { data: rollup, isLoading, error, refetch } = useProgramRollup(programId);
   const { data: program } = useProgram(programId);
 
   const kpiEntries = rollup ? Object.entries(rollup.kpis) : [];
@@ -384,9 +385,11 @@ export function ProgramOverviewPage() {
       )}
 
       {error && (
-        <p role="alert" className="text-sm text-semantic-critical">
-          Failed to load the program rollup.
-        </p>
+        <QueryErrorState
+          variant="inline"
+          message="Couldn't load the program rollup."
+          onRetry={() => void refetch()}
+        />
       )}
 
       {!error && (isLoading || !rollup) ? <KpiSkeleton /> : null}
