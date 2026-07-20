@@ -1,8 +1,9 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ConnectedAccountsPage } from './ConnectedAccountsPage';
+import { registry } from '@/lib/widget-registry';
 import type { IntegrationCredentialSummary } from '@/hooks/useIntegrationCredentials';
 
 interface HookReturn {
@@ -505,5 +506,365 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
     renderPage();
     expect(document.getElementById('source-jira')).not.toBeNull();
     expect(document.getElementById('source-github')).not.toBeNull();
+  });
+
+  it('shows a "first sync in progress" line on a connected source with no sync stamp yet', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira'
+        ? {
+            connection: {
+              account_email: 'p.patel@acme.com',
+              base_url: 'https://acme.atlassian.net',
+              status: 'connected',
+              last_synced_at: null,
+            },
+            isConnected: true,
+            isLoading: false,
+          }
+        : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    // last_synced_at === null on a connected source → the enqueued first pull
+    // has not landed yet, so the card says so rather than showing a stamp.
+    expect(card.getByText(/first sync in progress/i)).toBeInTheDocument();
+    // No staleness note and no auth-failed banner for a fresh, healthy connect.
+    expect(card.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('surfaces a 429 cooldown message inline when "Sync now" errors', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    // Drive the mutation's onError so the cooldown branch runs; the mocked
+    // extractConnectionError returns the provided fallback string verbatim.
+    syncMutate.mockImplementation(
+      (_undef: unknown, opts: { onError: (e: unknown) => void }) => {
+        opts.onError(new Error('429 Too Many Requests'));
+      },
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    expect(card.queryByText(/Could not start a sync/i)).not.toBeInTheDocument();
+    fireEvent.click(card.getByRole('button', { name: /Sync now/i }));
+    expect(card.getByText(/Could not start a sync just now/i)).toBeInTheDocument();
+  });
+
+  it('calls disconnect onSuccess to close the confirm dialog', async () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    disconnectMutate.mockImplementation(
+      (_undef: unknown, opts: { onSuccess: () => void }) => opts.onSuccess(),
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /^Disconnect$/i }));
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Disconnect$/i }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+  });
+
+  it('closes the disconnect dialog on Escape without disconnecting', async () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /^Disconnect$/i }));
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(disconnectMutate).not.toHaveBeenCalled();
+  });
+
+  it('renders at most three recently-pulled items and handles missing / unsafe fields', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    useExternalItems.mockReturnValue({
+      items: [
+        // No title → falls back to the external_id; no external_status → no pill.
+        {
+          id: 'a',
+          source_key: 'jira',
+          external_id: 'RIV-1',
+          external_url: 'https://acme.atlassian.net/browse/RIV-1',
+          title: '',
+          external_status: '',
+          display_bucket: 'todo',
+          last_synced_at: null,
+        },
+        // A javascript: URL must render inert — no anchor bound to it (#898).
+        {
+          id: 'b',
+          source_key: 'jira',
+          external_id: 'RIV-2',
+           
+          external_url: 'javascript:alert(1)',
+          title: 'Bad URL item',
+          external_status: 'Done',
+          display_bucket: 'done',
+          last_synced_at: null,
+        },
+        // Unknown bucket → the pill uses the fallback token class.
+        {
+          id: 'c',
+          source_key: 'jira',
+          external_id: 'RIV-3',
+          external_url: 'https://acme.atlassian.net/browse/RIV-3',
+          title: 'Third item',
+          external_status: 'To do',
+          display_bucket: 'somethingelse',
+          last_synced_at: null,
+        },
+        // Fourth item is beyond the slice(0,3) preview cap → never rendered.
+        {
+          id: 'd',
+          source_key: 'jira',
+          external_id: 'RIV-4',
+          external_url: 'https://acme.atlassian.net/browse/RIV-4',
+          title: 'Fourth item',
+          external_status: 'To do',
+          display_bucket: 'todo',
+          last_synced_at: null,
+        },
+      ],
+      isLoading: false,
+    });
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    // Title-less row shows the id, and its safe http URL gets a real link.
+    expect(card.getByRole('link', { name: /Open RIV-1 in Jira/i })).toBeInTheDocument();
+    // The javascript: URL row renders but has NO link (inert glyph).
+    expect(card.getByText('Bad URL item')).toBeInTheDocument();
+    expect(card.queryByRole('link', { name: /Open RIV-2 in Jira/i })).not.toBeInTheDocument();
+    expect(card.getByText('Third item')).toBeInTheDocument();
+    // Only the first three preview; the fourth is capped out.
+    expect(card.queryByText('Fourth item')).not.toBeInTheDocument();
+    expect(card.queryByText('RIV-4')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Connect / Rotate credential dialog — dismissal, error, and success paths
+// ---------------------------------------------------------------------------
+describe('ConnectedAccountsPage — credential dialogs', () => {
+  const GITHUB_CONNECTED: IntegrationCredentialSummary = {
+    ...EMPTY_LIST[1],
+    exists: true,
+    base_url: 'https://github.example.com',
+    created_at: '2026-04-15T10:00:00Z',
+  };
+
+  function withCredentials(creds: IntegrationCredentialSummary[]) {
+    useIntegrationCredentials.mockReturnValue({
+      credentials: creds,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+  }
+
+  function openConnectDialog() {
+    renderPage();
+    fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/ })[0]);
+  }
+
+  it('passes the host URL through to the upsert mutation', async () => {
+    withCredentials(EMPTY_LIST);
+    openConnectDialog();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Personal access token/i), {
+      target: { value: 'glpat-fake' },
+    });
+    fireEvent.change(within(dialog).getByLabelText(/Host URL/i), {
+      target: { value: 'https://gitlab.example.com' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Connect$/ }));
+    await waitFor(() =>
+      expect(upsertMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'gitlab',
+          secret: 'glpat-fake',
+          base_url: 'https://gitlab.example.com',
+        }),
+        expect.any(Object),
+      ),
+    );
+  });
+
+  it('shows the server error message when the upsert fails', async () => {
+    withCredentials(EMPTY_LIST);
+    upsertMutate.mockImplementation(
+      (_vars: unknown, opts: { onError: (e: unknown) => void }) => {
+        opts.onError(new Error('Token was rejected by GitLab'));
+      },
+    );
+    openConnectDialog();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Personal access token/i), {
+      target: { value: 'bad-token' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Connect$/ }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      /Token was rejected by GitLab/i,
+    );
+  });
+
+  it('closes the connect dialog on a successful upsert', async () => {
+    withCredentials(EMPTY_LIST);
+    upsertMutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess(),
+    );
+    openConnectDialog();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Personal access token/i), {
+      target: { value: 'good-token' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Connect$/ }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('disables submit until a token is entered', async () => {
+    withCredentials(EMPTY_LIST);
+    openConnectDialog();
+    const dialog = await screen.findByRole('dialog');
+    const submit = within(dialog).getByRole('button', { name: /^Connect$/ });
+    expect(submit).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText(/Personal access token/i), {
+      target: { value: 'x' },
+    });
+    expect(submit).toBeEnabled();
+  });
+
+  it('closes the connect dialog on Escape and on a backdrop click', async () => {
+    withCredentials(EMPTY_LIST);
+    openConnectDialog();
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // Re-open and dismiss by clicking the scrim (target === the dialog root).
+    fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/ })[0]);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.pointerDown(dialog);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('opens a Rotate dialog on an existing credential', async () => {
+    withCredentials([GITHUB_CONNECTED, EMPTY_LIST[0], EMPTY_LIST[2]]);
+    const { container } = renderPage();
+    const card = within(container.querySelector('#provider-github') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /Rotate/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: /Rotate GitHub/i })).toBeInTheDocument();
+  });
+
+  it('confirms revoke via onSuccess and closes the dialog', async () => {
+    withCredentials([GITHUB_CONNECTED, EMPTY_LIST[0], EMPTY_LIST[2]]);
+    revokeMutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess(),
+    );
+    const { container } = renderPage();
+    const card = within(container.querySelector('#provider-github') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /Revoke/i }));
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Revoke$/ }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(revokeMutate).toHaveBeenCalledWith({ provider: 'github' }, expect.any(Object));
+  });
+
+  it('closes the revoke dialog on Escape', async () => {
+    withCredentials([GITHUB_CONNECTED, EMPTY_LIST[0], EMPTY_LIST[2]]);
+    const { container } = renderPage();
+    const card = within(container.querySelector('#provider-github') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /Revoke/i }));
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Expiry labels, anchor scroll, and the enterprise extension slot
+// ---------------------------------------------------------------------------
+describe('ConnectedAccountsPage — expiry labels', () => {
+  function credentialWithExpiry(expiresAt: string): IntegrationCredentialSummary {
+    return {
+      ...EMPTY_LIST[1],
+      exists: true,
+      created_at: '2026-04-15T10:00:00Z',
+      expires_at: expiresAt,
+    };
+  }
+
+  function renderWithExpiry(expiresAt: string) {
+    useIntegrationCredentials.mockReturnValue({
+      credentials: [credentialWithExpiry(expiresAt), EMPTY_LIST[0], EMPTY_LIST[2]],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    const { container } = renderPage();
+    return within(container.querySelector('#provider-github') as HTMLElement);
+  }
+
+  it('flags an already-expired credential', () => {
+    const past = new Date(Date.now() - 10 * 86_400_000).toISOString();
+    const card = renderWithExpiry(past);
+    expect(card.getByText(/\(expired\)/i)).toBeInTheDocument();
+  });
+
+  it('warns when a credential expires within two weeks', () => {
+    const soon = new Date(Date.now() + 5 * 86_400_000).toISOString();
+    const card = renderWithExpiry(soon);
+    expect(card.getByText(/\(in \d+ days?\)/i)).toBeInTheDocument();
+  });
+
+  it('shows a bare date for a credential expiring far in the future', () => {
+    const far = new Date(Date.now() + 120 * 86_400_000).toISOString();
+    const card = renderWithExpiry(far);
+    const expires = card.getByText(/Expires:/i).parentElement as HTMLElement;
+    expect(expires.textContent).not.toMatch(/\(in|\(expired/i);
+  });
+});
+
+describe('ConnectedAccountsPage — anchor scroll & enterprise slot', () => {
+  afterEach(() => {
+    window.location.hash = '';
+  });
+
+  it('scrolls the deep-linked provider section into view on load', () => {
+    const scrollSpy = vi.fn();
+    // jsdom does not implement scrollIntoView; stub it so the effect can run.
+    Element.prototype.scrollIntoView = scrollSpy;
+    window.location.hash = '#github';
+    useIntegrationCredentials.mockReturnValue({
+      credentials: EMPTY_LIST,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+    expect(scrollSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ behavior: 'smooth', block: 'start' }),
+    );
+  });
+
+  it('renders enterprise-registered provider cards in the extension slot', () => {
+    registry.register('user_settings.connected_accounts', {
+      id: 'test-enterprise-jira',
+      priority: 1,
+      component: () => <div>Enterprise ServiceNow card</div>,
+    });
+    useIntegrationCredentials.mockReturnValue({
+      credentials: EMPTY_LIST,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+    const slot = screen.getByTestId('enterprise-connected-accounts-slot');
+    expect(within(slot).getByText(/Enterprise ServiceNow card/i)).toBeInTheDocument();
   });
 });

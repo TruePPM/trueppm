@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { BurnChart, BurnTooltip, CHART_COLORS } from './BurnChart';
 
@@ -845,5 +845,376 @@ describe('BurnTooltip — reads the Recharts payload array', () => {
       />,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('renders a positive scope-change note when the hovered day added scope', () => {
+    renderWithProviders(
+      <BurnTooltip
+        active
+        payload={[
+          { payload: { date: '2026-04-05', remaining: 30, completed: 10, scope: 45, ideal: 25 } },
+        ]}
+        label="2026-04-05"
+        variant="burndown"
+        metric="tasks"
+        scopeChanges={[{ date: '2026-04-05', delta: 5, newScope: 45 }]}
+      />,
+    );
+    expect(screen.getByText(/\+5 tasks scope change/)).toBeInTheDocument();
+  });
+
+  it('renders a negative scope-change note when the hovered day removed scope', () => {
+    renderWithProviders(
+      <BurnTooltip
+        active
+        payload={[
+          { payload: { date: '2026-04-05', remaining: 20, completed: 10, scope: 35, ideal: 25 } },
+        ]}
+        label="2026-04-05"
+        variant="burnup"
+        metric="points"
+        scopeChanges={[{ date: '2026-04-05', delta: -3, newScope: 35 }]}
+      />,
+    );
+    // No leading "+" for a removal; unit follows the points metric.
+    expect(screen.getByText(/-3 pts scope change/)).toBeInTheDocument();
+  });
+
+  it('treats a null remaining as no-data (0) rather than NaN', () => {
+    renderWithProviders(
+      <BurnTooltip
+        active
+        payload={[
+          { payload: { date: '2026-04-14', remaining: null, completed: null, scope: 40, ideal: 0 } },
+        ]}
+        label="2026-04-14"
+        variant="burndown"
+        metric="tasks"
+        scopeChanges={[]}
+      />,
+    );
+    // remaining null → 0, ideal 0 → "0 ahead" (not NaN).
+    expect(screen.getByText(/0 tasks ahead/)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Compact mode (#1138) — the stripped board-header burndown. A whole separate
+// render tree (no controls/export/legend), gated on `compact` + `sprintId`.
+// ---------------------------------------------------------------------------
+describe('BurnChart — compact mode', () => {
+  const BASE_SPRINT = {
+    id: 'sp-c',
+    server_version: 1,
+    short_id: 'C1',
+    short_id_display: 'SP-C1',
+    name: 'Compact Sprint',
+    goal: null,
+    notes: '',
+    start_date: '2026-04-01',
+    finish_date: '2026-04-14',
+    state: 'ACTIVE',
+    target_milestone: null,
+    target_milestone_detail: null,
+    capacity_points: null,
+    wip_limit: null,
+    committed_points: 40,
+    committed_task_count: 8,
+    completed_points: null,
+    completed_task_count: null,
+    completion_ratio_points: null,
+    completion_ratio_tasks: null,
+    activated_at: '2026-04-01T00:00:00Z',
+    closed_at: null,
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-01T00:00:00Z',
+  };
+
+  const SNAPSHOT = {
+    id: 'sn-c',
+    snapshot_date: '2026-04-07',
+    remaining_points: 20,
+    remaining_task_count: 4,
+    completed_points: 20,
+    completed_task_count: 4,
+    scope_change_points: 0,
+    scope_change_task_count: 0,
+    created_at: '2026-04-07T00:00:00Z',
+  };
+
+  function mockSprint(
+    sprintOverrides: Record<string, unknown>,
+    snapshots: unknown[],
+    flags: { isLoading?: boolean; isError?: boolean } = {},
+  ) {
+    mockUseBurnChart.mockReturnValue(
+      asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }),
+    );
+    mockUseSprintBurndown.mockReturnValue(
+      asSB({
+        data:
+          flags.isLoading || flags.isError
+            ? undefined
+            : { sprint: { ...BASE_SPRINT, ...sprintOverrides }, snapshots },
+        isLoading: flags.isLoading ?? false,
+        isError: flags.isError ?? false,
+        refetch: vi.fn(),
+      }),
+    );
+  }
+
+  it('renders a pulsing skeleton while the sprint loads', () => {
+    mockSprint({}, [], { isLoading: true });
+    const { container } = renderWithProviders(<BurnChart sprintId="sp-c" compact />);
+    expect(container.querySelector('[class*="animate-pulse"]')).toBeInTheDocument();
+    // None of the full-mode chrome renders in compact mode.
+    expect(screen.queryByRole('group', { name: /chart variant/i })).not.toBeInTheDocument();
+  });
+
+  it('renders "Chart unavailable" on error', () => {
+    mockSprint({}, [], { isError: true });
+    renderWithProviders(<BurnChart sprintId="sp-c" compact />);
+    expect(screen.getByText(/chart unavailable/i)).toBeInTheDocument();
+  });
+
+  it('renders the "N of M left" caption with the derived points metric', () => {
+    // committed_points 40 > 0 → metric auto-derives to points; last real
+    // remaining_points snapshot is 20 → "20 of 40 pts left".
+    mockSprint({}, [SNAPSHOT]);
+    renderWithProviders(<BurnChart sprintId="sp-c" compact />);
+    expect(screen.getByText(/20 of 40 pts/)).toBeInTheDocument();
+    expect(screen.getByText(/left/)).toBeInTheDocument();
+    // The chart line renders (not the "No data yet" fallback).
+    expect(screen.queryByText(/no data yet/i)).not.toBeInTheDocument();
+  });
+
+  it('renders a "Closed" caption for a completed sprint', () => {
+    mockSprint({ state: 'COMPLETED' }, [SNAPSHOT]);
+    renderWithProviders(<BurnChart sprintId="sp-c" compact />);
+    expect(screen.getByText(/closed/i)).toBeInTheDocument();
+  });
+
+  it('renders a "Not started — committed" caption for a future sprint with no snapshots', () => {
+    const futureDate = new Date();
+    futureDate.setFullYear(futureDate.getFullYear() + 1);
+    const futureIso = futureDate.toISOString().slice(0, 10);
+    mockSprint({ start_date: futureIso, committed_points: 30 }, []);
+    renderWithProviders(<BurnChart sprintId="sp-c" compact />);
+    expect(screen.getByText(/not started/i)).toBeInTheDocument();
+    expect(screen.getByText(/30 pts/)).toBeInTheDocument();
+    expect(screen.getByText(/committed/)).toBeInTheDocument();
+  });
+
+  it('renders "No data yet" when there is no sprint data (but not loading/error)', () => {
+    mockUseBurnChart.mockReturnValue(
+      asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }),
+    );
+    mockUseSprintBurndown.mockReturnValue(
+      asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }),
+    );
+    renderWithProviders(<BurnChart sprintId="sp-c" compact />);
+    expect(screen.getByText(/no data yet/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sprint trend + forecast + scope-change markers/legend + pending caveat
+// ---------------------------------------------------------------------------
+describe('BurnChart — sprint trend, forecast & scope legend', () => {
+  const BASE_SPRINT = {
+    id: 'sp-t',
+    server_version: 1,
+    short_id: 'T1',
+    short_id_display: 'SP-T1',
+    name: 'Trend Sprint',
+    goal: null,
+    notes: '',
+    start_date: '2026-04-01',
+    finish_date: '2026-04-14',
+    state: 'ACTIVE',
+    target_milestone: null,
+    target_milestone_detail: null,
+    capacity_points: null,
+    wip_limit: null,
+    committed_points: null,
+    committed_task_count: 20,
+    completed_points: null,
+    completed_task_count: null,
+    completion_ratio_points: null,
+    completion_ratio_tasks: null,
+    activated_at: '2026-04-01T00:00:00Z',
+    closed_at: null,
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-01T00:00:00Z',
+  };
+
+  // Pin the clock so the sprint window, elapsed day index, and the snapshot date
+  // all align deterministically in UTC (the component reads `new Date()` in
+  // several places, and the grid days are built from start_date at UTC midnight).
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-10T12:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A sprint window straddling the pinned "today" (2026-05-10). */
+  function activeWindow() {
+    return { startIso: '2026-05-01', finishIso: '2026-05-14', todayIso: '2026-05-10' };
+  }
+
+  function mockTrendSprint(sprintOverrides: Record<string, unknown>, snapshots: unknown[]) {
+    mockUseBurnChart.mockReturnValue(
+      asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }),
+    );
+    mockUseSprintBurndown.mockReturnValue(
+      asSB({
+        data: { sprint: { ...BASE_SPRINT, ...sprintOverrides }, snapshots },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      }),
+    );
+  }
+
+  it('shows a "behind" trend and a forecast close date when burning slowly', () => {
+    const { startIso, finishIso, todayIso } = activeWindow();
+    // Barely burned (remaining 18 of 20) → actual well above ideal → behind,
+    // and a small positive burn rate → a finite forecast date.
+    mockTrendSprint(
+      { start_date: startIso, finish_date: finishIso },
+      [
+        {
+          id: 'sn-b',
+          snapshot_date: todayIso,
+          remaining_points: 0,
+          remaining_task_count: 18,
+          completed_points: 0,
+          completed_task_count: 2,
+          scope_change_points: 0,
+          scope_change_task_count: 0,
+          created_at: todayIso + 'T00:00:00Z',
+        },
+      ],
+    );
+    renderWithProviders(<BurnChart sprintId="sp-t" compact={false} />);
+    expect(screen.getByText(/behind of/i)).toBeInTheDocument();
+    expect(screen.getByText(/forecast close/i)).toBeInTheDocument();
+  });
+
+  it('omits the forecast date when nothing has burned (burn rate not positive)', () => {
+    const { startIso, finishIso, todayIso } = activeWindow();
+    // remaining === committed → burnRate 0 → no forecast date.
+    mockTrendSprint(
+      { start_date: startIso, finish_date: finishIso },
+      [
+        {
+          id: 'sn-z',
+          snapshot_date: todayIso,
+          remaining_points: 0,
+          remaining_task_count: 20,
+          completed_points: 0,
+          completed_task_count: 0,
+          scope_change_points: 0,
+          scope_change_task_count: 0,
+          created_at: todayIso + 'T00:00:00Z',
+        },
+      ],
+    );
+    renderWithProviders(<BurnChart sprintId="sp-t" />);
+    expect(screen.getByText(/behind of/i)).toBeInTheDocument();
+    expect(screen.queryByText(/forecast close/i)).not.toBeInTheDocument();
+  });
+
+  it('renders a "Scope added" legend + marker when a snapshot injects scope', () => {
+    mockTrendSprint({}, [
+      {
+        id: 'sn-add',
+        snapshot_date: '2026-04-07',
+        remaining_points: 0,
+        remaining_task_count: 10,
+        completed_points: 0,
+        completed_task_count: 10,
+        scope_change_points: 0,
+        scope_change_task_count: 5,
+        created_at: '2026-04-07T00:00:00Z',
+      },
+    ]);
+    renderWithProviders(<BurnChart sprintId="sp-t" />);
+    expect(screen.getByText(/scope added/i)).toBeInTheDocument();
+  });
+
+  it('renders a "Scope removed" legend when a snapshot drops scope', () => {
+    mockTrendSprint({}, [
+      {
+        id: 'sn-rem',
+        snapshot_date: '2026-04-07',
+        remaining_points: 0,
+        remaining_task_count: 6,
+        completed_points: 0,
+        completed_task_count: 8,
+        scope_change_points: 0,
+        scope_change_task_count: -3,
+        created_at: '2026-04-07T00:00:00Z',
+      },
+    ]);
+    renderWithProviders(<BurnChart sprintId="sp-t" />);
+    expect(screen.getByText(/scope removed/i)).toBeInTheDocument();
+  });
+
+  it('shows the pending-scope forecast caveat (ADR-0102) when the sprint has pending injections', () => {
+    mockTrendSprint({ pending_count: 2 }, [
+      {
+        id: 'sn-p',
+        snapshot_date: '2026-04-07',
+        remaining_points: 0,
+        remaining_task_count: 10,
+        completed_points: 0,
+        completed_task_count: 10,
+        scope_change_points: 0,
+        scope_change_task_count: 0,
+        created_at: '2026-04-07T00:00:00Z',
+      },
+    ]);
+    renderWithProviders(<BurnChart sprintId="sp-t" />);
+    expect(screen.getByText(/forecast reflects accepted scope only/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 pending acceptance/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project combined variant with a mid-window scope change (deriveProjectSeries
+// combined branch + legend markers).
+// ---------------------------------------------------------------------------
+describe('BurnChart — combined variant scope change', () => {
+  it('detects a total-scope jump in the combined series and shows the added legend', () => {
+    mockUseBurnChart.mockReturnValue(
+      asBC({
+        data: {
+          chart_type: 'combined',
+          metric: 'tasks',
+          since: '2026-04-01',
+          until: '2026-04-14',
+          series: [
+            { date: '2026-04-01', remaining: 40, completed: 0, total: 40, ideal: 40 },
+            // total 40 → 45 (a +5 scope add mid-window)
+            { date: '2026-04-05', remaining: 30, completed: 15, total: 45, ideal: 20 },
+            { date: '2026-04-14', remaining: 0, completed: 45, total: 45, ideal: 0 },
+          ],
+        },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      }),
+    );
+    mockUseSprintBurndown.mockReturnValue(
+      asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }),
+    );
+    renderWithProviders(<BurnChart projectId="proj-1" defaultVariant="combined" />);
+    expect(screen.getByText(/scope added/i)).toBeInTheDocument();
+    // Combined shows the Completed and Total scope legend entries too.
+    expect(screen.getByText(/^Completed$/)).toBeInTheDocument();
+    expect(screen.getByText(/total scope/i)).toBeInTheDocument();
   });
 });

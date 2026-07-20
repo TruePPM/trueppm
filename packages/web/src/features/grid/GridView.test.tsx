@@ -1,7 +1,9 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
+import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
+import { useWbsStore } from '@/stores/wbsStore';
 import type { Task, Methodology } from '@/types';
 
 // JSDOM has no layout — TanStack Virtual relies on getBoundingClientRect for
@@ -649,5 +651,173 @@ describe('GridView — URL-synced filters (#2046)', () => {
     await renderGrid(['/projects/proj-1/grid?q=Design']);
     const searchBox = await screen.findByRole('searchbox', { name: /search tasks/i });
     expect(searchBox).toHaveValue('Design');
+  });
+});
+
+describe('GridView — ?task= deep-link drawer (#2031)', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    useTaskDrawerStore.setState({ task: null, projectId: null });
+  });
+
+  it('opens the app-wide task drawer on the linked task once the list loads', async () => {
+    await renderGrid(['/projects/proj-1/grid?task=t2']);
+    await waitFor(() => {
+      const open = useTaskDrawerStore.getState();
+      expect(open.task?.id).toBe('t2');
+      expect(open.projectId).toBe('proj-1');
+    });
+  });
+
+  it('does not open a drawer for a ?task= id that is not in the loaded list', async () => {
+    await renderGrid(['/projects/proj-1/grid?task=does-not-exist']);
+    // Let the consume-once effect run.
+    await screen.findByRole('treegrid', { name: /outline task tree/i });
+    expect(useTaskDrawerStore.getState().task).toBeNull();
+  });
+});
+
+describe('GridView — mode / group-by announcements (live region)', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    projectAgileFeatures = false;
+  });
+
+  it('announces the task count when switching to flat mode', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(screen.getByRole('button', { name: 'Flat list' }));
+    // 3 mock tasks → pluralized announcement.
+    expect(await screen.findByText('Switched to flat mode. 3 tasks shown.')).toBeInTheDocument();
+  });
+
+  it('announces the outline switch', async () => {
+    const user = userEvent.setup();
+    projectMethodology = 'AGILE'; // starts flat
+    await renderGrid();
+    await user.click(screen.getByRole('button', { name: 'Outline tree' }));
+    expect(await screen.findByText('Switched to outline mode.')).toBeInTheDocument();
+  });
+
+  it('announces grouped mode and the active group-by dimension', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(screen.getByRole('button', { name: 'Grouped' }));
+    expect(
+      await screen.findByText('Switched to grouped mode. Grouped by phase.'),
+    ).toBeInTheDocument();
+  });
+
+  it('announces the resource caveat when grouping by resource, plain text otherwise', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(screen.getByRole('button', { name: 'Grouped' }));
+    const select = await screen.findByLabelText(/group by dimension/i);
+
+    await user.selectOptions(select, 'status');
+    expect(await screen.findByText('Grouped by status.')).toBeInTheDocument();
+
+    await user.selectOptions(select, 'resource');
+    expect(
+      await screen.findByText(/Grouped by resource\. Tasks with multiple assignees/i),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('GridView — outline + Child parenting (#2078)', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID'; // outline default
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    useWbsStore.setState({ selectedTaskId: null });
+  });
+
+  it('+ Child opens the modal parented to the selected outline row', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    // Select a leaf row in the outline.
+    const designCell = await screen.findByText('Design');
+    const row = designCell.closest('[role="row"]');
+    expect(row).not.toBeNull();
+    await user.click(row as HTMLElement);
+
+    // + Child now surfaces (showAddChild = outline && selection).
+    const addChild = await screen.findByRole('button', { name: /add child task under selected/i });
+    await user.click(addChild);
+
+    const dialog = await screen.findByRole('dialog', { name: /task form/i });
+    // Modal is parented to the selected task id (t3 = Design).
+    expect(within(dialog).getByTestId('parent-id')).toHaveTextContent('t3');
+  });
+});
+
+describe('GridView — chip removal branches (#2046)', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+  });
+
+  it('removing the Overdue chip reverts the derived flat view to the persisted mode', async () => {
+    const user = userEvent.setup();
+    await renderGrid(['/projects/proj-1/grid?due=overdue']);
+    // Derived flat view while overdue.
+    await screen.findByRole('grid', { name: /task list/i });
+    await user.click(screen.getByLabelText(/Remove Overdue filter/i));
+    // Overdue cleared → effective mode falls back to the HYBRID outline default.
+    await waitFor(() => {
+      expect(screen.getByRole('treegrid', { name: /outline task tree/i })).toBeInTheDocument();
+    });
+  });
+
+  it('removing the Owner and Status chips clears each filter', async () => {
+    const user = userEvent.setup();
+    await renderGrid(['/projects/proj-1/grid?owner=Alice&status=IN_PROGRESS']);
+    // Both chips seed from the URL.
+    await user.click(await screen.findByLabelText(/Remove Owner: Alice filter/i));
+    expect(screen.queryByLabelText(/Remove Owner: Alice filter/i)).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText(/Remove Status: .* filter/i));
+    expect(screen.queryByLabelText(/Remove Status: .* filter/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('GridView — bulk restore result toasts (#2078)', () => {
+  beforeEach(() => {
+    projectMethodology = 'AGILE'; // flat
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    bulkDeleteMutate.mockReset();
+    bulkRestoreMutate.mockReset();
+    // Delete always succeeds so the Undo affordance is offered.
+    bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {
+      opts?.onSuccess?.();
+    });
+  });
+
+  async function deleteThenUndo(user: ReturnType<typeof userEvent.setup>) {
+    const checkboxes = screen.getAllByLabelText(/^Select /);
+    await user.click(checkboxes[0]);
+    await user.click(await screen.findByRole('button', { name: /^delete$/i }));
+    await user.click(await screen.findByRole('button', { name: /confirm delete/i }));
+    await user.click(await screen.findByRole('button', { name: /^undo$/i }));
+  }
+
+  it('shows a "restored" toast when the undo restore succeeds', async () => {
+    bulkRestoreMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {
+      opts?.onSuccess?.();
+    });
+    const user = userEvent.setup();
+    await renderGrid();
+    await deleteThenUndo(user);
+    expect(await screen.findByText(/task.* restored/i)).toBeInTheDocument();
+  });
+
+  it('shows a "couldn\'t restore" toast when the undo restore fails', async () => {
+    bulkRestoreMutate.mockImplementation((_ids: string[], opts?: { onError?: () => void }) => {
+      opts?.onError?.();
+    });
+    const user = userEvent.setup();
+    await renderGrid();
+    await deleteThenUndo(user);
+    expect(await screen.findByText(/couldn't restore tasks/i)).toBeInTheDocument();
   });
 });

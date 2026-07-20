@@ -79,6 +79,34 @@ vi.mock('@/hooks/useRisks', () => ({
   useCreateRiskComment: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 
+// Risk write gate (Member+, issue 223). Defaults to `null` (role loading /
+// Viewer) so the Import affordance is hidden — matching the un-mocked behavior
+// the earlier tests were written against — and is flipped per-test to exercise
+// the canImport=true branch (Import button, empty-state Import, mobile menuitem).
+const roleState = { value: null as number | null };
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({ role: roleState.value, roleLabel: null, isLoading: false }),
+}));
+
+// Spy the CSV exporter so we can assert the Export action fires with the
+// currently-displayed rows without triggering a real jsdom blob download.
+const exportRisksToCSVMock = vi.fn<(risks: unknown[], projectSlug: string) => void>();
+vi.mock('./riskExport', () => ({
+  exportRisksToCSV: exportRisksToCSVMock,
+}));
+
+// Stub the import modal at the module boundary — the register only owns its
+// open/close trigger; the modal's own upload state machine is tested elsewhere.
+vi.mock('./RiskImportModal', () => ({
+  RiskImportModal: ({ onClose }: { onClose: () => void }) => (
+    <div role="dialog" aria-label="Import risks from CSV">
+      <button type="button" onClick={onClose}>
+        Close import
+      </button>
+    </div>
+  ),
+}));
+
 // Mock the heavy children at the module boundary. The structural assertion is
 // about RiskRegisterView's JSX placement — does it render the drawer *inside*
 // the two-column flex parent? — which is independent of what the drawer itself
@@ -118,6 +146,8 @@ describe('RiskRegisterView', () => {
     useRisksState.isLoading = false;
     useRisksState.error = null;
     currentUserState.id = 'user-1';
+    roleState.value = null;
+    exportRisksToCSVMock.mockClear();
     localStorage.clear();
   });
 
@@ -437,5 +467,86 @@ describe('RiskRegisterView', () => {
     // Clicking the Severity header clears the Newest toggle.
     fireEvent.click(screen.getByRole('button', { name: /Severity/ }));
     expect(screen.getByRole('button', { name: 'Newest' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  // ── Import CSV write gate (issue 223, Member+) ────────────────────────────
+
+  it('hides the Import CSV affordance for a Viewer (role loading / read-only)', () => {
+    roleState.value = null; // Viewer / role not yet resolved
+    renderWithProviders(<RiskRegisterView />);
+    expect(screen.queryByRole('button', { name: 'Import CSV' })).toBeNull();
+    // The mobile overflow still exists (Export is available) but has no Import item.
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.queryByRole('menuitem', { name: 'Import CSV' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'Export CSV' })).toBeInTheDocument();
+  });
+
+  it('shows the desktop Import CSV button for Member+ and opens the import modal', () => {
+    roleState.value = 400; // Owner (>= Member)
+    renderWithProviders(<RiskRegisterView />);
+    const importBtn = screen.getByRole('button', { name: 'Import CSV' });
+    fireEvent.click(importBtn);
+    expect(screen.getByRole('dialog', { name: 'Import risks from CSV' })).toBeInTheDocument();
+    // The modal owns its own close trigger; closing removes it.
+    fireEvent.click(screen.getByRole('button', { name: 'Close import' }));
+    expect(screen.queryByRole('dialog', { name: 'Import risks from CSV' })).toBeNull();
+  });
+
+  it('offers Import CSV in the empty state for Member+ and opens the modal', () => {
+    roleState.value = 100; // Member
+    useRisksState.risks = [];
+    renderWithProviders(<RiskRegisterView />);
+    expect(screen.getByText('No risks yet')).toBeInTheDocument();
+    // The empty-state secondary CTA appears alongside the persistent toolbar
+    // button; the empty-state one follows the header in the DOM, so click the
+    // last match to exercise its own Import branch.
+    const importButtons = screen.getAllByRole('button', { name: 'Import CSV' });
+    fireEvent.click(importButtons[importButtons.length - 1]);
+    expect(screen.getByRole('dialog', { name: 'Import risks from CSV' })).toBeInTheDocument();
+  });
+
+  it('opens the import modal from the mobile overflow menuitem for Member+', () => {
+    roleState.value = 300; // Admin
+    renderWithProviders(<RiskRegisterView />);
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Import CSV' }));
+    expect(screen.getByRole('dialog', { name: 'Import risks from CSV' })).toBeInTheDocument();
+  });
+
+  // ── Export CSV ────────────────────────────────────────────────────────────
+
+  it('exports the displayed rows with a name-derived slug from the desktop button', () => {
+    useRisksState.risks = [FIXTURE_RISK];
+    renderWithProviders(<RiskRegisterView />);
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    expect(exportRisksToCSVMock).toHaveBeenCalledTimes(1);
+    // Args: (displayRisks, projectSlug). "Test Project" → "test-project".
+    const [rows, slug] = exportRisksToCSVMock.mock.calls[0];
+    expect(rows.length).toBe(1);
+    expect(slug).toBe('test-project');
+  });
+
+  it('exports from the mobile overflow menuitem and then closes the menu', () => {
+    renderWithProviders(<RiskRegisterView />);
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Export CSV' }));
+    expect(exportRisksToCSVMock).toHaveBeenCalledTimes(1);
+    // Selecting a menu action collapses the overflow menu.
+    expect(screen.getByRole('button', { name: 'More actions' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+
+  // ── Heatmap loading branch ────────────────────────────────────────────────
+
+  it('renders the heatmap skeleton (not the matrix) while risks load', () => {
+    useRisksState.risks = [];
+    useRisksState.isLoading = true;
+    renderWithProviders(<RiskRegisterView />);
+    // The heatmap aside is present (showHeatmap defaults true) but the matrix
+    // is replaced by the animated skeleton until the query resolves.
+    expect(screen.getByRole('complementary', { name: 'Risk heatmap' })).toBeInTheDocument();
+    expect(screen.queryByTestId('risk-matrix')).toBeNull();
   });
 });

@@ -209,4 +209,279 @@ describe('PersonalAccessTokensPage', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Revoke token' }));
     expect(revokeMutate).toHaveBeenCalledWith('t1', expect.any(Object));
   });
+
+  it('renders the loading skeleton while tokens are loading', () => {
+    useMyApiTokens.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByLabelText('Loading tokens')).toBeInTheDocument();
+    // No token list and no empty state while loading.
+    expect(screen.queryByText(/No personal access tokens yet/i)).not.toBeInTheDocument();
+  });
+
+  it('renders an error state with a Retry that refetches', () => {
+    const refetch = vi.fn();
+    useMyApiTokens.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch,
+    });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(/Couldn't load your tokens/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows Revoked status and hides the Revoke button on a revoked token', () => {
+    useMyApiTokens.mockReturnValue({
+      data: [token({ is_revoked: true, revoked_at: '2026-06-10T00:00:00Z' })],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('Revoked')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
+  });
+
+  it('shows Expired status on an expired token', () => {
+    useMyApiTokens.mockReturnValue({
+      data: [token({ is_expired: true, expires_at: '2026-01-01T00:00:00Z' })],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('Expired')).toBeInTheDocument();
+    // An expired token shows an "Expired <date>" label from expiryLabel().
+    expect(screen.getByText(/Expired /)).toBeInTheDocument();
+  });
+
+  it('shows the last-used date and a soon-expiry countdown', () => {
+    const soon = new Date(Date.now() + 5 * 86_400_000).toISOString();
+    useMyApiTokens.mockReturnValue({
+      data: [token({ last_used_at: '2026-06-02T00:00:00Z', expires_at: soon })],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/Last used /)).toBeInTheDocument();
+    // Within 14 days → the "(in N days)" countdown form.
+    expect(screen.getByText(/Expires .*\(in \d+ days\)/)).toBeInTheDocument();
+  });
+
+  it('shows a plain far-future expiry label without a countdown', () => {
+    const far = new Date(Date.now() + 60 * 86_400_000).toISOString();
+    useMyApiTokens.mockReturnValue({
+      data: [token({ expires_at: far })],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    const expiry = screen.getByText(/^Expires /);
+    expect(expiry).toBeInTheDocument();
+    expect(expiry.textContent).not.toMatch(/in \d+ days/);
+  });
+
+  it('blocks submit and shows a name error when the name is blank', () => {
+    useMyApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    const dialog = screen.getByRole('dialog', { name: /Create personal access token/i });
+    fireEvent.submit(dialog.querySelector('form')!);
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/Give the token a name/i);
+    expect(createMutate).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the server error message when create fails', async () => {
+    useMyApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    createMutate.mockImplementation(
+      (_body: unknown, opts: { onError: (e: Error) => void }) => {
+        const err = new Error('boom') as Error & { response?: { data?: unknown } };
+        err.response = { data: { name: ['A token with this name already exists.'] } };
+        opts.onError(err);
+      },
+    );
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    const dialog = screen.getByRole('dialog', { name: /Create personal access token/i });
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'dupe' } });
+    fireEvent.submit(dialog.querySelector('form')!);
+    await waitFor(() =>
+      expect(within(dialog).getByRole('alert')).toHaveTextContent(
+        /A token with this name already exists\./i,
+      ),
+    );
+  });
+
+  it('falls back to a generic error when the failure has no structured body', async () => {
+    useMyApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    createMutate.mockImplementation(
+      (_body: unknown, opts: { onError: (e: Error) => void }) => {
+        opts.onError(new Error('network'));
+      },
+    );
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    const dialog = screen.getByRole('dialog', { name: /Create personal access token/i });
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'x' } });
+    fireEvent.submit(dialog.querySelector('form')!);
+    await waitFor(() =>
+      expect(within(dialog).getByRole('alert')).toHaveTextContent(/Something went wrong/i),
+    );
+  });
+
+  it('sends an end-of-day ISO expiry when an expiry date is chosen', () => {
+    useMyApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    const dialog = screen.getByRole('dialog', { name: /Create personal access token/i });
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'timed' } });
+    fireEvent.change(screen.getByLabelText(/Expiration/i), { target: { value: '2027-03-04' } });
+    fireEvent.submit(dialog.querySelector('form')!);
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'timed',
+        expires_at: new Date('2027-03-04T23:59:59').toISOString(),
+        scopes: ['legacy:full'],
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it('closes the create dialog via Cancel without minting a token', () => {
+    useMyApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    const dialog = screen.getByRole('dialog', { name: /Create personal access token/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(createMutate).not.toHaveBeenCalled();
+  });
+
+  it('Escape closes the create dialog before a token is revealed', () => {
+    useMyApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    expect(screen.getByRole('dialog', { name: /Create personal access token/i })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('copies the revealed token to the clipboard and shows the copied confirmation', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    useMyApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    const created: CreatedMyApiToken = { ...token(), token: 'tppm_copy_me' };
+    createMutate.mockImplementation(
+      (_body: unknown, opts: { onSuccess: (d: CreatedMyApiToken) => void }) => {
+        opts.onSuccess(created);
+      },
+    );
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    const dialog = screen.getByRole('dialog', { name: /Create personal access token/i });
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'copyable' } });
+    fireEvent.submit(dialog.querySelector('form')!);
+
+    await waitFor(() => expect(screen.getByLabelText('Copy token')).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText('Copy token'));
+    expect(writeText).toHaveBeenCalledWith('tppm_copy_me');
+    await waitFor(() => expect(screen.getByText(/Copied ✓/)).toBeInTheDocument());
+  });
+
+  it('revoke dialog: Keep token cancels without firing the mutation', () => {
+    useMyApiTokens.mockReturnValue({
+      data: [token()],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Keep token' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(revokeMutate).not.toHaveBeenCalled();
+  });
+
+  it('Escape closes the revoke confirm dialog', () => {
+    useMyApiTokens.mockReturnValue({
+      data: [token()],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
 });

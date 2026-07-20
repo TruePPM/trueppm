@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import type { TaskAttachment } from '@/types';
 import { AttachmentSection } from './AttachmentSection';
 import { ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
@@ -407,5 +407,258 @@ describe('AttachmentSection — policy-disabled state (#976)', () => {
     });
     expect(mutate).not.toHaveBeenCalled();
     expect(screen.getByRole('alert').textContent).toMatch(/not allowed/i);
+  });
+});
+
+describe('AttachmentSection — file-size formatting in the meta line', () => {
+  it('formats bytes below 1 KB as raw bytes', () => {
+    useListMock.mockReturnValue({
+      attachments: [attachment({ file_name: 'tiny.pdf', file_size: 500 })],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByText(/500 B/)).toBeInTheDocument();
+  });
+
+  it('formats kilobyte-scale sizes rounded to whole KB', () => {
+    useListMock.mockReturnValue({
+      attachments: [attachment({ file_name: 'mid.pdf', file_size: 2048 })],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByText(/2 KB/)).toBeInTheDocument();
+  });
+
+  it('formats megabyte-scale sizes to one decimal place', () => {
+    useListMock.mockReturnValue({
+      attachments: [attachment({ file_name: 'big.pdf', file_size: 3 * 1024 * 1024 })],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByText(/3\.0 MB/)).toBeInTheDocument();
+  });
+
+  it('omits the size fragment entirely when file_size is null', () => {
+    useListMock.mockReturnValue({
+      attachments: [attachment({ file_name: 'nosize.pdf', file_size: null })],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    // No byte/KB/MB fragment leaks into this row's meta line (uploader shown directly).
+    const row = screen.getByLabelText('Attachment: nosize.pdf');
+    expect(row.textContent).not.toMatch(/\d+ (B|KB|MB)/);
+    expect(within(row).getByText('nosize.pdf')).toBeInTheDocument();
+  });
+
+  it('falls back to "Unknown" uploader when uploaded_by is absent', () => {
+    useListMock.mockReturnValue({
+      attachments: [attachment({ file_name: 'orphan.pdf', uploaded_by: null })],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByText(/Unknown/)).toBeInTheDocument();
+  });
+});
+
+describe('AttachmentSection — file-type icons by MIME', () => {
+  function renderWithMime(mime: string, name: string) {
+    useListMock.mockReturnValue({
+      attachments: [attachment({ file_name: name, file_mime: mime })],
+      isLoading: false,
+      error: null,
+    });
+    return render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+  }
+
+  it('renders an image row for image/* MIME types', () => {
+    renderWithMime('image/png', 'diagram.png');
+    expect(screen.getByText('diagram.png')).toBeInTheDocument();
+  });
+
+  it('renders a spreadsheet row for CSV', () => {
+    renderWithMime('text/csv', 'data.csv');
+    expect(screen.getByText('data.csv')).toBeInTheDocument();
+  });
+
+  it('renders a spreadsheet row for the office spreadsheet MIME', () => {
+    renderWithMime(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'budget.xlsx',
+    );
+    expect(screen.getByText('budget.xlsx')).toBeInTheDocument();
+  });
+
+  it('renders a document row for the office wordprocessing MIME', () => {
+    renderWithMime(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'spec.docx',
+    );
+    expect(screen.getByText('spec.docx')).toBeInTheDocument();
+  });
+
+  it('falls back to the generic paperclip for unrecognized MIME types', () => {
+    renderWithMime('application/zip', 'archive.zip');
+    expect(screen.getByText('archive.zip')).toBeInTheDocument();
+  });
+});
+
+describe('AttachmentSection — external-link host glyphs', () => {
+  function externalAttachment(url: string, title: string, id: string): TaskAttachment {
+    return attachment({ id, file_name: '', file_mime: '', external_url: url, external_title: title });
+  }
+
+  it('maps well-known hosts to their brand glyph and unknown hosts to a link glyph', () => {
+    useListMock.mockReturnValue({
+      attachments: [
+        externalAttachment('https://github.com/acme/repo', 'GitHub repo', 'g1'),
+        externalAttachment('https://gitlab.com/acme/repo', 'GitLab repo', 'g2'),
+        externalAttachment('https://www.figma.com/file/x', 'Figma board', 'g3'),
+        externalAttachment('https://acme.notion.site/page', 'Notion page', 'g4'),
+        externalAttachment('https://jira.corp.example/browse/X-1', 'Jira ticket', 'g5'),
+        externalAttachment('https://acme.sharepoint.com/doc', 'SharePoint doc', 'g6'),
+        externalAttachment('https://acme.atlassian.net/wiki', 'Confluence page', 'g7'),
+        externalAttachment('https://docs.google.com/document/x', 'Google doc', 'g8'),
+        externalAttachment('https://www.dropbox.com/s/x', 'Dropbox file', 'g9'),
+        externalAttachment('https://acme.slack.com/archives/x', 'Slack thread', 'g10'),
+        externalAttachment('https://miro.com/app/board/x', 'Miro board', 'g11'),
+        externalAttachment('https://example.com/thing', 'Generic link', 'g12'),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByText('🐙')).toBeInTheDocument();
+    expect(screen.getByText('🦊')).toBeInTheDocument();
+    expect(screen.getByText('🎨')).toBeInTheDocument();
+    expect(screen.getByText('📓')).toBeInTheDocument();
+    expect(screen.getByText('🟦')).toBeInTheDocument();
+    expect(screen.getByText('📘')).toBeInTheDocument();
+    expect(screen.getByText('📚')).toBeInTheDocument();
+    expect(screen.getByText('📝')).toBeInTheDocument();
+    expect(screen.getByText('📦')).toBeInTheDocument();
+    expect(screen.getByText('💬')).toBeInTheDocument();
+    expect(screen.getByText('🗒')).toBeInTheDocument();
+    expect(screen.getByText('🔗')).toBeInTheDocument();
+  });
+
+  it('uses the generic link glyph when the external URL is unparseable', () => {
+    useListMock.mockReturnValue({
+      attachments: [externalAttachment('http://[bad', 'Broken', 'b1')],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByText('🔗')).toBeInTheDocument();
+  });
+});
+
+describe('AttachmentSection — delete flow states', () => {
+  beforeEach(() => {
+    useListMock.mockReturnValue({
+      attachments: [attachment({ file_name: 'doomed.pdf' })],
+      isLoading: false,
+      error: null,
+    });
+  });
+
+  it('cancels the delete and returns to the initial Delete affordance', () => {
+    const mutate = vi.fn();
+    useDeleteMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByLabelText('Delete doomed.pdf'));
+    // Confirm/Cancel visible.
+    expect(screen.getByLabelText('Confirm delete doomed.pdf')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Cancel'));
+    // Back to the single Delete button; no mutation fired.
+    expect(screen.getByLabelText('Delete doomed.pdf')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Confirm delete doomed.pdf')).toBeNull();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('collapses the confirm row back to Delete once the mutation settles', () => {
+    const mutate = vi.fn((_vars: unknown, opts?: { onSettled?: () => void }) => {
+      opts?.onSettled?.();
+    });
+    useDeleteMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByLabelText('Delete doomed.pdf'));
+    fireEvent.click(screen.getByLabelText('Confirm delete doomed.pdf'));
+    // onSettled resets confirmingDelete → the single Delete affordance is back.
+    expect(screen.getByLabelText('Delete doomed.pdf')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Confirm delete doomed.pdf')).toBeNull();
+  });
+
+  it('shows a busy "Deleting…" label on the confirm button while the delete is pending', () => {
+    useDeleteMock.mockReturnValue({ mutate: vi.fn(), isPending: true, isError: false });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByLabelText('Delete doomed.pdf'));
+    const confirm = screen.getByLabelText('Confirm delete doomed.pdf');
+    expect(confirm).toHaveTextContent('Deleting…');
+    expect(confirm).toBeDisabled();
+  });
+
+  it('surfaces a "Delete failed" alert when the delete mutation errors', () => {
+    useDeleteMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: true });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByText('Delete failed')).toBeInTheDocument();
+  });
+});
+
+describe('AttachmentSection — upload progress + error surfacing', () => {
+  it('shows the "Uploading…" status while a create mutation is pending', () => {
+    useCreateMock.mockReturnValue({ mutate: vi.fn(), isPending: true, isError: false });
+    useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByText('Uploading…')).toBeInTheDocument();
+    // Add buttons are blocked mid-upload.
+    expect(screen.getByText('+ Attach file')).toBeDisabled();
+  });
+
+  it('surfaces the server error message when an upload mutation fails', () => {
+    const mutate = vi.fn((_vars: unknown, opts?: { onError?: (e: Error) => void }) => {
+      opts?.onError?.(new Error('File too large.'));
+    });
+    useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['x'], 'doc.pdf', { type: 'application/pdf' })] },
+    });
+    expect(screen.getByRole('alert').textContent).toBe('File too large.');
+  });
+
+  it('closes the link modal on a successful pin', () => {
+    const mutate = vi.fn((_vars: unknown, opts?: { onSuccess?: () => void }) => {
+      opts?.onSuccess?.();
+    });
+    useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByText('+ Pin link'));
+    const urlInput = container.querySelector<HTMLInputElement>('input[type="url"]')!;
+    fireEvent.change(urlInput, { target: { value: 'https://figma.com/x' } });
+    fireEvent.submit(container.querySelector('form')!);
+    // onSuccess closed the modal — the url input is gone.
+    expect(container.querySelector('input[type="url"]')).toBeNull();
+  });
+
+  it('surfaces the error message when pinning a link fails', () => {
+    const mutate = vi.fn((_vars: unknown, opts?: { onError?: (e: Error) => void }) => {
+      opts?.onError?.(new Error('Pin link failed.'));
+    });
+    useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByText('+ Pin link'));
+    const urlInput = container.querySelector<HTMLInputElement>('input[type="url"]')!;
+    fireEvent.change(urlInput, { target: { value: 'https://figma.com/x' } });
+    fireEvent.submit(container.querySelector('form')!);
+    expect(screen.getByRole('alert').textContent).toBe('Pin link failed.');
   });
 });

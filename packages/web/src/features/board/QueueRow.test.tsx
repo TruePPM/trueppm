@@ -158,4 +158,70 @@ describe('QueueRow', () => {
     screen.getByRole('button', { name: /^Task A,/ }).focus();
     expect(onFocus).toHaveBeenCalledTimes(1);
   });
+
+  it('derives two-letter initials from a single-word assignee name', () => {
+    const { container } = render(
+      <QueueRow
+        {...BASE_PROPS}
+        task={makeTask({ assignees: [{ resourceId: 'r1', name: 'Cher', units: 1 }] })}
+      />,
+    );
+    // Single token → first two characters, upper-cased.
+    expect(container.textContent).toContain('CH');
+  });
+
+  it('renders the singular risk label when exactly one risk is linked', () => {
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ linkedRisksCount: 1 })} />);
+    expect(screen.getByLabelText('1 linked risk')).toBeInTheDocument();
+    // Not the plural form.
+    expect(screen.queryByLabelText('1 linked risks')).toBeNull();
+  });
+
+  it('renders a status badge with progress for REVIEW rows', () => {
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ status: 'REVIEW', progress: 88 })} />);
+    expect(screen.getByText('Review')).toBeInTheDocument();
+    expect(screen.getByText('88%')).toBeInTheDocument();
+  });
+
+  it('shows the completed status badge with 100% progress for COMPLETE rows', () => {
+    render(
+      <QueueRow
+        {...BASE_PROPS}
+        task={makeTask({ status: 'COMPLETE', progress: 100, isComplete: true })}
+      />,
+    );
+    expect(screen.getByText('Done')).toBeInTheDocument();
+    expect(screen.getByText('100%')).toBeInTheDocument();
+  });
+
+  it('applies the focus ring class when the row is the focused card', () => {
+    render(<QueueRow {...BASE_PROPS} isFocused task={makeTask()} />);
+    const button = screen.getByRole('button', { name: /^Task A,/ });
+    expect(button.className).toMatch(/ring-brand-primary/);
+  });
+
+  it('omits the focus ring class when the row is not focused', () => {
+    render(<QueueRow {...BASE_PROPS} isFocused={false} task={makeTask()} />);
+    const button = screen.getByRole('button', { name: /^Task A,/ });
+    // The base button always has focus-visible ring utilities; the persistent
+    // (non focus-visible) `ring-2 ring-brand-primary ring-inset` string is what
+    // the focused state adds — absent here means only one ring-inset occurrence.
+    const inset = button.className.match(/ring-inset/g) ?? [];
+    expect(inset).toHaveLength(1);
+  });
+
+  it('labels the priority histogram with the rank when one is set', () => {
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ priorityRank: 5 })} />);
+    expect(screen.getByTitle('Priority 5')).toBeInTheDocument();
+  });
+
+  it('labels the priority histogram "No priority" when the rank is undefined', () => {
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ priorityRank: undefined })} />);
+    expect(screen.getByTitle('No priority')).toBeInTheDocument();
+  });
+
+  it('omits the duration suffix when duration is zero (milestone-like row)', () => {
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ duration: 0 })} />);
+    expect(screen.queryByText('0d')).toBeNull();
+  });
 });

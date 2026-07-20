@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   promote: { mutate: vi.fn(), isPending: false, isError: false, error: null as unknown },
   unbind: { mutate: vi.fn(), isPending: false, isError: false, error: null as unknown },
   candidates: [] as MilestoneCandidate[],
+  candidatesLoading: false,
   preview: null as ReforecastPreview | null,
 }));
 
@@ -22,7 +23,7 @@ vi.mock('@/hooks/usePromoteMilestone', async (importOriginal) => {
     ...actual, // keep real isSprintAlreadyBound / SPRINT_ALREADY_BOUND
     usePromoteSprintToMilestone: () => ({ ...h.promote, mutate: h.promoteMutate }),
     useUnbindSprintMilestone: () => ({ ...h.unbind, mutate: h.unbindMutate }),
-    useMilestoneCandidates: () => ({ candidates: h.candidates, isLoading: false }),
+    useMilestoneCandidates: () => ({ candidates: h.candidates, isLoading: h.candidatesLoading }),
     useReforecastPreview: () => ({ preview: h.preview, isLoading: false }),
   };
 });
@@ -82,6 +83,7 @@ beforeEach(() => {
   h.unbind.isPending = false;
   h.unbind.isError = false;
   h.candidates = [...CANDIDATES];
+  h.candidatesLoading = false;
   h.preview = PREVIEW;
   Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
 });
@@ -309,5 +311,285 @@ describe('PromoteMilestoneDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     await userEvent.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('derives the milestone name from the sprint name when there is no goal', () => {
+    renderWithProviders(
+      <PromoteMilestoneDialog
+        projectId="proj-1"
+        sprint={makeSprint({ goal: '' })}
+        onClose={vi.fn()}
+      />,
+    );
+    // With an empty goal the create name falls back to "<sprint name> milestone".
+    expect(screen.getByDisplayValue('Sprint 12 milestone')).toBeInTheDocument();
+  });
+
+  it('bind-mode search filters the candidate list by name', async () => {
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Bind existing/i }));
+    expect(screen.getByRole('radio', { name: /FAT review/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Phase-3 handoff/i })).toBeInTheDocument();
+    await userEvent.type(
+      screen.getByPlaceholderText(/Search milestones/i),
+      'phase',
+    );
+    // Only the WBS/name-matching candidate survives the filter.
+    expect(screen.queryByRole('radio', { name: /FAT review/i })).toBeNull();
+    expect(screen.getByRole('radio', { name: /Phase-3 handoff/i })).toBeInTheDocument();
+  });
+
+  it('bind-mode search also matches on WBS code', async () => {
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Bind existing/i }));
+    await userEvent.type(screen.getByPlaceholderText(/Search milestones/i), '1.3.1');
+    expect(screen.getByRole('radio', { name: /FAT review/i })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /Phase-3 handoff/i })).toBeNull();
+  });
+
+  it('bind-mode shows an empty state when the project has no other milestones', async () => {
+    h.candidates = [];
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Bind existing/i }));
+    expect(screen.getByText(/No other milestones in this project/i)).toBeInTheDocument();
+  });
+
+  it('bind-mode shows a loading state while candidates resolve', async () => {
+    h.candidatesLoading = true;
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Bind existing/i }));
+    expect(screen.getByText(/Loading milestones…/i)).toBeInTheDocument();
+  });
+
+  it('arrow keys move the radio selection through the candidate list', async () => {
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Bind existing/i }));
+    const fat = screen.getByRole('radio', { name: /FAT review/i });
+    await userEvent.click(fat);
+    expect(fat).toHaveAttribute('aria-checked', 'true');
+    // ArrowDown advances to the next candidate.
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByRole('radio', { name: /Phase-3 handoff/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    // ArrowDown wraps around to the first candidate.
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByRole('radio', { name: /FAT review/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    // ArrowUp walks backward (wrapping to the last candidate).
+    await userEvent.keyboard('{ArrowUp}');
+    expect(screen.getByRole('radio', { name: /Phase-3 handoff/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    // End jumps to the last, Home back to the first.
+    await userEvent.keyboard('{End}');
+    expect(screen.getByRole('radio', { name: /Phase-3 handoff/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await userEvent.keyboard('{Home}');
+    expect(screen.getByRole('radio', { name: /FAT review/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
+  it('bind-mode preview prompts to pick a milestone before a target is chosen', async () => {
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Bind existing/i }));
+    // No milestone selected yet → the preview column asks the user to choose one.
+    expect(screen.getByText(/Select a milestone to preview/i)).toBeInTheDocument();
+    expect(screen.queryByText(/CPM-only \(today\)/i)).toBeNull();
+  });
+
+  it('shows the pending "reforecasts on close" note when no preview is available yet', () => {
+    h.preview = null;
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    expect(
+      screen.getByText(/velocity reforecasts the milestone finish as a range/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/CPM-only \(today\)/i)).toBeNull();
+  });
+
+  it('a slipping reforecast (P80 past the committed date) reads as at-risk with a positive delta', () => {
+    h.preview = {
+      basis: 'velocity_band',
+      cpmFinish: '2026-07-18',
+      p50: '2026-07-17',
+      p80: '2026-07-21',
+      p95: '2026-07-24',
+      teamPaceLow: 21,
+      teamPaceHigh: 27,
+      unmodeledDependency: false,
+    };
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    // P80 lands 3 days after the CPM finish → a signed "+3d" delta.
+    expect(screen.getByText('+3d')).toBeInTheDocument();
+  });
+
+  it('a reforecast that lands exactly on the committed date shows a 0d delta', () => {
+    h.preview = {
+      basis: 'velocity_band',
+      cpmFinish: '2026-07-18',
+      p50: '2026-07-16',
+      p80: '2026-07-18',
+      p95: '2026-07-20',
+      teamPaceLow: 21,
+      teamPaceHigh: 27,
+      unmodeledDependency: false,
+    };
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    expect(screen.getByText('0d')).toBeInTheDocument();
+  });
+
+  it('a monte_carlo preview uses P50/P80/P95 labels and drops the "not simulated" caption', () => {
+    h.preview = { ...PREVIEW, basis: 'monte_carlo' };
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    // Real simulation → the percentile vocabulary is allowed.
+    expect(screen.getAllByText(/P80/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/P50/)).toBeInTheDocument();
+    expect(screen.getByText(/P95/)).toBeInTheDocument();
+    // …and the velocity-estimate disclaimer is suppressed.
+    expect(screen.queryByText(/Estimate — velocity-based, not simulated/i)).toBeNull();
+  });
+
+  it('falls back to a "not enough closed sprints" note when there is no team-pace band', () => {
+    h.preview = { ...PREVIEW, teamPaceLow: null, teamPaceHigh: null };
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    expect(screen.getByText(/Not enough closed sprints yet/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Team pace of/i)).toBeNull();
+  });
+
+  it('warns when the reforecast excludes an unmodeled upstream dependency', () => {
+    h.preview = { ...PREVIEW, unmodeledDependency: true };
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    expect(screen.getByText(/Excludes an upstream item not in this sprint/i)).toBeInTheDocument();
+  });
+
+  it('shows a retryable error when the promote mutation fails (non-409)', () => {
+    h.promote.isError = true;
+    h.promote.error = { response: { status: 500 } };
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(/Couldn’t update the milestone binding/i);
+  });
+
+  it('does NOT show the generic error when the failure is a 409 already-bound race', () => {
+    h.promote.isError = true;
+    h.promote.error = { response: { status: 409, data: { code: 'sprint_already_bound' } } };
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    // The 409 is handled by the conflict view, not the raw retry banner.
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows a retryable error when the unbind mutation fails', () => {
+    h.unbind.isError = true;
+    const sprint = makeSprint({
+      target_milestone: 'm-fat',
+      target_milestone_detail: {
+        id: 'm-fat',
+        name: 'FAT review',
+        wbs_path: '1.3.1',
+        finish: '2026-07-18',
+      },
+    });
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={sprint} onClose={vi.fn()} />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(/Couldn’t update the milestone binding/i);
+  });
+
+  it('rebinding unbinds the old milestone first, then promotes to the new target', async () => {
+    const sprint = makeSprint({
+      target_milestone: 'm-fat',
+      target_milestone_detail: {
+        id: 'm-fat',
+        name: 'FAT review',
+        wbs_path: '1.3.1',
+        finish: '2026-07-18',
+      },
+    });
+    // Unbind resolves, which should chain into the promote mutation.
+    h.unbindMutate.mockImplementation(
+      (_p: unknown, opts?: { onSuccess?: (s: ApiSprint) => void }) =>
+        opts?.onSuccess?.(makeSprint({ target_milestone: null })),
+    );
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={sprint} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Rebind to another/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Create & bind/i }));
+    // Binding never silently re-points: unbind precedes promote.
+    expect(h.unbindMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sprintId: 'sp-1' }),
+      expect.anything(),
+    );
+    expect(h.promoteMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sprintId: 'sp-1', milestoneId: null }),
+      expect.anything(),
+    );
+  });
+
+  it('shows a busy state and disables actions while a mutation is pending', () => {
+    h.promote.isPending = true;
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    const submit = screen.getByRole('button', { name: /Binding…/i });
+    expect(submit).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Cancel/i })).toBeDisabled();
+  });
+
+  it('conflict view falls back to "a milestone" when no milestone detail is present', () => {
+    const sprint = makeSprint({ target_milestone: 'm-fat', target_milestone_detail: null });
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={sprint} onClose={vi.fn()} />,
+    );
+    expect(
+      screen.getByRole('dialog', { name: /already bound to a milestone/i }),
+    ).toBeInTheDocument();
+    // No detail → the "Current milestone" card is omitted.
+    expect(screen.queryByText(/Current milestone/i)).toBeNull();
+  });
+
+  it('toggling quick mode off then on restores the reforecast preview', async () => {
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Quick mode/i }));
+    expect(screen.queryByText(/CPM finish · projected/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Show forecast/i }));
+    expect(screen.getByText(/CPM finish · projected/i)).toBeInTheDocument();
   });
 });

@@ -565,3 +565,463 @@ describe('ActivityTimeline — actor identity (#1878)', () => {
     expect(screen.getByText(/changed priority/i)).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Legacy field-diff payloads — normalize() infers event_type / timestamp / actor
+// from the pre-#1883 shape (older cache or a mock returning the legacy payload).
+// ---------------------------------------------------------------------------
+
+/** A pre-#1883 legacy entry: no `event_type`/`timestamp`, only history_* keys. */
+function legacy(over: Record<string, unknown>): TaskActivityEntry {
+  return { detail: {}, ...over } as unknown as TaskActivityEntry;
+}
+
+describe('ActivityTimeline — legacy payload normalization', () => {
+  beforeEach(() => {
+    historySpy.mockReset();
+    historySpy.mockReturnValue(makeHistory([]));
+  });
+
+  it('infers task_created from a legacy history_type "+" entry', () => {
+    const rec = legacy({
+      id: 30,
+      history_type: '+',
+      history_date: '2026-05-01T10:00:00Z',
+      history_user: 'u-alice',
+      history_user_display: 'Alice A',
+      diff: [],
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/created this task/i)).toBeInTheDocument();
+    // Actor inferred from history_user_display.
+    expect(screen.getByText('Alice A', { selector: 'span' })).toBeInTheDocument();
+  });
+
+  it('infers task_deleted from a legacy history_type "-" entry', () => {
+    const rec = legacy({
+      id: 31,
+      history_type: '-',
+      history_date: '2026-05-02T10:00:00Z',
+      history_user: 'u-bob',
+      history_user_display: 'Bob B',
+      diff: [],
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/deleted this task/i)).toBeInTheDocument();
+  });
+
+  it('infers fields_changed from a legacy "~" entry and renders its diff', () => {
+    const rec = legacy({
+      id: 32,
+      history_type: '~',
+      history_date: '2026-05-03T10:00:00Z',
+      history_user: 'u-carol',
+      history_user_display: 'Carol C',
+      diff: [{ field: 'status', old: 'NOT_STARTED', new: 'IN_PROGRESS' }],
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/changed status/i)).toBeInTheDocument();
+    expect(screen.getByText(/In progress/i)).toBeInTheDocument();
+  });
+
+  it('falls back to the raw history_user id when no display name is present', () => {
+    const rec = legacy({
+      id: 33,
+      history_type: '~',
+      history_date: '2026-05-03T10:00:00Z',
+      history_user: 'u-noname',
+      history_user_display: null,
+      diff: [{ field: 'status', old: 'NOT_STARTED', new: 'IN_PROGRESS' }],
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('u-noname', { selector: 'span' })).toBeInTheDocument();
+  });
+
+  it('renders a legacy authorless entry (no history_user) as System', () => {
+    const rec = legacy({
+      id: 34,
+      history_type: '~',
+      history_date: '2026-05-03T10:00:00Z',
+      history_user: null,
+      diff: [{ field: 'status', old: 'NOT_STARTED', new: 'IN_PROGRESS' }],
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('System')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GroupFilter keyboard navigation (roving tabindex, web-rule 167)
+// ---------------------------------------------------------------------------
+
+describe('ActivityTimeline — group filter keyboard navigation', () => {
+  beforeEach(() => {
+    historySpy.mockReset();
+    // statusRecord → Status; multiRecord → Estimates/Description/Progress;
+    // commentEvent → Comments. Chips: All, Status, Progress, Estimates,
+    // Description, Comments.
+    historySpy.mockReturnValue(makeHistory([statusRecord, multiRecord, commentEvent]));
+  });
+
+  it('ArrowRight moves roving focus to the next chip without committing selection', () => {
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    const group = screen.getByRole('radiogroup', { name: /Filter activity by type/i });
+    const radios = screen.getAllByRole('radio');
+    // Focus starts on the selected "All" chip (index 0).
+    fireEvent.keyDown(group, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(radios[1]);
+    // Roving focus alone does NOT change the checked chip.
+    expect(radios[0]).toHaveAttribute('aria-checked', 'true');
+    expect(radios[1]).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('ArrowLeft moves focus back and clamps at the first chip', () => {
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    const group = screen.getByRole('radiogroup', { name: /Filter activity by type/i });
+    const radios = screen.getAllByRole('radio');
+    fireEvent.keyDown(group, { key: 'ArrowRight' }); // → index 1
+    fireEvent.keyDown(group, { key: 'ArrowLeft' }); // → index 0
+    expect(document.activeElement).toBe(radios[0]);
+    // Already at the first chip — ArrowLeft clamps, stays put.
+    fireEvent.keyDown(group, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(radios[0]);
+  });
+
+  it('End focuses the last chip and Home returns to the first', () => {
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    const group = screen.getByRole('radiogroup', { name: /Filter activity by type/i });
+    const radios = screen.getAllByRole('radio');
+    fireEvent.keyDown(group, { key: 'End' });
+    expect(document.activeElement).toBe(radios[radios.length - 1]);
+    // End again clamps at the last chip.
+    fireEvent.keyDown(group, { key: 'End' });
+    expect(document.activeElement).toBe(radios[radios.length - 1]);
+    fireEvent.keyDown(group, { key: 'Home' });
+    expect(document.activeElement).toBe(radios[0]);
+  });
+
+  it('ArrowDown / ArrowUp behave as forward / backward aliases', () => {
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    const group = screen.getByRole('radiogroup', { name: /Filter activity by type/i });
+    const radios = screen.getAllByRole('radio');
+    fireEvent.keyDown(group, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(radios[1]);
+    fireEvent.keyDown(group, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(radios[0]);
+  });
+
+  it('ignores unrelated keys (no focus movement)', () => {
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    const group = screen.getByRole('radiogroup', { name: /Filter activity by type/i });
+    const radios = screen.getAllByRole('radio');
+    fireEvent.keyDown(group, { key: 'ArrowRight' }); // index 1
+    fireEvent.keyDown(group, { key: 'a' }); // ignored
+    expect(document.activeElement).toBe(radios[1]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error state, empty-filter result, pagination-in-flight, person reset
+// ---------------------------------------------------------------------------
+
+describe('ActivityTimeline — states and filter edges', () => {
+  beforeEach(() => {
+    historySpy.mockReset();
+    historySpy.mockReturnValue(makeHistory([]));
+  });
+
+  it('renders an alert when the history request errors', () => {
+    historySpy.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new Error('boom'),
+      fetchNextPage: vi.fn(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    });
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/Couldn.t load activity/i);
+  });
+
+  it('shows "No matching activity" when the active filters exclude every event', () => {
+    // Bob changed status; Erin commented. Filtering to Comments + Bob = nothing.
+    historySpy.mockReturnValue(makeHistory([statusRecord, commentEvent]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Comments' }));
+    fireEvent.change(screen.getByLabelText(/Filter activity by person/i), {
+      target: { value: 'u-bob' },
+    });
+    expect(screen.getByText(/No matching activity/i)).toBeInTheDocument();
+    expect(screen.queryByText('commented')).not.toBeInTheDocument();
+  });
+
+  it('disables Load more and shows a spinner label while fetching the next page', () => {
+    historySpy.mockReturnValue({
+      data: { pages: [{ results: [statusRecord], next: 'next-url' }] },
+      isLoading: false,
+      error: null,
+      fetchNextPage: vi.fn(),
+      hasNextPage: true,
+      isFetchingNextPage: true,
+    });
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    const btn = screen.getByRole('button', { name: /Loading/i });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveTextContent(/Loading/);
+  });
+
+  it('resetting the person filter to "Anyone" restores every event', () => {
+    historySpy.mockReturnValue(makeHistory([statusRecord, multiRecord]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    const select = screen.getByLabelText(/Filter activity by person/i);
+    fireEvent.change(select, { target: { value: 'u-bob' } });
+    expect(screen.queryByText(/updated 3 fields/i)).not.toBeInTheDocument();
+    fireEvent.change(select, { target: { value: '' } });
+    expect(screen.getByText(/changed status/i)).toBeInTheDocument();
+    expect(screen.getByText(/updated 3 fields/i)).toBeInTheDocument();
+  });
+
+  it('falls back to All when the selected group chip disappears after a refetch', () => {
+    historySpy.mockReturnValue(makeHistory([statusRecord, commentEvent]));
+    const { rerender } = renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Comments' }));
+    expect(screen.queryByText(/changed status/i)).not.toBeInTheDocument();
+    // Refetch drops all comment events → the Comments chip no longer exists,
+    // so the effective group falls back to All and the status event reappears.
+    historySpy.mockReturnValue(makeHistory([statusRecord]));
+    rerender(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.queryByRole('radio', { name: 'Comments' })).not.toBeInTheDocument();
+    expect(screen.getByText(/changed status/i)).toBeInTheDocument();
+  });
+
+  it('falls back to Anyone when the selected person disappears after a refetch', () => {
+    const erinComment = evt({
+      event_type: 'comment_added',
+      actor: { id: 'u-erin', display_name: 'Erin' },
+      timestamp: '2026-05-05T10:00:00Z',
+      detail: { comment_id: 'c9', preview: 'hi' },
+    });
+    historySpy.mockReturnValue(makeHistory([statusRecord, erinComment]));
+    const { rerender } = renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    fireEvent.change(screen.getByLabelText(/Filter activity by person/i), {
+      target: { value: 'u-erin' },
+    });
+    expect(screen.queryByText(/changed status/i)).not.toBeInTheDocument();
+    // Refetch removes Erin's events → person filter falls back, status reappears.
+    historySpy.mockReturnValue(makeHistory([statusRecord]));
+    rerender(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/changed status/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Value formatting + detail-line edge branches
+// ---------------------------------------------------------------------------
+
+describe('ActivityTimeline — value formatting and detail edges', () => {
+  beforeEach(() => {
+    historySpy.mockReset();
+    historySpy.mockReturnValue(makeHistory([]));
+  });
+
+  it('formats a date-field diff through the UTC short formatter', () => {
+    const rec = field([{ field: 'planned_start', old: '2026-06-01', new: '2026-06-08' }], {
+      id: 40,
+      actor: { id: 'u-bob', display_name: 'Bob' },
+      timestamp: '2026-05-02T10:00:00Z',
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('Start date')).toBeInTheDocument();
+    // Rendered formatted (not the raw ISO string).
+    expect(screen.queryByText('2026-06-08')).not.toBeInTheDocument();
+    expect(screen.getByText('Jun 8')).toBeInTheDocument();
+  });
+
+  it('renders a raw percent value unchanged when it is not a finite number', () => {
+    const rec = field([{ field: 'percent_complete', old: '0', new: 'n/a' }], {
+      id: 41,
+      actor: { id: 'u-bob', display_name: 'Bob' },
+      timestamp: '2026-05-02T10:00:00Z',
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('n/a')).toBeInTheDocument();
+  });
+
+  it('renders a null diff value as an em dash', () => {
+    const rec = field([{ field: 'notes', old: 'old note', new: null }], {
+      id: 42,
+      actor: { id: 'u-bob', display_name: 'Bob' },
+      timestamp: '2026-05-02T10:00:00Z',
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
+  it('falls back to the raw status token for an unknown status value', () => {
+    const rec = field([{ field: 'status', old: 'NOT_STARTED', new: 'ARCHIVED' }], {
+      id: 43,
+      actor: { id: 'u-bob', display_name: 'Bob' },
+      timestamp: '2026-05-02T10:00:00Z',
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('ARCHIVED')).toBeInTheDocument();
+  });
+
+  it('renders the raw field name for a field without a friendly label', () => {
+    const rec = field([{ field: 'custom_flag', old: 'a', new: 'b' }], {
+      id: 44,
+      actor: { id: 'u-bob', display_name: 'Bob' },
+      timestamp: '2026-05-02T10:00:00Z',
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('custom_flag')).toBeInTheDocument();
+  });
+
+  it('renders "unlinked a risk" for a risk_unlinked event', () => {
+    const rec = evt({
+      event_type: 'risk_unlinked',
+      actor: { id: 'u-bob', display_name: 'Bob' },
+      timestamp: '2026-05-06T12:00:00Z',
+      detail: { risk_id: 'r2', risk_short_id: 'R-9', risk_title: 'Scope creep' },
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/unlinked a risk/i)).toBeInTheDocument();
+    expect(screen.getByText(/R-9 · Scope creep/)).toBeInTheDocument();
+  });
+
+  it('omits the risk detail line when neither short id nor title is present', () => {
+    const rec = evt({
+      event_type: 'risk_linked',
+      actor: { id: 'u-bob', display_name: 'Bob' },
+      timestamp: '2026-05-06T12:00:00Z',
+      detail: { risk_id: 'r3' },
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/linked a risk/i)).toBeInTheDocument();
+    // detailLine returns null → no risk short-id / title secondary line.
+    expect(screen.queryByText(/R-\d/)).not.toBeInTheDocument();
+  });
+
+  it('renders time as an hours-only duration and without a date when none is given', () => {
+    const rec = evt({
+      event_type: 'time_logged',
+      actor: { id: 'u-erin', display_name: 'Erin' },
+      timestamp: '2026-05-06T13:00:00Z',
+      detail: { time_entry_id: 'te2', minutes: 120 },
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('2h')).toBeInTheDocument();
+  });
+
+  it('omits the time detail line when minutes are missing', () => {
+    const rec = evt({
+      event_type: 'time_logged',
+      actor: { id: 'u-erin', display_name: 'Erin' },
+      timestamp: '2026-05-06T13:00:00Z',
+      detail: { time_entry_id: 'te3' },
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/logged time/i)).toBeInTheDocument();
+    // Only the summary verb — no formatted duration secondary line.
+    // (The "2h ago" node is the mocked relative timestamp, not a duration.)
+    expect(screen.queryByText('2h')).not.toBeInTheDocument();
+    expect(screen.queryByText(/on May/)).not.toBeInTheDocument();
+  });
+
+  it('omits the drift line when drift_days is missing', () => {
+    const rec = evt({
+      event_type: 'baseline_drift_detected',
+      actor: null,
+      timestamp: '2026-05-06T11:00:00Z',
+      detail: { baseline_id: 'b1' },
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/detected baseline drift/i)).toBeInTheDocument();
+    expect(screen.queryByText(/behind baseline/i)).not.toBeInTheDocument();
+  });
+
+  it('renders a legacy cpm row with no finish and no critical flag with no detail line', () => {
+    const rec = evt({
+      event_type: 'cpm_recalculated',
+      actor: null,
+      timestamp: '2026-05-06T10:00:00Z',
+      detail: {},
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProvidersAndRouter(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/recalculated the schedule/i)).toBeInTheDocument();
+    // No moved-count, no finish, not critical → no secondary line at all.
+    expect(screen.queryByText(/critical path/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Finish/)).not.toBeInTheDocument();
+  });
+
+  it('renders a legacy cpm row with only a finish date (no critical flag)', () => {
+    const rec = evt({
+      event_type: 'cpm_recalculated',
+      actor: null,
+      timestamp: '2026-05-06T10:00:00Z',
+      detail: { early_finish: { from: '2026-06-01', to: '2026-06-05' } },
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProvidersAndRouter(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/Finish/)).toBeInTheDocument();
+    expect(screen.queryByText(/critical path/i)).not.toBeInTheDocument();
+  });
+
+  it('renders an unknown event_type by humanizing its verb and matching no chip', () => {
+    const rec = evt({
+      event_type: 'something_odd',
+      actor: { id: 'u-bob', display_name: 'Bob' },
+      timestamp: '2026-05-06T10:00:00Z',
+      detail: {},
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/something odd/)).toBeInTheDocument();
+    // Matches no group → only the All chip is present.
+    expect(screen.getAllByRole('radio')).toHaveLength(1);
+    expect(screen.getByRole('radio', { name: /^All/ })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-field expand/collapse toggle
+// ---------------------------------------------------------------------------
+
+describe('ActivityTimeline — expand/collapse toggle', () => {
+  beforeEach(() => {
+    historySpy.mockReset();
+    historySpy.mockReturnValue(makeHistory([]));
+  });
+
+  it('toggles the diff open and closed and flips aria-expanded', () => {
+    historySpy.mockReturnValue(makeHistory([multiRecord]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    const toggle = screen.getByRole('button', { name: /Show changes/i });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(screen.getByText('New name')).toBeInTheDocument();
+    // Now labelled to hide, and collapsing removes the diff again.
+    const hide = screen.getByRole('button', { name: /Hide changes/i });
+    expect(hide).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(hide);
+    expect(screen.queryByText('New name')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Show changes/i })).toBeInTheDocument();
+  });
+});

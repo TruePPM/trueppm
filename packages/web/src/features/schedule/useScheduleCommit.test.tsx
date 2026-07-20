@@ -129,13 +129,23 @@ function renderCommit(
   engine: ControllableEngine,
   opts: {
     tasks?: Task[];
+    /** Override the visible-task list (defaults to `tasks`). Used to exercise the
+     *  computeAnchor row-not-found path where a task exists in allTasks but not
+     *  in the currently rendered rows. */
+    visibleTasks?: Task[];
     sprints?: ApiSprint[];
     onCommitSuccess?: () => void;
     projectStartDate?: string | null;
+    effectiveFloorDate?: string | null;
+    /** Force a container ref whose `.current` is null (computeAnchor bails). */
+    nullContainer?: boolean;
+    projectId?: string | null;
   } = {},
 ) {
   const ariaAssertiveRef = makeAriaRef();
-  const canvasContainerRef = makeContainerRef();
+  const canvasContainerRef = opts.nullContainer
+    ? (createRef<HTMLDivElement>() as MutableRefObject<HTMLDivElement | null>)
+    : makeContainerRef();
   const tasks = opts.tasks ?? [TASK_A];
   const sprints = opts.sprints ?? [];
 
@@ -151,9 +161,10 @@ function renderCommit(
     () =>
       useScheduleCommit({
         engine,
-        projectId: 'p1',
+        projectId: opts.projectId === undefined ? 'p1' : opts.projectId,
         projectStartDate: opts.projectStartDate ?? null,
-        visibleTasks: tasks,
+        effectiveFloorDate: opts.effectiveFloorDate ?? null,
+        visibleTasks: opts.visibleTasks ?? tasks,
         allTasks: tasks,
         sprints,
         canvasContainerRef,
@@ -417,6 +428,329 @@ describe('useScheduleCommit', () => {
       expect(patchMock).not.toHaveBeenCalled();
       const last = engine.updateTaskCalls[engine.updateTaskCalls.length - 1];
       expect(last?.patch.start).toBe('2026-01-10'); // reverted to TASK_A.start
+    });
+
+    it('Cancel-before-start surfaces the "change not saved" toast', () => {
+      const engine = new ControllableEngine();
+      const { ariaAssertiveRef, result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      act(() => result.current.handleCancelBeforeStart());
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+        'Reschedule cancelled — change not saved.',
+      );
+      expect(ariaAssertiveRef.current?.textContent).toBe('Reschedule cancelled.');
+    });
+
+    it('uses effectiveFloorDate (not the literal start) as the block threshold', async () => {
+      // Literal start 2026-01-20 but the effective working-day floor is 2026-01-19.
+      // A drag to 2026-01-19 (left=18) is AT the floor → commits, no prompt —
+      // proving the floor, not projectStartDate, gates the check.
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, {
+        projectStartDate: '2026-01-20',
+        effectiveFloorDate: '2026-01-19',
+      });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 18, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      expect(result.current.beforeStartPrompt).toBeNull();
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-19' }),
+      );
+    });
+
+    it('Snap targets the effective working-day floor, not the literal start', async () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, {
+        projectStartDate: '2026-01-20',
+        effectiveFloorDate: '2026-01-19',
+      });
+      // Drag to 2026-01-06 (left=5) — before the floor → prompt.
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      expect(result.current.beforeStartPrompt!.effectiveFloorDate).toBe('2026-01-19');
+      act(() => result.current.handleSnapToProjectStart());
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-19' }),
+      );
+    });
+
+    it('falls back to projectStartDate for the prompt header when no floor given', () => {
+      // effectiveFloorDate null → prompt.projectStartDate comes from projectStartDate.
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, {
+        projectStartDate: '2026-01-20',
+        effectiveFloorDate: null,
+      });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      expect(result.current.beforeStartPrompt!.projectStartDate).toBe('2026-01-20');
+      expect(result.current.beforeStartPrompt!.effectiveFloorDate).toBe('2026-01-20');
+    });
+
+    it('uses effectiveFloorDate for the prompt header when projectStartDate is null', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, {
+        projectStartDate: null,
+        effectiveFloorDate: '2026-01-20',
+      });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      expect(result.current.beforeStartPrompt!.projectStartDate).toBe('2026-01-20');
+    });
+
+    it('Snap while offline reverts the bar and surfaces scheduleError without a PATCH', () => {
+      const engine = new ControllableEngine();
+      const onlineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      // Set up the prompt while "online".
+      onlineSpy.mockReturnValue(true);
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      onlineSpy.mockReturnValue(false);
+      act(() => result.current.handleSnapToProjectStart());
+      expect(patchMock).not.toHaveBeenCalled();
+      expect(useScheduleStore.getState().scheduleError).toBe("You're offline — change not saved.");
+      expect(result.current.beforeStartPrompt).toBeNull();
+      const last = engine.updateTaskCalls[engine.updateTaskCalls.length - 1];
+      expect(last?.patch.start).toBe('2026-01-10'); // reverted to original
+      onlineSpy.mockRestore();
+    });
+
+    it('Move-project-start while offline reverts the bar and surfaces scheduleError', () => {
+      const engine = new ControllableEngine();
+      const onlineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      onlineSpy.mockReturnValue(false);
+      act(() => result.current.handleMoveProjectStart());
+      expect(patchMock).not.toHaveBeenCalled();
+      expect(useScheduleStore.getState().scheduleError).toBe("You're offline — change not saved.");
+      expect(result.current.beforeStartPrompt).toBeNull();
+      onlineSpy.mockRestore();
+    });
+
+    it('Snap keeps the prompt open with the server error message on PATCH failure', async () => {
+      const engine = new ControllableEngine();
+      patchMock.mockRejectedValueOnce({ response: { data: { detail: 'Still too early.' } } });
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      act(() => result.current.handleSnapToProjectStart());
+      await waitFor(() => expect(result.current.beforeStartPrompt?.error).toBe('Still too early.'));
+      // Prompt stays open so the user can retry.
+      expect(result.current.beforeStartPrompt).not.toBeNull();
+    });
+
+    it('Move-project-start surfaces a permission error when the project PATCH is rejected', async () => {
+      const engine = new ControllableEngine();
+      // Reject the /projects/ PATCH (Admin+ enforced server-side); the task PATCH
+      // must NOT fire because the first step failed.
+      patchMock.mockImplementation((url: string) =>
+        url.startsWith('/projects/')
+          ? Promise.reject(
+              Object.assign(new Error('forbidden'), {
+                response: { data: { detail: 'Only admins may move the start date.' } },
+              }),
+            )
+          : Promise.resolve({ data: {} }),
+      );
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      act(() => result.current.handleMoveProjectStart());
+      await waitFor(() =>
+        expect(result.current.beforeStartPrompt?.error).toBe('Only admins may move the start date.'),
+      );
+      expect(patchMock).not.toHaveBeenCalledWith('/tasks/t1/', expect.anything());
+    });
+
+    it('Move-project-start surfaces the "task save failed" fallback when only the task PATCH fails', async () => {
+      const engine = new ControllableEngine();
+      // Project PATCH succeeds, task PATCH rejects with no DRF detail → fallback copy.
+      patchMock.mockImplementation((url: string) =>
+        url.startsWith('/projects/')
+          ? Promise.resolve({ data: {} })
+          : Promise.reject(Object.assign(new Error('task save failed'), { response: { data: {} } })),
+      );
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      act(() => result.current.handleMoveProjectStart());
+      await waitFor(() =>
+        expect(result.current.beforeStartPrompt?.error).toBe(
+          'Moved the project start, but saving the task failed. Try again.',
+        ),
+      );
+    });
+
+    it('Snap does nothing when there is no active prompt', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => result.current.handleSnapToProjectStart());
+      act(() => result.current.handleMoveProjectStart());
+      act(() => result.current.handleCancelBeforeStart());
+      expect(patchMock).not.toHaveBeenCalled();
+      expect(engine.updateTaskCalls).toHaveLength(0);
+    });
+  });
+
+  // --- extractErrorMessage variants via the snap onError path ---------------
+  describe('error-message extraction', () => {
+    function snapWithRejection(reason: unknown) {
+      const engine = new ControllableEngine();
+      patchMock.mockRejectedValueOnce(reason);
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      act(() => result.current.handleSnapToProjectStart());
+      return result;
+    }
+
+    it('prefers the DRF `detail` string', async () => {
+      const result = snapWithRejection({ response: { data: { detail: 'A detail message.' } } });
+      await waitFor(() => expect(result.current.beforeStartPrompt?.error).toBe('A detail message.'));
+    });
+
+    it('falls back to the first field error array', async () => {
+      const result = snapWithRejection({
+        response: { data: { planned_start: ['Date is invalid.'] } },
+      });
+      await waitFor(() => expect(result.current.beforeStartPrompt?.error).toBe('Date is invalid.'));
+    });
+
+    it('falls back to a first field error that is a bare string', async () => {
+      const result = snapWithRejection({ response: { data: { non_field: 'Bare string error.' } } });
+      await waitFor(() => expect(result.current.beforeStartPrompt?.error).toBe('Bare string error.'));
+    });
+
+    it('uses the fallback copy when the payload has no usable shape', async () => {
+      const result = snapWithRejection(new Error('network down'));
+      await waitFor(() =>
+        expect(result.current.beforeStartPrompt?.error).toBe("Couldn't save the change. Try again."),
+      );
+    });
+  });
+
+  // --- Confirm PATCH failure keeps the popover open (retry path) ------------
+  describe('confirm PATCH failure', () => {
+    it('keeps the popover open and shows the server detail on error', async () => {
+      const engine = new ControllableEngine();
+      patchMock.mockRejectedValueOnce({ response: { data: { detail: 'Task is locked.' } } });
+      const { result } = renderCommit(engine);
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      await waitFor(() => expect(result.current.state?.error).toBe('Task is locked.'));
+      // Popover stays open so the user can Retry or Cancel.
+      expect(result.current.state).not.toBeNull();
+    });
+
+    it('uses the generic fallback copy when the error has no detail', async () => {
+      const engine = new ControllableEngine();
+      patchMock.mockRejectedValueOnce(new Error('boom'));
+      const { result } = renderCommit(engine);
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      await waitFor(() =>
+        expect(result.current.state?.error).toBe("Couldn't save the change. Try again or cancel."),
+      );
+    });
+  });
+
+  // --- Guard clauses & no-op branches --------------------------------------
+  describe('guards and no-op branches', () => {
+    it('drag-end on an unknown task id opens nothing', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine);
+      act(() => engine.emit('drag-task-end', { id: 'ghost', left: 30, cancelled: false }));
+      expect(result.current.state).toBeNull();
+      expect(engine.updateTaskCalls).toHaveLength(0);
+    });
+
+    it('drag-end whose task is not in the visible rows moves the bar but opens no popover', () => {
+      // computeAnchor returns null (rowIndex < 0) → setState is skipped even
+      // though the visual preview already moved.
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { visibleTasks: [] });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+      expect(engine.updateTaskCalls).toHaveLength(1); // preview moved
+      expect(result.current.state).toBeNull(); // but no popover
+    });
+
+    it('drag-end bails when the container ref is null (no anchor)', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { nullContainer: true });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+      expect(result.current.state).toBeNull();
+    });
+
+    it('resize-end returns early when the task has no start date', () => {
+      const engine = new ControllableEngine();
+      const startless: Task = { ...TASK_A, id: 'ns', start: '' };
+      const { result } = renderCommit(engine, { tasks: [startless] });
+      act(() => engine.emit('resize-task-end', { id: 'ns', right: 30, cancelled: false }));
+      expect(result.current.state).toBeNull();
+      expect(engine.updateTaskCalls).toHaveLength(0);
+    });
+
+    it('resize-end returns early when the dropped finish is before the start', () => {
+      // TASK_A start 2026-01-10; drop the edge at day-5 px → finish ~2026-01-04
+      // which is before the start → invalid, no popover.
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine);
+      act(() => engine.emit('resize-task-end', { id: 't1', right: 5, cancelled: false }));
+      expect(result.current.state).toBeNull();
+      expect(engine.updateTaskCalls).toHaveLength(0);
+    });
+
+    it('handleCancel is a no-op when no popover is open', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine);
+      act(() => result.current.handleCancel());
+      expect(engine.updateTaskCalls).toHaveLength(0);
+    });
+
+    it('handleDismissByOutsideClick is a no-op when no popover is open', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine);
+      act(() => result.current.handleDismissByOutsideClick());
+      expect(useScheduleStore.getState().scheduleActionToast).toBeNull();
+    });
+
+    it('handleConfirm is a no-op when no popover is open', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine);
+      act(() => result.current.handleConfirm());
+      expect(patchMock).not.toHaveBeenCalled();
+    });
+
+    it('a task without a sprint has a null activeSprintName', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { tasks: [TASK_A], sprints: [SPRINT_ACTIVE] });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+      expect(result.current.state?.activeSprintName).toBeNull();
+    });
+  });
+
+  // --- Resize-specific cancel/dismiss copy ---------------------------------
+  describe('resize cancel/dismiss announcements', () => {
+    it('Cancel on a resize announces "Resize cancelled."', () => {
+      const engine = new ControllableEngine();
+      const { ariaAssertiveRef, result } = renderCommit(engine);
+      act(() => engine.emit('resize-task-end', { id: 't1', right: 19, cancelled: false }));
+      act(() => result.current.handleCancel());
+      expect(ariaAssertiveRef.current?.textContent).toBe('Resize cancelled.');
+    });
+
+    it('click-outside on a resize surfaces the resize-specific toast', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine);
+      act(() => engine.emit('resize-task-end', { id: 't1', right: 19, cancelled: false }));
+      act(() => result.current.handleDismissByOutsideClick());
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+        'Resize cancelled — change not saved.',
+      );
     });
   });
 });

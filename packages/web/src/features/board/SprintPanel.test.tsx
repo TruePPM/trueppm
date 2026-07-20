@@ -450,6 +450,151 @@ describe('SprintPanel WIP limit (#546)', () => {
   });
 });
 
+describe('SprintPanel persisted expand state', () => {
+  it('restores a stored expanded state on mount (opens already-expanded)', () => {
+    window.localStorage.setItem('trueppm.board.p1.sprintPanel.open', 'true');
+    renderPanel({ role: ROLE_SCHEDULER });
+    expect(screen.getByRole('button', { name: /collapse sprint panel/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByTestId('sprint-burndown-toggle')).toBeVisible();
+  });
+
+  it('persists collapse back to localStorage when an expanded panel is toggled shut', () => {
+    window.localStorage.setItem('trueppm.board.p1.sprintPanel.open', 'true');
+    renderPanel({ role: ROLE_SCHEDULER });
+    fireEvent.click(screen.getByRole('button', { name: /collapse sprint panel/i }));
+    expect(window.localStorage.getItem('trueppm.board.p1.sprintPanel.open')).toBe('false');
+    expect(screen.getByTestId('sprint-burndown-toggle')).not.toBeVisible();
+  });
+});
+
+describe('SprintPanel header signals', () => {
+  it('shows committed points and the pending-acceptance forecast caption', () => {
+    renderPanel({
+      sprint: makeSprint({
+        state: 'ACTIVE',
+        committed_points: 42,
+        pending_count: 3,
+      }),
+    });
+    expect(screen.getByText(/42 pts committed/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 pending acceptance/i)).toBeInTheDocument();
+  });
+
+  it('omits the pending caption when nothing is pending acceptance', () => {
+    renderPanel({
+      sprint: makeSprint({ state: 'ACTIVE', committed_points: 42, pending_count: 0 }),
+    });
+    expect(screen.queryByText(/pending acceptance/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('SprintPanel capacity edge branches', () => {
+  it('shows the at-risk band when committed exceeds planned by <=10%', () => {
+    renderPanel({
+      role: ROLE_MEMBER,
+      sprint: makeSprint({ state: 'ACTIVE', capacity_points: 30, committed_points: 33 }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /expand sprint panel/i }));
+    // 3 over / 30 planned = +10% → at-risk (amber), still an "Over by" message.
+    expect(screen.getByText(/Over by 3 \(\+10%\)/i)).toBeInTheDocument();
+  });
+
+  it('rejects a non-integer capacity draft (no save, editing closes)', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', capacity_points: null }),
+    });
+    expandPanel();
+    fireEvent.click(screen.getByRole('button', { name: /set planned story-point capacity/i }));
+    const input = screen.getByLabelText(/planned story-point capacity/i);
+    fireEvent.change(input, { target: { value: '3.5' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(updateSprintMock).not.toHaveBeenCalled();
+    // Editing state cleared even though nothing saved.
+    expect(screen.getByRole('button', { name: /set planned story-point capacity/i })).toBeInTheDocument();
+  });
+
+  it('rejects a negative capacity draft', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', capacity_points: null }),
+    });
+    expandPanel();
+    fireEvent.click(screen.getByRole('button', { name: /set planned story-point capacity/i }));
+    const input = screen.getByLabelText(/planned story-point capacity/i);
+    fireEvent.change(input, { target: { value: '-4' } });
+    fireEvent.blur(input);
+    expect(updateSprintMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('SprintPanel WIP card body warnings (#546)', () => {
+  it('renders the "At WIP limit" body warning when count equals the limit', () => {
+    renderPanel({
+      role: ROLE_MEMBER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 5, wip_count: 5 }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /expand sprint panel/i }));
+    expect(screen.getByText('At WIP limit')).toBeInTheDocument();
+  });
+
+  it('renders the "Over WIP by N" body warning when count exceeds the limit', () => {
+    renderPanel({
+      role: ROLE_MEMBER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 4, wip_count: 6 }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /expand sprint panel/i }));
+    expect(screen.getByText(/Over WIP by 2/)).toBeInTheDocument();
+  });
+
+  it('rejects a non-integer WIP draft', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: null, wip_count: 1 }),
+    });
+    expandPanel();
+    fireEvent.click(screen.getByRole('button', { name: /set wip limit/i }));
+    const input = screen.getByLabelText(/wip limit/i);
+    fireEvent.change(input, { target: { value: '2.5' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(updateSprintMock).not.toHaveBeenCalled();
+  });
+
+  it('reverts a WIP edit on Escape without saving', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 5, wip_count: 2 }),
+    });
+    expandPanel();
+    fireEvent.click(screen.getByRole('button', { name: /edit wip limit/i }));
+    const input = screen.getByLabelText(/wip limit/i);
+    fireEvent.change(input, { target: { value: '9' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(updateSprintMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('SprintPanel burndown disclosure persistence (#1983)', () => {
+  it('mounts the burndown chart on load when its disclosure was previously opened', () => {
+    window.localStorage.setItem('trueppm.board.p1.sprintPanel.open.burndown', 'true');
+    renderPanel({ role: ROLE_SCHEDULER });
+    expandPanel();
+    // Disclosure restored open → chart mounts without a second click.
+    expect(screen.getByTestId('burn-chart')).toBeVisible();
+    expect(screen.getByTestId('sprint-burndown-toggle')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('persists the burndown disclosure open state to its own storage key', () => {
+    renderPanel({ role: ROLE_SCHEDULER });
+    expandPanel();
+    fireEvent.click(screen.getByTestId('sprint-burndown-toggle'));
+    expect(window.localStorage.getItem('trueppm.board.p1.sprintPanel.open.burndown')).toBe('true');
+  });
+});
+
 describe('SprintPanel velocity + forecast (#607)', () => {
   const SPRINTS = [
     { id: '1', name: 'S1', start_date: '2026-01-01', finish_date: '2026-01-14',

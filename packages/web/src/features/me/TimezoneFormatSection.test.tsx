@@ -17,7 +17,14 @@ vi.mock('@/hooks/useUpdateDisplayPrefs', () => ({
 }));
 
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useUpdateTimezone, useUpdateDateFormat } from '@/hooks/useUpdateDisplayPrefs';
 const mockUseCurrentUser = useCurrentUser as ReturnType<typeof vi.fn>;
+const mockUseUpdateTimezone = useUpdateTimezone as ReturnType<typeof vi.fn>;
+const mockUseUpdateDateFormat = useUpdateDateFormat as ReturnType<typeof vi.fn>;
+
+function setOnline(value: boolean) {
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value });
+}
 
 describe('TimezoneFormatSection (#1953)', () => {
   beforeEach(() => {
@@ -31,10 +38,14 @@ describe('TimezoneFormatSection (#1953)', () => {
       user: { timezone: 'auto', date_format: 'auto' },
       isLoading: false,
     });
+    mockUseUpdateTimezone.mockReturnValue({ mutate: tzMutate, isError: false });
+    mockUseUpdateDateFormat.mockReturnValue({ mutate: dfMutate, isError: false });
+    setOnline(true);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    setOnline(true);
   });
 
   it('renders the timezone trigger and the four date-format radios', () => {
@@ -105,5 +116,145 @@ describe('TimezoneFormatSection (#1953)', () => {
     expect(
       screen.queryByRole('button', { name: /Europe\/London/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it('shows the loading skeleton (no trigger) while the user is still resolving', () => {
+    mockUseCurrentUser.mockReturnValue({ user: undefined, isLoading: true });
+    const { container } = render(<TimezoneFormatSection />);
+    // The timezone control is replaced by an aria-busy pulse placeholder.
+    expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Timezone:/i })).not.toBeInTheDocument();
+  });
+
+  it('when offline, disables both controls and shows the reconnect note', () => {
+    setOnline(false);
+    render(<TimezoneFormatSection />);
+    expect(screen.getByRole('button', { name: /Timezone:/i })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /ISO 8601/i })).toBeDisabled();
+    expect(screen.getByText(/You.?re offline — reconnect/i)).toBeInTheDocument();
+  });
+
+  it('announces "Saved." and updates the trigger after a successful timezone save', () => {
+    tzMutate.mockImplementation((_v: string, opts: { onSuccess?: () => void }) => {
+      opts.onSuccess?.();
+    });
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    fireEvent.change(screen.getByRole('combobox', { name: /Search timezones/i }), {
+      target: { value: 'london' },
+    });
+    fireEvent.pointerDown(screen.getByRole('option', { name: /Europe\/London/i }));
+    expect(screen.getByRole('status')).toHaveTextContent('Saved.');
+    expect(
+      screen.getByRole('button', { name: /Timezone: Europe\/London/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the error message in the status line when a mutation is in error', () => {
+    mockUseUpdateTimezone.mockReturnValue({ mutate: tzMutate, isError: true });
+    render(<TimezoneFormatSection />);
+    expect(screen.getByRole('status')).toHaveTextContent("Couldn't save. Try again.");
+  });
+
+  it('shows the default idle status when nothing has been saved yet', () => {
+    render(<TimezoneFormatSection />);
+    expect(screen.getByRole('status')).toHaveTextContent('Changes save automatically.');
+  });
+
+  it('reverts the optimistic date-format selection on error', () => {
+    dfMutate.mockImplementation((_v: string, opts: { onError?: () => void }) => {
+      opts.onError?.();
+    });
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('radio', { name: /ISO 8601/i }));
+    // Failed → reverts to the stored "auto" style.
+    expect(screen.getByRole('radio', { name: /Automatic/i })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /ISO 8601/i })).not.toBeChecked();
+  });
+
+  it('announces "Saved." after a successful date-format save', () => {
+    dfMutate.mockImplementation((_v: string, opts: { onSuccess?: () => void }) => {
+      opts.onSuccess?.();
+    });
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('radio', { name: /European/i }));
+    expect(screen.getByRole('radio', { name: /European/i })).toBeChecked();
+    expect(screen.getByText('Saved.')).toBeInTheDocument();
+  });
+
+  it('shows the empty-result note when no timezone matches the query', () => {
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    fireEvent.change(screen.getByRole('combobox', { name: /Search timezones/i }), {
+      target: { value: 'zzzznotazone' },
+    });
+    expect(screen.getByText(/No timezones match/i)).toBeInTheDocument();
+    // Auto is exempt from the filter and stays visible.
+    expect(screen.getByRole('option', { name: /Automatic/i })).toBeInTheDocument();
+  });
+
+  it('opens the popover with ArrowDown from the trigger', () => {
+    render(<TimezoneFormatSection />);
+    const trigger = screen.getByRole('button', { name: /Timezone:/i });
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+    expect(screen.getByRole('combobox', { name: /Search timezones/i })).toBeInTheDocument();
+  });
+
+  it('commits the active option with ArrowDown + Enter from the search box', () => {
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    const search = screen.getByRole('combobox', { name: /Search timezones/i });
+    fireEvent.change(search, { target: { value: 'london' } });
+    // Options are [auto, Europe/London]; ArrowDown moves to Europe/London, Enter commits.
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(tzMutate).toHaveBeenCalledWith('Europe/London', expect.anything());
+  });
+
+  it('Escape first clears the query, then closes the popover on the second press', () => {
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    const search = screen.getByRole('combobox', { name: /Search timezones/i });
+    fireEvent.change(search, { target: { value: 'london' } });
+    expect(search).toHaveValue('london');
+    fireEvent.keyDown(search, { key: 'Escape' });
+    // Query cleared but popover stays open.
+    expect(screen.getByRole('combobox', { name: /Search timezones/i })).toHaveValue('');
+    fireEvent.keyDown(screen.getByRole('combobox', { name: /Search timezones/i }), {
+      key: 'Escape',
+    });
+    expect(screen.queryByRole('combobox', { name: /Search timezones/i })).not.toBeInTheDocument();
+  });
+
+  it('selecting the already-current zone is a no-op that just closes the popover', () => {
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    fireEvent.pointerDown(screen.getByRole('option', { name: /Automatic/i }));
+    expect(tzMutate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('reflects a non-auto stored timezone on the trigger and marks it selected', () => {
+    mockUseCurrentUser.mockReturnValue({
+      user: { timezone: 'Europe/Paris', date_format: 'auto' },
+      isLoading: false,
+    });
+    render(<TimezoneFormatSection />);
+    expect(
+      screen.getByRole('button', { name: /Timezone: Europe\/Paris/i }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Timezone: Europe\/Paris/i }));
+    expect(
+      screen.getByRole('option', { name: /Europe\/Paris/i, selected: true }),
+    ).toBeInTheDocument();
+  });
+
+  it('closes the popover when pointer-down lands outside the trigger and popover', () => {
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    expect(screen.getByRole('combobox', { name: /Search timezones/i })).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('combobox', { name: /Search timezones/i })).not.toBeInTheDocument();
   });
 });

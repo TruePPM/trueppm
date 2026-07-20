@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Task } from '@/types';
+import type { Task, TaskLink } from '@/types';
 import type { DragEndEvent, DragOverEvent } from '@dnd-kit/core';
 import { OutlineMode } from './OutlineMode';
 import { emptyFilters } from './filters';
@@ -76,10 +76,23 @@ const mockTasks: Task[] = [
   },
 ];
 
-vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
+// Mutable holders so individual tests can vary the project id, task list, and
+// dependency links that the mocked hooks return. The vi.mock factories read
+// these at call-time (each render), so reassigning them before a render swaps
+// the hook output. Defaults mirror the original fixed mocks; beforeEach resets.
+let currentProjectId: string | null = 'proj-1';
+let currentTasks: Task[] | undefined = mockTasks;
+let currentLinks: TaskLink[] | undefined = [];
+
+vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => currentProjectId }));
 
 vi.mock('@/hooks/useScheduleTasks', () => ({
-  useScheduleTasks: () => ({ tasks: mockTasks, links: [], isLoading: false, error: null }),
+  useScheduleTasks: () => ({
+    tasks: currentTasks,
+    links: currentLinks,
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 const indentMutate = vi.fn((_id: string, opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void }) => {
@@ -97,9 +110,10 @@ const reorderMutate = vi.fn(
   },
 );
 const reparentMutate = vi.fn();
+const updateMutate = vi.fn();
 
 vi.mock('@/hooks/useTaskMutations', () => ({
-  useUpdateTask: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateTask: () => ({ mutate: updateMutate, isPending: false }),
   useReorderTasks: () => ({ mutate: reorderMutate, isPending: false }),
   useIndentTask: () => ({ mutate: indentMutate, isPending: false }),
   useOutdentTask: () => ({ mutate: outdentMutate, isPending: false }),
@@ -109,10 +123,14 @@ vi.mock('@/hooks/useTaskMutations', () => ({
 beforeEach(() => {
   // Reset Zustand-backed wbs store so each test starts with a clean slate.
   useWbsStore.setState({ expandedIds: new Set(), selectedTaskId: null });
+  currentProjectId = 'proj-1';
+  currentTasks = mockTasks;
+  currentLinks = [];
   indentMutate.mockClear();
   outdentMutate.mockClear();
   reorderMutate.mockClear();
   reparentMutate.mockClear();
+  updateMutate.mockClear();
   capturedHandlers.onDragOver = undefined;
   capturedHandlers.onDragEnd = undefined;
   capturedHandlers.onDragCancel = undefined;
@@ -462,5 +480,212 @@ describe('OutlineMode — row interactions in context', () => {
     const input = screen.getByLabelText('Rename task');
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rename commit / no-op branches (handleRename)
+// ---------------------------------------------------------------------------
+describe('OutlineMode — handleRename branches', () => {
+  it('commits a changed name via updateTask.mutate with the trimmed value', () => {
+    renderOutline();
+    const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
+    const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
+    fireEvent.doubleClick(t1Row!);
+    const input = screen.getByLabelText('Rename task');
+    fireEvent.change(input, { target: { value: '  Renamed Discovery  ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(updateMutate).toHaveBeenCalledWith({
+      id: 't1',
+      projectId: 'proj-1',
+      name: 'Renamed Discovery',
+    });
+  });
+
+  it('does NOT call updateTask when the new name is only whitespace', () => {
+    renderOutline();
+    const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
+    const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
+    fireEvent.doubleClick(t1Row!);
+    const input = screen.getByLabelText('Rename task');
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call updateTask when the name is unchanged', () => {
+    renderOutline();
+    const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
+    const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
+    fireEvent.doubleClick(t1Row!);
+    const input = screen.getByLabelText('Rename task');
+    fireEvent.change(input, { target: { value: 'Discovery' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call updateTask when there is no active project id', () => {
+    currentProjectId = null;
+    renderOutline();
+    const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
+    const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
+    fireEvent.doubleClick(t1Row!);
+    const input = screen.getByLabelText('Rename task');
+    fireEvent.change(input, { target: { value: 'Renamed' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Predecessors column (predecessorTextById memo)
+// ---------------------------------------------------------------------------
+describe('OutlineMode — predecessor formatting', () => {
+  it('renders formatted predecessor WBS notation for a task with incoming links', () => {
+    // t2 has two predecessors: t1 (known, wbs 1.1, FS, no lag) and a ghost
+    // source id (unknown → "?") with SS + 3 lag. Exercises the link-index
+    // build, the wbs lookup fallback, and formatPredecessors join.
+    currentLinks = [
+      { id: 'l1', sourceId: 't1', targetId: 't2', type: 'FS', lag: 0, isCritical: false },
+      { id: 'l2', sourceId: 'ghost', targetId: 't2', type: 'SS', lag: 3, isCritical: false },
+    ];
+    renderOutline();
+    expect(screen.getByText('1.1 FS, ? SS+3')).toBeInTheDocument();
+  });
+
+  it('shows no predecessor text when links is undefined (early return)', () => {
+    currentLinks = undefined;
+    renderOutline();
+    // Tree still renders; no predecessor notation appears anywhere.
+    expect(screen.getByRole('treegrid', { name: /outline task tree/i })).toBeInTheDocument();
+    expect(screen.queryByText(/FS|SS|FF|SF/)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Empty / undefined task list
+// ---------------------------------------------------------------------------
+describe('OutlineMode — no task data', () => {
+  it('renders an empty treegrid (no rows) when tasks are undefined and no filter is active', () => {
+    currentTasks = undefined;
+    renderOutline();
+    // hasAnyFilter is false, so the filtered-empty state is NOT shown; the
+    // treegrid renders with zero data rows.
+    expect(screen.getByRole('treegrid', { name: /outline task tree/i })).toBeInTheDocument();
+    const dataRows = screen.queryAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
+    expect(dataRows).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Filter ancestor de-duplication (break when an ancestor is already kept)
+// ---------------------------------------------------------------------------
+describe('OutlineMode — filter ancestor dedup', () => {
+  it('keeps a shared ancestor once when multiple descendants match', () => {
+    // statusFilter NOT_STARTED matches t2 (under p1), p2 (root), and t3
+    // (under p2). Walking t3's ancestors reaches p2, which is already kept —
+    // exercising the dedup break. p1 is retained as an ancestor of t2 even
+    // though p1 itself does not match; t1 (IN_PROGRESS) is hidden.
+    render(
+      <OutlineMode
+        filters={{ search: '', ownerFilter: '', statusFilter: 'NOT_STARTED', dueFilter: 'all' as const }}
+        onClearFilters={vi.fn()}
+        expandAllCounter={0}
+        collapseAllCounter={0}
+      />,
+    );
+    act(() => useWbsStore.setState({ expandedIds: new Set(['p1', 'p2']) }));
+    expect(screen.getByText('Phase 1')).toBeInTheDocument();
+    expect(screen.getByText('Build')).toBeInTheDocument();
+    expect(screen.queryByText('Discovery')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Imperative expand-all / collapse-all counters
+// ---------------------------------------------------------------------------
+describe('OutlineMode — expand/collapse counters', () => {
+  it('expands every node when expandAllCounter increments', () => {
+    const { rerender } = render(
+      <OutlineMode
+        filters={emptyFilters()}
+        onClearFilters={vi.fn()}
+        expandAllCounter={0}
+        collapseAllCounter={0}
+      />,
+    );
+    // Start from a fully collapsed tree to prove the counter drives the change.
+    act(() => useWbsStore.setState({ expandedIds: new Set() }));
+    rerender(
+      <OutlineMode
+        filters={emptyFilters()}
+        onClearFilters={vi.fn()}
+        expandAllCounter={1}
+        collapseAllCounter={0}
+      />,
+    );
+    const expanded = useWbsStore.getState().expandedIds;
+    expect(expanded.has('p1')).toBe(true);
+    expect(expanded.has('p2')).toBe(true);
+  });
+
+  it('collapses every node when collapseAllCounter increments', () => {
+    const { rerender } = render(
+      <OutlineMode
+        filters={emptyFilters()}
+        onClearFilters={vi.fn()}
+        expandAllCounter={0}
+        collapseAllCounter={0}
+      />,
+    );
+    act(() => useWbsStore.setState({ expandedIds: new Set(['p1', 'p2']) }));
+    rerender(
+      <OutlineMode
+        filters={emptyFilters()}
+        onClearFilters={vi.fn()}
+        expandAllCounter={0}
+        collapseAllCounter={1}
+      />,
+    );
+    expect(useWbsStore.getState().expandedIds.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard branches in drag/keyboard handlers
+// ---------------------------------------------------------------------------
+describe('OutlineMode — handler guard branches', () => {
+  it('reparent drop is a no-op when there is no active project id', () => {
+    currentProjectId = null;
+    renderOutline();
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', 'p2')));
+    expect(reparentMutate).not.toHaveBeenCalled();
+  });
+
+  it('reorder drop is a no-op when there is no active project id', () => {
+    currentProjectId = null;
+    renderOutline();
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', 't2')));
+    expect(reorderMutate).not.toHaveBeenCalled();
+  });
+
+  it('Alt+ArrowDown is a no-op when the selected task is not in the visible tree', () => {
+    renderOutline();
+    // p1 is collapsed, so its child t1 is hidden: currentIdx === -1.
+    act(() => useWbsStore.setState({ expandedIds: new Set(), selectedTaskId: 't1' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
+    expect(reorderMutate).not.toHaveBeenCalled();
+  });
+
+  it('Alt+ArrowUp reorder announces the move on success', () => {
+    renderOutline();
+    act(() => useWbsStore.setState({ expandedIds: new Set(['p1']), selectedTaskId: 't2' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    fireEvent.keyDown(grid, { key: 'ArrowUp', altKey: true });
+    // t2 moves up above t1 → reorder dispatched with the swapped order.
+    expect(reorderMutate).toHaveBeenCalledTimes(1);
+    const payload = reorderMutate.mock.calls[0]?.[0] as { parent_path: string; ordered_ids: string[] };
+    expect(payload.ordered_ids).toEqual(['t2', 't1']);
   });
 });
