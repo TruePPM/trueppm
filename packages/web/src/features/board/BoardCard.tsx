@@ -110,11 +110,11 @@ interface BoardCardProps {
    *  the overflow menu. */
   scopeActions?: BoardCardScopeActions;
   /**
-   * Closed-sprint read-only (issue 1141). When true, drag-to-assign is disabled:
-   * `useDraggable` is disabled (no listeners) and the cursor is default — but
-   * click-to-open and scroll still work, because reading a closed sprint's board
-   * is the use case. The card is NOT marked `aria-disabled` (it stays a usable
-   * button for opening detail); the ClosedSprintBanner announces the read-only state.
+   * Read-only board (closed sprint, issue 1141; or a Viewer, #2146). When true,
+   * drag-to-assign is disabled and the cursor is default — but click-to-open and
+   * scroll still work, because reading the board is the use case. The card is NOT
+   * marked `aria-disabled` (it stays a usable button for opening detail); the
+   * ClosedSprintBanner announces the closed-sprint state.
    */
   readOnly?: boolean;
   /**
@@ -244,13 +244,19 @@ function BoardCardImpl({
   // new request; Fibonacci until the project detail resolves.
   const estimationScale =
     useProject(useProjectId()).data?.effective_estimation_scale ?? 'fibonacci';
-  // A closed-sprint board disables drag-to-assign (issue 1141): dnd-kit returns empty
-  // listeners/attributes when disabled, so the card keeps click-to-open + scroll
-  // but can never be dragged into the closed sprint's scope.
+  // A read-only board disables drag-to-assign (closed sprint, issue 1141; or a
+  // Viewer, #2146). dnd-kit clears `listeners` when disabled but its `attributes`
+  // still carry `role="button"` + `aria-disabled="true"`, which makes the card
+  // unoperable to keyboard/AT users (and Playwright reads it as "not enabled").
+  // A read-only card is still click-to-open detail, so drop the drag attributes
+  // and keep it a plain focusable button — never aria-disabled.
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
     disabled: readOnly,
   });
+  const dragProps = readOnly
+    ? { role: 'button' as const, tabIndex: 0 }
+    : { ...listeners, ...attributes };
 
   // Bind the task-aware chain-hover handler to this card once per render. These
   // live inside the component (not in the parent's map) so the card's incoming
@@ -718,8 +724,7 @@ function BoardCardImpl({
     return (
       <div
         ref={measureCardRef}
-        {...listeners}
-        {...attributes}
+        {...dragProps}
         onClick={(e) => onCardClick?.(task, e.currentTarget)}
         onKeyDown={(e) => {
           if ((e.key === 'Enter' || e.key === ' ') && e.currentTarget === e.target) {
@@ -864,8 +869,7 @@ function BoardCardImpl({
   return (
     <div
       ref={measureCardRef}
-      {...listeners}
-      {...attributes}
+      {...dragProps}
       onClick={(e) => onCardClick?.(task, e.currentTarget)}
       onKeyDown={(e) => {
         if ((e.key === 'Enter' || e.key === ' ') && e.currentTarget === e.target) {

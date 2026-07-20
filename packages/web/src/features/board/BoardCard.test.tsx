@@ -1334,9 +1334,13 @@ function renderCardFull(props: Partial<ComponentProps<typeof BoardCard>>) {
 }
 
 function cardRoot(): HTMLElement {
+  // A draggable card carries `aria-roledescription="draggable"` from dnd-kit; a
+  // read-only card drops the drag attributes (#2146) so it is never aria-disabled,
+  // but keeps the shared `rounded-card` container. Match on the container class so
+  // this resolves the outer card in both states.
   return screen
     .getAllByRole('button', { hidden: true })
-    .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+    .find((el) => el.className.includes('rounded-card'))!;
 }
 
 describe('BoardCard additional branch coverage', () => {
@@ -1436,6 +1440,12 @@ describe('BoardCard additional branch coverage', () => {
     const card = cardRoot();
     expect(card.className).toContain('cursor-default');
     expect(card.className).not.toContain('cursor-grab');
+    // A read-only card must stay operable: click-to-open detail is the use case,
+    // so it is never marked aria-disabled (dnd-kit would otherwise set it) and it
+    // stays a focusable button (#2146).
+    expect(card).not.toHaveAttribute('aria-disabled', 'true');
+    expect(card).toHaveAttribute('role', 'button');
+    expect(card).toHaveAttribute('tabindex', '0');
   });
 
   it('a non-read-only card keeps the grab cursor', () => {

@@ -240,10 +240,10 @@ test.describe('Board sprint view (#429 / chrome #1138 #1141)', () => {
     await card.hover();
 
     // Open the card's action menu → Move to… → Done, then confirm the mutation
-    // never fired. The card carries aria-disabled (dnd-kit's sortable is disabled
-    // on a closed sprint), which Playwright reports as "not enabled" for its
-    // descendants — but the buttons still respond to a real click, so force past
-    // the advisory ARIA state to exercise the actual write path.
+    // never fired. The read-only card stays operable (click-to-open detail is the
+    // use case, #2146) — the write block is BoardView's `handleMenuMove` guard,
+    // asserted below, not a disabled control. `force: true` skips the hover-reveal
+    // settle on the opacity-0 action button so the click lands deterministically.
     await page.getByRole('button', { name: 'Actions for Done sprint task' }).click({ force: true });
     await page.getByRole('menuitem', { name: 'Move to…' }).click({ force: true });
     await page.getByRole('menuitem', { name: 'Done' }).click({ force: true });

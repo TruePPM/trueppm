@@ -11,6 +11,7 @@
  */
 import { test, expect } from './fixtures/coverage';
 import type { Page, Route } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 const FIXTURE_PROJECT_ID = 'e2e-322-00000000-0000-0000-0000-000000000322';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;
@@ -61,6 +62,32 @@ async function setup(page: Page, patchHandler: (route: Route) => void): Promise<
       }),
     );
   });
+
+  // 404 (not 401) for any endpoint this spec doesn't mock, so a stray unmocked
+  // request never triggers the token-refresh → session-expired modal that
+  // intercepts card clicks under parallel load. Registered first so the
+  // specific routes below win (Playwright: last-registered wins).
+  await setupCatchAll(page);
+  // Project detail — BoardCard reads `effective_estimation_scale` via `useProject`
+  // on every card. Without this the catch-all 404s it and TanStack retries 3×,
+  // re-rendering the card mid-click and destabilizing the edit flow. A resolved
+  // GET keeps the card static.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: FIXTURE_PROJECT_ID,
+        name: 'Conflict Project',
+        description: '',
+        start_date: '2026-04-01',
+        calendar: 'default',
+        estimation_scale: null,
+        effective_estimation_scale: 'fibonacci',
+        inherited_estimation_scale: 'fibonacci',
+      }),
+    }),
+  );
 
   const tasks = [TASK];
 
@@ -150,6 +177,19 @@ async function setup(page: Page, patchHandler: (route: Route) => void): Promise<
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-views/`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  // BoardView reads the self-membership role (`useCurrentUserRole`) to pessimistically
+  // gate write affordances (#2146). Left unmocked it 401s under parallel load and pops
+  // the session-expired modal, which intercepts the card click. Return an Admin so the
+  // role resolves and the board stays writable for this conflict-merge flow.
+  await page.route('**/api/v1/projects/*/members/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: route.request().url().includes('self=true')
+        ? JSON.stringify([{ id: 'mem-self', role: 300, role_label: 'Project Manager' }])
+        : JSON.stringify({ count: 1, next: null, previous: null, results: [{ id: 'mem-self', role: 300, role_label: 'Project Manager' }] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-config/`, (route) =>
     route.fulfill({
