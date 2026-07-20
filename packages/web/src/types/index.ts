@@ -90,6 +90,21 @@ export interface TaskLabel {
   position?: number;
 }
 
+/** A person-typed custom-field value — mirrors the assignee avatar shape (#2143). */
+export interface CustomFieldPersonValue {
+  id: string;
+  name: string;
+  initials: string;
+}
+
+/**
+ * One resolved custom-field value as it appears in a task's `customFields` map.
+ * The concrete type follows the field's `fieldType` (see ProjectCustomField):
+ * string for text / single-select option key / ISO date, number, boolean,
+ * string[] for multi-select option keys, or a person object for USER fields.
+ */
+export type CustomFieldValue = string | number | boolean | string[] | CustomFieldPersonValue;
+
 export interface Task {
   id: string;
   wbs: string;
@@ -354,6 +369,12 @@ export interface Task {
   /** Value/Effort: value ÷ effort_estimate. */
   value?: number | null;
   effortEstimate?: number | null;
+  /**
+   * Per-task custom-field values keyed by ProjectCustomField id (#2143/#2144).
+   * Only populated fields appear; unset fields are omitted. Rendered on the board
+   * card for fields flagged `showOnCard`. Absent on legacy/WS/optimistic rows.
+   */
+  customFields?: Record<string, CustomFieldValue>;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */

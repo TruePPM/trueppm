@@ -24,6 +24,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { SettingsPageTitle } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
+import { Toggle } from '../components/Toggle';
+import { FieldHelp } from '@/components/FieldHelp';
 import { BUILT_IN_FIELDS } from './builtInFields';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -922,12 +924,20 @@ function FieldsSection({
       {/* Table header */}
       <div
         className="grid px-4 py-2 bg-neutral-surface-sunken border-b border-neutral-border/55 text-xs font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
-        style={{ gridTemplateColumns: '1.2fr 1fr 100px 100px 48px' }}
+        style={{ gridTemplateColumns: '1.2fr 1fr 100px 100px 96px 48px' }}
       >
         <span>Field</span>
         <span>Type</span>
         <span>Required</span>
         <span>Source</span>
+        <span className="inline-flex items-center gap-1 normal-case tracking-normal">
+          On card
+          <FieldHelp
+            label="Show on card"
+            body="Adds this field's value to task cards on the board. Off by default to keep cards scannable — custom fields render after all built-in card content and are the first to collapse into overflow."
+            docHref="features/board/#custom-fields-on-cards"
+          />
+        </span>
         <span />
       </div>
 
@@ -937,7 +947,7 @@ function FieldsSection({
           <li
             key={f.id}
             className="grid items-center gap-2.5 px-4 py-2.5 text-[13px]"
-            style={{ gridTemplateColumns: '1.2fr 1fr 100px 100px 48px' }}
+            style={{ gridTemplateColumns: '1.2fr 1fr 100px 100px 96px 48px' }}
           >
             <span className="font-medium text-neutral-text-primary">{f.name}</span>
             <span className="text-[12px] text-neutral-text-secondary">{f.typeLabel}</span>
@@ -955,6 +965,8 @@ function FieldsSection({
                 Built-in
               </span>
             </span>
+            {/* Built-in fields already have first-class card treatment — not opt-in here. */}
+            <span className="text-neutral-text-disabled text-[11px]">—</span>
             <span />
           </li>
         ))}
@@ -968,7 +980,7 @@ function FieldsSection({
             <li
               key={f.id}
               className="grid items-center gap-2.5 px-4 py-2.5 text-[13px]"
-              style={{ gridTemplateColumns: '1.2fr 1fr 100px 100px 48px' }}
+              style={{ gridTemplateColumns: '1.2fr 1fr 100px 100px 96px 48px' }}
             >
               <span className="font-medium text-neutral-text-primary">{f.name}</span>
               <span className="text-[12px] text-neutral-text-secondary">
@@ -987,6 +999,22 @@ function FieldsSection({
                 <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-brand-accent-light text-brand-accent-dark">
                   Custom
                 </span>
+              </span>
+              {/* Show-on-card opt-in (#2144) — Scheduler+ writes the field definition. */}
+              <span>
+                {canEdit ? (
+                  <Toggle
+                    on={f.showOnCard}
+                    onChange={(next) => update.mutate({ id: f.id, payload: { showOnCard: next } })}
+                    onLabel=""
+                    offLabel=""
+                    ariaLabel={`Show ${f.name} on board cards`}
+                  />
+                ) : f.showOnCard ? (
+                  <span className="text-[11px] text-neutral-text-secondary">On card</span>
+                ) : (
+                  <span className="text-neutral-text-disabled text-[11px]">—</span>
+                )}
               </span>
               {canEdit ? (
                 <div className="flex items-center justify-end gap-1">
@@ -1044,6 +1072,7 @@ function FieldsSection({
                   name: payload.name,
                   required: payload.required,
                   options: payload.options,
+                  showOnCard: payload.showOnCard,
                 },
               },
               {
@@ -1066,6 +1095,7 @@ interface CustomFieldFormPayload {
   fieldType: CustomFieldType;
   required: boolean;
   options: CustomFieldOption[];
+  showOnCard: boolean;
 }
 
 function CustomFieldModal({
@@ -1087,6 +1117,7 @@ function CustomFieldModal({
   const [fieldType, setFieldType] = useState<CustomFieldType>(initial?.fieldType ?? 'TEXT');
   const [required, setRequired] = useState(initial?.required ?? false);
   const [options, setOptions] = useState<CustomFieldOption[]>(initial?.options ?? []);
+  const [showOnCard, setShowOnCard] = useState(initial?.showOnCard ?? false);
 
   const canSubmit = name.trim().length > 0 && (!isSelectType(fieldType) || options.length > 0);
 
@@ -1098,6 +1129,7 @@ function CustomFieldModal({
       fieldType,
       required,
       options: isSelectType(fieldType) ? options : [],
+      showOnCard,
     });
   };
 
@@ -1171,6 +1203,32 @@ function CustomFieldModal({
             />
             <span className="text-[13px] text-neutral-text-primary">Required on every task</span>
           </label>
+          {/* Show-on-card opt-in (#2144) — off by default to keep cards scannable. */}
+          <div className="flex items-start justify-between gap-3 rounded-control border border-neutral-border bg-neutral-surface-raised px-3 py-2.5">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[13px] font-medium text-neutral-text-primary">
+                  Show on card
+                </span>
+                <FieldHelp
+                  label="Show on card"
+                  body="Adds this field's value to task cards on the board. Custom fields render after all built-in card content and are the first to collapse into overflow — they never displace the health badge or story points."
+                  docHref="features/board/#custom-fields-on-cards"
+                />
+              </div>
+              <p className="mt-0.5 text-[12px] text-neutral-text-secondary">
+                Off by default. Board residents can still mute all custom fields from the board’s
+                display settings.
+              </p>
+            </div>
+            <Toggle
+              on={showOnCard}
+              onChange={setShowOnCard}
+              onLabel=""
+              offLabel=""
+              ariaLabel="Show on card"
+            />
+          </div>
 
           {isSelectType(fieldType) && <OptionsEditor options={options} onChange={setOptions} />}
         </div>

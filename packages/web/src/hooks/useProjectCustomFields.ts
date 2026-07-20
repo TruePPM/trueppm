@@ -28,6 +28,8 @@ export interface ProjectCustomField {
   required: boolean;
   options: CustomFieldOption[];
   order: number;
+  /** Opt-in to rendering this field's value on the board card face (#2143/#2144). */
+  showOnCard: boolean;
   serverVersion: number;
 }
 
@@ -38,6 +40,7 @@ interface ApiCustomField {
   required: boolean;
   options: CustomFieldOption[];
   order: number;
+  show_on_card: boolean;
   server_version: number;
 }
 
@@ -49,6 +52,8 @@ function fromApi(row: ApiCustomField): ProjectCustomField {
     required: row.required,
     options: row.options ?? [],
     order: row.order,
+    // Tolerate a pre-#2143 API that omits the field (renders as opt-out).
+    showOnCard: row.show_on_card ?? false,
     serverVersion: row.server_version,
   };
 }
@@ -60,6 +65,7 @@ export interface CreateCustomFieldPayload {
   fieldType: CustomFieldType;
   required?: boolean;
   options?: CustomFieldOption[];
+  showOnCard?: boolean;
 }
 
 export interface UpdateCustomFieldPayload {
@@ -67,6 +73,7 @@ export interface UpdateCustomFieldPayload {
   required?: boolean;
   options?: CustomFieldOption[];
   order?: number;
+  showOnCard?: boolean;
 }
 
 export function useProjectCustomFields(projectId: string | null | undefined) {
@@ -90,6 +97,7 @@ export function useProjectCustomFields(projectId: string | null | undefined) {
         field_type: payload.fieldType,
         required: payload.required ?? false,
         options: payload.options ?? [],
+        show_on_card: payload.showOnCard ?? false,
       });
       return fromApi(res.data);
     },
@@ -105,6 +113,7 @@ export function useProjectCustomFields(projectId: string | null | undefined) {
       if (args.payload.required !== undefined) body.required = args.payload.required;
       if (args.payload.options !== undefined) body.options = args.payload.options;
       if (args.payload.order !== undefined) body.order = args.payload.order;
+      if (args.payload.showOnCard !== undefined) body.show_on_card = args.payload.showOnCard;
       const res = await apiClient.patch<ApiCustomField>(
         `/projects/${projectId}/fields/${args.id}/`,
         body,
@@ -114,8 +123,7 @@ export function useProjectCustomFields(projectId: string | null | undefined) {
     onSuccess: (row) => {
       queryClient.setQueryData<ProjectCustomField[] | undefined>(
         FIELDS_KEY(projectId ?? ''),
-        (prev) =>
-          prev?.map((f) => (f.id === row.id ? row : f)).sort((a, b) => a.order - b.order),
+        (prev) => prev?.map((f) => (f.id === row.id ? row : f)).sort((a, b) => a.order - b.order),
       );
     },
   });

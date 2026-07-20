@@ -33,6 +33,7 @@ import {
 } from 'react';
 import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProjectCustomFields, type ProjectCustomField } from '@/hooks/useProjectCustomFields';
 import { setSearchParam, useUrlSelectedId } from '@/hooks/useUrlSelectedId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN } from '@/lib/roles';
@@ -592,6 +593,7 @@ interface BoardCellProps {
   onCardClick: (task: Task, anchor: HTMLElement) => void;
   showEvm: EvmMode;
   showCost: boolean;
+  customFieldDefs: ProjectCustomField[];
   /** Sprint scope-injection accept/reject affordance (ADR-0102). */
   scopeActions: BoardCardScopeActions;
   /** Closed-sprint read-only (#1141): disables drag on every card in the cell. */
@@ -696,6 +698,7 @@ function BoardCellImpl({
   onCardClick,
   showEvm,
   showCost,
+  customFieldDefs,
   scopeActions,
   readOnly = false,
   facetMatchIds,
@@ -823,6 +826,7 @@ function BoardCellImpl({
               onCardClick={onCardClick}
               showEvm={showEvm}
               showCost={showCost}
+              customFieldDefs={customFieldDefs}
               scopeActions={scopeActions}
               readOnly={readOnly}
             />
@@ -930,6 +934,7 @@ interface PhaseLaneProps {
   onOpenMilestone: (task: Task) => void;
   showEvm: EvmMode;
   showCost: boolean;
+  customFieldDefs: ProjectCustomField[];
   /** Sprint scope-injection accept/reject affordance (ADR-0102). */
   scopeActions: BoardCardScopeActions;
   /** Closed-sprint read-only (#1141): disables drag-to-assign on every card. */
@@ -979,6 +984,7 @@ function PhaseLaneImpl({
   onOpenMilestone,
   showEvm,
   showCost,
+  customFieldDefs,
   scopeActions,
   readOnly = false,
   workshop = false,
@@ -1217,6 +1223,7 @@ function PhaseLaneImpl({
               onCardClick={onCardClick}
               showEvm={showEvm}
               showCost={showCost}
+              customFieldDefs={customFieldDefs}
               scopeActions={scopeActions}
               readOnly={readOnly}
               cellCap={cellCap}
@@ -1472,6 +1479,7 @@ interface MobileBoardProps {
   onCardClick: (task: Task, anchor: HTMLElement) => void;
   showEvm: EvmMode;
   showCost: boolean;
+  customFieldDefs: ProjectCustomField[];
   scopeActions: BoardCardScopeActions;
   readOnly: boolean;
   /** Facet-filter match set (issue 1091) — null when no facet active. */
@@ -1514,6 +1522,7 @@ function MobileBoard({
   onCardClick,
   showEvm,
   showCost,
+  customFieldDefs,
   scopeActions,
   readOnly,
   wipTrendSeriesByStatus,
@@ -1653,6 +1662,7 @@ function MobileBoard({
                       onCardClick={onCardClick}
                       showEvm={showEvm}
                       showCost={showCost}
+                      customFieldDefs={customFieldDefs}
                       scopeActions={scopeActions}
                       readOnly={readOnly}
                     />
@@ -2115,6 +2125,19 @@ export function BoardView() {
     useBoardCollapsedColumns(projectId);
   const { density, setDensity, isMobile } = useBoardDensity();
   const toolbarPrefs = useBoardToolbarPrefs();
+
+  // Custom-field marks on cards (#2144): the showOnCard subset, sorted by order,
+  // gated by the per-user board master switch. Empty when muted so BoardCard renders
+  // no field band. Memoized on the fields + the switch so the cards' React.memo holds.
+  const { fields: allCustomFields } = useProjectCustomFields(projectId);
+  const cardCustomFieldDefs = useMemo<ProjectCustomField[]>(
+    () =>
+      toolbarPrefs.showCustomFieldsOnCards
+        ? allCustomFields.filter((f) => f.showOnCard).sort((a, b) => a.order - b.order)
+        : [],
+    [allCustomFields, toolbarPrefs.showCustomFieldsOnCards],
+  );
+
   // On a phone the rail / drawer phase-grid layouts are unusable, so default a
   // user who never explicitly picked a layout to the mobile-friendly Queue
   // (issue 605). An explicit desktop choice is preserved across the breakpoint.
@@ -3601,6 +3624,7 @@ export function BoardView() {
               onCardClick={handleCardClick}
               showEvm={evmMode}
               showCost={showCost}
+              customFieldDefs={cardCustomFieldDefs}
               scopeActions={scopeActions}
               readOnly={readOnly}
               wipTrendSeriesByStatus={wipTrendSeriesByStatus}
@@ -3907,6 +3931,7 @@ export function BoardView() {
                       onOpenMilestone: handleOpenMilestone,
                       showEvm: evmMode,
                       showCost,
+                      customFieldDefs: cardCustomFieldDefs,
                       scopeActions,
                       readOnly,
                       workshop: workshopMode,
@@ -4165,6 +4190,8 @@ export function BoardView() {
           columns={rawColumns}
           onSave={saveBoardConfig}
           onClose={() => setShowSettings(false)}
+          showCustomFieldsOnCards={toolbarPrefs.showCustomFieldsOnCards}
+          onToggleCustomFieldsOnCards={toolbarPrefs.setShowCustomFieldsOnCards}
         />
       )}
       {depTask && (

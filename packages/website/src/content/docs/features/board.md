@@ -49,6 +49,41 @@ An on-track card shows no badge. Every badge carries a glyph and a label (never 
 
 The badge is **expandable, not lossy** — the full chip set is one interaction away. At **comfortable** density (the default), hover, focus, or tap the badge to reveal the complete health chips and baseline-variance panel; the tap target meets the 44px minimum and the disclosure is keyboard- and screen-reader-operable (press <kbd>Esc</kbd> to collapse). At **detailed** density the full chip set stays inline with no badge; at **compact** density only the badge shows.
 
+## Custom fields on cards
+
+A project's custom fields — the **Text**, **Number**, **Date**, **Single-select**, **Multi-select**, **Person**, and **Checkbox** fields you define in **Project Settings → Workflow → Fields** — can show their value directly on the board card, so you can scan a task's metadata without opening the drawer.
+
+This is **opt-in per field**. A field's value appears on cards only after someone with the **Scheduler** role or higher flips its **Show on card** switch in **Project Settings → Workflow → Fields**. Every field is off by default, so the card stays scannable until you deliberately add to it.
+
+### How values render
+
+Values render as compact, type-aware marks that reuse the card's existing chip vocabulary:
+
+- **Single-select / Multi-select** — a colored option chip. The option's color is always paired with its label, never color alone.
+- **Checkbox** — a neutral ✓ mark. A checked box is not a health signal, so it never reads as green.
+- **Text / Number / Date** — a `Label: value` pair, so the datum is self-describing without a legend.
+- **Person** — an avatar initials pill, grouped after the task's assignees and named by its field, so it is never mistaken for an assignee.
+
+Custom-field marks are the **lowest-priority content on the card**. They render after every existing element and never displace the health badge or the story-point pill — a custom field can't push a delivery signal off the row. When space is contested, they are the first content to collapse into overflow. **Unset values render nothing** — no placeholder, no empty chip, no reserved space.
+
+### Per density
+
+How many marks show inline depends on the card **density** you are viewing:
+
+| Density | What shows |
+|---------|------------|
+| **Comfortable** (the default) | Up to **3** marks inline, plus a **+N more** button that opens a tap-to-peek list of the rest |
+| **Compact / mobile** | A single **⊕N** button on the card bar; tap it to peek every value |
+| **Detailed** | All flagged values, inline |
+
+### Hiding custom fields on your board
+
+A per-user board switch, **Show custom fields on cards** (in the board's settings panel, on by default), hides the whole class from your own view in one click. It is a view preference: turning it off changes only what *you* see and leaves every field's **Show on card** setting untouched, so muting the cards on your board never changes them for the rest of the team.
+
+:::note[Scope]
+Custom fields on cards is single-project, team-level board presentation. Aggregating a custom field across projects or a portfolio, or governing field visibility by org policy, is out of scope for the community edition — that governance lives in the enterprise edition.
+:::
+
 ## Moving cards
 
 Drag a card to a new column to change its status. The status change is optimistic: the card moves immediately, and the API call fires in the background. If the API call fails, the card snaps back with a toast.

@@ -100,6 +100,7 @@ interface Captures {
   phaseCreate?: Record<string, unknown>;
   boardConfigPut?: Record<string, unknown>;
   fieldCreate?: Record<string, unknown>;
+  fieldPatch?: Record<string, unknown>;
   projectPatch?: Record<string, unknown>;
 }
 
@@ -149,7 +150,11 @@ async function setup(page: Page, captures: Captures) {
       });
       return;
     }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROJECT) });
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj(FIXTURE_PROJECT),
+    });
   });
 
   // useCurrentUserRole hits /members/?self=true — admin so all edit controls show.
@@ -228,6 +233,24 @@ async function setup(page: Page, captures: Captures) {
       body: pj([FIXTURE_FIELD_VENDOR]),
     });
   });
+
+  // Per-field detail — captures the Show-on-card PATCH round-trip (#2144).
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/fields/field-vendor/`, async (route) => {
+    if (route.request().method() === 'PATCH') {
+      captures.fieldPatch = (await route.request().postDataJSON()) as Record<string, unknown>;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...FIXTURE_FIELD_VENDOR, ...captures.fieldPatch }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj(FIXTURE_FIELD_VENDOR),
+    });
+  });
 }
 
 test.describe('Project Settings → Workflow (#521)', () => {
@@ -243,7 +266,9 @@ test.describe('Project Settings → Workflow (#521)', () => {
     // Phases from the API — locate by the rename button to avoid colliding with
     // the build-version footer that includes the word "Build".
     const phasesSection = page.getByRole('region', { name: /Phases/i });
-    await expect(phasesSection.getByRole('button', { name: 'Engineering', exact: true })).toBeVisible();
+    await expect(
+      phasesSection.getByRole('button', { name: 'Engineering', exact: true }),
+    ).toBeVisible();
     await expect(phasesSection.getByRole('button', { name: 'Build', exact: true })).toBeVisible();
     await expect(phasesSection.getByText(/12 tasks/)).toBeVisible();
 
@@ -251,8 +276,12 @@ test.describe('Project Settings → Workflow (#521)', () => {
     // and label (Backlog) both appear in each row, so locate via the rename
     // button which carries only the label.
     const statusesSection = page.getByRole('region', { name: /Statuses/i });
-    await expect(statusesSection.getByRole('button', { name: 'Backlog', exact: true })).toBeVisible();
-    await expect(statusesSection.getByRole('button', { name: 'In Progress', exact: true })).toBeVisible();
+    await expect(
+      statusesSection.getByRole('button', { name: 'Backlog', exact: true }),
+    ).toBeVisible();
+    await expect(
+      statusesSection.getByRole('button', { name: 'In Progress', exact: true }),
+    ).toBeVisible();
 
     // Custom fields list — built-ins above, dynamic below.
     const fieldsSection = page.getByRole('region', { name: /Fields/i });
@@ -273,9 +302,9 @@ test.describe('Project Settings → Workflow (#521)', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/workflow`);
 
     await page.getByRole('button', { name: /\+ Add phase/i }).click();
-    await expect.poll(() => captures.phaseCreate).toEqual(
-      expect.objectContaining({ name: 'New phase' }),
-    );
+    await expect
+      .poll(() => captures.phaseCreate)
+      .toEqual(expect.objectContaining({ name: 'New phase' }));
   });
 
   test('Hide column toggle issues a PUT /board-config/ with visible=false', async ({ page }) => {
@@ -284,7 +313,10 @@ test.describe('Project Settings → Workflow (#521)', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/workflow`);
 
     const statusesSection = page.getByRole('region', { name: /Statuses/i });
-    await statusesSection.getByRole('button', { name: /Hide column/i }).first().click();
+    await statusesSection
+      .getByRole('button', { name: /Hide column/i })
+      .first()
+      .click();
 
     await expect.poll(() => captures.boardConfigPut).toBeTruthy();
     const cols = (captures.boardConfigPut?.columns as Array<Record<string, unknown>>) ?? [];
@@ -304,13 +336,29 @@ test.describe('Project Settings → Workflow (#521)', () => {
     await dialog.getByRole('textbox').first().fill('Compliance gate');
     await dialog.getByRole('button', { name: /Add field/i }).click();
 
-    await expect.poll(() => captures.fieldCreate).toEqual(
-      expect.objectContaining({
-        name: 'Compliance gate',
-        field_type: 'TEXT',
-        required: false,
-      }),
-    );
+    await expect
+      .poll(() => captures.fieldCreate)
+      .toEqual(
+        expect.objectContaining({
+          name: 'Compliance gate',
+          field_type: 'TEXT',
+          required: false,
+        }),
+      );
+  });
+
+  test('Show on card toggle round-trips a PATCH with show_on_card (#2144)', async ({ page }) => {
+    const captures: Captures = {};
+    await setup(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/workflow`);
+
+    // The Vendor custom field is off by default; its row toggle is a role=switch.
+    const toggle = page.getByRole('switch', { name: 'Show Vendor on board cards' });
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+    await toggle.click();
+    await expect.poll(() => captures.fieldPatch).toEqual({ show_on_card: true });
   });
 
   test('SINGLE_SELECT without options keeps the Add button disabled', async ({ page }) => {
@@ -335,9 +383,9 @@ test.describe('Project Settings → Workflow (#521)', () => {
     await expect(cadence.getByRole('radio', { name: /Sprint-based/i })).toBeVisible();
     await cadence.getByRole('radio', { name: /Continuous flow/i }).click();
 
-    await expect.poll(() => captures.projectPatch).toEqual(
-      expect.objectContaining({ board_cadence: 'continuous' }),
-    );
+    await expect
+      .poll(() => captures.projectPatch)
+      .toEqual(expect.objectContaining({ board_cadence: 'continuous' }));
   });
 
   // Per-column aging threshold (#410, ADR-0161)

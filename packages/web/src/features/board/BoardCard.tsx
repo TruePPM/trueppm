@@ -28,6 +28,8 @@ import { phaseColor } from './phaseColors';
 import { LinkIcon, WarningIcon, MoreHorizontalIcon } from '@/components/Icons';
 import { LabelPillRow } from '@/components/LabelPill';
 import { CardPeekButton } from './CardPeekButton';
+import { CustomFieldMarks, CustomFieldCompactPeek } from './CustomFieldMarks';
+import type { ProjectCustomField } from '@/hooks/useProjectCustomFields';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useIsOverflowing } from '@/hooks/useIsOverflowing';
 
@@ -115,6 +117,14 @@ interface BoardCardProps {
    * button for opening detail); the ClosedSprintBanner announces the read-only state.
    */
   readOnly?: boolean;
+  /**
+   * Project custom-field definitions to render on the card, flagged `showOnCard` and
+   * pre-sorted by `order` (#2144). Values come from `task.customFields`. The board-level
+   * master switch (web-rule 271) is applied upstream — BoardView passes an empty array
+   * when muted — so the card stays unaware of board-view state. Pass a stable (memoized)
+   * array so `React.memo` is not defeated; empty/undefined renders no field band.
+   */
+  customFieldDefs?: ProjectCustomField[];
 }
 
 /**
@@ -226,12 +236,14 @@ function BoardCardImpl({
   onCardClick,
   scopeActions,
   readOnly = false,
+  customFieldDefs,
 }: BoardCardProps) {
   const itl = useIterationLabel();
   // Resolved estimation scale for the point badge (ADR-0510, #2027). useProject
   // shares the ['project', id] react-query cache, so every card reads it without a
   // new request; Fibonacci until the project detail resolves.
-  const estimationScale = useProject(useProjectId()).data?.effective_estimation_scale ?? 'fibonacci';
+  const estimationScale =
+    useProject(useProjectId()).data?.effective_estimation_scale ?? 'fibonacci';
   // A closed-sprint board disables drag-to-assign (issue 1141): dnd-kit returns empty
   // listeners/attributes when disabled, so the card keeps click-to-open + scroll
   // but can never be dragged into the closed sprint's scope.
@@ -811,6 +823,10 @@ function BoardCardImpl({
               <LabelPillRow labels={task.labels ?? []} density="compact" />
             </span>
           )}
+          {/* Custom fields (#2144): 0 inline on the 36px bar — one trailing ⊕N peek. */}
+          {customFieldDefs && customFieldDefs.length > 0 && (
+            <CustomFieldCompactPeek fields={customFieldDefs} values={task.customFields} />
+          )}
         </div>
         {/* 3px progress strip at the bottom of each compact card */}
         <div
@@ -1066,6 +1082,16 @@ function BoardCardImpl({
               </>
             )}
           </div>
+        )}
+
+        {/* Custom fields (#2144, web-rule 271) — lowest priority, last, hairline above.
+            Comfortable: ≤3 inline + "+N more" peek; detailed: all inline. Empty → nothing. */}
+        {customFieldDefs && customFieldDefs.length > 0 && (
+          <CustomFieldMarks
+            fields={customFieldDefs}
+            values={task.customFields}
+            density={isDetailed ? 'detailed' : 'comfortable'}
+          />
         )}
 
         {/* Entry stamp — comfortable: only when non-empty; detailed: always when available */}

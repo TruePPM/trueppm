@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/Button';
+import { Toggle } from '../settings/components/Toggle';
 import type { BoardColumnDef } from '@/hooks/useBoardConfig';
 import type { TaskStatus } from '@/types';
 
@@ -8,6 +9,14 @@ interface Props {
   onSave: (columns: BoardColumnDef[]) => Promise<void>;
   onClose: () => void;
   readOnly?: boolean;
+  /**
+   * Per-user board master switch for custom-field marks on cards (#2144, web-rule 271).
+   * Distinct from the per-column config saved via `onSave` — this toggles immediately
+   * through the board toolbar prefs and only affects the current user's view. The
+   * board-level Display section renders only when `onToggleCustomFieldsOnCards` is passed.
+   */
+  showCustomFieldsOnCards?: boolean;
+  onToggleCustomFieldsOnCards?: (value: boolean) => void;
 }
 
 const SWATCHES: { hex: string; label: string }[] = [
@@ -37,11 +46,18 @@ interface RowError {
  * Status order is fixed by the canonical TaskStatus enum — drag-to-reorder
  * is intentionally out of scope (hybrid model preserves the canonical five).
  */
-export function BoardSettingsPanel({ columns, onSave, onClose, readOnly = false }: Props) {
+export function BoardSettingsPanel({
+  columns,
+  onSave,
+  onClose,
+  readOnly = false,
+  showCustomFieldsOnCards,
+  onToggleCustomFieldsOnCards,
+}: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const [draft, setDraft] = useState<BoardColumnDef[]>(() => columns.map((c) => ({ ...c })));
   const [errors, setErrors] = useState<Record<TaskStatus, RowError>>(
-    () => ({} as Record<TaskStatus, RowError>),
+    () => ({}) as Record<TaskStatus, RowError>,
   );
   const [isSaving, setIsSaving] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -134,7 +150,12 @@ export function BoardSettingsPanel({ columns, onSave, onClose, readOnly = false 
       <div className="w-full max-w-[480px] bg-neutral-surface border-l border-neutral-border flex flex-col overflow-y-auto">
         <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 border-b border-neutral-border">
           <div>
-            <h2 id="board-settings-title" className="text-sm font-semibold text-neutral-text-primary">Board columns</h2>
+            <h2
+              id="board-settings-title"
+              className="text-sm font-semibold text-neutral-text-primary"
+            >
+              Board columns
+            </h2>
             <p className="mt-0.5 text-xs text-neutral-text-secondary">
               {readOnly
                 ? 'View-only — schedulers can edit columns'
@@ -154,6 +175,36 @@ export function BoardSettingsPanel({ columns, onSave, onClose, readOnly = false 
             ✕
           </button>
         </div>
+
+        {/* Board-level Display section (#2144, web-rule 271): the per-user master switch.
+            Renders only when the toolbar-pref toggle is wired; toggles immediately (not
+            via the column onSave lifecycle) and only affects this user's view. */}
+        {onToggleCustomFieldsOnCards && (
+          <div className="px-5 pt-4 pb-4 border-b border-neutral-border">
+            <div className="text-xs font-semibold uppercase tracking-wide text-neutral-text-disabled mb-2">
+              Display
+            </div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-neutral-text-primary">
+                  Show custom fields on cards
+                </div>
+                <p className="mt-0.5 text-xs text-neutral-text-secondary">
+                  Your view only. Hides every custom-field value from all cards on this board in one
+                  click — per-field “Show on card” settings are unchanged.
+                </p>
+              </div>
+              {/* Reuse the shared settings Toggle so both custom-field switches stay identical. */}
+              <Toggle
+                on={showCustomFieldsOnCards ?? true}
+                onChange={onToggleCustomFieldsOnCards}
+                onLabel=""
+                offLabel=""
+                ariaLabel="Show custom fields on cards"
+              />
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 px-5 py-4 space-y-5">
           {draft.map((col, index) => {
@@ -192,7 +243,9 @@ export function BoardSettingsPanel({ columns, onSave, onClose, readOnly = false 
               <Button
                 variant="primary"
                 size="sm"
-                onClick={() => { void handleSave(); }}
+                onClick={() => {
+                  void handleSave();
+                }}
                 disabled={!isDirty || hasErrors || isSaving}
                 className="min-h-[44px]"
               >
@@ -259,7 +312,11 @@ function ColumnRow({ col, err, readOnly, onChange }: RowProps) {
 
       <div>
         <span className="block text-xs text-neutral-text-secondary mb-1">Color</span>
-        <div className="flex items-center flex-wrap gap-2" role="group" aria-label={`${col.label} color`}>
+        <div
+          className="flex items-center flex-wrap gap-2"
+          role="group"
+          aria-label={`${col.label} color`}
+        >
           {SWATCHES.map((s) => {
             const selected = col.color?.toUpperCase() === s.hex.toUpperCase();
             return (
@@ -348,7 +405,7 @@ function ColumnRow({ col, err, readOnly, onChange }: RowProps) {
                 onChange({ wipLimit: null });
               } else {
                 const n = Number(raw);
-                onChange({ wipLimit: Number.isFinite(n) ? n : col.wipLimit ?? null });
+                onChange({ wipLimit: Number.isFinite(n) ? n : (col.wipLimit ?? null) });
               }
             }}
             aria-invalid={Boolean(err.wip)}
