@@ -14,7 +14,7 @@ Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of t
 - **Section header** — `SPRINT BACKLOG · {N} tasks · grouped by board status · {N} pts committed`
 - **Group headers** — `Done`, `In Review`, `In Progress`, `Not Started`, `Backlog` — collapsible, state persists in `sessionStorage`
 - **Per-row columns** — short id, name, points, CP flag (semantic-critical outlined), owner avatars, board status chip
-- **`⌘K to add task`** keyboard hint — placeholder until the task creation command palette ships
+- **`c` to add task** keyboard hint — opens the create-task modal pre-targeted at the active (or planned) sprint. Rebound from `⌘K`, which is reserved for the global command palette
 - **`Open in board ↗`** link — navigates to `/projects/:id/board?sprint=:sprintId`
 - **`Pull from backlog →`** link (planned sprints only) — while a sprint is still being planned, the panel links across to the [Product Backlog](/features/product-backlog/), where existing stories are committed into the sprint. An empty planned sprint surfaces it as the primary call-to-action, so a freshly created sprint points the team at where work is pulled in rather than showing a dead-end empty table.
 

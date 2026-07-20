@@ -122,6 +122,25 @@ describe('BottomNav', () => {
     expect(within(dialog).getByRole('link', { name: /Settings/i })).toBeInTheDocument();
   });
 
+  it('drops the Settings row from the overflow for a non-admin (#2147)', async () => {
+    // /projects/:id/settings bounces a user who is admin nowhere to their
+    // personal notification prefs — the mobile overflow must not lead there.
+    mockUseCurrentUser.mockReturnValue({
+      user: { hidden_views: [], can_access_admin_settings: false },
+      isLoading: false,
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<BottomNav />, {
+      initialEntries: ['/projects/proj-1/board'],
+    });
+    const nav = screen.getByRole('navigation', { name: /view/i });
+    await user.click(within(nav).getByRole('button', { name: /^More/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByRole('link', { name: /Settings/i })).not.toBeInTheDocument();
+    // The rest of the overflow still renders — only Settings is gated.
+    expect(within(dialog).getByRole('link', { name: /Risks/i })).toBeInTheDocument();
+  });
+
   it('marks the More button active when the current surface lives in the overflow (issue 539)', () => {
     renderWithRouter(<BottomNav />, { initialEntries: ['/projects/proj-1/settings'] });
     const nav = screen.getByRole('navigation', { name: /view/i });

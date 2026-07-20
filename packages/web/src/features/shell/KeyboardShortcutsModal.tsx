@@ -24,6 +24,7 @@ interface ShortcutGroup {
  *   ? this modal               → useHelpShortcut
  *   command-palette nav        → CommandPalette
  *   ⌘S save                    → SettingsShell + TaskDetailDrawer (rules 115/217)
+ *   C add task to sprint       → SprintsView (rebound from ⌘K, #2162)
  *   board roving focus         → useBoardKeyboard
  *   Schedule reschedule/nudge  → useKeyboardReschedule (#1742)
  *   ⌘= / ⌘− / ⌘0 zoom & fit    → ScheduleView keyBindings (rules 127/129)
@@ -67,6 +68,13 @@ function useShortcutGroups(): ShortcutGroup[] {
       ],
     },
     {
+      // SprintsView binds a single `c` to open the task-create modal targeted at
+      // the active (or planned) sprint — rebound from ⌘K, which collided with the
+      // global command palette (#2162).
+      heading: 'Sprints',
+      shortcuts: [{ keys: ['C'], label: 'Add a task to the active sprint' }],
+    },
+    {
       // Schedule (Gantt): keyboard reschedule (useKeyboardReschedule, #1742 —
       // the in-canvas instruction strip, rule 51, shows the same bindings live),
       // continuous zoom / fit (rules 127/129), drag-to-pan (rules 130/131), and
@@ -100,11 +108,7 @@ export function KeyboardShortcutsModal({ onClose }: Props) {
       aria-label="Keyboard shortcuts"
       className="fixed inset-0 z-50 flex items-center justify-center"
     >
-      <div
-        className="fixed inset-0 bg-neutral-overlay"
-        aria-hidden="true"
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 bg-neutral-overlay" aria-hidden="true" onClick={onClose} />
       <div
         ref={trapRef}
         tabIndex={-1}
@@ -131,10 +135,7 @@ export function KeyboardShortcutsModal({ onClose }: Props) {
               </h3>
               <dl className="flex flex-col gap-1.5">
                 {group.shortcuts.map((shortcut) => (
-                  <div
-                    key={shortcut.label}
-                    className="flex items-center justify-between gap-4"
-                  >
+                  <div key={shortcut.label} className="flex items-center justify-between gap-4">
                     <dt className="text-sm text-neutral-text-primary">{shortcut.label}</dt>
                     <dd className="flex shrink-0 items-center gap-1">
                       {shortcut.keys.map((key) => (

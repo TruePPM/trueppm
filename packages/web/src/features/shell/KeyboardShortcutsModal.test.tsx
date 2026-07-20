@@ -31,7 +31,10 @@ describe('KeyboardShortcutsModal', () => {
     expect(screen.getByRole('heading', { name: 'Command palette' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Editing' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Board' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sprints' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Schedule (Gantt)' })).toBeInTheDocument();
+    // The rebound sprint create shortcut is documented (#2162).
+    expect(screen.getByText('Add a task to the active sprint')).toBeInTheDocument();
     // A representative binding from each group.
     expect(screen.getByText('Open the command palette')).toBeInTheDocument();
     expect(screen.getByText('Show or hide the sidebar')).toBeInTheDocument();
@@ -59,7 +62,9 @@ describe('KeyboardShortcutsModal', () => {
 
   it('cross-links the per-surface board / build cheatsheets (#2058)', () => {
     render(<KeyboardShortcutsModal onClose={vi.fn()} />);
-    expect(screen.getByText(/Board and Schedule build mode have more shortcuts/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Board and Schedule build mode have more shortcuts/i),
+    ).toBeInTheDocument();
   });
 
   it('renders the OS modifier chip for the command palette shortcut', () => {

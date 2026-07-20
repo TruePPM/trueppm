@@ -185,9 +185,7 @@ describe('Sidebar rail — Tier 1 "You"', () => {
   it('shows an unread-count badge on the Notifications row (#1919)', () => {
     mockUseUnreadCount.mockReturnValue({ count: 5, isLoading: false });
     renderRail();
-    expect(
-      screen.getByRole('link', { name: 'Notifications, 5 unread' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Notifications, 5 unread' })).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
   });
 
@@ -201,9 +199,7 @@ describe('Sidebar rail — Tier 1 "You"', () => {
   it('caps the Notifications badge display at 99+ (#1919)', () => {
     mockUseUnreadCount.mockReturnValue({ count: 150, isLoading: false });
     renderRail();
-    expect(
-      screen.getByRole('link', { name: 'Notifications, 150 unread' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Notifications, 150 unread' })).toBeInTheDocument();
     expect(screen.getByText('99+')).toBeInTheDocument();
   });
 });
@@ -281,9 +277,7 @@ describe('Sidebar rail — Tier 3 "Jump"', () => {
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
     fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
-    fireEvent.click(
-      screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ }));
     // Selecting a destination is terminal — the popover dismisses itself.
     expect(screen.queryByRole('link', { name: 'Resources catalog' })).not.toBeInTheDocument();
   });
@@ -415,6 +409,28 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
     // It is a standalone trailing row — outside every grouped landmark — so it
     // must not live inside one of the PLAN/DELIVER/TRACK/PEOPLE groups.
     expect(settings.closest('[role="group"]')).toBeNull();
+  });
+
+  it('hides the Settings row from a non-admin — RequireAdminSettings would bounce them (#2147)', () => {
+    // `/projects/:id/settings` redirects a user who is admin nowhere to their
+    // personal notification prefs; the row must not lead there for them.
+    mockUseCurrentUser.mockReturnValue({
+      user: { ...DEFAULT_USER.user, can_access_admin_settings: false },
+    });
+    renderRail();
+    expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument();
+    // The rest of the project views still render — only Settings is gated.
+    expect(screen.getByRole('link', { name: 'Board' })).toBeInTheDocument();
+  });
+
+  it('keeps the Settings row visible while the role signal is still loading (#2147)', () => {
+    // Strict `!== false`: an absent/loading `can_access_admin_settings` falls
+    // through so an admin never sees a flash-hidden row (mirrors the guard).
+    mockUseCurrentUser.mockReturnValue({
+      user: { ...DEFAULT_USER.user, can_access_admin_settings: undefined },
+    });
+    renderRail();
+    expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument();
   });
 
   it('AGILE hides Schedule/Calendar and keeps the DELIVER trio', () => {

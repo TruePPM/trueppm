@@ -50,6 +50,7 @@ import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useCanEditSprintGoal } from '@/hooks/useCanEditSprintGoal';
 import { EmptyState } from '@/components/EmptyState';
+import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { Button } from '@/components/Button';
 import { SprintIcon } from '@/components/Icons';
@@ -163,8 +164,8 @@ export function SprintsView() {
   // Lifecycle actions (Close/Plan/Activate) stay tied to the real active/planned
   // sprint regardless of selection (one-active-sprint model). Default selection:
   // active → next planned → most-recently-closed.
-  const [selectedSprintId, setSelectedSprintIdState] = useState<string | null>(
-    () => searchParams.get('sprint'),
+  const [selectedSprintId, setSelectedSprintIdState] = useState<string | null>(() =>
+    searchParams.get('sprint'),
   );
   // Wrap the setter so a sprint selection is mirrored into `?sprint=<id>` (issue
   // #2046): "look at Sprint 12's outcome" becomes a shareable link, and activity
@@ -286,15 +287,21 @@ export function SprintsView() {
     setCapacityWarnings([]);
   }, [activeSprint?.id]);
 
-  // ⌘K / Ctrl+K opens the task create modal pre-targeted at the active sprint,
-  // or the planned sprint when there is no active sprint yet.
+  // `c` opens the task-create modal pre-targeted at the active sprint (or the
+  // planned sprint when there is no active one). Rebound from ⌘K, which shared
+  // the chord with the always-mounted global command palette (#1557) and stacked
+  // two focus-trapped overlays on one keystroke (#2162). Single-key, so it routes
+  // through the shared typing guard (never fires mid-type) and yields whenever a
+  // modal owns the surface — including the palette itself.
   useEffect(() => {
     const targetSprint = activeSprint ?? plannedSprint;
+    if (!targetSprint) return;
     function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && targetSprint) {
-        e.preventDefault();
-        setAddTaskForSprintId(targetSprint.id);
-      }
+      if (e.metaKey || e.ctrlKey || e.altKey || e.key !== 'c') return;
+      if (isTypingInInput(e.target)) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      e.preventDefault();
+      setAddTaskForSprintId(targetSprint.id);
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);

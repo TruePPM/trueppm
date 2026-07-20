@@ -28,6 +28,10 @@ interface MenuContentProps {
   isMobile: boolean;
   /** When set, renders a "Project settings" link in the menu. */
   projectId: string | undefined;
+  /** When true, the "Project settings" link is shown. Gated on the same
+   *  `can_access_admin_settings` predicate as the RequireAdminSettings route guard
+   *  so the row never leads to a page the guard bounces the user away from (#2147). */
+  canAccessProjectSettings: boolean;
   /** When true, renders a "Workspace settings" link in the menu. Gated on
    *  workspace-admin (not any project-admin) so the row never leads to a page the
    *  RequireWorkspaceAdmin route guard would bounce the user away from (#2012). */
@@ -43,6 +47,7 @@ function MenuContent({
   onClose,
   isMobile,
   projectId,
+  canAccessProjectSettings,
   canAccessWorkspaceSettings,
 }: MenuContentProps) {
   const rowBase = isMobile
@@ -96,8 +101,10 @@ function MenuContent({
         My Work
       </NavLink>
 
-      {/* Project settings — only shown when a project is in context */}
-      {projectId && (
+      {/* Project settings — shown when a project is in context AND the user can
+          reach the admin settings shell; otherwise RequireAdminSettings would
+          silently bounce them to personal notification prefs (#2147). */}
+      {projectId && canAccessProjectSettings && (
         <NavLink
           to={`/projects/${projectId}/settings/members`}
           role="menuitem"
@@ -370,6 +377,10 @@ export function UserMenu() {
     onOpenShortcuts: openShortcutsModal,
     onClose: close,
     projectId,
+    // Strict `!== false`: keep the row visible while the role signal loads and
+    // hide it only once the server positively says this user is admin nowhere —
+    // the exact predicate RequireAdminSettings gates the route on (#2147).
+    canAccessProjectSettings: user?.can_access_admin_settings !== false,
     // Workspace settings is workspace-admin-gated (RequireWorkspaceAdmin, #2012),
     // not any-project-admin — a project-admin who is a plain workspace member
     // would be redirected away, so the row must not appear for them.

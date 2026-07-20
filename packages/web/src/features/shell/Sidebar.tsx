@@ -803,7 +803,10 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                       </button>
                     </div>
                   ) : (
-                    <p role="status" className="px-3 py-2 text-xs italic text-chrome-text-secondary">
+                    <p
+                      role="status"
+                      className="px-3 py-2 text-xs italic text-chrome-text-secondary"
+                    >
                       Pin a program or project for quick access.
                     </p>
                   )}
@@ -981,6 +984,12 @@ function ProjectViewsTier({
     useGroupedProjectViews(projectId);
   const project = useProject(projectId);
   const { data: programs } = usePrograms();
+  const { user } = useCurrentUser();
+  // The Settings row targets `/projects/:id/settings`, which `RequireAdminSettings`
+  // bounces to personal notification prefs for a non-admin (#2147). Gate the row on
+  // the same predicate the guard uses (strict `!== false`, so it stays visible while
+  // the role signal loads and never flash-hides for an admin — mirrors #2033).
+  const canAccessProjectSettings = user?.can_access_admin_settings !== false;
 
   const name = project.data?.name ?? 'Project';
   const programId = project.data?.program ?? null;
@@ -1079,20 +1088,22 @@ function ProjectViewsTier({
         {/* Settings trails standalone (no group label), mirroring the program tier's
             `PROGRAM_VIEWS` Settings row (#2045). Without it the two Tier-2 siblings
             diverge and desktop project settings (members/access, working calendars —
-            a getting-started step) is reachable only via the UserMenu. */}
-        {(() => {
-          const SettingsIcon = VIEW_TAB_META[standaloneTrailing].Icon;
-          return (
-            <NavLink
-              to={`/projects/${projectId}/${standaloneTrailing}`}
-              onClick={closeDrawer}
-              className={({ isActive }) => rowClass(isActive)}
-            >
-              <SettingsIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span className="min-w-0 truncate">{labelFor(standaloneTrailing)}</span>
-            </NavLink>
-          );
-        })()}
+            a getting-started step) is reachable only via the UserMenu. Hidden for
+            non-admins so it never dumps them on the guard's redirect target (#2147). */}
+        {canAccessProjectSettings &&
+          (() => {
+            const SettingsIcon = VIEW_TAB_META[standaloneTrailing].Icon;
+            return (
+              <NavLink
+                to={`/projects/${projectId}/${standaloneTrailing}`}
+                onClick={closeDrawer}
+                className={({ isActive }) => rowClass(isActive)}
+              >
+                <SettingsIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 truncate">{labelFor(standaloneTrailing)}</span>
+              </NavLink>
+            );
+          })()}
       </nav>
     </>
   );

@@ -9,7 +9,7 @@ interface Props {
   projectId: string;
   sprintId: string;
   tasks: SprintBacklogTask[];
-  /** Called when the user clicks "+ Add task" or presses ⌘K. */
+  /** Called when the user clicks "+ Add task" or presses the `c` shortcut. */
   onAddTask?: () => void;
   /** Called when the user removes a task from this sprint (sets sprint=null). */
   onRemoveTask?: (taskId: string) => void;
