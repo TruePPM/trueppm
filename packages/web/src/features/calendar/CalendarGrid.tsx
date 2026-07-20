@@ -31,6 +31,8 @@ import {
   type MilestoneMark,
 } from './calendarUtils';
 import { CalendarChip } from './CalendarChip';
+import { CalendarMobileList } from './CalendarMobileList';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 
 const DAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MAX_LANES = 4;
@@ -144,6 +146,18 @@ export function CalendarGrid({
   onTaskClick,
   sprintBoundaries,
 }: CalendarGridProps) {
+  // Below the `md` breakpoint the 7-column grid collapses to unusable ~60px
+  // columns; render the documented date-grouped agenda list instead (#2161).
+  const breakpoint = useBreakpoint();
+  if (breakpoint === 'sm') {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        <CalendarMobileList anchorIso={anchorIso} tasks={tasks} onTaskClick={onTaskClick} />
+        <CalendarLegend />
+      </div>
+    );
+  }
+
   const anchor = parseUTCDate(anchorIso);
   const today = new Date();
   const weeks = monthWeekStarts(anchor);
