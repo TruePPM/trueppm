@@ -154,7 +154,7 @@ This package is **`Development Status :: 3 - Alpha`**: the public API may change
 before 1.0. **Pin an exact version** rather than a range:
 
 ```
-trueppm-scheduler==0.2.0a1
+trueppm-scheduler==0.4.0b1
 ```
 
 Alpha releases are pre-releases — `pip install trueppm-scheduler` skips them
