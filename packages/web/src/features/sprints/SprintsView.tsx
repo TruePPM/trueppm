@@ -740,8 +740,15 @@ export function SprintsView() {
                       </div>
                       {/* Team daily standup — "what changed since yesterday" (#925). */}
                       <SprintDailyDeltaPanel sprintId={selectedSprint.id} />
-                      {/* Impediment roll-up — the SM's blocked-task triage list (ADR-0124). */}
-                      <BlockedRollupPanel scope="sprint" sprintId={selectedSprint.id} />
+                      {/* Impediment roll-up — the SM's blocked-task triage list (ADR-0124).
+                          projectId lets blocked rows deep-link into the task drawer (#2159). */}
+                      {projectId && (
+                        <BlockedRollupPanel
+                          scope="sprint"
+                          sprintId={selectedSprint.id}
+                          projectId={projectId}
+                        />
+                      )}
                     </>
                   )}
 

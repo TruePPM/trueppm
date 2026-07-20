@@ -34,9 +34,9 @@ function proj(overrides: Partial<Project> & Pick<Project, 'id' | 'name'>): Proje
   };
 }
 
-function renderPage() {
+function renderPage(entry = '/programs/prog-1/projects') {
   return render(
-    <MemoryRouter initialEntries={['/programs/prog-1/projects']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/programs/:programId/projects" element={<ProgramProjectsPage />} />
       </Routes>
@@ -82,5 +82,47 @@ describe('ProgramProjectsPage rollup surfacing (#560)', () => {
     const bravo = screen.getByText('Bravo').closest('li') as HTMLElement;
     expect(within(bravo).queryByText(/overdue/)).not.toBeInTheDocument();
     expect(within(bravo).queryByText(/at risk/)).not.toBeInTheDocument();
+  });
+});
+
+describe('ProgramProjectsPage KPI drill-through sort (#2155)', () => {
+  beforeEach(() => {
+    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: 0 } });
+    // Server order is start_date/name; the KPI drill-through re-sorts client-side.
+    useProgramProjects.mockReturnValue({
+      data: [
+        proj({ id: 'a', name: 'Alpha', overdueCount: 1, atRiskCount: 1 }),
+        proj({ id: 'b', name: 'Bravo', overdueCount: 5, atRiskCount: 0 }),
+        proj({ id: 'c', name: 'Charlie', overdueCount: 0, atRiskCount: 4 }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+  });
+
+  function rowOrder(): string[] {
+    return screen
+      .getAllByRole('listitem')
+      .map((li) => within(li).getByRole('link').textContent ?? '');
+  }
+
+  it('keeps server order with no sort param', () => {
+    renderPage();
+    expect(rowOrder()).toEqual(['Alpha', 'Bravo', 'Charlie']);
+  });
+
+  it('floats the highest at-risk projects first with ?sort=at-risk', () => {
+    renderPage('/programs/prog-1/projects?sort=at-risk');
+    expect(rowOrder()).toEqual(['Charlie', 'Alpha', 'Bravo']);
+  });
+
+  it('floats the highest overdue projects first with ?sort=overdue', () => {
+    renderPage('/programs/prog-1/projects?sort=overdue');
+    expect(rowOrder()).toEqual(['Bravo', 'Alpha', 'Charlie']);
+  });
+
+  it('ignores an unknown sort value', () => {
+    renderPage('/programs/prog-1/projects?sort=bogus');
+    expect(rowOrder()).toEqual(['Alpha', 'Bravo', 'Charlie']);
   });
 });

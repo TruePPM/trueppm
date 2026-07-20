@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ProgramOverviewPage } from './ProgramOverviewPage';
+import { ProgramOverviewPage, kpiDrillTarget } from './ProgramOverviewPage';
 
 // Hoisted so the vi.mock factory can reference it without a value-level
 // reference to apiClient.get (which the unbound-method lint rule rejects).
@@ -133,5 +133,81 @@ describe('ProgramOverviewPage (#713)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Failed to load the program rollup.',
     );
+  });
+
+  // --- KPI drill-through (#2155) -------------------------------------------
+
+  it('makes actionable task-count and health KPI cards drill into the projects list', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          critical_tasks: { available: true, value: 5 },
+          at_risk_tasks: { available: true, value: 3 },
+          schedule_health: { available: true, value: 'at_risk' },
+        },
+      }),
+    );
+    renderPage();
+    // at_risk_tasks maps 1:1 to the per-project annotation, so it sorts the list.
+    expect(
+      await screen.findByRole('link', { name: /At-risk tasks: 3\. View at-risk projects\./ }),
+    ).toHaveAttribute('href', '/programs/p-1/projects?sort=at-risk');
+    // critical_tasks has no per-project annotation, but critical ⊂ at-risk, so it
+    // reuses the at-risk sort to surface contributing projects first.
+    expect(
+      screen.getByRole('link', { name: /Critical tasks: 5\. View contributing projects\./ }),
+    ).toHaveAttribute('href', '/programs/p-1/projects?sort=at-risk');
+    // A non-benign health band drills to the projects.
+    expect(
+      screen.getByRole('link', { name: /Schedule health: At risk\. View the projects\./ }),
+    ).toHaveAttribute('href', '/programs/p-1/projects');
+  });
+
+  it('keeps real-zero and benign-health KPI cards static (rule 172)', async () => {
+    mockApi(
+      rollup({
+        program_health: 'on_track',
+        kpis: {
+          critical_tasks: { available: true, value: 0 },
+          schedule_health: { available: true, value: 'on_track' },
+        },
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText('Critical tasks')).toBeInTheDocument();
+    // No zero-count or on-track card becomes a dead-end link.
+    expect(screen.queryByRole('link', { name: /Critical tasks/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Schedule health/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('kpiDrillTarget (#2155)', () => {
+  it('links at-risk tasks to the sorted list only when the count is positive', () => {
+    expect(kpiDrillTarget('at_risk_tasks', { available: true, value: 4 }, 'pg')).toEqual({
+      to: '/programs/pg/projects?sort=at-risk',
+      toLabel: 'at-risk projects',
+    });
+    expect(kpiDrillTarget('at_risk_tasks', { available: true, value: 0 }, 'pg')).toBeUndefined();
+  });
+
+  it('links critical tasks to the at-risk-sorted list (critical ⊂ at-risk)', () => {
+    expect(kpiDrillTarget('critical_tasks', { available: true, value: 2 }, 'pg')).toEqual({
+      to: '/programs/pg/projects?sort=at-risk',
+      toLabel: 'contributing projects',
+    });
+  });
+
+  it('drills a health band only when it is at-risk or critical', () => {
+    expect(kpiDrillTarget('schedule_health', { available: true, value: 'critical' }, 'pg')).toEqual(
+      { to: '/programs/pg/projects', toLabel: 'the projects' },
+    );
+    expect(
+      kpiDrillTarget('schedule_health', { available: true, value: 'on_track' }, 'pg'),
+    ).toBeUndefined();
+  });
+
+  it('never drills a deferred KPI or an unrelated metric', () => {
+    expect(kpiDrillTarget('critical_tasks', { available: false, reason: 'no_cost_data' }, 'pg')).toBeUndefined();
+    expect(kpiDrillTarget('baseline_variance', { available: true, value: 9 }, 'pg')).toBeUndefined();
   });
 });

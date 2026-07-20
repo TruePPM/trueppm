@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useProgram } from '@/hooks/useProgram';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
 import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
@@ -23,6 +23,18 @@ export function ProgramProjectsPage() {
   const { data: program } = useProgram(programId);
   const { data: projects, isLoading, error } = useProgramProjects(programId);
   const removeProjectFromProgram = useAssignProjectToProgram();
+
+  // Optional `?sort=` from a program-overview KPI drill-through (issue #2155):
+  // land with the offending projects first. Unknown/absent → server order
+  // (start_date, name). Null counts sort last (treated as -1).
+  const [searchParams] = useSearchParams();
+  const sort = searchParams.get('sort');
+  const sortedProjects = useMemo(() => {
+    if (!projects || (sort !== 'at-risk' && sort !== 'overdue')) return projects;
+    const key = sort === 'at-risk' ? 'atRiskCount' : 'overdueCount';
+    // Stable descending sort — ties keep the server's start_date/name order.
+    return [...projects].sort((a, b) => (b[key] ?? -1) - (a[key] ?? -1));
+  }, [projects, sort]);
 
   const [showAddExistingModal, setShowAddExistingModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -175,12 +187,12 @@ export function ProgramProjectsPage() {
         </div>
       )}
 
-      {!isLoading && !error && projects && projects.length > 0 && (
+      {!isLoading && !error && sortedProjects && sortedProjects.length > 0 && (
         <ul
           aria-label="Projects in this program"
           className="divide-y divide-neutral-border rounded-card border border-neutral-border bg-neutral-surface"
         >
-          {projects.map((p) => (
+          {sortedProjects.map((p) => (
             <li
               key={p.id}
               className="flex items-center gap-3 px-4 py-3 hover:bg-neutral-surface-raised"

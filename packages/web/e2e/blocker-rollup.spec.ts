@@ -63,12 +63,20 @@ test.describe('Blocked roll-up panel (ADR-0124)', () => {
 
     const panel = page.getByRole('region', { name: 'Blocked' });
     await expect(panel).toBeVisible({ timeout: 5_000 });
-    await expect(panel.getByText('Pour foundation')).toBeVisible();
+    // The title now opens the task drawer (#2159) — a link, not inert text.
+    const titleLink = panel.getByRole('link', { name: 'Pour foundation' });
+    await expect(titleLink).toBeVisible();
+    await expect(titleLink).toHaveAttribute('href', `/projects/${PROJECT_ID}/tasks/t1`);
     await expect(panel.getByText('External vendor')).toBeVisible();
     await expect(panel.getByText('6d blocked')).toBeVisible();
     await expect(panel.getByText('priya')).toBeVisible();
-    // Soft "waiting on" link (issue 1156) — framed as informational, not a CPM edge.
-    await expect(panel.getByText('waiting on T-9')).toBeVisible();
+    // Soft "waiting on" reference (issue 1156) — framed as informational, not a
+    // CPM edge; its short-id now deep-links to the blocking task (#2159).
+    await expect(panel.getByText(/waiting on/i)).toBeVisible();
+    await expect(panel.getByRole('link', { name: 'T-9' })).toHaveAttribute(
+      'href',
+      `/projects/${PROJECT_ID}/tasks/t9`,
+    );
     // The private reason IS in the mock payload (see BLOCKED_ROWS.reason) but
     // must never reach the DOM — the roll-up is a privacy-preserving triage
     // list. If the panel ever renders the reason field, "permit office" would

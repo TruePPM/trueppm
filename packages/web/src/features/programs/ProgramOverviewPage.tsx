@@ -113,9 +113,21 @@ interface KpiCardProps {
   variant?: KpiVariant;
   /** Deferred KPI — render muted/dashed so it reads as "not yet available". */
   muted?: boolean;
+  /** Drill-down route; when set the whole card is an interactive `<Link>`. */
+  to?: string;
+  /** Destination noun for the interactive card's `aria-label`. */
+  toLabel?: string;
 }
 
-function KpiCard({ label, value, sub, variant = 'neutral', muted = false }: KpiCardProps) {
+function KpiCard({
+  label,
+  value,
+  sub,
+  variant = 'neutral',
+  muted = false,
+  to,
+  toLabel,
+}: KpiCardProps) {
   const valueColor = muted
     ? 'text-neutral-text-disabled'
     : {
@@ -126,11 +138,10 @@ function KpiCard({ label, value, sub, variant = 'neutral', muted = false }: KpiC
       }[variant];
 
   const border = muted ? 'border-dashed border-neutral-border' : 'border-neutral-border';
+  const baseClass = `flex flex-col gap-1 p-4 rounded-card border ${border} bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]`;
 
-  return (
-    <div
-      className={`flex flex-col gap-1 p-4 rounded-card border ${border} bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]`}
-    >
+  const body = (
+    <>
       <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary truncate">
         {label}
       </span>
@@ -140,8 +151,28 @@ function KpiCard({ label, value, sub, variant = 'neutral', muted = false }: KpiC
         {value}
       </span>
       {sub && <span className="text-xs text-neutral-text-disabled tppm-mono truncate">{sub}</span>}
-    </div>
+    </>
   );
+
+  // Interactive drill-down: the whole card is a single <Link> (mirrors
+  // ProjectOverviewPage's KpiCard — hover-lift via border+translate, never a
+  // shadow, rule 1). The aria-label replaces the inner text so the destination
+  // is announced as one action, and `min-h-[44px]` guarantees the rule-5 touch
+  // target. A deferred (muted) or real-zero KPI never receives `to`, so a
+  // data-less card stays a static read (rule 172).
+  if (to) {
+    return (
+      <Link
+        to={to}
+        aria-label={`${label}: ${value}${sub ? `, ${sub}` : ''}. View ${toLabel ?? 'details'}.`}
+        className={`${baseClass} min-h-[44px] transition-[transform,border-color] motion-safe:hover:-translate-y-px hover:border-brand-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1`}
+      >
+        {body}
+      </Link>
+    );
+  }
+
+  return <div className={baseClass}>{body}</div>;
 }
 
 function KpiSkeleton() {
@@ -213,6 +244,66 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
     variant: isAttentionKpi && (num ?? 0) > 0 ? 'at-risk' : 'neutral',
     muted: false,
   };
+}
+
+// ---------------------------------------------------------------------------
+// KPI drill-through (issue #2155)
+// ---------------------------------------------------------------------------
+
+interface KpiDrillTarget {
+  to: string;
+  toLabel: string;
+}
+
+/**
+ * Resolve the drill-through target for an actionable KPI card, or `undefined`
+ * for a card that should stay a static read.
+ *
+ * The program overview mirrored ProjectOverviewPage's KpiCard visuals but not
+ * its interactivity — a PM who sees "5 critical tasks" had no path to WHICH
+ * project contributes them. This ports the drill-through onto the two task
+ * buckets and the two health bands, landing on the annotated projects list.
+ *
+ * Only actionable cards get a target (rule 172 — a real-zero or benign card
+ * stays static): the task counts drill only when > 0, and the health bands only
+ * when they are at-risk or critical. `at_risk_tasks` maps 1:1 to the per-project
+ * `at_risk_count` annotation (total_float ≤ 5), so it sorts the offending
+ * projects first. `critical_tasks` (is_critical, float 0) has no separate
+ * per-project annotation, but critical tasks are a strict subset of at-risk
+ * (float 0 ⊂ float ≤ 5), so a project carrying critical tasks always carries at
+ * least as many at-risk ones — sorting by `at-risk` therefore surfaces the
+ * contributing projects first without fabricating a critical-specific sort.
+ * The health bands have no count to sort by, so they land on the plain list.
+ */
+export function kpiDrillTarget(
+  key: string,
+  entry: RollupKpiEntry,
+  programId: string,
+): KpiDrillTarget | undefined {
+  if (!entry.available) return undefined;
+
+  const projectsPath = `/programs/${programId}/projects`;
+
+  if (key === 'at_risk_tasks') {
+    return typeof entry.value === 'number' && entry.value > 0
+      ? { to: `${projectsPath}?sort=at-risk`, toLabel: 'at-risk projects' }
+      : undefined;
+  }
+
+  if (key === 'critical_tasks') {
+    return typeof entry.value === 'number' && entry.value > 0
+      ? { to: `${projectsPath}?sort=at-risk`, toLabel: 'contributing projects' }
+      : undefined;
+  }
+
+  if (HEALTH_KPIS.has(key)) {
+    const band = (entry.value as HealthBand) ?? 'unknown';
+    return band === 'at_risk' || band === 'critical'
+      ? { to: projectsPath, toLabel: 'the projects' }
+      : undefined;
+  }
+
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -342,6 +433,7 @@ export function ProgramOverviewPage() {
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {kpiEntries.map(([key, entry]) => {
                   const k = renderKpi(key, entry);
+                  const drill = programId ? kpiDrillTarget(key, entry, programId) : undefined;
                   return (
                     <KpiCard
                       key={k.key}
@@ -350,6 +442,8 @@ export function ProgramOverviewPage() {
                       sub={k.sub}
                       variant={k.variant}
                       muted={k.muted}
+                      to={drill?.to}
+                      toLabel={drill?.toLabel}
                     />
                   );
                 })}
