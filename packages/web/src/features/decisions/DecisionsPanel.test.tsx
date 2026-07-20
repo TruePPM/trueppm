@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
-import { renderWithProviders as render } from '@/test/utils';
+import { renderWithProvidersAndRouter as render } from '@/test/utils';
 import type { DecisionNote } from '@/types';
 import { DecisionsPanel } from './DecisionsPanel';
 
@@ -8,7 +8,7 @@ const useDecisionsMock = vi.hoisted(() => vi.fn());
 const useSprintsMock = vi.hoisted(() => vi.fn());
 const usePolicyMock = vi.hoisted(() => vi.fn());
 const useSetPolicyMock = vi.hoisted(() => vi.fn());
-const setSelectedTaskIdMock = vi.hoisted(() => vi.fn());
+const navigateMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/useDecisions', () => ({
   useDecisions: useDecisionsMock,
@@ -18,9 +18,9 @@ vi.mock('@/hooks/useDecisions', () => ({
 vi.mock('@/hooks/useSprints', () => ({
   useSprints: useSprintsMock,
 }));
-vi.mock('@/stores/scheduleStore', () => ({
-  useScheduleStore: (selector: (s: { setSelectedTaskId: (id: string | null) => void }) => unknown) =>
-    selector({ setSelectedTaskId: setSelectedTaskIdMock }),
+vi.mock('react-router', async (importActual) => ({
+  ...(await importActual<typeof import('react-router')>()),
+  useNavigate: () => navigateMock,
 }));
 
 function dec(id: string, sprint: DecisionNote['sprint']): DecisionNote {
@@ -85,13 +85,15 @@ describe('DecisionsPanel', () => {
     expect(screen.getByText(/A project admin can extend visibility/)).toBeTruthy();
   });
 
-  it('opens the task drawer when a decision task is clicked', () => {
+  it('navigates to the task detail page when a decision task is clicked (issue 2157)', () => {
     useDecisionsMock.mockReturnValue(
       decisionsResult({ decisions: [dec('a', { id: 's2', name: 'Sprint 2', state: 'ACTIVE' })] }),
     );
     render(<DecisionsPanel projectId="p1" />);
     fireEvent.click(screen.getByRole('button', { name: 'Task a' }));
-    expect(setSelectedTaskIdMock).toHaveBeenCalledWith('task-a');
+    // Reports doesn't mount a schedule drawer, so this must navigate — not write
+    // to scheduleStore (which latched a surprise drawer on the next Schedule visit).
+    expect(navigateMock).toHaveBeenCalledWith('/projects/p1/tasks/task-a');
   });
 
   it('disables the "Current sprint" scope when there is no active sprint', () => {

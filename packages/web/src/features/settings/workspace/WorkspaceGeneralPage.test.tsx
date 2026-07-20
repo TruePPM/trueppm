@@ -124,6 +124,12 @@ describe('WorkspaceGeneralPage — unwired buttons (#969, #641, Enterprise)', ()
     expect(screen.getByDisplayValue('TrueScope')).toBeEnabled();
   });
 
+  it('names the workspace-name field for assistive tech (issue 2199)', () => {
+    renderPage();
+    // FieldRow's visible label is a plain <div>, so the input needs its own name.
+    expect(screen.getByRole('textbox', { name: 'Workspace name' })).toBeInTheDocument();
+  });
+
   it('derives the toggle word from state so it never contradicts the switch (#978)', async () => {
     const user = userEvent.setup();
     renderPage();

@@ -10,10 +10,10 @@
  */
 
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { useDecisions } from '@/hooks/useDecisions';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useSprints } from '@/hooks/useSprints';
-import { useScheduleStore } from '@/stores/scheduleStore';
 import { formatRelative } from '@/lib/formatRelative';
 import type { DecisionNote } from '@/types';
 import { groupDecisionsBySprint } from './groupDecisions';
@@ -37,8 +37,8 @@ function SprintStateBadge({ state }: { state: string }) {
   );
 }
 
-function DecisionRow({ decision }: { decision: DecisionNote }) {
-  const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
+function DecisionRow({ decision, projectId }: { decision: DecisionNote; projectId: string }) {
+  const navigate = useNavigate();
   const author = decision.author?.display_name ?? 'Unknown';
   const ts = formatRelative(new Date(decision.created_at));
   return (
@@ -55,7 +55,12 @@ function DecisionRow({ decision }: { decision: DecisionNote }) {
         <span aria-hidden="true">·</span>
         <button
           type="button"
-          onClick={() => setSelectedTaskId(decision.task.id)}
+          // Reports doesn't mount a schedule drawer, so the old
+          // `scheduleStore.setSelectedTaskId` did nothing here and latched a
+          // surprise drawer on the next Schedule visit (issue 2157). Navigate to
+          // the task detail page — the cross-route open used by Calendar, sprint
+          // outcomes, and the drawer's own expand action.
+          onClick={() => void navigate(`/projects/${projectId}/tasks/${decision.task.id}`)}
           className="truncate text-left rounded hover:text-brand-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
@@ -155,7 +160,7 @@ export function DecisionsPanel({ projectId }: { projectId: string }) {
               </div>
               <ol className="flex flex-col gap-2 list-none p-0">
                 {g.decisions.map((d) => (
-                  <DecisionRow key={d.id} decision={d} />
+                  <DecisionRow key={d.id} decision={d} projectId={projectId} />
                 ))}
               </ol>
             </section>

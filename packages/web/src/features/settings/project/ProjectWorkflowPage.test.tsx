@@ -198,6 +198,14 @@ describe('ProjectWorkflowPage — Phases section', () => {
     expect(phaseCreate).toHaveBeenCalledWith({ name: 'New phase' });
   });
 
+  it('names the inline rename field for assistive tech (issue 2199)', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /^Engineering$/ }));
+    // The autoFocus text box would otherwise announce as an unnamed edit box.
+    expect(screen.getByRole('textbox', { name: 'Rename Engineering' })).toBeInTheDocument();
+  });
+
   it('inline rename submits a PATCH on Enter', async () => {
     const user = userEvent.setup();
     renderPage();

@@ -159,6 +159,93 @@ describe('useActiveTimer', () => {
     expect(toastAction.mock.calls[0][0]).toBe('Logged 1h 05m on RIV-01 · Foundation pour');
   });
 
+  it('stop invalidates the timesheet and My Work reads so the entry appears (issue 2152)', async () => {
+    getMock.mockResolvedValue({ data: { active: true, ...RUNNING } });
+    postMock.mockResolvedValue({
+      data: {
+        id: 'entry-1',
+        task: 'task-a',
+        minutes: 65,
+        entry_date: '2026-07-05',
+        note: '',
+        source: 'timer',
+        server_version: 1,
+        created_at: '2026-07-05T11:05:00Z',
+      },
+    });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useActiveTimer(), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.isRunning).toBe(true));
+
+    act(() => result.current.stopTimer());
+    await waitFor(() => expect(toastAction).toHaveBeenCalledTimes(1));
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['timesheet'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['me', 'work'] });
+  });
+
+  it('second-start (finalized entry) invalidates the entry reads (issue 2152)', async () => {
+    getMock.mockResolvedValue({ data: { active: true, ...RUNNING } });
+    const nextTimer: ActiveTimer = { ...RUNNING, id: 'timer-2', task: 'task-b', task_name: 'Framing' };
+    postMock.mockResolvedValue({
+      data: {
+        active_timer: nextTimer,
+        finalized_entry: {
+          id: 'entry-9',
+          task: 'task-a',
+          minutes: 25,
+          entry_date: '2026-07-05',
+          note: '',
+          source: 'timer',
+          server_version: 1,
+          created_at: '2026-07-05T10:25:00Z',
+        },
+      },
+    });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useActiveTimer(), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.isRunning).toBe(true));
+
+    act(() => result.current.startTimer('task-b'));
+    await waitFor(() => expect(result.current.timer?.task).toBe('task-b'));
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['timesheet'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['me', 'work'] });
+  });
+
+  it('the timer Undo invalidates the entry reads after removing the entry (issue 2152)', async () => {
+    getMock.mockResolvedValue({ data: { active: true, ...RUNNING } });
+    postMock.mockResolvedValue({
+      data: {
+        id: 'entry-1',
+        task: 'task-a',
+        minutes: 65,
+        entry_date: '2026-07-05',
+        note: '',
+        source: 'timer',
+        server_version: 1,
+        created_at: '2026-07-05T11:05:00Z',
+      },
+    });
+    deleteMock.mockResolvedValue({});
+
+    const { result } = renderHook(() => useActiveTimer(), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.isRunning).toBe(true));
+    act(() => result.current.stopTimer());
+    await waitFor(() => expect(toastAction).toHaveBeenCalledTimes(1));
+
+    // Spy only on the Undo path so the assertion is unambiguous.
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const action = toastAction.mock.calls[0][1] as { onClick: () => void };
+    act(() => action.onClick());
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/me/time-entries/entry-1/'));
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['timesheet'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['me', 'work'] });
+  });
+
   it('rolls back the optimistic clear if stop fails with a non-409 error', async () => {
     getMock.mockResolvedValue({ data: { active: true, ...RUNNING } });
     postMock.mockRejectedValue(new AxiosError('boom'));
