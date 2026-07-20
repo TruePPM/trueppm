@@ -211,7 +211,7 @@ export function WorkspaceGroupsPage() {
       <SettingsPageTitle
         title="Groups & teams"
         count={`${groups.length} groups`}
-        subtitle="Groups bundle members. Use them to grant project access in bulk and to roll up resource capacity."
+        subtitle="Groups bundle members to grant project access in bulk and roll up resource capacity. They aren't for @-mentioning — to notify a named audience in comments, use a project's Mention groups."
         action={
           <div className="flex items-center gap-2">
             {/* Directory (LDAP/AD) sync is an Enterprise capability

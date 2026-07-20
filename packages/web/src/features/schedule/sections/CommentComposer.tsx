@@ -16,9 +16,11 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProject } from '@/hooks/useProject';
 import { useProjectMembers } from '@/hooks/useProjectMembers';
 import { useCreateComment } from '@/hooks/useTaskComments';
+import { useMentionGroups } from '@/features/settings/hooks/useMentionGroups';
 import {
   buildMentionSuggestions,
   MentionAutocomplete,
+  type MentionGroupOption,
   type MentionSuggestion,
 } from './MentionAutocomplete';
 
@@ -77,6 +79,14 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
   // (#514). `program` is the program UUID or null for a standalone project.
   const { data: project } = useProject(projectId);
   const hasProgram = !!project?.program;
+  // User-defined project mention groups (#2254) — the server already resolves
+  // `@name` against these; surface them in the autocomplete so they're
+  // discoverable at the point of use. Names are single-token by construction.
+  const { data: mentionGroupsData } = useMentionGroups(projectId);
+  const mentionGroups = useMemo<MentionGroupOption[]>(
+    () => (mentionGroupsData ?? []).map((g) => ({ name: g.name, memberCount: g.member_count })),
+    [mentionGroupsData],
+  );
 
   // Recompute the @-token + suggestions on every keystroke. Cheap; member
   // list is cached for 5 min so this doesn't hit the API.
@@ -84,8 +94,14 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
   const activeToken = useMemo(() => findActiveMentionToken(body, caret), [body, caret]);
   const suggestions = useMemo<MentionSuggestion[]>(() => {
     if (!activeToken) return [];
-    return buildMentionSuggestions(activeToken.query, members, currentRole, hasProgram);
-  }, [activeToken, members, currentRole, hasProgram]);
+    return buildMentionSuggestions(
+      activeToken.query,
+      members,
+      currentRole,
+      hasProgram,
+      mentionGroups,
+    );
+  }, [activeToken, members, currentRole, hasProgram, mentionGroups]);
 
   const charCount = body.length;
   const charCounterColor =
@@ -227,6 +243,7 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
           members={members}
           currentRole={currentRole}
           hasProgram={hasProgram}
+          mentionGroups={mentionGroups}
           highlightIndex={highlightIndex}
           listboxId={`mention-listbox-${taskId}-${parentId ?? 'top'}`}
           onSelect={insertSuggestion}

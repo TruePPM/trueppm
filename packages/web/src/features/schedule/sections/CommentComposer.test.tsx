@@ -6,6 +6,13 @@ import { CommentComposer } from './CommentComposer';
 const mutateMock = vi.hoisted(() => vi.fn());
 const useCreateMock = vi.hoisted(() => vi.fn());
 const useProjectMock = vi.hoisted(() => vi.fn());
+const useMentionGroupsMock = vi.hoisted(() => vi.fn());
+
+// #2254: CommentComposer reads useMentionGroups to surface user-defined project
+// mention groups in the @ autocomplete. Default to none; individual specs override.
+vi.mock('@/features/settings/hooks/useMentionGroups', () => ({
+  useMentionGroups: useMentionGroupsMock,
+}));
 
 vi.mock('@/hooks/useTaskComments', () => ({
   useCreateComment: useCreateMock,
@@ -40,6 +47,7 @@ beforeEach(() => {
     isError: false,
   });
   useProjectMock.mockReturnValue({ data: { program: null } });
+  useMentionGroupsMock.mockReturnValue({ data: [] });
 });
 
 function getTextarea(): HTMLTextAreaElement {
@@ -237,5 +245,19 @@ describe('CommentComposer — program-scoped mention groups (#514)', () => {
     fireEvent.select(ta, { target: { selectionStart: 13 } });
     // No group or member matches "program" → the popover shows the empty state.
     expect(screen.getByText('No matches')).toBeTruthy();
+  });
+});
+
+describe('CommentComposer — user-defined mention groups (#2254)', () => {
+  it('offers a project mention group in the @ autocomplete', () => {
+    useMentionGroupsMock.mockReturnValue({
+      data: [{ id: 'g1', name: 'backend-team', member_count: 4 }],
+    });
+    render(<CommentComposer projectId="p1" taskId="t1" />);
+    const ta = getTextarea();
+    fireEvent.change(ta, { target: { value: 'ping @back', selectionStart: 10 } });
+    fireEvent.select(ta, { target: { selectionStart: 10 } });
+    expect(screen.getByText('@backend-team')).toBeTruthy();
+    expect(screen.getByText('4 members')).toBeTruthy();
   });
 });

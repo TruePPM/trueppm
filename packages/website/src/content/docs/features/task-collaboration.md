@@ -193,6 +193,9 @@ Typing `@` opens an autocomplete popover with two sections:
   resolve to the combined membership across all of the program's projects, so
   you can reach a program-wide role band with a single mention. Standalone
   projects (not in a program) don't show these.
+- **Custom mention groups** — any hand-curated groups for the project (see
+  below) appear here too, each with its member count, so a named team is
+  discoverable without remembering its exact name.
 - **Individuals** — project members whose username matches your typed prefix.
 
 `@all` is restricted to **Admin and Owner roles** to prevent accidental

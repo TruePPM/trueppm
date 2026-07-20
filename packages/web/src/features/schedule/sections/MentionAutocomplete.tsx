@@ -35,7 +35,11 @@ interface AutoGroupSpec {
 }
 
 const AUTO_GROUPS: AutoGroupSpec[] = [
-  { key: 'all', description: () => 'Everyone in this project', disabledFor: (r) => r == null || r < ROLE_ADMIN },
+  {
+    key: 'all',
+    description: () => 'Everyone in this project',
+    disabledFor: (r) => r == null || r < ROLE_ADMIN,
+  },
   { key: 'admins', description: () => 'Admins + Owners' },
   { key: 'schedulers', description: () => 'Schedulers + Admins + Owners' },
   { key: 'members', description: () => 'Member role' },
@@ -62,6 +66,17 @@ const PROGRAM_AUTO_GROUPS: AutoGroupSpec[] = [
   { key: 'program-stakeholders', description: () => 'Viewers across the program' },
 ];
 
+/**
+ * A user-defined project mention group (ADR-0212, #515) offered in the `@`
+ * autocomplete (#2254). The server resolves `@name` against these at write time;
+ * names are regex-constrained to a single `[A-Za-z0-9._-]+` token, so every one
+ * is a valid mention token.
+ */
+export interface MentionGroupOption {
+  name: string;
+  memberCount: number;
+}
+
 interface Props {
   /** The substring after `@` the user has typed so far. */
   query: string;
@@ -70,6 +85,8 @@ interface Props {
   /** True when the composer's project belongs to a program (#514) — surfaces
    * the `@program-*` auto-groups. */
   hasProgram?: boolean;
+  /** User-defined project mention groups (#2254) — offered after the auto-groups. */
+  mentionGroups?: MentionGroupOption[];
   /** Index of the highlighted suggestion (0-based). */
   highlightIndex: number;
   /**
@@ -89,12 +106,15 @@ interface Props {
  *
  * When `hasProgram` is true (the project belongs to a program), the program-
  * scoped auto-groups (`@program-pms`, …) are appended after the project groups.
+ * User-defined project mention groups (`mentionGroups`, #2254) are offered after
+ * all auto-groups and before individual users.
  */
 export function buildMentionSuggestions(
   query: string,
   members: MentionMemberOption[],
   currentRole: number | null,
   hasProgram = false,
+  mentionGroups: MentionGroupOption[] = [],
 ): MentionSuggestion[] {
   const q = query.toLowerCase();
   const groupSpecs = hasProgram ? [...AUTO_GROUPS, ...PROGRAM_AUTO_GROUPS] : AUTO_GROUPS;
@@ -107,6 +127,14 @@ export function buildMentionSuggestions(
       kind: 'group' as const,
       disabled: g.disabledFor ? g.disabledFor(currentRole) : false,
     }));
+  const userGroups: MentionSuggestion[] = mentionGroups
+    .filter((g) => g.name.toLowerCase().startsWith(q) || q === '')
+    .map((g) => ({
+      value: g.name,
+      label: `@${g.name}`,
+      hint: `${g.memberCount} member${g.memberCount === 1 ? '' : 's'}`,
+      kind: 'group' as const,
+    }));
   const users: MentionSuggestion[] = members
     .filter((m) => m.username.toLowerCase().startsWith(q) || q === '')
     .slice(0, 10) // hard cap on user suggestions so popover stays scannable
@@ -116,7 +144,7 @@ export function buildMentionSuggestions(
       hint: '',
       kind: 'user' as const,
     }));
-  return [...groups, ...users];
+  return [...groups, ...userGroups, ...users];
 }
 
 export function MentionAutocomplete({
@@ -124,12 +152,19 @@ export function MentionAutocomplete({
   members,
   currentRole,
   hasProgram = false,
+  mentionGroups = [],
   highlightIndex,
   listboxId,
   onSelect,
   onSuggestionsChange,
 }: Props) {
-  const suggestions = buildMentionSuggestions(query, members, currentRole, hasProgram);
+  const suggestions = buildMentionSuggestions(
+    query,
+    members,
+    currentRole,
+    hasProgram,
+    mentionGroups,
+  );
   // Notify parent of suggestion count for keyboard handlers (does NOT use
   // useEffect — parent re-renders on the same input so this is deterministic).
   onSuggestionsChange?.(suggestions);
@@ -178,11 +213,12 @@ export function MentionAutocomplete({
               {s.kind === 'group' ? '👥' : '👤'}
             </span>
             <span className="font-medium">{s.label}</span>
-            {s.hint && (
-              <span className="text-neutral-text-secondary">{s.hint}</span>
-            )}
+            {s.hint && <span className="text-neutral-text-secondary">{s.hint}</span>}
             {s.disabled && (
-              <span className="text-neutral-text-secondary ml-auto" title="@all requires Admin role">
+              <span
+                className="text-neutral-text-secondary ml-auto"
+                title="@all requires Admin role"
+              >
                 Admin+ only
               </span>
             )}
