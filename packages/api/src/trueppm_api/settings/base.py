@@ -629,6 +629,22 @@ AUTH_REFRESH_COOKIE_SECURE = env.bool(
     default=env.bool("AUTH_REFRESH_COOKIE_SECURE", default=True),
 )
 
+# Refresh-session lifetimes for the "remember me" choice (#2246, ADR-0544).
+# The login checkbox now drives which of these two the refresh token gets:
+#   - checked  → REFRESH_TOKEN_REMEMBER_LIFETIME: a long-lived, *persistent* cookie
+#     (survives browser close) for a trusted device.
+#   - unchecked (default) → REFRESH_TOKEN_SESSION_LIFETIME: a *session* cookie that
+#     dies on browser close, with a short sliding idle bound for a machine left open.
+# SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"] (7d) stays as the LEGACY default: it is used
+# only when rotating a pre-#2246 token that carries no "remember" claim, so existing
+# sessions are never forcibly logged out (they adopt the new model at next login).
+REFRESH_TOKEN_REMEMBER_LIFETIME = timedelta(
+    days=env.int("TRUEPPM_REFRESH_TOKEN_REMEMBER_DAYS", default=30)
+)
+REFRESH_TOKEN_SESSION_LIFETIME = timedelta(
+    hours=env.int("TRUEPPM_REFRESH_TOKEN_SESSION_HOURS", default=12)
+)
+
 # ---------------------------------------------------------------------------
 # Django session + CSRF cookie hardening (#2248)
 # ---------------------------------------------------------------------------

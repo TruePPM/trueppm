@@ -10,16 +10,24 @@ TruePPM uses JWT (JSON Web Tokens) via `djangorestframework-simplejwt`:
 - **Access token** — short-lived (15 minutes by default), held in browser memory
   only and sent on every API request as `Authorization: Bearer <token>`. The
   short lifetime bounds the blast radius of a leaked access token.
-- **Refresh token** — longer-lived (7 days by default), exchanged for new access
-  tokens via `POST /api/v1/auth/token/refresh/`. It rides in an **httpOnly,
-  Secure, SameSite=Strict cookie** — never in `localStorage` and never readable
-  by JavaScript, so an XSS bug cannot exfiltrate it. The refresh endpoint reads
-  the token from the cookie.
+- **Refresh token** — exchanged for new access tokens via
+  `POST /api/v1/auth/token/refresh/`. It rides in an **httpOnly, Secure,
+  SameSite=Strict cookie** — never in `localStorage` and never readable by
+  JavaScript, so an XSS bug cannot exfiltrate it. The refresh endpoint reads the
+  token from the cookie.
+- **Session persistence ("Remember me")** — the login form's *Keep me signed in*
+  choice controls how long the session lasts. **Checked** issues a persistent
+  cookie (survives browser close) with a long-lived token (30 days by default).
+  **Unchecked (the default)** issues a **session cookie** that the browser drops
+  on close, with a short sliding idle lifetime (12 hours by default) — so "don't
+  remember me" on a shared machine is honored. SSO logins are always
+  session-scoped. Both windows are tunable (`TRUEPPM_REFRESH_TOKEN_REMEMBER_DAYS`,
+  `TRUEPPM_REFRESH_TOKEN_SESSION_HOURS`).
 - **Rotation and revocation** — refresh tokens rotate on every use
   (`ROTATE_REFRESH_TOKENS`). The `token_blacklist` app ships in `INSTALLED_APPS`
   by default, so revocation-on-rotation (`BLACKLIST_AFTER_ROTATION`) is active:
   once a refresh token is rotated, the previous token is **rejected on replay**
-  rather than living out its 7-day TTL. Logging out (`POST /api/v1/auth/logout/`)
+  rather than living out its remaining TTL. Logging out (`POST /api/v1/auth/logout/`)
   likewise blacklists the presented refresh token. A lean deployment that removes
   the `token_blacklist` app degrades gracefully to TTL-only expiry — the
   refresh/logout endpoints tolerate its absence.

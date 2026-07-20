@@ -316,28 +316,34 @@ export function LoginPage() {
           </div>
 
           {/* Remember me */}
-          <div className="flex items-center gap-2">
-            <div className="relative flex items-center justify-center w-4 h-4 shrink-0">
-              <input
-                id={rememberMeId}
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="
-                  w-4 h-4 rounded-chip border border-neutral-border
-                  bg-neutral-surface text-brand-primary
-                  checked:bg-brand-primary checked:border-brand-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                  cursor-pointer
-                "
-              />
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <div className="relative flex items-center justify-center w-4 h-4 shrink-0">
+                <input
+                  id={rememberMeId}
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="
+                    w-4 h-4 rounded-chip border border-neutral-border
+                    bg-neutral-surface text-brand-primary
+                    checked:bg-brand-primary checked:border-brand-primary
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                    cursor-pointer
+                  "
+                />
+              </div>
+              <label
+                htmlFor={rememberMeId}
+                className="text-xs text-neutral-text-secondary cursor-pointer select-none"
+              >
+                Keep me signed in for 30 days
+              </label>
             </div>
-            <label
-              htmlFor={rememberMeId}
-              className="text-xs text-neutral-text-secondary cursor-pointer select-none"
-            >
-              Keep me signed in for 30 days
-            </label>
+            {/* Make the unchecked (session-only) behavior explicit for shared machines (#2246). */}
+            <p className="text-xs text-neutral-text-secondary">
+              Leave off on shared devices — you’ll be signed out when you close your browser.
+            </p>
           </div>
 
           {/* Error */}

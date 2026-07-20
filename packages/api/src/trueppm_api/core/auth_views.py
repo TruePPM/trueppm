@@ -96,7 +96,9 @@ def _emit_login_failure_event(request: Request) -> None:
     )
 
 
-def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+def _set_refresh_cookie(
+    response: Response, refresh_token: str, *, persistent_seconds: int | None
+) -> None:
     """Attach the refresh token to ``response`` as a hardened httpOnly cookie.
 
     Cookie attributes are driven by settings so a non-HTTPS local dev server can
@@ -104,16 +106,76 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
     production defaults to ``Secure``. The cookie is ``Path``-scoped to the
     refresh endpoint so it is never sent on ordinary API calls — only the
     refresh request carries it.
+
+    ``persistent_seconds`` controls browser *persistence* (#2246): an int sets a
+    ``Max-Age`` so the cookie survives browser close ("remember me"); ``None``
+    emits no ``Max-Age``/``Expires`` → a **session cookie** that the browser drops
+    on close (the not-remembered / shared-machine default). This is independent of
+    the token's own ``exp`` (the real credential bound), which the caller sets via
+    :func:`_apply_remember`.
     """
     response.set_cookie(
         key=settings.AUTH_REFRESH_COOKIE_NAME,
         value=refresh_token,
-        max_age=int(cast(timedelta, settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"]).total_seconds()),
+        max_age=persistent_seconds,
         httponly=True,
         secure=settings.AUTH_REFRESH_COOKIE_SECURE,
         samesite=settings.AUTH_REFRESH_COOKIE_SAMESITE,
         path=settings.AUTH_REFRESH_COOKIE_PATH,
     )
+
+
+def _cookie_seconds(remember: bool) -> int | None:
+    """Cookie ``Max-Age`` for a remember choice: persistent 30d, or session (None)."""
+    if remember:
+        return int(settings.REFRESH_TOKEN_REMEMBER_LIFETIME.total_seconds())
+    return None
+
+
+def _sync_outstanding_expiry(refresh: RefreshToken) -> None:
+    """Keep the token's ``OutstandingToken`` bookkeeping row in sync with its ``exp``.
+
+    ``RefreshToken.for_user`` records an ``OutstandingToken`` whose ``expires_at``
+    is copied from the token's ``exp`` *at creation* — i.e. the 7-day class default,
+    before :func:`_apply_remember` overrides it. ``expires_at`` drives the nightly
+    ``flushexpiredtokens`` cleanup, and ``BlacklistedToken`` cascades on the
+    ``OutstandingToken``. If left at 7 days for a 30-day token, a token blacklisted
+    on day 2 would have its revocation row flushed on day 7 while the JWT stays
+    valid to day 30 → **replayable between day 7 and day 30**. Re-point
+    ``expires_at`` at the real ``exp`` to close that window.
+
+    No-op when the blacklist app is absent (lean deploy) or no row exists for this
+    jti yet (a rotated token's new jti has no row until it is itself blacklisted,
+    at which point ``blacklist()`` records the row with the correct ``exp``).
+    """
+    if "rest_framework_simplejwt.token_blacklist" not in settings.INSTALLED_APPS:
+        return
+    from rest_framework_simplejwt.settings import api_settings
+    from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+    from rest_framework_simplejwt.utils import datetime_from_epoch
+
+    OutstandingToken.objects.filter(jti=refresh[api_settings.JTI_CLAIM]).update(
+        expires_at=datetime_from_epoch(refresh["exp"]),
+    )
+
+
+def _apply_remember(refresh: RefreshToken, *, remember: bool) -> None:
+    """Stamp the ``remember`` claim + matching ``exp`` on a refresh token (#2246).
+
+    The choice is carried as a boolean claim *on the token itself* so it survives
+    encode/decode and is inherited automatically across rotation (the stateless
+    refresh endpoint has no ``remember_me`` in its request). ``set_exp(lifetime=)``
+    overrides simplejwt's class default, baking the real credential lifetime — 30
+    days for remember, 12 hours (sliding via rotation) for a session login.
+    """
+    lifetime = (
+        settings.REFRESH_TOKEN_REMEMBER_LIFETIME
+        if remember
+        else settings.REFRESH_TOKEN_SESSION_LIFETIME
+    )
+    refresh["remember"] = remember
+    refresh.set_exp(lifetime=lifetime)
+    _sync_outstanding_expiry(refresh)
 
 
 def _clear_refresh_cookie(response: Response) -> None:
@@ -126,6 +188,29 @@ def _clear_refresh_cookie(response: Response) -> None:
         key=settings.AUTH_REFRESH_COOKIE_NAME,
         path=settings.AUTH_REFRESH_COOKIE_PATH,
         samesite=settings.AUTH_REFRESH_COOKIE_SAMESITE,
+    )
+
+
+class _LoginRequestSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """Login request body: credentials + the optional ``remember_me`` flag (#2246).
+
+    Declared for the OpenAPI schema only — the view validates credentials via
+    simplejwt's ``TokenObtainPairSerializer`` and reads ``remember_me`` from the
+    body separately, so this serializer documents the request shape (so API-first
+    consumers see ``remember_me``) without being used to validate.
+    """
+
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True, style={"input_type": "password"})
+    remember_me = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Keep the session across browser close (~30 days). Omitted or false → a "
+            "session-only login: the refresh cookie is dropped on browser close, with "
+            "a ~12h idle lifetime. Must be a JSON boolean; non-boolean values are "
+            "treated as false."
+        ),
     )
 
 
@@ -169,7 +254,7 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             "SameSite=Strict cookie scoped to the refresh endpoint; it is never "
             "present in the response body (#897)."
         ),
-        request=TokenObtainPairSerializer,
+        request=_LoginRequestSerializer,
         responses={200: _LoginResponseSerializer},
     )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -200,12 +285,27 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        # "Remember me" (#2246): a remember_me of JSON `true` opts into a long-lived,
+        # browser-persistent session; anything else (unchecked / omitted / non-object
+        # body / a non-boolean like the string "false") falls back to the safe session
+        # default. We require an actual boolean `is True` rather than bool()-coercing,
+        # so a client that sends the *string* "false"/"0" is not silently upgraded to a
+        # 30-day persistent credential — the coercion must err toward session-only. The
+        # dict guard mirrors _emit_login_failure_event (a non-object body has no .get).
+        remember = isinstance(request.data, dict) and request.data.get("remember_me") is True
+
         data = dict(serializer.validated_data)
         refresh_token = data.pop("refresh", None)
 
         response = Response(data, status=status.HTTP_200_OK)
         if refresh_token:
-            _set_refresh_cookie(response, str(refresh_token))
+            # Reuse the token the serializer already minted (same jti / OutstandingToken
+            # row) rather than issuing a second one, then stamp the remember lifetime.
+            refresh = RefreshToken(refresh_token)
+            _apply_remember(refresh, remember=remember)
+            _set_refresh_cookie(
+                response, str(refresh), persistent_seconds=_cookie_seconds(remember)
+            )
         return response
 
 
@@ -268,6 +368,13 @@ class CookieTokenRefreshView(APIView):
         response = Response({"access": access_token}, status=status.HTTP_200_OK)
 
         if rotate:
+            # Preserve the "remember me" choice across rotation (#2246): the incoming
+            # token's ``remember`` claim decides the rotated token's lifetime and
+            # cookie persistence. A missing claim marks a pre-#2246 token — keep the
+            # legacy 7-day persistent behavior so those live sessions are never
+            # disrupted (they adopt the new model at their next fresh login).
+            remember_claim = refresh.payload.get("remember")
+
             # Blacklist the just-used refresh token before issuing a new one, so a
             # leaked token cannot be replayed once the legitimate client rotates.
             # The token_blacklist app is installed by default (#910); the
@@ -277,9 +384,16 @@ class CookieTokenRefreshView(APIView):
                 with contextlib.suppress(AttributeError):
                     refresh.blacklist()
             refresh.set_jti()
-            refresh.set_exp()
+            if remember_claim is None:
+                legacy_lifetime = cast(timedelta, settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"])
+                refresh.set_exp(lifetime=legacy_lifetime)
+                persistent_seconds: int | None = int(legacy_lifetime.total_seconds())
+            else:
+                remember = bool(remember_claim)
+                _apply_remember(refresh, remember=remember)
+                persistent_seconds = _cookie_seconds(remember)
             refresh.set_iat()
-            _set_refresh_cookie(response, str(refresh))
+            _set_refresh_cookie(response, str(refresh), persistent_seconds=persistent_seconds)
 
         return response
 

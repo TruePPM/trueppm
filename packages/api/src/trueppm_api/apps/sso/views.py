@@ -47,7 +47,7 @@ from trueppm_api.apps.sso.serializers import (
 )
 from trueppm_api.apps.workspace.models import Workspace
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
-from trueppm_api.core.auth_views import _set_refresh_cookie
+from trueppm_api.core.auth_views import _apply_remember, _cookie_seconds, _set_refresh_cookie
 
 # Trailing slash matches the route in ``urls.py`` so the IdP returns straight to
 # the view without an APPEND_SLASH redirect hop dropping the query. UNCHANGED for
@@ -253,9 +253,18 @@ class OIDCCallbackView(APIView):
             return self._redirect(error=exc.code)
 
         # Mint the existing cookie-JWT session — no new token surface (ADR-0517 §3.3).
+        # SSO logins are always session-scoped (#2246): there is no "remember me"
+        # checkbox in an IdP redirect, and the operator's IdP owns device trust, so
+        # defaulting an unattended redirect to a 30-day persistent cookie would be the
+        # wrong safe default. A session cookie (dies on browser close) + short exp.
         refresh = RefreshToken.for_user(user)
+        _apply_remember(refresh, remember=False)
         response = self._redirect()
-        _set_refresh_cookie(response, str(refresh))  # type: ignore[arg-type]
+        _set_refresh_cookie(
+            response,  # type: ignore[arg-type]  # HttpResponseRedirect; set_cookie is shared
+            str(refresh),
+            persistent_seconds=_cookie_seconds(remember=False),  # None → session cookie
+        )
         return response
 
     def _complete(
