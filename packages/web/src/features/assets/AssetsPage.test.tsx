@@ -109,12 +109,37 @@ describe('AssetsPage (project scope)', () => {
     expect(lastFiltersFrom(useProjectAssetsMock)).toMatchObject({ kind: 'file' });
   });
 
-  it('selecting a provider chip sets the provider filter', () => {
+  it('selecting a provider radio sets the provider filter', () => {
     useProjectAssetsMock.mockReturnValue(makeQuery([linkItem]));
     renderWithRouter(<ProjectAssetsPage />, { initialEntries: ['/projects/proj-1/assets'] });
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'GitHub' }));
+    // Providers are single-select radios (#2177), not multi-select checkboxes.
+    fireEvent.click(screen.getByRole('radio', { name: 'GitHub' }));
     expect(lastFiltersFrom(useProjectAssetsMock)).toMatchObject({ provider: 'github' });
+  });
+
+  it('exposes kind and provider facets as labeled single-select radiogroups', () => {
+    useProjectAssetsMock.mockReturnValue(makeQuery([linkItem]));
+    renderWithRouter(<ProjectAssetsPage />, { initialEntries: ['/projects/proj-1/assets'] });
+
+    expect(screen.getByRole('radiogroup', { name: 'Filter by kind' })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Filter by provider' })).toBeInTheDocument();
+    // "All providers" is the default-selected radio, so the group has an
+    // explicit clear option (WCAG 4.1.2).
+    expect(screen.getByRole('radio', { name: 'All providers' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
+  it('choosing a provider clears a conflicting Files-only kind filter', () => {
+    useProjectAssetsMock.mockReturnValue(makeQuery([linkItem]));
+    renderWithRouter(<ProjectAssetsPage />, { initialEntries: ['/projects/proj-1/assets'] });
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Files' }));
+    expect(lastFiltersFrom(useProjectAssetsMock)).toMatchObject({ kind: 'file' });
+    fireEvent.click(screen.getByRole('radio', { name: 'GitHub' }));
+    expect(lastFiltersFrom(useProjectAssetsMock)).toMatchObject({ provider: 'github', kind: null });
   });
 
   it('shows the empty state when there are no assets', () => {

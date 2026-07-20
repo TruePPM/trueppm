@@ -73,6 +73,8 @@ interface UseCalendarTasksReturn {
   tasks: Task[];
   isLoading: boolean;
   error: Error | null;
+  /** Re-run just the calendar-tasks query (for the QueryErrorState Retry). */
+  refetch: () => void;
 }
 
 export function useCalendarTasks(options: UseCalendarTasksOptions = {}): UseCalendarTasksReturn {
@@ -112,5 +114,8 @@ export function useCalendarTasks(options: UseCalendarTasksOptions = {}): UseCale
     tasks: query.data ?? [],
     isLoading: query.isLoading,
     error: query.error,
+    refetch: () => {
+      void query.refetch();
+    },
   };
 }

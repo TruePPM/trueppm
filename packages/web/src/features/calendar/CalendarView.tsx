@@ -27,6 +27,14 @@ import { parseUTCDate, formatMonthLabel, formatDayLabel } from './calendarUtils'
 import { useCalendarTasks } from '@/hooks/useCalendarTasks';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useSprints } from '@/hooks/useSprints';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { ROLE_MEMBER } from '@/lib/roles';
+import { QueryErrorState } from '@/components/QueryErrorState';
+import { EmptyState } from '@/components/EmptyState';
+import { Button } from '@/components/Button';
+import { CalendarIcon } from '@/components/Icons';
+import { TaskFormModal } from '@/features/board/TaskFormModal';
 
 // ---------------------------------------------------------------------------
 // Task detail banner — inline, avoids a full modal (keeps the calendar in view)
@@ -128,8 +136,15 @@ export function TaskDetailBanner({ task, projectId, onClose }: TaskDetailBannerP
 
 export function CalendarView() {
   const { calView, anchorIso, setCalView, goToToday, goNext, goPrev } = useCalendarFilter();
-  const { tasks } = useCalendarTasks();
+  const { tasks, isLoading, error, refetch } = useCalendarTasks();
   const projectId = useProjectId();
+  const { role } = useCurrentUserRole(projectId);
+  const breakpoint = useBreakpoint();
+  // Viewers (role < MEMBER) have no create affordance to offer — omit the CTA.
+  // While role is loading (null) we withhold it too, avoiding a flash of a
+  // button a Viewer can't use (mirrors ScheduleEmptyState's gating).
+  const canCreate = role !== null && role >= ROLE_MEMBER;
+  const [showAddForm, setShowAddForm] = useState(false);
   // Sprint-boundary markers (issue 1230): reuse the existing sprints list to dot
   // the day cells where a sprint starts or finishes, so cadence lands on the
   // calendar without a new endpoint. Degrades to no dots when the project has no
@@ -232,17 +247,40 @@ export function CalendarView() {
         />
       )}
 
-      {/* Calendar grid — fills remaining height */}
+      {/* Calendar grid — fills remaining height. Distinguish loading / error /
+          empty from a populated grid (rule 246/248): a failed or in-flight fetch
+          must never masquerade as "no tasks yet". */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {tasks.length === 0 ? (
+        {error ? (
+          <QueryErrorState message="Couldn't load the calendar." onRetry={refetch} />
+        ) : isLoading ? (
           <div
             role="status"
-            className="flex h-full items-center justify-center"
+            aria-label="Loading calendar"
+            aria-busy="true"
+            className="flex h-full flex-col gap-1 p-3 bg-neutral-surface"
           >
-            <p className="text-sm text-neutral-text-secondary">
-              No tasks yet. Add a task to get started.
-            </p>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-full rounded motion-safe:animate-pulse bg-neutral-surface-sunken"
+              />
+            ))}
           </div>
+        ) : tasks.length === 0 ? (
+          <EmptyState
+            className="h-full bg-neutral-surface"
+            icon={CalendarIcon}
+            title="No tasks yet"
+            description="Tasks with dates appear here across the month. Add your first task to get started."
+            action={
+              canCreate && projectId ? (
+                <Button variant="primary" onClick={() => setShowAddForm(true)}>
+                  + Add task
+                </Button>
+              ) : undefined
+            }
+          />
         ) : (
           <CalendarGrid
             anchorIso={anchorIso}
@@ -252,6 +290,15 @@ export function CalendarView() {
           />
         )}
       </div>
+
+      {showAddForm && projectId && (
+        <TaskFormModal
+          projectId={projectId}
+          task={null}
+          isMobile={breakpoint === 'sm'}
+          onClose={() => setShowAddForm(false)}
+        />
+      )}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import { ResourceToolbar, type ViewMode } from './ResourceToolbar';
 import { ResourceGrid } from './ResourceGrid';
 import { ResourceEmptyState } from './ResourceEmptyState';
 import { PermissionDeniedNotice } from './PermissionDeniedNotice';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { ResourceOverallocationDrawer } from './ResourceOverallocationDrawer';
 import { ResourceAllocationTimeline } from './ResourceAllocationTimeline';
 import {
@@ -155,19 +156,31 @@ export function ResourceView({
   }
 
   if (activeStatus === 'loading') {
+    // Row-ghost skeleton mirroring the grid/timeline shape (rule 248) — a bare
+    // "Loading…" line reads as a broken surface; every peer (HeatmapPage) shows
+    // a shaped skeleton within 200ms.
     return (
-      <div className="flex items-center justify-center h-full text-xs text-neutral-text-secondary">
-        Loading…
+      <div
+        className="flex h-full flex-col gap-1 p-3 bg-neutral-surface"
+        role="status"
+        aria-label="Loading resource data"
+        aria-busy="true"
+      >
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-11 rounded motion-safe:animate-pulse bg-neutral-surface-sunken"
+          />
+        ))}
       </div>
     );
   }
 
   if (activeStatus === 'error') {
-    return (
-      <div className="flex items-center justify-center h-full text-xs text-semantic-critical">
-        Failed to load resource data.
-      </div>
-    );
+    // A dead surface on a primary route is an assertive, retry-able failure —
+    // never a bare dead-end line (rule 246, #1764). The typed-status hook does
+    // not surface a refetch, so retry reloads (matching sibling HeatmapPage).
+    return <QueryErrorState message="Couldn't load resource data." />;
   }
 
   // --- Navigation ---

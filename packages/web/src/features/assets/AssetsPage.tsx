@@ -11,7 +11,7 @@
  * and the task drawer render links identically.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { EmptyState } from '@/components/EmptyState';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { InboxIcon, PaperclipIcon, SearchIcon } from '@/components/Icons';
@@ -49,7 +49,108 @@ const KIND_OPTIONS: { value: AssetKind | null; label: string }[] = [
   { value: 'link', label: 'Links' },
 ];
 
+// Providers are mutually exclusive (the filter holds one value), so they belong
+// in a radiogroup with an explicit "All providers" option — never role="checkbox"
+// chips whose multi-select ARIA semantics contradict the single-value behavior
+// (WCAG 4.1.2, #2177).
+const PROVIDER_OPTIONS: { value: string | null; label: string }[] = [
+  { value: null, label: 'All providers' },
+  ...ASSET_PROVIDERS.map((p) => ({ value: p.value, label: p.label })),
+];
+
 type Scope = 'project' | 'program' | 'me';
+
+interface ChipOption<V extends string | null> {
+  value: V;
+  label: string;
+}
+
+/**
+ * Single-select facet filter built as an accessible radiogroup (WCAG 2.1.1 /
+ * 4.1.2, rule 167) — the house pattern shared with RiskSegmentedFilter.
+ *
+ * Roving tabindex: only the focused option is tabbable. Arrow / Home / End move
+ * DOM focus without committing; the filter applies on activation (click / Enter /
+ * Space via the native button), so a keyboard user can scan segments without
+ * firing a filter on every passing option.
+ */
+function ChipRadioGroup<V extends string | null>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: readonly ChipOption<V>[];
+  value: V;
+  onChange: (value: V) => void;
+}) {
+  const btnRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectedIdx = options.findIndex((o) => o.value === value);
+  const [focusIdx, setFocusIdx] = useState(selectedIdx >= 0 ? selectedIdx : 0);
+  useEffect(() => {
+    if (selectedIdx >= 0) setFocusIdx(selectedIdx);
+  }, [selectedIdx]);
+
+  function moveFocus(next: number) {
+    const i = Math.max(0, Math.min(options.length - 1, next));
+    setFocusIdx(i);
+    btnRefs.current[i]?.focus(); // focus only — commit happens on activation
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        e.preventDefault();
+        moveFocus(focusIdx + 1);
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        e.preventDefault();
+        moveFocus(focusIdx - 1);
+        break;
+      case 'Home':
+        e.preventDefault();
+        moveFocus(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        moveFocus(options.length - 1);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+      className="flex flex-wrap items-center gap-2"
+    >
+      {options.map((o, i) => (
+        <FilterChip
+          key={String(o.value)}
+          ref={(el) => {
+            btnRefs.current[i] = el;
+          }}
+          label={o.label}
+          role="radio"
+          aria-checked={o.value === value}
+          tabIndex={i === focusIdx ? 0 : -1}
+          active={o.value === value}
+          // Meet the 44px touch floor on mobile, relaxing to the compact 32px
+          // toolbar height on md+ (mirrors RiskSegmentedFilter, rule 167).
+          className="min-h-[44px] md:min-h-[32px]"
+          onClick={() => onChange(o.value)}
+        />
+      ))}
+    </div>
+  );
+}
 
 /** Shared Assets view. All scope hooks are always called (rules of hooks); the
  *  inactive ones are disabled (undefined id / enabled:false), so only one fetches.
@@ -81,8 +182,15 @@ function AssetsView({ scope }: { scope: Scope }) {
   const items = useMemo(() => data?.pages.flatMap((p) => p.results) ?? [], [data]);
 
   const setKind = (kind: AssetKind | null) => setFilters((f) => ({ ...f, kind }));
-  const toggleProvider = (provider: string) =>
-    setFilters((f) => ({ ...f, provider: f.provider === provider ? null : provider }));
+  // Providers are a link-only concept — selecting one clears a conflicting
+  // Files-only kind filter so the two facets can't produce an empty impossible
+  // intersection. "All providers" (null) leaves kind untouched.
+  const setProvider = (provider: string | null) =>
+    setFilters((f) => ({
+      ...f,
+      provider,
+      kind: provider !== null && f.kind === 'file' ? null : f.kind,
+    }));
 
   return (
     <div className="flex h-full flex-col bg-app-canvas">
@@ -126,31 +234,19 @@ function AssetsView({ scope }: { scope: Scope }) {
         role="group"
         aria-label="Filter assets"
       >
-        {KIND_OPTIONS.map((o) => (
-          <FilterChip
-            key={o.label}
-            label={o.label}
-            role="radio"
-            aria-checked={filters.kind === o.value}
-            active={filters.kind === o.value}
-            onClick={() => setKind(o.value)}
-          />
-        ))}
+        <ChipRadioGroup
+          label="Filter by kind"
+          options={KIND_OPTIONS}
+          value={filters.kind}
+          onChange={setKind}
+        />
         <span aria-hidden="true" className="mx-1 h-4 w-px bg-neutral-border" />
-        {ASSET_PROVIDERS.map((p) => (
-          <FilterChip
-            key={p.value}
-            label={p.label}
-            role="checkbox"
-            aria-checked={filters.provider === p.value}
-            active={filters.provider === p.value}
-            // Providers are a link-only concept — selecting one implies Links.
-            onClick={() => {
-              toggleProvider(p.value);
-              if (filters.kind === 'file') setKind(null);
-            }}
-          />
-        ))}
+        <ChipRadioGroup
+          label="Filter by provider"
+          options={PROVIDER_OPTIONS}
+          value={filters.provider}
+          onChange={setProvider}
+        />
         <span aria-hidden="true" className="mx-1 h-4 w-px bg-neutral-border" />
         <div className="relative flex-1 min-w-[10rem] max-w-xs">
           <SearchIcon

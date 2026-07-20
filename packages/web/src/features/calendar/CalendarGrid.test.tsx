@@ -1,9 +1,18 @@
 import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import type { Task } from '@/types';
 import { CalendarGrid } from './CalendarGrid';
+
+// useBreakpoint drives the desktop-grid vs mobile-list branch (#2161). Default
+// to the reference desktop tier; the mobile test overrides it per-case.
+const { breakpointMock } = vi.hoisted(() => ({ breakpointMock: vi.fn(() => 'lg') }));
+vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: () => breakpointMock() }));
+
+afterEach(() => {
+  breakpointMock.mockReturnValue('lg');
+});
 
 // Anchor to a fixed month so tests are deterministic
 const ANCHOR = '2026-05-01'; // May 2026 — starts on Friday
@@ -126,5 +135,16 @@ describe('CalendarGrid', () => {
     expect(screen.getAllByText('1').length).toBeGreaterThan(0);
     expect(screen.getByText('15')).toBeInTheDocument();
     expect(screen.getByText('31')).toBeInTheDocument();
+  });
+
+  it('renders the mobile date-grouped list (not the 7-col grid) under the sm breakpoint (#2161)', () => {
+    breakpointMock.mockReturnValue('sm');
+    render(<CalendarGrid anchorIso={ANCHOR} tasks={[baseTask()]} onTaskClick={vi.fn()} />);
+    // Day-of-week header columns are grid-only — absent on mobile.
+    expect(screen.queryByText('Wed')).not.toBeInTheDocument();
+    // The task surfaces as a full-width row button instead.
+    expect(screen.getByRole('button', { name: /Integration Test/ })).toBeInTheDocument();
+    // The legend is retained on mobile.
+    expect(screen.getByText('Critical path')).toBeInTheDocument();
   });
 });
