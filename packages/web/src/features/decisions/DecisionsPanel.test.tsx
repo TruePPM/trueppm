@@ -111,6 +111,45 @@ describe('DecisionsPanel', () => {
     expect(useDecisionsMock).toHaveBeenLastCalledWith('p1', 's-active');
   });
 
+  it('roving tabindex: only the selected scope option is tabbable (rule 167, #2158)', () => {
+    useSprintsMock.mockReturnValue({ sprints: [{ id: 's-active', state: 'ACTIVE' }] });
+    render(<DecisionsPanel projectId="p1" />);
+    const all = screen.getByRole('radio', { name: 'All decisions' });
+    const current = screen.getByRole('radio', { name: 'Current sprint' });
+    // "All decisions" is selected by default → tabbable; the other is roved out.
+    expect(all).toHaveAttribute('tabindex', '0');
+    expect(current).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('arrow keys move focus across scope options WITHOUT committing (rule 167, #2158)', () => {
+    useSprintsMock.mockReturnValue({ sprints: [{ id: 's-active', state: 'ACTIVE' }] });
+    render(<DecisionsPanel projectId="p1" />);
+    const all = screen.getByRole('radio', { name: 'All decisions' });
+    const current = screen.getByRole('radio', { name: 'Current sprint' });
+    all.focus();
+    // ArrowRight moves DOM focus to the next option (the fix — previously the
+    // unselected option was out of the tab order and arrows did nothing).
+    fireEvent.keyDown(all, { key: 'ArrowRight' });
+    expect(current).toHaveFocus();
+    // ...but focus movement alone must NOT commit — the scope is still "all", so
+    // the data hook has never been re-invoked with the active sprint id.
+    expect(useDecisionsMock).not.toHaveBeenLastCalledWith('p1', 's-active');
+    // Activation (click / Enter / Space via the native button) commits.
+    fireEvent.click(current);
+    expect(useDecisionsMock).toHaveBeenLastCalledWith('p1', 's-active');
+  });
+
+  it('arrow keys skip the disabled "Current sprint" option (rule 167, #2158)', () => {
+    useSprintsMock.mockReturnValue({ sprints: [{ id: 's1', state: 'COMPLETED' }] });
+    render(<DecisionsPanel projectId="p1" />);
+    const all = screen.getByRole('radio', { name: 'All decisions' });
+    all.focus();
+    // The only other option is disabled (no active sprint) → focus stays put
+    // rather than landing on an unfocusable `<button disabled>`.
+    fireEvent.keyDown(all, { key: 'ArrowRight' });
+    expect(all).toHaveFocus();
+  });
+
   it('shows a Load more button only when another page exists', () => {
     const fetchNextPage = vi.fn();
     useDecisionsMock.mockReturnValue(

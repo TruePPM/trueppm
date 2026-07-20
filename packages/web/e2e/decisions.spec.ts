@@ -186,6 +186,41 @@ test.describe('Decisions view — golden path', () => {
   test('shows the oversight consent switch for an admin', async ({ page }) => {
     await expect(page.getByRole('switch', { name: 'Oversight visibility' })).toBeVisible();
   });
+
+  test('scope radiogroup is keyboard-reachable via arrow keys (rule 167, #2158)', async ({
+    page,
+  }) => {
+    const all = page.getByRole('radio', { name: 'All decisions' });
+    const current = page.getByRole('radio', { name: 'Current sprint' });
+    await all.focus();
+    await expect(all).toBeFocused();
+    // ArrowRight moves focus to the other option — previously it was out of the
+    // tab order and the "Current sprint" scope was keyboard-unreachable.
+    await page.keyboard.press('ArrowRight');
+    await expect(current).toBeFocused();
+    // Focus movement alone does not commit; still on "All decisions".
+    await expect(all).toHaveAttribute('aria-checked', 'true');
+    // Space activates the focused option.
+    await page.keyboard.press('Space');
+    await expect(current).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+test.describe('Reports tablist — keyboard reachability (rule 167, #2158)', () => {
+  test('arrow keys move focus between the Metrics and Decisions tabs', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/reports`);
+    const metrics = page.getByRole('tab', { name: 'Metrics' });
+    const decisions = page.getByRole('tab', { name: 'Decisions' });
+    await expect(metrics).toBeVisible({ timeout: 10_000 });
+    await metrics.focus();
+    // The Decisions tab was keyboard-unreachable before the roving-tabindex fix.
+    await page.keyboard.press('ArrowRight');
+    await expect(decisions).toBeFocused();
+    await expect(metrics).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('Enter');
+    await expect(decisions).toHaveAttribute('aria-selected', 'true');
+  });
 });
 
 test.describe('Decisions view — empty + locked states', () => {
