@@ -99,6 +99,190 @@ interface SsoProviderPanelProps {
   onClose: () => void;
 }
 
+/**
+ * Seed the type-specific field values (and raw-issuer fallback) for the Add/Edit
+ * form. On Add, or for OAuth providers, the seed is trivial; on Edit of an OIDC
+ * provider it decomposes the stored issuer back into its structured fields,
+ * falling back to a raw editable issuer when the stored URL doesn't match the
+ * expected shape. Extracted from SsoProviderPanel (#2245) to keep the component
+ * body under the cognitive-complexity budget; logic verbatim.
+ */
+function computeSeed(
+  mode: 'add' | 'edit',
+  existing: SsoProvider | undefined,
+  def: ProviderDef,
+): { values: Record<string, string>; raw: boolean } {
+  if (mode !== 'edit' || !existing) return { values: {} as Record<string, string>, raw: false };
+  if (def.kind === 'oauth') return { values: { org: existing.github_org }, raw: false };
+  const decomposed = seedFields(def, existing.server_url);
+  // decompose() returns null when the stored issuer doesn't match the expected
+  // shape (e.g. edited via the API) — fall back to a raw, editable issuer.
+  if (decomposed === null) return { values: { issuer: existing.server_url }, raw: true };
+  return { values: decomposed, raw: false };
+}
+
+/**
+ * The issuer/endpoint section of the provider form, whose fields are driven
+ * entirely by the provider `kind`: an auto-issuer note (fixed), the OAuth
+ * "no issuer URL" note plus its org field (oauth), the structured fields with a
+ * live resolved-issuer strip (free/derived), or a raw editable issuer fallback.
+ * Extracted from SsoProviderPanel (#2245) to keep the component body under the
+ * cognitive-complexity budget; markup verbatim.
+ */
+function IssuerFields({
+  def,
+  rawIssuerMode,
+  fieldValues,
+  setField,
+  composedIssuer,
+}: {
+  def: ProviderDef;
+  rawIssuerMode: boolean;
+  fieldValues: Record<string, string>;
+  setField: (id: string, value: string) => void;
+  composedIssuer: string;
+}) {
+  return (
+    <>
+      {/* Issuer section — driven by kind */}
+      {def.kind === 'fixed' && (
+        <FieldRow label="Issuer" hint="Auto-configured for this provider.">
+          <span className="tppm-mono text-[13px] text-neutral-text-primary inline-flex items-center gap-2">
+            {def.fixedIssuer}
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-brand-primary bg-brand-primary/10 rounded px-1.5 py-0.5">
+              auto
+            </span>
+          </span>
+        </FieldRow>
+      )}
+
+      {def.kind === 'oauth' && (
+        <div className="my-3 rounded-card border border-neutral-border bg-neutral-surface-sunken px-3.5 py-2.5">
+          <p className="text-[12px] text-neutral-text-secondary leading-relaxed">
+            GitHub uses OAuth&nbsp;2.0 — endpoints are configured automatically, so there is no
+            issuer URL. Email and profile come from the GitHub user API, and only verified primary
+            emails are accepted.
+          </p>
+        </div>
+      )}
+
+      {(def.kind === 'free' || def.kind === 'derived') &&
+        !rawIssuerMode &&
+        def.fields?.map((f) => (
+          <FieldRow key={f.id} label={f.label} hint={f.hint}>
+            <input
+              type="text"
+              aria-label={f.label}
+              value={fieldValues[f.id] ?? ''}
+              onChange={(e) => setField(f.id, e.target.value)}
+              placeholder={f.placeholder}
+              className={`${INPUT_CLASS} ${f.mono ? 'tppm-mono' : ''}`}
+            />
+          </FieldRow>
+        ))}
+
+      {/* Raw-issuer fallback when a stored issuer could not be decomposed. */}
+      {rawIssuerMode && (
+        <FieldRow
+          label="Issuer URL"
+          hint="Stored issuer (could not be split into fields) — edit directly."
+        >
+          <input
+            type="text"
+            aria-label="Issuer URL"
+            value={fieldValues.issuer ?? ''}
+            onChange={(e) => setField('issuer', e.target.value)}
+            placeholder="https://id.example.com"
+            className={`${INPUT_CLASS} tppm-mono`}
+          />
+        </FieldRow>
+      )}
+
+      {/* Live resolved-issuer strip for derived providers. */}
+      {def.kind === 'derived' && !rawIssuerMode && (
+        <FieldRow label="Resolved issuer" hint="Composed from the fields above.">
+          <span
+            className="tppm-mono text-[12px] text-neutral-text-secondary"
+            aria-live="polite"
+            data-testid="resolved-issuer"
+          >
+            {composedIssuer || 'Fill the fields above to compose the issuer…'}
+          </span>
+        </FieldRow>
+      )}
+
+      {/* GitHub org restriction */}
+      {def.kind === 'oauth' &&
+        def.fields?.map((f) => (
+          <FieldRow key={f.id} label={f.label} hint={f.hint}>
+            <input
+              type="text"
+              aria-label={f.label}
+              value={fieldValues[f.id] ?? ''}
+              onChange={(e) => setField(f.id, e.target.value)}
+              placeholder={f.placeholder}
+              className={INPUT_CLASS}
+            />
+          </FieldRow>
+        ))}
+    </>
+  );
+}
+
+/**
+ * "Test connection" card — only meaningful for a saved provider (probes by
+ * slug), so it self-guards to null on Add. Extracted from SsoProviderPanel
+ * (#2245) to keep the component body under the cognitive-complexity budget;
+ * markup verbatim.
+ */
+function TestConnectionSection({
+  mode,
+  def,
+  test,
+  slug,
+}: {
+  mode: 'add' | 'edit';
+  def: ProviderDef;
+  test: ReturnType<typeof useTestSsoConnection>;
+  slug: string;
+}) {
+  if (mode !== 'edit') return null;
+  const testResult = test.data;
+  return (
+    <div className="mt-5 rounded-card border border-neutral-border px-3.5 py-3">
+      <h4 className="text-[13px] font-semibold text-neutral-text-primary">Test connection</h4>
+      <p className="mt-0.5 text-[12px] text-neutral-text-secondary">
+        {def.type === 'OAuth'
+          ? "Checks that GitHub's API is reachable."
+          : "Checks that the issuer's discovery document and signing keys are reachable."}
+      </p>
+      <div className="mt-2 flex items-center gap-3">
+        <button
+          type="button"
+          disabled={test.isPending}
+          onClick={() => test.mutate(slug)}
+          className="h-8 px-3 text-[13px] font-medium border border-neutral-border rounded-control text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
+        >
+          {test.isPending ? 'Testing…' : 'Test connection'}
+        </button>
+        <p className="text-[12px]" aria-live="polite">
+          {testResult?.ok === true && (
+            <span className="text-semantic-on-track">
+              <span aria-hidden="true">✓</span> Reachable.
+            </span>
+          )}
+          {testResult?.ok === false && (
+            <span className="text-semantic-critical">
+              <span aria-hidden="true">✗</span>{' '}
+              {testResult.detail || testResult.error || 'Not reachable.'}
+            </span>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function SsoProviderPanel({
   mode,
   existing,
@@ -121,15 +305,7 @@ export function SsoProviderPanel({
   const [slug, setSlug] = useState(() => existing?.slug ?? 'keycloak');
   const def = providerDef(slug) as ProviderDef;
 
-  const seed = useMemo(() => {
-    if (mode !== 'edit' || !existing) return { values: {} as Record<string, string>, raw: false };
-    if (def.kind === 'oauth') return { values: { org: existing.github_org }, raw: false };
-    const decomposed = seedFields(def, existing.server_url);
-    // decompose() returns null when the stored issuer doesn't match the expected
-    // shape (e.g. edited via the API) — fall back to a raw, editable issuer.
-    if (decomposed === null) return { values: { issuer: existing.server_url }, raw: true };
-    return { values: decomposed, raw: false };
-  }, [mode, existing, def]);
+  const seed = useMemo(() => computeSeed(mode, existing, def), [mode, existing, def]);
 
   const [displayName, setDisplayName] = useState(existing?.display_name ?? '');
   const [clientId, setClientId] = useState(existing?.client_id ?? '');
@@ -212,8 +388,6 @@ export function SsoProviderPanel({
     onClose,
   ]);
 
-  const testResult = test.data;
-
   return (
     <div className="rounded-card border-2 border-brand-primary/45 bg-neutral-surface-raised">
       {/* Header */}
@@ -270,87 +444,13 @@ export function SsoProviderPanel({
           )}
         </FieldRow>
 
-        {/* Issuer section — driven by kind */}
-        {def.kind === 'fixed' && (
-          <FieldRow label="Issuer" hint="Auto-configured for this provider.">
-            <span className="tppm-mono text-[13px] text-neutral-text-primary inline-flex items-center gap-2">
-              {def.fixedIssuer}
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-brand-primary bg-brand-primary/10 rounded px-1.5 py-0.5">
-                auto
-              </span>
-            </span>
-          </FieldRow>
-        )}
-
-        {def.kind === 'oauth' && (
-          <div className="my-3 rounded-card border border-neutral-border bg-neutral-surface-sunken px-3.5 py-2.5">
-            <p className="text-[12px] text-neutral-text-secondary leading-relaxed">
-              GitHub uses OAuth&nbsp;2.0 — endpoints are configured automatically, so there is no
-              issuer URL. Email and profile come from the GitHub user API, and only verified primary
-              emails are accepted.
-            </p>
-          </div>
-        )}
-
-        {(def.kind === 'free' || def.kind === 'derived') &&
-          !rawIssuerMode &&
-          def.fields?.map((f) => (
-            <FieldRow key={f.id} label={f.label} hint={f.hint}>
-              <input
-                type="text"
-                aria-label={f.label}
-                value={fieldValues[f.id] ?? ''}
-                onChange={(e) => setField(f.id, e.target.value)}
-                placeholder={f.placeholder}
-                className={`${INPUT_CLASS} ${f.mono ? 'tppm-mono' : ''}`}
-              />
-            </FieldRow>
-          ))}
-
-        {/* Raw-issuer fallback when a stored issuer could not be decomposed. */}
-        {rawIssuerMode && (
-          <FieldRow
-            label="Issuer URL"
-            hint="Stored issuer (could not be split into fields) — edit directly."
-          >
-            <input
-              type="text"
-              aria-label="Issuer URL"
-              value={fieldValues.issuer ?? ''}
-              onChange={(e) => setField('issuer', e.target.value)}
-              placeholder="https://id.example.com"
-              className={`${INPUT_CLASS} tppm-mono`}
-            />
-          </FieldRow>
-        )}
-
-        {/* Live resolved-issuer strip for derived providers. */}
-        {def.kind === 'derived' && !rawIssuerMode && (
-          <FieldRow label="Resolved issuer" hint="Composed from the fields above.">
-            <span
-              className="tppm-mono text-[12px] text-neutral-text-secondary"
-              aria-live="polite"
-              data-testid="resolved-issuer"
-            >
-              {composedIssuer || 'Fill the fields above to compose the issuer…'}
-            </span>
-          </FieldRow>
-        )}
-
-        {/* GitHub org restriction */}
-        {def.kind === 'oauth' &&
-          def.fields?.map((f) => (
-            <FieldRow key={f.id} label={f.label} hint={f.hint}>
-              <input
-                type="text"
-                aria-label={f.label}
-                value={fieldValues[f.id] ?? ''}
-                onChange={(e) => setField(f.id, e.target.value)}
-                placeholder={f.placeholder}
-                className={INPUT_CLASS}
-              />
-            </FieldRow>
-          ))}
+        <IssuerFields
+          def={def}
+          rawIssuerMode={rawIssuerMode}
+          fieldValues={fieldValues}
+          setField={setField}
+          composedIssuer={composedIssuer}
+        />
 
         {/* Common credential fields */}
         <h4 className="mt-6 mb-1 text-[12px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
@@ -528,40 +628,7 @@ export function SsoProviderPanel({
           </div>
         </FieldRow>
 
-        {/* Test connection — only meaningful for a saved provider (probes by slug). */}
-        {mode === 'edit' && (
-          <div className="mt-5 rounded-card border border-neutral-border px-3.5 py-3">
-            <h4 className="text-[13px] font-semibold text-neutral-text-primary">Test connection</h4>
-            <p className="mt-0.5 text-[12px] text-neutral-text-secondary">
-              {def.type === 'OAuth'
-                ? "Checks that GitHub's API is reachable."
-                : "Checks that the issuer's discovery document and signing keys are reachable."}
-            </p>
-            <div className="mt-2 flex items-center gap-3">
-              <button
-                type="button"
-                disabled={test.isPending}
-                onClick={() => test.mutate(slug)}
-                className="h-8 px-3 text-[13px] font-medium border border-neutral-border rounded-control text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
-              >
-                {test.isPending ? 'Testing…' : 'Test connection'}
-              </button>
-              <p className="text-[12px]" aria-live="polite">
-                {testResult?.ok === true && (
-                  <span className="text-semantic-on-track">
-                    <span aria-hidden="true">✓</span> Reachable.
-                  </span>
-                )}
-                {testResult?.ok === false && (
-                  <span className="text-semantic-critical">
-                    <span aria-hidden="true">✗</span>{' '}
-                    {testResult.detail || testResult.error || 'Not reachable.'}
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-        )}
+        <TestConnectionSection mode={mode} def={def} test={test} slug={slug} />
       </div>
 
       {/* Footer */}
