@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { canEditTask } from '@/lib/roles';
 import { setSearchParam } from '@/hooks/useUrlSelectedId';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
@@ -46,6 +48,14 @@ type DeletePhase = 'idle' | 'confirming' | 'deleting';
 export function GridView() {
   const projectId = useProjectId() ?? null;
   const project = useProject(projectId);
+  // Write-control gate (#2145): the Grid renders the same tasks as the Schedule,
+  // so it must apply the same VIEWER read-only rule. Member+ may author; Viewers
+  // may not. Pessimistic while the role loads (canEditTask(null) === false) so
+  // Delete / select-all / create never flash for a viewer who turns out to lack
+  // the permission — a false affordance that 403s on submit is worse than a
+  // brief absence. The server is authoritative; this is the UX gate.
+  const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
+  const canEdit = canEditTask(currentRole);
   const { tasks, isLoading, error } = useScheduleTasks();
   const { selectedIds, selectAll, clearSelection } = useTaskSelectionStore();
   const { setSelectedTaskId: setOutlineSelectedTaskId, selectedTaskId: outlineSelectedTaskId } =
@@ -383,10 +393,11 @@ export function GridView() {
           onCollapseAll={() => {}}
           onCsvExport={() => {}}
           canExport={false}
+          canEdit={canEdit}
         />
         <GridEmptyState
           onAddTask={
-            projectId
+            projectId && canEdit
               ? () => {
                   setAddFormParentId(null);
                   setShowAddForm(true);
@@ -448,6 +459,7 @@ export function GridView() {
         onCollapseAll={() => setCollapseAllCounter((c) => c + 1)}
         onCsvExport={exportFilteredTasks}
         canExport={filteredCount > 0}
+        canEdit={canEdit}
       />
 
       <ChipStrip
@@ -471,6 +483,7 @@ export function GridView() {
           filters={filters}
           onClearFilters={handleClearFilters}
           onOpenDetail={handleOpenDetail}
+          canEdit={canEdit}
         />
       )}
       {effectiveMode === 'outline' && (
@@ -487,6 +500,7 @@ export function GridView() {
           filters={filters}
           onClearFilters={handleClearFilters}
           onOpenDetail={handleOpenDetail}
+          canEdit={canEdit}
         />
       )}
 
@@ -565,6 +579,10 @@ interface ToolbarProps {
   onCollapseAll: () => void;
   onCsvExport: () => void;
   canExport: boolean;
+  /** Member+ may author (#2145). Below it, the select-all box, bulk Delete, and
+   *  the +Task / +Child create buttons are suppressed — a Viewer never sees a
+   *  destructive bulk flow that 403s per task. */
+  canEdit: boolean;
 }
 
 function Toolbar({
@@ -592,6 +610,7 @@ function Toolbar({
   onCollapseAll,
   onCsvExport,
   canExport,
+  canEdit,
 }: ToolbarProps) {
   if (deletePhase !== 'idle') {
     return (
@@ -606,7 +625,10 @@ function Toolbar({
     );
   }
 
-  const supportsBulkSelect = mode !== 'outline';
+  // Selection exists only to feed bulk Delete, so it is gated with authoring
+  // (#2145): a Viewer has nothing to do with a selection and must not reach the
+  // Delete button it enables.
+  const supportsBulkSelect = mode !== 'outline' && canEdit;
 
   return (
     // Mobile (< md): controls wrap to 2 lines, so the container must grow to
@@ -724,18 +746,20 @@ function Toolbar({
           line and force the actions onto a third row. */}
       <div className="hidden md:block flex-1" />
 
-      <button
-        type="button"
-        onClick={onAddTask}
-        className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-          border border-neutral-border rounded h-7 px-3
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1"
-      >
-        + Task
-      </button>
+      {canEdit && (
+        <button
+          type="button"
+          onClick={onAddTask}
+          className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
+            border border-neutral-border rounded h-7 px-3
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+            focus-visible:ring-offset-1"
+        >
+          + Task
+        </button>
+      )}
 
-      {showAddChild && (
+      {canEdit && showAddChild && (
         <button
           type="button"
           onClick={onAddChild}

@@ -15,6 +15,12 @@ interface TaskRowProps {
   onCancelRename: () => void;
   /** Open this task's detail drawer; omit to keep the row inert on click. */
   onOpenDetail?: () => void;
+  /**
+   * Whether the per-row select checkbox renders (#2145). Selection only feeds
+   * bulk Delete, a Member+ action, so a Viewer sees no select box at all rather
+   * than a checkbox that toggles a selection it can never act on. Defaults true.
+   */
+  selectable?: boolean;
 }
 
 /**
@@ -33,6 +39,7 @@ export function TaskRow({
   onRename,
   onCancelRename,
   onOpenDetail,
+  selectable = true,
 }: TaskRowProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   // Single-click opens detail; double-click renames. A pending-open timer lets a
@@ -149,27 +156,29 @@ export function TaskRow({
           never a row-open, because the row's click/keydown handlers early-return on
           `.closest('input, button, a, label')` — no click handler on the label itself.
         */}
-        <label
-          className="
-            relative flex items-center justify-center flex-shrink-0 cursor-pointer
-            before:absolute before:left-1/2 before:top-1/2
-            before:-translate-x-1/2 before:-translate-y-1/2
-            before:h-11 before:w-11 before:content-[''] md:before:hidden
-          "
-        >
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={onToggleSelect}
-          aria-label={`Select ${task.name}`}
-          className="
-            w-4 h-4 rounded border-neutral-border bg-transparent flex-shrink-0
-            checked:bg-brand-primary checked:border-brand-primary
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
-            cursor-pointer
-          "
-        />
-        </label>
+        {selectable && (
+          <label
+            className="
+              relative flex items-center justify-center flex-shrink-0 cursor-pointer
+              before:absolute before:left-1/2 before:top-1/2
+              before:-translate-x-1/2 before:-translate-y-1/2
+              before:h-11 before:w-11 before:content-[''] md:before:hidden
+            "
+          >
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={onToggleSelect}
+              aria-label={`Select ${task.name}`}
+              className="
+                w-4 h-4 rounded border-neutral-border bg-transparent flex-shrink-0
+                checked:bg-brand-primary checked:border-brand-primary
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+                cursor-pointer
+              "
+            />
+          </label>
+        )}
 
         <span
           role="gridcell"

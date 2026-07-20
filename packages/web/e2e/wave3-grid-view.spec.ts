@@ -110,6 +110,18 @@ async function setup(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
+  // Current-user role (#2145): the Grid gates its create/select/delete controls
+  // on Member+; without this the ?self=true query 404s and the pessimistic gate
+  // hides "+ Task" and the select box. Return an Admin (300) self-membership.
+  await page.route('**/api/v1/projects/*/members/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: route.request().url().includes('self=true')
+        ? JSON.stringify([{ id: 'mem-self', role: 300, role_label: 'Project Manager' }])
+        : JSON.stringify({ count: 1, next: null, previous: null, results: [{ id: 'mem-self', role: 300, role_label: 'Project Manager' }] }),
+    }),
+  );
 }
 
 test.describe('Grid view mode switching (#334)', () => {

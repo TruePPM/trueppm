@@ -159,6 +159,30 @@ describe('BacklogBand (rail)', () => {
     expect(cards[1]).toHaveTextContent('Old idea');
   });
 
+  // --- Read-only rail (#2146) ---
+
+  it('suppresses the quick-capture field and "Add with details…" when readOnly', () => {
+    renderBand({
+      tasks: [],
+      onQuickCapture: vi.fn(),
+      onCaptureIdea: vi.fn(),
+      readOnly: true,
+    });
+    // A Viewer (or closed sprint) sees no authoring affordances on the rail.
+    expect(screen.queryByRole('textbox', { name: /Capture a backlog idea/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add with details/i })).not.toBeInTheDocument();
+  });
+
+  it('renders the quick-capture field and "Add with details…" when not readOnly', () => {
+    renderBand({
+      tasks: [],
+      onQuickCapture: vi.fn(),
+      onCaptureIdea: vi.fn(),
+    });
+    expect(screen.getByRole('textbox', { name: /Capture a backlog idea/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Add with details/i })).toBeInTheDocument();
+  });
+
   // --- Capture-first affordance (#1973) ---
 
   it('renders the capture field with a "+" affordance, captures on Enter, and clears the field', () => {

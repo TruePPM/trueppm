@@ -36,7 +36,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectCustomFields, type ProjectCustomField } from '@/hooks/useProjectCustomFields';
 import { setSearchParam, useUrlSelectedId } from '@/hooks/useUrlSelectedId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { ROLE_ADMIN } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
 import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import { useSpaceDragPan, SpaceAwarePointerSensor } from '@/hooks/useSpaceDragPan';
 import { useHasScrollBelow } from '@/hooks/useHasScrollBelow';
@@ -1789,7 +1789,15 @@ export function BoardView() {
   // A COMPLETED sprint board is a retrospective read (#1141): drag-to-assign is
   // disabled board-wide so a card move never back-dates scope into a closed
   // sprint. Card-open and scroll stay enabled — read is the use case.
-  const readOnly = selectedSprint?.state === 'COMPLETED';
+  const sprintClosed = selectedSprint?.state === 'COMPLETED';
+  // Board authoring is Member+ (#2146): quick-capture, per-lane add, card drag,
+  // and Move-to all rendered for Viewers and 403'd. Fold the role gate into the
+  // board-wide `readOnly` used by every write affordance — pessimistic while the
+  // role loads (`canEditTask(null)` is false). `sprintClosed` stays separate for
+  // the closed-sprint banner, which must not show on an active board just
+  // because the viewer lacks write access. The server is authoritative.
+  const canConfigureBoard = (currentRole ?? -1) >= ROLE_SCHEDULER;
+  const readOnly = sprintClosed || !canEditTask(currentRole);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
@@ -3385,7 +3393,7 @@ export function BoardView() {
           )}
           {/* Closed-sprint read-only banner (#1141) — below the header, above the
               grid; drag-to-assign is disabled board-wide (see `readOnly`). */}
-          {readOnly && projectId && <ClosedSprintBanner projectId={projectId} />}
+          {sprintClosed && projectId && <ClosedSprintBanner projectId={projectId} />}
 
           {/* Phase-lane focus banner (issue 1460, ADR-0192 Part 3) — keeps focus
               mode inescapable (mirrors the My-tasks / Tech-debt filter chips) so
@@ -3673,11 +3681,14 @@ export function BoardView() {
                   onCardFocus={handleCardFocus}
                   onCardClick={handleCardClick}
                   onSchedule={projectId ? handleScheduleRequest : undefined}
-                  onQuickCapture={projectId ? handleQuickCaptureBacklog : undefined}
+                  onQuickCapture={
+                    projectId && !readOnly ? handleQuickCaptureBacklog : undefined
+                  }
                   isQuickCapturePending={createTask.isPending}
                   onCaptureIdea={() => handleAddTask('root', 'backlog', true)}
                   isCaptureIdeaPending={false}
                   onOpenCommandPalette={() => openCommandPalette(true)}
+                  readOnly={readOnly}
                 />
               )}
 
@@ -3938,9 +3949,11 @@ export function BoardView() {
                       onMenuMove: handleMenuMove,
                       // Assignee (324) and epic (364) lanes can't host a new task (a
                       // lane id is a resource or an epic, not a WBS parent) — suppress
-                      // the per-lane add button in those read-only lenses.
+                      // the per-lane add button in those read-only lenses. Also
+                      // suppressed board-wide when `readOnly` (closed sprint or a
+                      // Viewer, #2146).
                       onAddTask:
-                        groupMode === 'assignee' || groupMode === 'epic'
+                        readOnly || groupMode === 'assignee' || groupMode === 'epic'
                           ? undefined
                           : handleAddTask,
                       focusedCardId,
@@ -4218,6 +4231,10 @@ export function BoardView() {
           onClose={() => setShowSettings(false)}
           showCustomFieldsOnCards={toolbarPrefs.showCustomFieldsOnCards}
           onToggleCustomFieldsOnCards={toolbarPrefs.setShowCustomFieldsOnCards}
+          // Column/WIP config is a shared-board write — SCHEDULER+ (#2146). The
+          // panel ships a complete view-only mode ("schedulers can edit columns")
+          // that was never wired; a Member/Viewer could edit and hit a raw 403.
+          readOnly={!canConfigureBoard}
         />
       )}
       {depTask && (

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { SprintsView } from './SprintsView';
 import { makeSprint } from './sprintTestFixtures';
+import { ROLE_SCHEDULER, ROLE_VIEWER } from '@/lib/roles';
 import type { MyActiveSprintEntry } from '@/hooks/useMyActiveSprints';
 
 vi.mock('@/hooks/useProjectId', () => ({
@@ -115,6 +116,13 @@ vi.mock('@/components/Toast/toast', () => ({
 const canManageScopeMock = vi.fn(() => false);
 vi.mock('@/hooks/useCanManageScope', () => ({
   useCanManageScope: () => canManageScopeMock(),
+}));
+
+// Sprint lifecycle gate (#2146) — default to SCHEDULER so the Plan/Activate/Close
+// assertions apply; the role-gating test overrides it to VIEWER.
+const currentRoleMock = vi.fn<() => number | null>(() => ROLE_SCHEDULER);
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({ role: currentRoleMock(), roleLabel: null, isLoading: false }),
 }));
 
 // The task create modal + detail drawer are heavy board/schedule surfaces with
@@ -344,6 +352,7 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     toastMocks.info.mockClear();
     window.sessionStorage.clear();
     canManageScopeMock.mockReturnValue(false);
+    currentRoleMock.mockReturnValue(ROLE_SCHEDULER);
     useMyActiveSprintsMock.mockReturnValue({ data: [], isLoading: false, error: null });
     useSprintMutationsMock.mockReturnValue({
       closeSprint: { mutate: vi.fn(), isPending: false },
@@ -519,6 +528,36 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     );
     // No success → no retro handoff banner.
     expect(screen.queryByRole('button', { name: /Run the .* retro/i })).not.toBeInTheDocument();
+  });
+
+  // #2146 — lifecycle writes are SCHEDULER+. A Viewer sees the sprint data but
+  // no Plan/Close/Activate chrome (previously all rendered and 403'd on click).
+  it('hides Plan/Close/Activate lifecycle controls for a Viewer', () => {
+    currentRoleMock.mockReturnValue(ROLE_VIEWER);
+    const readyPlanned = makeSprint({
+      id: 'sp-planned',
+      state: 'PLANNED',
+      name: 'Next up',
+      start_date: '2026-04-01',
+      finish_date: '2026-04-14',
+    });
+    useSprintsMock.mockReturnValue({
+      sprints: [ACTIVE, readyPlanned],
+      isLoading: false,
+      error: null,
+    });
+    useSprintsByStateMock.mockReturnValue({
+      closed: [], active: ACTIVE, planned: [readyPlanned], isLoading: false, error: null,
+    });
+    renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
+
+    expect(screen.queryByRole('button', { name: /Close active sprint/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Plan next sprint/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Activate/i })).not.toBeInTheDocument();
+    // The header still renders — read access is unaffected.
+    expect(
+      screen.getByRole('heading', { level: 1, name: /Sprint 1 — Telemetry & FAT prep/ }),
+    ).toBeInTheDocument();
   });
 
   it('surfaces capacity warnings after activating a planned sprint and dismisses them', async () => {

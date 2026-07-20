@@ -19,6 +19,8 @@ interface GroupedModeProps {
   filters: GridFilterState;
   onClearFilters: () => void;
   onOpenDetail?: (task: Task) => void;
+  /** Member+ authoring (#2145) — gates the per-row select checkbox. */
+  canEdit?: boolean;
 }
 
 /**
@@ -26,7 +28,13 @@ interface GroupedModeProps {
  * grouping intentionally duplicates multi-assignee tasks under each resource
  * group (ADR-0053 § 7); the help-icon tooltip in the toolbar carries that copy.
  */
-export function GroupedMode({ groupBy, filters, onClearFilters, onOpenDetail }: GroupedModeProps) {
+export function GroupedMode({
+  groupBy,
+  filters,
+  onClearFilters,
+  onOpenDetail,
+  canEdit = true,
+}: GroupedModeProps) {
   const projectId = useProjectId() ?? null;
   const { tasks } = useScheduleTasks();
   const { sprints } = useSprints(projectId ?? undefined);
@@ -117,6 +125,7 @@ export function GroupedMode({ groupBy, filters, onClearFilters, onOpenDetail }: 
         onRename={(task, name) => handleRename(task, name)}
         onCancelRename={() => setRenamingId(null)}
         onOpenDetail={onOpenDetail}
+        selectable={canEdit}
       />
     </>
   );

@@ -137,6 +137,11 @@ export function SprintsView() {
   // SCHEDULER+ can pull retro action items into a PLANNED sprint.
   const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
   const canPullCarryover = (currentRole ?? -1) >= ROLE_SCHEDULER;
+  // Sprint lifecycle (plan / activate / edit-planned / close / scope-membership)
+  // is a SCHEDULER+ write per the server gates (#2146). Pessimistic while the
+  // role loads (`currentRole ?? -1`) so Plan/Activate/Close/Remove chrome never
+  // flashes for a viewer who turns out to lack it. The server is authoritative.
+  const canManageLifecycle = (currentRole ?? -1) >= ROLE_SCHEDULER;
 
   // Sprint number is 1-based chronological index across all sprints (any state).
   // Derived once per data update so every child can read the same answer.
@@ -435,6 +440,9 @@ export function SprintsView() {
   }
 
   function handleActivateSprint(sprintId: string) {
+    // Defense in depth (#2146): the Activate affordance is already role-gated at
+    // render, but the handler guards too so a stale keyboard path can't fire it.
+    if (!canManageLifecycle) return;
     activateSprint.mutate(sprintId, {
       onSuccess: (data) => {
         setCapacityWarnings(data.warnings ?? []);
@@ -456,7 +464,7 @@ export function SprintsView() {
   }
 
   function handleRemoveFromSprint(taskId: string) {
-    if (!projectId) return;
+    if (!projectId || !canManageLifecycle) return;
     updateTask.mutate(
       { id: taskId, projectId, sprint: null },
       {
@@ -531,6 +539,7 @@ export function SprintsView() {
             onCloseSprint={handleCloseSprint}
             onFilter={handleFilter}
             filterButtonRef={filterAnchorRef}
+            canManageLifecycle={canManageLifecycle}
           />
           {/* Popover places itself in fixed coords from the Filter button so it
           stays anchored regardless of horizontal layout overflow. */}
@@ -771,9 +780,12 @@ export function SprintsView() {
                 planned={buckets.planned}
                 selectedSprintId={selectedSprint?.id ?? null}
                 onSelect={setSelectedSprintId}
-                onPlanNext={handlePlanNext}
-                onActivate={handleActivateSprint}
-                onEditPlanned={handleEditPlanned}
+                // Lifecycle write handlers omitted below SCHEDULER (#2146) so the
+                // strip renders as a read-only cadence — no Plan slot, no
+                // Activate/Edit affordance on the planned cards.
+                onPlanNext={canManageLifecycle ? handlePlanNext : undefined}
+                onActivate={canManageLifecycle ? handleActivateSprint : undefined}
+                onEditPlanned={canManageLifecycle ? handleEditPlanned : undefined}
                 iterationWeeks={iterationWeeks}
                 milestoneName={activeSprint?.target_milestone_detail?.name ?? null}
               />
@@ -789,8 +801,13 @@ export function SprintsView() {
                   projectId={projectId}
                   sprintId={activeSprint.id}
                   tasks={filteredBacklog}
-                  onAddTask={() => setAddTaskForSprintId(activeSprint.id)}
-                  onRemoveTask={handleRemoveFromSprint}
+                  // Add-to- and remove-from-sprint are scope writes — gated to
+                  // SCHEDULER+ (#2146); the table hides both affordances when the
+                  // handlers are omitted.
+                  onAddTask={
+                    canManageLifecycle ? () => setAddTaskForSprintId(activeSprint.id) : undefined
+                  }
+                  onRemoveTask={canManageLifecycle ? handleRemoveFromSprint : undefined}
                   onOpenTask={setSelectedTaskId}
                 />
               )}
@@ -810,8 +827,12 @@ export function SprintsView() {
                       projectId={projectId}
                       sprintId={plannedSprint.id}
                       tasks={plannedBacklogTasks}
-                      onAddTask={() => setAddTaskForSprintId(plannedSprint.id)}
-                      onRemoveTask={handleRemoveFromSprint}
+                      onAddTask={
+                        canManageLifecycle
+                          ? () => setAddTaskForSprintId(plannedSprint.id)
+                          : undefined
+                      }
+                      onRemoveTask={canManageLifecycle ? handleRemoveFromSprint : undefined}
                       onOpenTask={setSelectedTaskId}
                       showCarryoverLane
                       canPullCarryover={canPullCarryover}
