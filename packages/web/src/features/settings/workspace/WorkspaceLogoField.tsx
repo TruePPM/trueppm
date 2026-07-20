@@ -134,7 +134,7 @@ export function WorkspaceLogoField({ logoUrl, name }: Props) {
                   type="button"
                   onClick={() => void handleRemove()}
                   disabled={busy}
-                  className="px-2 py-1 rounded-control text-danger-text font-medium hover:bg-danger-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger-text disabled:opacity-60"
+                  className="px-2 py-1 rounded-control text-semantic-critical font-medium hover:bg-semantic-critical-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical disabled:opacity-60"
                 >
                   Yes, remove
                 </button>
@@ -151,7 +151,7 @@ export function WorkspaceLogoField({ logoUrl, name }: Props) {
                 type="button"
                 onClick={() => setConfirmRemove(true)}
                 disabled={busy}
-                className="px-3 py-1.5 rounded-control text-[13px] font-medium text-neutral-text-secondary hover:text-danger-text hover:bg-danger-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger-text disabled:opacity-60 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 rounded-control text-[13px] font-medium text-neutral-text-secondary hover:text-semantic-critical hover:bg-semantic-critical-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 Remove
               </button>
