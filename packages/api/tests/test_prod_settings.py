@@ -49,37 +49,44 @@ def _load_prod(
     encryption_key: str = _VALID_FERNET_KEY,
     database_url: str = _DB_URL_TLS,
     allow_unencrypted_db: bool = False,
+    jwt_signing_key: str | None = None,
 ) -> ModuleType:
     """Import (or re-import) settings/prod.py with controlled storage + env.
 
-    prod.py reads ALLOWED_HOSTS/SECRET_KEY/DATABASE_URL from the environment and
-    STORAGES/ALLOW_LOCAL_ATTACHMENT_STORAGE/INTEGRATION_ENCRYPTION_KEY/
-    ALLOW_UNENCRYPTED_DB from ``base`` at import time. We patch each so the guards
-    run against known inputs without mutating the live settings (the ``DATABASES``
-    patch keeps prod's CONN_MAX_AGE write off the shared dict). ``database_url``
-    defaults to an sslmode=require URL so the #1550 guard passes unless a test
-    deliberately supplies a plaintext one.
+    prod.py reads ALLOWED_HOSTS/SECRET_KEY/DATABASE_URL/JWT_SIGNING_KEY from the
+    environment and STORAGES/ALLOW_LOCAL_ATTACHMENT_STORAGE/
+    INTEGRATION_ENCRYPTION_KEY/ALLOW_UNENCRYPTED_DB from ``base`` at import time.
+    We patch each so the guards run against known inputs without mutating the live
+    settings (the ``DATABASES`` patch keeps prod's CONN_MAX_AGE write off the
+    shared dict). ``database_url`` defaults to an sslmode=require URL so the #1550
+    guard passes unless a test deliberately supplies a plaintext one.
+    ``jwt_signing_key`` is only injected into the env when provided (#2247); left
+    unset, prod's JWT_SIGNING_KEY inherits SECRET_KEY.
     """
     storages = {
         "default": {"BACKEND": backend},
         "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }
+    env_overrides = {
+        "ALLOWED_HOSTS": "prod.example.com",
+        "SECRET_KEY": _STRONG_KEY,
+        "TRUEPPM_SECURE_SSL_REDIRECT": "false",
+        "DATABASE_URL": database_url,
+    }
+    if jwt_signing_key is not None:
+        env_overrides["JWT_SIGNING_KEY"] = jwt_signing_key
     with (
-        mock.patch.dict(
-            os.environ,
-            {
-                "ALLOWED_HOSTS": "prod.example.com",
-                "SECRET_KEY": _STRONG_KEY,
-                "TRUEPPM_SECURE_SSL_REDIRECT": "false",
-                "DATABASE_URL": database_url,
-            },
-        ),
+        mock.patch.dict(os.environ, env_overrides),
         mock.patch.object(base, "STORAGES", storages),
         mock.patch.object(base, "ALLOW_LOCAL_ATTACHMENT_STORAGE", allow_local),
         mock.patch.object(base, "ALLOW_UNENCRYPTED_DB", allow_unencrypted_db),
         mock.patch.object(base, "INTEGRATION_ENCRYPTION_KEY", encryption_key),
         mock.patch.object(base, "DATABASES", {"default": {}}),
     ):
+        # Ensure a stale JWT_SIGNING_KEY from a prior test's patched env never
+        # bleeds in when this call means to test the inherit-SECRET_KEY default.
+        if jwt_signing_key is None:
+            os.environ.pop("JWT_SIGNING_KEY", None)
         existing = sys.modules.get(_PROD)
         if existing is None:
             return importlib.import_module(_PROD)
@@ -88,9 +95,17 @@ def _load_prod(
 
 @pytest.fixture(autouse=True)
 def _drop_reloaded_prod() -> Iterator[None]:
-    """Drop the reloaded prod module so its patched-env state never leaks."""
+    """Drop the reloaded prod module and restore the shared SIMPLE_JWT signing key.
+
+    prod.py re-derives ``SIMPLE_JWT["SIGNING_KEY"]`` and mutates the dict imported
+    from ``base`` (the same object the live settings use), so a prod-load test
+    would otherwise leave the signing key pointing at a test value. Snapshot and
+    restore it so JWT auth in unrelated tests keeps using the live key.
+    """
+    original_signing_key = base.SIMPLE_JWT.get("SIGNING_KEY")
     yield
     sys.modules.pop(_PROD, None)
+    base.SIMPLE_JWT["SIGNING_KEY"] = original_signing_key
 
 
 def test_prod_boots_and_sets_security_headers() -> None:
@@ -143,6 +158,34 @@ def test_prod_boots_on_unencrypted_db_when_opted_in() -> None:
         allow_unencrypted_db=True,
     )
     assert prod.DEBUG is False
+
+
+# ---------------------------------------------------------------------------
+# #2247: dedicated JWT signing key. Unset → inherits SECRET_KEY; a distinct value
+# is strength-validated at boot exactly like SECRET_KEY.
+# ---------------------------------------------------------------------------
+
+
+def test_prod_signing_key_defaults_to_secret_key() -> None:
+    """With JWT_SIGNING_KEY unset, SIMPLE_JWT signs with SECRET_KEY (#2247)."""
+    prod = _load_prod(backend=_S3, allow_local=False)
+    assert prod.JWT_SIGNING_KEY == _STRONG_KEY
+    assert prod.SIMPLE_JWT["SIGNING_KEY"] == _STRONG_KEY
+
+
+def test_prod_boots_with_distinct_strong_signing_key() -> None:
+    """A distinct, strong JWT_SIGNING_KEY is accepted and wired into SIMPLE_JWT."""
+    distinct = "j" * 50  # ≥ 32, no placeholder prefix, != SECRET_KEY
+    prod = _load_prod(backend=_S3, allow_local=False, jwt_signing_key=distinct)
+    assert distinct == prod.JWT_SIGNING_KEY
+    assert prod.SIMPLE_JWT["SIGNING_KEY"] == distinct
+    assert prod.SIMPLE_JWT["SIGNING_KEY"] != prod.SECRET_KEY
+
+
+def test_prod_refuses_distinct_weak_signing_key() -> None:
+    """A distinct-but-weak JWT_SIGNING_KEY stops the boot (#2247)."""
+    with pytest.raises(RuntimeError, match="Refusing to start"):
+        _load_prod(backend=_S3, allow_local=False, jwt_signing_key="short")
 
 
 # ---------------------------------------------------------------------------
