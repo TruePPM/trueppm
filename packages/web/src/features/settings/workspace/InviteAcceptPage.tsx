@@ -45,6 +45,8 @@ export function InviteAcceptPage() {
 
   const usernameId = useId();
   const passwordId = useId();
+  const usernameErrorId = useId();
+  const passwordErrorId = useId();
 
   const score = useMemo(() => passwordScore(password), [password]);
   const requirements = useMemo(() => checkRequirements(password), [password]);
@@ -158,6 +160,8 @@ export function InviteAcceptPage() {
               setUsernameError(null);
             }}
             disabled={isSubmitting}
+            aria-invalid={usernameError !== null}
+            aria-describedby={usernameError !== null ? usernameErrorId : undefined}
             placeholder="anna_khoury"
             className="
               h-10 px-3 rounded border border-neutral-border
@@ -169,7 +173,7 @@ export function InviteAcceptPage() {
             "
           />
           {usernameError !== null && (
-            <p role="alert" className="text-xs text-semantic-critical">
+            <p id={usernameErrorId} role="alert" className="text-xs text-semantic-critical">
               {usernameError}
             </p>
           )}
@@ -192,6 +196,8 @@ export function InviteAcceptPage() {
                 setPasswordError(null);
               }}
               disabled={isSubmitting}
+              aria-invalid={passwordError !== null}
+              aria-describedby={passwordError !== null ? passwordErrorId : undefined}
               className="
                 h-10 w-full pl-3 pr-10 rounded border border-neutral-border
                 bg-neutral-surface text-neutral-text-primary text-sm font-mono
@@ -217,7 +223,7 @@ export function InviteAcceptPage() {
         />
 
         {passwordError !== null && (
-          <p role="alert" className="text-sm text-semantic-critical">
+          <p id={passwordErrorId} role="alert" className="text-sm text-semantic-critical">
             {passwordError}
           </p>
         )}

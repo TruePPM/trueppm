@@ -138,6 +138,40 @@ describe('LoginPage', () => {
     });
   });
 
+  it('associates the sign-in error with both inputs via aria-invalid + aria-describedby (#2183)', async () => {
+    mockedAxios.post.mockRejectedValueOnce(
+      Object.assign(new Error('Unauthorized'), {
+        isAxiosError: true,
+        response: { status: 401 },
+      }),
+    );
+    vi.spyOn(axios, 'isAxiosError').mockReturnValue(true);
+
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const user = userEvent.setup();
+
+    const email = screen.getByLabelText('Email');
+    const password = screen.getByLabelText('Password');
+
+    // No error yet → no invalid state.
+    expect(email).toHaveAttribute('aria-invalid', 'false');
+    expect(password).toHaveAttribute('aria-invalid', 'false');
+
+    await user.type(email, 'anna@example.com');
+    await user.type(password, 'wrong');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(email).toHaveAttribute('aria-invalid', 'true');
+    });
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveAttribute('id');
+    const errorId = alert.getAttribute('id');
+    expect(email).toHaveAttribute('aria-describedby', errorId);
+    expect(password).toHaveAttribute('aria-invalid', 'true');
+    expect(password).toHaveAttribute('aria-describedby', errorId);
+  });
+
   it('shows generic error on unexpected failure', async () => {
     mockedAxios.post.mockRejectedValueOnce(new Error('Network error'));
     vi.spyOn(axios, 'isAxiosError').mockReturnValue(false);
@@ -156,7 +190,11 @@ describe('LoginPage', () => {
 
   it('completes sign-in: stores the token, seeds the me cache, and navigates to the resolved landing', async () => {
     const currentUser = makeCurrentUser({
-      landing: { intent: 'project_overview', path: '/projects/abc/overview', resolved_by: 'role_policy' },
+      landing: {
+        intent: 'project_overview',
+        path: '/projects/abc/overview',
+        resolved_by: 'role_policy',
+      },
     });
     mockedAxios.post.mockResolvedValueOnce({ data: { access: 'minted-token' } });
     meHandler = () => Promise.resolve({ data: currentUser });

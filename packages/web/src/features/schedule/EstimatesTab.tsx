@@ -152,6 +152,9 @@ export function EstimatesTab({
   const outOfOrder = allThreeSet && !(oN <= mN && mN <= pN);
   const pertExpected = allThreeSet ? (oN + 4 * mN + pN) / 6 : null;
   const pertStdDev = allThreeSet && !outOfOrder ? (pN - oN) / 6 : null;
+  // Ties the three inputs to the ordering error via aria-describedby so a
+  // screen-reader user in any field learns which fields are implicated (#2206).
+  const orderErrorId = `est-order-${task.id}`;
 
   // Accepting a velocity suggestion PATCHes most_likely immediately; block it
   // while the estimate draft is dirty to avoid a draft-vs-suggestion-vs-server
@@ -315,6 +318,8 @@ export function EstimatesTab({
           onBlur={optBlur}
           disabled={isReadonly}
           changed={changedO}
+          invalid={outOfOrder}
+          describedById={orderErrorId}
           id={`opt-${task.id}`}
         />
         <EstimateField
@@ -324,6 +329,8 @@ export function EstimatesTab({
           onBlur={mlBlur}
           disabled={isReadonly}
           changed={changedM}
+          invalid={outOfOrder}
+          describedById={orderErrorId}
           id={`ml-${task.id}`}
         />
         <EstimateField
@@ -333,6 +340,8 @@ export function EstimatesTab({
           onBlur={pesBlur}
           disabled={isReadonly}
           changed={changedP}
+          invalid={outOfOrder}
+          describedById={orderErrorId}
           id={`pes-${task.id}`}
         />
       </fieldset>
@@ -364,7 +373,7 @@ export function EstimatesTab({
       {/* Non-blocking ordering hint (#1985/#1982) — the drawer Save bar owns the
           hard gate; here we just tell the user what's wrong while they type. */}
       {outOfOrder && (
-        <p role="alert" className="text-xs text-semantic-at-risk">
+        <p id={orderErrorId} role="alert" className="text-xs text-semantic-at-risk">
           Estimates must satisfy Optimistic ≤ Most Likely ≤ Pessimistic.
         </p>
       )}
@@ -446,6 +455,10 @@ interface EstimateFieldProps {
   id: string;
   /** Staged-but-unsaved — renders the per-field "•" marker (#1985). */
   changed?: boolean;
+  /** Marks the field aria-invalid and links it to the ordering error (#2206). */
+  invalid?: boolean;
+  /** Id of the error node describing why the field is invalid (#2206). */
+  describedById?: string;
 }
 
 function EstimateField({
@@ -456,6 +469,8 @@ function EstimateField({
   disabled,
   id,
   changed = false,
+  invalid = false,
+  describedById,
 }: EstimateFieldProps) {
   return (
     <div className="flex items-center gap-3">
@@ -475,6 +490,8 @@ function EstimateField({
         onChange={(e) => onChange(e.target.value)}
         onBlur={(e) => onBlur(e.target.value)}
         disabled={disabled}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? describedById : undefined}
         placeholder="—"
         className="w-24 h-11 md:h-9 text-sm border border-neutral-border rounded-control px-2 text-center
           bg-neutral-surface text-neutral-text-primary
