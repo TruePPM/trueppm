@@ -94,6 +94,16 @@ describe('LoginPage', () => {
     expect(screen.getByLabelText('Keep me signed in for 30 days')).toBeInTheDocument();
   });
 
+  it('explains the session-only (shared-device) behavior beneath the checkbox', () => {
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+
+    // #2246: makes the unchecked (session cookie, dies on browser close) default
+    // explicit so "don't remember me" on a shared machine is understood.
+    expect(
+      screen.getByText(/Leave off on shared devices/i),
+    ).toBeInTheDocument();
+  });
+
   it('sign-in button is disabled when both fields are empty', () => {
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
 

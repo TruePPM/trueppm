@@ -1545,17 +1545,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/TokenObtainPairRequest"
+                                "$ref": "#/components/schemas/_LoginRequestRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/TokenObtainPairRequest"
+                                "$ref": "#/components/schemas/_LoginRequestRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/TokenObtainPairRequest"
+                                "$ref": "#/components/schemas/_LoginRequestRequest"
                             }
                         }
                     },
@@ -54980,25 +54980,6 @@
                     "task"
                 ]
             },
-            "TokenObtainPairRequest": {
-                "type": "object",
-                "properties": {
-                    "username": {
-                        "type": "string",
-                        "writeOnly": true,
-                        "minLength": 1
-                    },
-                    "password": {
-                        "type": "string",
-                        "writeOnly": true,
-                        "minLength": 1
-                    }
-                },
-                "required": [
-                    "password",
-                    "username"
-                ]
-            },
             "TransferOwnershipRequest": {
                 "type": "object",
                 "description": "POST body for transfer-ownership.\n\n``new_owner_user_id`` is the stock ``auth.User`` integer PK (TruePPM has no\ncustom user model), not a UUID.",
@@ -56172,6 +56153,30 @@
                     "p50",
                     "p80",
                     "p95"
+                ]
+            },
+            "_LoginRequestRequest": {
+                "type": "object",
+                "description": "Login request body: credentials + the optional ``remember_me`` flag (#2246).\n\nDeclared for the OpenAPI schema only — the view validates credentials via\nsimplejwt's ``TokenObtainPairSerializer`` and reads ``remember_me`` from the\nbody separately, so this serializer documents the request shape (so API-first\nconsumers see ``remember_me``) without being used to validate.",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1
+                    },
+                    "remember_me": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Keep the session across browser close (~30 days). Omitted or false → a session-only login: the refresh cookie is dropped on browser close, with a ~12h idle lifetime. Must be a JSON boolean; non-boolean values are treated as false."
+                    }
+                },
+                "required": [
+                    "password",
+                    "username"
                 ]
             },
             "_LoginResponse": {

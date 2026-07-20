@@ -178,6 +178,15 @@ def test_callback_happy_path_sets_refresh_cookie(
     assert settings.AUTH_REFRESH_COOKIE_NAME in resp.cookies
     assert SocialAccount.objects.filter(provider="generic", uid="sub-flow").exists()
 
+    # SSO logins are always session-scoped (#2246): no "remember me" in an IdP
+    # redirect, so the refresh cookie is a session cookie (no Max-Age → dropped on
+    # browser close) and the token carries remember=False.
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    cookie = resp.cookies[settings.AUTH_REFRESH_COOKIE_NAME]
+    assert cookie["max-age"] == ""
+    assert RefreshToken(cookie.value).payload.get("remember") is False  # type: ignore[arg-type]
+
 
 @pytest.mark.django_db
 def test_callback_github_happy_path(github_ctx: Any, monkeypatch: pytest.MonkeyPatch) -> None:

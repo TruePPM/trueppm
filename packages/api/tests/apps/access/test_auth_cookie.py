@@ -15,6 +15,7 @@ import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from rest_framework.response import Response
 from rest_framework.test import APIClient
 from rest_framework.throttling import ScopedRateThrottle
 
@@ -259,6 +260,165 @@ def test_login_maps_serializer_tokenerror_to_invalid_token(monkeypatch) -> None:
 
     # simplejwt's InvalidToken maps to a 401 through DRF's exception handler.
     assert excinfo.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# "Remember me" / session-only login (#2246, ADR-0544). remember_me=true → a
+# persistent 30-day cookie + 30d token exp; unchecked/omitted → a session cookie
+# (no Max-Age) + a short 12h sliding exp. The choice rides a `remember` claim on
+# the refresh token so it survives rotation; pre-#2246 tokens (no claim) keep the
+# legacy 7-day persistent behavior.
+# ---------------------------------------------------------------------------
+
+_REMEMBER_SECONDS = 30 * 24 * 3600
+_SESSION_SECONDS = 12 * 3600
+_LEGACY_SECONDS = 7 * 24 * 3600
+
+
+def _login_remember(client: APIClient, *, remember: bool | None) -> Response:
+    """Log in with an explicit remember_me (or omit it when remember is None)."""
+    body: dict[str, object] = {"username": "cookie_user", "password": "correct-horse-battery"}
+    if remember is not None:
+        body["remember_me"] = remember
+    resp = client.post(_LOGIN_URL, body, format="json")
+    assert resp.status_code == 200, resp.data
+    return resp
+
+
+def _token_lifetime_and_remember(token_value: str):
+    """Decode a fresh refresh token → (remember_claim, remaining_lifetime_seconds)."""
+    from rest_framework_simplejwt.tokens import RefreshToken
+    from rest_framework_simplejwt.utils import aware_utcnow, datetime_from_epoch
+
+    rt = RefreshToken(token_value)  # type: ignore[arg-type]
+    remaining = (datetime_from_epoch(rt["exp"]) - aware_utcnow()).total_seconds()
+    return rt.payload.get("remember"), remaining
+
+
+@pytest.mark.django_db
+def test_remember_me_true_sets_persistent_30d_cookie_and_exp(user) -> None:
+    client = APIClient()
+    resp = _login_remember(client, remember=True)
+    cookie = resp.cookies[_COOKIE]
+    # Persistent cookie: an explicit ~30-day Max-Age so it survives browser close.
+    assert int(cookie["max-age"]) == pytest.approx(_REMEMBER_SECONDS, abs=5)
+    remember, remaining = _token_lifetime_and_remember(cookie.value)
+    assert remember is True
+    assert remaining == pytest.approx(_REMEMBER_SECONDS, abs=300)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("remember", [False, None])
+def test_default_login_sets_session_cookie_with_12h_exp(user, remember) -> None:
+    """Unchecked (False) and omitted both yield a session cookie + 12h exp."""
+    client = APIClient()
+    resp = _login_remember(client, remember=remember)
+    cookie = resp.cookies[_COOKIE]
+    # Session cookie: Django emits no Max-Age → the browser drops it on close.
+    assert cookie["max-age"] == ""
+    remember_claim, remaining = _token_lifetime_and_remember(cookie.value)
+    assert remember_claim is False
+    assert remaining == pytest.approx(_SESSION_SECONDS, abs=300)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad_value", ["false", "0", "true", 1, "yes"])
+def test_non_boolean_remember_me_falls_back_to_session(user, bad_value) -> None:
+    """A non-boolean remember_me must NOT be truthy-coerced into a persistent
+    session (#2246): only JSON `true` opts in, so a string "true"/"false" or an int
+    errs toward the safe session default rather than a 30-day credential."""
+    client = APIClient()
+    resp = client.post(
+        _LOGIN_URL,
+        {"username": "cookie_user", "password": "correct-horse-battery", "remember_me": bad_value},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    cookie = resp.cookies[_COOKIE]
+    assert cookie["max-age"] == ""  # session cookie
+    remember, remaining = _token_lifetime_and_remember(cookie.value)
+    assert remember is False
+    assert remaining == pytest.approx(_SESSION_SECONDS, abs=300)
+
+
+@pytest.mark.django_db
+def test_non_object_login_body_is_a_clean_4xx_not_500(user) -> None:
+    """A non-object JSON body must not 500 — the remember_me read is dict-guarded."""
+    client = APIClient()
+    resp = client.post(_LOGIN_URL, [1, 2, 3], format="json")
+    assert resp.status_code in (400, 401)
+
+
+@pytest.mark.django_db
+def test_remember_choice_survives_rotation(user) -> None:
+    """Rotating a remember token keeps it persistent, 30d, and claim=True."""
+    client = APIClient()
+    _login_remember(client, remember=True)
+    resp = client.post(_REFRESH_URL, {}, format="json")
+    assert resp.status_code == 200
+    cookie = resp.cookies[_COOKIE]
+    assert int(cookie["max-age"]) == pytest.approx(_REMEMBER_SECONDS, abs=5)
+    remember, remaining = _token_lifetime_and_remember(cookie.value)
+    assert remember is True
+    assert remaining == pytest.approx(_REMEMBER_SECONDS, abs=300)
+
+
+@pytest.mark.django_db
+def test_session_choice_survives_rotation(user) -> None:
+    """Rotating a session token keeps it a session cookie, 12h, claim=False."""
+    client = APIClient()
+    _login_remember(client, remember=False)
+    resp = client.post(_REFRESH_URL, {}, format="json")
+    assert resp.status_code == 200
+    cookie = resp.cookies[_COOKIE]
+    assert cookie["max-age"] == ""
+    remember, remaining = _token_lifetime_and_remember(cookie.value)
+    assert remember is False
+    assert remaining == pytest.approx(_SESSION_SECONDS, abs=300)
+
+
+@pytest.mark.django_db
+def test_legacy_token_without_remember_claim_rotates_to_7d_persistent(user) -> None:
+    """A pre-#2246 token (no remember claim) keeps the legacy 7d persistent behavior.
+
+    Back-compat: existing sessions must not be forcibly logged out or silently
+    converted to session cookies. They stay legacy until the next fresh login.
+    """
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    legacy = RefreshToken.for_user(user)  # no remember claim, 7d default exp
+    assert "remember" not in legacy.payload
+
+    client = APIClient()
+    client.cookies[_COOKIE] = str(legacy)
+    resp = client.post(_REFRESH_URL, {}, format="json")
+    assert resp.status_code == 200
+
+    cookie = resp.cookies[_COOKIE]
+    # Still persistent, still ~7 days — unchanged from pre-#2246.
+    assert int(cookie["max-age"]) == pytest.approx(_LEGACY_SECONDS, abs=5)
+    remember, remaining = _token_lifetime_and_remember(cookie.value)
+    assert remember is None  # no claim added — stays legacy
+    assert remaining == pytest.approx(_LEGACY_SECONDS, abs=300)
+
+
+@pytest.mark.django_db
+def test_remember_login_syncs_outstanding_token_expiry_to_30d(user) -> None:
+    """SECURITY: the OutstandingToken bookkeeping row's expires_at tracks the real
+    30d exp, not the 7d default — otherwise a blacklisted remember token's
+    revocation row would be flushed at day 7 while the JWT stays valid to day 30,
+    making it replayable in that window (#2246, ADR-0544)."""
+    from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+    from rest_framework_simplejwt.tokens import RefreshToken
+    from rest_framework_simplejwt.utils import aware_utcnow
+
+    client = APIClient()
+    resp = _login_remember(client, remember=True)
+    jti = RefreshToken(resp.cookies[_COOKIE].value)["jti"]  # type: ignore[arg-type]
+
+    row = OutstandingToken.objects.get(jti=jti)
+    remaining = (row.expires_at - aware_utcnow()).total_seconds()
+    assert remaining == pytest.approx(_REMEMBER_SECONDS, abs=600)
 
 
 def test_login_openapi_schema_omits_phantom_refresh_field() -> None:
