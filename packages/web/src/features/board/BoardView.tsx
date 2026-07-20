@@ -943,6 +943,7 @@ interface PhaseLaneProps {
   workshop?: boolean;
   onPhaseRename?: (phaseId: string, newName: string) => void;
   dragHandleListeners?: Record<string, unknown>;
+  dragHandleAttributes?: Record<string, unknown>;
   /** Per-status explicit column widths (issue 285), keyed by status. */
   columnWidths?: Record<string, number>;
   /** Explicit lane height in px (issue 285), or undefined for the natural height. */
@@ -990,6 +991,7 @@ function PhaseLaneImpl({
   workshop = false,
   onPhaseRename,
   dragHandleListeners,
+  dragHandleAttributes,
   facetMatchIds,
   columnWidths,
   phaseHeight,
@@ -1130,6 +1132,7 @@ function PhaseLaneImpl({
               workshop={workshop}
               onPhaseRename={onPhaseRename ? (name) => onPhaseRename(phase.id, name) : undefined}
               dragHandleListeners={dragHandleListeners}
+              dragHandleAttributes={dragHandleAttributes}
               onAddTask={onAddTask ? () => onAddTask(phase.id, phase.name, isSynthetic) : undefined}
               addTaskLabel={isSynthetic ? 'Add to backlog' : undefined}
               collapseToggle={collapseToggle}
@@ -1264,9 +1267,16 @@ function SortablePhaseLane(props: PhaseLaneProps) {
     opacity: isDragging ? 0.4 : undefined,
   };
 
+  // `attributes` (role=button, tabIndex, aria-*) go on the real ⋮⋮ handle button
+  // inside LaneMeta — NOT here. Spreading them on the wrapper turned the entire
+  // swimlane into one giant role="button" and left the handle keyboard/SR-inert (#2201).
   return (
-    <div ref={setNodeRef} style={style} {...attributes}>
-      <PhaseLane {...props} dragHandleListeners={listeners as Record<string, unknown>} />
+    <div ref={setNodeRef} style={style}>
+      <PhaseLane
+        {...props}
+        dragHandleListeners={listeners as Record<string, unknown>}
+        dragHandleAttributes={attributes as unknown as Record<string, unknown>}
+      />
     </div>
   );
 }

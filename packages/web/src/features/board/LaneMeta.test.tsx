@@ -145,6 +145,24 @@ describe('LaneMeta', () => {
     expect(screen.getByTitle('Drag to reorder phase')).toBeInTheDocument();
   });
 
+  // #2201: the handle must be a real, labeled, focusable button so keyboard/SR
+  // users can discover and operate phase reordering. It was previously an
+  // aria-hidden pointer-only span while the sortable role/tabindex sat on the
+  // whole lane wrapper.
+  it('drag handle is a labeled button carrying the sortable attributes', () => {
+    render(
+      <LaneMeta
+        {...BASE_PROPS}
+        workshop
+        dragHandleAttributes={{ role: 'button', tabIndex: 0, 'aria-roledescription': 'sortable' }}
+      />,
+    );
+    const handle = screen.getByRole('button', { name: 'Reorder phase: Engineering' });
+    expect(handle.tagName).toBe('BUTTON');
+    expect(handle).not.toHaveAttribute('aria-hidden');
+    expect(handle).toHaveAttribute('aria-roledescription', 'sortable');
+  });
+
   it('does not render drag handle in normal mode', () => {
     render(<LaneMeta {...BASE_PROPS} />);
     expect(screen.queryByTitle('Drag to reorder phase')).not.toBeInTheDocument();
