@@ -1,0 +1,12 @@
+{
+  "id": "pr-sprint-length-non-numeric",
+  "name": "sprint_length_days is a string — Rust f64 serde rejects at parse, Python from_dict pins it to int (#2178)",
+  "start_date": "2026-01-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 86400.0, "delivery_mode": "scrum", "story_points": 5.0}
+  ],
+  "dependencies": [],
+  "calendar": {"working_days": 31, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"},
+  "velocity_samples": [3.0],
+  "sprint_length_days": "abc"
+}

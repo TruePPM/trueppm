@@ -612,6 +612,22 @@ class Project:
                 for s in velocity_samples:
                     if s is not None and not math.isfinite(float(s)):
                         raise ValueError(f"velocity_samples must be finite numbers (got {s!r}).")
+            # Pin sprint_length_days to an int on the from_dict path (#2178). It
+            # reaches ``project.sprint_length_days <= 0`` and the velocity sampler's
+            # index math unchecked otherwise: a non-numeric value (``"abc"``, a list,
+            # a dict) leaked a bare TypeError from the ``<=`` compare, and a fractional
+            # value (``2.5``) was silently accepted while the Rust engine only round-
+            # trips an integer sprint length — the silent Python<->Rust type divergence
+            # #1862 closed for hours_per_day/working_days. bool is an int subclass but
+            # never a meaningful sprint length, so reject it explicitly. The bare
+            # ValueError is re-wrapped as InvalidScheduleInput by the surrounding except.
+            sprint_length_days = data.get("sprint_length_days")
+            if sprint_length_days is not None and (
+                isinstance(sprint_length_days, bool) or not isinstance(sprint_length_days, int)
+            ):
+                raise ValueError(
+                    f"sprint_length_days must be an integer (got {sprint_length_days!r})."
+                )
             # Per-task calendar registry (ADR-0120 D3). Absent/null → None (the
             # single-calendar default). A non-dict value reaches ``.items()`` and
             # is wrapped as InvalidScheduleInput by the surrounding except, like
@@ -630,7 +646,7 @@ class Project:
                 dependencies=[Dependency.from_dict(d) for d in data.get("dependencies", [])],
                 calendar=Calendar.from_dict(data.get("calendar", {})),
                 velocity_samples=velocity_samples,
-                sprint_length_days=data.get("sprint_length_days"),
+                sprint_length_days=sprint_length_days,
                 status_date=(
                     _parse_date(data["status_date"], "status_date")
                     if data.get("status_date") is not None

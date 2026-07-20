@@ -56,6 +56,15 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.4.0b1`).
   id escaped the `SchedulerError` catch-all the base class documents. Reparented to
   `SchedulerError` (still an `is-a ValueError`) ahead of the 1.0 public-surface
   freeze, where interposing the common base would become a breaking change (#2180).
+- **The SCRUM/velocity path holds the documented exception contract.** Two hostile
+  agile inputs reachable from `Project.from_json(...)` leaked raw exceptions:
+  `story_points` over a near-zero mean velocity overflowed float64 and raised a bare
+  `OverflowError` from `math.ceil(inf)`, and a non-numeric `sprint_length_days` raised
+  a bare `TypeError` from the `<= 0` compare. Both now raise `InvalidScheduleInput`.
+  `sprint_length_days` is pinned to an integer on `from_dict`/`from_json` (rejecting
+  `bool` and fractional floats like `2.5`), closing a silent Python↔Rust divergence
+  where Python simulated a fractional sprint the Rust engine only round-trips as an
+  integer (#2178).
 - **`Task.percent_complete` now holds the documented exception contract on the
   direct-object API.** A non-finite value (`NaN`/`±inf`) or a non-numeric value
   passed to a `Task` built directly (not via `from_dict`/`from_json`) previously
