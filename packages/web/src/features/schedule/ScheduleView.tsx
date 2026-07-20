@@ -41,7 +41,7 @@ import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useCreateBaseline } from '@/hooks/useBaselines';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
-import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_MEMBER, canEditTask } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
 import { SubtreeDeleteConfirmDialog } from './SubtreeDeleteConfirmDialog';
@@ -958,7 +958,12 @@ export function ScheduleView() {
 
   // Role gate for milestone insert (#340) — VIEWER cannot author.
   const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
-  const readOnly = currentRole !== null && currentRole < ROLE_MEMBER;
+  // Pessimistic while the role loads (#2145): `canEditTask(null)` is false, so
+  // every create control (+ Task / + Milestone / + Phase) stays disabled until
+  // the role resolves — matching the pessimistic `canImport`/`canShare`/
+  // `canCaptureBaseline` gates below rather than flashing enabled for the
+  // non-member majority. The server is authoritative; this is the UX gate.
+  const readOnly = !canEditTask(currentRole);
   // Per-project leaf-surface visibility (ADR-0193, issue 956): the in-Schedule
   // Monte-Carlo and baseline sub-surfaces read the server-resolved values. Hide-only
   // (ADR-0041) — a false value hides the chrome; the underlying data is still computed
@@ -1734,16 +1739,22 @@ export function ScheduleView() {
           aria-label="Schedule toolbar"
           className="flex flex-nowrap items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0"
         >
-          {/* "+ Task" button — only shown when a project is selected */}
+          {/* "+ Task" button — only shown when a project is selected, and
+              disabled for viewers on the same `readOnly` gate as its "+ Milestone"
+              / "+ Phase" peers (#2145) so a Viewer cannot open the add-task form
+              that 403s on submit. */}
           {projectId && (
             <button
               type="button"
               onClick={() => setShowAddForm((v) => !v)}
+              disabled={readOnly}
               aria-label="Add task"
               aria-expanded={showAddForm}
+              title={readOnly ? 'Read-only access' : undefined}
               className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
-              hover:border-brand-primary hover:text-brand-primary"
+              hover:border-brand-primary hover:text-brand-primary
+              disabled:bg-neutral-surface-sunken disabled:text-neutral-text-disabled disabled:border-neutral-border disabled:cursor-not-allowed"
             >
               + Task
             </button>

@@ -161,8 +161,11 @@ vi.mock('@/hooks/useTaskHistory', () => ({
   useTaskHistory: () => ({ data: { pages: [] }, isLoading: false }),
 }));
 
+// Default to ADMIN (300) so the existing write-path tests apply; the #2146
+// role-gating test lowers it to VIEWER.
+let boardRoleMock: number | null = 300;
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: 300, isLoading: false }),
+  useCurrentUserRole: () => ({ role: boardRoleMock, isLoading: false }),
 }));
 
 // PDF-export footer reads the current user's display name (issue 326). Mock so
@@ -301,6 +304,7 @@ vi.mock('@/hooks/useTaskDependencies', () => ({
 }));
 
 function resetMocks() {
+  boardRoleMock = 300;
   mockTasks = FIXTURE_TASKS;
   mockIsLoading = false;
   mockError = null;
@@ -356,6 +360,26 @@ describe('BoardView', () => {
     renderBoard();
     // t1 is a summary task "Alpha Platform Upgrade" — it becomes a lane header
     expect(screen.getByText('Alpha Platform Upgrade')).toBeInTheDocument();
+  });
+
+  // #2146 — board authoring is Member+. A Viewer keeps read access (columns,
+  // cards) but every write affordance on the rail is suppressed rather than
+  // rendered and 403'd.
+  it('hides the backlog quick-capture affordance for a Viewer', () => {
+    boardRoleMock = 0; // ROLE_VIEWER
+    renderBoard();
+    // The board still renders (read is allowed)…
+    expect(screen.getByText('TO DO')).toBeInTheDocument();
+    // …but the rail's inline capture field is gone.
+    expect(
+      screen.queryByRole('textbox', { name: /Capture a backlog idea/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add with details/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the backlog quick-capture affordance for an authoring role', () => {
+    renderBoard(); // default ADMIN
+    expect(screen.getByRole('textbox', { name: /Capture a backlog idea/i })).toBeInTheDocument();
   });
 
   it('renders an "Project Tasks" lane for ungrouped tasks', () => {

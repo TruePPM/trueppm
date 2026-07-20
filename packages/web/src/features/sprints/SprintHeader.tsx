@@ -14,6 +14,13 @@ interface Props {
   onFilter: () => void;
   /** Optional ref forwarded to the Filter button — anchor for the popover (#299). */
   filterButtonRef?: Ref<HTMLButtonElement>;
+  /**
+   * SCHEDULER+ may drive the sprint lifecycle (#2146). Below it the Plan-next
+   * and Close-sprint buttons are not rendered at all — a Viewer had full
+   * Plan/Close chrome that 403'd on click, inconsistent with the already-gated
+   * empty-state "Plan a sprint" CTA. Filter stays available to every role.
+   */
+  canManageLifecycle: boolean;
 }
 
 const STATE_PILL_STYLE: Record<SprintState, string> = {
@@ -47,6 +54,7 @@ export function SprintHeader({
   onCloseSprint,
   onFilter,
   filterButtonRef,
+  canManageLifecycle,
 }: Props) {
   const itl = useIterationLabel();
   const isActive = sprint?.state === 'ACTIVE';
@@ -79,40 +87,44 @@ export function SprintHeader({
         >
           Filter
         </button>
-        <button
-          type="button"
-          onClick={onPlanNext}
-          disabled={hasPlannedSprint}
-          aria-label={
-            hasPlannedSprint
-              ? `Plan next ${itl.lower} (a planned ${itl.lower} already exists)`
-              : `Plan next ${itl.lower}`
-          }
-          className="min-h-[44px] inline-flex items-center px-3 rounded text-xs font-medium border border-neutral-border
-            text-neutral-text-secondary hover:text-neutral-text-primary
-            disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:hover:text-neutral-text-secondary
-            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-        >
-          Plan next {itl.lower}
-        </button>
-        <button
-          type="button"
-          onClick={onCloseSprint}
-          disabled={!isActive}
-          aria-label={
-            isActive ? `Close active ${itl.lower}` : `Close ${itl.lower} (no active ${itl.lower})`
-          }
-          // Disabled state drops to neutral disabled styling so it reads as
-          // "unavailable" rather than "faded red". A 50%-opacity red button
-          // still parses as a clickable destructive action — too subtle.
-          className="min-h-[44px] inline-flex items-center px-3 rounded text-xs font-medium border bg-transparent
-            border-semantic-critical/40 text-semantic-critical hover:bg-semantic-critical-bg
-            disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:hover:bg-neutral-surface-sunken
-            disabled:border-neutral-border disabled:text-neutral-text-disabled
-            focus:outline-none focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1"
-        >
-          Close {itl.lower}
-        </button>
+        {canManageLifecycle && (
+          <button
+            type="button"
+            onClick={onPlanNext}
+            disabled={hasPlannedSprint}
+            aria-label={
+              hasPlannedSprint
+                ? `Plan next ${itl.lower} (a planned ${itl.lower} already exists)`
+                : `Plan next ${itl.lower}`
+            }
+            className="min-h-[44px] inline-flex items-center px-3 rounded text-xs font-medium border border-neutral-border
+              text-neutral-text-secondary hover:text-neutral-text-primary
+              disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:hover:text-neutral-text-secondary
+              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+          >
+            Plan next {itl.lower}
+          </button>
+        )}
+        {canManageLifecycle && (
+          <button
+            type="button"
+            onClick={onCloseSprint}
+            disabled={!isActive}
+            aria-label={
+              isActive ? `Close active ${itl.lower}` : `Close ${itl.lower} (no active ${itl.lower})`
+            }
+            // Disabled state drops to neutral disabled styling so it reads as
+            // "unavailable" rather than "faded red". A 50%-opacity red button
+            // still parses as a clickable destructive action — too subtle.
+            className="min-h-[44px] inline-flex items-center px-3 rounded text-xs font-medium border bg-transparent
+              border-semantic-critical/40 text-semantic-critical hover:bg-semantic-critical-bg
+              disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:hover:bg-neutral-surface-sunken
+              disabled:border-neutral-border disabled:text-neutral-text-disabled
+              focus:outline-none focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1"
+          >
+            Close {itl.lower}
+          </button>
+        )}
       </div>
     </header>
   );

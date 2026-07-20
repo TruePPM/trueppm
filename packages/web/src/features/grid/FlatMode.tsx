@@ -16,6 +16,8 @@ interface FlatModeProps {
   filters: GridFilterState;
   onClearFilters: () => void;
   onOpenDetail?: (task: Task) => void;
+  /** Member+ authoring (#2145) — gates the per-row select checkbox. */
+  canEdit?: boolean;
 }
 
 /**
@@ -25,7 +27,7 @@ interface FlatModeProps {
  * Mirrors the legacy `TaskListView` body without the toolbar (the shell owns
  * search, filter chips, and bulk-action chrome).
  */
-export function FlatMode({ filters, onClearFilters, onOpenDetail }: FlatModeProps) {
+export function FlatMode({ filters, onClearFilters, onOpenDetail, canEdit = true }: FlatModeProps) {
   const projectId = useProjectId() ?? null;
   const { tasks } = useScheduleTasks();
   const { selectedIds, toggle } = useTaskSelectionStore();
@@ -115,6 +117,7 @@ export function FlatMode({ filters, onClearFilters, onOpenDetail }: FlatModeProp
         onRename={(task, name) => handleRename(task, name)}
         onCancelRename={() => setRenamingId(null)}
         onOpenDetail={onOpenDetail}
+        selectable={canEdit}
       />
     </>
   );

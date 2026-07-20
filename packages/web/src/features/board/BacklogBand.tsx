@@ -384,6 +384,11 @@ export interface BacklogBandProps {
   onCaptureIdea?: () => void;
   /** True while the create mutation is in flight — disables the button. */
   isCaptureIdeaPending?: boolean;
+  /** Below MEMBER (a Viewer) or on a closed sprint (#2146): the rail is a
+   *  read-only pile — the inline quick-capture field and the "Add with details…"
+   *  button are both suppressed. Cards remain openable and draggable read state
+   *  is unaffected. */
+  readOnly?: boolean;
   /** ⌘K handoff (issue 1609) — opens the global command palette. Wired in
    *  BoardView to `useCommandPaletteStore`; kept as a prop so the rail stays
    *  decoupled from the shell store and remains unit-testable in isolation.
@@ -430,6 +435,7 @@ export function BacklogBand({
   onCaptureIdea,
   isCaptureIdeaPending = false,
   onOpenCommandPalette,
+  readOnly = false,
 }: BacklogBandProps) {
   const [collapsed, setCollapsed] = useBacklogRailCollapsed();
   const [query, setQuery] = useState('');
@@ -460,7 +466,7 @@ export function BacklogBand({
   // Capture-first (#1973): the top field captures instead of searches. Search is
   // demoted to appear only once there is a pile to sift; below the threshold the
   // filter field is suppressed (⌘K still searches globally) and `query` stays ''.
-  const canQuickCapture = typeof onQuickCapture === 'function';
+  const canQuickCapture = typeof onQuickCapture === 'function' && !readOnly;
   const showSearch = tasks.length >= BACKLOG_SEARCH_MIN_IDEAS;
 
   const submitCapture = useCallback(() => {
@@ -716,19 +722,21 @@ export function BacklogBand({
           })
         )}
 
-        <button
-          type="button"
-          onClick={onCaptureIdea}
-          disabled={isCaptureIdeaPending || !onCaptureIdea}
-          aria-busy={isCaptureIdeaPending}
-          className="mt-1.5 flex items-center justify-center gap-1.5 rounded-control border border-dashed border-neutral-border bg-transparent text-xs text-neutral-text-disabled
-            hover:border-brand-primary hover:text-brand-primary disabled:opacity-50 disabled:cursor-not-allowed
-            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-          style={{ height: 36 }}
-        >
-          <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 0 }}>+</span>
-          {isCaptureIdeaPending ? 'Adding…' : 'Add with details…'}
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={onCaptureIdea}
+            disabled={isCaptureIdeaPending || !onCaptureIdea}
+            aria-busy={isCaptureIdeaPending}
+            className="mt-1.5 flex items-center justify-center gap-1.5 rounded-control border border-dashed border-neutral-border bg-transparent text-xs text-neutral-text-disabled
+              hover:border-brand-primary hover:text-brand-primary disabled:opacity-50 disabled:cursor-not-allowed
+              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+            style={{ height: 36 }}
+          >
+            <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 0 }}>+</span>
+            {isCaptureIdeaPending ? 'Adding…' : 'Add with details…'}
+          </button>
+        )}
       </div>
     </aside>
   );

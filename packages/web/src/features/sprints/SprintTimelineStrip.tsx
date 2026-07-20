@@ -15,7 +15,9 @@ interface Props {
   selectedSprintId?: string | null;
   /** Select a sprint to review (click any card). */
   onSelect?: (sprintId: string) => void;
-  onPlanNext: () => void;
+  /** Plan the next sprint. When omitted (a Viewer/Member below SCHEDULER, #2146),
+   *  the dashed "+ Plan next" slot is not rendered — the strip becomes read-only. */
+  onPlanNext?: () => void;
   /** Activate the given planned sprint (issue #299). When omitted, the
    *  Activate→ button on the last-planned card is hidden. */
   onActivate?: (sprintId: string) => void;
@@ -50,7 +52,10 @@ export function SprintTimelineStrip({
   milestoneName,
 }: Props) {
   const itl = useIterationLabel();
-  const showPlanSlot = planned.length === 0;
+  // The "+ Plan next" slot is a lifecycle write — hide it when the caller passes
+  // no handler (below SCHEDULER, #2146) so a Viewer sees a read-only cadence
+  // rather than a slot that no-ops on click.
+  const showPlanSlot = planned.length === 0 && !!onPlanNext;
 
   return (
     <section

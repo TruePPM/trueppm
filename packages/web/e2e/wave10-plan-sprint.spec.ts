@@ -105,7 +105,10 @@ async function setupCommon(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/auth/me/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'e2e-user', username: 'e2e', display_name: 'E2E', initials: 'E', email: 'e2e@example.com' }) }),
   );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
+  // `/members/**` (not bare `/members/`) so the glob also matches the
+  // `?self=true` role query — the SprintHeader Plan/Close lifecycle buttons are
+  // gated on SCHEDULER+ (#2146) and stay hidden if the role can't resolve.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'mem-1', role: 300 }]) }),
   );
 }

@@ -21,6 +21,8 @@ interface VirtualRowsProps {
   onCancelRename: () => void;
   /** Open a task's detail drawer on row click; omit to keep rows inert. */
   onOpenDetail?: (task: Task) => void;
+  /** Whether per-row select checkboxes render (#2145) — false for Viewers. */
+  selectable?: boolean;
 }
 
 /**
@@ -38,6 +40,7 @@ export function VirtualRows({
   onRename,
   onCancelRename,
   onOpenDetail,
+  selectable = true,
 }: VirtualRowsProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -105,6 +108,7 @@ export function VirtualRows({
                   onStartRename={() => onStartRename(item.task.id)}
                   onRename={(name) => onRename(item.task, name)}
                   onCancelRename={onCancelRename}
+                  selectable={selectable}
                   onOpenDetail={onOpenDetail ? () => onOpenDetail(item.task) : undefined}
                 />
               )}

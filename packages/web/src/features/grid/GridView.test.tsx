@@ -4,6 +4,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { useWbsStore } from '@/stores/wbsStore';
+import { ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
 import type { Task, Methodology } from '@/types';
 
 // JSDOM has no layout — TanStack Virtual relies on getBoundingClientRect for
@@ -29,6 +30,8 @@ beforeEach(() => {
   });
   // Reset persistence between tests so each test starts at the methodology default.
   window.localStorage.clear();
+  // Default every test to an authoring role; viewer-gating tests set VIEWER.
+  currentRoleMock = ROLE_MEMBER;
 });
 
 const mockTasks: Task[] = [
@@ -109,6 +112,13 @@ vi.mock('@/hooks/useProject', () => ({
     data: { id: 'proj-1', methodology: projectMethodology, agile_features: projectAgileFeatures },
     isLoading: false,
   }),
+}));
+
+// Grid write controls (#2145) gate on the project role. Default to MEMBER so the
+// authoring assertions below still apply; the viewer-gating tests override it.
+let currentRoleMock: number | null = ROLE_MEMBER;
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({ role: currentRoleMock, roleLabel: null, isLoading: false }),
 }));
 
 const bulkDeleteMutate = vi.fn();
@@ -819,5 +829,46 @@ describe('GridView — bulk restore result toasts (#2078)', () => {
     await renderGrid();
     await deleteThenUndo(user);
     expect(await screen.findByText(/couldn't restore tasks/i)).toBeInTheDocument();
+  });
+});
+
+describe('GridView — role gating (#2145)', () => {
+  beforeEach(() => {
+    projectMethodology = 'AGILE'; // flat — where select-all/Delete/+Task live
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+  });
+
+  it('a Viewer sees no select-all, no + Task, and no bulk-delete affordance', async () => {
+    currentRoleMock = ROLE_VIEWER;
+    await renderGrid();
+    // The list still renders (read is allowed)…
+    expect(await screen.findByText('Planning')).toBeInTheDocument();
+    // …but every write control is suppressed.
+    expect(screen.queryByLabelText(/select all tasks/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^\+ task$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /^Select /i })).not.toBeInTheDocument();
+  });
+
+  it('a Member sees the select-all box and + Task button', async () => {
+    currentRoleMock = ROLE_MEMBER;
+    await renderGrid();
+    expect(await screen.findByLabelText(/select all tasks/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^\+ task$/i })).toBeInTheDocument();
+  });
+
+  it('while the role is still loading (null) the write controls stay hidden (pessimistic)', async () => {
+    currentRoleMock = null;
+    await renderGrid();
+    expect(await screen.findByText('Planning')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^\+ task$/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/select all tasks/i)).not.toBeInTheDocument();
+  });
+
+  it('the empty-state CTA is hidden for a Viewer', async () => {
+    currentRoleMock = ROLE_VIEWER;
+    scheduleTasksMockReturn = { tasks: [], links: [], isLoading: false, error: null };
+    await renderGrid();
+    expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /\+ add task/i })).not.toBeInTheDocument();
   });
 });
