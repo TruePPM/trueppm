@@ -325,6 +325,10 @@ export function WorkspaceGeneralPage() {
         <FieldRow label="Workspace name" hint="Shown in the top bar and on every export.">
           <input
             type="text"
+            // FieldRow's visible label is a plain <div>, not associated with the
+            // control, so without this the field announces as an unnamed edit box
+            // (issue 2199). Sibling Project/Program pages already do this.
+            aria-label="Workspace name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary"

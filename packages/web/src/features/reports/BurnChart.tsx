@@ -83,6 +83,61 @@ interface ScopeChange {
   newScope: number;
 }
 
+/**
+ * A screen-reader summary of the burn series (WCAG 1.1.1, house rule 176). The
+ * chart SVG is `aria-hidden`, so this sentence is the only accessible read of
+ * "committed vs remaining vs trend" (issue 2175). Derived entirely from the
+ * already-computed series, so it can never drift from what the chart draws.
+ */
+function describeBurnSeries(
+  points: NormPoint[],
+  variant: BurnVariant,
+  metric: BurnMetric,
+  scopeChanges: ScopeChange[],
+  trendAhead: number | null,
+): string {
+  const unit = metric === 'points' ? 'story points' : 'tasks';
+  const lastWith = (key: 'remaining' | 'completed' | 'scope'): NormPoint | undefined =>
+    [...points].reverse().find((p) => p[key] != null);
+  const asOf = points[points.length - 1]?.date;
+  const parts: string[] = [];
+
+  if (variant === 'burndown' || variant === 'combined') {
+    const p = lastWith('remaining');
+    if (p) {
+      parts.push(
+        `${Math.round(p.remaining as number)} ${unit} remaining versus an ideal of ${Math.round(p.ideal)}`,
+      );
+    }
+  }
+  if (variant === 'burnup' || variant === 'combined') {
+    const c = lastWith('completed');
+    const s = lastWith('scope');
+    if (c && s) {
+      parts.push(
+        `${Math.round(c.completed as number)} of ${Math.round(s.scope as number)} ${unit} completed`,
+      );
+    }
+  }
+  if (trendAhead != null) {
+    const n = Math.abs(Math.round(trendAhead));
+    parts.push(`${n} ${unit} ${trendAhead >= 0 ? 'ahead of' : 'behind'} the ideal pace`);
+  }
+  const added = scopeChanges.filter((c) => c.delta > 0).length;
+  const removed = scopeChanges.filter((c) => c.delta < 0).length;
+  if (added || removed) {
+    const bits: string[] = [];
+    if (added) bits.push(`${added} scope ${added === 1 ? 'addition' : 'additions'}`);
+    if (removed) bits.push(`${removed} scope ${removed === 1 ? 'removal' : 'removals'}`);
+    parts.push(bits.join(' and '));
+  }
+
+  const label =
+    variant === 'burnup' ? 'Burn-up' : variant === 'combined' ? 'Combined burn' : 'Burndown';
+  const body = parts.length ? parts.join('; ') : 'no data yet';
+  return `${label} chart${asOf ? ` as of ${asOf}` : ''}: ${body}.`;
+}
+
 function deriveProjectSeries(
   series: BurnPoint[] | CombinedPoint[],
   variant: BurnVariant,
@@ -259,7 +314,13 @@ export function deriveSprintSeries(
     const pastLastSnap = lastSnapIso !== null && iso > lastSnapIso;
     const isFirstDay = i === 0;
     const isAfterData = pastLastSnap || lastSnapIso === null;
-    const remaining = projectedDayValue(!!snap, isFirstDay, isAfterData, committedVal, carriedRemaining);
+    const remaining = projectedDayValue(
+      !!snap,
+      isFirstDay,
+      isAfterData,
+      committedVal,
+      carriedRemaining,
+    );
     const completed = projectedDayValue(!!snap, isFirstDay, isAfterData, 0, carriedCompleted);
 
     const scopeDelta =
@@ -495,9 +556,12 @@ export function BurnChart({
   const isLoading = isSprintCtx ? sprintQuery.isLoading : burnQuery.isLoading;
   const isError = isSprintCtx ? sprintQuery.isError : burnQuery.isError;
   const points = isSprintCtx ? (sprintResult?.points ?? null) : (projectResult?.points ?? null);
-  const scopeChanges = isSprintCtx
-    ? (sprintResult?.scopeChanges ?? [])
-    : (projectResult?.scopeChanges ?? []);
+  // Memoized so the `?? []` fallback keeps a stable identity — otherwise the
+  // chart-summary useMemo (and the legend) would recompute every render.
+  const scopeChanges = useMemo<ScopeChange[]>(
+    () => (isSprintCtx ? (sprintResult?.scopeChanges ?? []) : (projectResult?.scopeChanges ?? [])),
+    [isSprintCtx, sprintResult, projectResult],
+  );
   const isEmpty = !isLoading && !isError && (!points || points.length === 0);
 
   // Metric selector: in sprint context, auto-derive and hide; in project context, show
@@ -526,6 +590,15 @@ export function BurnChart({
     !!sprintQuery.data &&
     (sprintQuery.data.sprint.start_date > today || sprintQuery.data.snapshots.length === 0);
   const showEmpty = isEmpty || sprintHasNoRealData;
+
+  // sr-only alternative for the chart SVG (issue 2175) — see describeBurnSeries.
+  const chartSummary = useMemo(
+    () =>
+      points && points.length > 0
+        ? describeBurnSeries(points, variant, effectiveMetric, scopeChanges, trendAhead)
+        : '',
+    [points, variant, effectiveMetric, scopeChanges, trendAhead],
+  );
 
   // Export helpers
   const exportPng = async () => {
@@ -666,31 +739,34 @@ export function BurnChart({
               Chart unavailable
             </div>
           ) : points && points.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={points} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
-                <Area
-                  type="monotone"
-                  dataKey="remaining"
-                  stroke={CHART_COLORS.actual}
-                  fill={CHART_COLORS.actual}
-                  fillOpacity={0.1}
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                  name="Remaining"
-                />
-                <Line
-                  type="linear"
-                  dataKey="ideal"
-                  stroke={CHART_COLORS.ideal}
-                  strokeDasharray="4 3"
-                  strokeWidth={1}
-                  dot={false}
-                  isAnimationActive={false}
-                  name="Ideal"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            // The caption below is the accessible read; the SVG is decorative (issue 2175).
+            <div aria-hidden="true" className="h-full w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={points} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+                  <Area
+                    type="monotone"
+                    dataKey="remaining"
+                    stroke={CHART_COLORS.actual}
+                    fill={CHART_COLORS.actual}
+                    fillOpacity={0.1}
+                    strokeWidth={2}
+                    dot={false}
+                    isAnimationActive={false}
+                    name="Remaining"
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="ideal"
+                    stroke={CHART_COLORS.ideal}
+                    strokeDasharray="4 3"
+                    strokeWidth={1}
+                    dot={false}
+                    isAnimationActive={false}
+                    name="Ideal"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           ) : (
             <div className="flex h-full w-full items-center justify-center text-xs text-neutral-text-secondary">
               No data yet
@@ -871,113 +947,118 @@ export function BurnChart({
           />
         )}
         {!isLoading && !isError && !showEmpty && points && (
-          <ResponsiveContainer width="100%" height={320}>
-            {variant === 'burndown' ? (
-              <AreaChart data={points} margin={chartMargin}>
-                {sharedGrid}
-                {sharedXAxis}
-                {sharedYAxis}
-                {sharedTooltip}
-                <Area
-                  type="monotone"
-                  dataKey="remaining"
-                  stroke={CHART_COLORS.actual}
-                  fill={CHART_COLORS.actual}
-                  fillOpacity={0.1}
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                  name="Remaining"
-                />
-                <Line
-                  type="linear"
-                  dataKey="ideal"
-                  stroke={CHART_COLORS.ideal}
-                  strokeDasharray="5 4"
-                  strokeWidth={1.5}
-                  dot={false}
-                  name="Ideal"
-                />
-                {todayLine}
-                {scopeDots}
-              </AreaChart>
-            ) : variant === 'burnup' ? (
-              <AreaChart data={points} margin={chartMargin}>
-                {sharedGrid}
-                {sharedXAxis}
-                {sharedYAxis}
-                {sharedTooltip}
-                <Area
-                  type="monotone"
-                  dataKey="completed"
-                  stroke={CHART_COLORS.completed}
-                  fill={CHART_COLORS.completed}
-                  fillOpacity={0.1}
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                  name="Completed"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="scope"
-                  stroke={CHART_COLORS.scope}
-                  strokeDasharray="5 4"
-                  strokeWidth={1.5}
-                  dot={false}
-                  name="Total scope"
-                />
-                {todayLine}
-                {scopeDots}
-              </AreaChart>
-            ) : (
-              // Combined
-              <ComposedChart data={points} margin={chartMargin}>
-                {sharedGrid}
-                {sharedXAxis}
-                {sharedYAxis}
-                {sharedTooltip}
-                <Area
-                  type="monotone"
-                  dataKey="completed"
-                  stroke={CHART_COLORS.completed}
-                  fill={CHART_COLORS.completed}
-                  fillOpacity={0.08}
-                  strokeWidth={1.5}
-                  dot={false}
-                  name="Completed"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="remaining"
-                  stroke={CHART_COLORS.actual}
-                  strokeWidth={2}
-                  dot={false}
-                  name="Remaining"
-                />
-                <Line
-                  type="linear"
-                  dataKey="scope"
-                  stroke={CHART_COLORS.scope}
-                  strokeDasharray="5 4"
-                  strokeWidth={1}
-                  dot={false}
-                  name="Total scope"
-                />
-                <Line
-                  type="linear"
-                  dataKey="ideal"
-                  stroke={CHART_COLORS.ideal}
-                  strokeDasharray="4 4"
-                  strokeWidth={1}
-                  dot={false}
-                  name="Ideal"
-                />
-                {todayLine}
-                {scopeDots}
-              </ComposedChart>
-            )}
-          </ResponsiveContainer>
+          <p className="sr-only">{chartSummary}</p>
+        )}
+        {!isLoading && !isError && !showEmpty && points && (
+          <div aria-hidden="true">
+            <ResponsiveContainer width="100%" height={320}>
+              {variant === 'burndown' ? (
+                <AreaChart data={points} margin={chartMargin}>
+                  {sharedGrid}
+                  {sharedXAxis}
+                  {sharedYAxis}
+                  {sharedTooltip}
+                  <Area
+                    type="monotone"
+                    dataKey="remaining"
+                    stroke={CHART_COLORS.actual}
+                    fill={CHART_COLORS.actual}
+                    fillOpacity={0.1}
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                    name="Remaining"
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="ideal"
+                    stroke={CHART_COLORS.ideal}
+                    strokeDasharray="5 4"
+                    strokeWidth={1.5}
+                    dot={false}
+                    name="Ideal"
+                  />
+                  {todayLine}
+                  {scopeDots}
+                </AreaChart>
+              ) : variant === 'burnup' ? (
+                <AreaChart data={points} margin={chartMargin}>
+                  {sharedGrid}
+                  {sharedXAxis}
+                  {sharedYAxis}
+                  {sharedTooltip}
+                  <Area
+                    type="monotone"
+                    dataKey="completed"
+                    stroke={CHART_COLORS.completed}
+                    fill={CHART_COLORS.completed}
+                    fillOpacity={0.1}
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                    name="Completed"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="scope"
+                    stroke={CHART_COLORS.scope}
+                    strokeDasharray="5 4"
+                    strokeWidth={1.5}
+                    dot={false}
+                    name="Total scope"
+                  />
+                  {todayLine}
+                  {scopeDots}
+                </AreaChart>
+              ) : (
+                // Combined
+                <ComposedChart data={points} margin={chartMargin}>
+                  {sharedGrid}
+                  {sharedXAxis}
+                  {sharedYAxis}
+                  {sharedTooltip}
+                  <Area
+                    type="monotone"
+                    dataKey="completed"
+                    stroke={CHART_COLORS.completed}
+                    fill={CHART_COLORS.completed}
+                    fillOpacity={0.08}
+                    strokeWidth={1.5}
+                    dot={false}
+                    name="Completed"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="remaining"
+                    stroke={CHART_COLORS.actual}
+                    strokeWidth={2}
+                    dot={false}
+                    name="Remaining"
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="scope"
+                    stroke={CHART_COLORS.scope}
+                    strokeDasharray="5 4"
+                    strokeWidth={1}
+                    dot={false}
+                    name="Total scope"
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="ideal"
+                    stroke={CHART_COLORS.ideal}
+                    strokeDasharray="4 4"
+                    strokeWidth={1}
+                    dot={false}
+                    name="Ideal"
+                  />
+                  {todayLine}
+                  {scopeDots}
+                </ComposedChart>
+              )}
+            </ResponsiveContainer>
+          </div>
         )}
       </div>
 

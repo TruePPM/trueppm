@@ -240,6 +240,17 @@ describe('BurnChart — project context', () => {
     renderWithProviders(<BurnChart projectId="proj-1" />);
     expect(screen.getByRole('button', { name: /export chart/i })).toBeInTheDocument();
   });
+
+  it('provides an sr-only text alternative for the chart SVG (issue 2175)', () => {
+    projectWithData();
+    const { container } = renderWithProviders(<BurnChart projectId="proj-1" />);
+    // WCAG 1.1.1: a screen reader gets the summary, not an unnavigable SVG soup.
+    expect(
+      screen.getByText(/Burndown chart as of 2026-04-14: .*remaining versus an ideal/i),
+    ).toBeInTheDocument();
+    // And the SVG itself is hidden from the accessibility tree.
+    expect(container.querySelector('svg')?.closest('[aria-hidden="true"]')).toBeTruthy();
+  });
 });
 
 // Every chart color token must be a mode-aware CSS custom property so it adapts

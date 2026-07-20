@@ -501,6 +501,7 @@ function PhaseRow({
           <input
             // eslint-disable-next-line jsx-a11y/no-autofocus -- inline rename: focus follows user click into edit mode
             autoFocus
+            aria-label={`Rename ${phase.name}`}
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={handleSubmit}
@@ -780,6 +781,7 @@ function StatusRow({
           <input
             // eslint-disable-next-line jsx-a11y/no-autofocus -- inline rename: focus follows user click into edit mode
             autoFocus
+            aria-label={`Rename ${column.label}`}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             onBlur={handleSubmit}

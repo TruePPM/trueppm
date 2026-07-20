@@ -138,6 +138,17 @@ function isForbidden(error: unknown): boolean {
 export function useActiveTimer() {
   const qc = useQueryClient();
 
+  // A stopped/finalized/undone timer writes or removes a `TimeEntry`, so the
+  // weekly grid (`['timesheet']`) and My Work (`['me','work']`) reads are now
+  // stale — mirror `useCreateTimeEntry.invalidateReads`. The TimerChip lives in
+  // the global TopBar, so stopping it while the timesheet is already focused
+  // gets no focus-refetch; without this, the just-confirmed entry stays
+  // invisible and week/day totals don't move (issue 2152).
+  const invalidateReads = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ['timesheet'] });
+    void qc.invalidateQueries({ queryKey: ['me', 'work'] });
+  }, [qc]);
+
   const { data: timer = null, isLoading } = useQuery({
     queryKey: ACTIVE_TIMER_KEY,
     queryFn: fetchActiveTimer,
@@ -152,7 +163,10 @@ export function useActiveTimer() {
     mutationFn: async (entryId: string) => {
       await apiClient.delete(`/me/time-entries/${entryId}/`);
     },
-    onSuccess: () => toast.info('Time entry removed.'),
+    onSuccess: () => {
+      invalidateReads();
+      toast.info('Time entry removed.');
+    },
     onError: () => toast.error('Could not remove the entry. Please try again.'),
   });
 
@@ -187,6 +201,8 @@ export function useActiveTimer() {
       const prior = qc.getQueryData<ActiveTimer | null>(ACTIVE_TIMER_KEY);
       qc.setQueryData(ACTIVE_TIMER_KEY, data.active_timer);
       if (data.finalized_entry && prior) {
+        // Second-start atomically logged the prior timer — refresh the entry reads.
+        invalidateReads();
         logToast(data.finalized_entry, `${prior.task_short_id} · ${prior.task_name}`);
       }
     },
@@ -212,6 +228,7 @@ export function useActiveTimer() {
       return { prior };
     },
     onSuccess: (entry, _vars, ctx) => {
+      invalidateReads();
       if (ctx?.prior) {
         logToast(entry, `${ctx.prior.task_short_id} · ${ctx.prior.task_name}`);
       }
