@@ -24,9 +24,17 @@ const config: Config = {
           primary: 'rgb(var(--brand-primary) / <alpha-value>)',
           'primary-dark': 'rgb(var(--brand-primary-dark) / <alpha-value>)',
           'primary-light': 'rgb(var(--brand-primary-light) / <alpha-value>)',
-          // Secondary accent (amber) — unchanged; dark handled per-class (rule 86).
+          // Secondary accent (amber) — dark handled per-class (rule 86).
           accent: '#E8A020',
+          // `accent-dark` (#C17A10) is a FILL/BORDER weight — only ~3.5:1 as text
+          // on white and 3.13:1 on the accent-light tint, so it FAILS WCAG 1.4.3
+          // as foreground text. `accent-text` (#92400E) is the readable amber
+          // foreground for on-tint text/small labels: ≥6:1 on accent-light
+          // (#FFF3CD) and ~5.9:1 on white. Use `text-brand-accent-text` (paired
+          // with `dark:text-brand-accent` per rule 86) for amber chip text, never
+          // `text-brand-accent-dark`. (#2197.)
           'accent-dark': '#C17A10',
+          'accent-text': '#92400E',
           'accent-light': '#FFF3CD',
         },
         // ── Brand v1.0 identity scales (ADR-0103) ───────────────────────────

@@ -22,8 +22,11 @@ const THRESHOLD_LABELS: Record<Threshold, string> = {
 
 const THRESHOLD_STYLE: Record<Threshold, string> = {
   low: 'bg-neutral-surface-sunken text-neutral-text-secondary border-neutral-border',
-  medium: 'bg-brand-accent-light text-brand-accent-dark border-brand-accent/40',
-  high: 'bg-brand-accent-light text-brand-accent-dark border-brand-accent/40',
+  // Readable on-tint amber text + the rule-86 dark overrides these previously
+  // omitted, so the static #FFF3CD tint doesn't flash at 3.13:1 in dark mode (#2197).
+  medium:
+    'bg-brand-accent-light dark:bg-brand-accent/20 text-brand-accent-text dark:text-brand-accent border-brand-accent/40',
+  high: 'bg-brand-accent-light dark:bg-brand-accent/20 text-brand-accent-text dark:text-brand-accent border-brand-accent/40',
   critical: 'bg-semantic-critical-bg text-semantic-critical border-semantic-critical/40',
 };
 

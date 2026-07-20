@@ -9,7 +9,12 @@ type Role = (typeof ROLES)[number];
 const ROLE_PALETTE: Record<Role, { bg: string; text: string; style?: CSSProperties }> = {
   Viewer: { bg: 'bg-neutral-surface-sunken', text: 'text-neutral-text-secondary' },
   Member: { bg: 'bg-neutral-surface-sunken', text: 'text-neutral-text-secondary' },
-  Scheduler: { bg: 'bg-brand-accent-light', text: 'text-brand-accent-dark' },
+  // Amber identity chip: readable on-tint text (rule 86 / #2197) + dark override
+  // so the static #FFF3CD tint doesn't flash on the dark settings surface.
+  Scheduler: {
+    bg: 'bg-brand-accent-light dark:bg-brand-accent/20',
+    text: 'text-brand-accent-text dark:text-brand-accent',
+  },
   Admin: { bg: 'bg-brand-primary-light', text: 'text-brand-primary' },
   // Owner is a distinct identity hue, not a status — it has no brand/status
   // token, so the single-sourced violet is applied via inline style (see

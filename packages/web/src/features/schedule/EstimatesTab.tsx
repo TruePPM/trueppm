@@ -269,16 +269,20 @@ export function EstimatesTab({
 
       {/* Pending approval banner — suggest_approve mode */}
       {showPendingBanner && (
+        // The brand-accent tint composited to 2.55:1 for the text-xs line and
+        // failed in dark mode; use the semantic at-risk status-card recipe
+        // (rule 8b/145) — its tokens are mode-aware CSS vars, so text clears AA
+        // in both modes and the -bg tint no longer flashes light on dark (#2197).
         <div
           role="status"
-          className="flex items-start gap-3 rounded-card border border-brand-accent/40 bg-brand-accent-light/40 px-3 py-2.5"
+          className="flex items-start gap-3 rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg px-3 py-2.5"
         >
-          <span className="text-brand-accent-dark text-lg leading-none mt-0.5" aria-hidden="true">
+          <span className="text-semantic-at-risk text-lg leading-none mt-0.5" aria-hidden="true">
             ⏳
           </span>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-brand-accent-dark">Pending approval</p>
-            <p className="text-xs text-brand-accent-dark/80 mt-0.5">
+            <p className="text-sm font-medium text-semantic-at-risk">Pending approval</p>
+            <p className="text-xs text-semantic-at-risk mt-0.5">
               These estimates are awaiting scheduler review before being used in Monte Carlo.
             </p>
           </div>
@@ -287,8 +291,8 @@ export function EstimatesTab({
               type="button"
               onClick={() => approveEstimates.mutate(task.id)}
               disabled={approveEstimates.isPending}
-              className="shrink-0 h-8 px-3 rounded-control text-xs font-semibold border border-brand-accent-dark/40
-                text-brand-accent-dark bg-brand-accent-light hover:bg-brand-accent/20
+              className="shrink-0 h-8 px-3 rounded-control text-xs font-semibold border border-semantic-at-risk/50
+                text-semantic-at-risk bg-transparent hover:bg-semantic-at-risk/10
                 disabled:opacity-50 disabled:cursor-not-allowed
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >

@@ -6,7 +6,10 @@ interface SeverityLevel {
 }
 
 function getSeverityLevel(severity: number): SeverityLevel {
-  // Rule 86: severity chip color mapping. All combinations achieve WCAG 4.5:1 on neutral-surface.
+  // Rule 86: severity chip color mapping. The HIGH chip uses `text-brand-accent-text`
+  // (#92400E, ≥6:1 on the accent-light tint) — NOT `text-brand-accent-dark`
+  // (#C17A10), which is a fill/border weight and only 3.13:1 as text on the tint
+  // (WCAG 1.4.3 fail fixed in #2197).
   if (severity >= 20) {
     return { label: 'Critical', classes: 'text-semantic-critical bg-semantic-critical-bg' };
   }
@@ -14,7 +17,7 @@ function getSeverityLevel(severity: number): SeverityLevel {
     return {
       label: 'High',
       classes:
-        'text-brand-accent-dark dark:text-brand-accent bg-brand-accent-light dark:bg-brand-accent/20',
+        'text-brand-accent-text dark:text-brand-accent bg-brand-accent-light dark:bg-brand-accent/20',
     };
   }
   if (severity >= 6) {

@@ -163,6 +163,13 @@ describe('EstimatesTab — suggest_approve mode', () => {
     );
     expect(screen.getByRole('status')).toBeInTheDocument();
     expect(screen.getByText(/Pending approval/i)).toBeInTheDocument();
+    // #2197 — the banner uses the mode-aware semantic at-risk card recipe
+    // (text + `-bg` tint), not the brand-accent tint that composited to 2.55:1
+    // and failed WCAG 1.4.3 in dark mode.
+    const banner = screen.getByRole('status');
+    expect(banner.className).toContain('bg-semantic-at-risk-bg');
+    expect(screen.getByText('Pending approval').className).toContain('text-semantic-at-risk');
+    expect(banner.className).not.toContain('brand-accent');
   });
 
   it('shows Accept button for schedulers when pending', () => {

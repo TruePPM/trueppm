@@ -998,7 +998,7 @@ function FieldsSection({
                 )}
               </span>
               <span>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-brand-accent-light text-brand-accent-dark">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-brand-accent-light dark:bg-brand-accent/20 text-brand-accent-text dark:text-brand-accent">
                   Custom
                 </span>
               </span>
