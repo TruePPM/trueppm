@@ -123,6 +123,7 @@ from trueppm_api.apps.projects.models import (
     TaskActivityEvent,
     TaskAttachment,
     TaskComment,
+    TaskCustomFieldValue,
     TaskLabel,
     TaskNote,
     TaskRecurrenceRule,
@@ -1024,6 +1025,13 @@ class ProjectViewSet(
                     # serializer N+1s one query per story/epic. Filter tombstoned
                     # labels so a soft-deleted label never renders as a pill.
                     db_models.Prefetch("labels", queryset=Label.objects.filter(is_deleted=False)),
+                    # Per-task custom-field values (#2143, ADR-0528): this LIST path
+                    # bypasses annotate_tasks_queryset too, so mirror its prefetch or
+                    # the flat custom_fields map N+1s one query per story/epic.
+                    db_models.Prefetch(
+                        "custom_field_values",
+                        queryset=TaskCustomFieldValue.objects.select_related("field", "value_user"),
+                    ),
                 )
                 # Freshness signal (ADR-0143, #740) — this LIST path bypasses
                 # annotate_tasks_queryset, so annotate latest_note_at here too or
@@ -3121,6 +3129,13 @@ def annotate_tasks_queryset(
         # any bare-manager caller serialize labels O(1) instead of one query per row.
         # Filter tombstoned labels so a soft-deleted label never renders as a pill.
         db_models.Prefetch("labels", queryset=Label.objects.filter(is_deleted=False)),
+        # Per-task custom-field values (#2143, ADR-0528). select_related the field def
+        # (feeds the field_type resolver) and the person FK (person-value avatar) so the
+        # flat custom_fields map serializes O(1) per task — no N+1 on the board feed.
+        db_models.Prefetch(
+            "custom_field_values",
+            queryset=TaskCustomFieldValue.objects.select_related("field", "value_user"),
+        ),
     )
 
     # Summary task annotations: is_summary = has at least one direct child,
@@ -7503,6 +7518,108 @@ class TaskLabelView(IdempotencyMixin, APIView):
     def delete(self, request: Request, project_pk: str, task_pk: str, label_id: str) -> Response:
         task = self._get_task(project_pk, task_pk)
         deleted, _ = TaskLabel.objects.filter(task=task, label_id=label_id).delete()
+        if deleted:
+            task.save(known_exists=True, update_fields=["server_version"])
+            self._broadcast(task)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TaskCustomFieldValueView(IdempotencyMixin, APIView):
+    """Idempotent set/clear of one custom-field value on a task (#2143, ADR-0528).
+
+    ``PUT`` upserts the typed value for ``field_id`` on the task; ``DELETE`` clears it.
+    Each bumps ``Task.server_version`` only when the value actually changed, so the
+    task's flat ``custom_fields`` map re-syncs (ADR-0400 ride-the-parent pattern) and a
+    ``task_updated`` board event fires; an idempotent repeat is a no-op that neither
+    churns the version nor re-broadcasts — mirroring ``TaskLabelView``.
+
+    Setting a value **is a task edit**, so it is gated by ``IsProjectMemberWriteOrOwn``
+    (a Member may edit their own tasks; a Viewer cannot) — deliberately distinct from
+    the field *definition* CRUD, which stays Scheduler+. Writes are **human-only** (no
+    MCP token write path) until the 0.6 agent-write surface (ADR-0186); the read map on
+    the Task payload is already agent-reachable now.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMemberWriteOrOwn, IsProjectNotArchived]
+
+    def _get_task(self, project_pk: str, task_pk: str) -> Task:
+        task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
+        # APIView does not auto-run has_object_permission — enforce the task-edit verdict
+        # (assignee-own vs project-write) explicitly, exactly like TaskLabelView.
+        self.check_object_permissions(self.request, task)
+        return task
+
+    def _get_field(self, task: Task, field_id: str) -> ProjectCustomField:
+        # Cross-project IDOR guard: the field must belong to the task's OWN project. A
+        # field id from another project resolves to 404, never a write.
+        return get_object_or_404(ProjectCustomField, pk=field_id, project_id=task.project_id)
+
+    def _broadcast(self, task: Task) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_task_updated
+
+        project_id = str(task.project_id)
+        task_id = str(task.pk)
+        version = task.server_version
+        actor_id = str(self.request.user.pk) if self.request.user.is_authenticated else None
+        transaction.on_commit(
+            lambda: broadcast_task_updated(
+                project_id,
+                task_id=task_id,
+                changed_fields=["custom_fields"],
+                version=version,
+                actor_id=actor_id,
+            )
+        )
+
+    @extend_schema(
+        summary="Set a task's custom-field value",
+        request=inline_serializer(
+            name="TaskCustomFieldValueWriteRequest",
+            fields={"value": serializers.JSONField()},
+        ),
+        responses={200: OpenApiResponse(description="Value set (idempotent)")},
+    )
+    def put(self, request: Request, project_pk: str, task_pk: str, field_id: str) -> Response:
+        from trueppm_api.apps.projects.custom_field_values import (
+            resolve_custom_field_value,
+            validate_custom_field_write,
+        )
+
+        task = self._get_task(project_pk, task_pk)
+        field = self._get_field(task, field_id)
+        if "value" not in request.data:
+            raise DRFValidationError({"value": "This field is required."})
+        columns = validate_custom_field_write(field, request.data["value"])
+
+        obj, created = TaskCustomFieldValue.objects.get_or_create(
+            task=task, field=field, defaults=columns
+        )
+        changed = created
+        if not created:
+            for col, val in columns.items():
+                if getattr(obj, col) != val:
+                    changed = True
+                setattr(obj, col, val)
+            if changed:
+                obj.save(update_fields=[*columns.keys(), "updated_at"])
+        if changed:
+            # Bump the task version only on a real change so an idempotent re-set does
+            # not churn server_version or emit a spurious broadcast (label precedent).
+            task.save(known_exists=True, update_fields=["server_version"])
+            self._broadcast(task)
+        return Response(
+            {"field_id": str(field.pk), "value": resolve_custom_field_value(obj, field)},
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        summary="Clear a task's custom-field value",
+        responses={204: OpenApiResponse(description="Cleared (idempotent)")},
+    )
+    def delete(self, request: Request, project_pk: str, task_pk: str, field_id: str) -> Response:
+        task = self._get_task(project_pk, task_pk)
+        field = self._get_field(task, field_id)
+        deleted, _ = TaskCustomFieldValue.objects.filter(task=task, field=field).delete()
         if deleted:
             task.save(known_exists=True, update_fields=["server_version"])
             self._broadcast(task)

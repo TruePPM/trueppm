@@ -35,6 +35,7 @@ from trueppm_api.apps.projects.models import (
     Sprint,
     SprintRetro,
     Task,
+    TaskCustomFieldValue,
     TaskRecurrenceRule,
     TaskRelation,
     TaskSuggestedAssignee,
@@ -264,6 +265,12 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                     # label_ids array (ADR-0400) — filter tombstoned labels so a
                     # deleted label never rides a task's sync payload; O(1) per page.
                     Prefetch("labels", queryset=Label.objects.filter(is_deleted=False)),
+                    # custom_fields map (#2143, ADR-0528) rides the task like label_ids;
+                    # select_related feeds the field-type resolver + person avatar O(1).
+                    Prefetch(
+                        "custom_field_values",
+                        queryset=TaskCustomFieldValue.objects.select_related("field", "value_user"),
+                    ),
                 ),
                 SyncTaskSerializer,
             ),
