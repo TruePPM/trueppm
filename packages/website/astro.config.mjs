@@ -1,4 +1,5 @@
 import { defineConfig } from "astro/config";
+import { unified } from "@astrojs/markdown-remark";
 import starlight from "@astrojs/starlight";
 import starlightVersions from "starlight-versions";
 import rehypeMermaid from "rehype-mermaid";
@@ -94,70 +95,79 @@ export default defineConfig({
   // failure mode with zero client JS. Filled indigo nodes with white labels, and
   // neutral edges (gray-3 `#8b90a0`, identical in both modes), stay legible on
   // either background. See ADR-0198 for the rejected alternatives.
+  // Astro 7 replaced the default `.md` engine with the Sätteri processor, which
+  // does NOT run remark/rehype plugins — the top-level `markdown.rehypePlugins`
+  // array (astro 6's home for these) is deprecated and silently ignored for `.md`
+  // content, which is where every docs-site Mermaid fence lives. Opting the
+  // markdown pipeline back to the unified processor via `markdown.processor`
+  // restores plugin support (and matches astro 6's unified behavior most
+  // closely). See ADR-0198 and the astro 7 upgrade guide (#2258).
   markdown: {
-    rehypePlugins: [
-      [
-        rehypeMermaid,
-        {
-          strategy: "inline-svg",
-          mermaidConfig: {
-            theme: "base",
-            // Render node/edge labels as HTML (foreignObject) rather than SVG
-            // <text>. SVG text labels ignore `<br/>` (collapsing multi-line
-            // labels to their first line). HTML labels are laid out by the real
-            // browser at build time and `<br/>` works. Mermaid only honors
-            // htmlLabels when securityLevel is not "strict" (rehype-mermaid's
-            // default); "loose" is safe here because the diagram source is
-            // trusted repo markdown rendered at build time, never user input at
-            // runtime.
-            securityLevel: "loose",
-            htmlLabels: true,
-            flowchart: { htmlLabels: true, useMaxWidth: true },
-            // Font choice is a CORRECTNESS constraint, not a style one. Boxes
-            // are sized by measuring each label at BUILD time in the headless
-            // Chromium (Ubuntu, `mcr.microsoft.com/playwright`), then the SVG
-            // ships as fixed-width foreignObjects that a VISITOR's browser
-            // repaints. If the build font is narrower than the paint font, every
-            // label is clipped at the box edge — the recurring "cut-off words"
-            // bug. `system-ui` is the worst possible choice here: it resolves to
-            // a narrow Linux face at build but wide San Francisco on a Mac
-            // visitor, so labels reliably clipped in production (a same-machine
-            // Mac build did not reproduce it — only the cross-machine gap does).
-            //
-            // Fix: pin an Arial metric stack. The Playwright image ships
-            // `fonts-liberation` (Liberation Sans is metric-identical to Arial
-            // by design), every desktop OS has Arial, and Linux visitors fall to
-            // Liberation — so build-measurement metrics equal paint metrics on
-            // EVERY machine. Set at the top level (Mermaid measures with the
-            // top-level `fontFamily`, default `arial,sans-serif`) AND mirrored in
-            // themeVariables so the painted `.label` CSS resolves the same face.
-            fontFamily: "Arial, Helvetica, sans-serif",
-            themeVariables: {
+    processor: unified({
+      rehypePlugins: [
+        [
+          rehypeMermaid,
+          {
+            strategy: "inline-svg",
+            mermaidConfig: {
+              theme: "base",
+              // Render node/edge labels as HTML (foreignObject) rather than SVG
+              // <text>. SVG text labels ignore `<br/>` (collapsing multi-line
+              // labels to their first line). HTML labels are laid out by the real
+              // browser at build time and `<br/>` works. Mermaid only honors
+              // htmlLabels when securityLevel is not "strict" (rehype-mermaid's
+              // default); "loose" is safe here because the diagram source is
+              // trusted repo markdown rendered at build time, never user input at
+              // runtime.
+              securityLevel: "loose",
+              htmlLabels: true,
+              flowchart: { htmlLabels: true, useMaxWidth: true },
+              // Font choice is a CORRECTNESS constraint, not a style one. Boxes
+              // are sized by measuring each label at BUILD time in the headless
+              // Chromium (Ubuntu, `mcr.microsoft.com/playwright`), then the SVG
+              // ships as fixed-width foreignObjects that a VISITOR's browser
+              // repaints. If the build font is narrower than the paint font, every
+              // label is clipped at the box edge — the recurring "cut-off words"
+              // bug. `system-ui` is the worst possible choice here: it resolves to
+              // a narrow Linux face at build but wide San Francisco on a Mac
+              // visitor, so labels reliably clipped in production (a same-machine
+              // Mac build did not reproduce it — only the cross-machine gap does).
+              //
+              // Fix: pin an Arial metric stack. The Playwright image ships
+              // `fonts-liberation` (Liberation Sans is metric-identical to Arial
+              // by design), every desktop OS has Arial, and Linux visitors fall to
+              // Liberation — so build-measurement metrics equal paint metrics on
+              // EVERY machine. Set at the top level (Mermaid measures with the
+              // top-level `fontFamily`, default `arial,sans-serif`) AND mirrored in
+              // themeVariables so the painted `.label` CSS resolves the same face.
               fontFamily: "Arial, Helvetica, sans-serif",
-              // Filled accent nodes with white labels — reads on white and navy.
-              primaryColor: "#3b5bdb",
-              primaryBorderColor: "#c5d0f6",
-              primaryTextColor: "#ffffff",
-              // Neutral edges: gray-3 is the same hex in light and dark mode.
-              lineColor: "#8b90a0",
-              // Subgraph clusters and secondary nodes: transparent panel with a
-              // neutral border so no light card is stamped onto the dark body.
-              secondaryColor: "#3b5bdb",
-              tertiaryColor: "transparent",
-              clusterBkg: "transparent",
-              clusterBorder: "#8b90a0",
-              titleColor: "#8b90a0",
-              nodeTextColor: "#ffffff",
-              // Edge label chips: filled neutral with light text, legible on both.
-              edgeLabelBackground: "#545867",
+              themeVariables: {
+                fontFamily: "Arial, Helvetica, sans-serif",
+                // Filled accent nodes with white labels — reads on white and navy.
+                primaryColor: "#3b5bdb",
+                primaryBorderColor: "#c5d0f6",
+                primaryTextColor: "#ffffff",
+                // Neutral edges: gray-3 is the same hex in light and dark mode.
+                lineColor: "#8b90a0",
+                // Subgraph clusters and secondary nodes: transparent panel with a
+                // neutral border so no light card is stamped onto the dark body.
+                secondaryColor: "#3b5bdb",
+                tertiaryColor: "transparent",
+                clusterBkg: "transparent",
+                clusterBorder: "#8b90a0",
+                titleColor: "#8b90a0",
+                nodeTextColor: "#ffffff",
+                // Edge label chips: filled neutral with light text, legible on both.
+                edgeLabelBackground: "#545867",
+              },
             },
           },
-        },
+        ],
+        // MUST run after rehype-mermaid: repairs the `<br></br>` double-break the
+        // serializer introduces into foreignObject labels (see above).
+        rehypeFixMermaidLineBreaks,
       ],
-      // MUST run after rehype-mermaid: repairs the `<br></br>` double-break the
-      // serializer introduces into foreignObject labels (see above).
-      rehypeFixMermaidLineBreaks,
-    ],
+    }),
   },
   integrations: [
     starlight({
