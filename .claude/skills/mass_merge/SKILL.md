@@ -272,6 +272,45 @@ glab mr merge <iid> --yes
 git fetch origin                        # pull the new main so the NEXT MR rebases on top of this one
 ```
 
+**After the merge, gate on the resulting `ref: main` pipeline before touching the
+next MR — this is mandatory, not optional.** An MR-ref pipeline is green *against
+the main it branched from*; it does not prove the merge *commit* on main is green.
+A merge can turn main red in ways the MR pipeline never saw — an aggregate/ratchet
+gate that only overflows once combined, a `ref: main`-only job that never runs on
+`merge_request_event` (e.g. `security:osv`, `boundary:check`, CodeQL mirror), or a
+newly-published advisory the scanner picks up mid-run. If you skip this gate and
+keep merging, every subsequent MR lands on an already-red main and you discover it
+seven merges too late. **The invariant: at most ONE merge may land on a newly-red
+main — the first red `ref: main` pipeline halts the entire run.**
+
+```bash
+git fetch origin main                                  # after the merge above
+MAINSHA=$(git rev-parse origin/main)                   # the merge commit now on main
+while :; do
+  ST=$(glab api "projects/:id/pipelines?ref=main&per_page=20" \
+        | python3 -c "import sys,json;m=[p for p in json.load(sys.stdin) if p['sha']=='$MAINSHA'];print(m[0]['status'] if m else 'none')")
+  case "$ST" in
+    success)                 break ;;                  # main is green → proceed to next MR
+    failed|canceled)         echo "MAIN PIPELINE $ST for $MAINSHA → STOP THE RUN"; exit 1 ;;
+    none|created|preparing|pending|running|manual|scheduled|waiting_for_resource)
+                             sleep 30 ;;
+    *)                       sleep 30 ;;
+  esac
+done
+```
+
+When the post-merge main pipeline goes red, apply the **same triage as the MR-ref
+poll** (below): if it is a known e2e flake, retry that one job once and keep
+polling *this main pipeline*; anything else — including a `ref: main`-only gate
+like `security:osv` — is a **hard stop**. Do NOT push or merge the next MR. Report
+which merge's main pipeline failed and which job, so the user can decide whether to
+revert it or fix forward. A red `ref: main`-only gate that predates the batch (an
+externally-published advisory, a pre-existing main failure) is still a stop: the
+batch cannot certify a green main on top of it, and stacking more merges only
+buries the signal. Confirm whether the last-good main *before* the batch was green
+(Step 0 should have recorded this) so you can tell the user whether the batch
+caused the red or merely inherited it.
+
 Cap the poll (e.g. 120 iterations × 30s = 60 min) and stop with a clear message
 rather than looping forever if CI hangs. Terminal-failure states (`failed`,
 `canceled`) stop the whole run — do not merge a red pipeline, and do not silently
@@ -312,6 +351,18 @@ Rules for Phase B:
   the parallel-merge problem this skill removes (and the known glab batch-merge
   MWPS gotcha). One MR's pipeline must be confirmed green before its merge, and
   merged before the next MR is even pushed.
+- **Gate on the post-merge `ref: main` pipeline after EVERY merge — at most one
+  merge may land on a red main.** The MR-ref pipeline being green does not prove
+  the merge commit on main is green: `ref: main`-only jobs (`security:osv`,
+  `boundary:check`, CodeQL mirror), aggregate/ratchet gates that overflow only when
+  combined, and externally-published advisories all surface *only* on the main
+  pipeline the merge triggers. After `glab mr merge`, fetch main, capture the new
+  `origin/main` sha, and poll `pipelines?ref=main` for that exact sha to reach
+  `success` before you push or merge the next MR. A `failed`/`canceled` main
+  pipeline is a **hard stop for the whole run** (same flake-triage exception as the
+  MR-ref poll). This is the guard whose absence let seven MRs land on a main that
+  went red on the first merge — the entire point of the skill is a green main, and
+  only the main pipeline proves it.
 - **`--force-with-lease`, never `--force`** — protects against someone else
   pushing to the MR branch mid-run. Pin the expected sha explicitly
   (`--force-with-lease="$BR:<old-sha>"`) when the branch lives in a worktree, so
@@ -355,10 +406,13 @@ Mass merge of !123 !124 !125 → main
 Landed 2 of 3. main pipeline: <URL of latest main pipeline — confirm green>.
 ```
 
-Always end by fetching and confirming the **post-merge main pipeline** is green —
-that is the whole point of the skill. If it is red despite Phase A being clean,
-a gate exists that Phase A does not reproduce; report which job and add it to the
-Step 2 suite.
+Confirm the post-merge main pipeline is green after *every* merge, not just at the
+end (see the Phase B post-merge gate) — that is the whole point of the skill. If it
+is red despite Phase A being clean, a gate exists that Phase A does not reproduce
+(a `ref: main`-only job, or an externally-published advisory): stop, report which
+job failed and whether the pre-batch main was already green, and — if it is a gate
+Phase A *could* reproduce — add it to the Step 2 suite so the next run catches it
+before merging rather than after.
 
 ---
 
@@ -372,6 +426,12 @@ Step 2 suite.
 - **Rebase every MR onto the latest main immediately before pushing** — this is
   the CLAUDE.md batched-MR rule, enforced automatically.
 - **Poll-to-green then merge, serially.** No batch MWPS, no parallel merges.
+- **Gate on the `ref: main` pipeline after every merge — at most one merge lands
+  on a red main.** The MR-ref pipeline proves the branch against its old base, not
+  the merge commit on main; `ref: main`-only jobs (`security:osv`, `boundary:check`,
+  CodeQL), combined-tree ratchet overflows, and fresh advisories show up only on
+  the main pipeline. Poll it for the new `origin/main` sha to `success` before
+  pushing the next MR; the first red main pipeline is a hard stop for the whole run.
 - **Poll the exact pushed full sha by MR ref** — never the `?sha=<short>` filter
   (returns `[]`, loops forever) and never `head_pipeline` (stale after a
   force-push). Cap the wait so CI hangs don't loop forever.
