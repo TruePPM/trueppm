@@ -1,8 +1,16 @@
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { AxiosError, type AxiosResponse } from 'axios';
 import { WorkspaceEmailPage } from './WorkspaceEmailPage';
 import { useSettingsSaveStore } from '../hooks/useSettingsSaveStore';
 import type { EmailSettings } from '@/hooks/useEmailSettings';
+
+/** A realistic DRF 400 rejection (a real `apiClient` write rejects with an AxiosError). */
+function axios400(data: unknown): AxiosError {
+  const err = new AxiosError('Request failed with status code 400');
+  err.response = { status: 400, data } as AxiosResponse;
+  return err;
+}
 
 const useEmailSettings = vi.fn();
 const useUpdateEmailSettings = vi.fn();
@@ -308,9 +316,9 @@ describe('WorkspaceEmailPage — save contract', () => {
   });
 
   it('surfaces a DRF field error inline and keeps the entered values on save failure', async () => {
-    const mutateAsync = vi.fn().mockRejectedValue({
-      response: { data: { host: ['Could not connect to that host.'] } },
-    });
+    const mutateAsync = vi
+      .fn()
+      .mockRejectedValue(axios400({ host: ['Could not connect to that host.'] }));
     useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
     mockHooks({ transport_mode: 'smtp', host: 'mail.example.com' });
     useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
@@ -322,9 +330,15 @@ describe('WorkspaceEmailPage — save contract', () => {
     });
 
     expect(await screen.findByText('Transport validation failed')).toBeInTheDocument();
+    // The field is highlighted inline and marked invalid for assistive tech.
     expect(screen.getByText('Could not connect to that host.')).toBeInTheDocument();
+    expect(screen.getByLabelText('SMTP host')).toHaveAttribute('aria-invalid', 'true');
     // The bad value is kept for the operator to correct.
     expect(screen.getByLabelText<HTMLInputElement>('SMTP host').value).toBe('bad.host');
+    // Editing the field clears its inline error.
+    fireEvent.change(screen.getByLabelText('SMTP host'), { target: { value: 'better.host' } });
+    expect(screen.queryByText('Could not connect to that host.')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('SMTP host')).not.toHaveAttribute('aria-invalid');
   });
 
   it('falls back to a generic message for a non-DRF error', async () => {

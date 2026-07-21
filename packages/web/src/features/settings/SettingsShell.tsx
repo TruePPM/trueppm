@@ -830,6 +830,15 @@ interface FieldRowProps {
   label: string;
   hint?: string;
   children: ReactNode;
+  /**
+   * Server-side validation message for the control in this row. When set, an
+   * inline `role="alert"` line is rendered under the control; pair it with an
+   * `errorId` and point the control's `aria-describedby`/`aria-invalid` at it so
+   * the association is programmatic (WCAG 3.3.1 / 4.1.2).
+   */
+  error?: string;
+  /** DOM id for the inline error node — the control references it via `aria-describedby`. */
+  errorId?: string;
 }
 
 /**
@@ -838,7 +847,7 @@ interface FieldRowProps {
  * control, so the row stacks to a single column (label above content) — this is
  * the actual fix for settings-form overflow at 375px (issue 539).
  */
-export function FieldRow({ label, hint, children }: FieldRowProps) {
+export function FieldRow({ label, hint, children, error, errorId }: FieldRowProps) {
   return (
     <div className="grid grid-cols-1 gap-2 md:gap-6 md:grid-cols-[240px_1fr] py-3.5 border-b border-neutral-border/55 items-start">
       <div>
@@ -847,7 +856,14 @@ export function FieldRow({ label, hint, children }: FieldRowProps) {
           <div className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug">{hint}</div>
         )}
       </div>
-      <div className="min-w-0">{children}</div>
+      <div className="min-w-0">
+        {children}
+        {error && (
+          <p id={errorId} role="alert" className="mt-1 text-[12px] text-semantic-critical">
+            {error}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

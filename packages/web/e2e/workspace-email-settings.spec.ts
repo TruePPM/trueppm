@@ -169,6 +169,39 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await expect(page.getByLabel('SMTP host')).toHaveValue('bad.host.example');
   });
 
+  test('error path: a per-field 400 highlights the offending input inline (#2249)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/email-settings/', (r) => {
+      if (r.request().method() === 'PUT') {
+        return r.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: pj({ host: ['Could not resolve that host.'] }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(EMAIL_GET) });
+    });
+
+    await page.goto('/settings/email');
+    await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
+
+    await page.getByLabel('Provider').selectOption('custom');
+    await page.getByLabel('SMTP host').fill('bad.host.example');
+    await page.getByLabel('SMTP username').fill('u');
+    await page.getByLabel('Password', { exact: true }).fill('s3cret');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    // The message is shown inline next to the field, and the input is marked
+    // invalid for assistive tech — no more guessing which field is wrong.
+    await expect(page.getByText('Could not resolve that host.')).toBeVisible();
+    await expect(page.getByLabel('SMTP host')).toHaveAttribute('aria-invalid', 'true');
+    // Editing the field clears its inline error.
+    await page.getByLabel('SMTP host').fill('better.host.example');
+    await expect(page.getByText('Could not resolve that host.')).toBeHidden();
+  });
+
   test('guided provider setup: Gmail pre-fills + App-Password callout; None warns (#2115)', async ({
     page,
   }) => {

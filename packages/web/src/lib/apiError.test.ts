@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { AxiosError, type AxiosResponse } from 'axios';
-import { isClientRejection, extractValidationMessage } from './apiError';
+import {
+  isClientRejection,
+  extractValidationMessage,
+  extractFieldErrors,
+  extractFormLevelMessage,
+} from './apiError';
 
 function axios4xx(status: number, data: unknown): AxiosError {
   const err = new AxiosError('Request failed with status code ' + status);
@@ -64,5 +69,42 @@ describe('extractValidationMessage', () => {
   it('falls back when the body shape is unrecognized or the error is not axios', () => {
     expect(extractValidationMessage(axios4xx(400, {}), 'fallback')).toBe('fallback');
     expect(extractValidationMessage(new Error('x'), 'fallback')).toBe('fallback');
+  });
+});
+
+describe('extractFieldErrors', () => {
+  it('maps each field to its first message and skips form-level keys', () => {
+    const err = axios4xx(400, {
+      non_field_errors: ['form level'],
+      detail: 'nope',
+      host: ['Could not connect.'],
+      port: ['Must be 1–65535.', 'secondary'],
+    });
+    expect(extractFieldErrors(err)).toEqual({
+      host: 'Could not connect.',
+      port: 'Must be 1–65535.',
+    });
+  });
+
+  it('returns an empty map for a network error, non-axios error, or list body', () => {
+    expect(extractFieldErrors(new AxiosError('Network Error'))).toEqual({});
+    expect(extractFieldErrors(new Error('x'))).toEqual({});
+    expect(extractFieldErrors(axios4xx(400, ['not', 'an', 'object']))).toEqual({});
+  });
+});
+
+describe('extractFormLevelMessage', () => {
+  it('prefers detail, then non_field_errors', () => {
+    expect(extractFormLevelMessage(axios4xx(400, { detail: 'Denied.', host: ['x'] }))).toBe(
+      'Denied.',
+    );
+    expect(extractFormLevelMessage(axios4xx(400, { non_field_errors: ['Conflict.'] }))).toBe(
+      'Conflict.',
+    );
+  });
+
+  it('is null when only field errors, an opaque body, or a non-axios error is present', () => {
+    expect(extractFormLevelMessage(axios4xx(400, { host: ['x'] }))).toBeNull();
+    expect(extractFormLevelMessage(new Error('x'))).toBeNull();
   });
 });

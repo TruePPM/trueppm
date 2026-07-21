@@ -29,9 +29,33 @@ import { SettingsPageTitle, FieldRow, SettingsCard } from '../SettingsShell';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { FieldHelp, type FieldHelpOption } from '@/components/FieldHelp';
 import { ChevronDownIcon, ChevronRightIcon } from '@/components/Icons';
+import { extractFieldErrors, extractFormLevelMessage } from '@/lib/apiError';
 
 const INPUT_CLASS =
-  'w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed';
+  'w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary aria-invalid:border-semantic-critical disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed';
+// The two narrow numeric inputs (port, limits) carry their own width so they
+// can't share INPUT_CLASS; keep the aria-invalid red border in sync here.
+const NUM_INPUT_CLASS =
+  'w-[120px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary aria-invalid:border-semantic-critical disabled:bg-neutral-surface-sunken disabled:cursor-not-allowed';
+/** Maps a dirty-tracked form field to the DRF serializer key it is sent as. */
+const FORM_TO_DRF: Record<string, string> = {
+  transportMode: 'transport_mode',
+  host: 'host',
+  port: 'port',
+  security: 'security',
+  username: 'username',
+  password: 'password',
+  fromName: 'from_name',
+  fromEmail: 'from_email',
+  replyTo: 'reply_to',
+  dkimSelector: 'dkim_selector',
+  maxRecipients: 'max_recipients',
+  throttlePerMin: 'throttle_per_min',
+  bounceWebhookUrl: 'bounce_webhook_url',
+  // The SES host is derived from the region picker, so a `host` rejection
+  // highlights the Region control.
+  sesRegion: 'host',
+};
 const SELECT_CLASS =
   'h-8 pl-2.5 pr-7 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.45rem_center] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary disabled:cursor-not-allowed';
 const SELECT_STYLE = {
@@ -328,23 +352,6 @@ function snapshotFrom(data: EmailSettings): FormState {
   };
 }
 
-/** Best-effort extraction of a DRF 400 error into one human-readable line. */
-function parseSaveError(err: unknown): string {
-  const generic = 'Could not save the email settings. Check the highlighted fields.';
-  if (typeof err !== 'object' || err === null || !('response' in err)) return generic;
-  const response = (err as { response?: { data?: unknown } }).response;
-  const data = response?.data;
-  if (typeof data !== 'object' || data === null) return generic;
-  const record = data as Record<string, unknown>;
-  const order = ['non_field_errors', 'host', 'password', 'from_email', 'bounce_webhook_url'];
-  for (const key of [...order, ...Object.keys(record)]) {
-    const val = record[key];
-    if (Array.isArray(val) && typeof val[0] === 'string') return val[0];
-    if (typeof val === 'string') return val;
-  }
-  return generic;
-}
-
 export function WorkspaceEmailPage() {
   const { data, isLoading, isError, refetch } = useEmailSettings();
   const updateSettings = useUpdateEmailSettings();
@@ -366,6 +373,19 @@ export function WorkspaceEmailPage() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Per-field DRF 400 messages, keyed by serializer field name — drives the
+  // `aria-invalid` + inline `role="alert"` highlighting the banner promises.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  /** Stable DOM id for a field's inline error node (referenced by aria-describedby). */
+  const errId = useCallback((drfKey: string) => `email-err-${drfKey}`, []);
+  /** aria-invalid + aria-describedby for the input mapped to `drfKey`, when it errored. */
+  const invalidProps = useCallback(
+    (drfKey: string) =>
+      fieldErrors[drfKey]
+        ? { 'aria-invalid': true as const, 'aria-describedby': errId(drfKey) }
+        : {},
+    [fieldErrors, errId],
+  );
 
   useEffect(() => {
     if (!data) return;
@@ -381,6 +401,16 @@ export function WorkspaceEmailPage() {
   const set = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
     setSaveError(null); // editing clears the last transport-validation error
+    // Clear the inline error on the field the user is fixing.
+    const drfKey = FORM_TO_DRF[key];
+    if (drfKey) {
+      setFieldErrors((prev) => {
+        if (!(drfKey in prev)) return prev;
+        const next = { ...prev };
+        delete next[drfKey];
+        return next;
+      });
+    }
   }, []);
 
   /**
@@ -395,6 +425,7 @@ export function WorkspaceEmailPage() {
     setProviderId(id);
     setShowAdvanced(false);
     setSaveError(null);
+    setFieldErrors({});
     setForm((prev) => {
       if (!prev) return prev;
       switch (id) {
@@ -453,10 +484,26 @@ export function WorkspaceEmailPage() {
       setInitial({ ...form, password: '' });
       setForm({ ...form, password: '' });
       setSaveError(null);
+      setFieldErrors({});
     } catch (err) {
-      // Keep every entered value; surface the transport error inline and
-      // re-throw so the shell keeps the section dirty and doesn't stamp "Saved".
-      setSaveError(parseSaveError(err));
+      // Keep every entered value; highlight each offending input (aria-invalid +
+      // inline message) and summarize in the banner; re-throw so the shell keeps
+      // the section dirty and doesn't stamp "Saved".
+      const fieldErrs = extractFieldErrors(err);
+      setFieldErrors(fieldErrs);
+      // On a preset the host/port/security inputs live behind the collapsed
+      // Advanced reveal — expand it so a highlighted transport field (and its
+      // inline message) is actually visible, not stranded in a hidden subtree.
+      if (['host', 'port', 'security'].some((k) => k in fieldErrs)) {
+        setShowAdvanced(true);
+      }
+      const formLevel = extractFormLevelMessage(err);
+      setSaveError(
+        formLevel ??
+          (Object.keys(fieldErrs).length > 0
+            ? 'Please correct the highlighted fields below.'
+            : 'Could not save the email settings. Please try again.'),
+      );
       throw err;
     }
   }, [form, updateSettings]);
@@ -464,6 +511,7 @@ export function WorkspaceEmailPage() {
   const onReset = useCallback(() => {
     setForm(initial);
     setSaveError(null);
+    setFieldErrors({});
     if (initial) {
       // Re-derive the provider lens against the reverted values, else it would
       // show the last-picked provider against restored fields (initial keeps the
@@ -550,7 +598,7 @@ export function WorkspaceEmailPage() {
   // presets keep it visible while collapsing only the server plumbing.
   const transportFields = (
     <>
-      <FieldRow label="Host">
+      <FieldRow label="Host" error={fieldErrors.host} errorId={errId('host')}>
         <input
           type="text"
           value={form.host}
@@ -559,9 +607,10 @@ export function WorkspaceEmailPage() {
           className={INPUT_CLASS}
           placeholder="smtp.example.com"
           aria-label="SMTP host"
+          {...invalidProps('host')}
         />
       </FieldRow>
-      <FieldRow label="Port">
+      <FieldRow label="Port" error={fieldErrors.port} errorId={errId('port')}>
         <label htmlFor={portId} className="sr-only">
           SMTP port
         </label>
@@ -573,7 +622,8 @@ export function WorkspaceEmailPage() {
           value={form.port}
           disabled={disabled}
           onChange={(e) => set('port', e.target.valueAsNumber || 0)}
-          className="w-[120px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary disabled:bg-neutral-surface-sunken disabled:cursor-not-allowed"
+          className={NUM_INPUT_CLASS}
+          {...invalidProps('port')}
         />
       </FieldRow>
       {/* Security row is hand-rolled (not FieldRow) so the FieldHelp ⓘ sits next
@@ -633,7 +683,7 @@ export function WorkspaceEmailPage() {
   );
 
   const usernameField = (
-    <FieldRow label="Username">
+    <FieldRow label="Username" error={fieldErrors.username} errorId={errId('username')}>
       <input
         type="text"
         value={form.username}
@@ -641,6 +691,7 @@ export function WorkspaceEmailPage() {
         onChange={(e) => set('username', e.target.value)}
         className={INPUT_CLASS}
         aria-label="SMTP username"
+        {...invalidProps('username')}
       />
     </FieldRow>
   );
@@ -800,7 +851,12 @@ export function WorkspaceEmailPage() {
 
         {isSes && (
           <>
-            <FieldRow label="Region" hint="The SES SMTP endpoint is derived from the region.">
+            <FieldRow
+              label="Region"
+              hint="The SES SMTP endpoint is derived from the region."
+              error={fieldErrors.host}
+              errorId={errId('host')}
+            >
               <label htmlFor={regionId} className="sr-only">
                 SES region
               </label>
@@ -809,8 +865,9 @@ export function WorkspaceEmailPage() {
                 value={form.sesRegion}
                 disabled={disabled}
                 onChange={(e) => set('sesRegion', e.target.value)}
-                className={`${SELECT_CLASS} w-[200px]`}
+                className={`${SELECT_CLASS} w-[200px] aria-invalid:border-semantic-critical`}
                 style={SELECT_STYLE}
+                {...invalidProps('host')}
               >
                 {SES_REGIONS.map((r) => (
                   <option key={r} value={r}>
@@ -819,7 +876,11 @@ export function WorkspaceEmailPage() {
                 ))}
               </select>
             </FieldRow>
-            <FieldRow label="SMTP username">
+            <FieldRow
+              label="SMTP username"
+              error={fieldErrors.username}
+              errorId={errId('username')}
+            >
               <input
                 type="text"
                 value={form.username}
@@ -827,6 +888,7 @@ export function WorkspaceEmailPage() {
                 onChange={(e) => set('username', e.target.value)}
                 className={INPUT_CLASS}
                 aria-label="SES SMTP username"
+                {...invalidProps('username')}
               />
             </FieldRow>
             <SettingsCard className="my-2 bg-neutral-surface-sunken max-w-[420px]">
@@ -886,6 +948,7 @@ export function WorkspaceEmailPage() {
                   placeholder={credentialPlaceholder}
                   className={INPUT_CLASS}
                   aria-label={credentialLabel}
+                  {...invalidProps('password')}
                 />
                 <button
                   type="button"
@@ -895,6 +958,11 @@ export function WorkspaceEmailPage() {
                   {showPassword ? 'Hide' : 'Show'}
                 </button>
               </div>
+              {fieldErrors.password && (
+                <p id={errId('password')} role="alert" className="mt-1 text-[12px] text-semantic-critical">
+                  {fieldErrors.password}
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -903,7 +971,7 @@ export function WorkspaceEmailPage() {
         <h3 className="mt-8 mb-1 text-[13px] font-semibold text-neutral-text-primary">
           From identity
         </h3>
-        <FieldRow label="From name">
+        <FieldRow label="From name" error={fieldErrors.from_name} errorId={errId('from_name')}>
           <input
             type="text"
             value={form.fromName}
@@ -911,9 +979,14 @@ export function WorkspaceEmailPage() {
             onChange={(e) => set('fromName', e.target.value)}
             className={INPUT_CLASS}
             aria-label="From name"
+            {...invalidProps('from_name')}
           />
         </FieldRow>
-        <FieldRow label="From address">
+        <FieldRow
+          label="From address"
+          error={fieldErrors.from_email}
+          errorId={errId('from_email')}
+        >
           <input
             type="email"
             value={form.fromEmail}
@@ -921,9 +994,10 @@ export function WorkspaceEmailPage() {
             onChange={(e) => set('fromEmail', e.target.value)}
             className={INPUT_CLASS}
             aria-label="From address"
+            {...invalidProps('from_email')}
           />
         </FieldRow>
-        <FieldRow label="Reply-to">
+        <FieldRow label="Reply-to" error={fieldErrors.reply_to} errorId={errId('reply_to')}>
           <input
             type="email"
             value={form.replyTo}
@@ -931,9 +1005,14 @@ export function WorkspaceEmailPage() {
             onChange={(e) => set('replyTo', e.target.value)}
             className={INPUT_CLASS}
             aria-label="Reply-to address"
+            {...invalidProps('reply_to')}
           />
         </FieldRow>
-        <FieldRow label="DKIM selector">
+        <FieldRow
+          label="DKIM selector"
+          error={fieldErrors.dkim_selector}
+          errorId={errId('dkim_selector')}
+        >
           <input
             type="text"
             value={form.dkimSelector}
@@ -941,6 +1020,7 @@ export function WorkspaceEmailPage() {
             onChange={(e) => set('dkimSelector', e.target.value)}
             className={`${INPUT_CLASS} tppm-mono max-w-[220px]`}
             aria-label="DKIM selector"
+            {...invalidProps('dkim_selector')}
           />
         </FieldRow>
 
@@ -948,29 +1028,46 @@ export function WorkspaceEmailPage() {
         <h3 className="mt-8 mb-1 text-[13px] font-semibold text-neutral-text-primary">
           Delivery &amp; limits
         </h3>
-        <FieldRow label="Max recipients" hint="Per single message.">
+        <FieldRow
+          label="Max recipients"
+          hint="Per single message."
+          error={fieldErrors.max_recipients}
+          errorId={errId('max_recipients')}
+        >
           <input
             type="number"
             min={1}
             value={form.maxRecipients}
             disabled={disabled}
             onChange={(e) => set('maxRecipients', e.target.valueAsNumber || 0)}
-            className="w-[120px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary disabled:bg-neutral-surface-sunken disabled:cursor-not-allowed"
+            className={NUM_INPUT_CLASS}
             aria-label="Max recipients"
+            {...invalidProps('max_recipients')}
           />
         </FieldRow>
-        <FieldRow label="Throttle (per minute)" hint="0 disables throttling.">
+        <FieldRow
+          label="Throttle (per minute)"
+          hint="0 disables throttling."
+          error={fieldErrors.throttle_per_min}
+          errorId={errId('throttle_per_min')}
+        >
           <input
             type="number"
             min={0}
             value={form.throttlePerMin}
             disabled={disabled}
             onChange={(e) => set('throttlePerMin', e.target.valueAsNumber || 0)}
-            className="w-[120px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary disabled:bg-neutral-surface-sunken disabled:cursor-not-allowed"
+            className={NUM_INPUT_CLASS}
             aria-label="Throttle per minute"
+            {...invalidProps('throttle_per_min')}
           />
         </FieldRow>
-        <FieldRow label="Bounce webhook" hint="POSTed when a message bounces.">
+        <FieldRow
+          label="Bounce webhook"
+          hint="POSTed when a message bounces."
+          error={fieldErrors.bounce_webhook_url}
+          errorId={errId('bounce_webhook_url')}
+        >
           <input
             type="url"
             value={form.bounceWebhookUrl}
@@ -979,6 +1076,7 @@ export function WorkspaceEmailPage() {
             className={INPUT_CLASS}
             placeholder="https://example.com/hooks/bounce"
             aria-label="Bounce webhook URL"
+            {...invalidProps('bounce_webhook_url')}
           />
         </FieldRow>
 

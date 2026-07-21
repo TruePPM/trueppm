@@ -31,11 +31,12 @@ import {
   seedFields,
   type ProviderDef,
 } from './ssoProviders';
+import { extractFieldErrors, extractFormLevelMessage } from '@/lib/apiError';
 
 const INPUT_CLASS =
-  'w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed';
+  'w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary aria-invalid:border-semantic-critical disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed';
 const SELECT_CLASS =
-  'h-8 pl-2.5 pr-7 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.45rem_center] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary disabled:cursor-not-allowed';
+  'h-8 pl-2.5 pr-7 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.45rem_center] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary aria-invalid:border-semantic-critical disabled:cursor-not-allowed';
 const SELECT_STYLE = {
   backgroundImage:
     "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 16 16'><path d='M4 6l4 4 4-4' stroke='%23667085' stroke-width='2' stroke-linecap='round' fill='none' /></svg>\")",
@@ -49,22 +50,6 @@ function parseDomains(text: string): string[] {
     if (d && !seen.includes(d)) seen.push(d);
   }
   return seen;
-}
-
-/** Best-effort extraction of a DRF 400 error into one human-readable line. */
-function parseSaveError(err: unknown): string {
-  const generic = 'Could not save the provider. Check the highlighted fields.';
-  if (typeof err !== 'object' || err === null || !('response' in err)) return generic;
-  const data = (err as { response?: { data?: unknown } }).response?.data;
-  if (typeof data !== 'object' || data === null) return generic;
-  const record = data as Record<string, unknown>;
-  const order = ['non_field_errors', 'enabled', 'slug', 'server_url', 'client_id', 'client_secret'];
-  for (const key of [...order, ...Object.keys(record)]) {
-    const val = record[key];
-    if (Array.isArray(val) && typeof val[0] === 'string') return val[0];
-    if (typeof val === 'string') return val;
-  }
-  return generic;
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -135,13 +120,27 @@ function IssuerFields({
   fieldValues,
   setField,
   composedIssuer,
+  serverUrlError,
+  githubOrgError,
 }: {
   def: ProviderDef;
   rawIssuerMode: boolean;
   fieldValues: Record<string, string>;
   setField: (id: string, value: string) => void;
   composedIssuer: string;
+  /** DRF `server_url` message — the composition inputs all feed this one key. */
+  serverUrlError?: string;
+  /** DRF `github_org` message for the OAuth org-restriction input. */
+  githubOrgError?: string;
 }) {
+  const serverUrlErrId = useId();
+  const githubOrgErrId = useId();
+  // Composition inputs all contribute to `server_url`; when it is rejected,
+  // mark each aria-invalid and point them at the one inline message (rendered
+  // on the resolved-issuer strip for derived, or the single field otherwise).
+  const issuerAria = serverUrlError
+    ? { 'aria-invalid': true as const, 'aria-describedby': serverUrlErrId }
+    : {};
   return (
     <>
       {/* Issuer section — driven by kind */}
@@ -168,8 +167,17 @@ function IssuerFields({
 
       {(def.kind === 'free' || def.kind === 'derived') &&
         !rawIssuerMode &&
-        def.fields?.map((f) => (
-          <FieldRow key={f.id} label={f.label} hint={f.hint}>
+        def.fields?.map((f, i) => (
+          <FieldRow
+            key={f.id}
+            label={f.label}
+            hint={f.hint}
+            // `free` has a single field and no resolved-issuer strip, so the
+            // `server_url` message lands on that row; `derived` shows it on the
+            // strip below instead (avoid duplicating it on every field).
+            error={def.kind === 'free' && i === 0 ? serverUrlError : undefined}
+            errorId={serverUrlErrId}
+          >
             <input
               type="text"
               aria-label={f.label}
@@ -177,6 +185,7 @@ function IssuerFields({
               onChange={(e) => setField(f.id, e.target.value)}
               placeholder={f.placeholder}
               className={`${INPUT_CLASS} ${f.mono ? 'tppm-mono' : ''}`}
+              {...issuerAria}
             />
           </FieldRow>
         ))}
@@ -186,6 +195,8 @@ function IssuerFields({
         <FieldRow
           label="Issuer URL"
           hint="Stored issuer (could not be split into fields) — edit directly."
+          error={serverUrlError}
+          errorId={serverUrlErrId}
         >
           <input
             type="text"
@@ -194,13 +205,19 @@ function IssuerFields({
             onChange={(e) => setField('issuer', e.target.value)}
             placeholder="https://id.example.com"
             className={`${INPUT_CLASS} tppm-mono`}
+            {...issuerAria}
           />
         </FieldRow>
       )}
 
       {/* Live resolved-issuer strip for derived providers. */}
       {def.kind === 'derived' && !rawIssuerMode && (
-        <FieldRow label="Resolved issuer" hint="Composed from the fields above.">
+        <FieldRow
+          label="Resolved issuer"
+          hint="Composed from the fields above."
+          error={serverUrlError}
+          errorId={serverUrlErrId}
+        >
           <span
             className="tppm-mono text-[12px] text-neutral-text-secondary"
             aria-live="polite"
@@ -214,7 +231,13 @@ function IssuerFields({
       {/* GitHub org restriction */}
       {def.kind === 'oauth' &&
         def.fields?.map((f) => (
-          <FieldRow key={f.id} label={f.label} hint={f.hint}>
+          <FieldRow
+            key={f.id}
+            label={f.label}
+            hint={f.hint}
+            error={f.id === 'org' ? githubOrgError : undefined}
+            errorId={githubOrgErrId}
+          >
             <input
               type="text"
               aria-label={f.label}
@@ -222,6 +245,8 @@ function IssuerFields({
               onChange={(e) => setField(f.id, e.target.value)}
               placeholder={f.placeholder}
               className={INPUT_CLASS}
+              aria-invalid={f.id === 'org' && githubOrgError ? true : undefined}
+              aria-describedby={f.id === 'org' && githubOrgError ? githubOrgErrId : undefined}
             />
           </FieldRow>
         ))}
@@ -320,11 +345,31 @@ export function SsoProviderPanel({
   const [defaultRole, setDefaultRole] = useState(existing?.default_role ?? ROLE_MEMBER);
   const [enabled, setEnabled] = useState(existing?.enabled ?? false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Per-field DRF 400 messages, keyed by serializer field name. Drives the
+  // `aria-invalid` + inline `role="alert"` highlighting the banner promises.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const setField = useCallback((id: string, value: string) => {
-    setFieldValues((prev) => ({ ...prev, [id]: value }));
+  /** Clear the banner and, if given, one field's inline error as the user edits it. */
+  const clearError = useCallback((key?: string) => {
     setSaveError(null);
+    if (!key) return;
+    setFieldErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   }, []);
+
+  const setField = useCallback(
+    (id: string, value: string) => {
+      setFieldValues((prev) => ({ ...prev, [id]: value }));
+      // The oauth `org` input feeds `github_org`; every other composition input
+      // feeds the single `server_url` payload key.
+      clearError(id === 'org' ? 'github_org' : 'server_url');
+    },
+    [clearError],
+  );
 
   // Changing the provider type (Add only) resets the type-specific inputs.
   const onSelectType = useCallback((next: string) => {
@@ -332,6 +377,7 @@ export function SsoProviderPanel({
     setFieldValues({});
     setRawIssuerMode(false);
     setSaveError(null);
+    setFieldErrors({});
   }, []);
 
   const composedIssuer = rawIssuerMode
@@ -368,7 +414,18 @@ export function SsoProviderPanel({
       }
       onClose();
     } catch (err) {
-      setSaveError(parseSaveError(err));
+      // Highlight every offending input (aria-invalid + inline message) and
+      // summarize in the banner — the form-level message when the server sent
+      // one, else a lead-in pointing at the highlighted fields, else generic.
+      const fieldErrs = extractFieldErrors(err);
+      setFieldErrors(fieldErrs);
+      const formLevel = extractFormLevelMessage(err);
+      setSaveError(
+        formLevel ??
+          (Object.keys(fieldErrs).length > 0
+            ? 'Please correct the highlighted fields below.'
+            : 'Could not save the provider. Please try again.'),
+      );
     }
   }, [
     displayName,
@@ -419,7 +476,12 @@ export function SsoProviderPanel({
         )}
 
         {/* Provider type */}
-        <FieldRow label="Provider type" hint="Sets the endpoints and issuer format.">
+        <FieldRow
+          label="Provider type"
+          hint="Sets the endpoints and issuer format."
+          error={fieldErrors.slug}
+          errorId={`${typeId}-err`}
+        >
           <label htmlFor={typeId} className="sr-only">
             Provider type
           </label>
@@ -428,6 +490,8 @@ export function SsoProviderPanel({
               id={typeId}
               value={slug}
               onChange={(e) => onSelectType(e.target.value)}
+              aria-invalid={fieldErrors.slug ? true : undefined}
+              aria-describedby={fieldErrors.slug ? `${typeId}-err` : undefined}
               className={`${SELECT_CLASS} w-full max-w-[260px]`}
               style={SELECT_STYLE}
             >
@@ -450,13 +514,20 @@ export function SsoProviderPanel({
           fieldValues={fieldValues}
           setField={setField}
           composedIssuer={composedIssuer}
+          serverUrlError={fieldErrors.server_url}
+          githubOrgError={fieldErrors.github_org}
         />
 
         {/* Common credential fields */}
         <h4 className="mt-6 mb-1 text-[12px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
           Credentials
         </h4>
-        <FieldRow label="Display name" hint="Shown on the sign-in button.">
+        <FieldRow
+          label="Display name"
+          hint="Shown on the sign-in button."
+          error={fieldErrors.display_name}
+          errorId={`${displayNameId}-err`}
+        >
           <label htmlFor={displayNameId} className="sr-only">
             Display name
           </label>
@@ -466,13 +537,15 @@ export function SsoProviderPanel({
             value={displayName}
             onChange={(e) => {
               setDisplayName(e.target.value);
-              setSaveError(null);
+              clearError('display_name');
             }}
+            aria-invalid={fieldErrors.display_name ? true : undefined}
+            aria-describedby={fieldErrors.display_name ? `${displayNameId}-err` : undefined}
             className={INPUT_CLASS}
             placeholder={`${def.name} sign-in`}
           />
         </FieldRow>
-        <FieldRow label="Client ID">
+        <FieldRow label="Client ID" error={fieldErrors.client_id} errorId={`${clientIdId}-err`}>
           <label htmlFor={clientIdId} className="sr-only">
             Client ID
           </label>
@@ -482,8 +555,10 @@ export function SsoProviderPanel({
             value={clientId}
             onChange={(e) => {
               setClientId(e.target.value);
-              setSaveError(null);
+              clearError('client_id');
             }}
+            aria-invalid={fieldErrors.client_id ? true : undefined}
+            aria-describedby={fieldErrors.client_id ? `${clientIdId}-err` : undefined}
             className={`${INPUT_CLASS} tppm-mono`}
           />
         </FieldRow>
@@ -494,6 +569,8 @@ export function SsoProviderPanel({
               ? 'Encrypted at rest. Leave blank to keep the current secret.'
               : 'Encrypted at rest.'
           }
+          error={fieldErrors.client_secret}
+          errorId={`${secretId}-err`}
         >
           <div className="flex items-center gap-2 max-w-[520px]">
             <label htmlFor={secretId} className="sr-only">
@@ -506,8 +583,10 @@ export function SsoProviderPanel({
               value={clientSecret}
               onChange={(e) => {
                 setClientSecret(e.target.value);
-                setSaveError(null);
+                clearError('client_secret');
               }}
+              aria-invalid={fieldErrors.client_secret ? true : undefined}
+              aria-describedby={fieldErrors.client_secret ? `${secretId}-err` : undefined}
               placeholder={
                 existing?.secret_set ? '•••• (set — leave blank to keep)' : 'Paste client secret'
               }
@@ -565,6 +644,8 @@ export function SsoProviderPanel({
         <FieldRow
           label="Allowed email domains"
           hint="Only these domains may sign in via this provider. Comma- or space-separated."
+          error={fieldErrors.allowed_email_domains}
+          errorId={`${domainsId}-err`}
         >
           <label htmlFor={domainsId} className="sr-only">
             Allowed email domains
@@ -575,8 +656,12 @@ export function SsoProviderPanel({
             value={allowedDomains}
             onChange={(e) => {
               setAllowedDomains(e.target.value);
-              setSaveError(null);
+              clearError('allowed_email_domains');
             }}
+            aria-invalid={fieldErrors.allowed_email_domains ? true : undefined}
+            aria-describedby={
+              fieldErrors.allowed_email_domains ? `${domainsId}-err` : undefined
+            }
             className={INPUT_CLASS}
             placeholder="example.com, example.io"
           />
@@ -594,14 +679,24 @@ export function SsoProviderPanel({
           />
         </FieldRow>
         {autoCreate && (
-          <FieldRow label="Default role" hint="Role granted to auto-created members.">
+          <FieldRow
+            label="Default role"
+            hint="Role granted to auto-created members."
+            error={fieldErrors.default_role}
+            errorId={`${roleId}-err`}
+          >
             <label htmlFor={roleId} className="sr-only">
               Default role for auto-created members
             </label>
             <select
               id={roleId}
               value={defaultRole}
-              onChange={(e) => setDefaultRole(Number(e.target.value))}
+              onChange={(e) => {
+                setDefaultRole(Number(e.target.value));
+                clearError('default_role');
+              }}
+              aria-invalid={fieldErrors.default_role ? true : undefined}
+              aria-describedby={fieldErrors.default_role ? `${roleId}-err` : undefined}
               className={`${SELECT_CLASS} w-full max-w-[180px]`}
               style={SELECT_STYLE}
             >
@@ -610,10 +705,20 @@ export function SsoProviderPanel({
             </select>
           </FieldRow>
         )}
-        <FieldRow label="Enable this provider" hint="Requires a complete configuration above.">
+        <FieldRow
+          label="Enable this provider"
+          hint="Requires a complete configuration above."
+          error={fieldErrors.enabled}
+          errorId={`${typeId}-enabled-err`}
+        >
           <Toggle
             on={enabled}
-            onChange={setEnabled}
+            onChange={(next) => {
+              setEnabled(next);
+              // The server rejects enabling a half-configured provider; clear that
+              // message once the admin toggles it off again.
+              clearError('enabled');
+            }}
             onLabel="Enabled"
             offLabel="Disabled"
             ariaLabel="Enable this SSO provider"

@@ -2,8 +2,16 @@ import type { ComponentProps } from 'react';
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { AxiosError, type AxiosResponse } from 'axios';
 import { SsoProviderPanel } from './SsoProviderPanel';
 import type { SsoProvider } from '@/hooks/useSso';
+
+/** A realistic DRF 400 rejection (a real `apiClient` write rejects with an AxiosError). */
+function axios400(data: unknown): AxiosError {
+  const err = new AxiosError('Request failed with status code 400');
+  err.response = { status: 400, data } as AxiosResponse;
+  return err;
+}
 
 // Controllable mutation handles shared across the mocked useSso hooks.
 const h = vi.hoisted(() => ({
@@ -198,19 +206,52 @@ describe('SsoProviderPanel — save (create)', () => {
     expect(body).not.toHaveProperty('server_url');
   });
 
-  it('surfaces a DRF field error and keeps the panel open on save failure', async () => {
-    h.createMutateAsync.mockRejectedValue({
-      response: { data: { server_url: ['Enter a valid URL.'] } },
-    });
+  it('highlights the offending field inline and keeps the panel open on save failure', async () => {
+    // server_url is the composed issuer — the composition inputs feed it, so
+    // both the Base URL input and the resolved-issuer strip carry the error.
+    h.createMutateAsync.mockRejectedValue(axios400({ server_url: ['Enter a valid URL.'] }));
     const user = userEvent.setup();
     const { onClose } = renderPanel();
     await user.type(screen.getByLabelText('Base URL'), 'https://id.example.com');
     await user.type(screen.getByLabelText('Realm'), 'main');
     await user.click(screen.getByRole('button', { name: 'Add provider' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid URL.');
+    expect(await screen.findByText('Enter a valid URL.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Base URL')).toHaveAttribute('aria-invalid', 'true');
+    // The banner points the admin at the highlighted fields, and edits are kept.
+    expect(screen.getByText('Please correct the highlighted fields below.')).toBeInTheDocument();
     expect(screen.getByText(/Your entries are kept/)).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the enable-guard (enabled field) error inline on the toggle row', async () => {
+    // The object-level serializer rejects enabling a half-configured provider
+    // with a field-scoped `enabled` error — it must be shown, not swallowed.
+    h.createMutateAsync.mockRejectedValue(
+      axios400({ enabled: ['Cannot enable SSO until configured: missing client_id.'] }),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    await user.type(screen.getByLabelText('Base URL'), 'https://id.example.com');
+    await user.type(screen.getByLabelText('Realm'), 'main');
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+
+    expect(
+      await screen.findByText('Cannot enable SSO until configured: missing client_id.'),
+    ).toBeInTheDocument();
+  });
+
+  it('surfaces a server-level (non_field) message in the banner', async () => {
+    h.createMutateAsync.mockRejectedValue(
+      axios400({ non_field_errors: ['This provider is already configured.'] }),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    await user.type(screen.getByLabelText('Base URL'), 'https://id.example.com');
+    await user.type(screen.getByLabelText('Realm'), 'main');
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+
+    expect(await screen.findByText('This provider is already configured.')).toBeInTheDocument();
   });
 
   it('falls back to a generic message for an unrecognized error shape', async () => {
@@ -222,21 +263,23 @@ describe('SsoProviderPanel — save (create)', () => {
     await user.click(screen.getByRole('button', { name: 'Add provider' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Could not save the provider. Check the highlighted fields.',
+      'Could not save the provider. Please try again.',
     );
   });
 
-  it('clears a previous save error as soon as a field is edited', async () => {
-    h.createMutateAsync.mockRejectedValue({ response: { data: { slug: 'taken' } } });
+  it('clears a field error as soon as that field is edited', async () => {
+    h.createMutateAsync.mockRejectedValue(axios400({ display_name: ['This name is taken.'] }));
     const user = userEvent.setup();
     renderPanel();
     await user.type(screen.getByLabelText('Base URL'), 'https://id.example.com');
     await user.type(screen.getByLabelText('Realm'), 'main');
     await user.click(screen.getByRole('button', { name: 'Add provider' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('taken');
+    expect(await screen.findByText('This name is taken.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Display name')).toHaveAttribute('aria-invalid', 'true');
 
     await user.type(screen.getByLabelText('Display name'), 'x');
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText('This name is taken.')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Display name')).not.toHaveAttribute('aria-invalid');
   });
 
   it('shows a pending "Saving…" label and disables the primary action', () => {
