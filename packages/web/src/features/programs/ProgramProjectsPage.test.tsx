@@ -1,4 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProgramProjectsPage } from './ProgramProjectsPage';
@@ -6,16 +7,23 @@ import type { Project } from '@/types';
 
 const useProgram = vi.fn();
 const useProgramProjects = vi.fn();
+const refetchProjects = vi.fn();
+const removeMutateAsync = vi.fn<(args: { projectId: string; programId: string | null }) => Promise<unknown>>();
 
 vi.mock('@/hooks/useProgram', () => ({
   useProgram: () => useProgram() as { data: unknown },
 }));
 vi.mock('@/hooks/useProgramProjects', () => ({
   useProgramProjects: () =>
-    useProgramProjects() as { data: Project[] | undefined; isLoading: boolean; error: unknown },
+    useProgramProjects() as {
+      data: Project[] | undefined;
+      isLoading: boolean;
+      error: unknown;
+      refetch: () => void;
+    },
 }));
 vi.mock('@/hooks/useProgramMutations', () => ({
-  useAssignProjectToProgram: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useAssignProjectToProgram: () => ({ mutateAsync: removeMutateAsync, isPending: false }),
 }));
 // The three creation modals are never opened in these tests; stub them so their
 // module trees don't drag heavy deps into the unit test.
@@ -46,6 +54,9 @@ function renderPage(entry = '/programs/prog-1/projects') {
 
 describe('ProgramProjectsPage rollup surfacing (#560)', () => {
   beforeEach(() => {
+    refetchProjects.mockReset();
+    removeMutateAsync.mockReset();
+    removeMutateAsync.mockResolvedValue(undefined);
     useProgram.mockReturnValue({
       data: { id: 'prog-1', name: 'Riverside', my_role: 0, target_date: '2026-09-30' },
     });
@@ -56,6 +67,7 @@ describe('ProgramProjectsPage rollup surfacing (#560)', () => {
       ],
       isLoading: false,
       error: null,
+      refetch: refetchProjects,
     });
   });
 
@@ -124,5 +136,65 @@ describe('ProgramProjectsPage KPI drill-through sort (#2155)', () => {
   it('ignores an unknown sort value', () => {
     renderPage('/programs/prog-1/projects?sort=bogus');
     expect(rowOrder()).toEqual(['Alpha', 'Bravo', 'Charlie']);
+  });
+});
+
+describe('ProgramProjectsPage error state (#2176)', () => {
+  beforeEach(() => {
+    refetchProjects.mockReset();
+    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: 0 } });
+    useProgramProjects.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new Error('boom'),
+      refetch: refetchProjects,
+    });
+  });
+
+  it('renders the shared retryable error state on a failed projects fetch', async () => {
+    renderPage();
+    const alert = screen.getByRole('status');
+    expect(alert).toHaveTextContent(/Couldn't load this program's projects/i);
+    await userEvent.click(within(alert).getByRole('button', { name: /retry/i }));
+    expect(refetchProjects).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ProgramProjectsPage remove-from-program confirm (#2176)', () => {
+  beforeEach(() => {
+    removeMutateAsync.mockReset();
+    removeMutateAsync.mockResolvedValue(undefined);
+    // ADMIN role so the Remove affordance renders.
+    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: 300 } });
+    useProgramProjects.mockReturnValue({
+      data: [proj({ id: 'a', name: 'Alpha' })],
+      isLoading: false,
+      error: null,
+      refetch: refetchProjects,
+    });
+  });
+
+  it('does not fire the unassign PATCH until the confirm dialog is accepted', async () => {
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: /Remove Alpha from this program/i }));
+
+    // A confirm dialog appears naming the project and the consequence — the
+    // PATCH has not fired yet.
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent(/Remove “Alpha” from “Riverside”/i);
+    expect(dialog).toHaveTextContent(/shared backlog, rollup, and combined schedule/i);
+    expect(removeMutateAsync).not.toHaveBeenCalled();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: /Remove from program/i }));
+    expect(removeMutateAsync).toHaveBeenCalledWith({ projectId: 'a', programId: null });
+  });
+
+  it('cancels without firing the PATCH', async () => {
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: /Remove Alpha from this program/i }));
+    const dialog = screen.getByRole('alertdialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(removeMutateAsync).not.toHaveBeenCalled();
   });
 });

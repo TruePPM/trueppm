@@ -347,6 +347,13 @@ describe('RiskRegisterView', () => {
     expect(screen.getByText('Low resolved risk')).toBeInTheDocument();
   });
 
+  it('does not render the placeholder Trend column (#2176)', () => {
+    useRisksState.risks = [FIXTURE_RISK];
+    renderWithProviders(<RiskRegisterView />);
+    expect(screen.queryByRole('columnheader', { name: /Trend/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('No trend data available')).not.toBeInTheDocument();
+  });
+
   it('toggles severity sort and reflects it via aria-sort', () => {
     useRisksState.risks = [FIXTURE_RISK, HIGH_RISK]; // sev 25, sev 16
     renderWithProviders(<RiskRegisterView />);

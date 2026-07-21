@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useShellStore } from '@/stores/shellStore';
 import { EmptyState } from '@/components/EmptyState';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { SearchIcon } from '@/components/Icons';
 import { ProgramCard } from './ProgramCard';
 import { NewProgramModal } from './NewProgramModal';
@@ -31,7 +32,7 @@ import {
  * pinned programs float to the top of every sort, then the chosen key.
  */
 export function ProgramListPage() {
-  const { data: programs, isLoading, error } = usePrograms();
+  const { data: programs, isLoading, error, refetch } = usePrograms();
   const pinnedProgramIds = useShellStore((s) => s.pinnedProgramIds);
   const [showCreate, setShowCreate] = useState(false);
   const [query, setQuery] = useState('');
@@ -141,9 +142,11 @@ export function ProgramListPage() {
         )}
 
         {error && (
-          <p role="alert" className="text-sm text-semantic-critical">
-            Failed to load programs — please refresh.
-          </p>
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load programs."
+            onRetry={() => void refetch()}
+          />
         )}
 
         {isEmpty && (
