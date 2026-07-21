@@ -4,10 +4,13 @@ import { setupCatchAll } from './fixtures/api-mocks';
 /**
  * Workspace → Settings → Roles & permissions: Enterprise upsell affordance (#541).
  *
- * Enterprise-only capability rows (Manage SSO, View audit log, …) carry an "EE"
- * badge that links to the Enterprise page, so an evaluator can tell OSS rows
- * from Enterprise rows without leaving the matrix. The badge is suppressed when
- * the running edition is Enterprise (the capabilities are then available).
+ * Enterprise-only capability rows (View audit log, Manage integrations, Manage
+ * billing) carry an "EE" badge that links to the Enterprise page, so an
+ * evaluator can tell OSS rows from Enterprise rows without leaving the matrix.
+ * Basic OIDC/OAuth SSO and workspace data export ship in the OSS core, so
+ * "Manage SSO" and "Export workspace data" are NOT badged (#2165). The badge is
+ * suppressed when the running edition is Enterprise (the capabilities are then
+ * available).
  */
 
 const pj = (data: unknown) => JSON.stringify(data);
@@ -67,8 +70,20 @@ test.describe('Roles matrix — Enterprise upsell (#541)', () => {
     // mounts at once. This count is specifically the Enterprise-only matrix rows.
     const matrix = roles.getByTestId('roles-matrix');
     const badges = matrix.getByRole('link', { name: /Available in TruePPM Enterprise/i });
-    await expect(badges).toHaveCount(5);
+    await expect(badges).toHaveCount(3);
     await expect(badges.first()).toHaveAttribute('href', 'https://trueppm.com/enterprise');
+
+    // Basic SSO is OSS (#2165): the "Manage SSO" row header carries no EE badge.
+    const ssoRow = matrix.getByRole('rowheader', { name: /Manage SSO/i });
+    await expect(ssoRow.getByRole('link')).toHaveCount(0);
+
+    // WCAG 1.3.1 (#2165): the matrix is a real table an AT user can navigate —
+    // a column header per role and a row header per capability.
+    await expect(matrix.getByRole('table')).toBeVisible();
+    for (const role of ['Viewer', 'Member', 'Scheduler', 'Admin', 'Owner']) {
+      await expect(matrix.getByRole('columnheader', { name: role })).toBeVisible();
+    }
+    await expect(matrix.getByRole('rowheader', { name: 'View tasks' })).toBeVisible();
 
     // The custom-roles upsell caption (#1649) is the reachable boundary affordance
     // replacing the old stub banner — its EE badge links out too.
