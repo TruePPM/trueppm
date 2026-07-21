@@ -83,13 +83,17 @@ RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api mcp/src/trueppm
  && pip uninstall --yes trueppm-scheduler trueppm-api trueppm-mcp \
  && rm -rf /opt/ci-deps
 
-# Pin drf-spectacular to the exact version docs/api/openapi.json was generated
-# with. The editable install above resolves it from the pyproject range
-# (>=0.27,<1.0), so an unpinned rebuild silently adopts a new release whose
-# schema output differs — the 0.29->0.30 blank-field `oneOf` change that broke
-# api:schema-drift fleet-wide. Adopting a new version is deliberate: bump this
-# pin, `uv lock --upgrade-package drf-spectacular`, and regenerate the schema in
-# lockstep (scripts/export-openapi.sh) in one MR.
+# Bake the exact drf-spectacular version docs/api/openapi.json was generated
+# with, as a build-time cache belt. The SOURCE OF TRUTH for the pin is
+# packages/api/pyproject.toml (`drf-spectacular[sidecar]==0.30.0`) — the api CI
+# jobs run `pip install -e packages/api[dev]` at job start, so that runtime
+# install enforces the pinned version even if this baked layer ever drifts (e.g.
+# a stale-base MR rebuilding the shared image tag). Baking it here just avoids a
+# runtime upgrade step in the common case. The 0.29->0.30 blank-field `oneOf`
+# change that broke api:schema-drift fleet-wide (#2260) is why the version is
+# pinned exact rather than ranged. Adopting a new version is deliberate: bump the
+# pyproject pin, `uv lock --upgrade-package drf-spectacular`, bump this line, and
+# regenerate the schema (scripts/export-openapi.sh) in one MR.
 RUN pip install --no-cache-dir "drf-spectacular[sidecar]==0.30.0"
 
 # Trust the CI checkout dir regardless of owner. GitLab's helper clones the repo
