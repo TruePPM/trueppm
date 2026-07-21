@@ -251,7 +251,7 @@ function RosterPageToolbar({
             <div
               ref={popoverRef}
               style={popoverStyle}
-              className="z-40 p-2 bg-neutral-surface border border-neutral-border rounded-card shadow-md"
+              className="z-40 p-2 bg-neutral-surface border border-neutral-border rounded-card shadow-pop"
             >
               <AddToRosterCombobox
                 projectId={projectId}
