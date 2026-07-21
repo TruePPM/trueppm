@@ -444,6 +444,9 @@ scripts:test:
   #     trigger below: a Trivy bump here that forgets release.sh must fail here.
   #   - wt — the worktree helper's ADR/migration number reservation (the atomic
   #     claim that stops parallel agents colliding on the same number).
+  #   - osv-severity-gate — the security:osv severity classifier (#2261): its
+  #     exit code is the pipeline's OSV verdict, so a regression flips the
+  #     security posture (a HIGH sailing through, or a LOW red-walling the train).
   # There is no other test harness for these scripts, so guard the logic
   # directly. Pinned python image (bash + python3), ~5s. The wt-reserve test
   # stages real throwaway git repos and runs scripts/wt against them, so this
@@ -455,8 +458,9 @@ scripts:test:
   stage: lint
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   before_script:
-    # wt-reserve.test.sh needs a real git binary (it stages sandbox repos).
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    # wt-reserve.test.sh needs a real git binary (it stages sandbox repos);
+    # osv-severity-gate.test.sh needs jq (the gate classifies OSV JSON with it).
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git jq
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
@@ -464,11 +468,13 @@ scripts:test:
         - scripts/assemble-changelog.sh
         - scripts/release.sh
         - scripts/wt
+        - scripts/osv-severity-gate.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/wt-reserve.test.sh
+        - scripts/tests/osv-severity-gate.test.sh
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -476,11 +482,13 @@ scripts:test:
         - scripts/assemble-changelog.sh
         - scripts/release.sh
         - scripts/wt
+        - scripts/osv-severity-gate.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/wt-reserve.test.sh
+        - scripts/tests/osv-severity-gate.test.sh
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -488,6 +496,7 @@ scripts:test:
     - bash scripts/tests/release-staging.test.sh
     - bash scripts/tests/release-preflight.test.sh
     - bash scripts/tests/wt-reserve.test.sh
+    - bash scripts/tests/osv-severity-gate.test.sh
 
 boundary:check:
   extends: .fast-job
@@ -2556,15 +2565,25 @@ security:osv:
   # uv.lock (#1153 scheduler half), retiring security:pip-audit:scheduler. OSV
   # can only scan a lockfile, so each ecosystem joins here as it commits one.
   #
-  # OSV-Scanner exits non-zero on any non-ignored advisory (it has no
-  # --audit-level threshold). Not-yet-fixable or sub-HIGH advisories are
-  # suppressed via per-directory osv-scanner.toml files that each carry a
-  # `reason` and an `ignoreUntil` expiry, so suppressions stay documented and
-  # self-expire rather than rotting silently (see packages/api/osv-scanner.toml
-  # and packages/scheduler/osv-scanner.toml, which carry the suppressions
-  # migrated off pip-audit). This is a stricter, more honest posture than the
-  # prior --audit-level=high blanket: the surgical, expiring ignore is the
-  # control npm audit lacked.
+  # Severity gate (#2261): OSV-Scanner has no native severity threshold — it
+  # exits non-zero on ANY non-ignored advisory (confirmed on v2.3.8: no
+  # --severity / --fail-on / --audit-level flag). That let a single fixable LOW
+  # (dompurify GHSA-c2j3-45gr-mqc4, CVSS 2.1) red-wall the whole pipeline. So we
+  # emit `--format json` and pipe it through scripts/osv-severity-gate.sh, which
+  # FAILS only on HIGH/CRITICAL (CVSS base score >= 7.0, or the GitHub advisory
+  # label when unscored) and WARNS on MEDIUM/LOW (findings still printed, but
+  # non-blocking). The `|| true` on the scanner hands the verdict entirely to the
+  # gate — the scanner's own exit code (non-zero on any finding) is intentionally
+  # discarded. The gate is unit-tested in scripts/tests/osv-severity-gate.test.sh.
+  #
+  # Suppression still works exactly as before: per-directory osv-scanner.toml
+  # files are auto-discovered next to each lockfile, each `IgnoredVulns` entry
+  # carrying a `reason` and a self-expiring `ignoreUntil`. OSV-Scanner drops a
+  # suppressed advisory before writing the JSON, so it never reaches the gate.
+  # Suppression is for an ACCEPTED risk (see packages/api/osv-scanner.toml and
+  # packages/scheduler/osv-scanner.toml, migrated off pip-audit); the severity
+  # gate is for the "this band shouldn't block at all" case the blanket
+  # exit-non-zero conflated with it.
   #
   # Pinned binary download (the official image is distroless / shell-less, which
   # GitLab's script runner can't use); the linux build is a static Go binary.
@@ -2583,20 +2602,24 @@ security:osv:
         - "**/osv-scanner.toml"
         - .gitlab-ci.yml
   before_script:
-    - apk add --no-cache wget
+    # jq: the severity gate classifies OSV's JSON output by CVSS band.
+    - apk add --no-cache wget jq
     - wget -q -O /usr/local/bin/osv-scanner "https://github.com/google/osv-scanner/releases/download/v2.3.8/osv-scanner_linux_amd64"
     - chmod +x /usr/local/bin/osv-scanner
   script:
     # Per-directory osv-scanner.toml files are auto-discovered next to each
     # lockfile (do NOT pass --config, which would force a single global file and
     # break the per-package scoping that keeps a web regression from being masked
-    # by a website ignore).
+    # by a website ignore). `|| true`: the scanner exits non-zero on any finding;
+    # the severity verdict is delegated to the gate (see the note above).
     - osv-scanner scan source
         -L packages/web/package-lock.json
         -L packages/website/package-lock.json
         -L packages/wasm-scheduler/Cargo.lock
         -L packages/api/uv.lock
         -L packages/scheduler/uv.lock
+        --format json --output-file osv-results.json || true
+    - sh scripts/osv-severity-gate.sh osv-results.json
 
 security:gitleaks:
   # Secret scanning across the whole working tree (#1251). The one scanner the
