@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState, useMemo, type FormEvent } from 'react';
 import type { Task } from '@/types';
+import { Button } from '@/components/Button';
 
 interface Props {
   /** Non-null when the popover is open. Null renders nothing. */
@@ -155,15 +156,9 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={!startValue || !derivedFinish}
-              className="px-3 py-1 text-xs font-medium rounded-control bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900
-                hover:bg-sage-600 disabled:opacity-40 disabled:cursor-not-allowed
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-            >
+            <Button type="submit" variant="primary" size="sm" disabled={!startValue || !derivedFinish}>
               Confirm
-            </button>
+            </Button>
           </div>
         </form>
       </div>

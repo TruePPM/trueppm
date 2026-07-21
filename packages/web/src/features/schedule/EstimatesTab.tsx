@@ -10,6 +10,7 @@ import {
 } from '@/hooks/useVelocitySuggestions';
 import { useTaskDraft } from './TaskDraftContext';
 import { UnsavedDot } from '@/components/dialog';
+import { Button } from '@/components/Button';
 
 /** Parse a numeric-input string to a number, or null for empty/non-finite. */
 function parseEstimate(s: string): number | null {
@@ -243,8 +244,8 @@ export function EstimatesTab({
                 node — rather than real-`disabled`, which is reserved for the
                 in-flight mutation case. The onClick guards the dirty case, and
                 aria-disabled dims it via the [aria-disabled] Tailwind variant. */}
-            <button
-              type="button"
+            <Button
+              variant="primary"
               onClick={() =>
                 onAcceptSuggestion(pendingSuggestion.id, pendingSuggestion.suggested_duration!)
               }
@@ -252,14 +253,10 @@ export function EstimatesTab({
               aria-disabled={velocityLocked || undefined}
               aria-describedby={velocityLocked ? `est-accept-blocked-${task.id}` : undefined}
               title={velocityLocked ? 'Save or discard your estimate edits first.' : undefined}
-              className="h-8 px-3 rounded-control text-xs font-semibold border border-sage-600
-                text-navy-900 bg-sage-500 dark:bg-sage-400 dark:text-navy-900 hover:bg-sage-600
-                disabled:opacity-50 disabled:cursor-not-allowed
-                aria-disabled:opacity-50 aria-disabled:cursor-not-allowed
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="font-semibold aria-disabled:opacity-50 aria-disabled:cursor-not-allowed"
             >
               {acceptSuggestion.isPending ? 'Accepting…' : 'Accept'}
-            </button>
+            </Button>
             <span id={`est-accept-blocked-${task.id}`} className="sr-only">
               Save or discard your estimate edits first.
             </span>

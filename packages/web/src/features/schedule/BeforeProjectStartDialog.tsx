@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Button } from '@/components/Button';
 
 interface Props {
   /** Project start date (ISO `YYYY-MM-DD`) — shown literally in the header. */
@@ -143,21 +144,9 @@ export function BeforeProjectStartDialog({
               Move project start
             </button>
           ) : null}
-          <button
-            ref={snapRef}
-            type="button"
-            onClick={onSnap}
-            disabled={isPending}
-            className={
-              'border border-brand-primary-dark rounded-control h-8 px-4 text-xs font-medium ' +
-              'bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900 hover:bg-sage-600 ' +
-              'disabled:cursor-not-allowed disabled:opacity-80 ' +
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ' +
-              'focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary'
-            }
-          >
+          <Button ref={snapRef} variant="primary" onClick={onSnap} disabled={isPending}>
             Snap to project start
-          </button>
+          </Button>
         </div>
       </div>
     </div>
