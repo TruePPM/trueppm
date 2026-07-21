@@ -265,4 +265,21 @@ describe('CommentSection — interactions', () => {
     // Two composers now: top-level Post + reply composer (parentId set).
     expect(screen.getAllByRole('combobox').length).toBe(2);
   });
+
+  it('sizes the row-action buttons to the mobile 44px touch floor (#2168)', () => {
+    // jsdom can't measure rendered px; assert the responsive sizing token that
+    // gives the mobile bottom-sheet controls a 44px target (md: shrinks to the
+    // 28px desktop density). Reply / ack / react all share the contract.
+    useCommentsMock.mockReturnValue({
+      comments: [comment()],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    for (const label of ['Reply to this comment', 'Acknowledge this comment', 'React with 👍']) {
+      const btn = screen.getByLabelText(label);
+      expect(btn.className).toContain('min-h-11');
+      expect(btn.className).toContain('md:min-h-7');
+    }
+  });
 });

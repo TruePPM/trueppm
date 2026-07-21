@@ -215,7 +215,7 @@ function CommentRow({
             <button
               type="button"
               onClick={onReplyClick}
-              className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
+              className="text-xs border border-neutral-border rounded-control px-2 min-h-11 md:min-h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
               aria-label="Reply to this comment"
@@ -233,7 +233,7 @@ function CommentRow({
                 ? 'Remove your acknowledgement'
                 : 'Acknowledge this comment'
             }
-            className={`text-xs border rounded-control px-2 h-7 font-medium
+            className={`text-xs border rounded-control px-2 min-h-11 md:min-h-7 font-medium
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50
               ${
@@ -252,7 +252,7 @@ function CommentRow({
             onClick={handleReact}
             disabled={react.isPending}
             aria-label="React with 👍"
-            className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
+            className="text-xs border border-neutral-border rounded-control px-2 min-h-11 md:min-h-7 font-medium
               text-neutral-text-secondary hover:bg-neutral-surface
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50"

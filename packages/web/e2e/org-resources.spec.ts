@@ -354,3 +354,35 @@ test('admin sees the Assignments section grouped by project', async ({ page }) =
     page.getByRole('link', { name: 'Bravo Rollout — open allocation view' }),
   ).toHaveAttribute('href', '/projects/proj-b/resources/allocation');
 });
+
+// ---------------------------------------------------------------------------
+// Touch targets (#2168) — daily-path resource controls meet the 44px floor on
+// mobile (WCAG 2.5.5), shrinking to desktop density at md+.
+// ---------------------------------------------------------------------------
+
+test('resource controls meet the 44px touch-target floor on mobile (#2168)', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockResourceRoutes(page);
+  await seedAuthAndNavigate(page);
+
+  const atLeast44 = async (locator: ReturnType<typeof page.getByRole>) => {
+    await expect(locator).toBeVisible();
+    const box = await locator.boundingBox();
+    expect(box, 'control should have a bounding box').not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  };
+
+  await atLeast44(page.getByRole('searchbox', { name: 'Search resources' }));
+  await atLeast44(page.getByRole('button', { name: '+ Add resource' }));
+
+  // The switch's tap area is its wrapping label (the 14px checkbox is decorative).
+  const switchLabel = page.getByText('Show deactivated', { exact: true });
+  const labelBox = await switchLabel.boundingBox();
+  expect(labelBox!.height).toBeGreaterThanOrEqual(44);
+
+  // Detail-panel actions (View mode: Save changes + Deactivate). Use exact names
+  // so 'Save' doesn't collide with the "…all changes saved." sync status button.
+  await page.getByRole('button', { name: /alice nguyen/i }).click();
+  await atLeast44(page.getByRole('button', { name: '⚠ Deactivate', exact: true }));
+  await atLeast44(page.getByRole('button', { name: 'Save changes', exact: true }));
+});

@@ -111,7 +111,7 @@ export function HeatmapPage() {
               type="button"
               onClick={() => shiftWeeks(-1)}
               aria-label="Previous week"
-              className="w-7 h-7 flex items-center justify-center rounded border border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center rounded border border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               ‹
             </button>
@@ -122,7 +122,7 @@ export function HeatmapPage() {
               type="button"
               onClick={() => shiftWeeks(1)}
               aria-label="Next week"
-              className="w-7 h-7 flex items-center justify-center rounded border border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center rounded border border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               ›
             </button>
@@ -132,7 +132,7 @@ export function HeatmapPage() {
           <button
             type="button"
             onClick={cycleGroupBy}
-            className="h-7 px-3 text-xs font-medium rounded border border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="min-h-11 md:min-h-7 px-3 text-xs font-medium rounded border border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             aria-label={`Group by: ${groupBy === 'role' ? 'Role' : 'None'}`}
           >
             Group: {groupBy === 'role' ? 'Role' : 'None'}

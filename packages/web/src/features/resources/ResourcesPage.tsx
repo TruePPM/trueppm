@@ -73,12 +73,12 @@ export function ResourcesPage() {
             placeholder="Search resources…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-7 px-2.5 rounded border border-neutral-border text-xs text-neutral-text-primary placeholder-neutral-text-disabled
+            className="w-full h-11 md:h-7 px-2.5 rounded border border-neutral-border text-xs text-neutral-text-primary placeholder-neutral-text-disabled
               bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-0"
           />
         </div>
 
-        <label className="flex items-center gap-2 text-xs text-neutral-text-secondary cursor-pointer select-none">
+        <label className="flex items-center gap-2 min-h-11 md:min-h-0 text-xs text-neutral-text-secondary cursor-pointer select-none">
           <input
             type="checkbox"
             role="switch"
@@ -96,7 +96,7 @@ export function ResourcesPage() {
         <button
           type="button"
           onClick={handleAddClick}
-          className="shrink-0 h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
+          className="shrink-0 min-h-11 md:min-h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           + Add resource
