@@ -134,6 +134,49 @@ describe('ScheduleTaskDialog', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
+  // #2170: keyboard parity with drag-to-assign — when the Board is scoped to a
+  // sprint, promoting a backlog card must also assign it to that sprint.
+  it('assigns the scoped sprint in the same PATCH and names it in the copy (#2170)', async () => {
+    const onClose = vi.fn();
+    renderDialog(
+      <ScheduleTaskDialog
+        task={makeTask({ id: 'bk1' })}
+        projectId="proj1"
+        assignSprint={{ id: 'spr-9', name: 'Sprint 9', pending: false }}
+        onClose={onClose}
+      />,
+    );
+
+    // Title + helper name the target sprint, not the generic "a sprint".
+    expect(
+      screen.getByRole('heading', { name: /Add.*Spike auth flow.*to Sprint 9/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/commits the idea from your backlog to Sprint 9/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Target date'), { target: { value: '2026-06-10' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add to sprint' }));
+
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+    expect(patchMock).toHaveBeenCalledWith('/tasks/bk1/', {
+      planned_start: '2026-06-10',
+      status: 'NOT_STARTED',
+      sprint: 'spr-9',
+    });
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('marks an ACTIVE-sprint assignment as pending scope in the copy (#2170)', () => {
+    renderDialog(
+      <ScheduleTaskDialog
+        task={makeTask()}
+        projectId="proj1"
+        assignSprint={{ id: 'spr-9', name: 'Sprint 9', pending: true }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/to Sprint 9 as pending scope/)).toBeInTheDocument();
+  });
+
   it('Esc cancels and returns focus to the trigger', () => {
     const onClose = vi.fn();
     const trigger = document.createElement('button');

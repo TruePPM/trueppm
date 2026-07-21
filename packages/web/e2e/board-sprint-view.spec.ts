@@ -77,6 +77,15 @@ function task(id: string, name: string, sprint: string | null) {
 
 const IN_SPRINT = task('t-in', 'In the sprint', SPRINT_ID);
 const OUT_SPRINT = task('t-out', 'Not in the sprint', null);
+// A BACKLOG idea (rail card) — the keyboard "Schedule…" path promotes it, and
+// on a sprint-scoped board that promotion must also pull it into the sprint (#2170).
+const BACKLOG_IDEA = {
+  ...task('t-bk', 'Backlog idea', null),
+  wbs_path: '2',
+  parent_id: null,
+  status: 'BACKLOG',
+  duration: 0,
+};
 // A task inside the COMPLETED sprint so the closed-sprint board renders a card
 // whose write path can be exercised (and must stay blocked).
 const DONE_SPRINT_TASK = task('t-done', 'Done sprint task', DONE_SPRINT_ID);
@@ -108,7 +117,7 @@ const SPRINTS = [
 ];
 
 async function setup(page: import('@playwright/test').Page) {
-  const tasks = [SUMMARY_TASK, IN_SPRINT, OUT_SPRINT, DONE_SPRINT_TASK];
+  const tasks = [SUMMARY_TASK, IN_SPRINT, OUT_SPRINT, DONE_SPRINT_TASK, BACKLOG_IDEA];
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
@@ -198,6 +207,54 @@ test.describe('Board sprint view (#429 / chrome #1138 #1141)', () => {
     await expect(page.getByRole('button', { name: /Sprint view: Atlas 4/i })).toBeVisible();
     // And the user gets an explicit error toast — the silent revert is signalled (#1631).
     await expect(page.getByText("Couldn't move the card — try again.")).toBeVisible();
+  });
+
+  test('keyboard-promoting a backlog card on a sprint board pulls it into the sprint (#2170)', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Capture the promote PATCH for the backlog idea.
+    let patchBody: Record<string, unknown> | null = null;
+    await page.route('**/api/v1/tasks/t-bk/', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        patchBody = (await route.request().postDataJSON()) as Record<string, unknown>;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 't-bk',
+            name: 'Backlog idea',
+            project: PROJECT_ID,
+            wbs_path: '2',
+            duration: 0,
+            status: 'NOT_STARTED',
+            percent_complete: 0,
+            sprint: SPRINT_ID,
+          }),
+        });
+      }
+      return route.fallback();
+    });
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(`${BASE_URL}/board`);
+    // Smart-default lands on the single ACTIVE sprint (Atlas 4).
+    await expect(page).toHaveURL(/[?&]sprint=sprint-atlas-4/);
+
+    // Open the rail card's "Schedule…" action — the keyboard alternative to
+    // dragging it onto a phase cell. The dialog names the scoped ACTIVE sprint
+    // and flags pending scope (ADR-0102).
+    await page.getByRole('button', { name: 'Actions for Backlog idea' }).click();
+    const dialog = page.getByRole('dialog', { name: /to Atlas 4/ });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/to Atlas 4 as pending scope/)).toBeVisible();
+
+    await dialog.getByLabel('Target date').fill('2026-06-10');
+    await dialog.getByRole('button', { name: 'Add to sprint' }).click();
+
+    // The promote PATCH carried the sprint assignment — keyboard parity with drag.
+    await expect.poll(() => patchBody?.sprint).toBe(SPRINT_ID);
+    await expect.poll(() => patchBody?.status).toBe('NOT_STARTED');
   });
 
   test('shows the read-only banner on a closed sprint (#1141)', async ({ page }) => {
