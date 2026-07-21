@@ -4,10 +4,17 @@
  *
  * The app-wide entry point for logging effort from *anywhere* — not only a My
  * Work task row (#1234) or a running timer (#1415). A contributor opens the
- * popover, picks a task (their assigned work, searchable), taps a duration
- * preset (or types one), and logs — the "under 30 seconds" path. Reuses the
- * shared `useCreateTimeEntry` mutation, so the success + Undo toast is identical
- * across every capture surface.
+ * popover, picks a task, taps a duration preset (or types one), and logs — the
+ * "under 30 seconds" path. Reuses the shared `useCreateTimeEntry` mutation, so
+ * the success + Undo toast is identical across every capture surface.
+ *
+ * The picker's primary source is the caller's **assigned** work (`useMyWork`),
+ * the fast common case. But a contributor often helps on a task they aren't
+ * assigned to, and an assigned-only list is a dead end for that ad-hoc work
+ * (#2174). So once the query is long enough, the picker *also* searches every
+ * task in the caller's projects (`/me/search/?type=task`, membership-scoped —
+ * ADR-0508 D4) and merges those matches in, deduped against the assigned list.
+ * The empty state names that fallback so it is never a dead end.
  *
  * The popover is focus-trapped (WCAG 2.4.3 / 2.1.2): Tab cycles within, Escape
  * closes and restores focus to the trigger, and the whole thing is a `dialog`.
@@ -31,6 +38,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { useMyWork, type MyWorkTask } from '@/hooks/useMyWork';
+import { useOmniSearch } from '@/hooks/useOmniSearch';
 import { useCreateTimeEntry } from '@/hooks/useCreateTimeEntry';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -62,8 +70,30 @@ const PRESETS: { label: string; minutes: number }[] = [
 
 const DEFAULT_MINUTES = 60;
 
-function taskLabelOf(task: MyWorkTask): string {
-  return `${task.short_id} · ${task.name}`;
+/** Minimum query length before the project-wide task search fires — mirrors the
+ *  omni-search endpoint's 2-char floor so a single keystroke never searches. */
+const SEARCH_MIN_Q = 2;
+
+/**
+ * A loggable task in the picker, normalized across its two sources: the caller's
+ * assigned work (`MyWorkTask`) and the membership-scoped project search
+ * (`OmniSearchResult`). `shortId` is null for a search hit (the omni-search row
+ * carries only the title), so the row renders the mono id only when present.
+ */
+interface LogCandidate {
+  id: string;
+  shortId: string | null;
+  name: string;
+  projectName: string | null;
+}
+
+function candidateFromMyWork(task: MyWorkTask): LogCandidate {
+  return { id: task.id, shortId: task.short_id, name: task.name, projectName: task.project_name };
+}
+
+/** Display label for the success/Undo toast — the short id when we have it. */
+function candidateLabel(c: LogCandidate): string {
+  return c.shortId ? `${c.shortId} · ${c.name}` : c.name;
 }
 
 export function QuickLogTime() {
@@ -98,16 +128,49 @@ export function QuickLogTime() {
   // a phase can't be assigned in the first place (`assignee_on_phase`, #1753),
   // so this is defense-in-depth for the interim / a legacy payload.
   const tasks = useMemo(
-    () => (data?.pages ?? []).flatMap((p) => p?.results ?? []).filter((t) => !t.is_phase),
+    () =>
+      (data?.pages ?? [])
+        .flatMap((p) => p?.results ?? [])
+        .filter((t) => !t.is_phase)
+        .map(candidateFromMyWork),
     [data],
   );
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+
+  const trimmedQuery = query.trim();
+  const searchActive = open && trimmedQuery.length >= SEARCH_MIN_Q;
+  // Fall back to a membership-scoped search across every task in the caller's
+  // projects, so ad-hoc work on an unassigned task is loggable (#2174). Gated on
+  // the popover being open + a ≥2-char query; the hook debounces internally.
+  const { data: searchHits, isFetching: searchFetching } = useOmniSearch(
+    trimmedQuery,
+    searchActive,
+    'task',
+  );
+
+  const assignedFiltered = useMemo(() => {
+    const q = trimmedQuery.toLowerCase();
     if (!q) return tasks;
     return tasks.filter(
-      (t) => t.name.toLowerCase().includes(q) || t.short_id.toLowerCase().includes(q),
+      (t) =>
+        t.name.toLowerCase().includes(q) || (t.shortId ?? '').toLowerCase().includes(q),
     );
-  }, [tasks, query]);
+  }, [tasks, trimmedQuery]);
+
+  // Merge assigned matches with the project-search hits the caller isn't assigned
+  // to (deduped by id — an assigned task also returned by search shows once).
+  const filtered = useMemo(() => {
+    if (!searchActive) return assignedFiltered;
+    const seen = new Set(assignedFiltered.map((c) => c.id));
+    const extra: LogCandidate[] = (searchHits ?? [])
+      .filter((r) => !seen.has(r.id))
+      .map((r) => ({
+        id: r.id,
+        shortId: null,
+        name: r.title,
+        projectName: r.project_name,
+      }));
+    return [...assignedFiltered, ...extra];
+  }, [assignedFiltered, searchHits, searchActive]);
 
   // Re-seat the form to its defaults each time the popover opens so a prior
   // half-filled session never leaks into the next quick-log.
@@ -120,13 +183,17 @@ export function QuickLogTime() {
     setNote('');
   }, [open]);
 
-  // Default the selection to the first assigned task once the list is available
-  // (and keep a valid selection if the current one filters out of view).
+  // Default the selection to the first candidate once the list is available. An
+  // assigned selection persists across query typing (so filtering doesn't drop it);
+  // a search-only selection persists only while it is still in view.
   useEffect(() => {
     if (!open) return;
-    if (selectedTaskId && tasks.some((t) => t.id === selectedTaskId)) return;
-    setSelectedTaskId(tasks[0]?.id ?? null);
-  }, [open, tasks, selectedTaskId]);
+    const stillValid =
+      selectedTaskId !== null &&
+      (tasks.some((t) => t.id === selectedTaskId) || filtered.some((t) => t.id === selectedTaskId));
+    if (stillValid) return;
+    setSelectedTaskId(filtered[0]?.id ?? tasks[0]?.id ?? null);
+  }, [open, tasks, filtered, selectedTaskId]);
 
   // Close on an outside click (the focus trap already handles Escape). Desktop
   // popover only — on mobile the BottomSheet's scrim owns dismissal.
@@ -149,7 +216,10 @@ export function QuickLogTime() {
     wasOpen.current = open;
   }, [open, isMobile]);
 
-  const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null;
+  const selectedTask =
+    filtered.find((t) => t.id === selectedTaskId) ??
+    tasks.find((t) => t.id === selectedTaskId) ??
+    null;
   // A half-typed manual value keeps `minutes` at its previous (valid) figure, so
   // the enabled state and the submit guard must both consult `manualInvalid` —
   // otherwise the button would log a stale duration the user never typed.
@@ -157,6 +227,17 @@ export function QuickLogTime() {
   const activePreset = manualText.trim() === '' ? minutes : null;
   const canLog = selectedTask !== null && minutes > 0 && !manualInvalid && !createEntry.isPending;
   const selectionInFiltered = filtered.some((t) => t.id === selectedTaskId);
+
+  // Empty-picker guidance — always names the path forward so quick-log is never a
+  // dead end for ad-hoc work (#2174).
+  const emptyMessage =
+    searchActive && searchFetching
+      ? 'Searching your projects…'
+      : trimmedQuery.length >= SEARCH_MIN_Q
+        ? `No tasks match “${trimmedQuery}” in your projects.`
+        : tasks.length === 0
+          ? 'No assigned tasks yet — search above to log against any task in your projects.'
+          : `No assigned task matches “${trimmedQuery}”. Keep typing to search all your projects.`;
 
   function selectPreset(m: number) {
     setMinutes(m);
@@ -189,7 +270,7 @@ export function QuickLogTime() {
     if (!canLog || !selectedTask) return;
     createEntry.mutate({
       taskId: selectedTask.id,
-      taskLabel: taskLabelOf(selectedTask),
+      taskLabel: candidateLabel(selectedTask),
       minutes,
       entryDate,
       note: note.trim() || undefined,
@@ -203,7 +284,7 @@ export function QuickLogTime() {
         Log time
       </h2>
 
-      {/* Task picker — search over the user's assigned work. */}
+      {/* Task picker — assigned work first, with a project-wide search fallback. */}
       <div className="flex flex-col gap-1.5">
         <label className="flex flex-col gap-1">
           <span className="text-xs font-medium text-neutral-text-secondary">Task</span>
@@ -211,14 +292,21 @@ export function QuickLogTime() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search your tasks"
-            aria-label="Search your tasks"
+            placeholder="Search your tasks or projects"
+            aria-label="Search your tasks or projects"
             className={INPUT}
           />
         </label>
-        {tasks.length === 0 ? (
-          <p className="px-1 py-2 text-xs text-neutral-text-secondary">
-            No assigned tasks to log against yet.
+        {filtered.length === 0 ? (
+          // Never a dead end (#2174): the copy always names the path forward —
+          // keep typing to reach the project-wide search, or (no assigned work)
+          // search to log against any task in the caller's projects.
+          <p
+            role="status"
+            aria-live="polite"
+            className="px-1 py-2 text-xs text-neutral-text-secondary"
+          >
+            {emptyMessage}
           </p>
         ) : (
           <ul
@@ -227,11 +315,6 @@ export function QuickLogTime() {
             onKeyDown={onTaskKeyDown}
             className="max-h-40 overflow-y-auto rounded-control border border-neutral-border"
           >
-            {filtered.length === 0 && (
-              <li className="px-2 py-2 text-xs text-neutral-text-secondary">
-                No tasks match “{query}”.
-              </li>
-            )}
             {filtered.map((t) => {
               const selected = t.id === selectedTaskId;
               // Roving tabindex: only the selected radio is tabbable; if the
@@ -252,14 +335,20 @@ export function QuickLogTime() {
                     }`}
                   >
                     <span className="truncate text-sm text-neutral-text-primary">
-                      <span className="tppm-mono text-xs text-neutral-text-secondary">
-                        {t.short_id}
-                      </span>{' '}
+                      {t.shortId && (
+                        <>
+                          <span className="tppm-mono text-xs text-neutral-text-secondary">
+                            {t.shortId}
+                          </span>{' '}
+                        </>
+                      )}
                       {t.name}
                     </span>
-                    <span className="truncate text-xs text-neutral-text-secondary">
-                      {t.project_name}
-                    </span>
+                    {t.projectName && (
+                      <span className="truncate text-xs text-neutral-text-secondary">
+                        {t.projectName}
+                      </span>
+                    )}
                   </button>
                 </li>
               );

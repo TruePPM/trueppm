@@ -6,9 +6,32 @@ import { QuickLogTime } from './QuickLogTime';
 const useMyWorkMock = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/useMyWork', () => ({ useMyWork: useMyWorkMock }));
 
+const useOmniSearchMock = vi.hoisted(() => vi.fn());
+vi.mock('@/hooks/useOmniSearch', () => ({ useOmniSearch: useOmniSearchMock }));
+
 const mutateMock = vi.hoisted(() => vi.fn());
 const useCreateTimeEntryMock = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/useCreateTimeEntry', () => ({ useCreateTimeEntry: useCreateTimeEntryMock }));
+
+/** A membership-scoped task search hit (the `/me/search/?type=task` fallback shape). */
+function makeHit(partial: { id: string; title: string; project_name?: string | null }) {
+  return {
+    id: partial.id,
+    kind: 'task' as const,
+    type: 'task' as const,
+    title: partial.title,
+    program_id: null,
+    program_name: null,
+    project_id: 'p-other',
+    project_name: partial.project_name ?? 'Other Project',
+    parent_epic_id: null,
+    parent_epic_name: null,
+  };
+}
+
+function setSearchHits(hits: ReturnType<typeof makeHit>[], isFetching = false) {
+  useOmniSearchMock.mockReturnValue({ data: hits, isFetching });
+}
 
 function makeTask(
   partial: Partial<MyWorkTask> & Pick<MyWorkTask, 'id' | 'short_id' | 'name'>,
@@ -57,6 +80,7 @@ describe('QuickLogTime', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setTasks(TASKS);
+    setSearchHits([]);
     useCreateTimeEntryMock.mockReturnValue({ mutate: mutateMock, isPending: false });
   });
 
@@ -87,7 +111,7 @@ describe('QuickLogTime', () => {
 
   it('filters the task list by the search query', () => {
     openPopover();
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search your tasks' }), {
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search your tasks or projects' }), {
       target: { value: 'fram' },
     });
     expect(screen.queryByRole('radio', { name: /Foundation pour/ })).toBeNull();
@@ -162,11 +186,56 @@ describe('QuickLogTime', () => {
     expect(mutateMock).toHaveBeenCalledWith(expect.objectContaining({ note: 'poured slab' }));
   });
 
-  it('shows an empty state and disables logging with no assigned tasks', () => {
+  it('shows a CTA empty state (not a dead end) and disables logging with no assigned tasks (#2174)', () => {
     setTasks([]);
     openPopover();
-    expect(screen.getByText(/No assigned tasks to log against/)).toBeInTheDocument();
+    // The empty state must name the path forward — search the caller's projects.
+    expect(screen.getByText(/search above to log against any task in your projects/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Log \d/ })).toBeDisabled();
+  });
+
+  it('searches all the caller’s projects when the query has no assigned match (#2174)', () => {
+    setTasks([]);
+    setSearchHits([makeHit({ id: 'srch-1', title: 'Pour the footing', project_name: 'Bridgeworks' })]);
+    openPopover();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search your tasks or projects' }), {
+      target: { value: 'pour' },
+    });
+    // The project-wide hit is now selectable even though the caller isn't assigned to it.
+    const hit = screen.getByRole('radio', { name: /Pour the footing/ });
+    expect(hit).toBeInTheDocument();
+    expect(hit).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: /^Log \d/ }));
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'srch-1', taskLabel: 'Pour the footing' }),
+    );
+  });
+
+  it('merges assigned tasks with project-search hits, deduped by id (#2174)', () => {
+    setSearchHits([
+      makeHit({ id: 'task-a', title: 'Foundation pour (dup)' }), // same id as an assigned task
+      makeHit({ id: 'srch-2', title: 'Ad-hoc cleanup' }),
+    ]);
+    openPopover();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search your tasks or projects' }), {
+      target: { value: 'found' },
+    });
+    // The assigned task shows once (its own label), not twice from the search dup.
+    expect(screen.getByRole('radio', { name: /RIV-1 Foundation pour/ })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /Foundation pour \(dup\)/ })).toBeNull();
+    // The genuinely unassigned hit is appended.
+    expect(screen.getByRole('radio', { name: /Ad-hoc cleanup/ })).toBeInTheDocument();
+  });
+
+  it('shows a keep-typing hint when a short query matches no assigned task (#2174)', () => {
+    // A 1-char query is below the search floor, so the hint must invite more typing
+    // rather than silently showing nothing.
+    setTasks([makeTask({ id: 'task-z', short_id: 'RIV-9', name: 'Zebra' })]);
+    openPopover();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search your tasks or projects' }), {
+      target: { value: 'q' },
+    });
+    expect(screen.getByText(/Keep typing to search all your projects/i)).toBeInTheDocument();
   });
 
   it('excludes a phase from the picker entirely (issue #1754) — never selectable, roving-focusable, or default-selected', () => {
@@ -187,7 +256,7 @@ describe('QuickLogTime', () => {
     // state, never crash on `tasks.find(t => t.id)` (regression: #1416 shell teardown).
     useMyWorkMock.mockReturnValue({ data: { pages: [[]] } });
     expect(() => openPopover()).not.toThrow();
-    expect(screen.getByText(/No assigned tasks to log against/)).toBeInTheDocument();
+    expect(screen.getByText(/search above to log against any task in your projects/i)).toBeInTheDocument();
   });
 });
 
@@ -197,6 +266,7 @@ describe('QuickLogTime (mobile bottom sheet)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setTasks(TASKS);
+    setSearchHits([]);
     useCreateTimeEntryMock.mockReturnValue({ mutate: mutateMock, isPending: false });
     // Report "below md": no `(min-width: …)` query matches → useBreakpoint()==='sm'.
     vi.stubGlobal('matchMedia', (query: string) => ({

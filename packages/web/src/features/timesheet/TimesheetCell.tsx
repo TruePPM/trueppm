@@ -5,6 +5,13 @@
  * shorthand, `Enter` (or blur) saves, `Esc` reverts. A cell backed by ≥2 entries is a
  * read-only sum (ADR-0224) — the grid never lets a single number silently overwrite
  * several entries; a subtle dot + tooltip points the contributor to My Work to edit them.
+ *
+ * A cell can be read-only for two distinct reasons, and the guidance must name the *right*
+ * remedy for each (#2174): `multi-entry` (≥2 entries — a single number can't split them,
+ * so editing moves to My Work) vs `submitted` (the whole week is locked by the submission
+ * marker — the remedy is *Reopen week* at the top-right, not My Work). Reopening never
+ * unlocks a multi-entry cell, so a multi-entry cell keeps its My-Work guidance even when
+ * the week is also submitted.
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { formatMinutesAsHm, parseHoursToMinutes } from '@/lib/parseHours';
@@ -18,6 +25,12 @@ interface TimesheetCellProps {
   /** A day that hasn't happened yet — not loggable (the server rejects a future entry_date,
    *  #1926). Rendered inert regardless of `editable`; future cells never hold entries. */
   isFuture?: boolean;
+  /**
+   * Why a `!editable` cell is locked, so the read-only guidance names the correct remedy
+   * (#2174). `multi-entry`: ≥2 entries, edit on My Work. `submitted`: the week is submitted,
+   * reopen it (top-right) to edit. Ignored when the cell is editable.
+   */
+  lockReason?: 'multi-entry' | 'submitted';
   /** Announces day + task for screen readers (a11y — the grid builds it). */
   ariaLabel: string;
   /**
@@ -40,6 +53,7 @@ export function TimesheetCell({
   isWeekend,
   isToday,
   isFuture = false,
+  lockReason = 'multi-entry',
   ariaLabel,
   errorText,
   onSave,
@@ -89,8 +103,39 @@ export function TimesheetCell({
     );
   }
 
+  if (!editable && lockReason === 'submitted') {
+    // The whole week is submitted (a week-level marker) — the remedy is *Reopen week*
+    // (top-right), NOT My Work (#2174). Empty submitted cells are rendered inert and
+    // non-focusable (like future cells) so a submitted week doesn't add a tab stop per
+    // blank day; a cell that carries time stays focusable so the reopen guidance is
+    // reachable in a screen reader's focus mode where it actually matters.
+    const hasValue = minutes > 0;
+    return (
+      <div
+        role="gridcell"
+        aria-readonly="true"
+        tabIndex={hasValue ? 0 : undefined}
+        aria-label={
+          hasValue
+            ? `${ariaLabel}, ${formatMinutesAsHm(minutes)} — week submitted, reopen to edit (Reopen week, top right)`
+            : `${ariaLabel} — week submitted`
+        }
+        title="Week submitted · reopen to edit (Reopen week, top right)"
+        className={`${CELL_BASE} flex items-center justify-end px-2 ${
+          hasValue
+            ? 'text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary'
+            : 'text-neutral-text-disabled'
+        } ${surface}`}
+      >
+        {hasValue ? formatMinutesAsHm(minutes) : '·'}
+      </div>
+    );
+  }
+
   if (!editable) {
-    // Read-only summed cell (≥2 entries) — ADR-0224.
+    // Read-only summed cell (≥2 entries) — ADR-0224. Reopening the week would not unlock
+    // this cell (a single number can't split N entries), so the remedy is always My Work.
+    const entryNoun = entryCount === 1 ? 'entry' : 'entries';
     return (
       <div
         role="gridcell"
@@ -99,8 +144,8 @@ export function TimesheetCell({
         // in a screen reader's focus mode (the grid navigates by Tab, not roving tabindex),
         // not only via the mouse-only title tooltip (web-rule).
         tabIndex={0}
-        aria-label={`${ariaLabel}, ${formatMinutesAsHm(minutes)}, ${entryCount} entries — edit on My Work`}
-        title={`${entryCount} entries · edit on My Work`}
+        aria-label={`${ariaLabel}, ${formatMinutesAsHm(minutes)}, ${entryCount} ${entryNoun} — edit on My Work`}
+        title={`${entryCount} ${entryNoun} · edit on My Work`}
         className={`${CELL_BASE} flex items-center justify-end gap-1 px-2 text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary ${surface}`}
       >
         <span
