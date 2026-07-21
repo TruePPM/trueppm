@@ -186,8 +186,59 @@ describe('buildMentionSuggestions — program groups (#514)', () => {
 
   it('role-banded program groups are never gated', () => {
     const out = buildMentionSuggestions('', MEMBERS, ROLE_VIEWER, true);
-    const banded = out.filter((s) => s.kind === 'group' && s.value.startsWith('program-') && s.value !== 'program-all');
+    const banded = out.filter(
+      (s) => s.kind === 'group' && s.value.startsWith('program-') && s.value !== 'program-all',
+    );
     expect(banded.length).toBe(3);
     for (const g of banded) expect(g.disabled).toBe(false);
+  });
+});
+
+describe('buildMentionSuggestions — user-defined mention groups (#2254)', () => {
+  const GROUPS = [
+    { name: 'backend-team', memberCount: 4 },
+    { name: 'qa', memberCount: 1 },
+  ];
+
+  it('offers user-defined mention groups when provided', () => {
+    const out = buildMentionSuggestions('', MEMBERS, ROLE_ADMIN, false, GROUPS);
+    const values = out.map((s) => s.value);
+    expect(values).toContain('backend-team');
+    expect(values).toContain('qa');
+  });
+
+  it('surfaces none when the group list is empty (default)', () => {
+    const out = buildMentionSuggestions('', MEMBERS, ROLE_ADMIN);
+    // No @backend-team etc. — only the fixed auto-groups + users.
+    expect(out.some((s) => s.value === 'backend-team')).toBe(false);
+  });
+
+  it('shows the member count as the hint (singular vs plural)', () => {
+    const out = buildMentionSuggestions('', MEMBERS, ROLE_ADMIN, false, GROUPS);
+    expect(out.find((s) => s.value === 'backend-team')?.hint).toBe('4 members');
+    expect(out.find((s) => s.value === 'qa')?.hint).toBe('1 member');
+  });
+
+  it('renders mention groups as kind "group", never disabled', () => {
+    const out = buildMentionSuggestions('', MEMBERS, ROLE_VIEWER, false, GROUPS);
+    const g = out.find((s) => s.value === 'backend-team');
+    expect(g?.kind).toBe('group');
+    expect(g?.disabled).toBeFalsy();
+  });
+
+  it('sorts after the auto-groups and before individual users', () => {
+    const out = buildMentionSuggestions('', MEMBERS, ROLE_ADMIN, false, GROUPS);
+    const autoAllIdx = out.findIndex((s) => s.value === 'all');
+    const groupIdx = out.findIndex((s) => s.value === 'backend-team');
+    const firstUserIdx = out.findIndex((s) => s.kind === 'user');
+    expect(autoAllIdx).toBeLessThan(groupIdx);
+    expect(groupIdx).toBeLessThan(firstUserIdx);
+  });
+
+  it('prefix-filters mention groups by name', () => {
+    const out = buildMentionSuggestions('back', MEMBERS, ROLE_ADMIN, false, GROUPS);
+    const values = out.filter((s) => s.kind === 'group').map((s) => s.value);
+    expect(values).toContain('backend-team');
+    expect(values).not.toContain('qa');
   });
 });

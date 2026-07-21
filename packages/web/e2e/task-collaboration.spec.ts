@@ -164,6 +164,17 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
     });
   });
 
+  // #2254: the composer surfaces user-defined project mention groups in the @
+  // autocomplete. This endpoint returns a BARE ARRAY (not a DRF envelope), so it
+  // must be mocked explicitly — the catch-all's {count,results} object would make
+  // the client `.map` throw. Empty by default; individual specs override.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/mention-groups/`, (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }
+    return route.continue();
+  });
+
   // Mutable stores so a POST in the same test sees the new row on the next GET.
   const attachments: unknown[] = [...(opts.attachments ?? [])];
   const comments: unknown[] = [...(opts.comments ?? [])];
@@ -190,7 +201,11 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
           external_url: body.external_url,
           external_title: body.external_title,
           is_pinned: true,
-          uploaded_by: { id: FIXTURE_USER.id, username: FIXTURE_USER.username, display_name: FIXTURE_USER.display_name },
+          uploaded_by: {
+            id: FIXTURE_USER.id,
+            username: FIXTURE_USER.username,
+            display_name: FIXTURE_USER.display_name,
+          },
           deleted_by: null,
           created_at: new Date().toISOString(),
           is_deleted: false,
@@ -211,7 +226,11 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
           external_url: '',
           external_title: '',
           is_pinned: false,
-          uploaded_by: { id: FIXTURE_USER.id, username: FIXTURE_USER.username, display_name: FIXTURE_USER.display_name },
+          uploaded_by: {
+            id: FIXTURE_USER.id,
+            username: FIXTURE_USER.username,
+            display_name: FIXTURE_USER.display_name,
+          },
           deleted_by: null,
           created_at: new Date().toISOString(),
           is_deleted: false,
@@ -303,9 +322,7 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
   await page.route(
     `**/api/v1/projects/${PROJECT_ID}/tasks/${TASK_ID}/comments/*/acknowledge/`,
     (route) => {
-      const c = comments.find(
-        (entry) => (entry as { id: string }).id === COMMENT_ID,
-      ) as
+      const c = comments.find((entry) => (entry as { id: string }).id === COMMENT_ID) as
         | (Record<string, unknown> & {
             has_my_acknowledgement: boolean;
             acknowledged_count: number;
@@ -321,7 +338,11 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
           contentType: 'application/json',
           body: JSON.stringify({
             id: 'ack-1',
-            user: { id: FIXTURE_USER.id, username: FIXTURE_USER.username, display_name: FIXTURE_USER.display_name },
+            user: {
+              id: FIXTURE_USER.id,
+              username: FIXTURE_USER.username,
+              display_name: FIXTURE_USER.display_name,
+            },
             created_at: new Date().toISOString(),
           }),
         });
@@ -342,9 +363,9 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
   await page.route(
     `**/api/v1/projects/${PROJECT_ID}/tasks/${TASK_ID}/comments/*/reactions/`,
     (route) => {
-      const c = comments.find(
-        (entry) => (entry as { id: string }).id === COMMENT_ID,
-      ) as (Record<string, unknown> & { reaction_count: number }) | undefined;
+      const c = comments.find((entry) => (entry as { id: string }).id === COMMENT_ID) as
+        | (Record<string, unknown> & { reaction_count: number })
+        | undefined;
       if (route.request().method() === 'POST') {
         if (c) c.reaction_count = (c.reaction_count ?? 0) + 1;
         return route.fulfill({
@@ -352,7 +373,11 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
           contentType: 'application/json',
           body: JSON.stringify({
             id: 'rxn-1',
-            user: { id: FIXTURE_USER.id, username: FIXTURE_USER.username, display_name: FIXTURE_USER.display_name },
+            user: {
+              id: FIXTURE_USER.id,
+              username: FIXTURE_USER.username,
+              display_name: FIXTURE_USER.display_name,
+            },
             emoji: '👍',
             created_at: new Date().toISOString(),
           }),
@@ -413,9 +438,9 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
     if (req.method() === 'PATCH') {
       const id = url.pathname.split('/').filter(Boolean).pop();
       const patch = req.postDataJSON() as { is_read?: boolean; is_archived?: boolean };
-      const row = notifications.find(
-        (n) => (n as { id: string }).id === id,
-      ) as Record<string, unknown> | undefined;
+      const row = notifications.find((n) => (n as { id: string }).id === id) as
+        | Record<string, unknown>
+        | undefined;
       if (row) {
         if (typeof patch.is_read === 'boolean') {
           // Only count flips that toggle to read; flipping back to unread
@@ -505,9 +530,9 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
     if (req.method() === 'PATCH') {
       const id = Number(new URL(req.url()).pathname.split('/').filter(Boolean).pop());
       const patch = req.postDataJSON() as { enabled: boolean };
-      const row = preferences.find(
-        (p) => (p as { id: number }).id === id,
-      ) as Record<string, unknown> | undefined;
+      const row = preferences.find((p) => (p as { id: number }).id === id) as
+        | Record<string, unknown>
+        | undefined;
       if (row) {
         row.enabled = patch.enabled;
         row.updated_at = new Date().toISOString();
@@ -727,6 +752,47 @@ test.describe('Task collaboration — comments + @mention (#311)', () => {
     await expect(programAll).toContainText(/Admin\+ only/);
   });
 
+  test('offers a user-defined project mention group in the autocomplete (#2254)', async ({
+    page,
+  }) => {
+    await bootProjectPage(page);
+    // Re-register the mention-groups route (last wins) so this project has a
+    // user-defined group; the composer must surface it in the @ menu.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/mention-groups/`, (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            {
+              id: 'udg-1',
+              server_version: 1,
+              project: PROJECT_ID,
+              name: 'backend-team',
+              description: '',
+              email_default_on: false,
+              members: [],
+              member_count: 4,
+              muted_by_me: false,
+            },
+          ]),
+        });
+      }
+      return route.continue();
+    });
+
+    const drawer = await openDrawer(page);
+    await openSection(drawer, 'Comments');
+
+    const textarea = drawer.getByLabel('Comment body');
+    await textarea.click();
+    await textarea.fill('ping @back');
+
+    const listbox = page.getByRole('listbox', { name: 'Mention suggestions' });
+    await expect(listbox).toBeVisible();
+    await expect(listbox.getByRole('option', { name: /@backend-team/ })).toBeVisible();
+  });
+
   test('selecting an individual + Cmd+Enter posts the comment with the @-mention highlighted', async ({
     page,
   }) => {
@@ -749,9 +815,7 @@ test.describe('Task collaboration — comments + @mention (#311)', () => {
     // the optimistic-vs-authoritative comment row that surfaces after.
     const postRequest = page.waitForRequest(
       (req) =>
-        req
-          .url()
-          .includes(`/projects/${PROJECT_ID}/tasks/${TASK_ID}/comments/`) &&
+        req.url().includes(`/projects/${PROJECT_ID}/tasks/${TASK_ID}/comments/`) &&
         req.method() === 'POST',
     );
     await textarea.press('ControlOrMeta+Enter');
@@ -971,9 +1035,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
     await expect(panel.getByText(/mentioned/)).toHaveCount(0);
 
     // Deep-links to the affected task in the schedule (#497 acceptance).
-    await panel
-      .getByRole('button', { name: /Wire HVAC controls rescheduled in Sprint 4/ })
-      .click();
+    await panel.getByRole('button', { name: /Wire HVAC controls rescheduled in Sprint 4/ }).click();
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/schedule\\?task=${TASK_ID}`));
   });
 
