@@ -109,12 +109,20 @@ describe('ToastHost', () => {
     });
     const pill = screen.getByText('Deleted').closest('div') as HTMLElement;
     // Hover pauses the countdown — well past the duration the toast survives.
-    act(() => fireEvent.mouseEnter(pill));
-    act(() => vi.advanceTimersByTime(5000));
+    act(() => {
+      fireEvent.mouseEnter(pill);
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
     expect(screen.getByText('Deleted')).toBeInTheDocument();
     // Leaving restarts the full duration, then it dismisses.
-    act(() => fireEvent.mouseLeave(pill));
-    act(() => vi.advanceTimersByTime(1500));
+    act(() => {
+      fireEvent.mouseLeave(pill);
+    });
+    act(() => {
+      vi.advanceTimersByTime(1500);
+    });
     expect(screen.queryByText('Deleted')).not.toBeInTheDocument();
   });
 });
