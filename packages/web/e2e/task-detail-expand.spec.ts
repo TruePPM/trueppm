@@ -60,14 +60,51 @@ test.describe('Task detail expand-to-full-page', () => {
     await drawer.getByRole('button', { name: 'Expand to full page' }).click();
 
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`));
-    await expect(page.getByRole('heading', { level: 1, name: /Foundation/ })).toBeVisible();
+    // The accessible heading is kept sr-only; the visible title is the editable
+    // name input.
+    await expect(page.getByRole('heading', { level: 1, name: /Foundation/ })).toBeAttached();
+    await expect(page.getByRole('textbox', { name: 'Task name' })).toHaveValue('Foundation');
     await expect(page.getByRole('link', { name: /Back to schedule/ })).toBeVisible();
   });
 
   test('the full page is reachable directly by URL', async ({ page }) => {
     await page.goto(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`);
-    await expect(page.getByRole('heading', { level: 1, name: /Foundation/ })).toBeVisible({
+    await expect(page.getByRole('textbox', { name: 'Task name' })).toHaveValue('Foundation', {
       timeout: 5_000,
     });
+  });
+
+  test('name is editable, Description is present, and a name edit PATCHes on blur (#2154)', async ({
+    page,
+  }) => {
+    // Intercept the blur-PATCH so the edit round-trips cleanly (the catch-all
+    // would 404 it). GET falls through to the default list mock.
+    await page.route(`**/api/v1/tasks/${TASK_ID}/`, async (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = route.request().postDataJSON() as { name?: string };
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...FIXTURE_TASKS[0], name: body.name ?? 'Foundation' }),
+        });
+      }
+      return route.fallback();
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`);
+
+    const nameInput = page.getByRole('textbox', { name: 'Task name' });
+    await expect(nameInput).toBeEditable();
+    // Description renders on the deep-work page (empty-state affordance here) —
+    // #2154's headline regression was that it was dropped entirely.
+    await expect(page.getByRole('button', { name: 'Description' })).toBeVisible();
+
+    const patchPromise = page.waitForRequest(
+      (r) => r.url().includes(`/tasks/${TASK_ID}/`) && r.method() === 'PATCH',
+    );
+    await nameInput.fill('Foundation A');
+    await nameInput.blur();
+    const req = await patchPromise;
+    expect(req.postDataJSON()).toMatchObject({ name: 'Foundation A' });
   });
 });

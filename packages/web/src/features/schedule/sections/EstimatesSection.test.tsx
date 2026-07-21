@@ -14,10 +14,6 @@ vi.mock('@/hooks/useScheduleTasks', () => ({
   useScheduleTasks: () => ({ tasks: mockTasks, links: [], isLoading: false, error: null }),
 }));
 
-vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: 100, isLoading: false }),
-}));
-
 let mockActiveSprint: ApiSprint | null = null;
 vi.mock('@/hooks/useSprints', () => ({
   useActiveSprint: () => ({ sprint: mockActiveSprint }),
