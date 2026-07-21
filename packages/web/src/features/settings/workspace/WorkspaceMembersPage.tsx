@@ -418,7 +418,7 @@ export function WorkspaceMembersPage() {
             value={inviteEmail}
             onChange={(e) => setInviteEmail(e.target.value)}
             placeholder="colleague@example.com"
-            className="h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[220px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-disabled"
+            className="h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[220px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-secondary"
           />
         </div>
         <div className="flex flex-col gap-0.5">
@@ -478,7 +478,7 @@ export function WorkspaceMembersPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by name or email…"
-            className="flex-1 bg-transparent outline-none text-[13px] text-neutral-text-primary placeholder:text-neutral-text-disabled min-w-0"
+            className="flex-1 bg-transparent outline-none text-[13px] text-neutral-text-primary placeholder:text-neutral-text-secondary min-w-0"
           />
         </div>
         <label htmlFor={roleSelectId} className="sr-only">

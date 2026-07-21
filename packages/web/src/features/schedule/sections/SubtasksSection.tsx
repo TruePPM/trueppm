@@ -207,7 +207,7 @@ export function SubtasksSection({ taskId, projectId, userRole, canEdit }: Drawer
             aria-label="New subtask name"
             className={[
               'flex-1 h-8 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary',
-              'placeholder:text-neutral-text-disabled',
+              'placeholder:text-neutral-text-secondary',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
               'disabled:opacity-50 disabled:cursor-not-allowed',
             ].join(' ')}

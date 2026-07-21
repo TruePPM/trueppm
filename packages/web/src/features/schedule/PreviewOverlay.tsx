@@ -25,12 +25,17 @@ import type { DragPreviewResult } from '@/types';
 import { useDragStore } from '@/stores/dragStore';
 import { dateToLeft } from '@/features/schedule/engine';
 
-// Design tokens (defined in tailwind.config.ts — applied via style prop per rule 10)
-const GHOST_FILL = 'rgba(100, 116, 139, 0.12)';
-const GHOST_BORDER = 'rgba(100, 116, 139, 0.55)';
+// Design tokens (defined in tailwind.config.ts / globals.css — applied via style prop per rule 10).
+// Ghost colors read the theme-aware --ghost-* channels (slate-500 on light,
+// slate-400 on dark) so the border clears WCAG 1.4.11 on both surfaces: the old
+// slate-500 @55% literal was 2.12:1 (light) / 1.91:1 (dark). At @0.85 the border
+// is 3.6:1 (light) / 4.6:1 (dark) — #2207.
+const GHOST_FILL = 'rgb(var(--ghost-fill) / 0.14)';
+const GHOST_BORDER = 'rgb(var(--ghost-border) / 0.85)';
 const CRITICAL_BORDER = 'var(--color-semantic-critical, #B91C1C)';
-// Origin ghost bar: more opaque border to distinguish from downstream previews (rule 52)
-const ORIGIN_BORDER = 'rgba(100, 116, 139, 0.80)';
+// Origin ghost bar: more opaque border to distinguish from downstream previews (rule 52).
+// Kept above the preview's 0.85 so the anchor still reads as "more solid"; theme-aware (#2207).
+const ORIGIN_BORDER = 'rgb(var(--ghost-border) / 0.95)';
 // Build ghost bar: dashed brand-accent (amber) border during inline name editing (#344)
 const BUILD_BORDER = 'var(--color-brand-accent, #E8A020)';
 

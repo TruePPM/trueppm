@@ -135,7 +135,7 @@ export function AssigneesEditor({
           onChange={(e) => setSearch(e.target.value)}
           placeholder={rows.length === 0 ? 'Search people…' : 'Add another…'}
           aria-label="Search people to assign"
-          className="w-full h-7 px-2 text-[13px] text-neutral-text-primary bg-transparent border-none focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
+          className="w-full h-7 px-2 text-[13px] text-neutral-text-primary bg-transparent border-none focus-visible:outline-none placeholder:text-neutral-text-secondary disabled:opacity-60"
         />
         {filteredPool.length > 0 && !disabled && (
           // Plain <ul> (implicit role="list"), not role="listbox": the rows are

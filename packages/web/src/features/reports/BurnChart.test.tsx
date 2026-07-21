@@ -3,7 +3,7 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
-import { BurnChart, BurnTooltip, CHART_COLORS } from './BurnChart';
+import { BurnChart, BurnTooltip, CHART_COLORS, scopeDotStyle } from './BurnChart';
 
 // Recharts uses ResizeObserver and SVG layout — stub ResponsiveContainer so
 // it renders children without needing real dimensions in jsdom.
@@ -282,6 +282,40 @@ describe('BurnChart — chart color tokens are mode-aware', () => {
     expect(CHART_COLORS.axisTick).toBe('rgb(var(--neutral-text-secondary))');
     expect(CHART_COLORS.today).toBe('rgb(var(--semantic-critical))');
     expect(CHART_COLORS.actual).toBe('rgb(var(--brand-primary))');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2207 chart a11y — contrast & use-of-color fixes from the 2026-07-18 audit.
+// ---------------------------------------------------------------------------
+describe('BurnChart — #2207 a11y contrast & use-of-color', () => {
+  it('renders the ideal reference line at the ≥3:1 chart-neutral mark, not the 2.70:1 disabled token (1.4.11)', () => {
+    // `--neutral-text-disabled` (#A09D99) was 2.70:1 as a graphical object.
+    expect(CHART_COLORS.ideal).toBe('rgb(var(--chart-neutral))');
+    expect(CHART_COLORS.ideal).not.toBe('rgb(var(--neutral-text-disabled))');
+  });
+
+  it('gives the Actual and Completed series distinct hues so they are not color-identical (1.4.1)', () => {
+    // `--brand-primary` and `--semantic-on-track` are byte-identical in both
+    // themes, so the two curves + legend swatches were the same green. Completed
+    // now uses a distinct existing DS token (`--violet`).
+    expect(CHART_COLORS.actual).not.toBe(CHART_COLORS.completed);
+    expect(CHART_COLORS.completed).toBe('var(--violet)');
+    // Both remain mode-aware CSS custom properties (no hardcoded hex/black).
+    expect(CHART_COLORS.completed).toMatch(/var\(--/);
+    expect(CHART_COLORS.completed).not.toMatch(/var\(--color-/);
+  });
+
+  it('renders scope-removed markers HOLLOW (transparent fill) and scope-added markers FILLED (1.4.1)', () => {
+    // Distinguished by shape (filled disc vs hollow ring), not hue alone — the
+    // ring mirrors the legend ◎ glyph, the disc mirrors ◉.
+    const removed = scopeDotStyle(-3);
+    expect(removed.fill).toBe('transparent');
+    expect(removed.stroke).toBe(CHART_COLORS.scopeRem);
+
+    const added = scopeDotStyle(5);
+    expect(added.fill).toBe(CHART_COLORS.scopeAdd);
+    expect(added.fill).not.toBe('transparent');
   });
 });
 

@@ -324,7 +324,7 @@ export function NotesSection({ taskId, projectId, userRole, canEdit }: DrawerSec
             placeholder="Search notes…"
             aria-label="Search notes"
             className="flex-1 text-sm bg-neutral-surface border border-neutral-border rounded-control px-2 h-8
-              text-neutral-text-primary placeholder:text-neutral-text-disabled
+              text-neutral-text-primary placeholder:text-neutral-text-secondary
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           />
           {query.trim() !== '' && (

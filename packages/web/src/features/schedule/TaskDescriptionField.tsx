@@ -150,7 +150,7 @@ export function TaskDescriptionField({
           placeholder="Add a description…  **bold**, - lists, `code`"
           className={[
             'w-full rounded-control border border-neutral-border px-3 py-2.5 bg-neutral-surface',
-            'text-sm leading-relaxed text-neutral-text-primary placeholder:text-neutral-text-disabled',
+            'text-sm leading-relaxed text-neutral-text-primary placeholder:text-neutral-text-secondary',
             'resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
           ].join(' ')}
         />

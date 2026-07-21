@@ -169,7 +169,7 @@ export function SprintGoalCard({ sprint, projectId, canEdit = false, heading }: 
               maxLength={1000}
               placeholder={`What outcome does this ${itl.lower} deliver?`}
               className="px-3 py-2 rounded border border-brand-primary bg-neutral-surface
-                text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled resize-none
+                text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary resize-none
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             />
           </label>

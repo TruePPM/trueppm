@@ -498,7 +498,7 @@ function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: st
                 disabled={createComment.isPending}
                 className="w-full border border-neutral-border rounded-control px-3 py-2
                   bg-neutral-surface text-neutral-text-primary text-sm resize-none
-                  placeholder:text-neutral-text-disabled
+                  placeholder:text-neutral-text-secondary
                   focus-visible:outline-none focus-visible:ring-2
                   focus-visible:ring-brand-primary focus-visible:ring-offset-1
                   disabled:opacity-50"

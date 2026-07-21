@@ -106,7 +106,7 @@ export function ProgramInviteForm({ programId }: Props) {
             aria-expanded={showDropdown}
             className={[
               'h-9 w-full rounded-control border bg-neutral-surface px-3 text-sm',
-              'text-neutral-text-primary placeholder:text-neutral-text-disabled',
+              'text-neutral-text-primary placeholder:text-neutral-text-secondary',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
               selectedUser ? 'border-brand-primary' : 'border-neutral-border',
             ].join(' ')}

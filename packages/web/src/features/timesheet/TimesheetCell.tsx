@@ -194,7 +194,7 @@ export function TimesheetCell({
             inputRef.current?.blur();
           }
         }}
-        className={`h-full w-full rounded-none border-0 bg-transparent px-2 text-right tabular-nums text-neutral-text-primary placeholder:text-neutral-text-disabled focus:bg-neutral-surface-raised focus:ring-2 focus:ring-inset focus:ring-brand-primary ${
+        className={`h-full w-full rounded-none border-0 bg-transparent px-2 text-right tabular-nums text-neutral-text-primary placeholder:text-neutral-text-secondary focus:bg-neutral-surface-raised focus:ring-2 focus:ring-inset focus:ring-brand-primary ${
           hasError ? 'bg-semantic-critical-bg ring-2 ring-inset ring-semantic-critical' : ''
         }`}
       />

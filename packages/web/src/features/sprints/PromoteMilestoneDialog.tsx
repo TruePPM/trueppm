@@ -474,7 +474,7 @@ function CreateModeBody({
             maxLength={255}
             onChange={(e) => onNameChange(e.target.value)}
             placeholder="Milestone name"
-            className="flex-1 bg-transparent text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
+            className="flex-1 bg-transparent text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary
               focus-visible:outline-none"
           />
         </span>
@@ -554,7 +554,7 @@ function BindModeBody({
             value={search}
             onChange={(e) => onSearch(e.target.value)}
             placeholder="Search milestones by name or WBS"
-            className="flex-1 bg-transparent text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
+            className="flex-1 bg-transparent text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary
               focus-visible:outline-none"
           />
         </span>

@@ -356,7 +356,7 @@ export function ShareViewDialog({
               maxLength={120}
               onChange={(e) => setLabel(e.target.value)}
               placeholder="e.g. Client review — Q3 steering"
-              className="mb-4 h-8 w-full rounded-control border border-neutral-border bg-neutral-surface-raised px-2.5 text-[12px] text-neutral-text-primary placeholder:text-neutral-text-disabled focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="mb-4 h-8 w-full rounded-control border border-neutral-border bg-neutral-surface-raised px-2.5 text-[12px] text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
 
             <span className="mb-1 block text-[12px] font-medium text-neutral-text-primary">

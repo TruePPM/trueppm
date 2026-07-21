@@ -27,7 +27,8 @@ function findBucketIndex(buckets: McBucket[], isoDate: string): number {
 /**
  * SVG mini-histogram of the Monte Carlo distribution.
  *
- * Each bar is one week bucket (neutral-text-disabled fill).
+ * Each bar is one week bucket (chart-neutral fill — a ≥3:1 neutral mark; the old
+ * neutral-text-disabled #A09D99 was only 2.70:1, a WCAG 1.4.11 fail, issue 2207).
  * Three vertical rules mark P50 (semantic-on-track / green), P80 (semantic-at-risk / amber),
  * and P95 (semantic-critical / red). Pattern differentiation:
  *   P50 — solid 1.5px
@@ -126,7 +127,7 @@ export function MonteCarloHistogram({ result }: Props) {
             y={PADDING.top + CHART_H - barH}
             width={BAR_W}
             height={barH}
-            className="fill-neutral-text-disabled"
+            className="fill-chart-neutral"
             rx={1}
           />
         );

@@ -32,11 +32,11 @@ import { ChevronDownIcon, ChevronRightIcon } from '@/components/Icons';
 import { extractFieldErrors, extractFormLevelMessage } from '@/lib/apiError';
 
 const INPUT_CLASS =
-  'w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary aria-invalid:border-semantic-critical disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed';
+  'w-full max-w-[420px] h-8 px-2.5 rounded-control border border-input-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary aria-invalid:border-semantic-critical disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed';
 // The two narrow numeric inputs (port, limits) carry their own width so they
 // can't share INPUT_CLASS; keep the aria-invalid red border in sync here.
 const NUM_INPUT_CLASS =
-  'w-[120px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary aria-invalid:border-semantic-critical disabled:bg-neutral-surface-sunken disabled:cursor-not-allowed';
+  'w-[120px] h-8 px-2.5 rounded-control border border-input-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary aria-invalid:border-semantic-critical disabled:bg-neutral-surface-sunken disabled:cursor-not-allowed';
 /** Maps a dirty-tracked form field to the DRF serializer key it is sent as. */
 const FORM_TO_DRF: Record<string, string> = {
   transportMode: 'transport_mode',
@@ -57,7 +57,7 @@ const FORM_TO_DRF: Record<string, string> = {
   sesRegion: 'host',
 };
 const SELECT_CLASS =
-  'h-8 pl-2.5 pr-7 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.45rem_center] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary disabled:cursor-not-allowed';
+  'h-8 pl-2.5 pr-7 rounded-control border border-input-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.45rem_center] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary disabled:cursor-not-allowed';
 const SELECT_STYLE = {
   backgroundImage:
     "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 16 16'><path d='M4 6l4 4 4-4' stroke='%23667085' stroke-width='2' stroke-linecap='round' fill='none' /></svg>\")",

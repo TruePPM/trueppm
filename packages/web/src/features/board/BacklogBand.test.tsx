@@ -92,6 +92,20 @@ describe('BacklogBand (rail)', () => {
     expect(screen.getByLabelText(/^2 ideas in backlog$/i)).toBeInTheDocument();
   });
 
+  // #2207: PriorityDot is aria-hidden (color-only), so the rank is folded into
+  // the card's accessible name for SR users.
+  it('folds priority rank into the backlog card accessible name', () => {
+    renderBand({ tasks: [makeTask({ name: 'Rework', priorityRank: 4 })] });
+    expect(
+      screen.getByRole('button', { name: 'Rework, backlog idea, priority 4' }),
+    ).toBeInTheDocument();
+  });
+
+  it('omits the priority suffix from the card name when unranked', () => {
+    renderBand({ tasks: [makeTask({ name: 'Rework' })] });
+    expect(screen.getByRole('button', { name: 'Rework, backlog idea' })).toBeInTheDocument();
+  });
+
   it('renders empty-state copy when there are no backlog cards', () => {
     renderBand({ tasks: [] });
     expect(screen.getByText(/No backlog yet/)).toBeInTheDocument();

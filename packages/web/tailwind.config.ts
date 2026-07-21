@@ -53,6 +53,11 @@ const config: Config = {
           800: '#275844', 900: '#1B3D2F',
         },
         reversed: '#E9EDF3',
+        // #2207 a11y (WCAG 1.4.11): ≥3:1 boundary/mark tokens, theme-aware via
+        // globals.css. `input-border` for fields where the border is the sole
+        // boundary; `chart-neutral` for burndown/Monte-Carlo neutral marks.
+        'input-border':  'rgb(var(--input-border) / <alpha-value>)',
+        'chart-neutral': 'rgb(var(--chart-neutral) / <alpha-value>)',
         // The warm-paper app canvas (design-system v2, ADR-0126). The body sits
         // on this; cards (`bg-neutral-surface` = white) pop against it. Driven by
         // --app-canvas in globals.css so .dark swaps it to the navy canvas.
@@ -112,14 +117,14 @@ const config: Config = {
           'semantic-at-risk':  '#FB923C',   // Orange-400; 5.96:1 on #0F1117 (rule 41)
           'semantic-on-track': '#4ADE80',   // Green-400; 5.28:1 on #0F1117 (rule 41)
         },
-        // Drag preview bars (issue #19). Slate-500 at reduced opacity:
-        //   fill   12% → clearly subordinate to real bars, legible at 18px height
-        //   border 55% → 3.05:1 against white, satisfies WCAG 1.4.11
-        // Applied via style prop (dynamic values per rule 10); defined here as the
-        // canonical source so no hex literals appear in component files.
+        // Drag preview bars (issue #19). Theme-aware via --ghost-* in globals.css
+        // (#2207): the border is the only boundary during reschedule and must
+        // clear WCAG 1.4.11 3:1 in BOTH themes — slate-500 @55% was only 2.12:1
+        // on white / 1.91:1 on the dark schedule surface. Now slate-500 (light) /
+        // slate-400 (dark) @85% → 3.6:1 / 4.6:1. Fill stays subordinate at 14%.
         ghost: {
-          fill:   'rgba(100, 116, 139, 0.12)',
-          border: 'rgba(100, 116, 139, 0.55)',
+          fill:   'rgb(var(--ghost-fill) / 0.14)',
+          border: 'rgb(var(--ghost-border) / 0.85)',
         },
         // Risk matrix zone tokens (rule 88). Values driven by CSS custom properties in
         // globals.css so .dark on <html> swaps to higher-opacity dark-mode variants.

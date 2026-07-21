@@ -41,13 +41,24 @@ import {
 // ---------------------------------------------------------------------------
 export const CHART_COLORS = {
   actual: 'rgb(var(--brand-primary))',
-  ideal: 'rgb(var(--neutral-text-disabled))',
+  // Ideal reference line — a neutral, mode-aware mark. `--neutral-text-disabled`
+  // (#A09D99) was only 2.70:1 as a graphical object, a WCAG 1.4.11 fail (issue
+  // 2207); `--chart-neutral` is the ≥3:1 neutral-mark token (3.61:1 light / ~7:1
+  // dark) that exists precisely for burndown / Monte-Carlo neutral marks.
+  ideal: 'rgb(var(--chart-neutral))',
   // Total-scope line — a neutral informational reference; `--info` is a distinct,
-  // mode-aware blue that reads apart from the sage actual line and the green
+  // mode-aware blue that reads apart from the sage actual line and the violet
   // completed area (unlike the old dead `--color-teal-400`, which only rendered
   // via its hex fallback and sat too close to the on-track green).
   scope: 'var(--info)',
-  completed: 'rgb(var(--semantic-on-track))',
+  // Completed series — a distinct violet hue (WCAG 1.4.1 use-of-color, issue 2207).
+  // `--semantic-on-track` is BYTE-IDENTICAL to `--brand-primary` (the `actual`
+  // series) in BOTH themes — sage-700 in light, sage-400 in dark — so the two
+  // curves and their legend swatches were the same green, distinguishable by
+  // label alone. `--violet` (#6D4AC4) is an existing DS token that reads clearly
+  // apart from the sage actual line, the blue scope line, and the neutral ideal
+  // line, so all series (and their legend swatches) differ by hue, not just text.
+  completed: 'var(--violet)',
   scopeAdd: 'rgb(var(--semantic-at-risk))',
   scopeRem: 'rgb(var(--semantic-critical))',
   today: 'rgb(var(--semantic-critical))',
@@ -58,6 +69,20 @@ export const CHART_COLORS = {
   grid: 'rgb(var(--neutral-border))',
   axisTick: 'rgb(var(--neutral-text-secondary))',
 } as const;
+
+/**
+ * Fill/stroke for a scope-change ReferenceDot. Scope ADDED renders a filled disc
+ * (amber) haloed by the surface color; scope REMOVED renders HOLLOW — a
+ * transparent fill with a colored (critical) ring — so the two are distinguished
+ * by SHAPE, not hue alone (WCAG 1.4.1, issue 2207). The hollow ring mirrors the
+ * legend's ◎ glyph for "Scope removed", while the filled disc mirrors ◉ for
+ * "Scope added".
+ */
+export function scopeDotStyle(delta: number): { fill: string; stroke: string } {
+  return delta > 0
+    ? { fill: CHART_COLORS.scopeAdd, stroke: 'rgb(var(--neutral-surface))' }
+    : { fill: 'transparent', stroke: CHART_COLORS.scopeRem };
+}
 
 // ---------------------------------------------------------------------------
 // Normalised point shape used by all Recharts variants
@@ -671,18 +696,21 @@ export function BurnChart({
     />
   );
 
-  const scopeDots = scopeChanges.map((c) => (
-    <ReferenceDot
-      key={c.date}
-      x={c.date}
-      y={0}
-      r={5}
-      fill={c.delta > 0 ? CHART_COLORS.scopeAdd : CHART_COLORS.scopeRem}
-      stroke="rgb(var(--neutral-surface))"
-      strokeWidth={2}
-      aria-label={`Scope change ${c.date}: ${c.delta > 0 ? '+' : ''}${c.delta} ${effectiveMetric}`}
-    />
-  ));
+  const scopeDots = scopeChanges.map((c) => {
+    const style = scopeDotStyle(c.delta);
+    return (
+      <ReferenceDot
+        key={c.date}
+        x={c.date}
+        y={0}
+        r={5}
+        fill={style.fill}
+        stroke={style.stroke}
+        strokeWidth={2}
+        aria-label={`Scope change ${c.date}: ${c.delta > 0 ? '+' : ''}${c.delta} ${effectiveMetric}`}
+      />
+    );
+  });
 
   const heading = isSprintCtx ? `${itl.singular} Burndown` : 'Burn Chart';
 

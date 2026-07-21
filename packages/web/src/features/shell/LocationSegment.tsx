@@ -283,7 +283,7 @@ export function LocationSegment({
                 setActiveIndex(0);
               }}
               onKeyDown={handleInputKeyDown}
-              className="flex-1 min-w-0 bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none"
+              className="flex-1 min-w-0 bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none"
             />
           </div>
 

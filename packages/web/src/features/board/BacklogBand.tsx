@@ -117,6 +117,9 @@ function PriorityDot({ rank }: PriorityDotProps) {
       title={rank ? `Priority ${rank}` : 'No priority'}
       className="inline-flex items-end gap-[1.5px]"
       style={{ height: 10, flexShrink: 0 }}
+      // Priority is folded into the card's accessible name (#2207); the bars are
+      // a redundant visual cue, hidden from SR to avoid a color-only announcement.
+      aria-hidden="true"
     >
       {[1, 2, 3].map((b) => (
         <span
@@ -212,7 +215,9 @@ function ScheduleAction({
         focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
         before:absolute before:inset-[-10px] before:content-['']"
     >
-      <span aria-hidden="true" className="leading-none">···</span>
+      <span aria-hidden="true" className="leading-none">
+        ···
+      </span>
     </button>
   );
 }
@@ -247,7 +252,9 @@ export function BacklogCard({
         <button
           ref={setNodeRef}
           type="button"
-          aria-label={`${task.name}, backlog idea`}
+          aria-label={`${task.name}, backlog idea${
+            task.priorityRank ? `, priority ${task.priorityRank}` : ''
+          }`}
           onFocus={onFocus}
           onClick={(e) => onClick(e.currentTarget)}
           {...attributes}
@@ -275,7 +282,9 @@ export function BacklogCard({
       <button
         ref={setNodeRef}
         type="button"
-        aria-label={`${task.name}, backlog idea`}
+        aria-label={`${task.name}, backlog idea${
+          task.priorityRank ? `, priority ${task.priorityRank}` : ''
+        }`}
         onFocus={onFocus}
         onClick={(e) => onClick(e.currentTarget)}
         {...attributes}
@@ -329,9 +338,7 @@ export function BacklogCard({
             )}
             <span className="flex-1" />
             {ageDays !== null && (
-              <span className="tppm-mono text-neutral-text-disabled">
-                {ageDays}d ago
-              </span>
+              <span className="tppm-mono text-neutral-text-disabled">{ageDays}d ago</span>
             )}
           </div>
         )}
@@ -590,7 +597,11 @@ export function BacklogBand({
               focus-within:border-brand-primary focus-within:ring-1 focus-within:ring-brand-primary"
             style={{ height: 30 }}
           >
-            <span aria-hidden="true" className="text-neutral-text-disabled" style={{ fontSize: 14, lineHeight: 0 }}>
+            <span
+              aria-hidden="true"
+              className="text-neutral-text-disabled"
+              style={{ fontSize: 14, lineHeight: 0 }}
+            >
               +
             </span>
             <input
@@ -602,7 +613,7 @@ export function BacklogBand({
               placeholder="Capture an idea…"
               aria-label="Capture a backlog idea"
               aria-keyshortcuts="Enter"
-              className="flex-1 min-w-0 bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-disabled
+              className="flex-1 min-w-0 bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary
                 focus:outline-none disabled:cursor-not-allowed"
             />
             {captureDraft.trim() !== '' && (
@@ -635,7 +646,7 @@ export function BacklogBand({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search ideas…"
               aria-label="Filter backlog ideas"
-              className="flex-1 min-w-0 bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-disabled
+              className="flex-1 min-w-0 bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary
                 focus:outline-none"
             />
             {isFiltering && (
@@ -718,9 +729,7 @@ export function BacklogBand({
                   phaseColor={phaseColor}
                   ageDays={ageInDays(task.statusEnteredAt)}
                   isFocused={focusedCardId === task.id}
-                  onFocus={() =>
-                    onCardFocus(task.id, task.status, task.parentId ?? 'root')
-                  }
+                  onFocus={() => onCardFocus(task.id, task.status, task.parentId ?? 'root')}
                   onClick={(anchor) => onCardClick(task, anchor)}
                   onSchedule={onSchedule}
                 />
@@ -740,7 +749,9 @@ export function BacklogBand({
               focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
             style={{ height: 36 }}
           >
-            <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 0 }}>+</span>
+            <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 0 }}>
+              +
+            </span>
             {isCaptureIdeaPending ? 'Adding…' : 'Add with details…'}
           </button>
         )}

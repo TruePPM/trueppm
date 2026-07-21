@@ -432,7 +432,7 @@ export function CommandPalette() {
               setQuery(e.target.value);
               setActiveIndex(0);
             }}
-            className="w-full bg-transparent py-3 text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none"
+            className="w-full bg-transparent py-3 text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none"
           />
           <kbd className="tppm-mono shrink-0 rounded-chip border border-neutral-border px-1.5 py-0.5 text-xs text-neutral-text-secondary">
             Esc

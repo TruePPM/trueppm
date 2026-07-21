@@ -965,7 +965,7 @@ function BoardCardImpl({
               />
             )}
             {task.shortId && (
-              <span className="tppm-mono text-xs text-neutral-text-disabled truncate">
+              <span className="tppm-mono text-xs text-neutral-text-secondary truncate">
                 {task.shortId}
               </span>
             )}
@@ -1038,7 +1038,7 @@ function BoardCardImpl({
             {isIdea ? (
               <span
                 className="inline-block w-5 h-5 rounded-full border border-dashed border-neutral-border
-                  flex items-center justify-center text-xs text-neutral-text-disabled"
+                  flex items-center justify-center text-xs text-neutral-text-secondary"
                 aria-label="Unassigned"
               >
                 ?

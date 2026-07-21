@@ -113,7 +113,7 @@ export function ResourceSearchCombobox({ onSelect, onDismiss, taskId }: Resource
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
         className="w-full text-xs border border-neutral-border rounded-control px-2 py-1
-          bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-disabled
+          bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-secondary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       />
 

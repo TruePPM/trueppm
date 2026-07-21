@@ -167,7 +167,7 @@ export function SplitProgramDialog({
                     aria-invalid={s.name.trim() === '' ? true : undefined}
                     className={[
                       'h-7 flex-1 rounded border bg-neutral-surface-raised px-2 text-[12px] text-neutral-text-primary',
-                      'placeholder:text-neutral-text-disabled',
+                      'placeholder:text-neutral-text-secondary',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                       s.name.trim() === ''
                         ? 'border-semantic-critical/60'

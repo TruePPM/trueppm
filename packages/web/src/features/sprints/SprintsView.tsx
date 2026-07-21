@@ -987,7 +987,7 @@ function ChartSkeleton({ label }: { label: string }) {
       aria-label={`Loading ${label}`}
       className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4 min-h-[180px] flex items-center justify-center"
     >
-      <span className="text-xs text-neutral-text-disabled">Loading {label}…</span>
+      <span className="text-xs text-neutral-text-secondary">Loading {label}…</span>
     </div>
   );
 }

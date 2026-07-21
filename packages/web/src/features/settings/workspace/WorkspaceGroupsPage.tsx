@@ -83,7 +83,9 @@ function GroupCard({ group, onDelete, onManage, hasError }: GroupCardProps) {
             onClick={() => setConfirming(true)}
             aria-label={`Delete group ${group.name}`}
             aria-expanded={confirming}
-            className="ml-1 text-[11px] text-neutral-text-disabled hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded-control shrink-0"
+            // Enabled control must rest at a readable color, not the 2.70:1
+            // disabled token that relies on hover to become legible (#2207).
+            className="ml-1 text-[11px] text-neutral-text-secondary hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded-control shrink-0"
           >
             ✕
           </button>
@@ -262,7 +264,7 @@ export function WorkspaceGroupsPage() {
                 onChange={(e) => setNewGroupName(e.target.value)}
                 placeholder="e.g. Avionics"
                 required
-                className="h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[200px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-disabled"
+                className="h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[200px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-secondary"
               />
             </div>
             <div className="flex flex-col gap-0.5">
@@ -278,7 +280,7 @@ export function WorkspaceGroupsPage() {
                 value={newGroupDesc}
                 onChange={(e) => setNewGroupDesc(e.target.value)}
                 placeholder="Optional"
-                className="h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[280px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-disabled"
+                className="h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[280px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-secondary"
               />
             </div>
             <button

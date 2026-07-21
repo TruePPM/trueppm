@@ -342,7 +342,7 @@ export function ScheduleDependencyPicker({
             }}
             placeholder={scope === 'program' ? 'Search tasks in this program…' : 'Search tasks…'}
             aria-label="Search tasks"
-            className="w-full h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-disabled focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+            className="w-full h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           />
         </div>
 

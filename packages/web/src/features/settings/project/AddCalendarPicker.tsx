@@ -203,7 +203,7 @@ export function AddCalendarPicker({
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search calendars…"
         aria-label="Search calendars"
-        className="w-full bg-transparent text-[13px] text-neutral-text-primary outline-none placeholder:text-neutral-text-disabled"
+        className="w-full bg-transparent text-[13px] text-neutral-text-primary outline-none placeholder:text-neutral-text-secondary"
       />
     </div>
   );

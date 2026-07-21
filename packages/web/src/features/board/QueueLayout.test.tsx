@@ -186,6 +186,30 @@ describe('QueueLayout', () => {
     expect(screen.getByTestId('queue-group-empty-recentlyDone')).toHaveTextContent(/No tasks completed/i);
   });
 
+  // #2207: priority is a color-only cue (PriorityBars is aria-hidden), so the
+  // rank must be folded into the row's accessible name for SR users.
+  it('folds priority rank into the QueueRow accessible name', () => {
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        tasks={[makeTask({ id: 'p', status: 'NOT_STARTED', name: 'Refresh logo', priorityRank: 5 })]}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Refresh logo,.*, priority 5$/ })).toBeInTheDocument();
+  });
+
+  it('omits the priority suffix from the QueueRow name when unranked', () => {
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        tasks={[makeTask({ id: 'p', status: 'NOT_STARTED', name: 'Refresh logo' })]}
+      />,
+    );
+    expect(screen.getByTestId('queue-row-p').getAttribute('aria-label')).not.toMatch(/priority/);
+  });
+
   it('renders the top-level empty state when there are no tasks at all', () => {
     render(<QueueLayout {...BASE_PROPS} now={NOW} tasks={[]} />);
     expect(screen.getByTestId('queue-empty')).toHaveTextContent(/No tasks yet/i);
