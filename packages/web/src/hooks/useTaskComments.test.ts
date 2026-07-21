@@ -8,15 +8,18 @@ import {
   useCreateComment,
   useAcknowledgeComment,
   useReactToComment,
+  useUpdateComment,
+  useDeleteComment,
 } from './useTaskComments';
 import type { TaskComment } from '@/types';
 
 const getMock = vi.hoisted(() => vi.fn());
 const postMock = vi.hoisted(() => vi.fn());
 const deleteMock = vi.hoisted(() => vi.fn());
+const patchMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/api/client', () => ({
-  apiClient: { get: getMock, post: postMock, delete: deleteMock },
+  apiClient: { get: getMock, post: postMock, delete: deleteMock, patch: patchMock },
 }));
 
 vi.mock('@/hooks/useCurrentUser', () => ({
@@ -53,6 +56,8 @@ const baseComment: TaskComment = {
   acknowledged_count: 0,
   reaction_count: 0,
   has_my_acknowledgement: false,
+  has_my_reaction: false,
+  my_reaction_id: null,
 };
 
 describe('useTaskComments', () => {
@@ -146,6 +151,59 @@ describe('useCreateComment', () => {
     });
     const cached = qc.getQueryData<TaskComment[]>(['task-comments', 't1']);
     expect(cached).toEqual([baseComment]);
+  });
+});
+
+describe('useUpdateComment', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('PATCHes the comment body (#2171)', async () => {
+    patchMock.mockResolvedValueOnce({ data: { ...baseComment, body: 'fixed' } });
+    const { result } = renderHook(() => useUpdateComment(), { wrapper: makeWrapper(newQc()) });
+    await act(async () => {
+      await result.current.mutateAsync({
+        projectId: 'p1',
+        taskId: 't1',
+        commentId: 'c1',
+        body: 'fixed',
+      });
+    });
+    expect(patchMock).toHaveBeenCalledWith('/projects/p1/tasks/t1/comments/c1/', { body: 'fixed' });
+  });
+
+  it('surfaces the error when the edit window has closed (#2171)', async () => {
+    patchMock.mockRejectedValueOnce(new Error('comment_edit_window_closed'));
+    const { result } = renderHook(() => useUpdateComment(), { wrapper: makeWrapper(newQc()) });
+    await act(async () => {
+      try {
+        await result.current.mutateAsync({
+          projectId: 'p1',
+          taskId: 't1',
+          commentId: 'c1',
+          body: 'too late',
+        });
+      } catch {
+        // expected
+      }
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+describe('useDeleteComment', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('DELETEs the comment (#2171)', async () => {
+    deleteMock.mockResolvedValueOnce({ data: undefined });
+    const { result } = renderHook(() => useDeleteComment(), { wrapper: makeWrapper(newQc()) });
+    await act(async () => {
+      await result.current.mutateAsync({ projectId: 'p1', taskId: 't1', commentId: 'c1' });
+    });
+    expect(deleteMock).toHaveBeenCalledWith('/projects/p1/tasks/t1/comments/c1/');
   });
 });
 

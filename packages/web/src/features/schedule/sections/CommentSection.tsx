@@ -13,9 +13,16 @@
 import type { ReactElement } from 'react';
 import { useMemo, useState } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
-import { canEditTask } from '@/lib/roles';
-import { useAcknowledgeComment, useReactToComment, useTaskComments } from '@/hooks/useTaskComments';
+import { canEditTask, ROLE_ADMIN } from '@/lib/roles';
+import {
+  useAcknowledgeComment,
+  useDeleteComment,
+  useReactToComment,
+  useTaskComments,
+  useUpdateComment,
+} from '@/hooks/useTaskComments';
 import { useTaskAttachments } from '@/hooks/useTaskAttachments';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { formatRelative } from '@/lib/formatRelative';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import type { TaskAttachment, TaskComment } from '@/types';
@@ -23,6 +30,11 @@ import { CommentComposer } from './CommentComposer';
 
 const ATTACHMENT_REF_RE = /\[\[attachment:([0-9a-f-]{36})\]\]/g;
 const MENTION_RE = /(^|\s)(\\?)@([A-Za-z0-9_.-]+)/g;
+
+/** ADR-0075 #11 — the author's self-edit window (mirrors COMMENT_EDIT_WINDOW_SECONDS). */
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
+/** Mirrors the composer/server body cap (MAX_COMMENT_BODY_CHARS) so inline edits stay in bounds. */
+const MAX_BODY_CHARS = 10_000;
 
 /**
  * Renders comment body into JSX, expanding:
@@ -136,6 +148,10 @@ interface CommentRowProps {
    * the comment body still renders but every write affordance is hidden.
    */
   editable: boolean;
+  /** Viewer may edit this comment's body (own comment, within the 15-min window). */
+  canEditBody: boolean;
+  /** Viewer may delete this comment (author or ADMIN+). */
+  canDelete: boolean;
   /** True when this row's reply composer is open. Reply only available on top-level rows. */
   isReplying?: boolean;
   /** Called when the user clicks Reply. */
@@ -151,12 +167,18 @@ function CommentRow({
   attachmentIndex,
   depth,
   editable,
+  canEditBody,
+  canDelete,
   isReplying,
   onReplyClick,
   onReplyClose,
 }: CommentRowProps) {
   const ack = useAcknowledgeComment();
   const react = useReactToComment();
+  const update = useUpdateComment();
+  const del = useDeleteComment();
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(comment.body);
 
   // A comment's created_at is an INSTANT (#1953, ADR-0410) — re-clock its
   // relative label + full-date tooltip to the viewer's timezone + format.
@@ -175,15 +197,26 @@ function CommentRow({
   }
 
   function handleReact() {
-    // Phase 1: 👍 only. Phase 2 will look up the user's existing reaction id
-    // for toggle-off; for now POST always — the server dedups idempotently, so a
-    // repeat tap returns the existing reaction rather than erroring.
+    // Real toggle (#2171): if the user already reacted, DELETE their reaction row
+    // by id; otherwise POST a new 👍. Server broadcasts either way (ADR-0075 §A.4).
     react.mutate({
       projectId,
       taskId,
       commentId: comment.id,
       emoji: '👍',
+      ...(comment.has_my_reaction && comment.my_reaction_id
+        ? { reactionId: comment.my_reaction_id }
+        : {}),
     });
+  }
+
+  function handleSaveEdit() {
+    const body = draft.trim();
+    if (!body || body.length > MAX_BODY_CHARS) return;
+    update.mutate(
+      { projectId, taskId, commentId: comment.id, body },
+      { onSuccess: () => setIsEditing(false) },
+    );
   }
 
   return (
@@ -204,12 +237,63 @@ function CommentRow({
         </time>
         {wasEdited && <span className="text-xs text-neutral-text-secondary italic">· edited</span>}
       </div>
-      <div className="text-sm text-neutral-text-primary whitespace-pre-wrap break-words">
-        {renderBody(comment.body, attachmentIndex)}
-      </div>
-      {/* The action bar holds only write affordances (reply / ack / react);
-          a non-editor sees the comment body but none of these controls. */}
-      {editable && (
+      {isEditing ? (
+        <div className="flex flex-col gap-2">
+          <label className="sr-only" htmlFor={`comment-edit-${comment.id}`}>
+            Edit comment
+          </label>
+          <textarea
+            id={`comment-edit-${comment.id}`}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={3}
+            maxLength={MAX_BODY_CHARS}
+            className="text-sm bg-neutral-surface border border-neutral-border rounded-control p-2
+              text-neutral-text-primary
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+              resize-y min-h-[60px]"
+          />
+          {update.isError && (
+            <span className="text-xs text-semantic-critical" role="alert">
+              Couldn&apos;t save — the 15-minute edit window may have closed.
+            </span>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSaveEdit}
+              disabled={update.isPending || draft.trim().length === 0}
+              className="text-xs border border-brand-primary/40 text-brand-primary rounded-control px-3 h-7 font-medium
+                hover:bg-brand-primary/10
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                disabled:opacity-50"
+            >
+              {update.isPending ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(comment.body);
+                setIsEditing(false);
+              }}
+              disabled={update.isPending}
+              className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
+                text-neutral-text-secondary hover:bg-neutral-surface
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm text-neutral-text-primary whitespace-pre-wrap break-words">
+          {renderBody(comment.body, attachmentIndex)}
+        </div>
+      )}
+      {/* The action bar holds only write affordances (reply / ack / react / edit /
+          delete); a non-editor sees the comment body but none of these controls. */}
+      {editable && !isEditing && (
         <div className="flex items-center gap-1 mt-1">
           {depth === 0 && onReplyClick && (
             <button
@@ -251,17 +335,51 @@ function CommentRow({
             type="button"
             onClick={handleReact}
             disabled={react.isPending}
-            aria-label="React with 👍"
-            className="text-xs border border-neutral-border rounded-control px-2 min-h-11 md:min-h-7 font-medium
-              text-neutral-text-secondary hover:bg-neutral-surface
+            aria-pressed={comment.has_my_reaction}
+            aria-label={comment.has_my_reaction ? 'Remove your 👍 reaction' : 'React with 👍'}
+            className={`text-xs border rounded-control px-2 min-h-11 md:min-h-7 font-medium
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
-              disabled:opacity-50"
+              disabled:opacity-50
+              ${
+                comment.has_my_reaction
+                  ? 'border-brand-primary/40 text-brand-primary bg-brand-primary/10'
+                  : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface'
+              }`}
           >
             👍
             {comment.reaction_count > 0 && (
               <span className="ml-1 tppm-mono">{comment.reaction_count}</span>
             )}
           </button>
+          {canEditBody && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(comment.body);
+                setIsEditing(true);
+              }}
+              className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
+                text-neutral-text-secondary hover:bg-neutral-surface
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+              aria-label="Edit this comment"
+            >
+              Edit
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => del.mutate({ projectId, taskId, commentId: comment.id })}
+              disabled={del.isPending}
+              className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
+                text-neutral-text-secondary hover:bg-semantic-critical-bg hover:text-semantic-critical hover:border-semantic-critical/40
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                disabled:opacity-50"
+              aria-label="Delete this comment"
+            >
+              Delete
+            </button>
+          )}
         </div>
       )}
       {editable && isReplying && depth === 0 && (
@@ -282,10 +400,22 @@ function CommentRow({
 export function CommentSection({ taskId, projectId, userRole, canEdit }: DrawerSectionProps) {
   const { comments, isLoading, error } = useTaskComments(projectId, taskId);
   const { attachments } = useTaskAttachments(projectId, taskId);
+  const { user } = useCurrentUser();
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
 
   // ADR-0133/1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
   const editable = canEdit ?? canEditTask(userRole);
+  const isAdmin = (userRole ?? 0) >= ROLE_ADMIN;
+
+  // Mirror the Notes contract (#2171): the author may edit their own comment for
+  // 15 min after posting; the author or any ADMIN+ may delete it.
+  function canEditBody(c: TaskComment): boolean {
+    if (!editable || !user || c.author?.id !== user.id) return false;
+    return Date.now() - new Date(c.created_at).getTime() < EDIT_WINDOW_MS;
+  }
+  function canDelete(c: TaskComment): boolean {
+    return editable && (c.author?.id === user?.id || isAdmin);
+  }
 
   // Lookup table for [[attachment:uuid]] rendering. Soft-deleted attachments
   // are filtered out at the list endpoint so missing-id is the soft-delete
@@ -353,6 +483,8 @@ export function CommentSection({ taskId, projectId, userRole, canEdit }: DrawerS
                 attachmentIndex={attachmentIndex}
                 depth={0}
                 editable={editable}
+                canEditBody={canEditBody(c)}
+                canDelete={canDelete(c)}
                 isReplying={replyingTo === c.id}
                 onReplyClick={() => setReplyingTo(c.id)}
                 onReplyClose={() => setReplyingTo(null)}
@@ -366,6 +498,8 @@ export function CommentSection({ taskId, projectId, userRole, canEdit }: DrawerS
                   attachmentIndex={attachmentIndex}
                   depth={1}
                   editable={editable}
+                  canEditBody={canEditBody(reply)}
+                  canDelete={canDelete(reply)}
                 />
               ))}
             </li>

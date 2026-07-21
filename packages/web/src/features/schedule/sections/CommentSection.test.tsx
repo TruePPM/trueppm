@@ -9,12 +9,21 @@ const useAttachmentsMock = vi.hoisted(() => vi.fn());
 const useAckMock = vi.hoisted(() => vi.fn());
 const useReactMock = vi.hoisted(() => vi.fn());
 const useCreateCommentMock = vi.hoisted(() => vi.fn());
+const useUpdateCommentMock = vi.hoisted(() => vi.fn());
+const useDeleteCommentMock = vi.hoisted(() => vi.fn());
+const useCurrentUserMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/useTaskComments', () => ({
   useTaskComments: useCommentsMock,
   useAcknowledgeComment: useAckMock,
   useReactToComment: useReactMock,
   useCreateComment: useCreateCommentMock,
+  useUpdateComment: useUpdateCommentMock,
+  useDeleteComment: useDeleteCommentMock,
+}));
+
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: useCurrentUserMock,
 }));
 
 vi.mock('@/hooks/useTaskAttachments', () => ({
@@ -71,6 +80,8 @@ function comment(overrides: Partial<TaskComment> = {}): TaskComment {
     acknowledged_count: 0,
     reaction_count: 0,
     has_my_acknowledgement: false,
+    has_my_reaction: false,
+    my_reaction_id: null,
     ...overrides,
   };
 }
@@ -102,7 +113,12 @@ beforeEach(() => {
     isPending: false,
     isError: false,
   });
+  useUpdateCommentMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
+  useDeleteCommentMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
   useAttachmentsMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+  // Default: the current user IS the fixture comment's author ('u1'), so the
+  // author-only edit/delete affordances are reachable unless a test overrides it.
+  useCurrentUserMock.mockReturnValue({ user: { id: 'u1', username: 'alice' } });
 });
 
 describe('CommentSection — list states', () => {
@@ -238,6 +254,107 @@ describe('CommentSection — interactions', () => {
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({ commentId: 'c1', emoji: '👍' }),
     );
+  });
+
+  it('reflects a reacted state with aria-pressed and a toggle-off label (#2171)', () => {
+    const mutate = vi.fn();
+    useReactMock.mockReturnValue({ mutate, isPending: false });
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ reaction_count: 1, has_my_reaction: true, my_reaction_id: 'rx1' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    const btn = screen.getByLabelText('Remove your 👍 reaction');
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+    // Clicking un-reacts: the mutation carries the reaction id to DELETE.
+    fireEvent.click(btn);
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ commentId: 'c1', emoji: '👍', reactionId: 'rx1' }),
+    );
+  });
+
+  it('does not send a reactionId when the user has not reacted (toggle-on) (#2171)', () => {
+    const mutate = vi.fn();
+    useReactMock.mockReturnValue({ mutate, isPending: false });
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ has_my_reaction: false, my_reaction_id: null })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('React with 👍'));
+    expect(mutate).toHaveBeenCalledWith(
+      expect.not.objectContaining({ reactionId: expect.anything() }),
+    );
+  });
+
+  it('lets the author edit their own comment within the 15-min window (#2171)', () => {
+    const mutate = vi.fn();
+    useUpdateCommentMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useCommentsMock.mockReturnValue({
+      // Fresh comment authored by the current user (u1) → within edit window.
+      comments: [comment({ created_at: new Date().toISOString(), body: 'typo here' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('Edit this comment'));
+    const textarea = screen.getByLabelText('Edit comment');
+    fireEvent.change(textarea, { target: { value: 'fixed now' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ commentId: 'c1', body: 'fixed now' }),
+      expect.anything(),
+    );
+  });
+
+  it('hides Edit once the 15-min window has closed (#2171)', () => {
+    useCommentsMock.mockReturnValue({
+      // Old fixture created_at (2026-05-19) → window long closed.
+      comments: [comment()],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.queryByLabelText('Edit this comment')).toBeNull();
+  });
+
+  it('lets the author delete their own comment (#2171)', () => {
+    const mutate = vi.fn();
+    useDeleteCommentMock.mockReturnValue({ mutate, isPending: false });
+    useCommentsMock.mockReturnValue({
+      comments: [comment()],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('Delete this comment'));
+    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ commentId: 'c1' }));
+  });
+
+  it('lets an ADMIN delete another user’s comment but not edit it (#2171)', () => {
+    useCurrentUserMock.mockReturnValue({ user: { id: 'admin-9', username: 'admin' } });
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ created_at: new Date().toISOString() })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit userRole={ROLE_ADMIN} />);
+    // Delete is author-OR-admin; edit is author-only even within the window.
+    expect(screen.getByLabelText('Delete this comment')).toBeTruthy();
+    expect(screen.queryByLabelText('Edit this comment')).toBeNull();
+  });
+
+  it('hides Delete for a non-author, non-admin viewer (#2171)', () => {
+    useCurrentUserMock.mockReturnValue({ user: { id: 'u2', username: 'bob' } });
+    useCommentsMock.mockReturnValue({
+      comments: [comment()],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.queryByLabelText('Delete this comment')).toBeNull();
   });
 
   it('groups replies under their parent and indents them', () => {
