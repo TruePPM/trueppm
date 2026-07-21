@@ -186,6 +186,69 @@ describe('OverviewSection — progress field', () => {
     );
   });
 
+  // #2172 — keyboard stepping must not PATCH per arrow keyup. The value stays
+  // live locally (aria-valuenow) while commits debounce to a single request.
+  it('does not fire a PATCH per keyboard step; commits once after the debounce', () => {
+    vi.useFakeTimers();
+    try {
+      renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+      const input = screen.getByRole('slider', { name: /Task progress/i });
+      // Simulate three arrow steps (each fires change + keyup on a range input).
+      for (const v of ['41', '42', '43']) {
+        fireEvent.change(input, { target: { value: v } });
+        fireEvent.keyUp(input, { key: 'ArrowUp' });
+      }
+      // No commit yet — the value is only live locally.
+      expect(updateMock).not.toHaveBeenCalled();
+      expect(input).toHaveValue('43');
+
+      vi.advanceTimersByTime(500);
+      expect(updateMock).toHaveBeenCalledTimes(1);
+      expect(updateMock).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 't1', percent_complete: 43 }),
+        expect.any(Object),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('commits immediately on Enter without waiting for the debounce', () => {
+    vi.useFakeTimers();
+    try {
+      renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+      const input = screen.getByRole('slider', { name: /Task progress/i });
+      fireEvent.change(input, { target: { value: '60' } });
+      fireEvent.keyUp(input, { key: 'Enter' });
+      expect(updateMock).toHaveBeenCalledTimes(1);
+      expect(updateMock).toHaveBeenCalledWith(
+        expect.objectContaining({ percent_complete: 60 }),
+        expect.any(Object),
+      );
+      // A trailing debounce must not double-commit.
+      vi.advanceTimersByTime(500);
+      expect(updateMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('blur after keyboard stepping commits once (no double PATCH)', () => {
+    vi.useFakeTimers();
+    try {
+      renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+      const input = screen.getByRole('slider', { name: /Task progress/i });
+      fireEvent.change(input, { target: { value: '55' } });
+      fireEvent.keyUp(input, { key: 'ArrowUp' });
+      fireEvent.blur(input); // commits immediately and cancels the pending debounce
+      expect(updateMock).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(500);
+      expect(updateMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('disables the progress input when status is COMPLETE', () => {
     mockTasks.splice(0, mockTasks.length, { ...baseTask, status: 'COMPLETE', progress: 100 });
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
