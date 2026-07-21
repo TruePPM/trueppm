@@ -23,6 +23,7 @@ import {
   type MentionGroupOption,
   type MentionSuggestion,
 } from './MentionAutocomplete';
+import { useReportComposerDirty } from '../ComposerDirtyContext';
 
 /** ADR-0075 locked constraint #3 — comment body max length. */
 const MAX_BODY_CHARS = 10_000;
@@ -122,6 +123,11 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
   const canSubmit =
     body.trim().length > 0 && charCount <= MAX_BODY_CHARS && !createComment.isPending;
 
+  // Register unstaged text with the drawer so its unsaved-changes guard covers a
+  // half-written comment/reply — an Escape or task-swap must not destroy it
+  // silently (#2153).
+  useReportComposerDirty(body.trim().length > 0);
+
   const insertSuggestion = useCallback(
     (s: MentionSuggestion) => {
       if (!activeToken) return;
@@ -154,9 +160,20 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
     // Esc dismisses the popover whenever it's open — regardless of suggestion
     // count. Previously this branch was gated by `suggestions.length > 0`, so
     // a stuck "No matches" popover was undismissible without typing a space.
+    // Stop it here so the same keystroke doesn't also bubble to the drawer's
+    // document-level unsaved-changes guard and start closing the drawer (#2153).
     if (activeToken && e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       setCaret(-1);
+      return;
+    }
+    // With no popover open, Escape inside a non-empty composer is swallowed so it
+    // never bubbles to the drawer's Escape-to-close guard and destroys the
+    // half-written text (#2153). An empty composer lets Escape through (closing
+    // an empty drawer is harmless and expected).
+    if (e.key === 'Escape' && body.trim().length > 0) {
+      e.stopPropagation();
       return;
     }
     // Arrow / Enter navigation — only when there are suggestions to navigate.

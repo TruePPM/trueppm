@@ -226,6 +226,52 @@ describe('CommentComposer — submit', () => {
   });
 });
 
+describe('CommentComposer — Escape does not destroy unstaged text (#2153)', () => {
+  it('swallows Escape while non-empty so it never reaches the drawer close guard', () => {
+    render(<CommentComposer projectId="p1" taskId="t1" />);
+    const ta = getTextarea();
+    const onDocEsc = vi.fn();
+    document.addEventListener('keydown', onDocEsc);
+    try {
+      fireEvent.change(ta, { target: { value: 'half-written comment' } });
+      fireEvent.keyDown(ta, { key: 'Escape' });
+      // stopPropagation means the drawer's document-level Escape guard (mimicked
+      // here) never fires — the composer text survives.
+      expect(onDocEsc).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', onDocEsc);
+    }
+  });
+
+  it('lets Escape through when the composer is empty (harmless drawer close)', () => {
+    render(<CommentComposer projectId="p1" taskId="t1" />);
+    const onDocEsc = vi.fn();
+    document.addEventListener('keydown', onDocEsc);
+    try {
+      fireEvent.keyDown(getTextarea(), { key: 'Escape' });
+      expect(onDocEsc).toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', onDocEsc);
+    }
+  });
+
+  it('swallows Escape that dismisses the @-mention popover so the drawer stays open', () => {
+    render(<CommentComposer projectId="p1" taskId="t1" />);
+    const ta = getTextarea();
+    const onDocEsc = vi.fn();
+    document.addEventListener('keydown', onDocEsc);
+    try {
+      fireEvent.change(ta, { target: { value: 'hey @', selectionStart: 5 } });
+      fireEvent.select(ta, { target: { selectionStart: 5 } });
+      fireEvent.keyDown(ta, { key: 'Escape' });
+      expect(ta.getAttribute('aria-expanded')).toBe('false');
+      expect(onDocEsc).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', onDocEsc);
+    }
+  });
+});
+
 describe('CommentComposer — program-scoped mention groups (#514)', () => {
   it('offers @program-* groups when the project belongs to a program', () => {
     useProjectMock.mockReturnValue({ data: { program: 'prog-1' } });
