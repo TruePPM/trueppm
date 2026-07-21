@@ -254,9 +254,17 @@ function BoardCardImpl({
     id: task.id,
     disabled: readOnly,
   });
+  // dnd-kit's `attributes` carry `aria-describedby` pointing at its live-region
+  // instruction ("To pick up a draggable item, press space or enter…"). That
+  // pickup path is dead on this board: we override `onKeyDown` below with the
+  // open-detail handler, so the KeyboardSensor activator never fires (#2194).
+  // Announcing a keyboard-drag that cannot happen is a false SR instruction, so
+  // we drop only that association — the keyboard path for moving a card is the
+  // card's ⋯ → "Move to…" menu. `aria-roledescription="draggable"` is kept: the
+  // card genuinely is pointer/touch-draggable, and it is the card-root selector.
   const dragProps = readOnly
     ? { role: 'button' as const, tabIndex: 0 }
-    : { ...listeners, ...attributes };
+    : { ...listeners, ...attributes, 'aria-describedby': undefined };
 
   // Bind the task-aware chain-hover handler to this card once per render. These
   // live inside the component (not in the parent's map) so the card's incoming
@@ -338,6 +346,23 @@ function BoardCardImpl({
     const h = cardElRef.current?.offsetHeight;
     if (h && h > 0) lastHeightRef.current = h;
   });
+
+  // j/k/l/h board navigation must move *real* DOM focus, not just paint a ring
+  // (#2194 — the previous model set `focusedCardId` state only, so screen readers
+  // announced nothing, focus never moved, and Enter/E never reached a card). When
+  // this card becomes the keyboard-focused one, pull DOM focus to it and scroll
+  // it into view so SR announces its aria-label and the card's own Enter/Space
+  // open-handler is now the active target. `preventScroll` keeps focus() from
+  // yanking the viewport; the explicit `nearest` scroll is gentler across the
+  // horizontal columns. The card must actually be focusable (not filtered out).
+  useEffect(() => {
+    if (!isKeyboardFocused || isFilteredOut) return;
+    const el = cardElRef.current;
+    if (!el || document.activeElement === el) return;
+    el.focus({ preventScroll: true });
+    // Optional-chained: jsdom has no layout and does not implement scrollIntoView.
+    el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [isKeyboardFocused, isFilteredOut]);
 
   // Close menu on outside click
   useEffect(() => {
@@ -728,7 +753,12 @@ function BoardCardImpl({
         onClick={(e) => onCardClick?.(task, e.currentTarget)}
         onKeyDown={(e) => {
           if ((e.key === 'Enter' || e.key === ' ') && e.currentTarget === e.target) {
+            // The focused card owns Enter/Space (open detail). Stop it here so
+            // the window-level board keyboard registry doesn't double-handle it
+            // (#2194 — cheatsheet "Enter — Open card detail" is now real via
+            // this handler once j/k/l/h moves DOM focus to the card).
             e.preventDefault();
+            e.stopPropagation();
             onCardClick?.(task, e.currentTarget);
           }
         }}

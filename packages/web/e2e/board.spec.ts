@@ -393,8 +393,32 @@ test.describe('Board view', () => {
     const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText('Next card in column')).toBeVisible();
+    // #2194 — the cheatsheet must not advertise the dead Space-drag / comments
+    // shortcuts, and must document the real (menu-based) move path.
+    await expect(dialog.getByText(/pick up card to drag/i)).toHaveCount(0);
+    await expect(dialog.getByText('Show comments')).toHaveCount(0);
+    await expect(dialog.getByText(/move card between columns/i)).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible();
+  });
+
+  test('keyboard nav moves real DOM focus onto a card and E opens its edit modal (#2194)', async ({
+    page,
+  }) => {
+    // Cold-enter the board keyboard model: `l` bootstraps focus to the first
+    // non-empty column's first card and moves *real* DOM focus onto it — the
+    // previous model only painted a ring, so screen readers announced nothing
+    // and Enter/E never reached a card.
+    await page.keyboard.press('l');
+    const focusedCard = page.locator('[aria-roledescription="draggable"]:focus');
+    await expect(focusedCard).toHaveCount(1);
+
+    // `E` on the focused card opens it in the edit modal (was a dead binding —
+    // onEditCard was never wired into useBoardKeyboard).
+    await page.keyboard.press('e');
+    const editDialog = page.getByRole('dialog');
+    await expect(editDialog).toBeVisible();
+    await expect(editDialog.getByText('EDIT TASK')).toBeVisible();
   });
 
   test('Risk-linked-only filter pill toggles aria-pressed (issue #188)', async ({ page }) => {

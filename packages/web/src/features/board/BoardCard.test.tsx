@@ -970,6 +970,34 @@ describe('BoardCard', () => {
     });
   });
 
+  describe('keyboard focus & drag a11y (#2194)', () => {
+    function getCardRoot(): HTMLElement {
+      return screen
+        .getAllByRole('button')
+        .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+    }
+
+    it('does not announce the dead dnd-kit keyboard-pickup instruction', () => {
+      renderCard({});
+      const card = getCardRoot();
+      // Pointer/touch drag is real, so the card stays "draggable"…
+      expect(card).toHaveAttribute('aria-roledescription', 'draggable');
+      // …but the "press space or enter to pick up" describedby is stripped: that
+      // keyboard path is dead (onKeyDown is overridden with open-detail).
+      expect(card).not.toHaveAttribute('aria-describedby');
+    });
+
+    it('pulls real DOM focus onto the card when keyboard-focused', () => {
+      renderCard({ isKeyboardFocused: true });
+      expect(getCardRoot()).toHaveFocus();
+    });
+
+    it('does not steal focus when not keyboard-focused', () => {
+      renderCard({ isKeyboardFocused: false });
+      expect(getCardRoot()).not.toHaveFocus();
+    });
+  });
+
   describe('sprint scope-injection pending state (ADR-0102)', () => {
     const pendingTask: Task = {
       ...baseTask,

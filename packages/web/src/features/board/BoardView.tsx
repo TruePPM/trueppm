@@ -3173,6 +3173,10 @@ export function BoardView() {
     {
       onMoveCardFocus: b3OverlayOpen ? undefined : moveFocusInColumn,
       onMoveColumnFocus: b3OverlayOpen ? undefined : moveFocusInPhase,
+      // `E` edits the focused card (#2194 — the cheatsheet advertised this but the
+      // handler was never wired). Enter/Space open detail via the card's own
+      // key handler, which now receives real DOM focus from j/k/l/h.
+      onEditCard: !b3OverlayOpen && focusedTask ? () => setEditTaskId(focusedTask.id) : undefined,
       onShowDeps: !b3OverlayOpen && focusedTask ? () => handleShowDeps(focusedTask) : undefined,
       onShowCheatsheet: b3OverlayOpen ? undefined : () => setShowCheatsheet(true),
       onFocusSearch: b3OverlayOpen ? undefined : () => searchInputRef.current?.focus(),

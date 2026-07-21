@@ -66,4 +66,17 @@ describe('KeyboardCheatsheet', () => {
     render(<KeyboardCheatsheet onClose={vi.fn()} />);
     expect(screen.getByText('Show this cheatsheet')).toBeInTheDocument();
   });
+
+  // #2194 — the cheatsheet must not advertise dead shortcuts: Space-to-drag never
+  // worked (onKeyDown is overridden) and there is no "Show comments" handler.
+  it('does not advertise the dead keyboard-drag or comments shortcuts', () => {
+    render(<KeyboardCheatsheet onClose={vi.fn()} />);
+    expect(screen.queryByText(/pick up card to drag/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Show comments')).not.toBeInTheDocument();
+  });
+
+  it('documents the real keyboard path to move a card (the card actions menu)', () => {
+    render(<KeyboardCheatsheet onClose={vi.fn()} />);
+    expect(screen.getByText(/move card between columns/i)).toBeInTheDocument();
+  });
 });
