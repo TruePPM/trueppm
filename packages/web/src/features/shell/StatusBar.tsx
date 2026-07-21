@@ -2,20 +2,11 @@ import { useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectPresence } from '@/hooks/useProjectPresence';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import { useWsConnectionStore, type WsConnectionState } from '@/stores/wsConnectionStore';
 
 declare const __BUILD_SHA__: string;
-
-const VIEW_LABELS: Record<string, string> = {
-  board:     'Board',
-  schedule:  'Schedule',
-  wbs:       'WBS',
-  list:      'Table',
-  calendar:  'Calendar',
-  overview:  'Overview',
-  resources: 'Team',
-  risk:      'Risks',
-};
 
 /**
  * Dot color, short label, and accessible/tooltip text for each connection
@@ -66,6 +57,10 @@ export function StatusBar() {
   const { data: projects } = useProjects();
   const onlineUsers = useProjectPresence(projectId);
   const connectionState = useWsConnectionStore((s) => s.state);
+  // Resolve the Sprints/Cycles label through the shared inheritance chokepoint
+  // (ADR-0116, web rule 215b) so the bar shows the same iteration label as
+  // ViewTabs/BottomNav even when it's inherited from the program or workspace.
+  const sprintsLabel = useIterationLabel(projectId).plural;
 
   const project = projects?.find((p) => p.id === projectId);
 
@@ -76,7 +71,11 @@ export function StatusBar() {
   const pathSegments = location.pathname.split('/');
   const projectIdIndex = projectId ? pathSegments.indexOf(projectId) : -1;
   const viewSlug = (projectIdIndex >= 0 ? pathSegments[projectIdIndex + 1] : undefined) ?? '';
-  const viewLabel = VIEW_LABELS[viewSlug] ?? viewSlug;
+  // Derive the label from the SAME shared source ViewTabs/BottomNav read
+  // (`VIEW_TAB_META`, web rule 215) so the three never drift; `sprints` takes the
+  // inherited iteration label. Unknown segments fall back to the raw slug.
+  const viewLabel =
+    viewSlug === 'sprints' ? sprintsLabel : (VIEW_TAB_META[viewSlug]?.label ?? viewSlug);
   const statusNote = project ? `${project.name} · ${viewLabel}` : '';
 
   // The connection pill reflects the project WebSocket, which only runs inside

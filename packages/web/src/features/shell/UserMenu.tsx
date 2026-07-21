@@ -135,6 +135,20 @@ function MenuContent({
         </NavLink>
       )}
 
+      {/* Trash — recoverable soft-deleted projects (issue 2184). The only other
+          link lives in the workspace-settings rail, which is admin-gated, so a
+          project owner who is NOT a workspace admin had no in-product path to
+          restore a project they deleted. This row is always available (the route
+          itself allows any member; Restore stays Owner-gated by the API), giving a
+          durable path beyond the ephemeral "Undo" toast. */}
+      <NavLink
+        to="/settings/trash"
+        onClick={onClose}
+        className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
+      >
+        Trash
+      </NavLink>
+
       {/* Personal settings group (design §10 interim step, #1804): a visible
           "Personal" header so the personal-scope settings entries read as a
           set, distinct from the project-scoped row above. */}

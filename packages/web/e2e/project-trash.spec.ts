@@ -122,4 +122,44 @@ test.describe('Workspace Trash (#1113)', () => {
     await expect(page.getByRole('heading', { name: 'Trash', exact: true })).toBeVisible();
     await expect(page.getByText('Trash is empty')).toBeVisible();
   });
+
+  // Reachability (#2184): the workspace-rail Trash link is admin-gated, so a
+  // non-workspace-admin needs the always-available UserMenu entry to restore a
+  // project they deleted.
+  test('Trash is reachable from the account menu without workspace-admin access', async ({
+    page,
+  }) => {
+    await setupAuth(page);
+    await page.route('**/api/v1/projects/trash/', (route: Route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+    );
+
+    await page.goto('/');
+    // Open the account menu (accessible name: "Account — <name>").
+    await page.getByRole('button', { name: /^Account/ }).click();
+    const trashLink = page.getByRole('link', { name: 'Trash', exact: true });
+    await expect(trashLink).toBeVisible();
+    await trashLink.click();
+
+    await expect(page.getByRole('heading', { name: 'Trash', exact: true })).toBeVisible();
+    await expect(page.getByText('Trash is empty')).toBeVisible();
+  });
+});
+
+test.describe('Not found (#2184)', () => {
+  test('an unknown authed path keeps the shell and offers a way back', async ({ page }) => {
+    await setupAuth(page);
+
+    await page.goto('/this-path-does-not-exist');
+
+    // The shell chrome is still painted (the old bare 404 rendered outside it).
+    await expect(page.getByRole('button', { name: /^Account/ })).toBeVisible();
+    // A focusable recovery action — not a dead end.
+    const goToWork = page.getByRole('button', { name: 'Go to My Work' });
+    await expect(goToWork).toBeVisible();
+    await expect(page.getByRole('heading', { name: /page not found/i })).toBeVisible();
+    // Focus was moved to the heading on mount (rule 224) so keyboard users reach
+    // the CTAs without blind-Tabbing from <body>.
+    await expect(page.getByRole('heading', { name: /page not found/i })).toBeFocused();
+  });
 });

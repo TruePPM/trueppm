@@ -76,9 +76,37 @@ describe('StatusBar', () => {
     expect(screen.queryByText(/Alpha Platform/)).not.toBeInTheDocument();
   });
 
-  it('renders raw viewSlug when slug is not in VIEW_LABELS', () => {
+  it('renders raw viewSlug when the slug is not in VIEW_TAB_META', () => {
     renderWithRouter(<StatusBar />, { initialEntries: ['/projects/p1/unknown-view'] });
     expect(screen.getByText('Alpha Platform Upgrade · unknown-view')).toBeInTheDocument();
+  });
+
+  it('derives labels from the shared VIEW_TAB_META source (rule 215) — including slugs the old hand-rolled map missed', () => {
+    // These slugs were absent from the previous hand-rolled VIEW_LABELS map and
+    // fell through to the raw slug ("Alpha Launch · product-backlog"). They must
+    // now resolve to the same labels ViewTabs/BottomNav show.
+    for (const [slug, label] of [
+      ['product-backlog', 'Backlog'],
+      ['today', 'Today'],
+      ['grid', 'Grid'],
+      ['reports', 'Reports'],
+      ['activity', 'Activity'],
+      ['assets', 'Assets'],
+      ['settings', 'Settings'],
+    ] as const) {
+      const { unmount } = renderWithRouter(<StatusBar />, {
+        initialEntries: [`/projects/p1/${slug}`],
+      });
+      expect(screen.getByText(`Alpha Platform Upgrade · ${label}`)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('shows the iteration label (default "Sprints") for the sprints slug', () => {
+    // Resolved through useIterationLabel — falls back to the "Sprint" default here
+    // since the project-detail query is not mocked (rule 215b).
+    renderWithRouter(<StatusBar />, { initialEntries: ['/projects/p1/sprints'] });
+    expect(screen.getByText('Alpha Platform Upgrade · Sprints')).toBeInTheDocument();
   });
 
   describe('connection pill (#643)', () => {

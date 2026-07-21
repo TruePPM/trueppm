@@ -191,6 +191,31 @@ describe('UserMenu', () => {
     expect(items[0].getAttribute('href')).toBe('/me/work');
   });
 
+  it('renders a durable "Trash" item linking to /settings/trash for a non-workspace-admin (#2184)', () => {
+    // The #2012 profile: a project admin who is a plain workspace member — no
+    // "Workspace settings" row, so the workspace-rail Trash link is unreachable.
+    // The UserMenu Trash entry is their only in-product path to restore a deleted
+    // project.
+    mockUserResult.value = {
+      user: {
+        id: '1',
+        username: 'sarah',
+        display_name: 'Sarah Chen',
+        initials: 'SC',
+        email: 'sarah@example.com',
+        can_access_admin_settings: true,
+        workspace_role: 100,
+      },
+      isLoading: false,
+    };
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    expect(screen.queryByRole('link', { name: /workspace settings/i })).toBeNull();
+    const items = screen.getAllByRole('link', { name: /^Trash$/i });
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0].getAttribute('href')).toBe('/settings/trash');
+  });
+
   it('renders the "General" item linking to /me/settings/general (ADR-0129, #1181)', () => {
     renderWithRouter(<UserMenu />);
     openMenu();

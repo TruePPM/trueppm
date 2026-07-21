@@ -31,7 +31,7 @@ export function NotificationListPage() {
   );
 
   return (
-    <main aria-label="Notifications" className="flex flex-col gap-4 p-6 max-w-3xl mx-auto">
+    <section aria-label="Notifications" className="flex flex-col gap-4 p-6 max-w-3xl mx-auto">
       <header className="flex items-center gap-2 flex-wrap">
         <h1 className="text-lg font-semibold text-neutral-text-primary">Notifications</h1>
         <button
@@ -167,6 +167,6 @@ export function NotificationListPage() {
       >
         Notification preferences →
       </Link>
-    </main>
+    </section>
   );
 }

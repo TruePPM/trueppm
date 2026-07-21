@@ -64,7 +64,7 @@ export function ConnectedAccountsPage() {
 
   if (isLoading) {
     return (
-      <main
+      <section
         aria-busy="true"
         aria-label="Loading connected accounts"
         className="p-6 max-w-3xl mx-auto"
@@ -75,13 +75,13 @@ export function ConnectedAccountsPage() {
           <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
           <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
         </div>
-      </main>
+      </section>
     );
   }
 
   if (error) {
     return (
-      <main role="alert" className="p-6 max-w-3xl mx-auto">
+      <div role="alert" className="p-6 max-w-3xl mx-auto">
         <p className="text-sm text-semantic-critical">
           Couldn&apos;t load connected accounts.{' '}
           <button
@@ -92,14 +92,14 @@ export function ConnectedAccountsPage() {
             Retry
           </button>
         </p>
-      </main>
+      </div>
     );
   }
 
   const allEmpty = credentials.every((c) => !c.exists);
 
   return (
-    <main
+    <section
       aria-label="Connected accounts"
       className="flex flex-col gap-6 p-6 max-w-3xl mx-auto"
     >
@@ -166,7 +166,7 @@ export function ConnectedAccountsPage() {
           onDismiss={() => setDialog(null)}
         />
       ) : null}
-    </main>
+    </section>
   );
 }
 
