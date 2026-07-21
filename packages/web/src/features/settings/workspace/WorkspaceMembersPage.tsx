@@ -21,7 +21,11 @@ const ROLE_PALETTE: Record<string, { bg: string; text: string; style?: CSSProper
   // bg-[hex] arbitrary-value class that trips the arbitrary-color gate.
   Admin: { bg: '', text: '', style: tintedChipStyle(IDENTITY_VIOLET) },
   PM: { bg: 'bg-brand-primary-light', text: 'text-brand-primary' },
-  Lead: { bg: 'bg-brand-accent-light', text: 'text-brand-accent-dark' },
+  // Readable on-tint amber text + rule-86 dark override (#2197).
+  Lead: {
+    bg: 'bg-brand-accent-light dark:bg-brand-accent/20',
+    text: 'text-brand-accent-text dark:text-brand-accent',
+  },
   Member: { bg: 'bg-neutral-surface-sunken', text: 'text-neutral-text-secondary' },
   Viewer: { bg: 'bg-neutral-surface-sunken', text: 'text-neutral-text-secondary' },
 };
@@ -105,7 +109,7 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
           <span className="font-medium truncate text-neutral-text-primary flex items-center gap-1.5">
             {m.name}
             {m.status === 'guest' && (
-              <span className="text-[11px] px-1 py-px rounded-chip bg-brand-accent-light text-brand-accent-dark font-semibold">
+              <span className="text-[11px] px-1 py-px rounded-chip bg-brand-accent-light dark:bg-brand-accent/20 text-brand-accent-text dark:text-brand-accent font-semibold">
                 GUEST
               </span>
             )}
@@ -508,14 +512,14 @@ export function WorkspaceMembersPage() {
       {/* Pending invite banner */}
       {pendingInvites.length > 0 && (
         <div className="px-6 pt-3">
-          <div className="flex items-center gap-3 px-3 py-2.5 rounded-card bg-brand-accent-light border border-brand-accent text-[13px]">
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-card bg-brand-accent-light dark:bg-brand-accent/20 border border-brand-accent dark:border-brand-accent/40 text-[13px]">
             <svg
               width="14"
               height="14"
               viewBox="0 0 16 16"
               fill="currentColor"
               aria-hidden="true"
-              className="text-brand-accent-dark shrink-0"
+              className="text-brand-accent-text dark:text-brand-accent shrink-0"
             >
               <path
                 d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3.5a1 1 0 0 1 0 2 1 1 0 0 1 0-2zm0 3.5v4"
@@ -535,7 +539,7 @@ export function WorkspaceMembersPage() {
               type="button"
               onClick={handleResendAll}
               disabled={resendAll.isPending}
-              className="text-[12px] text-brand-accent-dark font-semibold rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:text-neutral-text-secondary disabled:cursor-not-allowed hover:underline"
+              className="text-[12px] text-brand-accent-text dark:text-brand-accent font-semibold rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:text-neutral-text-secondary disabled:cursor-not-allowed hover:underline"
             >
               {resendAll.isPending ? 'Resending…' : 'Resend all →'}
             </button>
