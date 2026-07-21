@@ -12,10 +12,14 @@ describe('OfflineBanner', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders nothing when online', () => {
+  it('keeps the live region mounted but empty when online (#2203)', () => {
+    // Persisted so going offline injects text into an existing live node — a
+    // region mounted with its content is not reliably announced.
     setOnline(true);
     render(<OfflineBanner />);
-    expect(screen.queryByRole('status')).toBeNull();
+    const region = screen.getByRole('status');
+    expect(region).toHaveAttribute('aria-live', 'polite');
+    expect(region).toBeEmptyDOMElement();
   });
 
   it('renders a polite status banner when offline', () => {
@@ -36,21 +40,22 @@ describe('OfflineBanner', () => {
     expect(banner).toHaveTextContent(/scheduling changes need a connection/i);
   });
 
-  it('appears on the offline event and clears on the online event', () => {
+  it('injects the message on the offline event and clears it on the online event', () => {
     setOnline(true);
     render(<OfflineBanner />);
-    expect(screen.queryByRole('status')).toBeNull();
+    const region = screen.getByRole('status');
+    expect(region).toBeEmptyDOMElement();
 
     act(() => {
       setOnline(false);
       window.dispatchEvent(new Event('offline'));
     });
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(region).toHaveTextContent(/offline/i);
 
     act(() => {
       setOnline(true);
       window.dispatchEvent(new Event('online'));
     });
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(region).toBeEmptyDOMElement();
   });
 });

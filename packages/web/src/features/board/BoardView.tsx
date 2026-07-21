@@ -37,6 +37,7 @@ import { useProjectCustomFields, type ProjectCustomField } from '@/hooks/useProj
 import { setSearchParam, useUrlSelectedId } from '@/hooks/useUrlSelectedId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN, ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
+import { taskDndAnnouncements } from '@/lib/dndAnnouncements';
 import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import { useSpaceDragPan, SpaceAwarePointerSensor } from '@/hooks/useSpaceDragPan';
 import { useHasScrollBelow } from '@/hooks/useHasScrollBelow';
@@ -2933,6 +2934,10 @@ export function BoardView() {
     setOverCell(null);
   }, []);
 
+  // Name the dragged card on pickup/cancel instead of dnd-kit's raw-UUID
+  // default (#2203); the move outcome is announced via ariaLiveRef on drag end.
+  const dndAnnouncements = useMemo(() => taskDndAnnouncements(tasks), [tasks]);
+
   const handleMenuMove = useCallback(
     (task: Task, newStatus: TaskStatus) => {
       // A closed-sprint board is read-only: drag is already disabled per card
@@ -3211,6 +3216,7 @@ export function BoardView() {
 
       <DndContext
         sensors={sensors}
+        accessibility={{ announcements: dndAnnouncements }}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}

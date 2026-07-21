@@ -281,7 +281,8 @@ describe('OutlineMode — handleDragOver', () => {
     renderOutline();
     // t1's parent is p1; drag onto p2 (a *different* summary) should reparent.
     act(() => capturedHandlers.onDragOver?.(dragEvent('t1', 'p2') as DragOverEvent));
-    expect(screen.getByLabelText(/will become child of Phase 2/i)).toBeInTheDocument();
+    // #2203: the message is now rendered as live-region text content, not aria-label.
+    expect(screen.getByText(/will become child of Phase 2/i)).toBeInTheDocument();
   });
 
   it('clears the reparent target when "over" is null after a previous match', () => {
@@ -294,14 +295,14 @@ describe('OutlineMode — handleDragOver', () => {
   it('does NOT mark a leaf row as a reparent target', () => {
     renderOutline();
     act(() => capturedHandlers.onDragOver?.(dragEvent('t1', 't2') as DragOverEvent));
-    expect(screen.queryByLabelText(/will become child of/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/will become child of/i)).not.toBeInTheDocument();
   });
 
   it('does NOT mark a row as reparent when dragged onto its CURRENT parent', () => {
     renderOutline();
     // t1's current parent is p1 — over=p1 should NOT be a reparent.
     act(() => capturedHandlers.onDragOver?.(dragEvent('t1', 'p1') as DragOverEvent));
-    expect(screen.queryByLabelText(/will become child of/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/will become child of/i)).not.toBeInTheDocument();
   });
 });
 

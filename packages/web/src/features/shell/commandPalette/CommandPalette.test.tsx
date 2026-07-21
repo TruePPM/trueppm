@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { CommandPalette } from './CommandPalette';
@@ -90,6 +90,32 @@ describe('CommandPalette', () => {
     render(<CommandPalette />);
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzzz' } });
     expect(screen.getByText(/No matches/)).toBeInTheDocument();
+  });
+
+  it('keeps options out of the tab order so Tab/Escape stay on the combobox (#2203)', () => {
+    open();
+    render(<CommandPalette />);
+    for (const opt of screen.getAllByRole('option')) {
+      expect(opt).toHaveAttribute('tabindex', '-1');
+    }
+  });
+
+  it('announces the settled result count to screen readers after a debounce (#2203)', () => {
+    vi.useFakeTimers();
+    try {
+      open();
+      render(<CommandPalette />);
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'apollo' } });
+      // Not announced mid-keystroke…
+      expect(screen.queryByText(/result/i)).not.toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      // …the sr-only status region reports the settled count.
+      expect(screen.getByText(/1 result/i)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('runs the active item on Enter, and moves the selection with ArrowDown', () => {

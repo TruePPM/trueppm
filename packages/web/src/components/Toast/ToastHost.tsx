@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useToastStore } from './toastStore';
 import type { ToastItem } from './toastStore';
 
@@ -11,12 +11,14 @@ import type { ToastItem } from './toastStore';
  *
  * Accessibility: the wrap is `role="status" aria-live="polite"` so toasts are
  * announced without stealing focus, and `pointer-events-none` so it never blocks
- * the UI beneath. `shadow-pop` is allowed here — a toast is a pop surface, the
- * standing exception to web rule 1 (no content shadows).
+ * the UI beneath. The wrap is mounted permanently (not gated on toast count) so
+ * a toast's text is injected into an already-present live region — a region
+ * mounted at the same instant as its content is not reliably announced (#2203).
+ * `shadow-pop` is allowed here — a toast is a pop surface, the standing
+ * exception to web rule 1 (no content shadows).
  */
 export function ToastHost() {
   const toasts = useToastStore((s) => s.toasts);
-  if (toasts.length === 0) return null;
   return (
     <div
       className="pointer-events-none fixed bottom-[22px] left-1/2 z-[70] flex -translate-x-1/2 flex-col items-center gap-2.5"
@@ -33,17 +35,35 @@ export function ToastHost() {
 function ToastPill({ toast }: { toast: ToastItem }) {
   const dismiss = useToastStore((s) => s.dismiss);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // WCAG 2.2.1: pause the auto-dismiss while the pill is hovered or contains
+  // focus, so a keyboard/SR user can actually reach an Undo action before it
+  // disappears. Hover and focus are tracked separately — releasing one while
+  // the other still holds must not resume the countdown.
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const paused = hovered || focused;
 
   useEffect(() => {
+    if (paused) return;
+    // Leaving restarts the full duration (a fresh, honest window) rather than
+    // resuming a stale remainder.
     timerRef.current = setTimeout(() => dismiss(toast.id), toast.durationMs);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [toast.id, toast.durationMs, dismiss]);
+  }, [toast.id, toast.durationMs, dismiss, paused]);
 
   const dismissNow = () => dismiss(toast.id);
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => {
+        // Ignore focus moving between children of the same pill.
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setFocused(false);
+      }}
       className={[
         'pointer-events-auto flex items-center gap-2.5 rounded-[11px] bg-neutral-text-primary py-3 text-[13.5px] font-medium text-neutral-text-inverse shadow-pop motion-safe:animate-toast-rise',
         // Action toasts trim the right padding to seat the button; plain toasts
@@ -73,7 +93,7 @@ function ToastPill({ toast }: { toast: ToastItem }) {
             toast.action?.onClick();
             dismissNow();
           }}
-          className="ml-1 min-h-[40px] shrink-0 rounded-[8px] border-l border-neutral-text-inverse/25 pl-3 pr-1.5 font-semibold text-neutral-text-inverse hover:text-sage-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/70 focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-text-primary dark:hover:text-sage-700"
+          className="ml-1 min-h-[44px] shrink-0 rounded-[8px] border-l border-neutral-text-inverse/25 pl-3 pr-1.5 font-semibold text-neutral-text-inverse hover:text-sage-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/70 focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-text-primary dark:hover:text-sage-700"
         >
           {toast.action.label}
         </button>
