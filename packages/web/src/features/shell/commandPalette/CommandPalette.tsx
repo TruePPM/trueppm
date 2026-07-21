@@ -178,6 +178,9 @@ function PaletteOption({
       role="option"
       aria-selected={isActive}
       type="button"
+      // Options are driven via the input's aria-activedescendant, so they must
+      // not be tab stops — otherwise Tab/Escape leave the combobox model (#2203).
+      tabIndex={-1}
       onMouseMove={onHover}
       onClick={() => item.run()}
       className={`flex min-h-[44px] w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm ${
@@ -335,6 +338,27 @@ export function CommandPalette() {
     [filtered],
   );
 
+  // Announce the result count to SR users (#2203) — the listbox re-renders
+  // silently as the query narrows. Debounced so it speaks the settled count
+  // once, not on every keystroke; cleared when there is no query or the
+  // palette is closed.
+  const [resultsAnnouncement, setResultsAnnouncement] = useState('');
+  useEffect(() => {
+    const q = query.trim();
+    if (!open || !q) {
+      setResultsAnnouncement('');
+      return undefined;
+    }
+    const id = window.setTimeout(() => {
+      setResultsAnnouncement(
+        items.length === 0
+          ? `No matches for ${q}`
+          : `${items.length} result${items.length === 1 ? '' : 's'}`,
+      );
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [open, query, items.length]);
+
   // Reset query + selection each time the palette opens, and focus the input.
   useEffect(() => {
     if (open) {
@@ -422,6 +446,11 @@ export function CommandPalette() {
             Open a project to search its tasks and sprint.
           </p>
         )}
+
+        {/* Debounced result-count announcer (#2203) — persistent polite region. */}
+        <div role="status" aria-live="polite" className="sr-only">
+          {resultsAnnouncement}
+        </div>
 
         {/* Results */}
         <div

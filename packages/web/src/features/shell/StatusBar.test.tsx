@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, act } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { StatusBar } from './StatusBar';
@@ -152,6 +152,19 @@ describe('StatusBar', () => {
       expect(screen.queryByText(/viewing/)).not.toBeInTheDocument();
       // The contract copy only renders alongside the live viewing count.
       expect(screen.queryByText(/never who's editing what/i)).not.toBeInTheDocument();
+    });
+
+    it('announces a genuine state transition through a persistent polite region (#2203)', () => {
+      renderWithRouter(<StatusBar />);
+      // Nothing announced on the initial (live) mount — only the visible pill.
+      expect(screen.queryByText(/won't be saved/i)).not.toBeInTheDocument();
+
+      // live → stale: the sr-only announcer picks up the transition guidance
+      // (text content, distinct from the pill's aria-label).
+      act(() => {
+        useWsConnectionStore.setState({ state: 'stale', reconnectAttempts: 1 });
+      });
+      expect(screen.getByText(/won't be saved/i)).toBeInTheDocument();
     });
   });
 });

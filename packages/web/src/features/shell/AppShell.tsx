@@ -116,7 +116,14 @@ export function AppShell() {
               Chrome surface is reserved for navigation shell (sidebar, topbar).
               Content views render on the v2 app-canvas so cards (bg-neutral-surface)
               pop against it instead of disappearing into a flat white field (ADR-0126). */}
-          <main id="main-content" className="flex-1 min-w-0 overflow-auto bg-app-canvas">
+          {/* tabIndex={-1} lets RouteAnnouncer move focus here on SPA navigation
+              (WCAG 2.4.3, #2200) without adding a Tab stop; outline-none keeps
+              the whole content region from flashing a focus ring when it does. */}
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="flex-1 min-w-0 overflow-auto bg-app-canvas outline-none"
+          >
             {/* Non-blocking post-load guidance — renders only right after a
                 sample load (reads router state), dismissable (issue 1054). */}
             <StartExploringCallout />

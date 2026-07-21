@@ -1046,6 +1046,10 @@ export function ProjectOverviewPage() {
     const workSurfaceLabel = showCriticalPath ? 'Schedule' : 'Board';
     return (
       <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
+        {/* sr-only page landmark (#2200) — sibling views (Board/Schedule/
+            Resources) ship one; the Overview landing had none, so the page
+            heading was the first h2 and the RouteAnnouncer had no h1 to name. */}
+        <h1 className="sr-only">Overview</h1>
         {overview && <ProjectHeader overview={overview} projectId={projectId} />}
         <section
           aria-labelledby="first-run-heading"
@@ -1092,6 +1096,10 @@ export function ProjectOverviewPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
+      {/* sr-only page landmark (#2200) — sibling views (Board/Schedule/
+          Resources) ship one; the Overview landing had none, so the page
+          heading was the first h2 and the RouteAnnouncer had no h1 to name. */}
+      <h1 className="sr-only">Overview</h1>
       {/* Project header */}
       {overview && !overviewLoading && projectId && (
         <ProjectHeader overview={overview} projectId={projectId} />

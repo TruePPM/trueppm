@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjects } from '@/hooks/useProjects';
@@ -94,6 +95,23 @@ export function StatusBar() {
   // to sighted and screen-reader users alike.
   const presenceContract = "Shows who's online, never who's editing what.";
 
+  // Announce genuine WebSocket state *transitions* through a persistent polite
+  // region (#2203). The visible pill was a silent text/color swap — invisible
+  // to SR users. Dedupe on state only (not presence-count churn) and skip the
+  // initial mount so the app doesn't announce "Connecting…" on every load.
+  const [connTransition, setConnTransition] = useState('');
+  const prevConnRef = useRef<WsConnectionState | null>(null);
+  useEffect(() => {
+    if (!projectId) return;
+    if (prevConnRef.current === null) {
+      prevConnRef.current = connectionState;
+      return;
+    }
+    if (prevConnRef.current === connectionState) return;
+    prevConnRef.current = connectionState;
+    setConnTransition(conn.aria);
+  }, [connectionState, projectId, conn.aria]);
+
   // The bar sits on the *raised* paper, not the sunken well: neutral-text-secondary
   // (#6B6965) is 4.63:1 on white / 5.16:1 on raised paper but only 4.35:1 on the
   // sunken surface (#EAE5D9) — a WCAG 1.4.3 fail for the 11px chrome text (#1689).
@@ -106,7 +124,16 @@ export function StatusBar() {
       className="hidden md:flex items-center h-6 px-4 gap-4 text-[11px] text-neutral-text-secondary
         bg-neutral-surface-raised border-t border-neutral-border overflow-hidden"
     >
-      {/* Connection status indicator (#643) — project WebSocket only */}
+      {/* Persistent polite region for WS state transitions (#2203) — always
+          mounted so the transition message lands in an existing live node. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {connTransition}
+      </span>
+
+      {/* Connection status indicator (#643) — project WebSocket only. The pill
+          is NOT a live region: its aria-label carries the viewing count, which
+          would announce on every presence change and double-speak transitions
+          the persistent region above already handles (#2203). */}
       {projectId && (
         <span
           className="flex items-center gap-1.5"

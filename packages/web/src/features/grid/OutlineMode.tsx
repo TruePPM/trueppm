@@ -22,6 +22,7 @@ import { buildWbsTree, flattenVisible, collectAllIds } from './buildWbsTree';
 import { OutlineRow } from './OutlineRow';
 import { formatPredecessors } from './formatPredecessor';
 import { GridFilteredEmptyState } from './GridEmptyState';
+import { taskDndAnnouncements } from '@/lib/dndAnnouncements';
 import type { Task } from '@/types';
 import type { GridFilterState } from './filters';
 import { matchesFilters, hasAnyFilter } from './filters';
@@ -80,6 +81,10 @@ export function OutlineMode({
   const outdentTask = useOutdentTask(projectId);
   const reparentTask = useReparentTask(projectId);
   const [reparentTargetId, setReparentTargetId] = useState<string | null>(null);
+
+  // Name the dragged task on pickup/cancel instead of dnd-kit's raw-UUID
+  // default (#2203); the semantic move outcome is announced via liveAnnouncement.
+  const dndAnnouncements = useMemo(() => taskDndAnnouncements(tasks), [tasks]);
 
   // Filter tasks down to matches + their ancestors so the tree stays valid
   // even when a leaf matches but its parent doesn't.
@@ -368,6 +373,7 @@ export function OutlineMode({
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
+          accessibility={{ announcements: dndAnnouncements }}
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
           onDragCancel={() => setReparentTargetId(null)}
@@ -393,12 +399,12 @@ export function OutlineMode({
         </DndContext>
       </div>
 
-      <div
-        aria-live="polite"
-        aria-atomic="true"
-        className="sr-only"
-        aria-label={liveAnnouncement}
-      />
+      {/* Render the message as text content, not an aria-label: aria-label
+          mutations on an empty live node are not reliably spoken (#2203).
+          Matches the working pattern in GridView. */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {liveAnnouncement}
+      </div>
     </>
   );
 }

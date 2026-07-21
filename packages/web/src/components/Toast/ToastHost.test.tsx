@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { ToastHost } from './ToastHost';
 import { useToastStore } from './toastStore';
 import { toast } from './toast';
@@ -13,9 +13,13 @@ describe('ToastHost', () => {
     vi.useRealTimers();
   });
 
-  it('renders nothing when the queue is empty', () => {
-    const { container } = render(<ToastHost />);
-    expect(container).toBeEmptyDOMElement();
+  it('keeps the live region mounted but empty when the queue is empty (#2203)', () => {
+    // The region must persist so a toast's text is injected into an existing
+    // live node — a region mounted with its content is not reliably announced.
+    render(<ToastHost />);
+    const region = screen.getByRole('status');
+    expect(region).toHaveAttribute('aria-live', 'polite');
+    expect(region).toBeEmptyDOMElement();
   });
 
   it('announces a pushed toast in a polite status region that does not steal focus', () => {
@@ -96,5 +100,29 @@ describe('ToastHost', () => {
       vi.advanceTimersByTime(2600);
     });
     expect(screen.getByText('Moved to Trash')).toBeInTheDocument();
+  });
+
+  it('pauses auto-dismiss while hovered so an Undo stays reachable (WCAG 2.2.1, #2203)', () => {
+    render(<ToastHost />);
+    act(() => {
+      toast.action('Deleted', { label: 'Undo', onClick: vi.fn() }, { durationMs: 1500 });
+    });
+    const pill = screen.getByText('Deleted').closest('div') as HTMLElement;
+    // Hover pauses the countdown — well past the duration the toast survives.
+    act(() => {
+      fireEvent.mouseEnter(pill);
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByText('Deleted')).toBeInTheDocument();
+    // Leaving restarts the full duration, then it dismisses.
+    act(() => {
+      fireEvent.mouseLeave(pill);
+    });
+    act(() => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(screen.queryByText('Deleted')).not.toBeInTheDocument();
   });
 });
