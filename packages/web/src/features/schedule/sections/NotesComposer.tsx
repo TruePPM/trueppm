@@ -11,6 +11,7 @@ import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Button } from '@/components/Button';
 import { useCreateNote } from '@/hooks/useTaskNotes';
+import { useReportComposerDirty } from '../ComposerDirtyContext';
 
 /** ADR-0143 body cap — mirrors the server's MAX_NOTE_BODY_CHARS. */
 const MAX_BODY_CHARS = 10_000;
@@ -34,8 +35,12 @@ export function NotesComposer({ projectId, taskId }: Props) {
         ? 'text-semantic-at-risk'
         : 'text-neutral-text-secondary';
 
-  const canSubmit =
-    body.trim().length > 0 && charCount <= MAX_BODY_CHARS && !createNote.isPending;
+  const canSubmit = body.trim().length > 0 && charCount <= MAX_BODY_CHARS && !createNote.isPending;
+
+  // Register unstaged text with the drawer so its unsaved-changes guard covers a
+  // half-written note — an Escape or task-swap must not destroy it silently
+  // (#2153).
+  useReportComposerDirty(body.trim().length > 0);
 
   function handleSubmit() {
     if (!canSubmit) return;
@@ -54,6 +59,12 @@ export function NotesComposer({ projectId, taskId }: Props) {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canSubmit) {
       e.preventDefault();
       handleSubmit();
+      return;
+    }
+    // Swallow Escape while there is unstaged text so it never bubbles to the
+    // drawer's Escape-to-close guard and destroys the half-written note (#2153).
+    if (e.key === 'Escape' && body.trim().length > 0) {
+      e.stopPropagation();
     }
   }
 

@@ -21,6 +21,7 @@ import {
   useUnsavedChangesGuard,
 } from '@/components/dialog';
 import { TaskDraftProvider, type TaskDraftBinding } from './TaskDraftContext';
+import { ComposerDirtyProvider } from './ComposerDirtyContext';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -242,6 +243,13 @@ export function TaskDetailDrawer({
   const [pendingTask, setPendingTask] = useState<Task | null>(null);
   const [swapGuardOpen, setSwapGuardOpen] = useState(false);
 
+  // Unstaged free-text in a composer (comment / reply / decision-log note) is
+  // invisible to the scalar draft, so before #2153 an Escape or a task-swap
+  // destroyed it silently. Composers report their text via ComposerDirtyContext;
+  // this feeds the dismiss/swap decision below (`guardDirty`) but NOT the Save
+  // bar, which only ever persists the scalar fields.
+  const [composerDirty, setComposerDirty] = useState(false);
+
   // Deleted-out-from-under-a-dirty-draft latch (#2054). A WebSocket
   // `task_deleted` drops the task from the cache, so the host's `task` prop goes
   // null while the user has half-written edits. Rather than blink the drawer
@@ -252,10 +260,15 @@ export function TaskDetailDrawer({
 
   const taskId = task?.id;
 
-  // Read the latest dirty flag from the identity effect without making it a
+  // The dismiss/swap guard fires on either an unsaved scalar draft OR unstaged
+  // composer text — both are destroyed by a silent close or reseed (#2153).
+  // Kept separate from the scalar `dirty` used by the Save bar / estimate gating.
+  const guardDirty = dirty || composerDirty;
+
+  // Read the latest guard-dirty flag from the identity effect without making it a
   // dependency (that would re-run the identity logic on every keystroke).
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
+  const guardDirtyRef = useRef(guardDirty);
+  guardDirtyRef.current = guardDirty;
   // Same trick for the task list: the prop→null branch needs the *current* task
   // set to decide "was this a deliberate deselect (task still exists) or a
   // delete out from under me (task gone)?" without re-running on every fetch.
@@ -285,7 +298,7 @@ export function TaskDetailDrawer({
       const currentTasks = allTasksRef.current ?? [];
       const deleted =
         prev !== null &&
-        dirtyRef.current &&
+        guardDirtyRef.current &&
         currentTasks.length > 0 &&
         !currentTasks.some((t) => t.id === prev.id);
       if (deleted) {
@@ -298,7 +311,7 @@ export function TaskDetailDrawer({
       setDeletedExternally(false);
       return;
     }
-    if (renderedTask === null || !dirtyRef.current) {
+    if (renderedTask === null || !guardDirtyRef.current) {
       setRenderedTask(taskProp);
       commit(toDraft(taskProp));
       setActiveTab('details');
@@ -429,7 +442,7 @@ export function TaskDetailDrawer({
     onClose();
   }, [restoreFocus, reset, onClose]);
   const { requestClose, guardOpen, keepEditing, discard } = useUnsavedChangesGuard({
-    dirty,
+    dirty: guardDirty,
     onClose: closeAndReset,
     escapeToClose: isOpen && !expandGuardOpen && !swapGuardOpen,
   });
@@ -471,9 +484,12 @@ export function TaskDetailDrawer({
     void navigate(`/projects/${projectId}/tasks/${task.id}`);
   }, [task, projectId, reset, onClose, navigate]);
   const handleExpand = useCallback(() => {
-    if (dirty) setExpandGuardOpen(true);
+    // Expanding to the full page unmounts the drawer (and its composers), so an
+    // unstaged comment/note is lost the same way a swap loses it — guard on the
+    // combined dirty, not just the scalar draft (#2153).
+    if (guardDirty) setExpandGuardOpen(true);
     else doExpand();
-  }, [dirty, doExpand]);
+  }, [guardDirty, doExpand]);
 
   // Tab-switch keeps the dirty draft intact — the bar docks below the tabpanel,
   // so nothing is lost or silently saved when moving between tabs.
@@ -648,38 +664,40 @@ export function TaskDetailDrawer({
     // via useTaskDraft); a section that ignores it keeps its immediate mutation
     // — the DrawerSectionProps contract is unchanged (#1985, ADR-0439).
     <TaskDraftProvider value={estimateBinding}>
-      <DrawerContent
-        task={task}
-        projectId={projectId}
-        userRole={userRole}
-        drawerTitle={drawerTitle}
-        closeButtonRef={closeButtonRef}
-        onRequestClose={requestClose}
-        onExpand={handleExpand}
-        tabs={visibleTabs}
-        activeTab={activeTab}
-        onTabChange={changeTab}
-        sectionsByTab={sectionsByTab}
-        subtaskStats={subtaskStats}
-        draftName={draft.name}
-        onNameChange={(v) => setField('name', v)}
-        changedName={draft.name !== baseline.name}
-        draftNotes={draft.notes}
-        onNotesChange={(v) => setField('notes', v)}
-        changedNotes={draft.notes !== baseline.notes}
-        changedEstimates={changedEstimates}
-        estimateInvalid={estimateInvalid}
-        notesChangedElsewhere={notesChangedElsewhere}
-        deletedExternally={deletedExternally}
-        copiedDraft={copiedDraft}
-        onCopyDeletedDraft={handleCopyDeletedDraft}
-        onDismissDeleted={handleDismissDeleted}
-        dirty={dirty}
-        isSaving={isSaving}
-        saveFailed={saveFailed}
-        onSave={handleSave}
-        onCancel={reset}
-      />
+      <ComposerDirtyProvider onDirtyChange={setComposerDirty}>
+        <DrawerContent
+          task={task}
+          projectId={projectId}
+          userRole={userRole}
+          drawerTitle={drawerTitle}
+          closeButtonRef={closeButtonRef}
+          onRequestClose={requestClose}
+          onExpand={handleExpand}
+          tabs={visibleTabs}
+          activeTab={activeTab}
+          onTabChange={changeTab}
+          sectionsByTab={sectionsByTab}
+          subtaskStats={subtaskStats}
+          draftName={draft.name}
+          onNameChange={(v) => setField('name', v)}
+          changedName={draft.name !== baseline.name}
+          draftNotes={draft.notes}
+          onNotesChange={(v) => setField('notes', v)}
+          changedNotes={draft.notes !== baseline.notes}
+          changedEstimates={changedEstimates}
+          estimateInvalid={estimateInvalid}
+          notesChangedElsewhere={notesChangedElsewhere}
+          deletedExternally={deletedExternally}
+          copiedDraft={copiedDraft}
+          onCopyDeletedDraft={handleCopyDeletedDraft}
+          onDismissDeleted={handleDismissDeleted}
+          dirty={dirty}
+          isSaving={isSaving}
+          saveFailed={saveFailed}
+          onSave={handleSave}
+          onCancel={reset}
+        />
+      </ComposerDirtyProvider>
     </TaskDraftProvider>
   );
 

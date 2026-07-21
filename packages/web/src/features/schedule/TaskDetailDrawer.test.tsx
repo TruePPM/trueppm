@@ -2,10 +2,12 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
+import { useState } from 'react';
 
 import type { Task } from '@/types';
 import { registry, type DrawerSectionContext } from '@/lib/widget-registry';
 import { TaskDetailDrawer, SectionList } from './TaskDetailDrawer';
+import { useReportComposerDirty } from './ComposerDirtyContext';
 
 // `delay: null` dispatches keystrokes with no inter-event setTimeout so the
 // whole `user.type()` resolves within one flush. With the default delay, the
@@ -106,7 +108,31 @@ beforeAll(() => {
     component: () => <div>activity-panel-body</div>,
     canRender: onlyTabTest,
   });
+  // A composer stand-in (#2153): reports unstaged text via ComposerDirtyContext,
+  // exactly as CommentComposer / NotesComposer do, so the drawer's guard wiring
+  // can be exercised without mounting the full composer + its hooks. Scoped to
+  // task id 'composertest'.
+  registry.register('task_detail.section', {
+    id: 'test-composer',
+    priority: 5,
+    title: 'Discussion',
+    tab: 'details',
+    component: () => <ComposerProbe />,
+    canRender: (ctx: unknown) =>
+      (ctx as DrawerSectionContext).task != null &&
+      ((ctx as DrawerSectionContext).task as Task).id === 'composertest',
+  });
 });
+
+function ComposerProbe() {
+  const [text, setText] = useState('');
+  useReportComposerDirty(text.trim().length > 0);
+  return (
+    <button type="button" onClick={() => setText('a half-written comment')}>
+      type-comment
+    </button>
+  );
+}
 
 describe('TaskDetailDrawer save concurrency (#2038)', () => {
   it('passes baseVersion from the task serverVersion when saving a name edit', async () => {
@@ -526,6 +552,35 @@ describe('TaskDetailDrawer close guard', () => {
     );
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // #2153: unstaged composer text must raise the same guard on close, without
+  // masquerading as a scalar edit (no Save bar).
+  it('raises the guard on close when only a composer has unstaged text', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 'composertest' });
+    TASKS = [task];
+    const { onClose } = renderDrawerHarness(task);
+
+    // Clean start: no Save bar, close is unguarded.
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+
+    // Details-tab registry sections start collapsed — expand the probe's section.
+    await user.click(desktop().getByRole('button', { name: /Discussion/i }));
+    await user.click(desktop().getByRole('button', { name: 'type-comment' }));
+    // Composer text is NOT a scalar edit — the Save bar stays hidden.
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+
+    // Closing now prompts the guard instead of silently destroying the text.
+    await user.click(screen.getAllByRole('button', { name: 'Close task detail' })[0]);
+    const guard = screen.getByRole('alertdialog');
+    expect(within(guard).getByText('Discard unsaved changes?')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Keep editing returns to the drawer with the composer intact.
+    await user.click(within(guard).getByRole('button', { name: 'Keep editing' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
 

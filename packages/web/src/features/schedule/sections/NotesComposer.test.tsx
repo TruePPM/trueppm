@@ -46,6 +46,33 @@ describe('NotesComposer — submit gating', () => {
   });
 });
 
+describe('NotesComposer — Escape does not destroy unstaged text (#2153)', () => {
+  it('swallows Escape while non-empty so it never reaches the drawer close guard', () => {
+    render(<NotesComposer projectId="p1" taskId="t1" />);
+    const onDocEsc = vi.fn();
+    document.addEventListener('keydown', onDocEsc);
+    try {
+      fireEvent.change(getTextarea(), { target: { value: 'a half-written decision' } });
+      fireEvent.keyDown(getTextarea(), { key: 'Escape' });
+      expect(onDocEsc).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', onDocEsc);
+    }
+  });
+
+  it('lets Escape through when empty', () => {
+    render(<NotesComposer projectId="p1" taskId="t1" />);
+    const onDocEsc = vi.fn();
+    document.addEventListener('keydown', onDocEsc);
+    try {
+      fireEvent.keyDown(getTextarea(), { key: 'Escape' });
+      expect(onDocEsc).toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', onDocEsc);
+    }
+  });
+});
+
 describe('NotesComposer — character counter', () => {
   it('reflects the typed length', () => {
     render(<NotesComposer projectId="p1" taskId="t1" />);
