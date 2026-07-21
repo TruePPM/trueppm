@@ -102,7 +102,7 @@ export function MyGeneralPreferencesPage() {
   }
 
   return (
-    <main aria-label="General preferences" className="flex flex-col gap-4 p-6 max-w-3xl mx-auto">
+    <section aria-label="General preferences" className="flex flex-col gap-4 p-6 max-w-3xl mx-auto">
       <header className="flex flex-col gap-2">
         <h1 className="text-lg font-semibold text-neutral-text-primary">Preferences</h1>
         <MeSettingsSubNav />
@@ -186,6 +186,6 @@ export function MyGeneralPreferencesPage() {
       <ViewVisibilitySection />
 
       <TimezoneFormatSection />
-    </main>
+    </section>
   );
 }

@@ -11,6 +11,7 @@ import { RequireAdminSettings } from '@/features/settings/RequireAdminSettings';
 import { RequireWorkspaceAdmin } from '@/features/settings/RequireWorkspaceAdmin';
 import { SectionRedirect } from '@/features/settings/SectionRedirect';
 import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
+import { NotFoundPage } from '@/components/NotFoundPage';
 import { RouteTitle } from '@/components/RouteTitle';
 import type { RouteHandle } from '@/router/routeHandle';
 
@@ -1156,20 +1157,24 @@ export const router = createBrowserRouter([
               },
               // Root: redirect to first project overview, or prompt to select one.
               { index: true, element: <RootRedirect /> },
+              // Authed catch-all (issue 2184): an unknown path under the shell keeps
+              // the sidebar, TopBar, and ⌘K palette painted and offers a way back,
+              // instead of dropping to the bare top-level 404 outside the shell.
+              {
+                path: '*',
+                element: <NotFoundPage />,
+                handle: { title: 'Page Not Found' } satisfies RouteHandle,
+              },
             ],
           },
         ],
       },
+      // Top-level fallback for any path that never reaches the shell (e.g. an
+      // unauthenticated hit routed away before AppShell mounts). Same branded,
+      // focusable surface (issue 2184) rather than a dead-end 404.
       {
         path: '*',
-        element: (
-          <div className="min-h-screen flex items-center justify-center bg-neutral-surface-raised">
-            <div className="text-center">
-              <p className="text-4xl font-semibold text-neutral-text-primary">404</p>
-              <p className="mt-2 text-sm text-neutral-text-secondary">Page not found</p>
-            </div>
-          </div>
-        ),
+        element: <NotFoundPage />,
         handle: { title: 'Page Not Found' } satisfies RouteHandle,
       },
     ],

@@ -221,16 +221,16 @@ export function NotificationPreferencesPage() {
 
   if (isLoading) {
     return (
-      <main aria-busy="true" aria-label="Loading notification preferences" className="p-6">
+      <section aria-busy="true" aria-label="Loading notification preferences" className="p-6">
         <div className="h-8 w-64 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse mb-4" />
         <div className="h-40 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
-      </main>
+      </section>
     );
   }
 
   if (error) {
     return (
-      <main className="p-6" role="alert">
+      <div className="p-6" role="alert">
         <p className="text-sm text-semantic-critical">
           Couldn&apos;t load preferences.{' '}
           <button
@@ -241,12 +241,12 @@ export function NotificationPreferencesPage() {
             Reload
           </button>
         </p>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main
+    <section
       aria-label="Notification preferences"
       className="flex flex-col gap-4 p-6 max-w-3xl mx-auto"
     >
@@ -446,6 +446,6 @@ export function NotificationPreferencesPage() {
               ? 'Couldn’t save preference. Try again.'
               : 'Changes save automatically.'}
       </p>
-    </main>
+    </section>
   );
 }

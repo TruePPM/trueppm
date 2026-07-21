@@ -45,7 +45,7 @@ export function PersonalAccessTokensPage() {
   const atCap = activeCount >= MAX_PERSONAL_ACCESS_TOKENS;
 
   return (
-    <main aria-label="Personal access tokens" className="flex flex-col gap-6 p-6 max-w-3xl mx-auto">
+    <section aria-label="Personal access tokens" className="flex flex-col gap-6 p-6 max-w-3xl mx-auto">
       <header>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -134,7 +134,7 @@ export function PersonalAccessTokensPage() {
           }
         />
       )}
-    </main>
+    </section>
   );
 }
 
