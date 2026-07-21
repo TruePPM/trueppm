@@ -951,7 +951,8 @@ function TaskListRowInner({
       {buildMode && siblingIds && (
         <div
           className="absolute left-0 inset-y-0 w-3.5 flex items-center justify-center z-10
-            opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing
+            opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100
+            transition-opacity cursor-grab active:cursor-grabbing
             text-neutral-text-disabled hover:text-neutral-text-secondary"
           title={`Drag to reorder  ·  ${REORDER_KEY}+↑/↓ keyboard`}
           aria-hidden="true"

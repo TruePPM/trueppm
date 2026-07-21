@@ -178,6 +178,61 @@ describe('buildHitIndex', () => {
     expect(zone?.type).toBe('link-dot');
   });
 
+  // ── Short bars keep a drag-to-move body (#2185) ───────────────────────────
+
+  // A 1-day task at week zoom (pxPerDay 12) is only ~12px wide — narrower than
+  // RESIZE_HANDLE_WIDTH (16). Without the MIN_BODY_WIDTH clamp its whole body
+  // resolved to `resize` and drag silently changed duration instead of moving.
+  const taskShort = makeTask('short', '2026-04-07', '2026-04-07'); // exclusive right edge Apr 8
+  const barLeftShort =
+    scales.pxPerMs * (new Date('2026-04-07T00:00:00Z').getTime() - scales.start.getTime());
+  const barRightShort =
+    scales.pxPerMs * (new Date('2026-04-08T00:00:00Z').getTime() - scales.start.getTime());
+
+  it('short bar (<16px) keeps a grabbable body zone near its left edge (mouse)', () => {
+    // Sanity: the fixture bar really is narrower than the resize handle.
+    expect(barRightShort - barLeftShort).toBeLessThan(16);
+    const idx = buildHitIndex([taskShort], scales);
+    const zone = idx.query(barLeftShort + 3, barTopA + 5, false);
+    expect(zone?.type).toBe('bar');
+    expect(zone?.taskId).toBe('short');
+  });
+
+  it('short bar keeps a grabbable body zone on touch too', () => {
+    const idx = buildHitIndex([taskShort], scales);
+    const zone = idx.query(barLeftShort + 3, barTopA + 5, true);
+    expect(zone?.type).toBe('bar');
+  });
+
+  it('short bar still exposes a resize zone at its right overhang', () => {
+    const idx = buildHitIndex([taskShort], scales);
+    // Just past the right edge is the confined resize overhang.
+    const zone = idx.query(barRightShort + 3, barTopA + 5, false);
+    expect(zone?.type).toBe('resize');
+  });
+
+  // ── Milestones are draggable, never resizable (#2185) ─────────────────────
+
+  const milestone: Task = { ...makeTask('m', '2026-04-07', '2026-04-07'), isMilestone: true };
+  const barLeftM = barLeftShort;
+  const barRightM = barRightShort;
+
+  it('milestone right edge resolves to bar body, not resize', () => {
+    const idx = buildHitIndex([milestone], scales);
+    // A near-right-edge hit that would be `resize` on a normal bar.
+    const zone = idx.query(barRightM - 2, barTopA + 5, false);
+    expect(zone?.type).toBe('bar');
+    expect(zone?.taskId).toBe('m');
+  });
+
+  it('milestone exposes no resize zone across its whole span', () => {
+    const idx = buildHitIndex([milestone], scales);
+    for (let x = barLeftM; x <= barRightM; x += 1) {
+      const zone = idx.query(x, barTopA + 5, false);
+      expect(zone?.type).not.toBe('resize');
+    }
+  });
+
   // ── HitZone fields ────────────────────────────────────────────────────────
 
   it('returns correct barLeft, barRight, barTop, barBottom on hit', () => {
