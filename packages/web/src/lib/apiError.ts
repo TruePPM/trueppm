@@ -61,6 +61,46 @@ export function extractValidationMessage(error: unknown, fallback: string): stri
   return fallback;
 }
 
+/**
+ * Read DRF *field-level* validation errors out of a 400 body as a
+ * `{ field: message }` map (first message per field), so a form can highlight
+ * the offending inputs (`aria-invalid` + an inline `role="alert"` message,
+ * matching `RiskForm`). Form-level keys (`detail`, `non_field_errors`) are
+ * excluded — surface those in a banner via {@link extractValidationMessage}.
+ *
+ * Returns an empty object for non-axios errors, network / `5xx` failures, or an
+ * unrecognized body shape, so the caller can fall back to a banner-only message
+ * without promising per-field highlighting that will not appear.
+ */
+export function extractFieldErrors(error: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!axios.isAxiosError(error)) return out;
+  const data: unknown = error.response?.data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return out;
+  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+    if (key === 'detail' || key === 'non_field_errors') continue;
+    const message = firstString(value);
+    if (message) out[key] = message;
+  }
+  return out;
+}
+
+/**
+ * Read only the *form-level* DRF message (`detail` or `non_field_errors`) — the
+ * error that belongs to no single field — for a banner shown above a form whose
+ * individual fields are highlighted separately via {@link extractFieldErrors}.
+ * Returns `null` when the failure is field-only, opaque, or not a DRF body, so
+ * the caller can choose its own lead-in ("correct the highlighted fields") or
+ * generic fallback instead.
+ */
+export function extractFormLevelMessage(error: unknown): string | null {
+  if (!axios.isAxiosError(error)) return null;
+  const data: unknown = error.response?.data;
+  if (!data || typeof data !== 'object') return null;
+  const record = data as Record<string, unknown>;
+  return firstString(record.detail) ?? firstString(record.non_field_errors);
+}
+
 /** First non-empty string in `value`, unwrapping a `["msg", …]` DRF list. */
 function firstString(value: unknown): string | null {
   if (typeof value === 'string' && value.trim() !== '') return value;
