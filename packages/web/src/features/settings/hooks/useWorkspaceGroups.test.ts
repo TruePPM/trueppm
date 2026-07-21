@@ -24,7 +24,10 @@ const RAW_GROUP = {
   lead_user_id: 'user-sr',
   member_count: 9,
   members: [{ id: 'u1', name: 'Sam Reyes', initials: 'SR', color: '#7C3AED' }],
-  projects: ['Orion', 'Artemis IV'],
+  projects: [
+    { id: 'proj-1', name: 'Orion', role: 100, role_label: 'Team Member' },
+    { id: 'proj-2', name: 'Artemis IV', role: 300, role_label: 'Project Manager' },
+  ],
 };
 
 function makeWrapper() {
@@ -58,7 +61,10 @@ describe('useWorkspaceGroups — snake→camel mapping', () => {
     expect(group.memberCount).toBe(9);
     expect(group.leadUserId).toBe('user-sr');
     expect(group.lead).toBe('SR');
-    expect(group.projects).toEqual(['Orion', 'Artemis IV']);
+    expect(group.projects).toEqual([
+      { id: 'proj-1', name: 'Orion', role: 100, roleLabel: 'Team Member' },
+      { id: 'proj-2', name: 'Artemis IV', role: 300, roleLabel: 'Project Manager' },
+    ]);
     expect(group.members).toHaveLength(1);
   });
 

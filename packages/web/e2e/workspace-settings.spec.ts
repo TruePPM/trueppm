@@ -76,10 +76,40 @@ const GROUP = {
   description: 'Flight computer and firmware',
   lead: 'AK',
   lead_user_id: 'u1',
-  member_count: 4,
+  member_count: 1,
   members: [{ id: 'u1', name: 'Alice Khoury', initials: 'AK', color: '#3E8C6D' }],
-  projects: ['Orion', 'Artemis IV'],
+  // #2253: project links now carry id + conferred role (not bare name strings).
+  projects: [
+    { id: 'p-orion', name: 'Orion', role: 100, role_label: 'Team Member' },
+    { id: 'p-artemis', name: 'Artemis IV', role: 300, role_label: 'Project Manager' },
+  ],
 };
+
+// A workspace member NOT yet in the group above — the only addable option in the
+// Manage drawer's member picker (Alice/u1 is already a member).
+const OTHER_MEMBER = {
+  id: 'u2',
+  name: 'Bob Stone',
+  initials: 'BS',
+  color: '#C17A10',
+  email: 'bob@truescope.io',
+  role: 'Team Member',
+  role_value: 100,
+  groups: [],
+  project_count: 0,
+  last_active: '1d ago',
+  status: 'active',
+  sso: false,
+  two_fa: false,
+};
+
+// Projects the drawer's grant picker reads (/projects/). Orion + Artemis are
+// already linked, so only Gemini is grantable.
+const DRAWER_PROJECTS = [
+  { id: 'p-orion', name: 'Orion', start_date: '2026-01-01', calendar: 'c1' },
+  { id: 'p-artemis', name: 'Artemis IV', start_date: '2026-01-01', calendar: 'c1' },
+  { id: 'p-gemini', name: 'Gemini', start_date: '2026-01-01', calendar: 'c1' },
+];
 
 // ---------------------------------------------------------------------------
 // Common setup
@@ -189,9 +219,9 @@ test.describe('Workspace General page', () => {
     const keepToggle = page.getByRole('switch', { name: 'Keep Monte Carlo run history' });
     await expect(keepToggle).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByRole('spinbutton', { name: 'Run history limit' })).toHaveValue('100');
-    await expect(
-      page.getByRole('combobox', { name: 'Run attribution visible to' }),
-    ).toHaveValue('ADMIN_OWNER');
+    await expect(page.getByRole('combobox', { name: 'Run attribution visible to' })).toHaveValue(
+      'ADMIN_OWNER',
+    );
 
     // The workspace-only override policy renders the Lock option as a disabled
     // Enterprise affordance; "May override" is the live OSS default.
@@ -466,9 +496,7 @@ test.describe('Workspace Members page', () => {
     await expect(page.getByRole('textbox', { name: /email/i })).toHaveValue('');
   });
 
-  test('golden path — Export CSV downloads the visible members (issue 969)', async ({
-    page,
-  }) => {
+  test('golden path — Export CSV downloads the visible members (issue 969)', async ({ page }) => {
     await setup(page);
     await page.route('**/api/v1/workspace/members/', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
@@ -482,10 +510,7 @@ test.describe('Workspace Members page', () => {
     const exportBtn = page.getByRole('button', { name: 'Export CSV' });
     await expect(exportBtn).toBeEnabled();
 
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      exportBtn.click(),
-    ]);
+    const [download] = await Promise.all([page.waitForEvent('download'), exportBtn.click()]);
     expect(download.suggestedFilename()).toBe('trueppm-workspace-members.csv');
   });
 
@@ -608,7 +633,11 @@ test.describe('Workspace logo (#969)', () => {
     await page.route('**/api/v1/workspace/logo/', (r) => {
       if (r.request().method() === 'DELETE') {
         removed = true;
-        return r.fulfill({ status: 200, contentType: 'application/json', body: pj({ ...WORKSPACE, logo_url: null }) });
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({ ...WORKSPACE, logo_url: null }),
+        });
       }
       return r.fulfill({ status: 404, contentType: 'application/json', body: pj({}) });
     });
@@ -648,7 +677,11 @@ test.describe('Resend invite (#969)', () => {
     let resendPosted = false;
     await page.route('**/api/v1/workspace/invites/inv-1/resend/', (r) => {
       resendPosted = r.request().method() === 'POST';
-      return r.fulfill({ status: 202, contentType: 'application/json', body: pj({ queued: true }) });
+      return r.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: pj({ queued: true }),
+      });
     });
 
     await page.goto('/settings/members');
@@ -690,7 +723,11 @@ test.describe('Resend invite (#969)', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([INVITE]) }),
     );
     await page.route('**/api/v1/workspace/invites/inv-1/resend/', (r) =>
-      r.fulfill({ status: 429, contentType: 'application/json', body: pj({ detail: 'throttled' }) }),
+      r.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        body: pj({ detail: 'throttled' }),
+      }),
     );
 
     await page.goto('/settings/members');
@@ -868,6 +905,135 @@ test.describe('Workspace Groups page', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Workspace Groups — Manage drawer (#2253): add members + grant project access
+// ---------------------------------------------------------------------------
+
+test.describe('Workspace Groups — Manage drawer (#2253)', () => {
+  async function setupManage(page: Page) {
+    await setup(page);
+    await page.route('**/api/v1/workspace/groups/', (r) => {
+      if (r.request().method() === 'GET') {
+        return r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([GROUP]) });
+      }
+      return r.continue();
+    });
+    // The drawer reads the workspace roster (member picker) and the project list
+    // (grant picker); mock both with their real shapes.
+    await page.route('**/api/v1/workspace/members/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pjPage([MEMBER, OTHER_MEMBER]),
+      }),
+    );
+    await page.route('**/api/v1/workspace/invites/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([]) }),
+    );
+    await page.route('**/api/v1/projects/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({
+          count: DRAWER_PROJECTS.length,
+          next: null,
+          previous: null,
+          results: DRAWER_PROJECTS,
+        }),
+      }),
+    );
+  }
+
+  test('golden path — Manage opens a drawer listing members and project grants', async ({
+    page,
+  }) => {
+    await setupManage(page);
+    await page.goto('/settings/groups');
+    await expect(page.getByText('Avionics')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Manage Avionics' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Avionics' });
+    await expect(dialog).toBeVisible();
+    // Existing member and existing project grant (with its conferred role) render.
+    await expect(dialog.getByText('Alice Khoury')).toBeVisible();
+    await expect(dialog.getByText('Orion')).toBeVisible();
+    await expect(
+      dialog.getByRole('button', { name: /Revoke Avionics access to Orion/i }),
+    ).toBeVisible();
+  });
+
+  test('golden path — adding a member POSTs the chosen user id', async ({ page }) => {
+    await setupManage(page);
+    let postBody: unknown;
+    await page.route('**/api/v1/workspace/groups/grp-1/members/', (r) => {
+      postBody = r.request().postDataJSON();
+      return r.fulfill({ status: 201, contentType: 'application/json', body: pj(GROUP) });
+    });
+
+    await page.goto('/settings/groups');
+    await page.getByRole('button', { name: 'Manage Avionics' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Avionics' });
+    await expect(dialog).toBeVisible();
+
+    // Alice is already a member, so Bob is the only addable option. Scope to the
+    // combobox's own listbox — the Danger section (also mounted on the consolidated
+    // page) has a transfer-owner <select> whose native "Bob Stone" option collides.
+    await dialog.getByRole('button', { name: 'Add' }).click();
+    await page
+      .getByRole('listbox', { name: 'Select member' })
+      .getByRole('option', { name: 'Bob Stone' })
+      .click();
+
+    await expect.poll(() => postBody).toMatchObject({ user: 'u2' });
+  });
+
+  test('golden path — granting project access POSTs the project and chosen role', async ({
+    page,
+  }) => {
+    await setupManage(page);
+    let postBody: unknown;
+    await page.route('**/api/v1/workspace/groups/grp-1/projects/', (r) => {
+      postBody = r.request().postDataJSON();
+      return r.fulfill({ status: 201, contentType: 'application/json', body: pj(GROUP) });
+    });
+
+    await page.goto('/settings/groups');
+    await page.getByRole('button', { name: 'Manage Avionics' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Avionics' });
+    await expect(dialog).toBeVisible();
+
+    // Orion + Artemis are already linked, so Gemini is the only grantable project.
+    await dialog.getByRole('button', { name: 'Choose' }).click();
+    await page
+      .getByRole('listbox', { name: 'Select project' })
+      .getByRole('option', { name: 'Gemini' })
+      .click();
+    await dialog.getByLabel('Role to confer').selectOption('200'); // Resource Manager
+    await dialog.getByRole('button', { name: 'Grant' }).click();
+
+    await expect.poll(() => postBody).toMatchObject({ project: 'p-gemini', role: 200 });
+  });
+
+  test('revoke — removing a grant DELETEs by project id', async ({ page }) => {
+    await setupManage(page);
+    let deleted = false;
+    await page.route('**/api/v1/workspace/groups/grp-1/projects/p-orion/', (r) => {
+      deleted = r.request().method() === 'DELETE';
+      return r.fulfill({ status: 204, body: '' });
+    });
+
+    await page.goto('/settings/groups');
+    await page.getByRole('button', { name: 'Manage Avionics' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Avionics' });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole('button', { name: /Revoke Avionics access to Orion/i }).click();
+
+    await expect.poll(() => deleted).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Workspace Danger page — transfer / export / delete (#641)
 // ---------------------------------------------------------------------------
 
@@ -892,7 +1058,11 @@ const DANGER_MEMBER = {
 async function setupDanger(page: Page) {
   await setup(page);
   await page.route('**/api/v1/workspace/members/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER, DANGER_MEMBER]) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pjPage([MEMBER, DANGER_MEMBER]),
+    }),
   );
 }
 

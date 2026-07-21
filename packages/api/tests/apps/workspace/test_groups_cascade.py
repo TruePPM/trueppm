@@ -80,6 +80,37 @@ def test_non_admin_cannot_read_or_create_groups(admin: object, teammate: object)
     assert _client(admin).get(f"{GROUPS_URL}{gid}/").status_code == 200
 
 
+@pytest.mark.django_db
+def test_group_read_exposes_project_links_with_role(admin: object, project: Project) -> None:
+    # #2253: the group read exposes each project grant as an object carrying the
+    # project UUID + conferred role + label (not a bare name string), so the
+    # management UI can show the role and revoke by id. Assert BOTH read paths —
+    # the single-group detail (_build_group_dict) and the bulk list
+    # (_build_group_dicts) build the same shape via separate code.
+    gid = _make_group(admin, "Avionics")
+    _client(admin).post(
+        f"{GROUPS_URL}{gid}/projects/",
+        {"project": str(project.pk), "role": Role.ADMIN},
+        format="json",
+    )
+    expected = [
+        {
+            "id": str(project.pk),
+            "name": project.name,
+            "role": Role.ADMIN.value,
+            "role_label": Role.ADMIN.label,
+        }
+    ]
+
+    detail = _client(admin).get(f"{GROUPS_URL}{gid}/")
+    assert detail.status_code == 200
+    assert detail.data["projects"] == expected
+
+    listed = _client(admin).get(GROUPS_URL)
+    row = next(g for g in listed.data["results"] if g["id"] == gid)
+    assert row["projects"] == expected
+
+
 # --- cascade ----------------------------------------------------------------
 
 

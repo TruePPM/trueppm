@@ -34,6 +34,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
+from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.workspace import services
 from trueppm_api.apps.workspace.models import (
@@ -160,7 +161,9 @@ def _build_member_rows(users: list[Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def _group_dict(group: Group, members: list[Any], project_names: list[str]) -> dict[str, Any]:
+def _group_dict(
+    group: Group, members: list[Any], project_links: list[dict[str, Any]]
+) -> dict[str, Any]:
     lead = group.lead
     return {
         "id": str(group.pk),
@@ -178,8 +181,15 @@ def _group_dict(group: Group, members: list[Any], project_names: list[str]) -> d
             }
             for gm in members
         ],
-        "projects": project_names,
+        # #2253: project links carry id + conferred role (not just the name) so the
+        # management UI can render the granted role and revoke by project UUID.
+        "projects": project_links,
     }
+
+
+def _project_link(project_id: Any, name: str, role: int) -> dict[str, Any]:
+    """One group→project access grant, with the conferred role and its label (#2253)."""
+    return {"id": str(project_id), "name": name, "role": role, "role_label": Role(role).label}
 
 
 def _build_group_dict(group: Group) -> dict[str, Any]:
@@ -187,12 +197,13 @@ def _build_group_dict(group: Group) -> dict[str, Any]:
     members = list(
         GroupMembership.objects.filter(group=group, is_deleted=False).select_related("user")
     )
-    project_names = list(
-        GroupProject.objects.filter(group=group, project__is_deleted=False).values_list(
-            "project__name", flat=True
-        )
-    )
-    return _group_dict(group, members, project_names)
+    project_links = [
+        _project_link(pid, name, role)
+        for pid, name, role in GroupProject.objects.filter(
+            group=group, project__is_deleted=False
+        ).values_list("project_id", "project__name", "role")
+    ]
+    return _group_dict(group, members, project_links)
 
 
 def _build_group_dicts(groups: list[Group]) -> list[dict[str, Any]]:
@@ -203,11 +214,11 @@ def _build_group_dicts(groups: list[Group]) -> list[dict[str, Any]]:
         group_id__in=group_ids, is_deleted=False
     ).select_related("user"):
         members_by_group[gm.group_id].append(gm)
-    projects_by_group: dict[Any, list[str]] = defaultdict(list)
-    for group_id, project_name in GroupProject.objects.filter(
+    projects_by_group: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+    for group_id, project_id, project_name, role in GroupProject.objects.filter(
         group_id__in=group_ids, project__is_deleted=False
-    ).values_list("group_id", "project__name"):
-        projects_by_group[group_id].append(project_name)
+    ).values_list("group_id", "project_id", "project__name", "role"):
+        projects_by_group[group_id].append(_project_link(project_id, project_name, role))
     return [
         _group_dict(g, members_by_group.get(g.pk, []), projects_by_group.get(g.pk, []))
         for g in groups

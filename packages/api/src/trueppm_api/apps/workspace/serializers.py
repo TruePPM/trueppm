@@ -370,6 +370,20 @@ class InviteAcceptSerializer(serializers.Serializer[Any]):
 # ---------------------------------------------------------------------------
 
 
+class GroupProjectLinkSerializer(serializers.Serializer[Any]):
+    """A project a group grants access to, with the conferred role (#2253).
+
+    Documents the object shape (drf-spectacular) rather than an opaque dict, so
+    the management UI has a typed ``{id, name, role, role_label}`` to render the
+    granted role and revoke by project UUID.
+    """
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    role = serializers.IntegerField()
+    role_label = serializers.CharField()
+
+
 class GroupSerializer(serializers.Serializer[Any]):
     """Read serializer for a group row (fed a pre-built dict)."""
 
@@ -380,7 +394,7 @@ class GroupSerializer(serializers.Serializer[Any]):
     lead_user_id = serializers.CharField(allow_null=True)
     member_count = serializers.IntegerField()
     members = serializers.ListField(child=serializers.DictField())
-    projects = serializers.ListField(child=serializers.CharField())
+    projects = GroupProjectLinkSerializer(many=True)
 
 
 class GroupWriteSerializer(serializers.ModelSerializer[Group]):

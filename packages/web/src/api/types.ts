@@ -638,6 +638,19 @@ export interface WorkspaceGroupMember {
 }
 
 /**
+ * A project a workspace group grants access to, with the conferred role (#2253).
+ */
+export interface WorkspaceGroupProject {
+  /** Project UUID — used to revoke the grant. */
+  id: string;
+  name: string;
+  /** Conferred role ordinal (Role enum; always < Owner). */
+  role: number;
+  /** Human-readable role label, e.g. "Team Member". */
+  roleLabel: string;
+}
+
+/**
  * A workspace group row returned by GET /workspace/groups/.
  */
 export interface WorkspaceGroup {
@@ -650,8 +663,8 @@ export interface WorkspaceGroup {
   leadUserId: string | null;
   memberCount: number;
   members: WorkspaceGroupMember[];
-  /** Project names this group has access to. */
-  projects: string[];
+  /** Projects this group grants access to, with the conferred role. */
+  projects: WorkspaceGroupProject[];
 }
 
 // ---------------------------------------------------------------------------
