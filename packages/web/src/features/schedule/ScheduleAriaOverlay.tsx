@@ -148,6 +148,13 @@ export function ScheduleAriaOverlay({
   const [viewportHeight, setViewportHeight] = useState(0);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [liveMessage, setLiveMessage] = useState('');
+  // Mirror of the engine's selection so each gridcell's aria-selected re-renders
+  // when selection changes. Reading engine.selectedTaskIds directly (a mutable
+  // Set) never re-renders on canvas-click or the overlay's own Enter/Space, so
+  // aria-selected went stale until an unrelated scroll/resize (WCAG 4.1.2, #2185).
+  const [selectedTaskIds, setSelectedTaskIds] = useState<ReadonlySet<string>>(
+    () => engine?.selectedTaskIds ?? new Set<string>(),
+  );
   const gridRef = useRef<HTMLDivElement>(null);
   // Task id whose gridcell should receive DOM focus once it is rendered.
   const pendingFocusRef = useRef<string | null>(null);
@@ -163,6 +170,18 @@ export function ScheduleAriaOverlay({
     });
     return off;
   }, [engine, containerRef]);
+
+  // Track selection from engine events so aria-selected stays in sync with
+  // canvas-click and keyboard (Enter/Space) selection (rule 55: always
+  // unsubscribe). Re-seed on subscribe in case selection changed between renders.
+  useEffect(() => {
+    if (!engine) return;
+    setSelectedTaskIds(engine.selectedTaskIds);
+    const off = engine.on('selection-change', ({ taskIds }) => {
+      setSelectedTaskIds(new Set(taskIds));
+    });
+    return off;
+  }, [engine]);
 
   // Seed scrollTop and viewportHeight from container
   useEffect(() => {
@@ -357,7 +376,7 @@ export function ScheduleAriaOverlay({
               tabIndex={isFocused ? 0 : -1}
               aria-label={buildTaskAriaLabel(task)}
               aria-describedby={depDescId}
-              aria-selected={engine?.selectedTaskIds.has(task.id)}
+              aria-selected={selectedTaskIds.has(task.id)}
               className="focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface rounded-control outline-none"
               style={{
                 position: 'absolute',
