@@ -128,7 +128,121 @@ async function setupWithTask(page: Page): Promise<void> {
   );
 }
 
+// A membership-scoped project-search fallback so ad-hoc work on an *unassigned* task is
+// loggable — no assigned tasks, but /me/search/?type=task finds one (#2174).
+const SEARCH_TASK_ID = 'task-search-bbbb';
+async function setupNoAssignedWithSearch(page: Page): Promise<void> {
+  await setupAuthenticatedPage(page);
+
+  await page.route('**/api/v1/projects/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 1, next: null, previous: null, results: [PROJECT_DETAIL] }),
+    }),
+  );
+  await page.route('**/api/v1/me/active-sprints/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  // No assigned work — the assigned-only picker would otherwise be a dead end.
+  await page.route('**/api/v1/me/work/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        results: [],
+        next: null,
+        previous: null,
+        active_sprints: [],
+        due_today_count: 0,
+        server_version_high_water: 0,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/me/timer/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ active: false }) }),
+  );
+  // The project-wide task search fallback.
+  await page.route('**/api/v1/me/search/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        count: 1,
+        next: null,
+        previous: null,
+        results: [
+          {
+            id: SEARCH_TASK_ID,
+            kind: 'task',
+            type: 'task',
+            title: 'Help pour the footing',
+            program_id: null,
+            program_name: null,
+            project_id: PROJECT_ID,
+            project_name: 'Design App',
+            parent_epic_id: null,
+            parent_epic_name: null,
+          },
+        ],
+      }),
+    }),
+  );
+}
+
 test.describe('Global quick-log time popover (#1416, ADR-0185 §C)', () => {
+  test('empty state is a CTA, and a project search logs ad-hoc unassigned work (#2174)', async ({
+    page,
+  }) => {
+    await setupCatchAll(page);
+    await setupNoAssignedWithSearch(page);
+
+    let posted: Record<string, unknown> | null = null;
+    await page.route(`**/api/v1/tasks/${SEARCH_TASK_ID}/time-entries/`, async (route) => {
+      posted = route.request().postDataJSON();
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'entry-search-1',
+          task: SEARCH_TASK_ID,
+          minutes: 60,
+          entry_date: '2026-07-06',
+          note: '',
+          source: 'manual',
+          server_version: 1,
+          created_at: new Date().toISOString(),
+        }),
+      });
+    });
+
+    await page.goto('/me/work');
+    await page.getByRole('button', { name: 'Log time' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Log time' });
+    await expect(dialog).toBeVisible();
+
+    // With no assigned tasks the picker names the path forward — not a dead end.
+    await expect(
+      dialog.getByText(/search above to log against any task in your projects/i),
+    ).toBeVisible();
+
+    // Type a query → the membership-scoped search surfaces the unassigned task.
+    await dialog.getByRole('textbox', { name: 'Search your tasks or projects' }).fill('pour');
+    const hit = dialog.getByRole('radio', { name: /Help pour the footing/ });
+    await expect(hit).toBeVisible();
+    await expect(hit).toBeChecked();
+
+    // Log it — the entry POSTs against the searched task.
+    await dialog.getByRole('button', { name: /^Log / }).click();
+    await expect(page.getByText('Logged 1h 00m on Help pour the footing')).toBeVisible();
+    await expect(dialog).toHaveCount(0);
+    expect(posted).toEqual({
+      minutes: 60,
+      entry_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
+  });
+
+
   test('open from top bar → pick a task + preset → Log → success toast with Undo', async ({
     page,
   }) => {

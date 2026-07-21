@@ -84,12 +84,46 @@ describe('TimesheetCell', () => {
   });
 
   it('renders a multi-entry cell read-only (ADR-0224) with an edit-on-My-Work hint', () => {
-    renderCell({ editable: false, entryCount: 3, minutes: 180 });
+    renderCell({ editable: false, entryCount: 3, minutes: 180, lockReason: 'multi-entry' });
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     const cell = screen.getByRole('gridcell');
     expect(cell).toHaveAttribute('aria-readonly', 'true');
     expect(cell).toHaveAccessibleName(/3 entries — edit on My Work/);
     expect(cell).toHaveTextContent('3:00');
+  });
+
+  it('pluralizes the multi-entry hint by count (never "1 entries")', () => {
+    // A single-entry cell must never reach this branch in the grid, but the label must
+    // still read correctly if it does (#2174 — the grammar bug the batch fixes).
+    renderCell({ editable: false, entryCount: 1, minutes: 60, lockReason: 'multi-entry' });
+    const cell = screen.getByRole('gridcell');
+    expect(cell).toHaveAccessibleName(/1 entry — edit on My Work/);
+    expect(cell).not.toHaveAccessibleName(/1 entries/);
+  });
+
+  it('a submitted cell with time names the Reopen-week remedy, not My Work (#2174)', () => {
+    renderCell({ editable: false, entryCount: 1, minutes: 300, lockReason: 'submitted' });
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    const cell = screen.getByRole('gridcell');
+    expect(cell).toHaveAttribute('aria-readonly', 'true');
+    // Correct remedy, correct value; no "N entries" grammar and no "edit on My Work".
+    expect(cell).toHaveAccessibleName(/5:00 — week submitted, reopen to edit \(Reopen week, top right\)/);
+    expect(cell).not.toHaveAccessibleName(/entries/);
+    expect(cell).not.toHaveAccessibleName(/My Work/);
+    expect(cell).toHaveTextContent('5:00');
+    // A cell that carries time stays reachable so the guidance is heard in focus mode.
+    expect(cell).toHaveAttribute('tabindex', '0');
+  });
+
+  it('a submitted empty cell is inert, non-focusable, and not announced as "0 entries" (#2174)', () => {
+    renderCell({ editable: false, entryCount: 0, minutes: 0, lockReason: 'submitted' });
+    const cell = screen.getByRole('gridcell');
+    expect(cell).toHaveAttribute('aria-readonly', 'true');
+    expect(cell).toHaveAccessibleName(/week submitted/);
+    expect(cell).not.toHaveAccessibleName(/entries/);
+    expect(cell).not.toHaveAccessibleName(/reopen to edit/);
+    // No extra tab stop per blank day on a submitted week.
+    expect(cell).not.toHaveAttribute('tabindex');
   });
 
   it('renders a future-day cell inert and non-editable (#1926)', () => {

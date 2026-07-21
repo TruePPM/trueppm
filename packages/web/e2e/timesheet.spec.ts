@@ -330,5 +330,18 @@ test.describe('Timesheet — weekly grid (#1435, ADR-0224)', () => {
     // Marker flips: the action becomes Reopen and a Submitted chip appears.
     await expect(page.getByRole('button', { name: 'Reopen week' })).toBeVisible();
     await expect(page.getByText('Submitted', { exact: true })).toBeVisible();
+
+    // #2174: a submitted cell that carries time points the contributor to the real
+    // remedy (Reopen week, top-right) — NOT the wrong "edit on My Work" guidance, and
+    // never the broken "0 entries / 1 entries" grammar.
+    const grid = page.getByRole('grid', { name: 'Weekly timesheet' });
+    const row = grid.getByRole('row').filter({ hasText: 'Foundation pour' });
+    const monCell = row.getByRole('gridcell').nth(0);
+    await expect(monCell).toHaveAttribute('aria-label', /week submitted, reopen to edit \(Reopen week, top right\)/);
+    // The cell is now read-only — no editable input remains on a submitted week.
+    await expect(monCell.locator('input')).toHaveCount(0);
+    // No cell anywhere in the submitted week gives the multi-entry "edit on My Work"
+    // guidance (there are no multi-entry cells in this seed).
+    await expect(grid.getByRole('gridcell', { name: /edit on My Work/ })).toHaveCount(0);
   });
 });

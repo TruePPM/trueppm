@@ -112,4 +112,35 @@ describe('TimesheetGrid', () => {
     expect(screen.queryByRole('button', { name: /add project or task/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
+
+  it('a submitted week points cells to Reopen week, never to My Work (#2174)', () => {
+    renderGrid({ submitted: true });
+    // The single-entry Monday cell (9:00) is locked by the submission, so its guidance
+    // must name the real remedy — not the multi-entry "edit on My Work" copy.
+    const submittedCell = screen
+      .getAllByRole('gridcell')
+      .find((c) => /9:00 — week submitted, reopen to edit/.test(c.getAttribute('aria-label') ?? ''));
+    expect(submittedCell).toBeDefined();
+    expect(submittedCell).toHaveAttribute('aria-label', expect.stringMatching(/Reopen week, top right/));
+    // No cell in a submitted week should tell the user to edit on My Work unless it is
+    // genuinely a multi-entry cell (none here).
+    const myWorkCells = screen
+      .getAllByRole('gridcell')
+      .filter((c) => /edit on My Work/.test(c.getAttribute('aria-label') ?? ''));
+    expect(myWorkCells).toHaveLength(0);
+  });
+
+  it('a multi-entry cell keeps its My-Work guidance even when the week is submitted (#2174)', () => {
+    // Two entries on the same (task, date) → read-only by ADR-0224; reopening the week
+    // would not unlock it, so the remedy stays My Work regardless of submission.
+    renderGrid({ submitted: true }, [
+      entry({ id: 'e1', minutes: 300 }),
+      entry({ id: 'e2', minutes: 240 }),
+    ]);
+    const multiCell = screen
+      .getAllByRole('gridcell')
+      .find((c) => /2 entries — edit on My Work/.test(c.getAttribute('aria-label') ?? ''));
+    expect(multiCell).toBeDefined();
+    expect(multiCell).not.toHaveAttribute('aria-label', expect.stringMatching(/week submitted/));
+  });
 });
