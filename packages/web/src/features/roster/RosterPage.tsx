@@ -5,8 +5,12 @@
  * Route: /projects/:projectId/resources/roster
  */
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectResourcePool, useAddProjectResource } from '@/hooks/useProjectResourcePool';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import { RosterList } from './RosterList';
 import { RosterDetailPanel } from './RosterDetailPanel';
 import { AddToRosterCombobox } from './AddToRosterCombobox';
@@ -20,6 +24,12 @@ export function RosterPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filterQuery, setFilterQuery] = useState('');
   const [showAddCombobox, setShowAddCombobox] = useState(false);
+
+  // The desktop popover (toolbar) and the mobile BottomSheet share this open
+  // state but must be mutually exclusive by viewport: the BottomSheet's
+  // focus-into-sheet effect runs on mount, so if it mounted (invisibly) on
+  // desktop it would steal focus from the desktop popover's search input.
+  const isMobile = useBreakpoint() === 'sm';
 
   const selectedItem: ProjectResource | undefined = roster.find((pr) => pr.id === selectedId);
 
@@ -122,29 +132,36 @@ export function RosterPage() {
         </svg>
       </button>
 
-      {/* Mobile add bottom sheet */}
-      {showAddCombobox && (
-        <div className="md:hidden fixed inset-0 z-40 flex flex-col justify-end bg-neutral-overlay">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Add team member"
-            className="bg-neutral-surface rounded-t-card border-t border-neutral-border p-4 flex flex-col gap-3"
-            style={{ maxHeight: '85vh' }}
-          >
-            <div
-              aria-hidden="true"
-              className="w-10 h-1 rounded-full bg-neutral-border mx-auto mb-1"
-            />
+      {/* Mobile add bottom sheet — the shared BottomSheet owns the scrim-tap
+          dismiss (onPointerDown), focus trap, and Escape handler. A phone has no
+          Escape key, so the visible Cancel button below is the discoverable
+          dismiss for touch; without either, a touch user who opened the sheet was
+          trapped until they added someone (#2164). */}
+      <BottomSheet
+        isOpen={showAddCombobox && isMobile}
+        onClose={() => setShowAddCombobox(false)}
+        ariaLabel="Add team member"
+      >
+        <div className="p-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-neutral-text-primary">Add team member</h2>
-            <AddToRosterCombobox
-              projectId={projectId}
-              onSelect={handleAdd}
-              onDismiss={() => setShowAddCombobox(false)}
-            />
+            <button
+              type="button"
+              onClick={() => setShowAddCombobox(false)}
+              className="min-h-11 px-3 -mr-1 rounded text-sm font-medium
+                text-neutral-text-secondary hover:text-neutral-text-primary
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              Cancel
+            </button>
           </div>
+          <AddToRosterCombobox
+            projectId={projectId}
+            onSelect={handleAdd}
+            onDismiss={() => setShowAddCombobox(false)}
+          />
         </div>
-      )}
+      </BottomSheet>
     </div>
   );
 }
@@ -172,6 +189,25 @@ function RosterPageToolbar({
   onAddSelect,
   projectId,
 }: RosterPageToolbarProps) {
+  // The desktop popover portals to <body>, so — unlike the `md:hidden` mobile
+  // sheet — it escapes CSS viewport containment and must be gated in JS, or it
+  // would render on a phone alongside the sheet.
+  const isDesktop = useBreakpoint() !== 'sm';
+
+  // Portal + outside-pointerdown dismiss for the desktop popover (rule 260) —
+  // the plain `absolute` panel it replaces had no outside-click dismiss and
+  // could be clipped by the page's `overflow-hidden` shell (#2164).
+  const { triggerRef, popoverRef, popoverStyle } = useAnchoredPopover<
+    HTMLButtonElement,
+    HTMLDivElement
+  >({
+    open: isDesktop && showAddCombobox,
+    width: 288, // w-72
+    estimatedHeight: 260,
+    align: 'right',
+    onDismiss: onAddDismiss,
+  });
+
   return (
     <div className="flex items-center gap-2 px-4 py-2 border-b border-neutral-border bg-neutral-surface shrink-0">
       {/* Filter input */}
@@ -190,10 +226,13 @@ function RosterPageToolbar({
       <div data-slot="resource-pool-toolbar-end" />
 
       {/* Add button (desktop) */}
-      <div className="relative hidden md:block">
+      <div className="hidden md:block">
         <button
+          ref={triggerRef}
           type="button"
           onClick={onAddClick}
+          aria-haspopup="dialog"
+          aria-expanded={showAddCombobox}
           className="h-8 px-3 rounded border border-neutral-border text-sm font-medium
             text-neutral-text-primary bg-neutral-surface hover:bg-neutral-surface-raised
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
@@ -205,16 +244,23 @@ function RosterPageToolbar({
           Add to project
         </button>
 
-        {showAddCombobox && (
-          <div className="absolute right-0 top-full mt-1 w-72 z-40 p-2
-            bg-neutral-surface border border-neutral-border rounded-card">
-            <AddToRosterCombobox
-              projectId={projectId}
-              onSelect={onAddSelect}
-              onDismiss={onAddDismiss}
-            />
-          </div>
-        )}
+        {isDesktop &&
+          showAddCombobox &&
+          popoverStyle &&
+          createPortal(
+            <div
+              ref={popoverRef}
+              style={popoverStyle}
+              className="z-40 p-2 bg-neutral-surface border border-neutral-border rounded-card shadow-pop"
+            >
+              <AddToRosterCombobox
+                projectId={projectId}
+                onSelect={onAddSelect}
+                onDismiss={onAddDismiss}
+              />
+            </div>,
+            document.body,
+          )}
       </div>
     </div>
   );
