@@ -152,6 +152,12 @@ interface CommentRowProps {
   canEditBody: boolean;
   /** Viewer may delete this comment (author or ADMIN+). */
   canDelete: boolean;
+  /**
+   * True when this (depth-0) comment has replies. Deleting it soft-deletes only
+   * this row, orphaning its replies from the thread — a bigger blast radius than
+   * a flat note, so we gate it behind an inline confirm (#2171 ux-review).
+   */
+  hasReplies?: boolean;
   /** True when this row's reply composer is open. Reply only available on top-level rows. */
   isReplying?: boolean;
   /** Called when the user clicks Reply. */
@@ -169,6 +175,7 @@ function CommentRow({
   editable,
   canEditBody,
   canDelete,
+  hasReplies,
   isReplying,
   onReplyClick,
   onReplyClose,
@@ -179,6 +186,17 @@ function CommentRow({
   const del = useDeleteComment();
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(comment.body);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  function handleDelete() {
+    del.mutate({ projectId, taskId, commentId: comment.id });
+  }
+  function handleDeleteClick() {
+    // A leaf/reply deletes immediately (matches the flat Notes contract); a
+    // parent with replies confirms first — deleting it orphans the sub-thread.
+    if (depth === 0 && hasReplies) setConfirmingDelete(true);
+    else handleDelete();
+  }
 
   // A comment's created_at is an INSTANT (#1953, ADR-0410) — re-clock its
   // relative label + full-date tooltip to the viewer's timezone + format.
@@ -369,7 +387,7 @@ function CommentRow({
           {canDelete && (
             <button
               type="button"
-              onClick={() => del.mutate({ projectId, taskId, commentId: comment.id })}
+              onClick={handleDeleteClick}
               disabled={del.isPending}
               className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
                 text-neutral-text-secondary hover:bg-semantic-critical-bg hover:text-semantic-critical hover:border-semantic-critical/40
@@ -380,6 +398,45 @@ function CommentRow({
               Delete
             </button>
           )}
+        </div>
+      )}
+      {/* Parent-with-replies delete confirm (#2171 ux-review): soft-deleting a
+          top-level comment hides its replies from the thread, so make the author/
+          admin acknowledge that before it happens. */}
+      {confirmingDelete && (
+        <div
+          role="alertdialog"
+          aria-label="Confirm delete comment with replies"
+          className="mt-2 flex flex-col gap-2 p-2 rounded-control border border-semantic-critical/40 bg-semantic-critical-bg"
+        >
+          <p className="text-xs text-neutral-text-primary">
+            Delete this comment? Its replies will be hidden from the thread.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmingDelete(false);
+                handleDelete();
+              }}
+              disabled={del.isPending}
+              className="text-xs border border-semantic-critical/40 text-semantic-critical rounded-control px-3 h-7 font-medium
+                hover:bg-semantic-critical-bg
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                disabled:opacity-50"
+            >
+              Delete anyway
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(false)}
+              className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
+                text-neutral-text-secondary hover:bg-neutral-surface
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+            >
+              Keep it
+            </button>
+          </div>
         </div>
       )}
       {editable && isReplying && depth === 0 && (
@@ -485,6 +542,7 @@ export function CommentSection({ taskId, projectId, userRole, canEdit }: DrawerS
                 editable={editable}
                 canEditBody={canEditBody(c)}
                 canDelete={canDelete(c)}
+                hasReplies={(repliesByParent.get(c.id) ?? []).length > 0}
                 isReplying={replyingTo === c.id}
                 onReplyClick={() => setReplyingTo(c.id)}
                 onReplyClose={() => setReplyingTo(null)}

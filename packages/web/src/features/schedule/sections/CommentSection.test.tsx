@@ -284,9 +284,13 @@ describe('CommentSection — interactions', () => {
     });
     render(<CommentSection taskId="t1" projectId="p1" canEdit />);
     fireEvent.click(screen.getByLabelText('React with 👍'));
-    expect(mutate).toHaveBeenCalledWith(
-      expect.not.objectContaining({ reactionId: expect.anything() }),
-    );
+    // Exact args — no `reactionId` key means the mutation POSTs a new reaction.
+    expect(mutate).toHaveBeenCalledWith({
+      projectId: 'p1',
+      taskId: 't1',
+      commentId: 'c1',
+      emoji: '👍',
+    });
   });
 
   it('lets the author edit their own comment within the 15-min window (#2171)', () => {
@@ -344,6 +348,47 @@ describe('CommentSection — interactions', () => {
     // Delete is author-OR-admin; edit is author-only even within the window.
     expect(screen.getByLabelText('Delete this comment')).toBeTruthy();
     expect(screen.queryByLabelText('Edit this comment')).toBeNull();
+  });
+
+  it('confirms before deleting a top-level comment that has replies (#2171)', () => {
+    const mutate = vi.fn();
+    useDeleteCommentMock.mockReturnValue({ mutate, isPending: false });
+    useCommentsMock.mockReturnValue({
+      comments: [
+        comment({ id: 'p1c', body: 'parent' }),
+        comment({ id: 'r1', parent: 'p1c', body: 'reply' }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    // Two Delete buttons (parent + reply). The parent's Delete opens a confirm
+    // instead of firing immediately.
+    fireEvent.click(screen.getAllByLabelText('Delete this comment')[0]);
+    expect(mutate).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('alertdialog', { name: /Confirm delete comment with replies/ }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete anyway' }));
+    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ commentId: 'p1c' }));
+  });
+
+  it('deletes a reply immediately with no confirm (matches flat Notes) (#2171)', () => {
+    const mutate = vi.fn();
+    useDeleteCommentMock.mockReturnValue({ mutate, isPending: false });
+    useCommentsMock.mockReturnValue({
+      comments: [
+        comment({ id: 'p1c', body: 'parent' }),
+        comment({ id: 'r1', parent: 'p1c', body: 'reply' }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    // The reply's Delete (second button) fires straight away — no alertdialog.
+    fireEvent.click(screen.getAllByLabelText('Delete this comment')[1]);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ commentId: 'r1' }));
   });
 
   it('hides Delete for a non-author, non-admin viewer (#2171)', () => {
