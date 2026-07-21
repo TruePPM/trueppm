@@ -1,5 +1,6 @@
 import { WarningIcon } from '@/components/Icons';
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router';
 
 import { blockerTypeLabel, formatBlockedAge } from '@/lib/blocker';
 import {
@@ -11,9 +12,16 @@ import {
 
 type Props =
   | { scope: 'project'; projectId: string }
-  | { scope: 'sprint'; sprintId: string };
+  // Sprint scope carries `projectId` too (both live under /projects/:projectId)
+  // so blocked rows can deep-link into the task drawer (issue #2159).
+  | { scope: 'sprint'; sprintId: string; projectId: string };
 
 type SprintGroup = 'all' | 'impediment' | 'paused';
+
+/** Task-drawer route (mirrors ProjectOverviewPage's Attention rows, issue #2159). */
+function taskDetailPath(projectId: string, taskId: string): string {
+  return `/projects/${projectId}/tasks/${taskId}`;
+}
 
 /**
  * Blocked-task roll-up panel (ADR-0124) — the read-only triage surface for the
@@ -115,7 +123,7 @@ export function BlockedRollupPanel(props: Props) {
           ) : (
             <ul className="divide-y divide-neutral-border">
               {visibleRows.map((row) => (
-                <BlockedRowItem key={row.task_id} row={row} />
+                <BlockedRowItem key={row.task_id} row={row} projectId={props.projectId} />
               ))}
             </ul>
           )}
@@ -135,19 +143,29 @@ function ageColorClass(ageSeconds: number | null): string {
   return 'text-neutral-text-secondary';
 }
 
-function BlockedRowItem({ row }: { row: BlockedRow }) {
+function BlockedRowItem({ row, projectId }: { row: BlockedRow; projectId: string }) {
   const typeLabel = blockerTypeLabel(row.blocker_type);
   const age = formatBlockedAge(row.blocked_age_seconds);
   return (
     <li className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:items-center sm:gap-3">
-      <span className="min-w-0 flex-1 truncate text-sm text-neutral-text-primary">
+      {/* The whole title cell (short-id + title) opens the task drawer (issue
+          #2159) so a triage reader can act on a blocker without hunting for it
+          on another surface — mirrors the ProjectOverviewPage Attention rows'
+          taskDetailPath, and stays a full-width `flex-1` link so the tap target
+          spans the row rather than only the title glyphs. */}
+      <Link
+        to={taskDetailPath(projectId, row.task_id)}
+        className="-my-1 min-w-0 flex-1 truncate rounded-control py-1 text-sm text-neutral-text-primary
+          hover:text-brand-primary
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      >
         {row.task_short_id && (
           <span className="tppm-mono mr-1.5 text-xs text-neutral-text-secondary">
             {row.task_short_id}
           </span>
         )}
         {row.title}
-      </span>
+      </Link>
       <span className="flex shrink-0 flex-wrap items-center gap-2">
         {typeLabel && (
           <span className="rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-xs text-neutral-text-secondary">
@@ -162,11 +180,24 @@ function BlockedRowItem({ row }: { row: BlockedRow }) {
           // Soft "waiting on" link (issue 1156) — informational, NOT a CPM edge. Frame
           // it as "waiting on" (no arrow glyph that mimics a dependency) and spell
           // out the non-scheduling nature in the title so it can't read as a predecessor.
+          // The short-id now deep-links to the blocking task (issue #2159) so the
+          // triage reader can open what a task is waiting on, still within the project.
           <span
             className="text-xs text-neutral-text-secondary"
             title={`Waiting on ${row.blocking_task.title} — informational, does not affect the schedule`}
           >
-            waiting on {row.blocking_task.short_id || 'a task'}
+            waiting on{' '}
+            <Link
+              to={taskDetailPath(projectId, row.blocking_task.id)}
+              // Explicit accessible name — in a screen-reader links list the bare
+              // short-id ("T-9") loses the "waiting on" context that only reads in
+              // linear order, so name the destination as one action (#2159).
+              aria-label={`Waiting on ${row.blocking_task.short_id || 'a task'}. View task.`}
+              className="rounded-control underline-offset-2 hover:text-brand-primary hover:underline
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              {row.blocking_task.short_id || 'a task'}
+            </Link>
           </span>
         )}
       </span>

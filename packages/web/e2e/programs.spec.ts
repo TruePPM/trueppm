@@ -359,6 +359,50 @@ test.describe('Programs — shell nav', () => {
     await expect(page.getByText(/These projects belong to the program/i)).toBeVisible();
   });
 
+  test('a program KPI card drills into the projects list, at-risk-sorted (#2155)', async ({
+    page,
+  }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    // A rollup with both task-count KPIs, and a populated, annotated projects
+    // list so the drill-through lands somewhere the PM can act. Registered after
+    // setup()'s stubs → wins.
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...FIXTURE_ROLLUP,
+          kpis: {
+            critical_tasks: { available: true, value: 5 },
+            at_risk_tasks: { available: true, value: 3 },
+          },
+        }),
+      }),
+    );
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { id: 'pa', name: 'Low Risk', methodology: 'HYBRID', program: PROGRAM_ID, overdue_count: 0, at_risk_count: 1 },
+          { id: 'pb', name: 'High Risk', methodology: 'HYBRID', program: PROGRAM_ID, overdue_count: 2, at_risk_count: 6 },
+        ]),
+      }),
+    );
+
+    await page.goto(`/programs/${PROGRAM_ID}/overview`);
+
+    // The at-risk card is a drill-through link that sorts the offending projects first.
+    const atRiskCard = page.getByRole('link', { name: /At-risk tasks: 3\. View at-risk projects\./ });
+    await expect(atRiskCard).toBeVisible({ timeout: 5_000 });
+    await atRiskCard.click();
+
+    await expect(page).toHaveURL(`/programs/${PROGRAM_ID}/projects?sort=at-risk`);
+    // Highest at_risk_count floats to the top of the annotated list.
+    const rowNames = page.getByRole('list', { name: 'Projects in this program' }).getByRole('link');
+    await expect(rowNames.first()).toHaveText('High Risk');
+  });
+
   test('Projects tab shows Add existing, Import, and New project buttons (admin)', async ({
     page,
   }) => {

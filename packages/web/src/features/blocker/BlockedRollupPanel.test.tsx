@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
+import type { ReactElement } from 'react';
 
 import type { BlockedRollup, BlockedRow } from '@/hooks/useBlockedRollup';
 import { BlockedRollupPanel } from './BlockedRollupPanel';
+
+// The panel now renders <Link>s (issue #2159), so every render needs a Router.
+function renderInRouter(ui: ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
 
 // Keep the real isImpediment (pure); stub only the data hooks.
 let projectResult: { data?: BlockedRollup; isLoading: boolean } = { isLoading: false };
@@ -49,27 +56,41 @@ afterEach(() => {
 describe('BlockedRollupPanel — project scope', () => {
   it('renders rows with type chip, age, assignee, and the soft link — never a reason', () => {
     projectResult = { data: { count: 2, blocked: ROWS }, isLoading: false };
-    render(<BlockedRollupPanel scope="project" projectId="p1" />);
+    renderInRouter(<BlockedRollupPanel scope="project" projectId="p1" />);
     expect(screen.getByText('Blocked')).toBeInTheDocument();
     expect(screen.getByText('Pour foundation')).toBeInTheDocument();
     expect(screen.getByText('External vendor')).toBeInTheDocument();
     expect(screen.getByText('6d blocked')).toBeInTheDocument();
     expect(screen.getByText('priya')).toBeInTheDocument();
-    // Soft "waiting on" link (issue 1156) — framed as informational, not a CPM edge.
-    const softLink = screen.getByText('waiting on T-9');
-    expect(softLink).toBeInTheDocument();
-    expect(softLink).toHaveAttribute('title', expect.stringMatching(/does not affect the schedule/i));
+    // Soft "waiting on" wrapper (issue 1156) — framed as informational, not a CPM edge.
+    const softWrapper = screen.getByText(/waiting on/i);
+    expect(softWrapper).toHaveAttribute('title', expect.stringMatching(/does not affect the schedule/i));
+  });
+
+  it('links the row title and the waiting-on reference into the task drawer (#2159)', () => {
+    projectResult = { data: { count: 1, blocked: [ROWS[0]] }, isLoading: false };
+    renderInRouter(<BlockedRollupPanel scope="project" projectId="p1" />);
+    // Title opens the blocked task (the short-id is part of the title link's
+    // accessible name); the waiting-on link opens the blocking task.
+    expect(screen.getByRole('link', { name: /Pour foundation/ })).toHaveAttribute(
+      'href',
+      '/projects/p1/tasks/t1',
+    );
+    expect(screen.getByRole('link', { name: 'Waiting on T-9. View task.' })).toHaveAttribute(
+      'href',
+      '/projects/p1/tasks/t9',
+    );
   });
 
   it('escalation-colors an old blocker red', () => {
     projectResult = { data: { count: 1, blocked: [ROWS[0]] }, isLoading: false };
-    render(<BlockedRollupPanel scope="project" projectId="p1" />);
+    renderInRouter(<BlockedRollupPanel scope="project" projectId="p1" />);
     expect(screen.getByText('6d blocked').className).toContain('text-semantic-critical');
   });
 
   it('shows a warm empty state when nothing is blocked', () => {
     projectResult = { data: { count: 0, blocked: [] }, isLoading: false };
-    render(<BlockedRollupPanel scope="project" projectId="p1" />);
+    renderInRouter(<BlockedRollupPanel scope="project" projectId="p1" />);
     expect(screen.getByText(/No blocked tasks/)).toBeInTheDocument();
   });
 });
@@ -77,7 +98,7 @@ describe('BlockedRollupPanel — project scope', () => {
 describe('BlockedRollupPanel — sprint scope', () => {
   it('shows the impediment vs paused split and filters on the toggle', () => {
     sprintResult = { data: { count: 2, blocked: ROWS }, isLoading: false };
-    render(<BlockedRollupPanel scope="sprint" sprintId="s1" />);
+    renderInRouter(<BlockedRollupPanel scope="sprint" sprintId="s1" projectId="p1" />);
     const section = screen.getByRole('region', { name: 'Impediments & paused' });
     expect(within(section).getByText(/1 impediment · 1 paused/)).toBeInTheDocument();
 
