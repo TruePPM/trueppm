@@ -2515,7 +2515,7 @@ requires-dist = [
     { name = "djangorestframework-simplejwt", specifier = ">=5.3,<6.0" },
     { name = "djangorestframework-stubs", extras = ["compatible-mypy"], marker = "extra == 'dev'", specifier = ">=3.15,<4.0" },
     { name = "dnspython", specifier = ">=2.8.0,<3.0" },
-    { name = "drf-spectacular", extras = ["sidecar"], specifier = ">=0.27,<1.0" },
+    { name = "drf-spectacular", extras = ["sidecar"], specifier = "==0.30.0" },
     { name = "jsonschema", specifier = ">=4.21,<5.0" },
     { name = "msgpack", specifier = ">=1.2.1,<2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0,<2.0" },

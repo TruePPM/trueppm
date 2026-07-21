@@ -55,7 +55,18 @@ dependencies = [
     # [sidecar] (BSD) bundles the Swagger UI / ReDoc static assets so the
     # interactive docs pages load from our own origin ('self') instead of a CDN —
     # required under the strict CSP (script-src 'self') and works offline.
-    "drf-spectacular[sidecar]>=0.27,<1.0",
+    #
+    # Pinned exact: drf-spectacular's generated schema output is version-sensitive
+    # (e.g. the 0.29->0.30 change that renders an allow_blank field as
+    # oneOf:[{uri}, {""}]), so docs/api/openapi.json is only reproducible against
+    # one version. A loose range let a drifted ci-api image regenerate a
+    # different schema and break api:schema-drift fleet-wide (#2260). Because the
+    # api CI jobs run `pip install -e packages/api[dev]` at job start, pinning
+    # here makes that runtime install enforce the version regardless of what the
+    # baked image contains. Bumping is deliberate: change this pin,
+    # `uv lock --upgrade-package drf-spectacular`, and regenerate the schema
+    # (scripts/export-openapi.sh) in one MR.
+    "drf-spectacular[sidecar]==0.30.0",
     "jsonschema>=4.21,<5.0",
     # ISC (permissive, Apache-2.0 compatible). Pure-Python, no runtime transitive
     # deps. Live SPF/DKIM/DMARC TXT lookups for writable SMTP config (#712). Floor
