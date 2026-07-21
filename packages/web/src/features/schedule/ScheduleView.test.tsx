@@ -137,6 +137,9 @@ vi.mock('@/lib/featureFlags', () => ({
 }));
 vi.mock('@/hooks/useBaselines', () => ({
   useCreateBaseline: () => ({ mutate: createBaselineMutate, isPending: false }),
+  // ScheduleView reads the baseline list to pass activeBaselineName into the
+  // capture confirm dialog (#2215). Default to no baselines.
+  useBaselines: () => ({ data: [] }),
 }));
 vi.mock('@/hooks/useMsProjectImportExport', () => ({
   useExportMsProject: () => ({

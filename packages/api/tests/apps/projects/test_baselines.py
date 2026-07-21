@@ -17,6 +17,7 @@ from trueppm_api.apps.projects.models import (
     ImmutableModelError,
     Project,
     Task,
+    TaskStatus,
 )
 
 User = get_user_model()
@@ -581,3 +582,49 @@ class TestTaskListBaselineOverlay:
         assert r.status_code == 200
         tasks = r.data.get("results", r.data)
         assert all(t["baseline_start"] is None for t in tasks)
+
+    def test_readiness_flips_to_baselined_only_after_activation(
+        self,
+        client: APIClient,
+        project: Project,
+        user: object,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Board-card readiness flips estimated→baselined only under the ACTIVE
+        baseline (#2215).
+
+        Capture saves ``is_active=False``, so a captured-but-inactive baseline
+        must leave readiness at ``estimated`` — this is the bug the auto-activate
+        client fix targets. Activating the baseline is what applies the overlay
+        (``baseline_start`` annotation) and flips the card to ``baselined``.
+        """
+        task = Task.objects.create(
+            project=project,
+            name="Design Login",
+            duration=5,
+            assignee=user,
+            status=TaskStatus.IN_PROGRESS,
+            early_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 6),
+        )
+
+        def readiness_for(task_id: str) -> str:
+            resp = client.get(f"/api/v1/tasks/?project={project.pk}")
+            assert resp.status_code == 200
+            rows = resp.data.get("results", resp.data)
+            return next(t for t in rows if t["id"] == str(task_id))["readiness"]
+
+        # Capture a baseline — it lands INACTIVE, so the card must stay estimated.
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            create_r = client.post(f"/api/v1/projects/{project.pk}/baselines/")
+        assert create_r.status_code == 201
+        assert create_r.data["is_active"] is False
+        assert readiness_for(task.pk) == "estimated"
+
+        # Activate it — now the overlay applies and the card reads baselined.
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            activate_r = client.post(
+                f"/api/v1/projects/{project.pk}/baselines/{create_r.data['id']}/activate/"
+            )
+        assert activate_r.status_code == 200
+        assert readiness_for(task.pk) == "baselined"

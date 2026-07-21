@@ -18,6 +18,12 @@ interface CaptureBaselineConfirmDialogProps {
  * first-time PM freezes the plan, and to make re-baselining obviously
  * non-destructive (the previous baseline is kept in history).
  *
+ * The body copy is keyed off `activeBaselineName` so it matches the shipped
+ * capture behavior (#2215): the FIRST baseline (no active one yet) auto-activates
+ * and flips board cards to `baselined`, while capturing while a baseline is
+ * already active is a plain snapshot that does NOT reactivate — activation stays
+ * the explicit "Set active" path in Manage baselines.
+ *
  * Self-traps focus (web-rule 206/245): the launching surface disables its own
  * trap while this is open. The visible "Capturing…" button state is the
  * in-flight signal (web-rule 209) for the menu-launched capture path.
@@ -63,24 +69,44 @@ export function CaptureBaselineConfirmDialog({
               <strong className="font-medium text-neutral-text-primary">immutable</strong>{' '}
               snapshot.
             </li>
-            <li>
-              Become the <strong className="font-medium text-neutral-text-primary">active</strong>{' '}
-              baseline used for the planned-vs-current comparison in each task&apos;s drawer.
-            </li>
             {activeBaselineName ? (
-              <li>
-                Supersede the current active baseline (
-                <strong className="font-medium text-neutral-text-primary">
-                  {activeBaselineName}
-                </strong>
-                ), which stays in your baseline history — capturing never overwrites a
-                previous baseline.
-              </li>
+              <>
+                {/* An active baseline already exists: capture is a plain snapshot
+                    and does NOT change which baseline is active (#2215). "Set
+                    active" from Manage baselines stays the explicit path. */}
+                <li>
+                  Be kept in your baseline history alongside the current active
+                  baseline (
+                  <strong className="font-medium text-neutral-text-primary">
+                    {activeBaselineName}
+                  </strong>
+                  ), which stays active — capturing never overwrites or replaces a
+                  previous baseline.
+                </li>
+                <li>
+                  Stay inactive until you activate it from{' '}
+                  <strong className="font-medium text-neutral-text-primary">
+                    Manage baselines
+                  </strong>
+                  , so the planned-vs-current comparison keeps using{' '}
+                  {activeBaselineName} for now.
+                </li>
+              </>
             ) : (
-              <li>
-                Be kept in the project&apos;s baseline history — you can capture more later,
-                and re-baselining never overwrites an earlier one.
-              </li>
+              <>
+                {/* No active baseline yet: this first capture auto-activates so
+                    board cards flip estimated→baselined with no extra step. */}
+                <li>
+                  Become the{' '}
+                  <strong className="font-medium text-neutral-text-primary">active</strong>{' '}
+                  baseline used for the planned-vs-current comparison in each task&apos;s
+                  drawer, and mark this project&apos;s tasks as baselined on the board.
+                </li>
+                <li>
+                  Be kept in the project&apos;s baseline history — you can capture more
+                  later, and re-baselining never overwrites an earlier one.
+                </li>
+              </>
             )}
           </ul>
         </div>

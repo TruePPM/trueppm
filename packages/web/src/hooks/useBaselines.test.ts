@@ -124,8 +124,19 @@ describe('useCreateBaseline', () => {
     vi.clearAllMocks();
   });
 
-  it('POSTs to create a named baseline', async () => {
+  // Helper: the create hook reads the authoritative list between create and
+  // (optional) activate. `existing` is the list the GET resolves to.
+  function mockFirstBaselineCapture(existing: ApiBaseline[] = []) {
+    // 1. POST create → new (inactive) baseline
     postMock.mockResolvedValueOnce({ data: BASELINE });
+    // 2. GET list → whatever baselines already exist (excluding/including the new one)
+    getMock.mockResolvedValueOnce({ data: { results: [...existing, BASELINE] } });
+    // 3. POST activate → same baseline, now active
+    postMock.mockResolvedValueOnce({ data: { ...BASELINE, is_active: true } });
+  }
+
+  it('POSTs to create a named baseline', async () => {
+    mockFirstBaselineCapture();
 
     const { result } = renderHook(() => useCreateBaseline('proj-1'), { wrapper: makeWrapper(qc) });
 
@@ -133,11 +144,13 @@ describe('useCreateBaseline', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(postMock).toHaveBeenCalledWith('/projects/proj-1/baselines/', { name: 'Sprint 1 baseline' });
+    expect(postMock).toHaveBeenNthCalledWith(1, '/projects/proj-1/baselines/', {
+      name: 'Sprint 1 baseline',
+    });
   });
 
   it('POSTs with empty body when no name supplied', async () => {
-    postMock.mockResolvedValueOnce({ data: BASELINE });
+    mockFirstBaselineCapture();
 
     const { result } = renderHook(() => useCreateBaseline('proj-1'), { wrapper: makeWrapper(qc) });
 
@@ -145,11 +158,61 @@ describe('useCreateBaseline', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(postMock).toHaveBeenCalledWith('/projects/proj-1/baselines/', {});
+    expect(postMock).toHaveBeenNthCalledWith(1, '/projects/proj-1/baselines/', {});
+  });
+
+  it('auto-activates the FIRST baseline (no active one yet) and invalidates tasks', async () => {
+    // No prior active baseline in the project → capture should chain activate.
+    mockFirstBaselineCapture();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useCreateBaseline('proj-1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate();
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // Second POST is the activate call for the just-created baseline.
+    expect(postMock).toHaveBeenNthCalledWith(2, '/projects/proj-1/baselines/bl-1/activate/');
+    // The resolved value is the now-active baseline.
+    expect(result.current.data?.is_active).toBe(true);
+    // Board-card readiness is derived from the active baseline overlay, so
+    // tasks must be refreshed too.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['baselines', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('does NOT reactivate when an active baseline already exists', async () => {
+    // POST create → new (inactive) baseline
+    postMock.mockResolvedValueOnce({ data: { ...BASELINE, id: 'bl-2', is_active: false } });
+    // GET list → an already-active baseline is present besides the new one
+    getMock.mockResolvedValueOnce({
+      data: {
+        results: [
+          { ...BASELINE, id: 'bl-1', is_active: true },
+          { ...BASELINE, id: 'bl-2', is_active: false },
+        ],
+      },
+    });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useCreateBaseline('proj-1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate();
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // Only the create POST fires — no activate call.
+    expect(postMock).toHaveBeenCalledTimes(1);
+    expect(postMock).not.toHaveBeenCalledWith('/projects/proj-1/baselines/bl-2/activate/');
+    expect(result.current.data?.is_active).toBe(false);
+    // Baselines list still refreshes, but tasks readiness is unchanged.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['baselines', 'proj-1'] });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
   it('invalidates baselines query on success', async () => {
-    postMock.mockResolvedValueOnce({ data: BASELINE });
+    mockFirstBaselineCapture();
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
 
     const { result } = renderHook(() => useCreateBaseline('proj-1'), { wrapper: makeWrapper(qc) });
