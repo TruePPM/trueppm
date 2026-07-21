@@ -526,9 +526,9 @@ export function SprintsView() {
       </nav>
 
       {scope === 'teams' ? (
-        <section aria-label="My teams" className="flex-1 overflow-y-auto pb-6">
+        <div className="flex-1 overflow-y-auto pb-6">
           <MultiTeamLens entries={lensEntries} />
-        </section>
+        </div>
       ) : (
         <>
           <SprintHeader
