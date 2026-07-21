@@ -445,8 +445,9 @@ test.describe('#1985 — three-point estimates batch behind the drawer Save bar'
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`);
 
-    // Gate on the full-page task view having rendered before interacting.
-    await expect(page.getByRole('heading', { level: 1, name: /Calibrate sensors/ })).toBeVisible();
+    // Gate on the full-page task view having rendered before interacting. The
+    // visible title is the editable name input (the h1 is sr-only, #2154).
+    await expect(page.getByRole('textbox', { name: 'Task name' })).toHaveValue('Calibrate sensors');
 
     await expandEstimates(page);
     const opt = page.getByLabel('Optimistic (O)');

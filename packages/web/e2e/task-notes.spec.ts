@@ -215,9 +215,11 @@ async function setup(
  */
 async function openNotesSection(page: Page) {
   await page.goto(`/projects/${FIXTURE_PROJECT_ID}/tasks/t1`);
-  await expect(
-    page.getByRole('heading', { name: 'Discovery & Design', level: 1 }),
-  ).toBeVisible({ timeout: 10_000 });
+  // The page's visible title is the editable name input (the h1 is sr-only, #2154);
+  // gate on it as the "page rendered" signal before interacting.
+  await expect(page.getByRole('textbox', { name: 'Task name' })).toHaveValue('Discovery & Design', {
+    timeout: 10_000,
+  });
   await page.getByRole('button', { name: 'Notes' }).click();
 }
 
