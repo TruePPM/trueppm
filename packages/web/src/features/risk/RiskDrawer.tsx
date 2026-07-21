@@ -4,6 +4,7 @@ import type { Risk } from '@/api/types';
 import { useRiskComments, useCreateRiskComment } from '@/hooks/useRisks';
 import { RiskChip } from './RiskChip';
 import { RiskForm } from './RiskForm';
+import { RiskLinkedTasksSection } from './RiskLinkedTasksSection';
 
 export interface RiskDrawerProps {
   projectId: string;
@@ -246,7 +247,7 @@ function DrawerContent({
             onCancel={isCreateMode ? onClose : onFormCancel}
           />
         ) : (
-          risk && <RiskDetailView projectId={projectId} risk={risk} />
+          risk && <RiskDetailView projectId={projectId} risk={risk} onClose={onClose} />
         )}
       </div>
     </>
@@ -254,7 +255,15 @@ function DrawerContent({
 }
 
 // Read-only detail view
-function RiskDetailView({ projectId, risk }: { projectId: string; risk: Risk }) {
+function RiskDetailView({
+  projectId,
+  risk,
+  onClose,
+}: {
+  projectId: string;
+  risk: Risk;
+  onClose: () => void;
+}) {
   const statusClasses = STATUS_CLASSES[risk.status];
   const hasPmiFields  = !!(risk.category || risk.response || risk.mitigation_due_date || risk.trigger || risk.contingency);
 
@@ -357,6 +366,9 @@ function RiskDetailView({ projectId, risk }: { projectId: string; risk: Risk }) 
           )}
         </div>
       )}
+
+      {/* Linked tasks (#2156) — the risk → mitigation-work handoff */}
+      <RiskLinkedTasksSection projectId={projectId} risk={risk} onCloseDrawer={onClose} />
 
       {/* Notes (comments) — collapsible, expanded when ≥ 1 comment */}
       <RiskNotesSection projectId={projectId} riskId={risk.id} />

@@ -4,6 +4,7 @@ import axios from 'axios';
 import type { Risk } from '@/api/types';
 import { useCreateRisk, useUpdateRisk } from '@/hooks/useRisks';
 import { RiskChip } from './RiskChip';
+import { RiskTaskPicker } from './RiskTaskPicker';
 
 function formatMutationError(error: Error): string {
   if (axios.isAxiosError(error) && error.response?.data) {
@@ -65,6 +66,9 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
   const [probability, setProbability] = useState<number>(risk?.probability ?? 3);
   const [impact, setImpact] = useState<number>(risk?.impact ?? 3);
   const [titleError, setTitleError] = useState('');
+  // Linked tasks (#2156). Seed from the risk's current links; on submit the full
+  // desired set is sent because the serializer replaces (not appends) the M2M.
+  const [taskIds, setTaskIds] = useState<string[]>(risk?.tasks ?? []);
 
   // Risk framework fields — Advanced section
   const [category, setCategory] = useState<string>(risk?.category ?? '');
@@ -112,7 +116,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
       probability,
       impact,
       owner: null,
-      tasks: [],
+      tasks: taskIds,
       category: (category || null) as Risk['category'],
       response: (response || null) as Risk['response'],
       mitigation_due_date: mitigationDueDate || null,
@@ -237,6 +241,9 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
           className={`${INPUT_BASE} resize-none py-2`}
         />
       </div>
+
+      {/* Linked tasks (#2156) — attach existing project tasks (max 10) */}
+      <RiskTaskPicker projectId={projectId} selectedIds={taskIds} onChange={setTaskIds} />
 
       {/* Advanced (risk framework) — collapsible */}
       <div className="border border-neutral-border rounded-card">

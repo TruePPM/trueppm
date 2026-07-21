@@ -78,7 +78,15 @@ Risks can be tagged with a standard source category:
 
 ## Linking risks to tasks
 
-A risk can be linked to one or more tasks to indicate which tasks are exposed to it. The link is advisory — it does not affect CPM scheduling — but it does surface in two places:
+A risk can be linked to up to **10 tasks** in the same project to indicate which tasks are exposed to it, or which work mitigates it. The link is advisory — it does not affect CPM scheduling — and it is managed from both ends.
+
+### From the risk
+
+The risk drawer has a **Linked tasks** section. In the read-only detail view it lists each linked task with its board status; selecting one opens that task in the app-wide task drawer so you can act on it. When you create or edit a risk, a **task picker** lets you attach or detach existing project tasks — search by name or ID, and remove a linked task with its chip's **×**. The picker enforces the same 10-task, same-project limit as the API.
+
+For the common case of a `MITIGATING` risk that has no tracked work yet, **Create mitigation task** (Member and above) creates a new task in one click: it is named from the risk (`Mitigate: <risk title>`), created **unscheduled and not in any sprint**, and assigned to no one — so it lands in the backlog for planning without injecting scope into an active sprint or notifying anyone. The new task is linked to the risk immediately and appears in the Linked tasks list.
+
+### Where the link surfaces
 
 - **Task detail drawer** → Risks section shows linked risks with severity chips
 - **Board cards** — the `linkedRisksCount` and `linkedRisksMaxSeverity` fields power the risk badge on board cards so teams can see at a glance which tasks are exposed

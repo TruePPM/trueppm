@@ -33,6 +33,16 @@ vi.mock('@/hooks/useRisks', () => ({
   useUpdateRisk: useUpdateRiskMock,
 }));
 
+// The linked-tasks picker resolves the project task list; give it a small
+// fixture so the form's create payload and the picker's add/remove can be
+// exercised deterministically without a network call.
+const { useScheduleTasksMock } = vi.hoisted(() => ({ useScheduleTasksMock: vi.fn() }));
+vi.mock('@/hooks/useScheduleTasks', () => ({ useScheduleTasks: useScheduleTasksMock }));
+
+function makeTask(id: string, name: string, over: Record<string, unknown> = {}) {
+  return { id, name, status: 'NOT_STARTED', isSummary: false, isMilestone: false, wbs: '', shortId: '', ...over };
+}
+
 interface MutationState {
   isPending?: boolean;
   error?: Error | null;
@@ -92,6 +102,16 @@ function renderForm(risk?: Risk) {
 beforeEach(() => {
   vi.clearAllMocks();
   setMutations();
+  useScheduleTasksMock.mockReturnValue({
+    tasks: [
+      makeTask('t1', 'Patch the firewall'),
+      makeTask('t2', 'Rotate credentials'),
+      makeTask('s1', 'Phase summary', { isSummary: true }),
+    ],
+    links: [],
+    isLoading: false,
+    error: null,
+  });
 });
 
 describe('<RiskForm> create mode', () => {
@@ -299,5 +319,50 @@ describe('<RiskForm> pending + error states', () => {
     setMutations({ error: new Error('Network down') });
     renderForm();
     expect(screen.getByRole('alert')).toHaveTextContent('Network down');
+  });
+});
+
+describe('<RiskForm> linked-tasks picker (#2156)', () => {
+  it('attaches a searched task and sends the full id set on create (replace semantics)', () => {
+    renderForm();
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Breach risk' } });
+
+    const search = screen.getByLabelText('Search tasks to link');
+    fireEvent.focus(search);
+    fireEvent.change(search, { target: { value: 'firewall' } });
+    // The matching option appears; the summary task never does. mouseDown on the
+    // label (inside the option's button) so the pick fires before input blur.
+    expect(screen.getByRole('option', { name: /Patch the firewall/ })).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByText('Patch the firewall'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const [vars] = createMutate.mock.calls[0];
+    expect(vars.data.tasks).toEqual(['t1']);
+  });
+
+  it('excludes summary tasks from the pick list', () => {
+    renderForm();
+    const search = screen.getByLabelText('Search tasks to link');
+    fireEvent.focus(search);
+    fireEvent.change(search, { target: { value: 'Phase' } });
+    expect(screen.queryByRole('option', { name: /Phase summary/ })).not.toBeInTheDocument();
+    expect(screen.getByText('No matching tasks. Try a different search.')).toBeInTheDocument();
+  });
+
+  it('seeds selected chips from an edited risk and removes on click', () => {
+    renderForm(makeRisk({ tasks: ['t1', 't2'] }));
+    // Both linked tasks render as removable chips.
+    expect(screen.getByRole('button', { name: 'Remove Patch the firewall' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Rotate credentials' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const [vars] = updateMutate.mock.calls[0];
+    // The full remaining set is sent — the removed id is gone, not merely omitted.
+    expect(vars.data.tasks).toEqual(['t1']);
+  });
+
+  it('shows an unresolved linked id as an "Unavailable task" chip', () => {
+    renderForm(makeRisk({ tasks: ['ghost'] }));
+    expect(screen.getByText('Unavailable task')).toBeInTheDocument();
   });
 });
