@@ -13,9 +13,10 @@
  * - WCAG 2.1.1: focus is moved to the first input on open and restored on close.
  */
 
-import { useEffect, useRef, useState, useMemo, type FormEvent } from 'react';
+import { useEffect, useState, useMemo, type FormEvent } from 'react';
 import type { Task } from '@/types';
 import { Button } from '@/components/Button';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface Props {
   /** Non-null when the popover is open. Null renders nothing. */
@@ -26,39 +27,20 @@ interface Props {
 
 export function DateInputPopover({ task, onConfirm, onClose }: Props) {
   const [startValue, setStartValue] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-  // Keep track of the element that had focus before we opened the dialog
-  const previousFocusRef = useRef<HTMLElement | null>(null);
 
-  // Initialise input and capture focus when the popover opens
+  // Trap Tab focus inside the dialog, seat initial focus on the start-date input
+  // (the first focusable inside the panel), and restore focus to the trigger on
+  // close (WCAG 2.4.3 / 2.1.2). The hook also owns Escape: its document-level
+  // handler stopPropagation's Escape before it reaches the window-level
+  // keyboard-reschedule listener, so the previous duplicate document Escape
+  // listener is gone (mirrors ScheduleDependencyPicker).
+  const dialogRef = useFocusTrap<HTMLDivElement>(Boolean(task), onClose);
+
+  // Seed the start-date input from the task when the popover opens.
   useEffect(() => {
     if (!task) return;
     setStartValue(task.start.slice(0, 10));
-    previousFocusRef.current = document.activeElement as HTMLElement | null;
-    // Defer focus so the dialog is painted before we move focus into it
-    const id = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(id);
   }, [task]);
-
-  // Restore focus when the popover closes
-  useEffect(() => {
-    if (!task) {
-      previousFocusRef.current?.focus();
-    }
-  }, [task]);
-
-  // Capture-phase Escape so it fires before the keyboard reschedule handler
-  useEffect(() => {
-    if (!task) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', handler, true);
-    return () => document.removeEventListener('keydown', handler, true);
-  }, [task, onClose]);
 
   // Derive finish date from entered start + task duration (calendar days)
   const derivedFinish = useMemo(() => {
@@ -93,10 +75,12 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
 
       {/* Dialog panel */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="date-popover-title"
-        className="relative z-10 w-72 rounded-card border border-neutral-border bg-neutral-surface p-4 space-y-4"
+        tabIndex={-1}
+        className="relative z-10 w-72 rounded-card border border-neutral-border bg-neutral-surface p-4 space-y-4 focus:outline-none"
       >
         <h2
           id="date-popover-title"
@@ -116,7 +100,6 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
               Start date
             </label>
             <input
-              ref={inputRef}
               id="date-popover-start"
               type="date"
               value={startValue}

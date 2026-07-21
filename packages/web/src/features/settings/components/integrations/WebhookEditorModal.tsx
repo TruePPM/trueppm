@@ -10,8 +10,9 @@
  * the four added in 0.2 carry a "new" badge.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { isAxiosError } from 'axios';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import {
   useCreateWebhook,
   useUpdateWebhook,
@@ -42,22 +43,13 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
   const create = useCreateWebhook(scope);
   const update = useUpdateWebhook(scope);
   const saving = create.isPending || update.isPending;
-  const headingRef = useRef<HTMLHeadingElement>(null);
 
-  useEffect(() => {
-    headingRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !saving) {
-        e.stopPropagation();
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, saving]);
+  // Trap focus and route Escape to close (guarded while saving, matching the
+  // backdrop-dismiss guard). The hook seats initial focus on the first focusable
+  // and restores focus to the trigger on close.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, () => {
+    if (!saving) onClose();
+  });
 
   function toggleEvent(id: string) {
     setEvents((prev) => {
@@ -101,10 +93,12 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
 
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="webhook-editor-title"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay p-4 motion-safe:animate-scrim-fade"
+      tabIndex={-1}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !saving) onClose();
       }}
@@ -114,8 +108,6 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
           <div>
             <h2
               id="webhook-editor-title"
-              ref={headingRef}
-              tabIndex={-1}
               className="text-[15px] font-semibold text-neutral-text-primary outline-none"
             >
               {isEdit ? 'Edit webhook' : 'New webhook'}

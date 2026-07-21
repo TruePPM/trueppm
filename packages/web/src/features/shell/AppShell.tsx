@@ -22,6 +22,7 @@ import { GlobalTaskDrawer } from './GlobalTaskDrawer';
 import { ToastHost } from '@/components/Toast';
 import { DisplayFormatSync } from './DisplayFormatSync';
 import { useBlockerOffline } from '@/features/blocker/offline/useBlockerOffline';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -44,9 +45,17 @@ export function AppShell() {
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback(() => {
     setDrawerOpen(false);
-    // Return focus to hamburger button after drawer closes (WCAG 2.1 §2.4.3)
+    // Return focus to hamburger button after drawer closes (WCAG 2.1 §2.4.3).
+    // (useFocusTrap also restores to the trigger; this keeps the restore explicit
+    // for the resize-to-≥md auto-close path, which does not run the trap cleanup.)
     hamburgerRef.current?.focus();
   }, []);
+
+  // Mobile nav drawer is aria-modal but hand-rolled nothing: focus never moved
+  // in on open and Tab walked out behind the scrim (WCAG 2.4.3/2.1.2, rule 206).
+  // The trap seats initial focus inside the drawer, cycles Tab, and routes Escape
+  // to close (which the drawer previously ignored entirely).
+  const drawerRef = useFocusTrap<HTMLDivElement>(drawerOpen, closeDrawer);
 
   // When the API or WS interceptors mark the session expired, cancel any
   // in-flight queries so they don't continue to populate the cache after
@@ -148,10 +157,12 @@ export function AppShell() {
           />
           {/* Drawer */}
           <div
-            className="fixed left-0 top-0 h-full z-50 md:hidden"
+            ref={drawerRef}
+            className="fixed left-0 top-0 h-full z-50 md:hidden focus:outline-none"
             role="dialog"
             aria-modal="true"
             aria-label="Project navigation"
+            tabIndex={-1}
           >
             <Sidebar isDrawer onClose={closeDrawer} />
           </div>

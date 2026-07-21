@@ -1,6 +1,8 @@
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import type React from 'react';
 import type { Risk } from '@/api/types';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useRiskComments, useCreateRiskComment } from '@/hooks/useRisks';
 import { RiskChip } from './RiskChip';
 import { RiskForm } from './RiskForm';
@@ -42,7 +44,15 @@ const RESPONSE_LABELS: Record<NonNullable<Risk['response']>, string> = {
 export function RiskDrawer({ projectId, risk, isOpen, onClose, initialEditing }: RiskDrawerProps) {
   const [isEditing, setIsEditing] = useState(initialEditing ?? false);
   const closeButtonRef            = useRef<HTMLButtonElement>(null);
-  const drawerRef                 = useRef<HTMLDivElement>(null);
+  // `sm` (< 768px) is the mobile bottom-sheet tier; `md`/`lg` are the desktop
+  // side-by-side inspector. Rendering exactly one shell (rule 211) keeps the
+  // RiskForm from being double-mounted and binds `closeButtonRef` to the copy
+  // that is actually visible.
+  const isMobile = useBreakpoint() === 'sm';
+
+  const isCreateMode = risk === null;
+  const drawerTitle  = isCreateMode ? 'New Risk' : isEditing ? 'Edit Risk' : risk.title;
+  const showForm     = isCreateMode || isEditing;
 
   // Reset editing state whenever the drawer opens or the active risk changes.
   // Respects initialEditing so the ✎ quick-edit affordance opens in edit mode.
@@ -50,129 +60,110 @@ export function RiskDrawer({ projectId, risk, isOpen, onClose, initialEditing }:
     if (isOpen) setIsEditing(initialEditing ?? false);
   }, [isOpen, risk?.id, initialEditing]);
 
-  // Focus the close button when the drawer opens (focus trap entry point)
-  useEffect(() => {
-    if (isOpen) {
-      // Small delay lets the CSS transition begin before moving focus
-      const id = setTimeout(() => closeButtonRef.current?.focus(), 50);
-      return () => clearTimeout(id);
-    }
-    return undefined;
-  }, [isOpen]);
+  // Mobile bottom sheet is a true modal (aria-modal="true"): trap Tab, seat
+  // initial focus, route Escape to close, and restore focus to the trigger.
+  // `showForm` is the focusKey so swapping between the detail view and the form
+  // re-seats focus instead of dropping it to <body> and letting Tab escape.
+  const sheetRef = useFocusTrap<HTMLDivElement>(
+    isMobile && isOpen,
+    onClose,
+    showForm ? 'form' : 'detail',
+  );
 
-  // Close on Escape key
+  // Desktop panel is a NON-MODAL inspector (rule 89/264): the risk table stays
+  // interactive beside it, so focus must be free to Tab back out to the table.
+  // We seat initial focus on the close button and let Escape dismiss, but we
+  // deliberately do NOT trap Tab — a document-level Tab trap here was the #2148
+  // inverse bug that broke the side-by-side reference flow.
   useEffect(() => {
+    if (isMobile || !isOpen) return undefined;
+    // Small delay lets the CSS transition begin before moving focus.
+    const id = setTimeout(() => closeButtonRef.current?.focus(), 50);
+    return () => clearTimeout(id);
+  }, [isMobile, isOpen]);
+
+  useEffect(() => {
+    if (isMobile || !isOpen) return undefined;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape') {
         e.stopPropagation();
         onClose();
       }
     }
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isMobile, isOpen, onClose]);
 
-  // Focus trap — keep Tab/Shift+Tab inside the drawer
-  useEffect(() => {
-    if (!isOpen) return undefined;
+  if (isMobile) {
+    return (
+      <>
+        {/* Backdrop — mobile only (rule 89: desktop inspector shows alongside content) */}
+        {isOpen && (
+          <div
+            className="fixed inset-0 bg-black/30 z-30"
+            aria-hidden="true"
+            onClick={onClose}
+          />
+        )}
 
-    function trapFocus(e: KeyboardEvent) {
-      if (e.key !== 'Tab' || !drawerRef.current) return;
-
-      const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
-      );
-      const first = focusable[0];
-      const last  = focusable[focusable.length - 1];
-
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last?.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first?.focus();
-        }
-      }
-    }
-
-    document.addEventListener('keydown', trapFocus);
-    return () => document.removeEventListener('keydown', trapFocus);
-  }, [isOpen]);
-
-  const isCreateMode = risk === null;
-  const drawerTitle  = isCreateMode ? 'New Risk' : isEditing ? 'Edit Risk' : risk.title;
-
-  const showForm = isCreateMode || isEditing;
-
-  return (
-    <>
-      {/* Backdrop — mobile only (rule 89: desktop drawer shows alongside content) */}
-      {isOpen && (
+        {/* Mobile bottom sheet (rule 89: 85vh, drag handle) — modal, focus-trapped */}
         <div
-          className="fixed inset-0 bg-black/30 md:hidden z-30"
-          aria-hidden="true"
-          onClick={onClose}
-        />
-      )}
+          ref={sheetRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={drawerTitle}
+          tabIndex={-1}
+          className={[
+            'fixed inset-x-0 bottom-0 z-40',
+            'rounded-t-card bg-neutral-surface border-t border-neutral-border',
+            'h-[85vh] flex flex-col focus:outline-none',
+            'transition-transform duration-200',
+            isOpen ? 'translate-y-0' : 'translate-y-full',
+          ].join(' ')}
+        >
+          {/* Drag handle */}
+          <div className="w-8 h-1 rounded-full bg-neutral-border mx-auto mt-3 mb-4 shrink-0" aria-hidden="true" />
+          <DrawerContent
+            projectId={projectId}
+            risk={risk}
+            isCreateMode={isCreateMode}
+            isEditing={isEditing}
+            drawerTitle={drawerTitle}
+            showForm={showForm}
+            closeButtonRef={closeButtonRef}
+            onClose={onClose}
+            onEdit={() => setIsEditing(true)}
+            onFormSuccess={() => { setIsEditing(false); onClose(); }}
+            onFormCancel={() => setIsEditing(false)}
+          />
+        </div>
+      </>
+    );
+  }
 
-      {/* Desktop inline panel — rendered as a flex sibling by RiskRegisterView.
-          aria-modal="false": this panel is non-modal; the risk table stays
-          interactive alongside it. Only the mobile bottom sheet is modal. */}
-      <div
-        ref={drawerRef}
-        role="dialog"
-        aria-modal="false"
-        aria-label={drawerTitle}
-        className="hidden md:flex w-[480px] shrink-0 flex-col bg-neutral-surface border-l border-neutral-border overflow-y-auto"
-      >
-        <DrawerContent
-          projectId={projectId}
-          risk={risk}
-          isCreateMode={isCreateMode}
-          isEditing={isEditing}
-          drawerTitle={drawerTitle}
-          showForm={showForm}
-          closeButtonRef={closeButtonRef}
-          onClose={onClose}
-          onEdit={() => setIsEditing(true)}
-          onFormSuccess={() => { setIsEditing(false); onClose(); }}
-          onFormCancel={() => setIsEditing(false)}
-        />
-      </div>
-
-      {/* Mobile bottom sheet (rule 89: 85vh, drag handle) */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={drawerTitle}
-        className={[
-          'md:hidden fixed inset-x-0 bottom-0 z-40',
-          'rounded-t-card bg-neutral-surface border-t border-neutral-border',
-          'h-[85vh] flex flex-col',
-          'transition-transform duration-200',
-          isOpen ? 'translate-y-0' : 'translate-y-full',
-        ].join(' ')}
-      >
-        {/* Drag handle */}
-        <div className="w-8 h-1 rounded-full bg-neutral-border mx-auto mt-3 mb-4 shrink-0" aria-hidden="true" />
-        <DrawerContent
-          projectId={projectId}
-          risk={risk}
-          isCreateMode={isCreateMode}
-          isEditing={isEditing}
-          drawerTitle={drawerTitle}
-          showForm={showForm}
-          closeButtonRef={closeButtonRef}
-          onClose={onClose}
-          onEdit={() => setIsEditing(true)}
-          onFormSuccess={() => { setIsEditing(false); onClose(); }}
-          onFormCancel={() => setIsEditing(false)}
-        />
-      </div>
-    </>
+  // Desktop inline panel — rendered as a flex sibling by RiskRegisterView so it
+  // lays out alongside the table column. Non-modal: no backdrop, no Tab trap.
+  return (
+    <div
+      role="dialog"
+      aria-modal="false"
+      aria-label={drawerTitle}
+      className="flex w-[480px] shrink-0 flex-col bg-neutral-surface border-l border-neutral-border overflow-y-auto"
+    >
+      <DrawerContent
+        projectId={projectId}
+        risk={risk}
+        isCreateMode={isCreateMode}
+        isEditing={isEditing}
+        drawerTitle={drawerTitle}
+        showForm={showForm}
+        closeButtonRef={closeButtonRef}
+        onClose={onClose}
+        onEdit={() => setIsEditing(true)}
+        onFormSuccess={() => { setIsEditing(false); onClose(); }}
+        onFormCancel={() => setIsEditing(false)}
+      />
+    </div>
   );
 }
 

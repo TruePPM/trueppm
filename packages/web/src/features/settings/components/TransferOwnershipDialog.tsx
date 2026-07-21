@@ -8,12 +8,14 @@
  * mutates directly — the caller passes an `onConfirm` that invokes the wired
  * mutation hook, so the page owns cache invalidation and error surfacing.
  *
- * `role="dialog" aria-modal="true"` with focus on the Cancel (safe) control on
- * open — a transfer is a deliberate, recoverable-only-by-re-transfer hand-off,
- * so the destructive Confirm is never autofocused.
+ * `role="dialog" aria-modal="true"`, focus-trapped: opening seats focus on the
+ * first form field (the new-owner picker) and the destructive Confirm — last in
+ * DOM and disabled until a choice is made — is never autofocused, so a transfer
+ * stays a deliberate, recoverable-only-by-re-transfer hand-off.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { MemberPicker } from './MemberPicker';
 
 interface TransferOwnershipDialogProps {
@@ -52,34 +54,26 @@ export function TransferOwnershipDialog({
 }: TransferOwnershipDialogProps) {
   const [newOwnerId, setNewOwnerId] = useState<string | null>(null);
   const [newLeadId, setNewLeadId] = useState<string | null>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-
-  // Escape cancels; stopPropagation so it does not bubble to a parent handler
-  // (e.g. a settings discard guard) that would also react to the key.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onCancel();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  // Trap focus and route Escape to Cancel (the safe action). This is a form
+  // dialog, so the trap seats initial focus on the first form field (the new-
+  // owner picker); the destructive Confirm is last in DOM and disabled until a
+  // choice is made, so it is never autofocused. The hook's Escape stopPropagation
+  // keeps a parent discard guard from also reacting; focus restores to the
+  // trigger on close.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
 
   const canConfirm = newOwnerId !== null && !busy;
 
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="transfer-dialog-title"
       aria-describedby="transfer-dialog-body"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
+      tabIndex={-1}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay focus:outline-none motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
@@ -136,7 +130,6 @@ export function TransferOwnershipDialog({
 
         <div className="flex justify-end gap-2">
           <button
-            ref={cancelRef}
             type="button"
             onClick={onCancel}
             className="h-8 rounded border border-neutral-border bg-transparent px-3 text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"

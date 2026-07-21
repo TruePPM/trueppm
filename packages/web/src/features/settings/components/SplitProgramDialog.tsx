@@ -21,7 +21,8 @@
  */
 
 import { WarningIcon } from '@/components/Icons';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
 
 interface SplitProgramDialogProps {
@@ -63,22 +64,13 @@ export function SplitProgramDialog({
   // projectId -> sub localId, or null when the project stays on the original.
   const [assignment, setAssignment] = useState<Record<string, string | null>>({});
 
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-
-  // Escape cancels; stopPropagation so a parent discard guard does not also react.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onCancel();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  // Trap focus and route Escape to Cancel. This is a form dialog, so the trap
+  // seats initial focus on the first form field (the first sub-program name
+  // input); the destructive Confirm is last in DOM and stays disabled until the
+  // form is valid, so it is never autofocused. The hook's Escape stopPropagation
+  // keeps a parent discard guard from also reacting, and focus restores to the
+  // trigger on close.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
 
   const addSub = () => {
     if (subs.length >= MAX_SUBS) return;
@@ -119,11 +111,13 @@ export function SplitProgramDialog({
 
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="split-dialog-title"
       aria-describedby="split-dialog-body"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
+      tabIndex={-1}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay focus:outline-none motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
@@ -280,7 +274,6 @@ export function SplitProgramDialog({
           ) : null}
           <div className="flex justify-end gap-2">
             <button
-              ref={cancelRef}
               type="button"
               onClick={onCancel}
               className="h-8 rounded border border-neutral-border bg-transparent px-3 text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"

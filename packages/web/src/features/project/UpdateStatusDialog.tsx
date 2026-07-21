@@ -23,6 +23,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AxiosError } from 'axios';
 import type { ProjectHealth } from '@/api/types';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { HEALTH_OPTIONS, HEALTH_ACTIVE, HEALTH_LABEL } from '@/features/project/projectHealth';
 import { ReadOnlyIndicator } from '@/features/settings/components/ReadOnlyIndicator';
@@ -55,21 +56,17 @@ export function UpdateStatusDialog({
   const updateProject = useUpdateProject(projectId);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
+  // Seat focus on Cancel (the safe default). Declared before the trap so the
+  // trap's own initial-focus seat is a no-op — the container already holds the
+  // focused Cancel button, preserving the deliberate safe-default landing.
   useEffect(() => {
     cancelRef.current?.focus();
   }, []);
 
-  // Escape cancels; stopPropagation so it does not bubble to a parent handler.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // Trap Tab focus inside the dialog and restore focus to the trigger on close
+  // (WCAG 2.4.3 / 2.1.2). The hook owns Escape — its document-level handler
+  // stopPropagation's it, replacing the hand-rolled document Escape listener.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
   const busy = updateProject.isPending;
   const canSave = canEdit && selected !== currentHealth && !busy;
@@ -86,11 +83,13 @@ export function UpdateStatusDialog({
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="update-status-title"
       aria-describedby="update-status-body"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
+      tabIndex={-1}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay focus:outline-none motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

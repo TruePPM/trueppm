@@ -8,6 +8,7 @@
  */
 
 import { useState, type ReactNode } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { SettingsCard } from '../../SettingsShell';
 import {
   useWebhooks,
@@ -230,12 +231,22 @@ export function ConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  // Escape/close routes to the safe (Cancel) action; guarded while the mutation
+  // is in-flight to mirror the backdrop-dismiss guard. Cancel is first in DOM so
+  // the trap seats initial focus there — a destructive confirm must never
+  // autofocus the destructive button.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, () => {
+    if (!pending) onCancel();
+  });
+
   return (
     <div
+      ref={trapRef}
       role="alertdialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4"
+      tabIndex={-1}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !pending) onCancel();
       }}

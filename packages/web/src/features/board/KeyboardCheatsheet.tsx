@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface KeyboardCheatsheetProps {
   onClose: () => void;
@@ -55,24 +55,23 @@ const SECTIONS: ShortcutSection[] = [
 /**
  * Modal listing every board keyboard shortcut (issue #195).
  *
- * Triggered by `?` from BoardView. Esc closes; click on the backdrop closes.
- * Trap focus on the close button on mount so screen readers announce the
- * dialog and Tab cycles inside the modal.
+ * Triggered by `?` from BoardView. `useFocusTrap` seats initial focus on the
+ * close button so screen readers announce the dialog, traps Tab inside the
+ * modal, closes on Escape, and restores focus to the trigger on close.
+ * Click on the backdrop also closes.
  */
 export function KeyboardCheatsheet({ onClose }: KeyboardCheatsheetProps) {
-  const closeBtnRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    closeBtnRef.current?.focus();
-  }, []);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
   // Backdrop click closes; pointerdown on inner content stops propagation.
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="keyboard-cheatsheet-title"
-      className="fixed inset-0 z-30 flex items-center justify-center bg-neutral-text-primary/40 p-4"
+      tabIndex={-1}
+      className="fixed inset-0 z-30 flex items-center justify-center bg-neutral-text-primary/40 p-4 focus:outline-none"
       onPointerDown={onClose}
     >
       <div
@@ -87,7 +86,6 @@ export function KeyboardCheatsheet({ onClose }: KeyboardCheatsheetProps) {
             Keyboard shortcuts
           </h2>
           <button
-            ref={closeBtnRef}
             type="button"
             onClick={onClose}
             className="text-neutral-text-secondary hover:text-neutral-text-primary

@@ -191,7 +191,13 @@ export function ShareViewDialog({
 
   // Once the token is revealed, Escape / backdrop must NOT discard it before the
   // user has copied it — they click Done instead (the #283 copy-guard pattern).
-  const trapRef = useFocusTrap<HTMLDivElement>(true, created ? undefined : onClose);
+  //
+  // The three states (create → manage → reveal) swap the dialog's focusable
+  // content while the trap stays active; without a focusKey the previously
+  // focused control unmounts on a phase change and focus drops to <body>, letting
+  // Tab escape the modal (rule 245a). Passing the phase re-seats focus on each swap.
+  const phase = created ? 'reveal' : mode === 'manage' && links.length > 0 ? 'manage' : 'create';
+  const trapRef = useFocusTrap<HTMLDivElement>(true, created ? undefined : onClose, phase);
   const revealRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (created) revealRef.current?.focus();

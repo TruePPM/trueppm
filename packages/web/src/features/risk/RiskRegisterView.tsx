@@ -867,10 +867,10 @@ export function RiskRegisterView() {
         </div>
 
         {/* Drawer — rendered as a flex sibling so the desktop variant
-            (`hidden md:flex w-[480px]`, RiskDrawer.tsx) lays out alongside
-            the table column instead of stacking below the page (rule 89).
-            The mobile bottom sheet uses `fixed` positioning so it is
-            unaffected by participation in this flex row. */}
+            (`flex w-[480px]`, RiskDrawer.tsx) lays out alongside the table
+            column instead of stacking below the page (rule 89). RiskDrawer
+            renders one shell per breakpoint; the mobile bottom sheet uses
+            `fixed` positioning so it is unaffected by this flex row. */}
         {isDrawerOpen && (
           <RiskDrawer
             projectId={projectId}

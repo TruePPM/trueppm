@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useTaskDependencies, type TaskDependencyEdge } from '@/hooks/useTaskDependencies';
 import type { Task, TaskStatus } from '@/types';
 
@@ -85,18 +85,18 @@ function DepRow({ edge, task, isBlocking, onJumpTo }: DepRowProps) {
  */
 export function DepPopover({ task, taskIndex, onClose, onJumpTo }: DepPopoverProps) {
   const { predecessors, successors, isLoading } = useTaskDependencies(task.id);
-  const closeBtnRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    closeBtnRef.current?.focus();
-  }, []);
+  // Seats initial focus on the close button, traps Tab, and closes on Escape —
+  // the "Press Esc to close" footer was previously non-functional.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby={`dep-popover-${task.id}-title`}
-      className="fixed inset-0 z-30 flex items-start justify-center bg-neutral-text-primary/40 p-4 pt-20"
+      tabIndex={-1}
+      className="fixed inset-0 z-30 flex items-start justify-center bg-neutral-text-primary/40 p-4 pt-20 focus:outline-none"
       onPointerDown={onClose}
     >
       <div
@@ -114,7 +114,6 @@ export function DepPopover({ task, taskIndex, onClose, onJumpTo }: DepPopoverPro
             <p className="text-xs text-neutral-text-secondary truncate">{task.name}</p>
           </div>
           <button
-            ref={closeBtnRef}
             type="button"
             onClick={onClose}
             className="text-neutral-text-secondary hover:text-neutral-text-primary

@@ -14,8 +14,9 @@
  * AI client without touching the shell.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { isAxiosError } from 'axios';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { SettingsCard } from '../../SettingsShell';
 import {
   useApiTokens,
@@ -207,11 +208,19 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
   const [tokenScope, setTokenScope] = useState<ApiTokenScope>('legacy:full');
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedApiToken | null>(null);
-  const nameRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    nameRef.current?.focus();
-  }, []);
+  // Multi-state dialog (#1776): the trap re-seats focus when the phase flips from
+  // the create form to the one-time-reveal panel, so focus never drops to <body>
+  // when the form controls unmount. Escape/close is guarded while the create
+  // mutation is in-flight to mirror the backdrop-dismiss guard.
+  const phase = created ? (isMcpRead(created.scopes ?? [tokenScope]) ? 'mcp' : 'plain') : 'form';
+  const trapRef = useFocusTrap<HTMLDivElement>(
+    true,
+    () => {
+      if (!create.isPending) onClose();
+    },
+    phase,
+  );
 
   function handleCreate() {
     if (name.trim().length === 0) {
@@ -228,14 +237,16 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
     );
   }
 
-  const revealMcp = created ? isMcpRead(created.scopes ?? [tokenScope]) : false;
+  const revealMcp = phase === 'mcp';
 
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-label={created ? 'Token created' : 'Create API token'}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4"
+      tabIndex={-1}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none"
       onPointerDown={(e) => {
         // Once the token is revealed, a stray backdrop click must NOT dismiss it
         // — the plaintext is shown once and is unrecoverable (#2205). Gate on
@@ -268,7 +279,6 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
             </label>
             <input
               id="api-token-name"
-              ref={nameRef}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}

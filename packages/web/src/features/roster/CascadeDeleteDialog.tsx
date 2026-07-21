@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface CascadeDeleteDialogProps {
   resourceName: string;
@@ -20,29 +20,21 @@ export function CascadeDeleteDialog({
   onCancel,
   isLoading = false,
 }: CascadeDeleteDialogProps) {
-  const cancelRef = useRef<HTMLButtonElement>(null);
-
-  // Focus the cancel button on open for safe default.
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-
-  // Close on Escape.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onCancel();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  // Trap Tab focus inside the dialog, seat initial focus on Cancel (the first
+  // focusable — the safe default), route Escape to Cancel, and restore focus to
+  // the trigger on close (WCAG 2.4.3 / 2.1.2). Replaces the hand-rolled focus and
+  // document Escape effects.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onCancel);
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="cascade-dialog-title"
       aria-describedby="cascade-dialog-desc"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay p-4"
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none"
     >
       <div className="w-full max-w-sm bg-neutral-surface rounded-card border border-neutral-border p-5 flex flex-col gap-4">
         <h2 id="cascade-dialog-title" className="text-base font-semibold text-neutral-text-primary">
@@ -58,7 +50,6 @@ export function CascadeDeleteDialog({
         </p>
         <div className="flex gap-2 justify-end">
           <button
-            ref={cancelRef}
             type="button"
             onClick={onCancel}
             disabled={isLoading}
