@@ -10,7 +10,7 @@
  * real (WCAG 4.1.3), not a code-reading assumption.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import { useRef } from 'react';
 import type { GanttEngine, GanttEngineEventMap } from './engine';
 import { ScheduleAriaOverlay } from './ScheduleAriaOverlay';
@@ -182,6 +182,30 @@ describe('ScheduleAriaOverlay keyboard contract (#1776)', () => {
     fireEvent.keyDown(cellFor('Design'), { key: 'ArrowDown' });
     expect(cellFor('Design')).toHaveAttribute('tabindex', '0');
     expect(cellFor('Build')).toHaveAttribute('tabindex', '-1');
+  });
+
+  // #2185: aria-selected must track engine selection changes. It previously read
+  // engine.selectedTaskIds (a mutable Set) at render but only re-rendered on
+  // scroll/resize, so canvas-click or keyboard selection left it stale (WCAG 4.1.2).
+  it('reflects a canvas-side selection change in aria-selected without a re-render trigger', () => {
+    const engine = makeEngine();
+    render(<Harness engine={engine} tasks={TASKS} />);
+    expect(cellFor('Build')).toHaveAttribute('aria-selected', 'false');
+    // Simulate a canvas click that selects t2 outside the overlay's own handler.
+    act(() => engine.selectTask('t2'));
+    expect(cellFor('Build')).toHaveAttribute('aria-selected', 'true');
+    expect(cellFor('Design')).toHaveAttribute('aria-selected', 'false');
+    // Selecting another task clears the first.
+    act(() => engine.selectTask('t3'));
+    expect(cellFor('Build')).toHaveAttribute('aria-selected', 'false');
+    expect(cellFor('Test')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('sets aria-selected on the cell selected via Space', () => {
+    const engine = makeEngine();
+    render(<Harness engine={engine} tasks={TASKS} />);
+    fireEvent.keyDown(cellFor('Design'), { key: ' ' });
+    expect(cellFor('Design')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('announces the real key map in the static grid help (#1776)', () => {
