@@ -604,3 +604,82 @@ describe('<SettingsShell>', () => {
     });
   });
 });
+
+describe('<SettingsShell> route-departure affordance & scope hiding', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
+  });
+
+  function renderWithNav(navGroups: SettingsNavGroup[], scopeLinks: SettingsScopeLink[], scope: 'workspace' | 'project' | 'program' = 'workspace') {
+    return render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <Routes>
+          <Route
+            path="/settings"
+            element={
+              <SettingsShell
+                scope={scope}
+                scopeLinks={scopeLinks}
+                contextName="Acme Inc"
+                navGroups={navGroups}
+                exitTo="/"
+                exitLabel="Home"
+              >
+                <SettingsSection id="general">
+                  <SettingsPageTitle title="General" />
+                </SettingsSection>
+              </SettingsShell>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  const NAV_WITH_EXTERNAL: SettingsNavGroup[] = [
+    { label: 'Org', items: [{ id: 'general', label: 'General', icon: <span /> }] },
+    {
+      label: 'System',
+      items: [{ id: 'health', label: 'System health', to: '/settings/health', external: true, icon: <span /> }],
+    },
+  ];
+
+  it('renders a ↗ affordance on a route-departure (external) rail item but not on an inline item (#2252)', () => {
+    renderWithNav(NAV_WITH_EXTERNAL, [{ scope: 'workspace', label: 'Workspace', to: '/settings' }]);
+    // The inline section button has only its (span) icon — no svg.
+    const inline = screen.getByRole('button', { name: 'General' });
+    expect(inline.querySelector('svg')).toBeNull();
+    // The external tool-page button carries the trailing ↗ svg (aria-hidden, so
+    // the accessible name is unchanged — still just "System health").
+    const external = screen.getByRole('button', { name: 'System health' });
+    expect(external.querySelector('svg')).not.toBeNull();
+  });
+
+  it('hides scope segments flagged hidden and collapses a sole scope to a static label (#2251)', () => {
+    renderWithNav(NAV_WITH_EXTERNAL, [
+      { scope: 'workspace', label: 'Workspace', to: '/settings' },
+      { scope: 'program', label: 'Program', to: null, hidden: true },
+      { scope: 'project', label: 'Project', to: null, hidden: true },
+    ]);
+    // The inapplicable scopes are gone entirely — not rendered disabled.
+    expect(screen.queryByRole('button', { name: 'Program' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Project' })).not.toBeInTheDocument();
+    // The lone remaining scope is a static label, not a one-item tablist button.
+    expect(screen.queryByRole('button', { name: 'Workspace' })).not.toBeInTheDocument();
+    expect(screen.getByText('Workspace')).toBeInTheDocument();
+  });
+
+  it('keeps a not-yet scope disabled (with its reason) rather than hiding it (#2251)', () => {
+    renderWithNav(NAV_WITH_EXTERNAL, [
+      { scope: 'workspace', label: 'Workspace', to: '/settings' },
+      { scope: 'program', label: 'Program', to: null, disabledReason: 'Scoped settings appear once you create a program' },
+      { scope: 'project', label: 'Project', to: '/projects/p1/settings' },
+    ]);
+    const program = screen.getByRole('button', { name: 'Program' });
+    expect(program).toBeDisabled();
+    expect(program).toHaveAttribute('title', 'Scoped settings appear once you create a program');
+    // Three visible segments still render (workspace static-active, program disabled, project enabled).
+    expect(screen.getByRole('button', { name: 'Project' })).toBeEnabled();
+  });
+});

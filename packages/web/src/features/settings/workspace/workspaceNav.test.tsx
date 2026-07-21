@@ -10,6 +10,9 @@ describe('buildWorkspaceNavGroups (#2013 — one source of truth, no drift)', ()
   it('lists the full rail — SSO and the whole Delivery group included — in both modes', () => {
     // The off-route Trash / System Health shells used to hand-copy NAV_GROUPS and
     // dropped `sso` plus most of Delivery; both modes must now be complete.
+    // Danger (an inline scroll section) sits BEFORE the System tool group so the
+    // consolidated page's inline sections stay contiguous and the route-departure
+    // tools cluster last (#2252). Observability is a System tool (#2250).
     const expected = [
       'general',
       'members',
@@ -22,13 +25,29 @@ describe('buildWorkspaceNavGroups (#2013 — one source of truth, no drift)', ()
       'programs',
       'attachments',
       'email',
+      'danger',
       'health',
+      'observability',
       'retention',
       'trash',
-      'danger',
     ];
     expect(itemIds(buildWorkspaceNavGroups({ linked: false }))).toEqual(expected);
     expect(itemIds(buildWorkspaceNavGroups({ linked: true }))).toEqual(expected);
+  });
+
+  it('marks the System tool items external (route departures) with their own routes (#2250/#2252)', () => {
+    for (const mode of [false, true]) {
+      const groups = buildWorkspaceNavGroups({ linked: mode });
+      const byId = Object.fromEntries(groups.flatMap((g) => g.items).map((i) => [i.id, i]));
+      // Observability is its own tool page, flagged external in both modes.
+      expect(byId.observability.to).toBe('/settings/observability');
+      expect(byId.observability.external).toBe(true);
+      // The other System tools are external too; inline config sections are not.
+      expect(byId.health.external).toBe(true);
+      expect(byId.trash.external).toBe(true);
+      expect(byId.general.external).toBeUndefined();
+      expect(byId.danger.external).toBeUndefined();
+    }
   });
 
   it('inline mode (consolidated page) omits `to` on config sections so they scroll-spy', () => {

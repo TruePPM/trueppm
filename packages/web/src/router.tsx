@@ -205,6 +205,11 @@ const WorkspaceTrashPage = lazy(() =>
     default: m.WorkspaceTrashPage,
   })),
 );
+const WorkspaceObservabilityPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceObservabilityPage').then((m) => ({
+    default: m.WorkspaceObservabilityPage,
+  })),
+);
 const InviteAcceptPage = lazy(() =>
   import('@/features/settings/workspace/InviteAcceptPage').then((m) => ({
     default: m.InviteAcceptPage,
@@ -1093,6 +1098,20 @@ export const router = createBrowserRouter([
                   </Suspense>
                 ),
                 handle: { title: 'Trash' } satisfies RouteHandle,
+              },
+              // Observability — dedicated OTLP telemetry-export setup page (#2250),
+              // promoted out of the System Health readout so it's discoverable in
+              // the rail by name. Standalone page with its own SettingsShell.
+              {
+                path: 'settings/observability',
+                element: (
+                  <RequireAdminSettings>
+                    <Suspense fallback={<RouteLoadingFallback />}>
+                      <WorkspaceObservabilityPage />
+                    </Suspense>
+                  </RequireAdminSettings>
+                ),
+                handle: { title: 'Observability' } satisfies RouteHandle,
               },
               // System Health tools — separate multi-route area with its own shell
               // (ADR-0146). Not part of the consolidated scroll page.

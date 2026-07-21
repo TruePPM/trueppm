@@ -22,6 +22,15 @@ export interface SettingsNavItem {
    * in-page section. Inline sections omit this.
    */
   to?: string;
+  /**
+   * Marks a route-departure "tool page" item (System health, Observability,
+   * Retention & purge, Trash) — rendered with a trailing ↗ affordance so it reads
+   * as "opens a separate page", not a scroll-spy section (#2252). Distinct from
+   * `to`: on the off-route shells the inline config items also carry a `to`
+   * (a `/settings#slug` anchor) but are NOT tool-page departures, so we flag this
+   * explicitly rather than infer it from `to`.
+   */
+  external?: boolean;
 }
 
 export interface SettingsNavGroup {
@@ -38,6 +47,17 @@ export interface SettingsScopeLink {
   to: string | null;
   /** Tooltip shown on the disabled segment when `to` is null, e.g. "No programs yet". */
   disabledReason?: string;
+  /**
+   * Hide this segment entirely instead of rendering it disabled. Used on the
+   * workspace-only tool pages (System Health, Observability, Trash) where a
+   * program/project scope can NEVER apply — a permanently-disabled tab reading
+   * "Switch from the workspace page" is a false signifier and an imperative the
+   * user can't obey (#2251). Contrast the not-yet case (general settings before a
+   * program/project exists), which stays disabled with softened guiding copy so
+   * the tri-scope model (rule 125) still teaches. When hiding collapses the
+   * switcher to a single scope, it renders as a static label, not a lone tab.
+   */
+  hidden?: boolean;
 }
 
 interface SettingsShellProps {
@@ -355,6 +375,32 @@ export function SettingsShell({
                       {item.icon}
                     </span>
                     {item.label}
+                    {/* Route-departure tool page (#2252): a trailing ↗ signals
+                        "opens a separate page" so these items don't read as
+                        scroll-spy sections. aria-hidden — the label carries the
+                        accessible name (rule 6). */}
+                    {item.external && (
+                      <svg
+                        width="11"
+                        height="11"
+                        viewBox="0 0 16 16"
+                        aria-hidden="true"
+                        // The ↗ is the sole visual "opens a separate page" signifier
+                        // (#2252), so it must clear WCAG 1.4.11 3:1 — text-secondary,
+                        // not text-disabled, which fails on the active item's sunken
+                        // background (rule 87).
+                        className="ml-auto shrink-0 text-neutral-text-secondary"
+                      >
+                        <path
+                          d="M6 3.5h6.5V10 M12.5 3.5L4 12"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          fill="none"
+                        />
+                      </svg>
+                    )}
                   </button>
                 );
               })}
@@ -542,44 +588,73 @@ function ScopeSwitcher({
   scopeLinks: SettingsScopeLink[];
   onNavigate: (to: string) => void;
 }) {
+  // Segments a program/project scope can NEVER apply to (System Health,
+  // Observability, Trash) are hidden, not shown disabled (#2251). If hiding
+  // collapses the switcher to a single scope, render a static identity label
+  // rather than a lone segmented "tab" (which reads as a broken control and, as
+  // a one-item tablist, confuses screen readers).
+  const visible = scopeLinks.filter((sl) => !sl.hidden);
+  const soleScope = visible.length <= 1 ? (visible[0] ?? scopeLinks.find((sl) => sl.scope === scope)) : null;
+
   return (
     <div>
       <p className="text-xs font-semibold tracking-[.1em] uppercase text-neutral-text-secondary mb-1.5">
         Scope
       </p>
-      <div className="grid grid-cols-3 bg-neutral-surface-sunken rounded-control p-0.5 gap-0">
-        {scopeLinks.map((sl) => {
-          const isActive = scope === sl.scope;
-          const isDisabled = !isActive && sl.to == null;
-          return (
-            <button
-              key={sl.scope}
-              type="button"
-              disabled={isDisabled}
-              aria-disabled={isDisabled || undefined}
-              title={isDisabled ? sl.disabledReason : undefined}
-              onClick={() => {
-                if (sl.to == null) return;
-                onNavigate(sl.to);
-              }}
-              className={[
-                'py-1.5 px-1 rounded-control text-xs font-medium text-center transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                isActive
-                  ? 'bg-neutral-surface text-neutral-text-primary'
-                  : isDisabled
-                    ? 'text-neutral-text-disabled cursor-not-allowed'
-                    : 'text-neutral-text-secondary hover:text-neutral-text-primary',
-              ].join(' ')}
-            >
-              {sl.label}
-            </button>
-          );
-        })}
-      </div>
+      {soleScope ? (
+        <div className="bg-neutral-surface-sunken rounded-control p-0.5">
+          <div className="py-1.5 px-1 rounded-control text-xs font-medium text-center bg-neutral-surface text-neutral-text-primary">
+            {soleScope.label}
+          </div>
+        </div>
+      ) : (
+        <div
+          className={[
+            'grid bg-neutral-surface-sunken rounded-control p-0.5 gap-0',
+            SCOPE_GRID_COLS[visible.length] ?? 'grid-cols-3',
+          ].join(' ')}
+        >
+          {visible.map((sl) => {
+            const isActive = scope === sl.scope;
+            const isDisabled = !isActive && sl.to == null;
+            return (
+              <button
+                key={sl.scope}
+                type="button"
+                disabled={isDisabled}
+                aria-disabled={isDisabled || undefined}
+                title={isDisabled ? sl.disabledReason : undefined}
+                onClick={() => {
+                  if (sl.to == null) return;
+                  onNavigate(sl.to);
+                }}
+                className={[
+                  'py-1.5 px-1 rounded-control text-xs font-medium text-center transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                  isActive
+                    ? 'bg-neutral-surface text-neutral-text-primary'
+                    : isDisabled
+                      ? 'text-neutral-text-disabled cursor-not-allowed'
+                      : 'text-neutral-text-secondary hover:text-neutral-text-primary',
+                ].join(' ')}
+              >
+                {sl.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
+
+// Tailwind can't interpolate a class from a runtime count, so map the visible
+// scope-segment count to a static grid-cols class (#2251).
+const SCOPE_GRID_COLS: Record<number, string> = {
+  1: 'grid-cols-1',
+  2: 'grid-cols-2',
+  3: 'grid-cols-3',
+};
 
 /** Context selector — switcher when >= 2 siblings (issue 776), else identity row. */
 function ContextRow({

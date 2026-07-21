@@ -176,7 +176,7 @@ test.describe('Settings shell — scrollbar-gutter layout shift (#776)', () => {
 
   // #776: the SCOPE switcher must not navigate to a blank page. With no programs
   // in the workspace, the Program scope segment is disabled rather than falling
-  // back to a non-settings landing.
+  // back to a non-settings landing — with guiding, non-imperative copy (#2251).
   test('Program scope segment is disabled when the workspace has no programs', async ({ page }) => {
     await setup(page); // no programs mocked → usePrograms() resolves empty
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
@@ -184,7 +184,8 @@ test.describe('Settings shell — scrollbar-gutter layout shift (#776)', () => {
     // exact: true so we hit the scope segment, not the sidebar's "New program" button.
     const program = page.getByRole('button', { name: 'Program', exact: true });
     await expect(program).toBeDisabled();
-    await expect(program).toHaveAttribute('title', 'No programs yet');
+    // Guiding copy, never an imperative the user can't obey (#2251).
+    await expect(program).toHaveAttribute('title', 'Scoped settings appear once you create a program');
     // Workspace and the active Project scope remain usable.
     await expect(page.getByRole('button', { name: 'Workspace', exact: true })).toBeEnabled();
   });

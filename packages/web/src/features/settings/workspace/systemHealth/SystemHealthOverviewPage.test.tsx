@@ -196,17 +196,22 @@ describe('SystemHealthOverviewPage', () => {
     expect(screen.queryByText(/No parked tasks/i)).not.toBeInTheDocument();
   });
 
-  it('renders the telemetry card in guided-setup mode when export is unset', () => {
+  it('renders the telemetry export status line as Not configured when export is unset (#2250)', () => {
+    // The full guided-setup card now lives on the Observability page; System
+    // Health keeps only a one-line status readout that cross-links there.
     useSystemHealth.mockReturnValue(mockResult({ data: makeHealth() }));
     renderPage();
-    expect(screen.getByText('Telemetry')).toBeInTheDocument();
+    expect(screen.getByText('Telemetry export')).toBeInTheDocument();
     expect(screen.getByText('Not configured')).toBeInTheDocument();
-    expect(screen.getByText(/Export is off — no collector endpoint set/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Configure in Observability/i })).toHaveAttribute(
+      'href',
+      '/settings/observability',
+    );
+    // Deep config no longer renders on this page (moved to /settings/observability).
+    expect(screen.queryByText(/Export is off — no collector endpoint set/i)).not.toBeInTheDocument();
   });
 
-  it('mounts the telemetry card as Exporting with the endpoint and sampler when live', () => {
-    // Deep card behavior (guided setup, signals, test-export) is covered in
-    // TelemetryCard.test.tsx; here we only assert the page wires the card in.
+  it('renders the telemetry export status line as Exporting and cross-links to Observability when live (#2250)', () => {
     const health = makeHealth({
       telemetry: {
         enabled: true,
@@ -225,9 +230,10 @@ describe('SystemHealthOverviewPage', () => {
     useSystemHealth.mockReturnValue(mockResult({ data: health }));
     renderPage();
     expect(screen.getByText('Exporting')).toBeInTheDocument();
-    expect(screen.getByText('otel-collector.internal:4317')).toBeInTheDocument();
-    expect(screen.getByText('parentbased_traceidratio · 0.1')).toBeInTheDocument();
-    expect(screen.getByText('Test export')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Configure in Observability/i })).toBeInTheDocument();
+    // Endpoint / sampler / test-export moved to the Observability page.
+    expect(screen.queryByText('otel-collector.internal:4317')).not.toBeInTheDocument();
+    expect(screen.queryByText('Test export')).not.toBeInTheDocument();
   });
 
   it('renders a Disabled chip for a disabled retention entry', () => {

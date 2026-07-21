@@ -401,9 +401,18 @@ function TestExport() {
 // Card header + status pill
 // ---------------------------------------------------------------------------
 
-type CardStatus = 'exporting' | 'off' | 'unconfigured';
+export type CardStatus = 'exporting' | 'off' | 'unconfigured';
 
-function StatusPill({ status }: { status: CardStatus }) {
+/**
+ * Derive the telemetry export state from config: no endpoint → unconfigured;
+ * endpoint set + exporter on → exporting; endpoint set + exporter off → off.
+ * Exported so the System Health status line and the Observability page agree.
+ */
+export function telemetryStatus(telemetry: SystemHealthTelemetry): CardStatus {
+  return !telemetry.endpoint_configured ? 'unconfigured' : telemetry.enabled ? 'exporting' : 'off';
+}
+
+export function StatusPill({ status }: { status: CardStatus }) {
   if (status === 'exporting') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-semantic-on-track-bg text-semantic-on-track border border-semantic-on-track/40">
@@ -551,11 +560,7 @@ function GuidedSetup() {
 // ---------------------------------------------------------------------------
 
 export function TelemetryCard({ telemetry }: { telemetry: SystemHealthTelemetry }) {
-  const status: CardStatus = !telemetry.endpoint_configured
-    ? 'unconfigured'
-    : telemetry.enabled
-      ? 'exporting'
-      : 'off';
+  const status = telemetryStatus(telemetry);
 
   return (
     <SettingsCard>

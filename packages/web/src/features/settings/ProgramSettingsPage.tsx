@@ -216,7 +216,7 @@ export function ProgramSettingsPage() {
           scope: 'project',
           label: 'Project',
           to: projectTarget ? `/projects/${projectTarget}/settings` : null,
-          disabledReason: 'No projects yet',
+          disabledReason: 'Scoped settings appear once you create a project',
         },
       ]}
       contextName={program?.name ?? 'Program settings'}

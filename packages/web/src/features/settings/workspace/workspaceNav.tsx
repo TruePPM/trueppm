@@ -31,6 +31,21 @@ function RetentionNavIcon() {
   );
 }
 
+/** Inline broadcast/signal icon for the Observability nav item — OTLP export. */
+function ObservabilityNavIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4.93 4.93a10 10 0 0 0 0 14.14M19.07 4.93a10 10 0 0 1 0 14.14M7.76 7.76a6 6 0 0 0 0 8.48M16.24 7.76a6 6 0 0 1 0 8.48"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="12" r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** Inline lock icon for the Single sign-on nav item. */
 function LockNavIcon() {
   return (
@@ -53,8 +68,10 @@ function NavIcon({ children }: { children: ReactNode }) {
  * `to` (id-only — an item without a `to` is treated as inline by SettingsShell).
  * The off-route shells (System Health tools, Trash) render the same rail but must
  * navigate, so their config items deep-link to the consolidated page anchor
- * `/settings#<id>`. The System-Health and Trash items always carry their own route
- * `to` regardless of mode.
+ * `/settings#<id>`. The System-group tool items (System health, Observability,
+ * Retention & purge, Trash) always carry their own route `to` and `external: true`
+ * regardless of mode — they open distinct pages, not scroll sections, so they are
+ * grouped last (after the inline sections) and rendered with a ↗ affordance (#2252).
  *
  * Keeping the three shells fed from this one builder prevents the rail from
  * drifting out of sync — the defect this replaced (#2013): the Trash and System
@@ -95,17 +112,31 @@ export function buildWorkspaceNavGroups({ linked }: { linked: boolean }): Settin
     // OSS per ADR-0076; the routes remain as redirect shims (see router.tsx) and
     // Enterprise re-injects this group via the slot registry.
     {
-      label: 'System',
-      items: [
-        { id: 'health',    label: 'System health',     to: '/settings/health',           icon: <NavIcon><ActivityNavIcon /></NavIcon> },
-        { id: 'retention', label: 'Retention & purge', to: '/settings/health/retention', icon: <NavIcon><RetentionNavIcon /></NavIcon> },
-        { id: 'trash',     label: 'Trash',             to: '/settings/trash',            icon: <NavIcon><RetentionNavIcon /></NavIcon> },
-      ],
-    },
-    {
       label: 'Danger',
       items: [
         { id: 'danger', label: 'Archive / Delete', to: anchor('danger'), icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
+      ],
+    },
+    // System tools are separate routes (`external: true`), NOT inline scroll
+    // sections — so this group sits AFTER the last inline section (Danger), not
+    // between Delivery and Danger (#2252). Otherwise the consolidated page's
+    // scroll flow (Organization → Delivery → Danger) skips past these un-
+    // scroll-to-able rail entries, producing the jarring "Email → Archive/Delete"
+    // jump with a dead zone where System appears to belong. Keeping the route-
+    // departure tools last makes the inline scroll sections contiguous and marks
+    // this group as a distinct "tool pages you open" cluster (reinforced by the
+    // per-item ↗ affordance SettingsShell renders for `external` items).
+    {
+      label: 'System',
+      items: [
+        { id: 'health',        label: 'System health',     to: '/settings/health',           external: true, icon: <NavIcon><ActivityNavIcon /></NavIcon> },
+        // Observability (OTLP telemetry export) is its own tool page (#2250) so
+        // OTLP setup is discoverable in the rail instead of buried at the bottom
+        // of the System Health monitoring readout. System Health keeps a one-line
+        // export-status readout that cross-links here.
+        { id: 'observability', label: 'Observability',     to: '/settings/observability',    external: true, icon: <NavIcon><ObservabilityNavIcon /></NavIcon> },
+        { id: 'retention',     label: 'Retention & purge', to: '/settings/health/retention', external: true, icon: <NavIcon><RetentionNavIcon /></NavIcon> },
+        { id: 'trash',         label: 'Trash',             to: '/settings/trash',            external: true, icon: <NavIcon><RetentionNavIcon /></NavIcon> },
       ],
     },
   ];

@@ -133,7 +133,7 @@ export function ProjectSettingsPage() {
       scope="project"
       scopeLinks={[
         { scope: 'workspace', label: 'Workspace', to: isWorkspaceAdmin === false ? null : '/settings', disabledReason: 'Requires workspace admin' },
-        { scope: 'program',   label: 'Program',   to: programTarget ? `/programs/${programTarget}/settings` : null, disabledReason: 'No programs yet' },
+        { scope: 'program',   label: 'Program',   to: programTarget ? `/programs/${programTarget}/settings` : null, disabledReason: 'Scoped settings appear once you create a program' },
         { scope: 'project',   label: 'Project',   to: `/projects/${projectId}/settings` },
       ]}
       contextName={project?.name ?? 'Project settings'}
