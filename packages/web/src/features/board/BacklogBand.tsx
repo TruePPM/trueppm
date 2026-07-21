@@ -205,9 +205,12 @@ function ScheduleAction({
         e.stopPropagation();
         onSchedule(task, e.currentTarget);
       }}
+      // 24px corner action + invisible expander to the 44px touch target
+      // (rule 5); already position:absolute, so the pad anchors to the button.
       className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded-control
         text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised
-        focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+        focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
+        before:absolute before:inset-[-10px] before:content-['']"
     >
       <span aria-hidden="true" className="leading-none">···</span>
     </button>
@@ -562,8 +565,10 @@ export function BacklogBand({
           aria-controls="backlog-rail-body"
           aria-label="Collapse backlog rail"
           title="Collapse"
-          className="inline-flex items-center justify-center rounded-control border border-neutral-border bg-neutral-surface text-neutral-text-secondary
-            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+          // 24px visual control + invisible expander to the 44px touch target (rule 5).
+          className="relative inline-flex items-center justify-center rounded-control border border-neutral-border bg-neutral-surface text-neutral-text-secondary
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
+            before:absolute before:inset-[-10px] before:content-['']"
           style={{ width: 24, height: 24 }}
         >
           ‹
@@ -639,8 +644,10 @@ export function BacklogBand({
                 onClick={() => setQuery('')}
                 aria-label="Clear backlog search"
                 title="Clear search"
-                className="inline-flex items-center justify-center rounded-control text-neutral-text-disabled
-                  hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+                // 16px glyph + invisible expander to the 44px touch target (rule 5).
+                className="relative inline-flex items-center justify-center rounded-control text-neutral-text-disabled
+                  hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
+                  before:absolute before:inset-[-14px] before:content-['']"
                 style={{ width: 16, height: 16, lineHeight: 0 }}
               >
                 <span aria-hidden="true">×</span>

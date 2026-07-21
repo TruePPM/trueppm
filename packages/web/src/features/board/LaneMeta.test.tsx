@@ -48,6 +48,15 @@ describe('LaneMeta', () => {
     expect(onAddTask).toHaveBeenCalledTimes(1);
   });
 
+  // #2208 / WCAG 2.5.5 rule 5: the 22px add-task control carries an invisible
+  // before-pad expander so its touch target reaches 44px.
+  it('gives the add-task button a 44px touch target via before-pad', () => {
+    render(<LaneMeta {...BASE_PROPS} onAddTask={vi.fn()} />);
+    const cls = screen.getByRole('button', { name: 'Add task to Engineering' }).className;
+    expect(cls).toContain('relative');
+    expect(cls).toContain("before:inset-[-11px]");
+  });
+
   // #324: assignee-grouped lanes pass no onAddTask — a lane id there is a
   // resource, not a parent — so the add affordance is suppressed (not dead).
   it('suppresses the add-task button when onAddTask is omitted', () => {

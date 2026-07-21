@@ -1044,8 +1044,12 @@ function PhaseLaneImpl({
       onClick={() => onToggleCollapse(phase.id)}
       onKeyDown={handleKeyDown}
       title={collapsed ? 'Expand lane  ]' : 'Collapse lane  ['}
-      className="flex-shrink-0 text-neutral-text-secondary text-xs select-none
-        focus:ring-2 focus:ring-brand-primary focus:outline-none rounded-control"
+      // ~14px glyph + an invisible expander to reach the 44px touch target
+      // (rule 5) without disturbing the dense lane-header row, mirroring the
+      // focusToggle sibling below.
+      className="relative flex-shrink-0 text-neutral-text-secondary text-xs select-none
+        focus:ring-2 focus:ring-brand-primary focus:outline-none rounded-control
+        before:absolute before:inset-[-15px] before:content-['']"
       aria-expanded={!collapsed}
       aria-controls={`phase-${phase.id}-content`}
       aria-label={collapsed ? `Expand ${phase.name}` : `Collapse ${phase.name}`}

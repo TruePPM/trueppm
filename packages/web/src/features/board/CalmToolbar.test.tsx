@@ -115,6 +115,35 @@ describe('CalmToolbar', () => {
     expect(screen.getByText('14 active · 6 in backlog')).toBeInTheDocument();
   });
 
+  // #2208 / WCAG 2.5.5 rule 5: the icon-only Columns & WIP button expands to a
+  // 44px touch target with a layout-neutral before:inset pad. A min-width floor
+  // would override the flex item's implicit `min-width:auto` and collapse the
+  // button to zero width in the crowded flex-nowrap toolbar, so the invisible
+  // pseudo-element pad (matching the lane/backlog controls) is used instead.
+  it('expands the Columns & WIP button hit area to 44px with a before:inset pad', () => {
+    renderToolbar();
+    const cls = screen.getByRole('button', { name: 'Board columns & WIP limits' }).className;
+    expect(cls).toContain('relative');
+    expect(cls).toContain('before:inset-[-8px]');
+    expect(cls).toContain("before:content-['']");
+  });
+
+  it('floors the layout segmented control to 44px tall on touch', () => {
+    renderToolbar();
+    const cls = screen.getByRole('button', { name: 'Rail', pressed: true }).className;
+    expect(cls).toContain('min-h-11');
+    expect(cls).toContain('md:min-h-0');
+  });
+
+  // The bar itself grows to 44px on touch so the floored controls sit centered
+  // rather than overhanging the dense 40px row (relaxing at md).
+  it('grows the toolbar row to 44px on touch, relaxing at md', () => {
+    renderToolbar();
+    const cls = screen.getByRole('toolbar', { name: 'Board toolbar' }).className;
+    expect(cls).toContain('h-11');
+    expect(cls).toContain('md:h-10');
+  });
+
   // Acceptance: chip popovers ----------------------------------------------
 
   // Group swimlanes by phase, assignee (#324), or epic (#364) ---------------

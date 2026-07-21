@@ -165,8 +165,16 @@ export function ToolbarToggle({
       disabled={disabled}
       title={hideLabel ? effectiveAriaLabel : title}
       className={[
-        'inline-flex items-center rounded-full text-xs',
-        hideLabel ? 'justify-center w-7 h-7' : 'gap-1 px-2.5 py-1',
+        'relative inline-flex items-center rounded-full text-xs',
+        // Icon-only toggles are 28px; expand the hit area to the 44px touch
+        // target (rule 5) with an invisible before:inset pad rather than a
+        // min-width floor — a min-width floor overrides the flex item's implicit
+        // `min-width:auto` and collapses the button to zero width in this
+        // crowded flex-nowrap toolbar. The labeled variant keeps a height-only
+        // floor (its px padding already supplies the width).
+        hideLabel
+          ? "justify-center w-7 h-7 before:absolute before:inset-[-8px] before:content-['']"
+          : 'gap-1 px-2.5 py-1 min-h-11 md:min-h-0',
         'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
         'focus:outline-none',
         'disabled:opacity-50 disabled:cursor-wait',
@@ -214,7 +222,8 @@ export function LayoutSwitcher({ layout, onChange }: LayoutSwitcherProps) {
             aria-pressed={active}
             onClick={() => onChange(id)}
             className={[
-              'rounded-full px-2.5 py-0.5 text-xs',
+              // ~22px segments; floor to 44px tall on touch (rule 5), relax at md.
+              'inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs min-h-11 md:min-h-0',
               'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
               'focus:outline-none',
               active
@@ -518,7 +527,10 @@ export function CalmToolbar(props: CalmToolbarProps) {
     <div
       role="toolbar"
       aria-label="Board toolbar"
-      className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 h-10 flex flex-nowrap items-center gap-3 text-xs"
+      // The bar grows to 44px on touch-reachable breakpoints so the 44px-floored
+      // controls (rule 5) sit centered instead of overhanging a fixed 40px row;
+      // relaxes to the dense 40px height at md where the controls relax too.
+      className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 h-11 md:h-10 flex flex-nowrap items-center gap-3 text-xs"
     >
       {/* Identity block — project name truncates and activity stats hide
           below lg to keep the toolbar inside its h-10 row at md (#568 rule 113).
@@ -761,7 +773,13 @@ export function CalmToolbar(props: CalmToolbarProps) {
         aria-label="Board columns & WIP limits"
         title="Board columns & WIP limits"
         className={[
-          'inline-flex items-center justify-center w-7 h-7 rounded-full',
+          // 28px icon button; expand the hit area to the 44px touch target
+          // (rule 5) with an invisible before:inset pad instead of a min-w/min-h
+          // floor. A min-width floor overrides the flex item's implicit
+          // `min-width:auto` and lets the button collapse to zero width in this
+          // crowded flex-nowrap toolbar; the pseudo-element pad is layout-neutral.
+          'relative inline-flex items-center justify-center w-7 h-7 rounded-full',
+          "before:absolute before:inset-[-8px] before:content-['']",
           'text-neutral-text-primary hover:bg-neutral-surface-raised',
           'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
           'focus:outline-none',
