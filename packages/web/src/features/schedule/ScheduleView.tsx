@@ -39,7 +39,7 @@ import { useScheduleKeyboard } from './useScheduleKeyboard';
 import { claimHelpShortcut } from '@/hooks/useGlobalShortcut';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { useCreateBaseline } from '@/hooks/useBaselines';
+import { useBaselines, useCreateBaseline } from '@/hooks/useBaselines';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
 import { ROLE_ADMIN, ROLE_MEMBER, canEditTask } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
@@ -1052,6 +1052,11 @@ export function ScheduleView() {
   const [captureBaselineConfirmOpen, setCaptureBaselineConfirmOpen] = useState(false);
   const canCaptureBaseline = currentRole !== null && currentRole >= ROLE_ADMIN;
   const createBaselineMut = useCreateBaseline(projectId ?? undefined);
+  // Name of the current active baseline (if any) so the capture confirm dialog
+  // tells the truth: the FIRST baseline auto-activates, but capturing while one
+  // is already active is a plain snapshot that does not reactivate (#2215).
+  const { data: baselines } = useBaselines(projectId ?? undefined);
+  const activeBaselineName = baselines?.find((b) => b.is_active)?.name;
   const handleCaptureBaseline = useCallback(() => {
     // The overflow menu closes on select, so the educational confirm dialog
     // (not the menu item) carries the in-flight "Capturing…" state (web-rule
@@ -2246,6 +2251,7 @@ export function ScheduleView() {
       {/* "You're about to baseline" educational confirm for the quick-capture path (#1864). */}
       {captureBaselineConfirmOpen && projectId && (
         <CaptureBaselineConfirmDialog
+          activeBaselineName={activeBaselineName}
           isPending={createBaselineMut.isPending}
           onCancel={() => {
             if (!createBaselineMut.isPending) setCaptureBaselineConfirmOpen(false);

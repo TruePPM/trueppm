@@ -64,7 +64,20 @@ export function useBaselineDetail(
   });
 }
 
-/** Create a new baseline snapshot (POST — optionally pass { name }). */
+/**
+ * Create a new baseline snapshot (POST — optionally pass { name }).
+ *
+ * Auto-activates the FIRST baseline (#2215). Server-side board-card readiness
+ * (`TaskSerializer.get_readiness`) only resolves to `baselined` under the
+ * project's ACTIVE baseline, but capture saves `is_active=false`, so a first
+ * capture would otherwise leave every card at `estimated` until a separate
+ * "Set active" step — contradicting the confirm dialog's promise that the
+ * snapshot becomes the active baseline. When the project has no active baseline
+ * yet, this chains the activate call and refreshes `['tasks']` so the cards flip
+ * with no extra step. Capturing an ADDITIONAL baseline while one is already
+ * active must NOT silently reactivate — "Set active" stays the explicit path —
+ * so the activate is skipped in that case.
+ */
 export function useCreateBaseline(projectId: string | null | undefined) {
   const queryClient = useQueryClient();
   return useMutation<ApiBaseline, Error, { name?: string } | void>({
@@ -73,10 +86,31 @@ export function useCreateBaseline(projectId: string | null | undefined) {
         `/projects/${projectId}/baselines/`,
         body ?? {},
       );
-      return res.data;
+      const created = res.data;
+      // Decide auto-activation from the authoritative list rather than the
+      // possibly-cold ['baselines'] cache (the quick-capture path in
+      // ScheduleView never mounts the manager that populates it). The
+      // just-created row is always inactive, so exclude it before checking.
+      const list = await apiClient.get<PaginatedResponse<ApiBaseline>>(
+        `/projects/${projectId}/baselines/`,
+      );
+      const hasActiveBaseline = list.data.results.some(
+        (b) => b.is_active && b.id !== created.id,
+      );
+      if (hasActiveBaseline) return created;
+      const activated = await apiClient.post<ApiBaseline>(
+        `/projects/${projectId}/baselines/${created.id}/activate/`,
+      );
+      return activated.data;
     },
-    onSuccess: () => {
+    onSuccess: (baseline) => {
       void queryClient.invalidateQueries({ queryKey: ['baselines', projectId] });
+      // An auto-activated first baseline becomes the overlay applied to tasks,
+      // so readiness/board cards must refresh. A non-activating capture (an
+      // additional baseline) leaves task readiness unchanged.
+      if (baseline.is_active) {
+        void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+      }
     },
   });
 }
