@@ -997,6 +997,89 @@ helm:lint:
       done
       [ "$fail" -eq 0 ] || exit 1
 
+helm:template:
+  # Static deploy-contract gate (#2279): render the chart and prove the manifests
+  # are (a) schema-valid and (b) still honor the runtime invariants the beta-QA
+  # plan §2.4 checks by hand. `helm lint` only proves the templates PARSE;
+  # kubeconform proves every rendered object validates against the Kubernetes API
+  # schema, and helm-structure-check.sh asserts the deploy contract that a refactor
+  # could silently break (init-container order, secret propagation to the init
+  # containers, the shared admin-password emptyDir). No cluster — always-on,
+  # seconds, zero flake. The runtime half lives in helm:install below.
+  extends: .fast-job
+  image:
+    name: alpine/helm:3.14.0@sha256:a90798c9c2b671e3546b10db1ae0b845f9abccc9f9ff79b34744a1ba146b67ed
+    entrypoint: [""]
+  stage: lint
+  <<: *rules-helm
+  variables:
+    KUBECONFORM_VERSION: "0.6.7"
+    YQ_VERSION: "4.44.3"
+  before_script:
+    - apk add --no-cache bash curl tar
+    - curl -sSL "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C /usr/local/bin kubeconform
+    - curl -sSL -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64"
+    - chmod +x /usr/local/bin/yq
+  script:
+    # Render the full chart the way a real deploy is shaped (a released image tag
+    # + an operator envFrom secret) so kubeconform validates concrete manifests.
+    - helm template trueppm packages/helm --set image.tag=latest --set 'envFrom[0].secretRef.name=trueppm-env' > /tmp/rendered.yaml
+    # -ignore-missing-schemas: PrometheusRule is a CRD with no upstream schema; all
+    # core kinds (Deployment/Service/Secret/NetworkPolicy/...) are still validated.
+    - kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered.yaml
+    - bash scripts/helm-structure-check.sh packages/helm
+
+helm:install:
+  # Runtime deploy smoke test on a real kind cluster (#2279): the half helm:template
+  # cannot reach — actually BOOT the chart. Installs against the last released image
+  # tag (there is no per-commit deployable image; publish is tag-triggered), waits
+  # for full rollout, runs `helm test` (migrate->bootstrap->api /readyz), asserts the
+  # admin password is retrievable from the shared emptyDir, and a negative probe
+  # proves the settings.prod SECRET_KEY guard fails closed. See scripts/helm-install-drill.sh.
+  #
+  # Trigger: chart / CI changes on MR + main (blocking), plus the nightly schedule
+  # as a drift net (allow_failure there — a scheduled net must not red-X main).
+  # kind-in-dind needs the privileged docker:27-dind service (same as the image
+  # build jobs). Not `interruptible` so a rebased push doesn't abort a cluster
+  # mid-provision and leak it.
+  stage: test
+  interruptible: false
+  timeout: 25m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    KIND_VERSION: "0.24.0"
+    KUBECTL_VERSION: "1.31.2"
+    HELM_VERSION: "3.16.3"
+    RELEASE_IMAGE_TAG: "latest"
+    APISERVER_HOST: "docker"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-install-drill.sh
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-install-drill.sh
+        - .gitlab-ci.yml
+  before_script:
+    - apk add --no-cache bash curl
+    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
+    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/helm-install-drill.sh
+
 backup:restore-drill:
   # Restore drill (#320): the standing evidence that scripts/backup.sh and
   # scripts/restore.sh actually work end to end. Seeds a database (required

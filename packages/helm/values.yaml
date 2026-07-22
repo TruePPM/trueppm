@@ -130,6 +130,15 @@ networkPolicy:
 
 # Pod-level and container-level security hardening applied to the API and Celery
 # worker pods. Defaults follow the restricted Pod Security Standard.
+# Image for the `helm test` connection hook (templates/tests/api-connection.yaml).
+# A minimal curl image, run under the same restricted securityContext as the app
+# containers. Only pulled when you run `helm test <release>` (or CI's helm:install
+# job) — never during a normal install/upgrade.
+tests:
+  image:
+    repository: curlimages/curl
+    tag: "8.11.1"
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000
