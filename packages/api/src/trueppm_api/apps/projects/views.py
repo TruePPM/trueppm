@@ -12247,6 +12247,11 @@ class MeSearchView(McpReadableViewMixin, APIView):
 
     @extend_schema(
         summary="Global cross-program Epic/Story omni-search",
+        # Pinned: switching the 200 from a many=True serializer to the inline
+        # envelope below flips drf-spectacular's heuristic operationId from
+        # `_list` to `_retrieve` (misleading for a search-list, and a needless
+        # rename of the generated client method). Keep the stable name (#2267).
+        operation_id="v1_me_search_list",
         parameters=[
             OpenApiParameter(
                 name="q",
@@ -12267,7 +12272,22 @@ class MeSearchView(McpReadableViewMixin, APIView):
                 ),
             ),
         ],
-        responses={200: OmniSearchResultSerializer(many=True)},
+        # The view paginates (``get_paginated_response``), so the 200 is a
+        # page-number envelope, NOT a bare array. Declaring the serializer with
+        # ``many=True`` emitted a ``type: array`` schema that the nightly fuzzer's
+        # ``response_schema_conformance`` check rejected against the real
+        # ``{count, next, previous, results}`` body (#2267). Describe the envelope.
+        responses={
+            200: inline_serializer(
+                name="OmniSearchResultPage",
+                fields={
+                    "count": serializers.IntegerField(),
+                    "next": serializers.URLField(allow_null=True),
+                    "previous": serializers.URLField(allow_null=True),
+                    "results": OmniSearchResultSerializer(many=True),
+                },
+            )
+        },
     )
     def get(self, request: Request) -> Response:
         # IsAuthenticated guarantees a concrete user; ``or -1`` keeps mypy happy about
