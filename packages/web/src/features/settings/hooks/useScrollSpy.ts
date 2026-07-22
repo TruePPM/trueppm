@@ -70,7 +70,18 @@ export function useScrollSpy({ sectionIds, scrollRef, offset = 96 }: UseScrollSp
       const el = container.querySelector<HTMLElement>(`[data-settings-section="${id}"]`);
       if (el) tops[id] = el.getBoundingClientRect().top - lineY;
     }
-    const next = resolveActiveSection(tops, sectionIds);
+    let next = resolveActiveSection(tops, sectionIds);
+    // Last-section guard (#2252): the final section is often shorter than
+    // (viewport − offset), so its top can never scroll up to the sentinel line
+    // and resolveActiveSection would freeze on the second-to-last section even
+    // when the reader is looking straight at the last one. When the container is
+    // scrolled to (within 2px of) its bottom, force the last section active so
+    // the final rail item highlights.
+    const atBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight <= 2;
+    if (atBottom && sectionIds.length > 0) {
+      next = sectionIds[sectionIds.length - 1];
+    }
     if (next) setActiveId(next);
   }, [sectionIds, scrollRef, offset]);
 

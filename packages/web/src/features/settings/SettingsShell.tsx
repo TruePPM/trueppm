@@ -337,9 +337,14 @@ export function SettingsShell({
           />
         </div>
 
-        {/* Scroll-spy nav. Inline items scroll to their section; `to` items navigate. */}
+        {/* Scroll-spy nav. Inline items scroll to their section; `to` items navigate.
+            min-h-0 is load-bearing (same reason as the content panel below, #2252):
+            a flex-1 child defaults to min-height:auto (its content height), so
+            without it this nav refuses to shrink, the list overflows the aside's
+            bounded height, and the aside's overflow-hidden clips the bottom group
+            (SYSTEM) with no scrollbar — the rail can't reach System health/Trash. */}
         <nav
-          className="flex-1 overflow-y-auto [scrollbar-gutter:stable] px-2 py-1"
+          className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] px-2 py-1"
           aria-label="Settings sections"
         >
           {navGroups.map((group) => (
