@@ -130,6 +130,23 @@ networkPolicy:
 
 # Pod-level and container-level security hardening applied to the API and Celery
 # worker pods. Defaults follow the restricted Pod Security Standard.
+# Image for the `helm test` connection hook (templates/tests/api-connection.yaml).
+# A minimal curl image, run under the same restricted securityContext as the app
+# containers. Only pulled when you run `helm test <release>` (or CI's helm:install
+# job) — never during a normal install/upgrade.
+tests:
+  image:
+    repository: curlimages/curl
+    tag: "8.11.1"
+  # Whether the `helm test` connection probe also checks /api/v1/readyz in
+  # addition to /api/v1/health/. Defaults on, because a version-matched deploy
+  # serves the migration-aware readyz endpoint (#1894, #2217) and operators want
+  # it verified. Set false only when running this chart against an app image
+  # that predates readyz (e.g. CI's helm:install drill, which deploys the last
+  # RELEASED image tag while the chart is ahead of it) — otherwise the probe
+  # 404s on an endpoint the image simply does not have yet.
+  probeReadyz: true
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000

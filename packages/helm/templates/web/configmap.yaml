@@ -1,0 +1,73 @@
+{{- if .Values.web.enabled }}
+{{/*
+Chart-managed nginx server config for the web (SPA) pod.
+
+The web image bakes packages/web/nginx.conf, which reverse-proxies /api, /ws,
+/admin and /static to the upstream host `api` — the correct name under
+docker-compose, where the backend service is literally `api`. In Kubernetes the
+API Service is release-scoped (`{{ include "trueppm.fullname" . }}-api`), so the
+baked `api` never resolves. nginx resolves a literal upstream host at *startup*,
+so the web pod crash-loops with `host not found in upstream "api"` before it can
+serve a single request — the chart could never boot web (caught by the #2279
+deploy smoke test).
+
+The upstream host is therefore release-dependent and belongs in the chart, not
+baked into a static image. This ConfigMap renders the same server block with the
+correct Service DNS name and is mounted over /etc/nginx/conf.d/default.conf in the
+web Deployment, so it works against any pre-built (released) web image.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "trueppm.fullname" . }}-web-nginx
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+data:
+  default.conf: |
+    server {
+        listen {{ .Values.web.containerPort | default 8080 }};
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Proxy API calls to the Django backend (release-scoped Service DNS).
+        location /api/ {
+            proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header Authorization $http_authorization;
+            proxy_redirect off;
+        }
+
+        # WebSocket (Django Channels)
+        location /ws/ {
+            proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_http_version 1.1;
+            proxy_set_header   Upgrade    $http_upgrade;
+            proxy_set_header   Connection "upgrade";
+            proxy_set_header   Host       $host;
+            proxy_read_timeout 86400s;
+        }
+
+        # Django admin panel — proxied so it is reachable at the same origin.
+        location /admin/ {
+            proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_redirect off;
+        }
+
+        # Django static files (admin CSS/JS, collectstatic output).
+        location /static/ {
+            proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_set_header Host $host;
+            proxy_redirect off;
+        }
+
+        # SPA fallback — all unmatched routes serve index.html.
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    }
+{{- end }}

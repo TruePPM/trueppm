@@ -229,6 +229,31 @@ with the beat and web tiers, the probe hardening, the `DJANGO_LOG_LEVEL` and OTL
 trace-sampler knobs, and the starter Grafana dashboard / Prometheus alerts, **ship
 in 0.4** (the first beta).
 
+### Verifying a deploy
+
+After `helm install` (or `helm upgrade`), confirm the release actually booted end
+to end — that the `migrate` → `bootstrap` init sequence completed, the supplied
+secrets satisfied the `settings.prod` boot guards, and the API is serving:
+
+```bash
+helm test trueppm
+```
+
+This runs a bundled connection probe (a short-lived Pod, created only by
+`helm test` and never during a normal install) that reaches the API's
+`/api/v1/health/` and migration-aware `/api/v1/readyz` endpoints and fails if
+either is unreachable within the rollout window. A green `helm test` is the
+single strongest signal that the whole boot chain succeeded. Retrieve the
+generated admin password with `kubectl exec` against the shared password volume
+as described in [Admin password setup](/administration/admin-password/).
+
+The same install-and-`helm test` drill runs in CI (`helm:install`, on any chart
+change plus a nightly schedule), alongside a static gate (`helm:template`) that
+renders the chart, validates every object against the Kubernetes schema with
+`kubeconform`, and asserts the deploy contract (init-container order, secret
+propagation to the init containers, the shared admin-password volume). Together
+they catch a chart regression before it reaches a cluster.
+
 :::note
 The Helm chart is functional with dev and prod values overlays and was hardened
 for secure-by-default installs; further updates landed in 0.2 (available since the `0.2.0-alpha.1` pre-release).
