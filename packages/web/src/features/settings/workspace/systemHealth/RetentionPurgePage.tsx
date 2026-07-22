@@ -11,8 +11,9 @@
  * saving only changes the window — the next run enforces it.
  */
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import axios from 'axios';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { SettingsPageTitle, SettingsCard } from '../../SettingsShell';
 import {
   useRetentionSettings,
@@ -313,28 +314,24 @@ function ConfirmRunDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  // Focus the safe (Cancel) button on open — a destructive confirm must never
-  // autofocus the destructive action (matches ConfirmDiscardDialog's rationale).
-  const cancelRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const bodyId = useId();
-  useEffect(() => {
-    cancelRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  // Trap focus and route Escape to Cancel. Cancel is first in DOM so the trap
+  // seats initial focus on the safe (Cancel) button — a destructive confirm must
+  // never autofocus the destructive action (matches ConfirmDiscardDialog's
+  // rationale). Focus restores to the trigger on close.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay p-4">
       <div
+        ref={trapRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={bodyId}
-        className="w-full max-w-md rounded-card bg-neutral-surface-raised border border-neutral-border p-5"
+        tabIndex={-1}
+        className="w-full max-w-md rounded-card bg-neutral-surface-raised border border-neutral-border p-5 focus:outline-none"
       >
         <h2 id={titleId} className="text-[15px] font-semibold text-neutral-text-primary">
           Run purge now?
@@ -345,7 +342,6 @@ function ConfirmRunDialog({
         </p>
         <div className="mt-5 flex justify-end gap-2.5">
           <button
-            ref={cancelRef}
             type="button"
             onClick={onCancel}
             className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"

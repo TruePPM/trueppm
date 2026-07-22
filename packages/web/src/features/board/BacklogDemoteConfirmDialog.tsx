@@ -12,7 +12,7 @@
  * is captured automatically by django-simple-history (the `status` field is in
  * `_HISTORY_DIFF_FIELDS`); this dialog does not currently persist a reason.
  */
-import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { Button } from '@/components/Button';
 import type { Task } from '@/types';
 
@@ -27,27 +27,19 @@ export function BacklogDemoteConfirmDialog({
   onConfirm,
   onCancel,
 }: BacklogDemoteConfirmDialogProps) {
-  const confirmRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    confirmRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onCancel();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  // Cancel is first in DOM order, so the trap seats initial focus on the safe
+  // action — a fast Enter can't blow past the demote. Escape routes to Cancel.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
 
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="backlog-demote-heading"
       aria-describedby="backlog-demote-body"
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex items-center justify-center px-4 focus:outline-none"
     >
       <div
         aria-hidden="true"
@@ -80,7 +72,7 @@ export function BacklogDemoteConfirmDialog({
           >
             Cancel
           </button>
-          <Button ref={confirmRef} variant="primary" size="md" onClick={onConfirm}>
+          <Button variant="primary" size="md" onClick={onConfirm}>
             Move to backlog
           </Button>
         </div>

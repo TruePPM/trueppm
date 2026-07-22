@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 
 import { SearchIcon } from '@/components/Icons';
 import { modifierKeyLabel } from '@/lib/platform';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { filterCommandItems, type CommandItem } from './commandItems';
@@ -309,6 +310,12 @@ export function CommandPalette() {
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // Trap Tab focus inside the palette and restore focus to the trigger on close
+  // (WCAG 2.4.3 — the palette previously dropped focus to <body>). The hook only
+  // intercepts Tab and Escape, so the combobox's own ↑/↓/Enter nav is untouched.
+  // Escape is routed here (the hook stopPropagation's it), so the input's
+  // onKeyDown no longer handles Escape — avoids a rule-204 double-fire.
+  const trapRef = useFocusTrap<HTMLDivElement>(open, () => setOpen(false));
 
   // Build live items only while open so the Tier-2 detail queries stay inert; the
   // query drives the server-side people tier (ADR-0401).
@@ -385,10 +392,7 @@ export function CommandPalette() {
   const activeItem = items[clampedActive];
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      setOpen(false);
-    } else if (e.key === 'ArrowDown') {
+    if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActiveIndex((i) => (items.length ? (i + 1) % items.length : 0));
     } else if (e.key === 'ArrowUp') {
@@ -409,10 +413,12 @@ export function CommandPalette() {
         onClick={() => setOpen(false)}
       />
       <div
+        ref={trapRef}
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="relative w-full max-w-[560px] overflow-hidden rounded-card border border-neutral-border bg-neutral-surface shadow-pop motion-safe:animate-cmdk-in"
+        tabIndex={-1}
+        className="relative w-full max-w-[560px] overflow-hidden rounded-card border border-neutral-border bg-neutral-surface shadow-pop focus:outline-none motion-safe:animate-cmdk-in"
       >
         {/* Search field — owns all keyboard interaction (focus lives here). */}
         <div className="flex items-center gap-2 border-b border-neutral-border px-3">

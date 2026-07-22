@@ -11,8 +11,9 @@
  * Member never sees — nor fires the 403-guarded GET for — admin-only config.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { isAxiosError } from 'axios';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { SettingsCard } from '../../SettingsShell';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -244,16 +245,19 @@ function RotateSecretModal({
   const [revealed, setRevealed] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  const secretRef = useRef<HTMLInputElement>(null);
 
-  // Never first-focus the destructive action (rule 245b): Enter-on-open must not
-  // rotate the secret. Focus Cancel on open; on reveal, move focus to the secret
-  // field so it is announced and immediately selectable for copy (#2205).
-  useEffect(() => {
-    if (revealed) secretRef.current?.focus();
-    else cancelRef.current?.focus();
-  }, [revealed]);
+  // Multi-state dialog (#1776): re-seat focus when the phase flips from the
+  // rotate/generate confirm to the one-time-reveal panel. Escape/close routes to
+  // the safe action and is guarded while the mutation is in-flight (mirrors the
+  // backdrop-dismiss guard). Cancel is first in DOM so the trap seats initial
+  // focus there — rotating invalidates the current secret, a destructive act.
+  const trapRef = useFocusTrap<HTMLDivElement>(
+    true,
+    () => {
+      if (!rotate.isPending) onClose();
+    },
+    revealed ? 'revealed' : 'confirm',
+  );
 
   function handleRotate() {
     setError(null);
@@ -276,10 +280,12 @@ function RotateSecretModal({
 
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-label={revealed ? 'Secret generated' : 'Generate webhook secret'}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4"
+      tabIndex={-1}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !rotate.isPending) onClose();
       }}
@@ -296,7 +302,6 @@ function RotateSecretModal({
             </p>
             <div className="flex items-center gap-2 mb-4">
               <input
-                ref={secretRef}
                 readOnly
                 value={revealed}
                 onFocus={(e) => e.currentTarget.select()}
@@ -338,7 +343,6 @@ function RotateSecretModal({
             )}
             <div className="flex justify-end gap-2">
               <button
-                ref={cancelRef}
                 type="button"
                 onClick={onClose}
                 disabled={rotate.isPending}

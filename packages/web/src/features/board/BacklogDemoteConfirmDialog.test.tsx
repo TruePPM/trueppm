@@ -100,7 +100,7 @@ describe('BacklogDemoteConfirmDialog', () => {
     expect(onCancel).not.toHaveBeenCalled();
   });
 
-  it('focuses the confirm button on mount (so Enter commits without tabbing)', () => {
+  it('focuses the Cancel button on mount (safe-default: Enter cannot blow past the demote)', () => {
     render(
       <BacklogDemoteConfirmDialog
         task={makeTask()}
@@ -108,8 +108,10 @@ describe('BacklogDemoteConfirmDialog', () => {
         onCancel={vi.fn()}
       />,
     );
+    // useFocusTrap seats initial focus on the first focusable — Cancel is first
+    // in DOM order, so a fast Enter can't commit the destructive demote (#2148).
     expect(document.activeElement).toBe(
-      screen.getByRole('button', { name: 'Move to backlog' }),
+      screen.getByRole('button', { name: 'Cancel' }),
     );
   });
 });

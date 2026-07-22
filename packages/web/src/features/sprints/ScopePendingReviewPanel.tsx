@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import type { Task } from '@/types';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useScopeChangeActions, useScopeDecisionFeedback } from '@/hooks/useScopeChangeActions';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 
@@ -79,20 +80,21 @@ export function ScopePendingReviewPanel({
   // #882 rule 150: bulk reject is destructive → confirm step. Bulk accept is
   // additive but still many-at-once, so it also gets a confirm (rule-1 carve-out).
   const [confirm, setConfirm] = useState<'accept-all' | 'reject-all' | null>(null);
-  const closeBtnRef = useRef<HTMLButtonElement>(null);
 
-  // Esc closes; focus the close button on open (slide-over focus convention).
-  useEffect(() => {
-    closeBtnRef.current?.focus();
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        if (confirm) setConfirm(null);
-        else onClose();
-      }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, confirm]);
+  // Two independent focus traps, one per aria-modal surface (WCAG 2.4.3 / 2.1.2):
+  //  - the slide-over panel (always mounted): seats initial focus on its close
+  //    button (first focusable), traps Tab, and restores focus to the trigger on
+  //    close. Its Escape is guarded to only close the panel when the nested
+  //    confirm is NOT open — both traps' keydown listeners live on `document`, so
+  //    without the guard one Escape would dismiss the confirm AND the panel.
+  //  - the nested bulk-confirm dialog (mounted only while `confirm` is set): seats
+  //    focus on its Cancel button. Previously it never seated focus, so focus
+  //    stayed on the obscured "Reject all" button behind the overlay (#2148);
+  //    Escape now dismisses just the confirm.
+  const panelRef = useFocusTrap<HTMLDivElement>(true, () => {
+    if (!confirm) onClose();
+  });
+  const confirmRef = useFocusTrap<HTMLDivElement>(confirm !== null, () => setConfirm(null));
 
   const busy =
     acceptOne.isPending ||
@@ -113,11 +115,13 @@ export function ScopePendingReviewPanel({
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-neutral-text-primary/40">
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="scope-review-title"
+        tabIndex={-1}
         className="w-full max-w-full sm:w-[400px] h-full bg-neutral-surface border-l border-neutral-border
-          flex flex-col"
+          flex flex-col focus:outline-none"
       >
         <header className="flex items-start justify-between gap-2 px-4 py-3 border-b border-neutral-border">
           <div>
@@ -131,7 +135,6 @@ export function ScopePendingReviewPanel({
             </p>
           </div>
           <button
-            ref={closeBtnRef}
             type="button"
             onClick={onClose}
             aria-label="Close scope review"
@@ -235,10 +238,12 @@ export function ScopePendingReviewPanel({
 
       {confirm && (
         <div
+          ref={confirmRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby="scope-bulk-confirm-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-text-primary/40"
+          tabIndex={-1}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-text-primary/40 focus:outline-none"
         >
           <div className="w-[400px] max-w-full rounded-card border border-neutral-border bg-neutral-surface flex flex-col gap-3 p-5">
             <h3

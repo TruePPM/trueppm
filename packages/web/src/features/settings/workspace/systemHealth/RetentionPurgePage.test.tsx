@@ -316,7 +316,7 @@ describe('RetentionPurgePage', () => {
     await user.click(screen.getByRole('button', { name: 'Run purge now' }));
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() =>
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
     );

@@ -26,6 +26,7 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { Toggle } from '../components/Toggle';
 import { FieldHelp } from '@/components/FieldHelp';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { BUILT_IN_FIELDS } from './builtInFields';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -1121,6 +1122,11 @@ function CustomFieldModal({
   const [options, setOptions] = useState<CustomFieldOption[]>(initial?.options ?? []);
   const [showOnCard, setShowOnCard] = useState(initial?.showOnCard ?? false);
 
+  // Trap focus and route Escape to Cancel; the hook restores focus to the trigger
+  // on close. Initial focus stays on the name input (its autoFocus resolves first
+  // and the trap skips re-seating while focus is already inside the container).
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
+
   const canSubmit = name.trim().length > 0 && (!isSelectType(fieldType) || options.length > 0);
 
   const submit = (e: FormEvent) => {
@@ -1137,10 +1143,12 @@ function CustomFieldModal({
 
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="custom-field-modal-heading"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay"
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay focus:outline-none"
     >
       <form
         onSubmit={submit}

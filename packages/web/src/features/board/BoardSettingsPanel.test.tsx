@@ -22,7 +22,8 @@ describe('BoardSettingsPanel', () => {
   it('calls onClose when Escape is pressed', () => {
     const onClose = vi.fn();
     render(<BoardSettingsPanel columns={COLUMNS} onSave={vi.fn()} onClose={onClose} />);
-    fireEvent.keyDown(window, { key: 'Escape' });
+    // useFocusTrap listens on document; a real Escape inside the dialog bubbles there.
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Board columns' }), { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { Button } from '@/components/Button';
 import { Toggle } from '../settings/components/Toggle';
 import type { BoardColumnDef } from '@/hooks/useBoardConfig';
@@ -54,25 +55,15 @@ export function BoardSettingsPanel({
   showCustomFieldsOnCards,
   onToggleCustomFieldsOnCards,
 }: Props) {
-  const closeRef = useRef<HTMLButtonElement>(null);
+  // Seats initial focus on the close button, traps Tab within the drawer, and
+  // closes on Escape (restoring focus to the trigger on close).
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
   const [draft, setDraft] = useState<BoardColumnDef[]>(() => columns.map((c) => ({ ...c })));
   const [errors, setErrors] = useState<Record<TaskStatus, RowError>>(
     () => ({}) as Record<TaskStatus, RowError>,
   );
   const [isSaving, setIsSaving] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
 
   const isDirty = useMemo(() => {
     return columns.some((orig, i) => {
@@ -140,10 +131,12 @@ export function BoardSettingsPanel({
 
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="board-settings-title"
-      className="fixed inset-0 z-50 flex"
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex focus:outline-none"
     >
       <div className="flex-1 bg-neutral-overlay" aria-hidden="true" onClick={onClose} />
 
@@ -163,7 +156,6 @@ export function BoardSettingsPanel({
             </p>
           </div>
           <button
-            ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label="Close board settings"

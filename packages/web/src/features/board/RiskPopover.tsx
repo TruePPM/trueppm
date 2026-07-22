@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import {
   useTaskRisks,
   severityRagBand,
@@ -57,12 +57,10 @@ function SeverityDots({ severity }: { severity: number }) {
  */
 export function RiskPopover({ projectId, task, onClose }: RiskPopoverProps) {
   const { risks, isLoading } = useTaskRisks(projectId, task.id);
-  const closeBtnRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    closeBtnRef.current?.focus();
-  }, []);
+  // Seats initial focus on the close button, traps Tab, and closes on Escape
+  // (the popover previously had no working Escape handler).
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
   const handleOpenRegister = () => {
     onClose();
@@ -71,10 +69,12 @@ export function RiskPopover({ projectId, task, onClose }: RiskPopoverProps) {
 
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby={`risk-popover-${task.id}-title`}
-      className="fixed inset-0 z-30 flex items-start justify-center bg-neutral-text-primary/40 p-4 pt-20"
+      tabIndex={-1}
+      className="fixed inset-0 z-30 flex items-start justify-center bg-neutral-text-primary/40 p-4 pt-20 focus:outline-none"
       onPointerDown={onClose}
     >
       <div
@@ -92,7 +92,6 @@ export function RiskPopover({ projectId, task, onClose }: RiskPopoverProps) {
             <p className="text-xs text-neutral-text-secondary truncate">{task.name}</p>
           </div>
           <button
-            ref={closeBtnRef}
             type="button"
             onClick={onClose}
             className="text-neutral-text-secondary hover:text-neutral-text-primary

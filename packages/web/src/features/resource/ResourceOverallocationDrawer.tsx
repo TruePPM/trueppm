@@ -11,7 +11,9 @@
  * - Aria: role="dialog" aria-modal aria-label={title}
  */
 
-import { useEffect, useRef, type RefObject } from 'react';
+import { useRef, type RefObject } from 'react';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { capacityHours } from './resourceUtils';
 import type { UtilizationDayEntry } from './resourceUtils';
 
@@ -158,48 +160,11 @@ function DrawerBody({
 
 export function ResourceOverallocationDrawer({ target, isOpen, onClose }: Props) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const drawerRef = useRef<HTMLDivElement>(null);
-
-  // Focus close button on open
-  useEffect(() => {
-    if (isOpen) {
-      const id = setTimeout(() => closeButtonRef.current?.focus(), 50);
-      return () => clearTimeout(id);
-    }
-    return undefined;
-  }, [isOpen]);
-
-  // Close on Escape
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && isOpen) {
-        e.stopPropagation();
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  // Focus trap
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    function trapFocus(e: KeyboardEvent) {
-      if (e.key !== 'Tab' || !drawerRef.current) return;
-      const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
-      );
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
-      } else {
-        if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
-      }
-    }
-    document.addEventListener('keydown', trapFocus);
-    return () => document.removeEventListener('keydown', trapFocus);
-  }, [isOpen]);
+  // `sm` (< 768px) → bottom sheet; `md`/`lg` → right-side drawer. Render exactly
+  // one shell (rule 211) so the body isn't double-mounted and closeButtonRef
+  // binds to the visible copy — the hand-rolled trap previously covered only the
+  // desktop shell and closeButtonRef bound to the display:none mobile copy.
+  const isMobile = useBreakpoint() === 'sm';
 
   const capacity = target ? capacityHours(target.hoursPerDay, target.maxUnits) : 0;
   // load% is server-owned (#989); capacity stays local only for the over-hours math.
@@ -219,57 +184,67 @@ export function ResourceOverallocationDrawer({ target, isOpen, onClose }: Props)
     onClose,
   };
 
+  // Both shells are modal, so the trap runs for whichever one is rendered: seat
+  // initial focus, cycle Tab, route Escape to close, and restore focus to the
+  // trigger on close (WCAG 2.4.3/2.1.2, rule 206). drawerTitle is the focusKey so
+  // reopening for a different overallocated cell re-seats focus.
+  const drawerRef = useFocusTrap<HTMLDivElement>(isOpen, onClose, drawerTitle);
+
   return (
     <>
       {/* Backdrop — mobile only */}
-      {isOpen && (
+      {isOpen && isMobile && (
         <div
-          className="fixed inset-0 bg-black/30 md:hidden z-30"
+          className="fixed inset-0 bg-black/30 z-30"
           aria-hidden="true"
           onClick={onClose}
         />
       )}
 
-      {/* Desktop: right-side drawer (rule 89).
-          aria-hidden when closed: belt-and-suspenders for AT that don't honour
-          display:none on the mobile shell at md+ breakpoints. */}
-      <div
-        ref={drawerRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={drawerTitle}
-        aria-hidden={!isOpen}
-        className={[
-          'hidden md:flex fixed inset-y-0 right-0 w-[480px] flex-col',
-          'bg-neutral-surface border-l border-neutral-border z-40',
-          'transition-transform duration-200',
-          isOpen ? 'translate-x-0' : 'translate-x-full',
-        ].join(' ')}
-      >
-        <DrawerBody {...bodyProps} />
-      </div>
-
-      {/* Mobile: bottom sheet (rule 89).
-          aria-hidden when closed for the same cross-AT reason as the desktop shell. */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={drawerTitle}
-        aria-hidden={!isOpen}
-        className={[
-          'md:hidden fixed inset-x-0 bottom-0 z-40',
-          'rounded-t-card bg-neutral-surface border-t border-neutral-border',
-          'h-[85vh] flex flex-col',
-          'transition-transform duration-200',
-          isOpen ? 'translate-y-0' : 'translate-y-full',
-        ].join(' ')}
-      >
-        {/* Drag handle */}
-        <div className="flex justify-center pt-2 pb-1 flex-shrink-0">
-          <div className="w-10 h-1 rounded-full bg-neutral-border" aria-hidden="true" />
+      {isMobile ? (
+        /* Mobile: bottom sheet (rule 89). aria-hidden when closed for AT that
+           don't honour the off-screen transform. */
+        <div
+          ref={drawerRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={drawerTitle}
+          aria-hidden={!isOpen}
+          tabIndex={-1}
+          className={[
+            'fixed inset-x-0 bottom-0 z-40 focus:outline-none',
+            'rounded-t-card bg-neutral-surface border-t border-neutral-border',
+            'h-[85vh] flex flex-col',
+            'transition-transform duration-200',
+            isOpen ? 'translate-y-0' : 'translate-y-full',
+          ].join(' ')}
+        >
+          {/* Drag handle */}
+          <div className="flex justify-center pt-2 pb-1 flex-shrink-0">
+            <div className="w-10 h-1 rounded-full bg-neutral-border" aria-hidden="true" />
+          </div>
+          <DrawerBody {...bodyProps} />
         </div>
-        <DrawerBody {...bodyProps} />
-      </div>
+      ) : (
+        /* Desktop: right-side drawer (rule 89). aria-hidden when closed for AT
+           that don't honour the off-screen transform. */
+        <div
+          ref={drawerRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={drawerTitle}
+          aria-hidden={!isOpen}
+          tabIndex={-1}
+          className={[
+            'flex fixed inset-y-0 right-0 w-[480px] flex-col focus:outline-none',
+            'bg-neutral-surface border-l border-neutral-border z-40',
+            'transition-transform duration-200',
+            isOpen ? 'translate-x-0' : 'translate-x-full',
+          ].join(' ')}
+        >
+          <DrawerBody {...bodyProps} />
+        </div>
+      )}
     </>
   );
 }
