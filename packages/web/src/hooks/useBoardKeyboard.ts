@@ -13,6 +13,15 @@ export interface BoardKeyboardHandlers {
   /** Open (or toggle) the board filter panel — `f` (issue 1091). */
   onOpenFilter?: () => void;
   onCloseOverlay?: () => void;
+  /**
+   * True while the board's virtual focus is engaged (a card or column is
+   * focused). The four Arrow keys are claimed (and `preventDefault`ed) ONLY
+   * while this is true — otherwise arrows fall through to native page scroll,
+   * which the old unconditional `preventDefault` killed window-wide (#2205,
+   * WCAG 2.1.1). `j`/`k`/`l`/`h` are always claimed (they are not scroll keys)
+   * and can bootstrap focus from the inactive state.
+   */
+  boardFocusActive?: boolean;
 }
 
 /**
@@ -49,31 +58,55 @@ export function useBoardKeyboard(handlers: BoardKeyboardHandlers, enabled = true
         return;
       }
 
+      // Arrow keys are claimed only while the board's virtual focus is engaged,
+      // so an idle board never swallows native page scroll (#2205). j/k/l/h are
+      // always claimed — they are not scroll keys and bootstrap focus.
+      const arrowsClaimed = handlers.boardFocusActive === true;
       switch (e.key) {
         case 'j':
-        case 'ArrowDown':
           if (handlers.onMoveCardFocus) {
             handlers.onMoveCardFocus('down');
             e.preventDefault();
           }
           break;
+        case 'ArrowDown':
+          if (arrowsClaimed && handlers.onMoveCardFocus) {
+            handlers.onMoveCardFocus('down');
+            e.preventDefault();
+          }
+          break;
         case 'k':
-        case 'ArrowUp':
           if (handlers.onMoveCardFocus) {
             handlers.onMoveCardFocus('up');
             e.preventDefault();
           }
           break;
+        case 'ArrowUp':
+          if (arrowsClaimed && handlers.onMoveCardFocus) {
+            handlers.onMoveCardFocus('up');
+            e.preventDefault();
+          }
+          break;
         case 'l':
-        case 'ArrowRight':
           if (handlers.onMoveColumnFocus) {
             handlers.onMoveColumnFocus('right');
             e.preventDefault();
           }
           break;
+        case 'ArrowRight':
+          if (arrowsClaimed && handlers.onMoveColumnFocus) {
+            handlers.onMoveColumnFocus('right');
+            e.preventDefault();
+          }
+          break;
         case 'h':
-        case 'ArrowLeft':
           if (handlers.onMoveColumnFocus) {
+            handlers.onMoveColumnFocus('left');
+            e.preventDefault();
+          }
+          break;
+        case 'ArrowLeft':
+          if (arrowsClaimed && handlers.onMoveColumnFocus) {
             handlers.onMoveColumnFocus('left');
             e.preventDefault();
           }

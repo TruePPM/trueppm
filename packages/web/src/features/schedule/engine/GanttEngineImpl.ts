@@ -539,6 +539,13 @@ export class GanttEngineImpl implements GanttEngine {
     this._applySelection(new Set(taskIds));
   }
 
+  openTask(taskId: string): void {
+    // Mirror the canvas double-click open path (#2205): emit the same
+    // 'task-open' event ScheduleView routes into the drawer store, so the
+    // keyboard Enter binding and the pointer dblclick share one code path.
+    this._emit('task-open', { id: taskId });
+  }
+
   get selectedTaskIds(): ReadonlySet<string> {
     return this._selectedTaskIds;
   }

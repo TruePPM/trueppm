@@ -3182,6 +3182,9 @@ export function BoardView() {
       onFocusSearch: b3OverlayOpen ? undefined : () => searchInputRef.current?.focus(),
       onOpenFilter: b3OverlayOpen ? undefined : toggleFilterPanel,
       onCloseOverlay: b3OverlayOpen ? closeAllOverlays : undefined,
+      // Arrows are claimed only once the board's virtual focus is engaged, so an
+      // idle board doesn't hijack native page scroll (#2205).
+      boardFocusActive: focusedCardId !== null || focusedColumn !== null,
     },
     addTaskPhase === null,
   );

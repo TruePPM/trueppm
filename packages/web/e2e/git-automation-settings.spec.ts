@@ -127,6 +127,11 @@ test.describe('Git-event automation settings', () => {
 
     await section.getByRole('button', { name: 'Generate secret' }).click();
     const dialog = page.getByRole('dialog', { name: /Generate webhook secret/i });
+
+    // #2205 (rule 245b): the safe action is first-focused, so Enter-on-open never
+    // rotates the secret. Cancel holds focus; the destructive button does not.
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+
     await dialog.getByRole('button', { name: 'Generate secret' }).click();
 
     await expect(page.getByText(/only time you.ll see this secret/i)).toBeVisible();

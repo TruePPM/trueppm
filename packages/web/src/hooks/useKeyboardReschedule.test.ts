@@ -230,7 +230,7 @@ describe('useKeyboardReschedule', () => {
       const { keyboardModeRef } = renderReschedule(engine);
       // Enter keyboard mode + two nudges → seqRef advances to 2
       act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
-      press('Enter');
+      press('Enter', { shiftKey: true });
       expect(keyboardModeRef.current).toBe(true);
       press('ArrowRight');
       press('ArrowRight');
@@ -344,18 +344,27 @@ describe('useKeyboardReschedule', () => {
     });
   });
 
-  describe('entering keyboard mode via Enter', () => {
+  describe('entering keyboard mode via Shift+Enter (#2205)', () => {
     it('does nothing when no engine is present', () => {
       renderReschedule(null, { keyboardModeRef: { current: false } });
-      press('Enter');
+      press('Enter', { shiftKey: true });
       expect(useDragStore.getState().phase).toBe('idle');
     });
 
-    it('starts a keyboard drag on the selected task', () => {
+    it('plain Enter does NOT start a reschedule (it opens the drawer instead)', () => {
+      const engine = new ControllableEngine();
+      const { keyboardModeRef } = renderReschedule(engine);
+      act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
+      press('Enter');
+      expect(keyboardModeRef.current).toBe(false);
+      expect(useDragStore.getState().phase).toBe('idle');
+    });
+
+    it('starts a keyboard drag on the selected task via Shift+Enter', () => {
       const engine = new ControllableEngine();
       const { keyboardModeRef, ariaAssertiveRef } = renderReschedule(engine);
       act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
-      press('Enter');
+      press('Enter', { shiftKey: true });
       expect(keyboardModeRef.current).toBe(true);
       expect(useDragStore.getState().phase).toBe('dragging');
       expect(useDragStore.getState().draggedTaskId).toBe('t1');
@@ -376,7 +385,7 @@ describe('useKeyboardReschedule', () => {
       const engine = new ControllableEngine();
       const { keyboardModeRef } = renderReschedule(engine);
       // No selection emitted → selectedTaskIdRef stays null
-      press('Enter');
+      press('Enter', { shiftKey: true });
       expect(keyboardModeRef.current).toBe(false);
       expect(useDragStore.getState().phase).toBe('idle');
     });
@@ -386,7 +395,7 @@ describe('useKeyboardReschedule', () => {
       const { keyboardModeRef } = renderReschedule(engine);
       act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
       act(() => engine.emit('selection-change', { taskIds: [] }));
-      press('Enter');
+      press('Enter', { shiftKey: true });
       expect(keyboardModeRef.current).toBe(false);
     });
 
@@ -396,7 +405,7 @@ describe('useKeyboardReschedule', () => {
         tasks: [makeTask({ isSummary: true })],
       });
       act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
-      press('Enter');
+      press('Enter', { shiftKey: true });
       expect(keyboardModeRef.current).toBe(false);
       expect(useDragStore.getState().phase).toBe('idle');
     });
@@ -407,7 +416,7 @@ describe('useKeyboardReschedule', () => {
         tasks: [makeTask({ isComplete: true })],
       });
       act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
-      press('Enter');
+      press('Enter', { shiftKey: true });
       expect(keyboardModeRef.current).toBe(false);
     });
 
@@ -415,18 +424,20 @@ describe('useKeyboardReschedule', () => {
       const engine = new ControllableEngine();
       const { keyboardModeRef } = renderReschedule(engine);
       act(() => engine.emit('selection-change', { taskIds: ['ghost'] }));
-      press('Enter');
+      press('Enter', { shiftKey: true });
       expect(keyboardModeRef.current).toBe(false);
     });
 
-    it('suppresses Enter while the user is typing in an input', () => {
+    it('suppresses Shift+Enter while the user is typing in an input', () => {
       const engine = new ControllableEngine();
       const { keyboardModeRef } = renderReschedule(engine);
       act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
       const input = document.createElement('input');
       document.body.appendChild(input);
       act(() => {
-        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        input.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }),
+        );
       });
       expect(keyboardModeRef.current).toBe(false);
       expect(useDragStore.getState().phase).toBe('idle');
@@ -437,7 +448,7 @@ describe('useKeyboardReschedule', () => {
   describe('nudging in keyboard mode', () => {
     function enterMode(engine: ControllableEngine) {
       act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
-      press('Enter');
+      press('Enter', { shiftKey: true });
       workerMock.postMessage.mockClear();
     }
 
@@ -519,7 +530,7 @@ describe('useKeyboardReschedule', () => {
   describe('confirming and cancelling', () => {
     function enterMode(engine: ControllableEngine) {
       act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
-      press('Enter');
+      press('Enter', { shiftKey: true });
     }
 
     it('commits the reschedule on Enter when online', () => {

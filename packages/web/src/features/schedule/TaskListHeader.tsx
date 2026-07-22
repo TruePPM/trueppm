@@ -1,5 +1,5 @@
-import { useRef, type PointerEvent } from 'react';
-import type { ColumnKey, ColumnWidths } from '@/hooks/useColumnWidths';
+import { useRef, type PointerEvent, type KeyboardEvent } from 'react';
+import { MIN_COL_WIDTHS, type ColumnKey, type ColumnWidths } from '@/hooks/useColumnWidths';
 
 interface ResizeHandleProps {
   colKey: ColumnKey;
@@ -7,9 +7,14 @@ interface ResizeHandleProps {
   currentWidth: number;
 }
 
+// Keyboard-only upper guidance; the store clamps the lower bound to
+// MIN_COL_WIDTHS but enforces no max, so this bounds Home/End + arrow nudges.
+const MAX_COL_WIDTH = 400;
+
 function ResizeHandle({ colKey, setWidth, currentWidth }: ResizeHandleProps) {
   const startXRef = useRef<number | null>(null);
   const startWidthRef = useRef<number>(currentWidth);
+  const min = MIN_COL_WIDTHS[colKey];
 
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
     e.preventDefault();
@@ -28,20 +33,50 @@ function ResizeHandle({ colKey, setWidth, currentWidth }: ResizeHandleProps) {
     startXRef.current = null;
   }
 
+  // Keyboard-operable alternative to pointer drag (WCAG 2.1.1), mirroring the
+  // panel splitter in ScheduleView: arrows nudge 16px, Home/End jump to min/max.
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    let next: number | null = null;
+    if (e.key === 'ArrowLeft') next = currentWidth - 16;
+    else if (e.key === 'ArrowRight') next = currentWidth + 16;
+    else if (e.key === 'Home') next = min;
+    else if (e.key === 'End') next = MAX_COL_WIDTH;
+    if (next === null) return;
+    e.preventDefault();
+    setWidth(colKey, Math.min(MAX_COL_WIDTH, Math.max(min, next)));
+  }
+
+  // WAI-ARIA window-splitter: a focusable `separator` exposing aria-valuenow is
+  // the standard keyboard-operable resize idiom. jsx-a11y models `separator` as
+  // static, so its focusability/interaction lints are disabled here with intent
+  // (mirrors PanelSplitter in ScheduleView).
+  /* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
   return (
     <div
       role="separator"
       aria-orientation="vertical"
       aria-label={`Resize ${colKey} column`}
-      className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-end group"
+      tabIndex={0}
+      aria-valuenow={Math.round(currentWidth)}
+      aria-valuemin={min}
+      aria-valuemax={MAX_COL_WIDTH}
+      aria-valuetext={`${colKey} column ${Math.round(currentWidth)} pixels`}
+      className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-end group focus-visible:outline-none"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onKeyDown={onKeyDown}
     >
-      {/* Indicator at right-0 of the hit zone — aligns with border-r on data rows */}
-      <div className="w-px h-full bg-white/30 group-hover:bg-brand-primary/80 transition-colors" aria-hidden="true" />
+      {/* Indicator at right-0 of the hit zone — aligns with border-r on data
+          rows. Rests on the neutral divider token (≥3:1, WCAG 1.4.11); brand
+          on hover/focus. `bg-white/30` failed non-text contrast (#2205). */}
+      <div
+        className="w-px h-full bg-neutral-border group-hover:bg-brand-primary group-focus-visible:bg-brand-primary transition-colors"
+        aria-hidden="true"
+      />
     </div>
   );
+  /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
 }
 
 interface Props {

@@ -135,7 +135,7 @@ interface ScheduleAriaOverlayProps {
  */
 export function rescheduleHint(task: Task): string | null {
   if (task.isSummary || task.isComplete) return null;
-  return `${task.name}. Press Enter to reschedule via keyboard. Arrow keys to navigate rows.`;
+  return `${task.name}. Press Enter to open details, Shift+Enter to reschedule via keyboard. Arrow keys to navigate rows.`;
 }
 
 export function ScheduleAriaOverlay({
@@ -285,14 +285,34 @@ export function ScheduleAriaOverlay({
           moveTo(tasks[tasks.length - 1]);
           break;
         case 'Enter':
+          // Enter opens the task detail drawer (#2205, WCAG 2.1.1 consistency:
+          // Enter on a focused bar opens details, mirroring the task-list rows
+          // and the canvas double-click). Shift+Enter starts a keyboard
+          // reschedule instead — see the Shift branch below.
+          e.preventDefault();
+          if (!engine) break;
+          if (e.shiftKey) {
+            // Select so the document-level useKeyboardReschedule listener —
+            // which fires after this React handler in bubble order — sees the
+            // selection and starts the reschedule on this same Shift+Enter
+            // (covered by ScheduleAriaOverlay.keyboard.test.tsx; keep that
+            // interplay in mind before reordering listeners or making
+            // selection async).
+            engine.selectTask(taskId);
+          } else {
+            engine.openTask(taskId);
+          }
+          break;
+        case 'r':
+        case 'R':
+          // 'r' is the single-key alias for Shift+Enter — start a keyboard
+          // reschedule. Selecting hands off to useKeyboardReschedule, which now
+          // initiates on Shift+Enter / 'r' rather than plain Enter (#2205).
+          e.preventDefault();
+          if (engine) engine.selectTask(taskId);
+          break;
         case ' ':
-          // Selects the task. The engine emits `selection-change`
-          // synchronously, so for Enter the document-level
-          // useKeyboardReschedule listener — which fires after this React
-          // handler in bubble order — sees the selection and starts the
-          // keyboard reschedule on this same keydown (covered by
-          // ScheduleAriaOverlay.keyboard.test.tsx; keep that interplay in
-          // mind before reordering listeners or making selection async).
+          // Space selects a task without rescheduling.
           e.preventDefault();
           if (engine) engine.selectTask(taskId);
           break;
@@ -322,9 +342,10 @@ export function ScheduleAriaOverlay({
           keys inside a reschedule; Up/Down navigate rows. */}
       <span id="schedule-grid-help" className="sr-only">
         Use arrow up and down to move between tasks, and Home and End to jump to the first and
-        last task. Press Enter on a reschedulable task to reschedule it with the keyboard: left
-        and right arrow keys nudge the start date, Enter confirms, Escape cancels. Press Space to
-        select a task without rescheduling.
+        last task. Press Enter to open the focused task&apos;s details. On a reschedulable task,
+        press Shift+Enter or R to reschedule it with the keyboard: left and right arrow keys nudge the
+        start date, Enter confirms, Escape cancels. Press Space to select a task without
+        rescheduling.
       </span>
       {/* Polite live region — names the focused row and its reschedule hint. */}
       <span role="status" aria-live="polite" className="sr-only">

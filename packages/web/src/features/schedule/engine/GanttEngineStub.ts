@@ -52,6 +52,8 @@ export class GanttEngineStub implements GanttEngine {
 
   selectTasks(_taskIds: string[]): void {}
 
+  openTask(_taskId: string): void {}
+
   readonly selectedTaskIds: ReadonlySet<string> = new Set();
 
   // ── Hover chain ───────────────────────────────────────────────────────────

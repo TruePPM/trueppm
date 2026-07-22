@@ -20,10 +20,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('rescheduleHint (#1031 keyboard-reschedule discoverability)', () => {
-  it('announces the Enter convention for a reschedulable task', () => {
+  it('announces the open-details and reschedule conventions for a reschedulable task', () => {
     const hint = rescheduleHint(makeTask({ name: 'Backend build' }));
     expect(hint).toBe(
-      'Backend build. Press Enter to reschedule via keyboard. Arrow keys to navigate rows.',
+      'Backend build. Press Enter to open details, Shift+Enter to reschedule via keyboard. Arrow keys to navigate rows.',
     );
   });
 
