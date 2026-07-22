@@ -211,7 +211,18 @@ Only the **contiguous ✅ prefix** from Phase A is landable. If MR #3 is 🔴, l
 first. Never skip a 🔴 to land a later MR — that reorders the stack Phase A
 validated.
 
-For each MR in the safe prefix, **one at a time**.
+For each MR in the safe prefix, **merged one at a time** — but the *rebase+push*
+of the next MR may overlap the current merge's main-pipeline wait (see below).
+
+> **Pipeline the rebases to cut wall-clock.** A push lands nothing on main, so
+> the moment MR N is merged and `origin/main` re-fetched, immediately rebase MR
+> N+1 onto that new `origin/main` and push it — its MR pipeline then runs *in
+> parallel* with the main(N) pipeline instead of waiting for it. When both the
+> main(N) pipeline and the MR(N+1) pipeline are green, merge N+1. The only strict
+> serialization is the **merge**: N+1 must not be merged until main(N) is green
+> (at most one merge on a possibly-red main). If main(N) goes red, the pushed
+> N+1 is simply not merged — the push cost nothing. In series each MR waits
+> `main(N) + MR(N+1)`; overlapped it waits `max(main(N), MR(N+1))`.
 
 **First, locate the source branch's working copy.** A batch MR's source branch
 is very often already checked out in a **parallel worktree** (that is how the
@@ -272,8 +283,10 @@ glab mr merge <iid> --yes
 git fetch origin                        # pull the new main so the NEXT MR rebases on top of this one
 ```
 
-**After the merge, gate on the resulting `ref: main` pipeline before touching the
-next MR — this is mandatory, not optional.** An MR-ref pipeline is green *against
+**After the merge, gate on the resulting `ref: main` pipeline before *merging* the
+next MR — this is mandatory, not optional.** (You may already have rebased+pushed
+the next MR to run its pipeline in parallel — that overlap is fine; it is the next
+*merge* that this gate blocks.) An MR-ref pipeline is green *against
 the main it branched from*; it does not prove the merge *commit* on main is green.
 A merge can turn main red in ways the MR pipeline never saw — an aggregate/ratchet
 gate that only overflows once combined, a `ref: main`-only job that never runs on
@@ -344,13 +357,30 @@ positively identified as a known flake.
 
 Rules for Phase B:
 
-- **Serial, never parallel.** Serializing is the fix. Do not push the next MR
-  until the current one has merged and `origin/main` has been re-fetched.
+- **Merges are serial; the next rebase+push may overlap.** Serializing the
+  *merges* is the fix — never merge two MRs concurrently. But **rebasing and
+  pushing the next MR (and letting its MR pipeline run) while the current merge's
+  `ref: main` pipeline is still going is not only allowed, it is the intended
+  optimization**: a push lands nothing on main, so it cannot make main red — only
+  a merge can. Kick off MR N+1's rebase+push against the just-fetched
+  `origin/main` (the exact sha the main pipeline is testing) as soon as MR N is
+  merged, so its pipeline runs in parallel with the main(N) pipeline instead of
+  after it. This roughly halves the batch wall-clock (each MR then waits on
+  `max(main(N), MR(N+1))` instead of `main(N) + MR(N+1)` in series). If main(N)
+  turns red, you simply do **not** merge the already-pushed N+1 — its push was
+  free CI, nothing landed. The merge gate below is what stays strict.
+- **Never merge N+1 until BOTH gates are green.** Before `glab mr merge <N+1>`,
+  confirm (a) MR N+1's own rebased pipeline is `success` for its exact sha, AND
+  (b) the previous merge's `ref: main` pipeline is `success`. Overlapping the
+  *pushes* is safe; overlapping the *merge* past a not-yet-green main is the
+  bug this skill exists to prevent. So the next rebase+push may fire early, but
+  the next merge still blocks on the prior main pipeline.
 - **Poll to green, then merge** — do not fire `--when-pipeline-succeeds` across
   the whole batch at once. Batch MWPS races each other and reintroduces exactly
   the parallel-merge problem this skill removes (and the known glab batch-merge
   MWPS gotcha). One MR's pipeline must be confirmed green before its merge, and
-  merged before the next MR is even pushed.
+  the prior merge's main pipeline green before that merge — but the next MR's
+  rebase+push may already be in flight (see the overlap rule above).
 - **Gate on the post-merge `ref: main` pipeline after EVERY merge — at most one
   merge may land on a red main.** The MR-ref pipeline being green does not prove
   the merge commit on main is green: `ref: main`-only jobs (`security:osv`,
@@ -358,7 +388,8 @@ Rules for Phase B:
   combined, and externally-published advisories all surface *only* on the main
   pipeline the merge triggers. After `glab mr merge`, fetch main, capture the new
   `origin/main` sha, and poll `pipelines?ref=main` for that exact sha to reach
-  `success` before you push or merge the next MR. A `failed`/`canceled` main
+  `success` before you *merge* the next MR (the next rebase+push may overlap this
+  wait — see the overlap rule above). A `failed`/`canceled` main
   pipeline is a **hard stop for the whole run** (same flake-triage exception as the
   MR-ref poll). This is the guard whose absence let seven MRs land on a main that
   went red on the first merge — the entire point of the skill is a green main, and
@@ -425,13 +456,18 @@ before merging rather than after.
   to land later MRs.
 - **Rebase every MR onto the latest main immediately before pushing** — this is
   the CLAUDE.md batched-MR rule, enforced automatically.
-- **Poll-to-green then merge, serially.** No batch MWPS, no parallel merges.
+- **Poll-to-green then merge; merges serial, next rebase+push may overlap.** No
+  batch MWPS, no parallel *merges*. But the next MR's rebase+push (and its MR
+  pipeline) may run in parallel with the current merge's main pipeline — a push
+  lands nothing on main, so it can't turn main red; only the merge can. Merge N+1
+  only once **both** MR(N+1)'s pipeline and the main(N) pipeline are green.
 - **Gate on the `ref: main` pipeline after every merge — at most one merge lands
   on a red main.** The MR-ref pipeline proves the branch against its old base, not
   the merge commit on main; `ref: main`-only jobs (`security:osv`, `boundary:check`,
   CodeQL), combined-tree ratchet overflows, and fresh advisories show up only on
   the main pipeline. Poll it for the new `origin/main` sha to `success` before
-  pushing the next MR; the first red main pipeline is a hard stop for the whole run.
+  *merging* the next MR (the next push may already be in flight); the first red
+  main pipeline is a hard stop for the whole run.
 - **Poll the exact pushed full sha by MR ref** — never the `?sha=<short>` filter
   (returns `[]`, loops forever) and never `head_pipeline` (stale after a
   force-push). Cap the wait so CI hangs don't loop forever.
