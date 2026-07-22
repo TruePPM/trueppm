@@ -416,15 +416,284 @@ def _parse_calendars(root: ET.Element, ns: str, warnings: list[str]) -> list[Cal
     return calendars
 
 
+def _child_text(el: ET.Element, ns: str, tag: str) -> str:
+    """Return a namespaced child's text, or ``""`` when absent or empty."""
+    child = el.find(f"{ns}{tag}")
+    return child.text if child is not None and child.text else ""
+
+
+def _enforce_row_caps(root: ET.Element, ns: str) -> None:
+    """Reject an oversized import before any objects are materialized (#1721).
+
+    The upload SIZE is bounded but the row count is not. A 50 MB MSPDI encodes
+    ~1M tasks; without this cap the importer builds ~1M Task objects, computes
+    WBS over all of them, and bulk-creates the lot — exhausting worker memory
+    and holding a giant transaction open. Reject outright (like the risk-CSV
+    importer's MAX_ROWS) before building anything, counting directly off the
+    element tree so we never materialize the objects.
+    """
+    max_rows = getattr(settings, "MSPROJECT_MAX_ROWS", 20_000)
+    _enforce_row_cap("tasks", len(root.findall(f".//{ns}Task")), max_rows)
+    _enforce_row_cap("resources", len(root.findall(f".//{ns}Resource")), max_rows)
+    _enforce_row_cap("dependencies", len(root.findall(f".//{ns}PredecessorLink")), max_rows)
+    _enforce_row_cap("calendars", len(root.findall(f".//{ns}Calendar")), max_rows)
+    _enforce_row_cap("calendar exceptions", len(root.findall(f".//{ns}Exception")), max_rows)
+
+
+def _parse_resources(
+    root: ET.Element, ns: str
+) -> tuple[list[ResourceData], dict[int, ResourceData]]:
+    """Parse ``<Resources>`` into (ordered list, ``{uid: ResourceData}`` lookup)."""
+    resources: list[ResourceData] = []
+    resource_map: dict[int, ResourceData] = {}
+    resources_el = root.find(f"{ns}Resources")
+    if resources_el is None:
+        return resources, resource_map
+    for res_el in resources_el.findall(f"{ns}Resource"):
+        uid_str = _child_text(res_el, ns, "UID")
+        name = _child_text(res_el, ns, "Name")
+        if not uid_str or not name:
+            continue
+        uid = int(uid_str)
+        if uid == 0:
+            continue
+        max_units_str = _child_text(res_el, ns, "MaxUnits")
+        # Finite-guard + clamp (#1720): reject nan/inf/1e999 and cap absurd
+        # capacities before the value reaches a bulk_create'd FloatField.
+        max_units = (
+            _finite_float(max_units_str, 1.0, low=0.0, high=_MAX_UNITS) if max_units_str else 1.0
+        )
+        rd = ResourceData(uid=uid, name=name, max_units=max_units)
+        resource_map[uid] = rd
+        resources.append(rd)
+    return resources, resource_map
+
+
+def _parse_assignments(
+    root: ET.Element, ns: str, resource_map: dict[int, ResourceData]
+) -> dict[int, list[AssignmentData]]:
+    """Parse ``<Assignments>`` into ``{task_uid: [AssignmentData]}`` (indexed by task UID)."""
+    task_assignments: dict[int, list[AssignmentData]] = {}
+    assignments_el = root.find(f"{ns}Assignments")
+    if assignments_el is None:
+        return task_assignments
+    for asgn_el in assignments_el.findall(f"{ns}Assignment"):
+        task_uid_str = _child_text(asgn_el, ns, "TaskUID")
+        res_uid_str = _child_text(asgn_el, ns, "ResourceUID")
+        if not task_uid_str or not res_uid_str:
+            continue
+        task_uid = int(task_uid_str)
+        res_uid = int(res_uid_str)
+        if res_uid == 0 or res_uid not in resource_map:
+            continue
+        units_str = _child_text(asgn_el, ns, "Units")
+        # Finite-guard + clamp (#1720), same rationale as MaxUnits above.
+        units = _finite_float(units_str, 1.0, low=0.0, high=_MAX_UNITS) if units_str else 1.0
+        task_assignments.setdefault(task_uid, []).append(
+            AssignmentData(task_uid=task_uid, resource_uid=res_uid, units=units)
+        )
+    return task_assignments
+
+
+def _parse_predecessor_links(task_el: ET.Element, ns: str) -> list[PredecessorLinkData]:
+    """Parse a task's ``<PredecessorLink>`` children into dependency rows."""
+    pred_links: list[PredecessorLinkData] = []
+    for pred_el in task_el.findall(f"{ns}PredecessorLink"):
+        pred_uid_str = _child_text(pred_el, ns, "PredecessorUID")
+        if not pred_uid_str:
+            continue
+        link_type_str = _child_text(pred_el, ns, "Type") or "1"
+        link_lag_str = _child_text(pred_el, ns, "LinkLag") or "0"
+        pred_links.append(
+            PredecessorLinkData(
+                predecessor_uid=int(pred_uid_str),
+                dep_type=_LINK_TYPE_MAP.get(link_type_str, "FS"),
+                lag_days=_parse_lag_to_days(link_lag_str),
+            )
+        )
+    return pred_links
+
+
+def _resolve_task_pert_estimates(
+    task_el: ET.Element,
+    ns: str,
+    pert_role_to_field_id: dict[str, str],
+    task_name: str,
+    *,
+    is_milestone: bool,
+    warnings: list[str],
+) -> tuple[int | None, int | None, int | None]:
+    """Resolve a task's ``(optimistic, most_likely, pessimistic)`` PERT triple.
+
+    PERT three-point values come in as per-task ``<ExtendedAttribute>`` children
+    matching the FieldIDs detected at project level. Values are ISO-8601
+    durations parsed via the same ``_parse_duration_to_days`` helper used for the
+    primary Duration field. The triple is dropped (all three set to ``None``)
+    when it cannot be safely imported:
+
+    - Milestones (ADR-0093 Q5): MS Project leaves these empty in practice; if a
+      file violates that we still drop — silently, since milestones with
+      three-point values are common file noise from PMs who blanket-applied
+      estimates and there's nothing the user needs to do.
+    - All-or-none (Q3): the scheduler engine requires all three for PERT-Beta
+      sampling (engine.py:892), so a partial triple would surface as a
+      half-populated UI with no Monte Carlo effect — drop all three and warn.
+    - Ordering (#2002): even a complete triple is unusable if it violates
+      optimistic <= most_likely <= pessimistic. The engine rejects it
+      (engine._validate_project) and, because the importer marks estimates
+      accepted, the invalid row would detonate the first CPM/Monte-Carlo run
+      after import — drop all three and warn.
+    """
+    opt_days, ml_days, pess_days = (
+        _extract_pert_task_values(task_el, ns, pert_role_to_field_id)
+        if pert_role_to_field_id
+        else (None, None, None)
+    )
+    if is_milestone and (opt_days, ml_days, pess_days) != (None, None, None):
+        opt_days = ml_days = pess_days = None
+
+    present = sum(v is not None for v in (opt_days, ml_days, pess_days))
+    if 0 < present < 3:
+        missing = []
+        if opt_days is None:
+            missing.append("Optimistic")
+        if ml_days is None:
+            missing.append("Most Likely")
+        if pess_days is None:
+            missing.append("Pessimistic")
+        warnings.append(
+            f"Task '{task_name}': partial three-point estimate "
+            f"(missing {', '.join(missing)}), all three values skipped"
+        )
+        opt_days = ml_days = pess_days = None
+
+    if (
+        opt_days is not None
+        and ml_days is not None
+        and pess_days is not None
+        and not opt_days <= ml_days <= pess_days
+    ):
+        warnings.append(
+            f"Task '{task_name}': three-point estimate out of order "
+            f"(optimistic ≤ most likely ≤ pessimistic required; got "
+            f"{opt_days} ≤ {ml_days} ≤ {pess_days}), all three values skipped"
+        )
+        opt_days = ml_days = pess_days = None
+
+    return opt_days, ml_days, pess_days
+
+
+def _derive_task_status(start_str: str, raw_percent: float) -> str | None:
+    """Derive task status from the RAW file percent, gated on having a start (#1768).
+
+    Keyed on the raw 0-100 value so it is independent of how percent is stored
+    downstream (the 0-1-vs-0-100 question, #1759). A task with no start has its
+    percent clamped to 0 by the importer (ADR-0057 Q5), so it must stay
+    NOT_STARTED — return ``None`` (the importer's default) rather than
+    IN_PROGRESS, so status and progress can never disagree.
+    """
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    if not start_str:
+        return None
+    if raw_percent >= 100.0:
+        return TaskStatus.COMPLETE.value
+    if raw_percent > 0.0:
+        return TaskStatus.IN_PROGRESS.value
+    return None
+
+
+def _parse_one_task(
+    task_el: ET.Element,
+    ns: str,
+    pert_role_to_field_id: dict[str, str],
+    task_assignments: dict[int, list[AssignmentData]],
+    warnings: list[str],
+) -> TaskData | None:
+    """Parse a single ``<Task>`` element into ``TaskData``, or ``None`` to skip it.
+
+    Skips UID-less / UID-0 rows and warns on a missing name — the same guards as
+    the original single-pass loop.
+    """
+    uid_str = _child_text(task_el, ns, "UID")
+    name = _child_text(task_el, ns, "Name")
+    if not uid_str:
+        return None
+    uid = int(uid_str)
+    if uid == 0:
+        return None
+    if not name:
+        warnings.append(f"Task UID {uid}: missing name, skipped")
+        return None
+
+    outline_level_str = _child_text(task_el, ns, "OutlineLevel")
+    pct_str = _child_text(task_el, ns, "PercentComplete")
+    start_str = _child_text(task_el, ns, "Start")
+    # Summary detection happens later (the importer rebuilds WBS), so we only
+    # know milestones here; summary filtering is left to the importer.
+    is_milestone = _child_text(task_el, ns, "Milestone") == "1"
+
+    opt_days, ml_days, pess_days = _resolve_task_pert_estimates(
+        task_el,
+        ns,
+        pert_role_to_field_id,
+        name,
+        is_milestone=is_milestone,
+        warnings=warnings,
+    )
+
+    # Finite-guard + clamp to [0, 100] (#1720): MS Project PercentComplete is
+    # 0-100. nan/inf/1e999 (and any out-of-range figure) is rejected/clamped
+    # before it reaches progress + EVM math. Task.percent_complete is the same
+    # 0-100 scale, so we keep the value on that scale (an earlier /100 divided it
+    # into a 0-1 fraction that the importer then wrote straight into the 0-100
+    # field — a 75% task landed as 0.75%). The same value drives status inference.
+    raw_percent = _finite_float(pct_str, 0.0, low=0.0, high=100.0) if pct_str else 0.0
+
+    return TaskData(
+        uid=uid,
+        name=name,
+        duration_days=_parse_duration_to_days(_child_text(task_el, ns, "Duration")),
+        outline_number=_child_text(task_el, ns, "OutlineNumber"),
+        outline_level=int(outline_level_str) if outline_level_str else 0,
+        is_milestone=is_milestone,
+        percent_complete=raw_percent,
+        status=_derive_task_status(start_str, raw_percent),
+        notes=_child_text(task_el, ns, "Notes"),
+        start=start_str[:10] if start_str else None,
+        calendar_uid=_positive_int_or_none(_child_text(task_el, ns, "CalendarUID")),
+        optimistic_duration_days=opt_days,
+        most_likely_duration_days=ml_days,
+        pessimistic_duration_days=pess_days,
+        predecessor_links=_parse_predecessor_links(task_el, ns),
+        resource_assignments=task_assignments.get(uid, []),
+    )
+
+
+def _parse_tasks(
+    root: ET.Element,
+    ns: str,
+    pert_role_to_field_id: dict[str, str],
+    task_assignments: dict[int, list[AssignmentData]],
+    warnings: list[str],
+) -> list[TaskData]:
+    """Parse ``<Tasks>`` into ``TaskData`` rows (per-task skips/warnings applied)."""
+    tasks: list[TaskData] = []
+    tasks_el = root.find(f"{ns}Tasks")
+    if tasks_el is None:
+        return tasks
+    for task_el in tasks_el.findall(f"{ns}Task"):
+        td = _parse_one_task(task_el, ns, pert_role_to_field_id, task_assignments, warnings)
+        if td is not None:
+            tasks.append(td)
+    return tasks
+
+
 def parse_xml(xml_content: bytes) -> ProjectData:
     """Parse MS Project XML content into a ProjectData structure.
 
     Handles both namespaced (Project 2003+) and non-namespaced XML.
     """
-    # Local import (models must be app-ready): TaskStatus is used only to derive
-    # each task's status from its raw PercentComplete (#1768).
-    from trueppm_api.apps.projects.models import TaskStatus
-
     # Parse with defusedxml (#771): it forbids entity expansion and external-
     # entity resolution by default, defending against billion-laughs / XXE on the
     # user-uploaded file. The 10 MB upload cap in MsProjectImportView bounds size
@@ -436,33 +705,14 @@ def parse_xml(xml_content: bytes) -> ProjectData:
     if root.tag.startswith("{"):
         ns = root.tag.split("}")[0] + "}"
 
-    # Row-count cap (#1721): the upload SIZE is bounded but the row count is not.
-    # A 50 MB MSPDI encodes ~1M tasks; without this cap the importer builds ~1M
-    # Task objects, computes WBS over all of them, and bulk-creates the lot —
-    # exhausting worker memory and holding a giant transaction open. Reject
-    # outright (like the risk-CSV importer's MAX_ROWS) before building anything.
-    # Counted directly off the element tree so we never materialize the objects.
-    max_rows = getattr(settings, "MSPROJECT_MAX_ROWS", 20_000)
-    _enforce_row_cap("tasks", len(root.findall(f".//{ns}Task")), max_rows)
-    _enforce_row_cap("resources", len(root.findall(f".//{ns}Resource")), max_rows)
-    _enforce_row_cap("dependencies", len(root.findall(f".//{ns}PredecessorLink")), max_rows)
-    _enforce_row_cap("calendars", len(root.findall(f".//{ns}Calendar")), max_rows)
-    _enforce_row_cap("calendar exceptions", len(root.findall(f".//{ns}Exception")), max_rows)
-
-    def _ft(el: ET.Element, tag: str) -> str:
-        child = el.find(f"{ns}{tag}")
-        return child.text if child is not None and child.text else ""
-
-    def _fe(el: ET.Element, tag: str) -> ET.Element | None:
-        return el.find(f"{ns}{tag}")
-
-    def _fa(el: ET.Element, tag: str) -> list[ET.Element]:
-        return el.findall(f"{ns}{tag}")
+    _enforce_row_caps(root, ns)
 
     project_data = ProjectData(
-        name=_ft(root, "Name"),
-        start_date=_ft(root, "StartDate")[:10] if _ft(root, "StartDate") else None,
-        calendar_uid=_positive_int_or_none(_ft(root, "CalendarUID")),
+        name=_child_text(root, ns, "Name"),
+        start_date=(
+            _child_text(root, ns, "StartDate")[:10] if _child_text(root, ns, "StartDate") else None
+        ),
+        calendar_uid=_positive_int_or_none(_child_text(root, ns, "CalendarUID")),
     )
 
     # --- Parse calendars (#1769) ---
@@ -470,203 +720,16 @@ def parse_xml(xml_content: bytes) -> ProjectData:
 
     # --- Parse project-level ExtendedAttribute definitions (#798, ADR-0093) ---
     # Build a {role: field_id} map (e.g. {"optimistic": "188743783"}) for the
-    # three PERT roles. Per the architect decision (Q1), trust the FieldID:
-    # accept the binding when the canonical PERT FieldID is present and the
-    # alias text either confirms the role or is empty. If the alias text
-    # contradicts the role (e.g. Duration1 aliased "Risk Score") drop the
-    # binding and warn — we'd rather skip than import the wrong field as
-    # Optimistic. Files with no ExtendedAttributes block produce an empty map
-    # and three-point import is silently skipped.
+    # three PERT roles. Files with no ExtendedAttributes block produce an empty
+    # map and three-point import is silently skipped.
     pert_role_to_field_id = _parse_pert_extended_attribute_defs(root, ns, project_data.warnings)
 
-    # --- Parse resources ---
-    resources_el = _fe(root, "Resources")
-    resource_map: dict[int, ResourceData] = {}
-    if resources_el is not None:
-        for res_el in _fa(resources_el, "Resource"):
-            uid_str = _ft(res_el, "UID")
-            name = _ft(res_el, "Name")
-            if not uid_str or not name:
-                continue
-            uid = int(uid_str)
-            if uid == 0:
-                continue
-            max_units_str = _ft(res_el, "MaxUnits")
-            # Finite-guard + clamp (#1720): reject nan/inf/1e999 and cap absurd
-            # capacities before the value reaches a bulk_create'd FloatField.
-            max_units = (
-                _finite_float(max_units_str, 1.0, low=0.0, high=_MAX_UNITS)
-                if max_units_str
-                else 1.0
-            )
-            rd = ResourceData(uid=uid, name=name, max_units=max_units)
-            resource_map[uid] = rd
-            project_data.resources.append(rd)
-
-    # --- Parse assignments (index by task UID) ---
-    assignments_el = _fe(root, "Assignments")
-    task_assignments: dict[int, list[AssignmentData]] = {}
-    if assignments_el is not None:
-        for asgn_el in _fa(assignments_el, "Assignment"):
-            task_uid_str = _ft(asgn_el, "TaskUID")
-            res_uid_str = _ft(asgn_el, "ResourceUID")
-            if not task_uid_str or not res_uid_str:
-                continue
-            task_uid = int(task_uid_str)
-            res_uid = int(res_uid_str)
-            if res_uid == 0 or res_uid not in resource_map:
-                continue
-            units_str = _ft(asgn_el, "Units")
-            # Finite-guard + clamp (#1720), same rationale as MaxUnits above.
-            units = _finite_float(units_str, 1.0, low=0.0, high=_MAX_UNITS) if units_str else 1.0
-            ad = AssignmentData(task_uid=task_uid, resource_uid=res_uid, units=units)
-            task_assignments.setdefault(task_uid, []).append(ad)
-
-    # --- Parse tasks ---
-    tasks_el = _fe(root, "Tasks")
-    if tasks_el is not None:
-        for task_el in _fa(tasks_el, "Task"):
-            uid_str = _ft(task_el, "UID")
-            name = _ft(task_el, "Name")
-            if not uid_str:
-                continue
-            uid = int(uid_str)
-            if uid == 0:
-                continue
-            if not name:
-                project_data.warnings.append(f"Task UID {uid}: missing name, skipped")
-                continue
-
-            duration_str = _ft(task_el, "Duration")
-            outline_number = _ft(task_el, "OutlineNumber")
-            outline_level_str = _ft(task_el, "OutlineLevel")
-            milestone_str = _ft(task_el, "Milestone")
-            pct_str = _ft(task_el, "PercentComplete")
-            notes = _ft(task_el, "Notes")
-            start_str = _ft(task_el, "Start")
-
-            pred_links: list[PredecessorLinkData] = []
-            for pred_el in _fa(task_el, "PredecessorLink"):
-                pred_uid_str = _ft(pred_el, "PredecessorUID")
-                if not pred_uid_str:
-                    continue
-                link_type_str = _ft(pred_el, "Type") or "1"
-                link_lag_str = _ft(pred_el, "LinkLag") or "0"
-                dep_type = _LINK_TYPE_MAP.get(link_type_str, "FS")
-                lag_days = _parse_lag_to_days(link_lag_str)
-                pred_links.append(
-                    PredecessorLinkData(
-                        predecessor_uid=int(pred_uid_str),
-                        dep_type=dep_type,
-                        lag_days=lag_days,
-                    )
-                )
-
-            # PERT three-point values come in as per-task <ExtendedAttribute>
-            # children matching the FieldIDs detected at project level. Values
-            # are ISO-8601 durations parsed via the same _parse_duration_to_days
-            # helper used for the primary Duration field. Summary tasks and
-            # milestones are skipped (ADR-0093 Q5): MS Project leaves these
-            # empty on summaries/milestones in practice; if a file violates
-            # that we still skip to keep Monte Carlo input consistent with
-            # MS Project's own semantics. Summary detection happens later
-            # (importer rebuilds WBS), so we only filter milestones here and
-            # leave summary filtering to the importer.
-            pert_values = (
-                _extract_pert_task_values(task_el, ns, pert_role_to_field_id)
-                if pert_role_to_field_id
-                else (None, None, None)
-            )
-            opt_days, ml_days, pess_days = pert_values
-            is_milestone = milestone_str == "1"
-            if is_milestone and (opt_days, ml_days, pess_days) != (None, None, None):
-                # Drop silently rather than warn — milestones with three-point
-                # values are common file noise from PMs who blanket-applied
-                # estimates and there's nothing the user needs to do.
-                opt_days = ml_days = pess_days = None
-            # All-or-none (Q3): if fewer than all three are present, drop all
-            # three and warn. The scheduler engine requires all three for
-            # PERT-Beta sampling (engine.py:892), so a partial import would
-            # surface as a half-populated UI with no Monte Carlo effect.
-            present = sum(v is not None for v in (opt_days, ml_days, pess_days))
-            if 0 < present < 3:
-                missing = []
-                if opt_days is None:
-                    missing.append("Optimistic")
-                if ml_days is None:
-                    missing.append("Most Likely")
-                if pess_days is None:
-                    missing.append("Pessimistic")
-                project_data.warnings.append(
-                    f"Task '{name}': partial three-point estimate "
-                    f"(missing {', '.join(missing)}), all three values skipped"
-                )
-                opt_days = ml_days = pess_days = None
-
-            # Ordering guard (#2002): even a complete triple is unusable if it
-            # violates optimistic <= most_likely <= pessimistic. The scheduler
-            # engine rejects it (engine._validate_project) and, because the
-            # importer marks estimates accepted, the invalid row would detonate
-            # the first CPM/Monte-Carlo run after import. Drop all three and warn
-            # — mirroring the all-or-none policy above — rather than importing
-            # data that breaks scheduling.
-            if (
-                opt_days is not None
-                and ml_days is not None
-                and pess_days is not None
-                and not opt_days <= ml_days <= pess_days
-            ):
-                project_data.warnings.append(
-                    f"Task '{name}': three-point estimate out of order "
-                    f"(optimistic ≤ most likely ≤ pessimistic required; got "
-                    f"{opt_days} ≤ {ml_days} ≤ {pess_days}), all three values skipped"
-                )
-                opt_days = ml_days = pess_days = None
-
-            # Finite-guard + clamp to [0, 100] (#1720): MS Project PercentComplete
-            # is 0-100. nan/inf/1e999 (and any out-of-range figure) is rejected/
-            # clamped before it reaches progress + EVM math.
-            raw_percent = _finite_float(pct_str, 0.0, low=0.0, high=100.0) if pct_str else 0.0
-            # Derive status from the RAW file percent (0-100), gated on whether the
-            # task has a start (#1768). Keyed on the raw value so it is independent
-            # of how percent is stored downstream (the 0-1-vs-0-100 question, #1759).
-            # A task with no start has its percent clamped to 0 by the importer
-            # (ADR-0057 Q5), so it must stay NOT_STARTED — leave status None (the
-            # importer's default) rather than IN_PROGRESS, so status and progress
-            # can never disagree.
-            td_status: str | None = None
-            if start_str:
-                if raw_percent >= 100.0:
-                    td_status = TaskStatus.COMPLETE.value
-                elif raw_percent > 0.0:
-                    td_status = TaskStatus.IN_PROGRESS.value
-            td = TaskData(
-                uid=uid,
-                name=name,
-                duration_days=_parse_duration_to_days(duration_str),
-                outline_number=outline_number,
-                outline_level=int(outline_level_str) if outline_level_str else 0,
-                is_milestone=is_milestone,
-                # Finite-guard + clamp to [0, 100] (#1720, #1759): MSPDI
-                # PercentComplete is a 0-100 integer and Task.percent_complete is
-                # the same 0-100 scale (validators [0,100]; EVM/rollup treat it as
-                # a percent), so we keep the value on that scale here. An earlier
-                # /100 divided it into a 0-1 fraction, which the importer then wrote
-                # straight into the 0-100 field — a 75% task landed as 0.75%.
-                # raw_percent is the same finite-clamped 0-100 value derived above
-                # for status inference, so reuse it rather than re-running the guard.
-                percent_complete=raw_percent,
-                status=td_status,
-                notes=notes,
-                start=start_str[:10] if start_str else None,
-                calendar_uid=_positive_int_or_none(_ft(task_el, "CalendarUID")),
-                optimistic_duration_days=opt_days,
-                most_likely_duration_days=ml_days,
-                pessimistic_duration_days=pess_days,
-                predecessor_links=pred_links,
-                resource_assignments=task_assignments.get(uid, []),
-            )
-            project_data.tasks.append(td)
+    # --- Parse resources, assignments, and tasks ---
+    project_data.resources, resource_map = _parse_resources(root, ns)
+    task_assignments = _parse_assignments(root, ns, resource_map)
+    project_data.tasks = _parse_tasks(
+        root, ns, pert_role_to_field_id, task_assignments, project_data.warnings
+    )
 
     return project_data
 
