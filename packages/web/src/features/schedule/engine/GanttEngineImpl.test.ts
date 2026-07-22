@@ -1409,6 +1409,86 @@ describe('GanttEngineImpl — middle-button drag-to-pan (#491)', () => {
   });
 });
 
+describe('GanttEngineImpl — touch navigation (#2160)', () => {
+  /** A one-finger touch on empty canvas below the header, away from any bar. */
+  const touch = (props: Partial<PointerEvent> & { clientX: number; clientY: number }) =>
+    ptr({ pointerType: 'touch', ...props });
+
+  it('single-finger touch on empty canvas pans both axes; bar hits still win', () => {
+    const { engine, container } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    const internals = internalsOf(engine);
+    stubPointerCapture(internals);
+    const { aLeft } = barGeom(engine);
+    // Give the container scrollable height so the vertical pan isn't clamped to 0.
+    Object.defineProperty(container, 'scrollHeight', { value: 2000, configurable: true });
+
+    const onDrag = vi.fn();
+    engine.on('drag-task', onDrag);
+
+    // Empty canvas: a spot below the bars (row 5, y≈180) with no zone hit.
+    internals._onPointerDown(touch({ pointerId: 1, clientX: 300, clientY: 180 }));
+    expect(internals._panFSM.state).toBe('PANNING');
+    expect(onDrag).not.toHaveBeenCalled();
+
+    // Drag content up-and-left (dx=-40, dy=-30) → scroll increases on both axes.
+    internals._onPointerMove(touch({ pointerId: 1, clientX: 260, clientY: 150 }));
+    expect(container.scrollLeft).toBe(40);
+    expect(container.scrollTop).toBe(30);
+
+    internals._onPointerUp(touch({ pointerId: 1, clientX: 260, clientY: 150 }));
+    expect(internals._panFSM.state).toBe('IDLE');
+
+    // A touch that lands ON a bar drags the bar (bar hits win — no pan).
+    internals._onPointerDown(touch({ pointerId: 2, clientX: aLeft + 20, clientY: 40 }));
+    expect(internals._panFSM.state).toBe('IDLE');
+    expect(onDrag).toHaveBeenCalledWith({ id: 'a' });
+  });
+
+  it('two fingers pinch-zoom the timeline, canceling any single-finger pan', () => {
+    const { engine } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-30')]);
+    const internals = internalsOf(engine);
+    stubPointerCapture(internals);
+
+    // Start below MAX so a zoom-in has headroom (the day tier is already MAX).
+    engine.setPxPerDay(10);
+    const startPx = engine.pxPerDay!;
+
+    // First finger starts a pan on empty canvas…
+    internals._onPointerDown(touch({ pointerId: 1, clientX: 200, clientY: 180 }));
+    expect(internals._panFSM.state).toBe('PANNING');
+
+    // …second finger 100px away begins a pinch, canceling the pan.
+    internals._onPointerDown(touch({ pointerId: 2, clientX: 300, clientY: 180 }));
+    expect(internals._panFSM.state).toBe('IDLE');
+
+    // Spread the fingers to 200px apart (2× the start span) → zoom in ~2×.
+    internals._onPointerMove(touch({ pointerId: 2, clientX: 400, clientY: 180 }));
+    expect(engine.pxPerDay!).toBeGreaterThan(startPx);
+
+    // Lifting one finger ends the pinch; the zoom holds.
+    const zoomed = engine.pxPerDay!;
+    internals._onPointerUp(touch({ pointerId: 2, clientX: 400, clientY: 180 }));
+    internals._onPointerUp(touch({ pointerId: 1, clientX: 200, clientY: 180 }));
+    expect(engine.pxPerDay!).toBe(zoomed);
+  });
+
+  it('pinching in (fingers together) zooms out', () => {
+    const { engine } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-30')]);
+    const internals = internalsOf(engine);
+    stubPointerCapture(internals);
+
+    const startPx = engine.pxPerDay!;
+    internals._onPointerDown(touch({ pointerId: 1, clientX: 100, clientY: 180 }));
+    internals._onPointerDown(touch({ pointerId: 2, clientX: 500, clientY: 180 }));
+    // Halve the span (400 → 200) → zoom out.
+    internals._onPointerMove(touch({ pointerId: 2, clientX: 300, clientY: 180 }));
+    expect(engine.pxPerDay!).toBeLessThan(startPx);
+  });
+});
+
 describe('GanttEngineImpl — drag-to-link gesture (#1666)', () => {
   function twoTasks(engine: GanttEngineImpl) {
     engine.setTasks([

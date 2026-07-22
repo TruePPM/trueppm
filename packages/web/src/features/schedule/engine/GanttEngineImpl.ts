@@ -167,6 +167,18 @@ export class GanttEngineImpl implements GanttEngine {
   /** True while the pointer is over / the canvas has focus — scopes Space-arm. */
   private _canvasHovered = false;
 
+  // Touch navigation (#2160). Tablets have no Space key, no middle button, and
+  // no ctrl+wheel, so the desktop canvas (768-1024px width) was un-navigable by
+  // touch. A single finger on empty canvas pans (bar hits still win); two active
+  // fingers pinch-zoom the timeline (rule 66). All active touch points are
+  // tracked so the second finger can switch a pan into a pinch.
+  private readonly _activeTouches = new Map<number, { x: number; y: number }>();
+  /** Live pinch gesture: the span + zoom captured when the second finger landed. */
+  private _pinch: {
+    startDist: number;
+    startPxPerDay: number;
+  } | null = null;
+
   // Dirty-rect tracking. As of #1499 nothing populates `_dirtyRows` (updateTask
   // was its only producer and now sets `_barsRepaintPending` instead, since a
   // row-only repaint never rebuilds/redraws dependency arrows). The branch
@@ -1282,6 +1294,19 @@ export class GanttEngineImpl implements GanttEngine {
   private readonly _onPointerDown = (e: PointerEvent): void => {
     if (!this._hitIndex || !this._scales) return;
 
+    // ── Touch tracking + two-finger pinch (#2160, rule 66) ────────────────
+    // Track every active touch point. The second finger down begins a pinch —
+    // canceling any in-progress single-finger pan or bar drag from the first
+    // finger — so tablets can zoom the timeline (no ctrl+wheel on touch).
+    if (e.pointerType === 'touch') {
+      this._activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this._activeTouches.size === 2) {
+        e.preventDefault();
+        this._beginPinch();
+        return;
+      }
+    }
+
     // ── Pan arbitration (#491, rule 129) ──────────────────────────────────
     // Space-held OR middle button claims the gesture; the drag FSM is bypassed.
     // Middle-click pans immediately (no arm step); preventDefault suppresses the
@@ -1306,6 +1331,21 @@ export class GanttEngineImpl implements GanttEngine {
     const { x, y } = this._pointerToCanvas(e);
     const isTouch = e.pointerType === 'touch';
     const zone = this._hitIndex.query(x, y, isTouch);
+
+    // ── Single-finger touch pan on empty canvas (#2160) ───────────────────
+    // A touch that misses every bar / resize handle / link-dot pans the
+    // viewport (both axes — this is also the only vertical-scroll path in
+    // Timeline mode, which has no task-list panel). Bar hits fall through to
+    // the drag path below, so dragging a bar still moves the bar.
+    if (isTouch && !zone) {
+      if (this._panFSM.startTouch(e.clientX, e.clientY, e.pointerId)) {
+        e.preventDefault();
+        this._panning = true;
+        this._ixCanvas.setPointerCapture(e.pointerId);
+        this._updateCursor(null);
+      }
+      return;
+    }
 
     if (!zone) return;
 
@@ -1348,6 +1388,26 @@ export class GanttEngineImpl implements GanttEngine {
   };
 
   private readonly _onPointerMove = (e: PointerEvent): void => {
+    // ── Two-finger pinch zoom (#2160, rule 66) ────────────────────────────
+    // Recompute the finger span each frame and set pxPerDay from the ratio to
+    // the span captured at gesture start — absolute, not incremental, so the
+    // zoom never drifts. The pinch midpoint anchors the zoom (rule 128) so the
+    // date under the fingers stays put.
+    if (e.pointerType === 'touch' && this._activeTouches.has(e.pointerId)) {
+      this._activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this._pinch && this._activeTouches.size >= 2) {
+        const [a, b] = [...this._activeTouches.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (dist > 0 && this._pinch.startDist > 0) {
+          e.preventDefault();
+          const midX = (a.x + b.x) / 2;
+          const factor = dist / this._pinch.startDist;
+          this.setPxPerDay(this._pinch.startPxPerDay * factor, { clientX: midX });
+        }
+        return;
+      }
+    }
+
     // ── Pan move (#491) ───────────────────────────────────────────────────
     // Direct 1:1 manipulation on both axes. Dragging content right (positive
     // dx) reveals earlier dates, so scrollLeft decreases by dx; same for dy.
@@ -1449,7 +1509,37 @@ export class GanttEngineImpl implements GanttEngine {
     }
   };
 
+  /**
+   * Begin a two-finger pinch (#2160). Cancels whatever the first finger was
+   * doing — a single-finger pan or a bar drag — so the pinch owns the gesture,
+   * then captures the span and zoom to measure the pinch against.
+   */
+  private _beginPinch(): void {
+    if (this._panning) {
+      this._panFSM.reset();
+      this._panning = false;
+    }
+    // If the first finger had grabbed a bar, abort that drag cleanly.
+    this.cancelDrag();
+    const [a, b] = [...this._activeTouches.values()];
+    if (!a || !b) return;
+    this._pinch = {
+      startDist: Math.hypot(a.x - b.x, a.y - b.y),
+      startPxPerDay: this._pxPerDay,
+    };
+    this._updateCursor(null);
+  }
+
   private readonly _onPointerUp = (e: PointerEvent): void => {
+    // ── Touch lift (#2160) ────────────────────────────────────────────────
+    // Drop the finger; ending a pinch when fewer than two remain. The pan-end
+    // path below still runs for a single-finger touch pan (that finger set
+    // `_panning`), returning the FSM to IDLE.
+    if (e.pointerType === 'touch') {
+      this._activeTouches.delete(e.pointerId);
+      if (this._pinch && this._activeTouches.size < 2) this._pinch = null;
+    }
+
     // ── Pan end (#491) ────────────────────────────────────────────────────
     if (this._panning) {
       this._panFSM.end(this._panArmed);
@@ -1525,6 +1615,10 @@ export class GanttEngineImpl implements GanttEngine {
   };
 
   private readonly _onPointerCancel = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch') {
+      this._activeTouches.delete(e.pointerId);
+      if (this._pinch && this._activeTouches.size < 2) this._pinch = null;
+    }
     if (this._panning) {
       this._panFSM.reset();
       this._panning = false;
