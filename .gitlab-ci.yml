@@ -2465,7 +2465,11 @@ web:integration:
     - cd packages/web && retry npm ci --prefer-offline --quiet && cd ../..
   script:
     - cd packages/web
-    - npx playwright test e2e/integration/ --config playwright.integration.config.ts --reporter=line
+    # Exclude the @sso-tagged Keycloak handshake spec — it requires the live
+    # Keycloak service that only sso:integration stands up (#2274). Both jobs
+    # share this testDir, so the split is a CLI filter here, not a config-level
+    # testIgnore that would also hide it from sso:integration.
+    - npx playwright test e2e/integration/ --grep-invert @sso --config playwright.integration.config.ts --reporter=line
   artifacts:
     when: on_failure
     paths:

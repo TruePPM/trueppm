@@ -33,7 +33,11 @@ const KC_PASSWORD = process.env['SSO_KEYCLOAK_TEST_PASSWORD'] ?? 'keycloak-user-
 const ADMIN_EMAIL = process.env['SSO_ADMIN_EMAIL'] ?? 'sso-admin@trueppm-ci.test';
 const ADMIN_PASSWORD = process.env['INTEGRATION_USER_PASSWORD'] ?? 'ci-integration-pw';
 
-test.describe('Integration — Keycloak OIDC', () => {
+// Tagged @sso so the Keycloak-less web:integration job can exclude it
+// (--grep-invert @sso); only the sso:integration job — which stands up a live
+// Keycloak service — runs these. Both jobs share this testDir, so the split has
+// to be a CLI filter, not a config-level testIgnore.
+test.describe('Integration — Keycloak OIDC', { tag: '@sso' }, () => {
   test('completes a real login handshake and enters the app', async ({ page }) => {
     // Start the flow at the API. Django sets the browser-binding state cookie and
     // 302s to Keycloak's authorization endpoint (from the live discovery doc).
