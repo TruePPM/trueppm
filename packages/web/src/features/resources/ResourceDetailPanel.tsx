@@ -223,7 +223,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
               <button
                 type="button"
                 onClick={() => setConfirmDeactivate(false)}
-                className="h-7 px-3 rounded text-xs border border-neutral-border text-neutral-text-secondary hover:border-brand-primary
+                className="min-h-11 md:min-h-7 px-3 rounded text-xs border border-neutral-border text-neutral-text-secondary hover:border-brand-primary
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Cancel
@@ -232,7 +232,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
                 type="button"
                 onClick={handleDeactivate}
                 disabled={deactivateMutation.isPending}
-                className="h-7 px-3 rounded text-xs bg-semantic-critical text-white hover:bg-semantic-critical/90
+                className="min-h-11 md:min-h-7 px-3 rounded text-xs bg-semantic-critical text-white hover:bg-semantic-critical/90
                   disabled:opacity-40
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
               >
@@ -244,7 +244,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
               <button
                 type="button"
                 onClick={() => setConfirmDeactivate(true)}
-                className="h-7 px-3 rounded text-xs text-semantic-at-risk border border-semantic-at-risk/40 hover:bg-semantic-at-risk/5
+                className="min-h-11 md:min-h-7 px-3 rounded text-xs text-semantic-at-risk border border-semantic-at-risk/40 hover:bg-semantic-at-risk/5
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1"
               >
                 ⚠ Deactivate
@@ -253,7 +253,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
                 type="button"
                 onClick={handleSave}
                 disabled={isSaving || !hasChanges}
-                className="h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
+                className="min-h-11 md:min-h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
                   disabled:opacity-40 disabled:cursor-not-allowed
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
@@ -270,7 +270,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
             type="button"
             onClick={handleRestore}
             disabled={restoreMutation.isPending}
-            className="h-7 px-3 rounded text-xs border border-neutral-border text-neutral-text-secondary hover:border-brand-primary hover:text-neutral-text-primary
+            className="min-h-11 md:min-h-7 px-3 rounded text-xs border border-neutral-border text-neutral-text-secondary hover:border-brand-primary hover:text-neutral-text-primary
               disabled:opacity-40
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
@@ -371,7 +371,7 @@ function CreatePanel({ onCreated, onCancel }: Omit<CreateProps, 'mode'>) {
         <button
           type="button"
           onClick={onCancel}
-          className="h-7 px-3 rounded text-xs border border-neutral-border text-neutral-text-secondary hover:border-brand-primary
+          className="min-h-11 md:min-h-7 px-3 rounded text-xs border border-neutral-border text-neutral-text-secondary hover:border-brand-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           Cancel
@@ -380,7 +380,7 @@ function CreatePanel({ onCreated, onCancel }: Omit<CreateProps, 'mode'>) {
           type="button"
           onClick={handleCreate}
           disabled={!name.trim() || createMutation.isPending}
-          className="h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
+          className="min-h-11 md:min-h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
             disabled:opacity-40 disabled:cursor-not-allowed
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
@@ -459,7 +459,7 @@ function AddSkillRow({ excludeSkillIds, isAdding, onAdd }: AddSkillRowProps) {
       <button
         type="button"
         onClick={() => setExpanded(true)}
-        className="mt-2 h-7 px-2.5 rounded text-xs border border-neutral-border text-neutral-text-secondary
+        className="mt-2 min-h-11 md:min-h-7 px-2.5 rounded text-xs border border-neutral-border text-neutral-text-secondary
           hover:border-brand-primary hover:text-neutral-text-primary
           focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
@@ -478,7 +478,7 @@ function AddSkillRow({ excludeSkillIds, isAdding, onAdd }: AddSkillRowProps) {
             aria-pressed={proficiency === level}
             onClick={() => setProficiency(level)}
             className={[
-              'h-7 px-2 rounded text-xs border transition-colors',
+              'min-h-11 md:min-h-7 px-2 rounded text-xs border transition-colors',
               'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
               proficiency === level
                 ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
@@ -500,7 +500,7 @@ function AddSkillRow({ excludeSkillIds, isAdding, onAdd }: AddSkillRowProps) {
       <button
         type="button"
         onClick={() => setExpanded(false)}
-        className="h-7 px-2.5 rounded text-xs text-neutral-text-secondary hover:text-neutral-text-primary
+        className="min-h-11 md:min-h-7 px-2.5 rounded text-xs text-neutral-text-secondary hover:text-neutral-text-primary
           focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         Cancel

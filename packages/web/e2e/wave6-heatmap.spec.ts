@@ -316,6 +316,20 @@ test.describe('Heatmap page', () => {
     await expect(grid.getByRole('gridcell').first()).toBeVisible();
   });
 
+  test('week-nav buttons meet the 44px touch floor on mobile (#2168)', async ({ page }) => {
+    // The week pager is the sole week-nav affordance on this mobile-reachable
+    // daily surface — it must clear the 44px touch target (WCAG 2.5.5).
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const name of ['Previous week', 'Next week']) {
+      const btn = page.getByRole('button', { name });
+      await expect(btn).toBeVisible();
+      const box = await btn.boundingBox();
+      expect(box, `${name} should have a bounding box`).not.toBeNull();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+    }
+  });
+
   test('Clicking an over-allocated cell opens the drawer', async ({ page }) => {
     const grid = page.getByRole('grid', { name: 'Resource utilization heatmap' });
 

@@ -164,7 +164,7 @@ function NoteRow({
               type="button"
               onClick={handleSaveEdit}
               disabled={update.isPending || draft.trim().length === 0}
-              className="text-xs border border-brand-primary/40 text-brand-primary rounded-control px-3 h-7 font-medium
+              className="text-xs border border-brand-primary/40 text-brand-primary rounded-control px-3 min-h-11 md:min-h-7 font-medium
                 hover:bg-brand-primary/10
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 disabled:opacity-50"
@@ -178,7 +178,7 @@ function NoteRow({
                 setIsEditing(false);
               }}
               disabled={update.isPending}
-              className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
+              className="text-xs border border-neutral-border rounded-control px-3 min-h-11 md:min-h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 disabled:opacity-50"
@@ -202,7 +202,7 @@ function NoteRow({
             disabled={pin.isPending}
             aria-pressed={note.pinned}
             aria-label={note.pinned ? 'Unpin this note' : 'Pin this note'}
-            className={`text-xs border rounded-control px-2 h-7 font-medium
+            className={`text-xs border rounded-control px-2 min-h-11 md:min-h-7 font-medium
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50
               ${
@@ -220,7 +220,7 @@ function NoteRow({
             disabled={decision.isPending}
             aria-pressed={note.decision}
             aria-label={note.decision ? 'Unmark as decision' : 'Mark as decision'}
-            className={`text-xs border rounded-control px-2 h-7 font-medium
+            className={`text-xs border rounded-control px-2 min-h-11 md:min-h-7 font-medium
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50
               ${
@@ -238,7 +238,7 @@ function NoteRow({
                 setDraft(note.body);
                 setIsEditing(true);
               }}
-              className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
+              className="text-xs border border-neutral-border rounded-control px-2 min-h-11 md:min-h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
               aria-label="Edit this note"
@@ -251,7 +251,7 @@ function NoteRow({
               type="button"
               onClick={() => del.mutate({ projectId, taskId, noteId: note.id })}
               disabled={del.isPending}
-              className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
+              className="text-xs border border-neutral-border rounded-control px-2 min-h-11 md:min-h-7 font-medium
                 text-neutral-text-secondary hover:bg-semantic-critical-bg hover:text-semantic-critical hover:border-semantic-critical/40
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 disabled:opacity-50"
