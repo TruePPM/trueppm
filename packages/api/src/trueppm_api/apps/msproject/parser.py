@@ -223,6 +223,164 @@ def _parse_calendar_exception_dates(exc_el: ET.Element, ns: str) -> tuple[str | 
     return _iso_date_or_none(start), _iso_date_or_none(end)
 
 
+def _weekday_working_hours(day_el: ET.Element, ns: str) -> float:
+    """Sum a working ``<WeekDay>``'s ``<WorkingTime>`` shifts into hours.
+
+    Zero-length and reversed (``To <= From``) shifts are ignored so a malformed
+    entry contributes nothing rather than a negative total.
+    """
+    total = 0.0
+    times_el = day_el.find(f"{ns}WorkingTimes")
+    for wt in times_el.findall(f"{ns}WorkingTime") if times_el is not None else []:
+        frm = _time_to_minutes(wt.findtext(f"{ns}FromTime") or "")
+        to = _time_to_minutes(wt.findtext(f"{ns}ToTime") or "")
+        if frm is not None and to is not None and to > frm:
+            total += (to - frm) / 60.0
+    return total
+
+
+def _legacy_weekday_exception(
+    day_el: ET.Element, ns: str, name: str, *, working: bool, warnings: list[str]
+) -> CalendarExceptionData | None:
+    """Parse a legacy (2003-style) dated ``<WeekDay DayType=0>`` exception.
+
+    These encode an exception as a dated WeekDay entry rather than an
+    ``<Exceptions>`` child but share the non-working-only constraint: a working
+    exception is unrepresentable and warned+skipped, and an undated one is
+    dropped silently. Returns ``None`` when nothing usable was found.
+    """
+    start, end = _parse_calendar_exception_dates(day_el, ns)
+    if working:
+        warnings.append(
+            f"Calendar '{name}': working-time exception "
+            f"{start or '?'} to {end or '?'} is not supported and was skipped"
+        )
+        return None
+    if start and end:
+        return CalendarExceptionData(start=start, end=end)
+    return None
+
+
+def _parse_weekday_definitions(
+    cal_el: ET.Element, ns: str, name: str, warnings: list[str]
+) -> tuple[int, list[float], list[CalendarExceptionData]]:
+    """Walk ``<WeekDays>`` into (working-day mask, per-day hours, legacy exceptions).
+
+    The mask starts from the Mon-Fri default and each listed ``<WeekDay>``
+    overrides its own day; a resulting all-non-working week is guarded back to
+    Mon-Fri (the model's ``validate_working_day_mask`` invariant — a maskless
+    calendar would spin the engine's calendar walk, and the importer writes rows
+    without running field validators). Legacy dated exceptions are collected here
+    so they precede the ``<Exceptions>`` block's rows in the final list.
+    """
+    mask = 31  # Mon–Fri baseline; listed WeekDay entries override per day.
+    day_hours: list[float] = []
+    exceptions: list[CalendarExceptionData] = []
+
+    weekdays_el = cal_el.find(f"{ns}WeekDays")
+    for day_el in weekdays_el.findall(f"{ns}WeekDay") if weekdays_el is not None else []:
+        day_type = (day_el.findtext(f"{ns}DayType") or "").strip()
+        working = (day_el.findtext(f"{ns}DayWorking") or "").strip() == "1"
+        if day_type == "0":
+            exc = _legacy_weekday_exception(day_el, ns, name, working=working, warnings=warnings)
+            if exc is not None:
+                exceptions.append(exc)
+            continue
+        bit = _DAY_TYPE_TO_BIT.get(day_type)
+        if bit is None:
+            continue
+        if working:
+            mask |= bit
+            hours = _weekday_working_hours(day_el, ns)
+            if hours > 0:
+                day_hours.append(hours)
+        else:
+            mask &= ~bit
+
+    if mask & 0b111_1111 == 0:
+        warnings.append(
+            f"Calendar '{name}': no working weekday defined; defaulted to Monday-Friday"
+        )
+        mask = 31
+
+    return mask, day_hours, exceptions
+
+
+def _parse_calendar_exceptions(
+    cal_el: ET.Element, ns: str, name: str, warnings: list[str]
+) -> list[CalendarExceptionData]:
+    """Parse the ``<Exceptions>`` block into non-working ``CalendarExceptionData`` rows.
+
+    Working exceptions (``DayWorking=1``, e.g. a make-up Saturday) cannot be
+    expressed by ``CalendarException`` (non-working only) and are warned+skipped,
+    as are entries whose date range is missing or reversed.
+    """
+    exceptions: list[CalendarExceptionData] = []
+    exceptions_el = cal_el.find(f"{ns}Exceptions")
+    for exc_el in exceptions_el.findall(f"{ns}Exception") if exceptions_el is not None else []:
+        exc_name = (exc_el.findtext(f"{ns}Name") or "").strip()
+        start, end = _parse_calendar_exception_dates(exc_el, ns)
+        working = (exc_el.findtext(f"{ns}DayWorking") or "0").strip() == "1"
+        if working:
+            warnings.append(
+                f"Calendar '{name}': working-time exception "
+                f"'{exc_name or (start or '?')}' is not supported and was skipped"
+            )
+            continue
+        if start is None or end is None or end < start:
+            warnings.append(
+                f"Calendar '{name}': exception '{exc_name or '?'}' has an "
+                f"unparseable date range and was skipped"
+            )
+            continue
+        exceptions.append(CalendarExceptionData(start=start, end=end, name=exc_name))
+    return exceptions
+
+
+def _modal_hours_per_day(day_hours: list[float]) -> float:
+    """Collapse per-day working totals to the single ``Calendar.hours_per_day`` scalar.
+
+    Most common daily total wins (ties break toward the first seen): one scalar
+    has to represent the week, and the modal day length is what duration
+    conversion (days -> real dates) should assume. Defaults to 8.0 with no data
+    and is clamped to a sane [1, 24] range.
+    """
+    if not day_hours:
+        return 8.0
+    hours = max(day_hours, key=day_hours.count)
+    return max(1.0, min(hours, 24.0))
+
+
+def _parse_one_calendar(cal_el: ET.Element, ns: str, warnings: list[str]) -> CalendarData | None:
+    """Parse a single ``<Calendar>`` element, or ``None`` to skip it.
+
+    Non-integer UIDs and non-base calendars (``IsBaseCalendar != 1``) are
+    skipped; per-resource calendars have no TruePPM equivalent and importing
+    them would only pollute the shared calendar library.
+    """
+    uid_str = (cal_el.findtext(f"{ns}UID") or "").strip()
+    try:
+        uid = int(uid_str)
+    except ValueError:
+        return None
+    if (cal_el.findtext(f"{ns}IsBaseCalendar") or "").strip() != "1":
+        return None
+    name = (cal_el.findtext(f"{ns}Name") or "").strip() or f"Imported calendar {uid}"
+
+    mask, day_hours, exceptions = _parse_weekday_definitions(cal_el, ns, name, warnings)
+    # Legacy dated exceptions (from the WeekDays walk) precede the <Exceptions>
+    # block's rows, matching the original single-pass append order.
+    exceptions.extend(_parse_calendar_exceptions(cal_el, ns, name, warnings))
+
+    return CalendarData(
+        uid=uid,
+        name=name,
+        working_days=mask,
+        hours_per_day=_modal_hours_per_day(day_hours),
+        exceptions=exceptions,
+    )
+
+
 def _parse_calendars(root: ET.Element, ns: str, warnings: list[str]) -> list[CalendarData]:
     """Parse the ``<Calendars>`` block into ``CalendarData`` rows (#1769).
 
@@ -246,104 +404,15 @@ def _parse_calendars(root: ET.Element, ns: str, warnings: list[str]) -> list[Cal
       Saturday) cannot be expressed by ``CalendarException`` (non-working only)
       and are skipped with a warning.
     """
-    calendars: list[CalendarData] = []
     calendars_el = root.find(f"{ns}Calendars")
     if calendars_el is None:
-        return calendars
+        return []
 
+    calendars: list[CalendarData] = []
     for cal_el in calendars_el.findall(f"{ns}Calendar"):
-        uid_str = (cal_el.findtext(f"{ns}UID") or "").strip()
-        try:
-            uid = int(uid_str)
-        except ValueError:
-            continue
-        if (cal_el.findtext(f"{ns}IsBaseCalendar") or "").strip() != "1":
-            continue
-        name = (cal_el.findtext(f"{ns}Name") or "").strip() or f"Imported calendar {uid}"
-
-        mask = 31  # Mon–Fri baseline; listed WeekDay entries override per day.
-        day_hours: list[float] = []
-        exceptions: list[CalendarExceptionData] = []
-
-        weekdays_el = cal_el.find(f"{ns}WeekDays")
-        for day_el in weekdays_el.findall(f"{ns}WeekDay") if weekdays_el is not None else []:
-            day_type = (day_el.findtext(f"{ns}DayType") or "").strip()
-            working = (day_el.findtext(f"{ns}DayWorking") or "").strip() == "1"
-            if day_type == "0":
-                # Legacy (2003-style) exception: a dated WeekDay entry rather
-                # than an <Exceptions> child. Same non-working-only constraint.
-                start, end = _parse_calendar_exception_dates(day_el, ns)
-                if working:
-                    warnings.append(
-                        f"Calendar '{name}': working-time exception "
-                        f"{start or '?'} to {end or '?'} is not supported and was skipped"
-                    )
-                elif start and end:
-                    exceptions.append(CalendarExceptionData(start=start, end=end))
-                continue
-            bit = _DAY_TYPE_TO_BIT.get(day_type)
-            if bit is None:
-                continue
-            if working:
-                mask |= bit
-                total = 0.0
-                times_el = day_el.find(f"{ns}WorkingTimes")
-                for wt in times_el.findall(f"{ns}WorkingTime") if times_el is not None else []:
-                    frm = _time_to_minutes(wt.findtext(f"{ns}FromTime") or "")
-                    to = _time_to_minutes(wt.findtext(f"{ns}ToTime") or "")
-                    if frm is not None and to is not None and to > frm:
-                        total += (to - frm) / 60.0
-                if total > 0:
-                    day_hours.append(total)
-            else:
-                mask &= ~bit
-
-        if mask & 0b111_1111 == 0:
-            # Guard the model's validate_working_day_mask invariant (a mask with
-            # no working weekday would spin the engine's calendar walk); the
-            # importer writes rows without running field validators.
-            warnings.append(
-                f"Calendar '{name}': no working weekday defined; defaulted to Monday-Friday"
-            )
-            mask = 31
-
-        exceptions_el = cal_el.find(f"{ns}Exceptions")
-        for exc_el in exceptions_el.findall(f"{ns}Exception") if exceptions_el is not None else []:
-            exc_name = (exc_el.findtext(f"{ns}Name") or "").strip()
-            start, end = _parse_calendar_exception_dates(exc_el, ns)
-            working = (exc_el.findtext(f"{ns}DayWorking") or "0").strip() == "1"
-            if working:
-                warnings.append(
-                    f"Calendar '{name}': working-time exception "
-                    f"'{exc_name or (start or '?')}' is not supported and was skipped"
-                )
-                continue
-            if start is None or end is None or end < start:
-                warnings.append(
-                    f"Calendar '{name}': exception '{exc_name or '?'}' has an "
-                    f"unparseable date range and was skipped"
-                )
-                continue
-            exceptions.append(CalendarExceptionData(start=start, end=end, name=exc_name))
-
-        # Most common daily total wins (ties toward first seen): one scalar has
-        # to represent the week, and the modal day length is what duration
-        # conversion (days -> real dates) should assume.
-        hours = 8.0
-        if day_hours:
-            hours = max(day_hours, key=day_hours.count)
-            hours = max(1.0, min(hours, 24.0))
-
-        calendars.append(
-            CalendarData(
-                uid=uid,
-                name=name,
-                working_days=mask,
-                hours_per_day=hours,
-                exceptions=exceptions,
-            )
-        )
-
+        cal = _parse_one_calendar(cal_el, ns, warnings)
+        if cal is not None:
+            calendars.append(cal)
     return calendars
 
 
