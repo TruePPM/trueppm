@@ -98,6 +98,7 @@ class Command(BaseCommand):
         # User model has USERNAME_FIELD="username"), so the seeded user's
         # username MUST equal its email — otherwise SimpleJWT returns 401 on
         # every login attempt and every integration test fails at step one.
+        # get-or-create-ok: CI seed command, fixed constant fixture email — no duplicate reachable
         user, _ = User.objects.update_or_create(
             email=_EMAIL,
             defaults={"username": _EMAIL},
@@ -133,6 +134,7 @@ class Command(BaseCommand):
         ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
 
         # Second user — project member; used by E2E to verify member list
+        # get-or-create-ok: CI seed command, fixed constant fixture email — no duplicate reachable
         ci_member, _ = User.objects.update_or_create(
             email=_MEMBER_EMAIL,
             defaults={"username": _MEMBER_EMAIL},
@@ -144,6 +146,7 @@ class Command(BaseCommand):
 
         # Third user — has an account but no project membership; used by E2E
         # member-search tests to find a user and add them to the project
+        # get-or-create-ok: CI seed command, fixed constant fixture email — no duplicate reachable
         ci_nonmember, _ = User.objects.update_or_create(
             email=_NONMEMBER_EMAIL,
             defaults={"username": _NONMEMBER_EMAIL},

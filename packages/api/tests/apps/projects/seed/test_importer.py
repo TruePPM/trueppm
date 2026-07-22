@@ -9,6 +9,7 @@ re-import idempotency on the program slug.
 from __future__ import annotations
 
 import copy
+from datetime import date
 from typing import Any
 
 import pytest
@@ -18,6 +19,8 @@ from trueppm_api.apps.access.models import ProgramMembership, Role
 from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
+    Calendar,
+    CalendarException,
     Dependency,
     EstimateStatus,
     Program,
@@ -314,6 +317,37 @@ def test_sample_reload_refuses_to_delete_program_holding_real_work(owner: Any) -
     assert Program.objects.filter(pk=real.pk, is_deleted=False).exists()
     assert sample.pk != real.pk
     assert Project.objects.filter(program=sample, is_sample=True).exists()
+
+
+def test_import_tolerates_duplicate_calendar_names(owner: Any) -> None:
+    """#2268: Calendar.name is non-unique, so the importer must not 500 when the shared
+    catalog already holds two calendars of the seed's calendar name."""
+    Calendar.objects.create(name="Seed Standard 5-day")
+    Calendar.objects.create(name="Seed Standard 5-day")
+
+    # Must not raise MultipleObjectsReturned; must not mint a third calendar.
+    import_seed(_seed(), owner=owner, create_users=True)
+
+    assert Calendar.objects.filter(name="Seed Standard 5-day").count() == 2
+
+
+def test_import_tolerates_duplicate_calendar_exceptions(owner: Any) -> None:
+    """#2268: (calendar, exc_start, exc_end) has no uniqueness constraint, so the importer
+    must not 500 when a duplicate PTO range already exists on the resolved calendar."""
+    cal = Calendar.objects.create(name="Seed Standard 5-day")
+    start, end = date(2026, 12, 24), date(2026, 12, 26)
+    CalendarException.objects.create(calendar=cal, exc_start=start, exc_end=end)
+    CalendarException.objects.create(calendar=cal, exc_start=start, exc_end=end)
+
+    seed = copy.deepcopy(_seed())
+    seed["calendars"][0]["exceptions"] = [
+        {"exc_start": "2026-12-24", "exc_end": "2026-12-26", "description": "Winter shutdown"}
+    ]
+
+    # Must not raise; the existing range is reused, no third row created.
+    import_seed(seed, owner=owner, create_users=True)
+
+    assert CalendarException.objects.filter(calendar=cal, exc_start=start, exc_end=end).count() == 2
 
 
 def test_sample_reload_same_owner_is_idempotent(owner: Any) -> None:

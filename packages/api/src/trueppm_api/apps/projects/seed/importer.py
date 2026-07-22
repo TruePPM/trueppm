@@ -365,13 +365,17 @@ class _SeedImporter:
 
     def _resolve_calendars(self) -> None:
         for cal in self.payload.get("calendars", []):
-            obj, _ = Calendar.objects.get_or_create(
-                name=cal["name"],
-                defaults={
-                    "working_days": cal.get("working_days", 31),
-                    "hours_per_day": cal.get("hours_per_day", 8.0),
-                    "timezone": cal.get("timezone", "UTC"),
-                },
+            # Calendar.name carries no uniqueness constraint, so a plain
+            # get_or_create raises MultipleObjectsReturned (unhandled 500) when the
+            # shared catalog already holds two calendars of this name — the #2267
+            # bug class. Reuse the first match and only create when none exists.
+            defaults = {
+                "working_days": cal.get("working_days", 31),
+                "hours_per_day": cal.get("hours_per_day", 8.0),
+                "timezone": cal.get("timezone", "UTC"),
+            }
+            obj = Calendar.objects.filter(name=cal["name"]).first() or Calendar.objects.create(
+                name=cal["name"], **defaults
             )
             self.calendars[cal["slug"]] = obj
             self._resolve_calendar_exceptions(obj, cal.get("exceptions", []))
@@ -393,12 +397,20 @@ class _SeedImporter:
         for exc in exceptions:
             start = resolve_date(exc["exc_start"], anchor=self.anchor, snap=False)
             end = resolve_date(exc["exc_end"], anchor=self.anchor, snap=False)
-            CalendarException.objects.get_or_create(
-                calendar=calendar,
-                exc_start=start,
-                exc_end=end,
-                defaults={"description": exc.get("description", "")},
-            )
+            # (calendar, exc_start, exc_end) is the intended idempotency key but has
+            # no DB uniqueness constraint, so a plain get_or_create raises
+            # MultipleObjectsReturned once two identical ranges exist (#2267 class).
+            # Reuse the first match; only create when the range is absent.
+            exists = CalendarException.objects.filter(
+                calendar=calendar, exc_start=start, exc_end=end
+            ).exists()
+            if not exists:
+                CalendarException.objects.create(
+                    calendar=calendar,
+                    exc_start=start,
+                    exc_end=end,
+                    description=exc.get("description", ""),
+                )
 
     def _resolve_resources(self) -> None:
         for res in self.payload.get("resources", []):
