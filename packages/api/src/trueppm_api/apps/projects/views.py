@@ -9307,6 +9307,354 @@ def _build_activity_events(
     return events, truncated
 
 
+# Event-type token for each history_type when the unified ``include`` feed is active.
+_HISTORY_EVENT_TYPE = {"+": "task_created", "~": "fields_changed", "-": "task_deleted"}
+
+
+class _HistoryRequestError(Exception):
+    """Carries a pre-built 400 ``Response`` out of a query-param parse helper.
+
+    Lets the parse helpers below signal a caller error with the exact response
+    body the endpoint has always returned, while keeping ``TaskHistoryView.get``
+    free of the nested validation branches (they dominated its complexity).
+    """
+
+    def __init__(self, response: Response) -> None:
+        super().__init__()
+        self.response = response
+
+
+def _parse_include_param(request: Request) -> frozenset[str]:
+    """Parse and validate the ``?include=`` activity-source tokens.
+
+    Absent/empty ``include`` returns an empty set (legacy field-diff feed).
+    ``all`` expands to every known source. Raises ``_HistoryRequestError`` with a
+    400 on any unknown token.
+    """
+    include_raw = request.query_params.get("include", "").strip()
+    if not include_raw:
+        return frozenset()
+    requested = {tok.strip() for tok in include_raw.split(",") if tok.strip()}
+    if "all" in requested:
+        requested = set(_ACTIVITY_SOURCES)
+    invalid = requested - _ACTIVITY_SOURCES
+    if invalid:
+        raise _HistoryRequestError(
+            Response(
+                {
+                    "detail": (
+                        f"Invalid include value(s): {', '.join(sorted(invalid))}. "
+                        f"Choose from: {', '.join(sorted(_ACTIVITY_SOURCES))}, all."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        )
+    return frozenset(requested)
+
+
+def _parse_until_param(until_raw: str | None) -> datetime.datetime | None:
+    """Parse the ``?until=`` keyset cursor into an aware datetime (or ``None``).
+
+    Raises ``_HistoryRequestError`` with a 400 on a malformed or out-of-range
+    value (``parse_datetime`` returns ``None`` for the former and raises
+    ``ValueError`` for the latter — both are the caller's error).
+    """
+    if until_raw is None:
+        return None
+    from django.utils.dateparse import parse_datetime
+
+    try:
+        until = parse_datetime(until_raw)
+    except ValueError:
+        until = None
+    if until is None:
+        raise _HistoryRequestError(
+            Response(
+                {"detail": f"Invalid until datetime '{until_raw}' (expected ISO 8601)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        )
+    if timezone.is_naive(until):
+        until = timezone.make_aware(until, timezone.get_current_timezone())
+    return until
+
+
+def _parse_page_size_param(page_size_raw: str | None) -> int:
+    """Parse ``?page_size=`` into an int clamped to 1..100 (default 20).
+
+    Raises ``_HistoryRequestError`` with a 400 on a non-integer value.
+    """
+    if page_size_raw is None:
+        return 20
+    try:
+        page_size = int(page_size_raw)
+    except (TypeError, ValueError):
+        raise _HistoryRequestError(
+            Response(
+                {"detail": "page_size must be an integer."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        ) from None
+    return max(1, min(page_size, 100))
+
+
+def _parse_keyset_params(
+    request: Request, include: frozenset[str]
+) -> tuple[datetime.datetime | None, int]:
+    """Parse the ``?until=`` / ``?page_size=`` keyset paging params.
+
+    Both are meaningless on the bare field-diff feed (which must stay
+    byte-identical for existing consumers), so their presence without
+    ``include`` is a 400. Validation order (combined guard, then ``until``, then
+    ``page_size``) matches the historical error precedence.
+    """
+    until_raw = request.query_params.get("until")
+    page_size_raw = request.query_params.get("page_size")
+    if (until_raw is not None or page_size_raw is not None) and not include:
+        raise _HistoryRequestError(
+            Response(
+                {"detail": "until and page_size are only valid together with include=."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        )
+    until = _parse_until_param(until_raw)
+    page_size = _parse_page_size_param(page_size_raw)
+    return until, page_size
+
+
+def _fetch_history_window(
+    task: Task, until: datetime.datetime | None
+) -> tuple[list[Any], Any, bool]:
+    """Fetch the newest history rows for a task, plus one diff-seed past the cap.
+
+    Returns ``(records, diff_seed, count_truncated)``. One row past the cap is
+    fetched so an exactly-cap history is not falsely reported as truncated; when
+    truncated, that row is kept PURELY as a diff seed for the oldest rendered
+    record (#1889) — it is never rendered and never counted.
+    """
+    history_qs = task.history.order_by("-history_date").select_related("history_user")
+    if until is not None:
+        # Push the keyset bound into the DB (strictly older than the cursor) so
+        # a deep page never re-reads the newest rows.
+        history_qs = history_qs.filter(history_date__lt=until)
+    records = list(history_qs[: _MAX_HISTORY_ROWS + 1])
+    count_truncated = len(records) > _MAX_HISTORY_ROWS
+    diff_seed = records[_MAX_HISTORY_ROWS] if count_truncated else None
+    records = records[:_MAX_HISTORY_ROWS]
+    return records, diff_seed, count_truncated
+
+
+def _compute_raw_changes(
+    records: list[Any], diff_seed: Any, diff_fields: tuple[Any, ...]
+) -> tuple[list[list[tuple[Any, Any, Any]]], dict[str, set[Any]]]:
+    """Pass 1: compute per-record field changes and collect FK ids to resolve.
+
+    Each record is diffed against the immediately older record (or the diff seed
+    for the oldest kept row). Returns the per-record change lists alongside
+    ``{field_name: {pk, ...}}`` so labels can be batch-resolved (avoids an N+1).
+    """
+    fk_ids: dict[str, set[Any]] = {}
+    raw_changes: list[list[tuple[Any, Any, Any]]] = []
+    for i, record in enumerate(records):
+        older = records[i + 1] if i + 1 < len(records) else diff_seed
+        changes = _diff_record_pair(record, older, diff_fields, fk_ids) if older is not None else []
+        raw_changes.append(changes)
+    return raw_changes, fk_ids
+
+
+def _diff_record_pair(
+    record: Any, older: Any, diff_fields: tuple[Any, ...], fk_ids: dict[str, set[Any]]
+) -> list[tuple[Any, Any, Any]]:
+    """Diff one record against the immediately older one (allow-by-exclusion).
+
+    Appends any FK ids touched by a changed relation into ``fk_ids`` (mutated in
+    place) so they can be batch-resolved to labels afterwards.
+    """
+    changes: list[tuple[Any, Any, Any]] = []
+    for field in diff_fields:
+        new_val = getattr(record, field.attname, None)
+        old_val = getattr(older, field.attname, None)
+        if new_val != old_val:
+            changes.append((field, old_val, new_val))
+            if field.is_relation:
+                _collect_fk_ids(field.name, old_val, new_val, fk_ids)
+    return changes
+
+
+def _collect_fk_ids(
+    field_name: str, old_val: Any, new_val: Any, fk_ids: dict[str, set[Any]]
+) -> None:
+    """Record the non-null old/new FK ids of a changed relation for batch resolution."""
+    bucket = fk_ids.setdefault(field_name, set())
+    if old_val is not None:
+        bucket.add(old_val)
+    if new_val is not None:
+        bucket.add(new_val)
+
+
+def _resolve_fk_labels(
+    diff_fields: tuple[Any, ...], fk_ids: dict[str, set[Any]]
+) -> dict[str, dict[Any, str]]:
+    """Batch-resolve collected FK ids to human-readable labels.
+
+    Returns ``{field_name: {pk: label}}`` with a single query per related model.
+    """
+    fields_by_name = {field.name: field for field in diff_fields}
+    fk_labels: dict[str, dict[Any, str]] = {}
+    for field_name, ids in fk_ids.items():
+        related_model = fields_by_name[field_name].related_model
+        fk_labels[field_name] = {
+            obj.pk: _history_fk_label(obj)
+            for obj in related_model._default_manager.filter(pk__in=ids)
+        }
+    return fk_labels
+
+
+def _render_diff_row(
+    field: Any, old_val: Any, new_val: Any, fk_labels: dict[str, dict[Any, str]]
+) -> dict[str, Any]:
+    """Render one diff row, resolving FK values to labels and scalars to strings."""
+    if field.is_relation:
+        labels = fk_labels.get(field.name, {})
+        old_repr = labels.get(old_val) if old_val is not None else None
+        new_repr = labels.get(new_val) if new_val is not None else None
+    else:
+        old_repr = str(old_val) if old_val is not None else None
+        new_repr = str(new_val) if new_val is not None else None
+    return {"field": field.name, "old": old_repr, "new": new_repr}
+
+
+def _render_history_items(
+    records: list[Any],
+    raw_changes: list[list[tuple[Any, Any, Any]]],
+    fk_labels: dict[str, dict[Any, str]],
+    include: frozenset[str],
+) -> tuple[list[dict[str, Any]], list[tuple[Any, dict[str, Any]]]]:
+    """Pass 2: render response items, dropping bare-"Updated" change records.
+
+    ``result`` is the legacy field-diff list (byte-identical when ``include`` is
+    empty). ``merged`` accumulates ``(timestamp_dt, payload)`` tuples only when
+    ``include`` is set, so the legacy path pays nothing for the unified feed.
+    Change (``~``) records whose entire diff was display-excluded are dropped;
+    creation (``+``) and deletion (``-``) records are always kept.
+    """
+    result: list[dict[str, Any]] = []
+    merged: list[tuple[Any, dict[str, Any]]] = []
+    for record, changes in zip(records, raw_changes, strict=True):
+        diff = [
+            _render_diff_row(field, old_val, new_val, fk_labels)
+            for field, old_val, new_val in changes
+        ]
+
+        if record.history_type == "~" and not diff:
+            continue
+
+        item = {
+            "id": record.history_id,
+            "history_date": record.history_date.isoformat(),
+            "history_type": record.history_type,
+            "history_user": (record.history_user.username if record.history_user else None),
+            # Additive (#1878): the human label the UI should render, so change
+            # events and comment events resolve to the SAME person label instead
+            # of username-vs-display-name splitting one human into two actors.
+            # history_user stays the bare username for backward compatibility.
+            "history_user_display": (
+                (record.history_user.get_full_name() or record.history_user.username)
+                if record.history_user
+                else None
+            ),
+            "diff": diff,
+        }
+        result.append(item)
+        if include:
+            # Additive unified fields on the field-diff entry — legacy keys above
+            # are retained unchanged so a client reading the old shape still works.
+            item["event_type"] = _HISTORY_EVENT_TYPE.get(record.history_type, "fields_changed")
+            item["actor"] = _activity_actor(record.history_user)
+            item["timestamp"] = record.history_date.isoformat()
+            item["detail"] = {"diff": diff}
+            merged.append((record.history_date, item))
+    return result, merged
+
+
+def _merge_activity_feed(
+    task: Task,
+    include: frozenset[str],
+    request: Request,
+    until: datetime.datetime | None,
+    result: list[dict[str, Any]],
+    merged: list[tuple[Any, dict[str, Any]]],
+    count_truncated: bool,
+) -> tuple[list[Any], bool]:
+    """Merge non-diff activity sources into the feed (unified newest-first order).
+
+    Without ``include`` the legacy field-diff ``result`` passes through unchanged.
+    With ``include`` the extra sources are appended, then the whole feed is sorted
+    stable newest-first (ties keep insertion order). Returns ``(feed, count_truncated)``.
+    """
+    if not include:
+        return result, count_truncated
+    extra_events, extra_truncated = _build_activity_events(
+        task, include, request, _MAX_HISTORY_ROWS, until=until
+    )
+    merged.extend(extra_events)
+    count_truncated = count_truncated or extra_truncated
+    # Stable newest-first order across all sources; ties keep insertion order.
+    merged.sort(key=lambda pair: pair[0], reverse=True)
+    feed: list[Any] = [payload for _, payload in merged]
+    return feed, count_truncated
+
+
+def _history_keyset_response(feed: list[Any], page_size: int, count_truncated: bool) -> Response:
+    """Slice one keyset page (#1882) and hand back the resume cursor.
+
+    ``page`` is ignored — offset and keyset cannot be mixed coherently. Cursoring
+    is strictly-older-than on the timestamp alone, so events sharing the exact
+    boundary timestamp can repeat or be skipped across pages — the documented
+    ADR-0160 tradeoff the board activity feed already accepts.
+    """
+    page_items = feed[:page_size]
+    # More-than-page_size events in the window means older events exist;
+    # otherwise the window is exhausted (mirrors board_activity).
+    next_until = page_items[-1]["timestamp"] if len(feed) > page_size and page_items else None
+    return Response(
+        {
+            "results": page_items,
+            "next_until": next_until,
+            "count_truncated": count_truncated,
+        }
+    )
+
+
+def _history_paginated_response(
+    feed: list[Any],
+    request: Request,
+    page_size: int,
+    count_truncated: bool,
+    include: frozenset[str],
+) -> Response:
+    """Offset-paginate the feed, exposing ``count_truncated`` and a keyset resume point.
+
+    ``count_truncated`` lets the client surface "showing recent 2,000 changes"
+    (P18). With ``include``, ``next_until`` (#1882) lets a client that started on
+    offset paging hop to keyset by passing it back as ``until`` — null on the last
+    page (nothing older to fetch).
+    """
+    from rest_framework.pagination import PageNumberPagination
+
+    paginator = PageNumberPagination()
+    paginator.page_size = page_size
+    page: list[Any] | None = paginator.paginate_queryset(feed, request)  # type: ignore[arg-type]
+    response = paginator.get_paginated_response(page)
+    response.data["count_truncated"] = count_truncated
+    if include:
+        response.data["next_until"] = (
+            page[-1]["timestamp"] if page and response.data.get("next") else None
+        )
+    return response
+
+
 @extend_schema_view(
     get=extend_schema(
         summary="Paginated field-level diff history for a task",
@@ -9428,220 +9776,28 @@ class TaskHistoryView(APIView):
 
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
 
-        # Opt-in activity sources (issue 413). Absent => legacy field-diff feed,
-        # byte-identical to prior releases. ``all`` expands to every known source.
-        include_raw = request.query_params.get("include", "").strip()
-        if include_raw:
-            requested = {tok.strip() for tok in include_raw.split(",") if tok.strip()}
-            if "all" in requested:
-                requested = set(_ACTIVITY_SOURCES)
-            invalid = requested - _ACTIVITY_SOURCES
-            if invalid:
-                return Response(
-                    {
-                        "detail": (
-                            f"Invalid include value(s): {', '.join(sorted(invalid))}. "
-                            f"Choose from: {', '.join(sorted(_ACTIVITY_SOURCES))}, all."
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            include = frozenset(requested)
-        else:
-            include = frozenset()
+        # Opt-in activity sources (issue 413) + keyset paging (#1882). Absent
+        # ``include`` keeps the response byte-identical to the legacy field-diff
+        # feed; the parse helpers raise _HistoryRequestError with the exact 400 on
+        # any invalid param, preserving historical error precedence.
+        try:
+            include = _parse_include_param(request)
+            until, page_size = _parse_keyset_params(request, include)
+        except _HistoryRequestError as exc:
+            return exc.response
 
-        # Keyset paging for the merged feed (#1882, board_activity/ADR-0160
-        # precedent): `until` returns events strictly older than the cursor, so deep
-        # pages neither drift when new events arrive nor rescan the newest rows.
-        # Both params are meaningless on the bare field-diff feed — which must stay
-        # byte-identical for existing consumers — so reject them without `include`.
-        until_raw = request.query_params.get("until")
-        page_size_raw = request.query_params.get("page_size")
-        if (until_raw is not None or page_size_raw is not None) and not include:
-            return Response(
-                {"detail": "until and page_size are only valid together with include=."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        until: datetime.datetime | None = None
-        if until_raw is not None:
-            from django.utils.dateparse import parse_datetime
-
-            try:
-                # parse_datetime returns None on a malformed string, but RAISES
-                # ValueError on a well-formed-but-out-of-range one (e.g. month 13) —
-                # both are the caller's error, so both get the same 400.
-                until = parse_datetime(until_raw)
-            except ValueError:
-                until = None
-            if until is None:
-                return Response(
-                    {"detail": f"Invalid until datetime '{until_raw}' (expected ISO 8601)."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if timezone.is_naive(until):
-                until = timezone.make_aware(until, timezone.get_current_timezone())
-        page_size = 20
-        if page_size_raw is not None:
-            try:
-                page_size = int(page_size_raw)
-            except (TypeError, ValueError):
-                return Response(
-                    {"detail": "page_size must be an integer."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            page_size = max(1, min(page_size, 100))
-
-        # The paginator slices from this list; count_truncated in the response signals
-        # to the client that older records are not included. Fetch one past the cap so
-        # an exactly-cap history is not falsely reported as truncated.
-        history_qs = task.history.order_by("-history_date").select_related("history_user")
-        if until is not None:
-            # Push the keyset bound into the DB (strictly older than the cursor) so
-            # a deep page never re-reads the newest rows.
-            history_qs = history_qs.filter(history_date__lt=until)
-        records = list(history_qs[: _MAX_HISTORY_ROWS + 1])
-        count_truncated: bool = len(records) > _MAX_HISTORY_ROWS
-        # When truncated, keep the one-past-the-cap row PURELY as a diff seed for the
-        # oldest kept record (#1889). Without it that record has no older row to
-        # compare against, yields an empty diff, and is silently dropped by the
-        # bare-"Updated" filter below — the change at the cap boundary vanishes from
-        # the feed. The seed row is never rendered and never counted.
-        diff_seed = records[_MAX_HISTORY_ROWS] if count_truncated else None
-        records = records[:_MAX_HISTORY_ROWS]
+        records, diff_seed, count_truncated = _fetch_history_window(task, until)
         diff_fields = _history_diff_fields()
-
-        # Pass 1: compute raw per-record changes, collecting FK ids to resolve in a
-        # single batched query per related model (avoids an N+1 over the history).
-        fk_ids: dict[str, set[Any]] = {}
-        raw_changes: list[list[tuple[Any, Any, Any]]] = []
-        for i, record in enumerate(records):
-            older = records[i + 1] if i + 1 < len(records) else diff_seed
-            changes: list[tuple[Any, Any, Any]] = []
-            if older is not None:
-                for field in diff_fields:
-                    new_val = getattr(record, field.attname, None)
-                    old_val = getattr(older, field.attname, None)
-                    if new_val != old_val:
-                        changes.append((field, old_val, new_val))
-                        if field.is_relation:
-                            bucket = fk_ids.setdefault(field.name, set())
-                            if old_val is not None:
-                                bucket.add(old_val)
-                            if new_val is not None:
-                                bucket.add(new_val)
-            raw_changes.append(changes)
-
-        # Batch-resolve FK ids to human-readable labels: {field_name: {pk: label}}.
-        fields_by_name = {field.name: field for field in diff_fields}
-        fk_labels: dict[str, dict[Any, str]] = {}
-        for field_name, ids in fk_ids.items():
-            related_model = fields_by_name[field_name].related_model
-            fk_labels[field_name] = {
-                obj.pk: _history_fk_label(obj)
-                for obj in related_model._default_manager.filter(pk__in=ids)
-            }
-
-        # Pass 2: render the response, dropping change records whose entire diff
-        # was display-excluded (the bare-"Updated"-pill case). Creation (+) and
-        # deletion (-) records are always kept.
-        #
-        # ``result`` is the legacy field-diff list (byte-identical when ``include``
-        # is empty). ``merged`` accumulates (timestamp_dt, payload) tuples only when
-        # ``include`` is set, so the legacy path pays nothing for the new feature.
-        _HISTORY_EVENT_TYPE = {"+": "task_created", "~": "fields_changed", "-": "task_deleted"}
-        result = []
-        merged: list[tuple[Any, dict[str, Any]]] = []
-        for record, changes in zip(records, raw_changes, strict=True):
-            diff = []
-            for field, old_val, new_val in changes:
-                if field.is_relation:
-                    labels = fk_labels.get(field.name, {})
-                    old_repr = labels.get(old_val) if old_val is not None else None
-                    new_repr = labels.get(new_val) if new_val is not None else None
-                else:
-                    old_repr = str(old_val) if old_val is not None else None
-                    new_repr = str(new_val) if new_val is not None else None
-                diff.append({"field": field.name, "old": old_repr, "new": new_repr})
-
-            if record.history_type == "~" and not diff:
-                continue
-
-            item = {
-                "id": record.history_id,
-                "history_date": record.history_date.isoformat(),
-                "history_type": record.history_type,
-                "history_user": (record.history_user.username if record.history_user else None),
-                # Additive (#1878): the human label the UI should render, so change
-                # events and comment events resolve to the SAME person label instead
-                # of username-vs-display-name splitting one human into two actors.
-                # history_user stays the bare username for backward compatibility.
-                "history_user_display": (
-                    (record.history_user.get_full_name() or record.history_user.username)
-                    if record.history_user
-                    else None
-                ),
-                "diff": diff,
-            }
-            result.append(item)
-            if include:
-                # Additive unified fields on the field-diff entry — legacy keys above
-                # are retained unchanged so a client reading the old shape still works.
-                item["event_type"] = _HISTORY_EVENT_TYPE.get(record.history_type, "fields_changed")
-                item["actor"] = _activity_actor(record.history_user)
-                item["timestamp"] = record.history_date.isoformat()
-                item["detail"] = {"diff": diff}
-                merged.append((record.history_date, item))
-
-        from rest_framework.pagination import PageNumberPagination
-
-        if include:
-            extra_events, extra_truncated = _build_activity_events(
-                task, include, request, _MAX_HISTORY_ROWS, until=until
-            )
-            merged.extend(extra_events)
-            count_truncated = count_truncated or extra_truncated
-            # Stable newest-first order across all sources; ties keep insertion order.
-            merged.sort(key=lambda pair: pair[0], reverse=True)
-            feed: list[Any] = [payload for _, payload in merged]
-        else:
-            feed = result
+        raw_changes, fk_ids = _compute_raw_changes(records, diff_seed, diff_fields)
+        fk_labels = _resolve_fk_labels(diff_fields, fk_ids)
+        result, merged = _render_history_items(records, raw_changes, fk_labels, include)
+        feed, count_truncated = _merge_activity_feed(
+            task, include, request, until, result, merged, count_truncated
+        )
 
         if until is not None:
-            # Keyset mode (#1882): slice one page off the merged until-window and
-            # hand the client the oldest returned timestamp to resume from. `page`
-            # is ignored — offset and keyset cannot be mixed coherently. Cursoring
-            # is strictly-older-than on the timestamp alone, so events sharing the
-            # exact boundary timestamp can repeat or be skipped across pages — the
-            # documented ADR-0160 tradeoff the board activity feed already accepts.
-            page_items = feed[:page_size]
-            # More-than-page_size events in the window means older events exist;
-            # otherwise the window is exhausted (mirrors board_activity).
-            next_until = (
-                page_items[-1]["timestamp"] if len(feed) > page_size and page_items else None
-            )
-            return Response(
-                {
-                    "results": page_items,
-                    "next_until": next_until,
-                    "count_truncated": count_truncated,
-                }
-            )
-
-        paginator = PageNumberPagination()
-        paginator.page_size = page_size
-        page: list[Any] | None = paginator.paginate_queryset(feed, request)  # type: ignore[arg-type]
-        response = paginator.get_paginated_response(page)
-        # Expose count_truncated so the client can surface "showing recent 2,000
-        # changes" when the task has a very long edit history (P18).
-        response.data["count_truncated"] = count_truncated
-        if include:
-            # Additive keyset resume point (#1882): a client that started on offset
-            # paging can hop to keyset by passing this back as `until`. Null when
-            # this offset page is the last one (nothing older to fetch).
-            response.data["next_until"] = (
-                page[-1]["timestamp"] if page and response.data.get("next") else None
-            )
-        return response
+            return _history_keyset_response(feed, page_size, count_truncated)
+        return _history_paginated_response(feed, request, page_size, count_truncated, include)
 
 
 @extend_schema_view(
