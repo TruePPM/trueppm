@@ -146,8 +146,10 @@ admin_pw="$(kubectl exec "$api_pod" -c api -- cat "$pw_file" 2>/dev/null || true
 log "admin password present (${#admin_pw} chars) — bootstrap wrote the shared emptyDir"
 
 # ---- 7. negative probe: boot guard fails closed without SECRET_KEY ----------
-# Everything settings.prod needs EXCEPT SECRET_KEY; the pod must exit non-zero
-# rather than start with an insecure default.
+# settings.prod reads SECRET_KEY (import-time, no default) BEFORE it ever touches
+# DATABASE_URL/REDIS_URL, so the pod fails on the missing key without a database
+# in reach — no connection strings needed here. It must exit non-zero rather than
+# start with an insecure default.
 log "negative probe: api image without SECRET_KEY must refuse to start"
 kubectl run secret-guard-probe \
   --image="$API_IMAGE" --image-pull-policy=IfNotPresent --restart=Never \
@@ -155,9 +157,6 @@ kubectl run secret-guard-probe \
   --env=ALLOWED_HOSTS='*' \
   --env=INTEGRATION_ENCRYPTION_KEY="$integration_key" \
   --env=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true \
-  --env=TRUEPPM_ALLOW_UNENCRYPTED_DB=true \
-  --env=DATABASE_URL='postgres://u:p@127.0.0.1:5432/db?sslmode=require' \
-  --env=REDIS_URL='redis://127.0.0.1:6379/0' \
   --command -- python manage.py migrate --noinput
 # The pod runs to completion (Never restart); wait for a terminal phase.
 kubectl wait --for=jsonpath='{.status.phase}'=Failed pod/secret-guard-probe --timeout=90s \

@@ -37,6 +37,19 @@ spec:
       imagePullPolicy: {{ .Values.image.pullPolicy }}
       securityContext:
         {{- toYaml .Values.containerSecurityContext | nindent 8 }}
+      # Literal (not values-driven) so the IaC analyzer can statically see the
+      # limits — a short-lived curl probe never needs tuning, and a values-driven
+      # toYaml would hide the limits from static analysis exactly as it does on
+      # the app tiers (see the kubernetes:S6870 note in sonar-project.properties).
+      resources:
+        requests:
+          cpu: 20m
+          memory: 32Mi
+          ephemeral-storage: 16Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+          ephemeral-storage: 32Mi
       command:
         - /bin/sh
         - -ec
