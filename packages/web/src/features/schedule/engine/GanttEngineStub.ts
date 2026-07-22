@@ -52,7 +52,9 @@ export class GanttEngineStub implements GanttEngine {
 
   selectTasks(_taskIds: string[]): void {}
 
-  openTask(_taskId: string): void {}
+  openTask(_taskId: string): void {
+    // no-op: the stub has no detail drawer to open (test double / Storybook only)
+  }
 
   readonly selectedTaskIds: ReadonlySet<string> = new Set();
 

@@ -52,6 +52,15 @@ function parseDomains(text: string): string[] {
   return seen;
 }
 
+/**
+ * `aria-invalid` + `aria-describedby` for an input whose DRF field error should
+ * highlight it and point at the inline message, or nothing when there's no error.
+ * Spread onto the input so each field is one line instead of a pair of ternaries.
+ */
+function fieldErrorAria(message: string | undefined, errorId: string) {
+  return message ? { 'aria-invalid': true as const, 'aria-describedby': errorId } : {};
+}
+
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -73,6 +82,65 @@ function CopyButton({ value }: { value: string }) {
         'Copy'
       )}
     </button>
+  );
+}
+
+/**
+ * Client-secret field — write-only (blank keeps/rotates nothing) with a show/hide
+ * toggle. The reveal state is local to the field; the secret value stays in the
+ * parent so `onSave` can read it. Extracted from SsoProviderPanel to keep the
+ * component body under the cognitive-complexity budget.
+ */
+function ClientSecretField({
+  secretSet,
+  value,
+  error,
+  onChange,
+}: {
+  secretSet: boolean;
+  value: string;
+  error?: string;
+  onChange: (value: string) => void;
+}) {
+  const inputId = useId();
+  const errorId = useId();
+  const [showSecret, setShowSecret] = useState(false);
+  return (
+    <FieldRow
+      label="Client secret"
+      hint={
+        secretSet
+          ? 'Encrypted at rest. Leave blank to keep the current secret.'
+          : 'Encrypted at rest.'
+      }
+      error={error}
+      errorId={errorId}
+    >
+      <div className="flex items-center gap-2 max-w-[520px]">
+        <label htmlFor={inputId} className="sr-only">
+          Client secret
+        </label>
+        <input
+          id={inputId}
+          type={showSecret ? 'text' : 'password'}
+          autoComplete="off"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          {...fieldErrorAria(error, errorId)}
+          placeholder={secretSet ? '•••• (set — leave blank to keep)' : 'Paste client secret'}
+          className={INPUT_CLASS}
+        />
+        <button
+          type="button"
+          onClick={() => setShowSecret((s) => !s)}
+          aria-label={showSecret ? 'Hide client secret' : 'Show client secret'}
+          aria-pressed={showSecret}
+          className="h-8 px-2.5 text-[12px] font-medium border border-neutral-border rounded-control text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 shrink-0"
+        >
+          {showSecret ? 'Hide' : 'Show'}
+        </button>
+      </div>
+    </FieldRow>
   );
 }
 
@@ -320,7 +388,6 @@ export function SsoProviderPanel({
 
   const displayNameId = useId();
   const clientIdId = useId();
-  const secretId = useId();
   const domainsId = useId();
   const roleId = useId();
   const typeId = useId();
@@ -335,7 +402,6 @@ export function SsoProviderPanel({
   const [displayName, setDisplayName] = useState(existing?.display_name ?? '');
   const [clientId, setClientId] = useState(existing?.client_id ?? '');
   const [clientSecret, setClientSecret] = useState('');
-  const [showSecret, setShowSecret] = useState(false);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(seed.values);
   const [rawIssuerMode, setRawIssuerMode] = useState(seed.raw);
   const [allowedDomains, setAllowedDomains] = useState(
@@ -490,8 +556,7 @@ export function SsoProviderPanel({
               id={typeId}
               value={slug}
               onChange={(e) => onSelectType(e.target.value)}
-              aria-invalid={fieldErrors.slug ? true : undefined}
-              aria-describedby={fieldErrors.slug ? `${typeId}-err` : undefined}
+              {...fieldErrorAria(fieldErrors.slug, `${typeId}-err`)}
               className={`${SELECT_CLASS} w-full max-w-[260px]`}
               style={SELECT_STYLE}
             >
@@ -539,8 +604,7 @@ export function SsoProviderPanel({
               setDisplayName(e.target.value);
               clearError('display_name');
             }}
-            aria-invalid={fieldErrors.display_name ? true : undefined}
-            aria-describedby={fieldErrors.display_name ? `${displayNameId}-err` : undefined}
+            {...fieldErrorAria(fieldErrors.display_name, `${displayNameId}-err`)}
             className={INPUT_CLASS}
             placeholder={`${def.name} sign-in`}
           />
@@ -557,52 +621,19 @@ export function SsoProviderPanel({
               setClientId(e.target.value);
               clearError('client_id');
             }}
-            aria-invalid={fieldErrors.client_id ? true : undefined}
-            aria-describedby={fieldErrors.client_id ? `${clientIdId}-err` : undefined}
+            {...fieldErrorAria(fieldErrors.client_id, `${clientIdId}-err`)}
             className={`${INPUT_CLASS} tppm-mono`}
           />
         </FieldRow>
-        <FieldRow
-          label="Client secret"
-          hint={
-            existing?.secret_set
-              ? 'Encrypted at rest. Leave blank to keep the current secret.'
-              : 'Encrypted at rest.'
-          }
+        <ClientSecretField
+          secretSet={Boolean(existing?.secret_set)}
+          value={clientSecret}
           error={fieldErrors.client_secret}
-          errorId={`${secretId}-err`}
-        >
-          <div className="flex items-center gap-2 max-w-[520px]">
-            <label htmlFor={secretId} className="sr-only">
-              Client secret
-            </label>
-            <input
-              id={secretId}
-              type={showSecret ? 'text' : 'password'}
-              autoComplete="off"
-              value={clientSecret}
-              onChange={(e) => {
-                setClientSecret(e.target.value);
-                clearError('client_secret');
-              }}
-              aria-invalid={fieldErrors.client_secret ? true : undefined}
-              aria-describedby={fieldErrors.client_secret ? `${secretId}-err` : undefined}
-              placeholder={
-                existing?.secret_set ? '•••• (set — leave blank to keep)' : 'Paste client secret'
-              }
-              className={INPUT_CLASS}
-            />
-            <button
-              type="button"
-              onClick={() => setShowSecret((s) => !s)}
-              aria-label={showSecret ? 'Hide client secret' : 'Show client secret'}
-              aria-pressed={showSecret}
-              className="h-8 px-2.5 text-[12px] font-medium border border-neutral-border rounded-control text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 shrink-0"
-            >
-              {showSecret ? 'Hide' : 'Show'}
-            </button>
-          </div>
-        </FieldRow>
+          onChange={(v) => {
+            setClientSecret(v);
+            clearError('client_secret');
+          }}
+        />
         <FieldRow label="Redirect URI" hint="Add this to your IdP's allowed redirect list.">
           {redirectUri ? (
             <div className="flex items-center gap-2 max-w-[520px]">
@@ -658,10 +689,7 @@ export function SsoProviderPanel({
               setAllowedDomains(e.target.value);
               clearError('allowed_email_domains');
             }}
-            aria-invalid={fieldErrors.allowed_email_domains ? true : undefined}
-            aria-describedby={
-              fieldErrors.allowed_email_domains ? `${domainsId}-err` : undefined
-            }
+            {...fieldErrorAria(fieldErrors.allowed_email_domains, `${domainsId}-err`)}
             className={INPUT_CLASS}
             placeholder="example.com, example.io"
           />
@@ -695,8 +723,7 @@ export function SsoProviderPanel({
                 setDefaultRole(Number(e.target.value));
                 clearError('default_role');
               }}
-              aria-invalid={fieldErrors.default_role ? true : undefined}
-              aria-describedby={fieldErrors.default_role ? `${roleId}-err` : undefined}
+              {...fieldErrorAria(fieldErrors.default_role, `${roleId}-err`)}
               className={`${SELECT_CLASS} w-full max-w-[180px]`}
               style={SELECT_STYLE}
             >

@@ -28,6 +28,16 @@ MIN_SECRET_KEY_LENGTH = 32
 
 INSECURE_PREFIX = "django-insecure-"
 
+# Remediation commands, extracted so the same generator isn't duplicated across every
+# ``Error`` hint (SonarCloud S1192). The secrets variant seeds ``SECRET_KEY`` and the
+# JWT signing key; the Fernet variant seeds the integration-credential encryption key.
+_TOKEN_URLSAFE_CMD = 'python3 -c "import secrets; print(secrets.token_urlsafe(50))"'
+_TOKEN_URLSAFE_HINT = f"Generate one with: {_TOKEN_URLSAFE_CMD}"
+_FERNET_KEY_CMD = (
+    'python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+)
+_FERNET_KEY_HINT = f"Generate one with: {_FERNET_KEY_CMD}"
+
 
 def validate_secret_key(secret_key: str | None, *, debug: bool) -> list[CheckMessage]:
     """Return Django check errors for a weak ``SECRET_KEY`` in prod.
@@ -44,10 +54,7 @@ def validate_secret_key(secret_key: str | None, *, debug: bool) -> list[CheckMes
         errors.append(
             Error(
                 "SECRET_KEY is empty in a non-DEBUG environment.",
-                hint=(
-                    'Generate one with: python3 -c "import secrets; '
-                    'print(secrets.token_urlsafe(50))"'
-                ),
+                hint=_TOKEN_URLSAFE_HINT,
                 id="trueppm.E001",
             )
         )
@@ -58,10 +65,7 @@ def validate_secret_key(secret_key: str | None, *, debug: bool) -> list[CheckMes
             Error(
                 f"SECRET_KEY starts with {INSECURE_PREFIX!r} — this is the "
                 "Django placeholder and must not be used outside DEBUG.",
-                hint=(
-                    'Generate one with: python3 -c "import secrets; '
-                    'print(secrets.token_urlsafe(50))"'
-                ),
+                hint=_TOKEN_URLSAFE_HINT,
                 id="trueppm.E002",
             )
         )
@@ -72,8 +76,7 @@ def validate_secret_key(secret_key: str | None, *, debug: bool) -> list[CheckMes
                 f"SECRET_KEY is {len(secret_key)} characters; minimum is {MIN_SECRET_KEY_LENGTH}.",
                 hint=(
                     "JWT signing inherits SECRET_KEY when SIMPLE_JWT.SIGNING_KEY "
-                    "is unset (PYSEC-2025-183). Generate a strong key with: "
-                    'python3 -c "import secrets; print(secrets.token_urlsafe(50))"'
+                    "is unset (PYSEC-2025-183). Generate a strong key with: " + _TOKEN_URLSAFE_CMD
                 ),
                 id="trueppm.E003",
             )
@@ -124,10 +127,7 @@ def validate_signing_key(
             Error(
                 f"JWT_SIGNING_KEY starts with {INSECURE_PREFIX!r} — this is the "
                 "Django placeholder and must not be used to sign tokens.",
-                hint=(
-                    'Generate one with: python3 -c "import secrets; '
-                    'print(secrets.token_urlsafe(50))"'
-                ),
+                hint=_TOKEN_URLSAFE_HINT,
                 id="trueppm.E004",
             )
         )
@@ -139,9 +139,7 @@ def validate_signing_key(
                 f"minimum is {MIN_SECRET_KEY_LENGTH}.",
                 hint=(
                     "A separate JWT signing key must be at least as strong as "
-                    "SECRET_KEY, or a leak of it forges tokens for any user. "
-                    'Generate one with: python3 -c "import secrets; '
-                    'print(secrets.token_urlsafe(50))"'
+                    "SECRET_KEY, or a leak of it forges tokens for any user. " + _TOKEN_URLSAFE_HINT
                 ),
                 id="trueppm.E005",
             )
@@ -305,9 +303,7 @@ def validate_integration_encryption_key(
             Error(
                 "INTEGRATION_ENCRYPTION_KEY is empty in a non-DEBUG environment.",
                 hint=(
-                    "Integration credentials cannot be encrypted without it. "
-                    'Generate one with: python3 -c "from cryptography.fernet import '
-                    'Fernet; print(Fernet.generate_key().decode())"'
+                    "Integration credentials cannot be encrypted without it. " + _FERNET_KEY_HINT
                 ),
                 id="trueppm.E005",
             )
@@ -324,10 +320,7 @@ def validate_integration_encryption_key(
             Error(
                 "INTEGRATION_ENCRYPTION_KEY is not a valid Fernet key "
                 "(expected 32-byte urlsafe-base64).",
-                hint=(
-                    'Generate one with: python3 -c "from cryptography.fernet import '
-                    'Fernet; print(Fernet.generate_key().decode())"'
-                ),
+                hint=_FERNET_KEY_HINT,
                 id="trueppm.E006",
             )
         ]

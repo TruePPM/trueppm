@@ -19,6 +19,7 @@ in isolation and shared verbatim by ``TaskSerializer``, ``SyncTaskSerializer``, 
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
@@ -70,23 +71,24 @@ def resolve_custom_field_value(value: TaskCustomFieldValue, field: ProjectCustom
     consumes zero card real estate. Note ``BOOLEAN`` returns ``False`` (a real value)
     only when it was explicitly set; a never-set checkbox resolves to ``None``.
     """
-    ft = field.field_type
-    if ft == CustomFieldType.TEXT:
-        return value.value_text or None
-    if ft == CustomFieldType.NUMBER:
-        # Decimal → float for clean JSON; the web layer formats (thousands, units).
-        return float(value.value_number) if value.value_number is not None else None
-    if ft == CustomFieldType.DATE:
-        return value.value_date.isoformat() if value.value_date else None
-    if ft == CustomFieldType.SINGLE_SELECT:
-        return value.value_option or None
-    if ft == CustomFieldType.MULTI_SELECT:
-        return list(value.value_multi) if value.value_multi else None
-    if ft == CustomFieldType.BOOLEAN:
-        return value.value_bool  # True / False / None
-    if ft == CustomFieldType.USER:
-        return _person_repr(value.value_user) if value.value_user_id else None
-    return None
+    resolver = _VALUE_RESOLVERS.get(field.field_type)
+    return resolver(value) if resolver is not None else None
+
+
+# Per-type resolvers keyed by ``field_type`` — a flat dispatch table replacing an
+# if-ladder so each type's read shape is one entry and a new type is a one-line add.
+_VALUE_RESOLVERS: dict[str, Callable[[TaskCustomFieldValue], Any]] = {
+    CustomFieldType.TEXT: lambda v: v.value_text or None,
+    # Decimal → float for clean JSON; the web layer formats (thousands, units).
+    CustomFieldType.NUMBER: (
+        lambda v: float(v.value_number) if v.value_number is not None else None
+    ),
+    CustomFieldType.DATE: lambda v: v.value_date.isoformat() if v.value_date else None,
+    CustomFieldType.SINGLE_SELECT: lambda v: v.value_option or None,
+    CustomFieldType.MULTI_SELECT: lambda v: list(v.value_multi) if v.value_multi else None,
+    CustomFieldType.BOOLEAN: lambda v: v.value_bool,  # True / False / None
+    CustomFieldType.USER: lambda v: _person_repr(v.value_user) if v.value_user_id else None,
+}
 
 
 def build_custom_fields_map(task: Task) -> dict[str, Any]:
@@ -118,6 +120,133 @@ def _clear_kwargs() -> dict[str, Any]:
     }
 
 
+def _write_text(field: ProjectCustomField, raw: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(raw, str):
+        raise serializers.ValidationError({"value": "value must be a string."})
+    if len(raw) > 2000:
+        raise serializers.ValidationError({"value": "value must be ≤ 2000 characters."})
+    kwargs["value_text"] = raw
+    return kwargs
+
+
+def _write_number(field: ProjectCustomField, raw: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    # Reject bools (they are ``int`` subclasses) and un-parseable strings.
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        raise serializers.ValidationError({"value": "value must be a number."})
+    try:
+        num = Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        raise serializers.ValidationError({"value": "value must be a number."}) from None
+    # This is a raw APIView, not a DRF DecimalField — validate the magnitude and
+    # finiteness here, or a crafted NaN/Infinity/over-precision value reaches the
+    # numeric(20,6) column and raises a Postgres DataError (HTTP 500) or round-trips
+    # as spec-invalid JSON ``NaN`` on every subsequent read (the #2123-2127 fuzz-500
+    # class; the nightly Schemathesis job is schedule-only and won't catch it).
+    if not num.is_finite():
+        raise serializers.ValidationError({"value": "value must be a finite number."})
+    if abs(num) >= _NUMBER_MAX:
+        raise serializers.ValidationError(
+            {"value": "value is out of range (at most 14 integer digits)."}
+        )
+    kwargs["value_number"] = num.quantize(_NUMBER_QUANTUM)  # clamp to 6 dp
+    return kwargs
+
+
+def _write_date(field: ProjectCustomField, raw: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(raw, str):
+        raise serializers.ValidationError({"value": "value must be an ISO-8601 date string."})
+    try:
+        kwargs["value_date"] = date.fromisoformat(raw)
+    except ValueError:
+        raise serializers.ValidationError(
+            {"value": "value must be an ISO-8601 date (YYYY-MM-DD)."}
+        ) from None
+    return kwargs
+
+
+def _write_boolean(field: ProjectCustomField, raw: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(raw, bool):
+        raise serializers.ValidationError({"value": "value must be a boolean."})
+    kwargs["value_bool"] = raw
+    return kwargs
+
+
+def _write_single_select(
+    field: ProjectCustomField, raw: Any, kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    if not isinstance(raw, str):
+        raise serializers.ValidationError({"value": "value must be an option value string."})
+    allowed = {opt.get("value") for opt in field.options}
+    if raw not in allowed:
+        raise serializers.ValidationError(
+            {"value": f"{raw!r} is not a valid option for field {field.name!r}."}
+        )
+    kwargs["value_option"] = raw
+    return kwargs
+
+
+def _write_multi_select(
+    field: ProjectCustomField, raw: Any, kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    if not isinstance(raw, list) or not all(isinstance(v, str) for v in raw):
+        raise serializers.ValidationError({"value": "value must be a list of option values."})
+    if len(raw) > _MULTI_SELECT_MAX:
+        raise serializers.ValidationError(
+            {"value": f"value must contain at most {_MULTI_SELECT_MAX} options."}
+        )
+    allowed = {opt.get("value") for opt in field.options}
+    for v in raw:
+        if v not in allowed:
+            raise serializers.ValidationError(
+                {"value": f"{v!r} is not a valid option for field {field.name!r}."}
+            )
+    # De-duplicate while preserving author order — an idempotent, forgiving write.
+    kwargs["value_multi"] = list(dict.fromkeys(raw))
+    return kwargs
+
+
+def _write_user(field: ProjectCustomField, raw: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(raw, str):
+        raise serializers.ValidationError({"value": "value must be a user id string."})
+    # The person must be a live member of the field's project — mirrors the
+    # assignee membership guard (#684) so a person field cannot smuggle a
+    # non-member (or a user from another project) onto the task.
+    from trueppm_api.apps.access.models import ProjectMembership
+
+    # One generic message for both "no such user" and "exists but not a member" so
+    # the endpoint is not an existence oracle for arbitrary user ids.
+    not_member = serializers.ValidationError(
+        {"value": f"user {raw!r} is not a valid member of this project."}
+    )
+    try:
+        user = User.objects.get(pk=raw)
+    except (User.DoesNotExist, ValueError, ValidationError):
+        raise not_member from None
+    is_member = ProjectMembership.objects.filter(
+        project_id=field.project_id, user_id=user.pk
+    ).exists()
+    if not is_member:
+        raise not_member
+    kwargs["value_user"] = user
+    return kwargs
+
+
+# Per-type write validators keyed by ``field_type``. Each takes the field, the raw
+# JSON value and the pre-cleared kwargs, validates and sets exactly one typed column,
+# and returns the kwargs (or raises DRF ``ValidationError`` → HTTP 400). Splitting the
+# old single if-ladder into one function per type keeps each — and the dispatcher —
+# well under the cognitive-complexity budget.
+_VALUE_WRITERS: dict[str, Callable[[ProjectCustomField, Any, dict[str, Any]], dict[str, Any]]] = {
+    CustomFieldType.TEXT: _write_text,
+    CustomFieldType.NUMBER: _write_number,
+    CustomFieldType.DATE: _write_date,
+    CustomFieldType.BOOLEAN: _write_boolean,
+    CustomFieldType.SINGLE_SELECT: _write_single_select,
+    CustomFieldType.MULTI_SELECT: _write_multi_select,
+    CustomFieldType.USER: _write_user,
+}
+
+
 def validate_custom_field_write(field: ProjectCustomField, raw: Any) -> dict[str, Any]:
     """Validate a raw value against ``field``'s type → model-column kwargs.
 
@@ -126,107 +255,9 @@ def validate_custom_field_write(field: ProjectCustomField, raw: Any) -> dict[str
     the rest at their empty defaults, so applying it over an existing row cleanly
     overwrites a prior value (the write path is a full upsert, not a partial merge).
     """
-    kwargs = _clear_kwargs()
-    ft = field.field_type
-
-    if ft == CustomFieldType.TEXT:
-        if not isinstance(raw, str):
-            raise serializers.ValidationError({"value": "value must be a string."})
-        if len(raw) > 2000:
-            raise serializers.ValidationError({"value": "value must be ≤ 2000 characters."})
-        kwargs["value_text"] = raw
-        return kwargs
-
-    if ft == CustomFieldType.NUMBER:
-        # Reject bools (they are ``int`` subclasses) and un-parseable strings.
-        if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
-            raise serializers.ValidationError({"value": "value must be a number."})
-        try:
-            num = Decimal(str(raw))
-        except (InvalidOperation, ValueError):
-            raise serializers.ValidationError({"value": "value must be a number."}) from None
-        # This is a raw APIView, not a DRF DecimalField — validate the magnitude and
-        # finiteness here, or a crafted NaN/Infinity/over-precision value reaches the
-        # numeric(20,6) column and raises a Postgres DataError (HTTP 500) or round-trips
-        # as spec-invalid JSON ``NaN`` on every subsequent read (the #2123-2127 fuzz-500
-        # class; the nightly Schemathesis job is schedule-only and won't catch it).
-        if not num.is_finite():
-            raise serializers.ValidationError({"value": "value must be a finite number."})
-        if abs(num) >= _NUMBER_MAX:
-            raise serializers.ValidationError(
-                {"value": "value is out of range (at most 14 integer digits)."}
-            )
-        kwargs["value_number"] = num.quantize(_NUMBER_QUANTUM)  # clamp to 6 dp
-        return kwargs
-
-    if ft == CustomFieldType.DATE:
-        if not isinstance(raw, str):
-            raise serializers.ValidationError({"value": "value must be an ISO-8601 date string."})
-        try:
-            kwargs["value_date"] = date.fromisoformat(raw)
-        except ValueError:
-            raise serializers.ValidationError(
-                {"value": "value must be an ISO-8601 date (YYYY-MM-DD)."}
-            ) from None
-        return kwargs
-
-    if ft == CustomFieldType.BOOLEAN:
-        if not isinstance(raw, bool):
-            raise serializers.ValidationError({"value": "value must be a boolean."})
-        kwargs["value_bool"] = raw
-        return kwargs
-
-    if ft == CustomFieldType.SINGLE_SELECT:
-        if not isinstance(raw, str):
-            raise serializers.ValidationError({"value": "value must be an option value string."})
-        allowed = {opt.get("value") for opt in field.options}
-        if raw not in allowed:
-            raise serializers.ValidationError(
-                {"value": f"{raw!r} is not a valid option for field {field.name!r}."}
-            )
-        kwargs["value_option"] = raw
-        return kwargs
-
-    if ft == CustomFieldType.MULTI_SELECT:
-        if not isinstance(raw, list) or not all(isinstance(v, str) for v in raw):
-            raise serializers.ValidationError({"value": "value must be a list of option values."})
-        if len(raw) > _MULTI_SELECT_MAX:
-            raise serializers.ValidationError(
-                {"value": f"value must contain at most {_MULTI_SELECT_MAX} options."}
-            )
-        allowed = {opt.get("value") for opt in field.options}
-        for v in raw:
-            if v not in allowed:
-                raise serializers.ValidationError(
-                    {"value": f"{v!r} is not a valid option for field {field.name!r}."}
-                )
-        # De-duplicate while preserving author order — an idempotent, forgiving write.
-        kwargs["value_multi"] = list(dict.fromkeys(raw))
-        return kwargs
-
-    if ft == CustomFieldType.USER:
-        if not isinstance(raw, str):
-            raise serializers.ValidationError({"value": "value must be a user id string."})
-        # The person must be a live member of the field's project — mirrors the
-        # assignee membership guard (#684) so a person field cannot smuggle a
-        # non-member (or a user from another project) onto the task.
-        from trueppm_api.apps.access.models import ProjectMembership
-
-        # One generic message for both "no such user" and "exists but not a member" so
-        # the endpoint is not an existence oracle for arbitrary user ids.
-        not_member = serializers.ValidationError(
-            {"value": f"user {raw!r} is not a valid member of this project."}
+    writer = _VALUE_WRITERS.get(field.field_type)
+    if writer is None:
+        raise serializers.ValidationError(
+            {"value": f"unsupported field type {field.field_type!r}."}
         )
-        try:
-            user = User.objects.get(pk=raw)
-        except (User.DoesNotExist, ValueError, ValidationError):
-            raise not_member from None
-        is_member = ProjectMembership.objects.filter(
-            project_id=field.project_id, user_id=user.pk
-        ).exists()
-        if not is_member:
-            raise not_member
-        kwargs["value_user"] = user
-        return kwargs
-
-    raise serializers.ValidationError({"value": f"unsupported field type {ft!r}."})
+    return writer(field, raw, _clear_kwargs())
