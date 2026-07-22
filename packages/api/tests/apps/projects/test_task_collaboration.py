@@ -1100,6 +1100,39 @@ class TestCommentReaction:
         assert r.status_code == 201, r.data
         assert CommentReaction.objects.filter(comment_id=c.data["id"]).count() == 1
 
+    def test_serializer_exposes_my_reaction_state(
+        self,
+        member_client: APIClient,
+        member2_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """The comment list must tell the caller whether *they* reacted and, if so,
+        the reaction id to DELETE — the client can't offer a real toggle otherwise
+        (#2171). Only ever the caller's own reaction, so no cross-user leak."""
+        c = member_client.post(_comment_list_url(project, task), {"body": "nice"}, format="json")
+        comment_id = c.data["id"]
+        reaction = member2_client.post(
+            self._reactions_url(project, task, comment_id),
+            {"emoji": "👍"},
+            format="json",
+        )
+        reaction_id = reaction.data["id"]
+
+        # member2 reacted → sees their own reaction id.
+        list_url = _comment_list_url(project, task)
+        as_reactor = member2_client.get(list_url).data["results"][0]
+        assert as_reactor["has_my_reaction"] is True
+        assert as_reactor["my_reaction_id"] == reaction_id
+        assert as_reactor["reaction_count"] == 1
+
+        # member did NOT react → the reacted flag/id reflect *their* state, not member2's.
+        as_other = member_client.get(list_url).data["results"][0]
+        assert as_other["has_my_reaction"] is False
+        assert as_other["my_reaction_id"] is None
+        assert as_other["reaction_count"] == 1
+
     def test_duplicate_reaction_is_idempotent(
         self,
         member_client: APIClient,
@@ -1336,5 +1369,6 @@ def test_comment_list_query_count_does_not_scale_with_acknowledgements(
         f"N+1 regression: {baseline_count} queries for 2 comments, "
         f"{len(ctx_10.captured_queries)} for 10. "
         "Check that get_acknowledged_count/get_reaction_count/get_has_my_acknowledgement "
-        "read the prefetch cache instead of issuing new queries."
+        "and get_has_my_reaction/get_my_reaction_id read the prefetch cache instead of "
+        "issuing new queries."
     )

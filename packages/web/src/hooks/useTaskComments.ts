@@ -93,6 +93,8 @@ export function useCreateComment() {
         acknowledged_count: 0,
         reaction_count: 0,
         has_my_acknowledgement: false,
+        has_my_reaction: false,
+        my_reaction_id: null,
       };
       queryClient.setQueryData<TaskComment[]>(queryKey, [...(previous ?? []), optimistic]);
       return { previous, optimisticId };
@@ -106,6 +108,61 @@ export function useCreateComment() {
     onSuccess: (_data, { taskId }) => {
       // Invalidate so the server's authoritative row replaces the optimistic one
       void queryClient.invalidateQueries({ queryKey: ['task-comments', taskId] });
+    },
+  });
+}
+
+interface UpdateCommentVars {
+  projectId: string;
+  taskId: string;
+  commentId: string;
+  body: string;
+}
+
+/**
+ * PATCH /api/v1/projects/{projectId}/tasks/{taskId}/comments/{commentId}/
+ *
+ * Edit a comment's body. Only the author may edit, and only within 15 minutes
+ * of posting (ADR-0075 #11) — the server returns 400 `comment_edit_window_closed`
+ * once the window closes, which the caller's `onError` surfaces. Mirrors
+ * {@link useUpdateNote}.
+ */
+export function useUpdateComment() {
+  const queryClient = useQueryClient();
+  return useMutation<TaskComment, Error, UpdateCommentVars>({
+    mutationFn: async ({ projectId, taskId, commentId, body }) => {
+      const res = await apiClient.patch<TaskComment>(
+        `/projects/${projectId}/tasks/${taskId}/comments/${commentId}/`,
+        { body },
+      );
+      return res.data;
+    },
+    onSuccess: (_data, { taskId }) => {
+      void queryClient.invalidateQueries({ queryKey: commentsKey(taskId) });
+    },
+  });
+}
+
+interface DeleteCommentVars {
+  projectId: string;
+  taskId: string;
+  commentId: string;
+}
+
+/**
+ * DELETE /api/v1/projects/{projectId}/tasks/{taskId}/comments/{commentId}/
+ *
+ * Soft-delete a comment. Allowed for the author or any ADMIN+ (server-enforced).
+ * Mirrors {@link useDeleteNote}.
+ */
+export function useDeleteComment() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, DeleteCommentVars>({
+    mutationFn: async ({ projectId, taskId, commentId }) => {
+      await apiClient.delete(`/projects/${projectId}/tasks/${taskId}/comments/${commentId}/`);
+    },
+    onSuccess: (_data, { taskId }) => {
+      void queryClient.invalidateQueries({ queryKey: commentsKey(taskId) });
     },
   });
 }
