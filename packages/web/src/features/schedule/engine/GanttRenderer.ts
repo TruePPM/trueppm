@@ -49,9 +49,62 @@ const MIN_NEST_WIDTH = 12;
 export const MILESTONE_SIZE = 12;
 /** Baseline ghost bar and actual-date overlay height (rule 14). */
 export const GHOST_BAR_HEIGHT = 6;
-export const CANVAS_FONT = '12px Inter, system-ui, sans-serif';
-/** Font used inside % completion chips — JetBrains Mono for tabular numerals. */
-const CHIP_FONT = '11px "JetBrains Mono", monospace';
+// ---------------------------------------------------------------------------
+// Canvas text-only zoom (#1758, WCAG 1.4.4)
+// ---------------------------------------------------------------------------
+// Browser *page* zoom already scales canvas text (element + devicePixelRatio scale
+// together, rule 62). What it does NOT scale is *text-only* zoom (e.g. Firefox
+// "Zoom Text Only") or a large default document font-size: canvas glyphs are drawn
+// at hardcoded px and stay put. We therefore scale every canvas font by the
+// document root font-size relative to the 16px default. At 16px the factor is
+// exactly 1, so `canvasFont()` / `chipFont()` / `scaledFontPx()` return
+// byte-identical strings to the previous hardcoded constants — a strict
+// no-regression guarantee.
+//
+// Scope is fonts-only (not bar/row heights), so bar-internal text (% chip,
+// assignee initials) still clips at high zoom, and the recompute currently hangs
+// off the container ResizeObserver. Scaling bar-internal regions and a
+// container-independent root-font trigger are tracked in TODO(#2288).
+let _fontScale = 1;
+
+/**
+ * Recompute the canvas font scale from the document root font-size. Clamped to a
+ * sane band so an extreme user/browser setting can't yield degenerate or huge
+ * canvas text. A no-op when the DOM or `getComputedStyle` is unavailable, which
+ * keeps the factor-1 default under SSR and unit tests that don't stub it. Called
+ * by the engine at init and on resize — text-only zoom and default-font changes
+ * reflow the canvas container, so the existing ResizeObserver path is the natural
+ * recompute trigger.
+ */
+export function refreshFontScale(): void {
+  if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') return;
+  const rootPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+  if (!Number.isFinite(rootPx) || rootPx <= 0) return;
+  _fontScale = Math.min(2, Math.max(0.75, rootPx / 16));
+}
+
+/** Active canvas font scale (1 at the 16px root default). Exposed for tests. */
+export function getFontScale(): number {
+  return _fontScale;
+}
+
+/** `base` px scaled by the active font scale, rounded to a whole pixel for crisp
+ *  canvas text. Returns `base` unchanged at scale 1 (no regression). */
+function scaledFontPx(base: number): number {
+  return Math.round(base * _fontScale);
+}
+
+/** Engine default body font, scaled for text-only zoom (#1758). Rule 71: set once
+ *  at engine init / resize, not per draw call. */
+export function canvasFont(): string {
+  return `${scaledFontPx(12)}px Inter, system-ui, sans-serif`;
+}
+
+/** Font used inside % completion chips — JetBrains Mono for tabular numerals,
+ *  scaled for text-only zoom (#1758). */
+export function chipFont(): string {
+  return `${scaledFontPx(11)}px "JetBrains Mono", monospace`;
+}
 
 /** Extract initials from a full name (e.g. "Jane Smith" → "JS"). */
 function getInitials(fullName: string): string {
@@ -542,7 +595,7 @@ function drawHeaderCell(
   ctx.rect(cellX + 4, cellY, Math.max(0, cellWidth - 4), cellHeight);
   ctx.clip();
   ctx.fillStyle = _palette.textSecondary;
-  ctx.font = '11px Inter, system-ui, sans-serif';
+  ctx.font = `${scaledFontPx(11)}px Inter, system-ui, sans-serif`;
   ctx.textBaseline = 'middle';
   ctx.fillText(label, Math.max(cellX + 6, 4), cellY + cellHeight / 2);
   ctx.restore();
@@ -807,7 +860,7 @@ function drawTaskBarChip(
   const chipH = 12;
 
   ctx.save();
-  ctx.font = CHIP_FONT;
+  ctx.font = chipFont();
   const textW = ctx.measureText(label).width;
   const chipW = Math.max(28, textW + chipPadX * 2);
   const chipX = barLeft + 4;
@@ -1067,12 +1120,12 @@ export function drawTaskBar(
     ctx.clip();
     const initials = getInitials(task.assignees[0].name);
     // Initials font matches rule 50 floor when scaled for canvas (rule 71 reset below).
-    ctx.font = '12px Inter, system-ui, sans-serif';
+    ctx.font = canvasFont();
     ctx.fillStyle = _palette.chipTextOnSurface;
     ctx.textBaseline = 'middle';
     const textWidth = ctx.measureText(initials).width;
     ctx.fillText(initials, barLeft + barWidth - 4 - textWidth, barTop + BAR_HEIGHT / 2);
-    ctx.font = CANVAS_FONT; // Reset to engine default (rule 71)
+    ctx.font = canvasFont(); // Reset to engine default (rule 71)
   }
 
   ctx.restore();
@@ -1121,7 +1174,7 @@ export function drawTaskBarLabel(
   const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
 
   ctx.save();
-  ctx.font = CANVAS_FONT;
+  ctx.font = canvasFont();
   ctx.fillStyle = _palette.textSecondary;
   ctx.textBaseline = 'middle';
   const nameY = barTop + BAR_HEIGHT / 2;
@@ -1221,7 +1274,7 @@ export function drawTimelineNameGutter(
   ctx.fillStyle = _palette.surface;
   ctx.fillRect(0, HEADER_HEIGHT, NAME_GUTTER_WIDTH, viewportHeight - HEADER_HEIGHT);
 
-  ctx.font = CANVAS_FONT;
+  ctx.font = canvasFont();
   ctx.textBaseline = 'middle';
   const maxTextWidth = NAME_GUTTER_WIDTH - GUTTER_TEXT_PAD * 2;
 
@@ -1335,11 +1388,11 @@ export function drawScheduleVarianceBadge(
   const color = variance > 0 ? _palette.barCritical : _palette.barComplete;
 
   ctx.save();
-  ctx.font = '10px Inter, system-ui, sans-serif';
+  ctx.font = `${scaledFontPx(10)}px Inter, system-ui, sans-serif`;
   ctx.fillStyle = color;
   ctx.textBaseline = 'middle';
   ctx.fillText(label, barRight + 4, badgeY);
-  ctx.font = CANVAS_FONT; // restore engine default (rule 71)
+  ctx.font = canvasFont(); // restore engine default (rule 71)
   ctx.restore();
 }
 

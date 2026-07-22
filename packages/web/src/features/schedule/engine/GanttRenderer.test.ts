@@ -21,6 +21,10 @@ import {
   MERGE_HALO_RADIUS,
   MERGE_DOT_RADIUS,
   COLOR,
+  canvasFont,
+  chipFont,
+  refreshFontScale,
+  getFontScale,
 } from './GanttRenderer';
 import { buildScaleData, dateToLeft, dateToRight } from './GanttScaleData';
 import { HEADER_HEIGHT } from '../scheduleConstants';
@@ -2028,5 +2032,55 @@ describe('drawTimelineNameGutter — truncation + row styling (#2096)', () => {
     drawTimelineNameGutter(ctx, tasks, 0, 2, 0, 600);
     const names = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
     expect(names).toEqual(['Only']);
+  });
+});
+
+describe('canvas text-only zoom font scaling (#1758)', () => {
+  const realGetComputedStyle = globalThis.getComputedStyle;
+  function stubRootFontSize(px: string) {
+    globalThis.getComputedStyle = vi.fn(
+      () => ({ fontSize: px }) as unknown as CSSStyleDeclaration,
+    );
+  }
+  afterEach(() => {
+    // Reset the module-level scale back to 1 so other suites draw at parity.
+    stubRootFontSize('16px');
+    refreshFontScale();
+    globalThis.getComputedStyle = realGetComputedStyle;
+  });
+
+  it('is factor 1 at the 16px root default — fonts byte-identical (no regression)', () => {
+    stubRootFontSize('16px');
+    refreshFontScale();
+    expect(getFontScale()).toBe(1);
+    // Must equal the pre-#1758 hardcoded constants exactly.
+    expect(canvasFont()).toBe('12px Inter, system-ui, sans-serif');
+    expect(chipFont()).toBe('11px "JetBrains Mono", monospace');
+  });
+
+  it('scales canvas fonts up under text-only zoom (larger root font-size)', () => {
+    stubRootFontSize('20px'); // 20 / 16 = 1.25
+    refreshFontScale();
+    expect(getFontScale()).toBeCloseTo(1.25);
+    expect(canvasFont()).toBe('15px Inter, system-ui, sans-serif'); // round(12 * 1.25)
+    expect(chipFont()).toBe('14px "JetBrains Mono", monospace'); // round(11 * 1.25) = 13.75 → 14
+  });
+
+  it('clamps an extreme root font-size into a sane band', () => {
+    stubRootFontSize('64px'); // 4× → clamp to 2
+    refreshFontScale();
+    expect(getFontScale()).toBe(2);
+    stubRootFontSize('4px'); // 0.25× → clamp to 0.75
+    refreshFontScale();
+    expect(getFontScale()).toBe(0.75);
+  });
+
+  it('ignores an unparseable root font-size and keeps the prior scale', () => {
+    stubRootFontSize('16px');
+    refreshFontScale();
+    expect(getFontScale()).toBe(1);
+    stubRootFontSize('inherit'); // parseFloat → NaN → no-op
+    refreshFontScale();
+    expect(getFontScale()).toBe(1); // unchanged
   });
 });
