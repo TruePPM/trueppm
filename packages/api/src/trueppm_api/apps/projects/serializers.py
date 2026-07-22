@@ -3395,16 +3395,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         among story/task/bug/spike) stay at the normal task-write permission.
         Acceptance criteria are written through the AcceptanceCriterion endpoints.
         """
-        from rest_framework.exceptions import PermissionDenied
+        self._enforce_backlog_structural_gate(attrs)
+        self._validate_parent_epic(attrs)
+        self._validate_dor_ready_transition(attrs)
 
-        from trueppm_api.apps.access.permissions import can_manage_backlog
-        from trueppm_api.apps.projects.models import DorState, TaskType
-        from trueppm_api.apps.teams.services import has_team_facet
-
-        # Structural-field gate (ADR-0105 §6). Only enforced when a structural field is
-        # actually being written, so it never interferes with quick-add (type=STORY) or
-        # ordinary story grooming.
-        _SCORING_FIELDS = {
+    # Scoring inputs whose write triggers the ADR-0105 §6 structural-field gate.
+    _BACKLOG_SCORING_FIELDS = frozenset(
+        {
             "business_value",
             "time_criticality",
             "risk_reduction",
@@ -3416,73 +3413,102 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "value",
             "effort_estimate",
         }
+    )
+
+    def _enforce_backlog_structural_gate(self, attrs: dict[str, Any]) -> None:
+        """Gate structural backlog writes to Admin+ or the Product-Owner facet (ADR-0105 §6).
+
+        Only enforced when a structural field (``parent_epic``, epic type
+        (de)classification, or a prioritization scoring input) is actually being
+        written, so it never interferes with quick-add (type=STORY) or ordinary
+        story grooming.
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        from trueppm_api.apps.access.permissions import can_manage_backlog
+        from trueppm_api.apps.projects.models import TaskType
+        from trueppm_api.apps.teams.services import has_team_facet
+
         existing_type = getattr(self.instance, "type", None)
         # Epic (de)classification: becoming an EPIC, or changing an existing EPIC away.
         type_is_structural = "type" in attrs and (
             attrs["type"] == TaskType.EPIC or existing_type == TaskType.EPIC
         )
         touches_structural = (
-            "parent_epic" in attrs or type_is_structural or bool(_SCORING_FIELDS & set(attrs))
+            "parent_epic" in attrs
+            or type_is_structural
+            or bool(self._BACKLOG_SCORING_FIELDS & set(attrs))
         )
-        if touches_structural:
-            project = self.instance.project if self.instance is not None else attrs.get("project")
-            if project is not None:
-                request = self.context.get("request")
-                caller = getattr(request, "user", None) if request else None
-                allowed = can_manage_backlog(self._get_caller_role(project)) or (
-                    caller is not None and has_team_facet(caller, project.pk, "is_product_owner")
-                )
-                if not allowed:
-                    raise PermissionDenied(
-                        "Managing the product backlog (work-item type, epic links, and "
-                        "prioritization scoring) requires Project Manager role, the "
-                        "Product Owner facet, or above."
-                    )
-
-        # parent-epic membership
-        parent_epic = attrs.get("parent_epic")
-        if "parent_epic" in attrs and parent_epic is not None:
-            task_project_id = (
-                self.instance.project_id
-                if self.instance is not None
-                else getattr(attrs.get("project"), "pk", None)
+        if not touches_structural:
+            return
+        project = self.instance.project if self.instance is not None else attrs.get("project")
+        if project is None:
+            return
+        request = self.context.get("request")
+        caller = getattr(request, "user", None) if request else None
+        allowed = can_manage_backlog(self._get_caller_role(project)) or (
+            caller is not None and has_team_facet(caller, project.pk, "is_product_owner")
+        )
+        if not allowed:
+            raise PermissionDenied(
+                "Managing the product backlog (work-item type, epic links, and "
+                "prioritization scoring) requires Project Manager role, the "
+                "Product Owner facet, or above."
             )
-            if parent_epic.type != TaskType.EPIC:
-                raise serializers.ValidationError(
-                    {"parent_epic": "Referenced task is not an epic."}
-                )
-            if task_project_id is not None and str(parent_epic.project_id) != str(task_project_id):
-                raise serializers.ValidationError(
-                    {"parent_epic": "Epic does not belong to this project."}
-                )
-            if self.instance is not None and parent_epic.pk == self.instance.pk:
-                raise serializers.ValidationError({"parent_epic": "A task cannot be its own epic."})
-            if parent_epic.parent_epic_id is not None:
-                raise serializers.ValidationError(
-                    {"parent_epic": "Epics cannot be nested (the parent already has an epic)."}
-                )
 
-        # DoR-gated READY transition (advisory). Criteria live on the saved instance (the
-        # AcceptanceCriterion child rows); story_points may be changed in the same PATCH.
-        if attrs.get("dor") == DorState.READY:
-            blockers: list[str] = []
-            if self.instance is not None:
-                eff_points = attrs.get("story_points", self.instance.story_points)
-                criteria = list(self.instance.acceptance_criteria.all())
-                met = sum(1 for c in criteria if c.met)
-                if eff_points is None:
-                    blockers.append("unestimated")
-                if not criteria:
-                    blockers.append("no_acceptance_criteria")
-                elif met < len(criteria):
-                    blockers.append("acceptance_criteria_unmet")
-            else:
-                # A brand-new task has no criteria yet — it cannot start out Ready.
+    def _validate_parent_epic(self, attrs: dict[str, Any]) -> None:
+        """Validate parent-epic membership (same project, is an epic, no self/nesting)."""
+        from trueppm_api.apps.projects.models import TaskType
+
+        parent_epic = attrs.get("parent_epic")
+        if "parent_epic" not in attrs or parent_epic is None:
+            return
+        task_project_id = (
+            self.instance.project_id
+            if self.instance is not None
+            else getattr(attrs.get("project"), "pk", None)
+        )
+        if parent_epic.type != TaskType.EPIC:
+            raise serializers.ValidationError({"parent_epic": "Referenced task is not an epic."})
+        if task_project_id is not None and str(parent_epic.project_id) != str(task_project_id):
+            raise serializers.ValidationError(
+                {"parent_epic": "Epic does not belong to this project."}
+            )
+        if self.instance is not None and parent_epic.pk == self.instance.pk:
+            raise serializers.ValidationError({"parent_epic": "A task cannot be its own epic."})
+        if parent_epic.parent_epic_id is not None:
+            raise serializers.ValidationError(
+                {"parent_epic": "Epics cannot be nested (the parent already has an epic)."}
+            )
+
+    def _validate_dor_ready_transition(self, attrs: dict[str, Any]) -> None:
+        """Gate the DoR → READY transition (advisory; #731).
+
+        Criteria live on the saved instance (the AcceptanceCriterion child rows);
+        story_points may be changed in the same PATCH.
+        """
+        from trueppm_api.apps.projects.models import DorState
+
+        if attrs.get("dor") != DorState.READY:
+            return
+        blockers: list[str] = []
+        if self.instance is not None:
+            eff_points = attrs.get("story_points", self.instance.story_points)
+            criteria = list(self.instance.acceptance_criteria.all())
+            met = sum(1 for c in criteria if c.met)
+            if eff_points is None:
+                blockers.append("unestimated")
+            if not criteria:
                 blockers.append("no_acceptance_criteria")
-            if blockers:
-                raise serializers.ValidationError(
-                    {"dor": f"Cannot mark ready — unresolved: {', '.join(blockers)}."}
-                )
+            elif met < len(criteria):
+                blockers.append("acceptance_criteria_unmet")
+        else:
+            # A brand-new task has no criteria yet — it cannot start out Ready.
+            blockers.append("no_acceptance_criteria")
+        if blockers:
+            raise serializers.ValidationError(
+                {"dor": f"Cannot mark ready — unresolved: {', '.join(blockers)}."}
+            )
 
     def _evaluate_task_guardrails(self, task: Task, sprint: Any) -> list[str]:
         """Evaluate ADR-0101 guardrails for assigning ``task`` to ``sprint``.
@@ -4001,21 +4027,44 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         - estimate_status is never set by this method to 'accepted' — that path goes
           through the dedicated approve-estimates action on TaskViewSet.
         """
-        # #867 auto-shift: a planned_start earlier than the project boundary
-        # pulls the project start back to it (same transaction as this write)
-        # rather than rejecting or clamping. The prior start is stashed on the
-        # instance so the viewset can broadcast project_updated and the UI can
-        # offer an undo.
-        if "planned_start" in validated_data and validated_data["planned_start"] is not None:
-            from trueppm_api.apps.projects.services import shift_project_start_if_needed
+        self._apply_project_start_shift(instance, validated_data)
+        self._sync_early_start_to_planned(instance, validated_data)
+        self._apply_date_gated_start_transition(instance, validated_data)
+        self._apply_progress_auto_promote(instance, validated_data)
+        self._apply_percent_complete_auto_status(instance, validated_data)
+        self._apply_status_transition_side_effects(instance, validated_data)
+        self._stamp_blocked_by(instance, validated_data)
+        self._apply_estimate_governance(instance, validated_data)
 
-            shifted_from = shift_project_start_if_needed(
-                instance.project, validated_data["planned_start"]
-            )
-            if shifted_from is not None:
-                # Dynamic marker the viewset reads to broadcast project_updated.
-                instance._project_start_shifted_from = shifted_from  # type: ignore[attr-defined]
+        # ADR-0151 (#414): apply the percent-complete policy when this edit changes
+        # the task's duration, and record an audit event. Runs last so it sees the
+        # final validated_data (e.g. a milestone's duration already zeroed) and can
+        # set percent_complete before super().update() persists it.
+        self._apply_duration_change_policy(instance, validated_data)
 
+        return super().update(instance, validated_data)
+
+    def _apply_project_start_shift(self, instance: Task, validated_data: dict[str, Any]) -> None:
+        """#867 auto-shift: pull the project start back to an earlier planned_start.
+
+        A planned_start earlier than the project boundary pulls the project start
+        back to it (same transaction as this write) rather than rejecting or
+        clamping. The prior start is stashed on the instance so the viewset can
+        broadcast project_updated and the UI can offer an undo.
+        """
+        if "planned_start" not in validated_data or validated_data["planned_start"] is None:
+            return
+        from trueppm_api.apps.projects.services import shift_project_start_if_needed
+
+        shifted_from = shift_project_start_if_needed(
+            instance.project, validated_data["planned_start"]
+        )
+        if shifted_from is not None:
+            # Dynamic marker the viewset reads to broadcast project_updated.
+            instance._project_start_shifted_from = shifted_from  # type: ignore[attr-defined]
+
+    def _sync_early_start_to_planned(self, instance: Task, validated_data: dict[str, Any]) -> None:
+        """Reset early_start when planned_start changes (avoids Gantt bar snap-back)."""
         if (
             "planned_start" in validated_data
             and validated_data["planned_start"] != instance.planned_start
@@ -4023,11 +4072,16 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         ):
             validated_data["early_start"] = validated_data["planned_start"]
 
-        # Date-gated NOT_STARTED → IN_PROGRESS auto-transition (#336).
-        # Runs before the status-transition block below so the injected status
-        # is treated as a normal transition (auto-`actual_start = today` for
-        # today's drops; explicit `actual_start = planned_start` for past drops
-        # is set here so the IN_PROGRESS block at L317 doesn't overwrite it).
+    def _apply_date_gated_start_transition(
+        self, instance: Task, validated_data: dict[str, Any]
+    ) -> None:
+        """Date-gated NOT_STARTED → IN_PROGRESS auto-transition (#336).
+
+        Runs before the status-transition side effects so the injected status is
+        treated as a normal transition (auto-``actual_start = today`` for today's
+        drops; explicit ``actual_start = planned_start`` for past drops is set here
+        so the IN_PROGRESS side-effect branch doesn't overwrite it).
+        """
         if (
             "planned_start" in validated_data
             and validated_data["planned_start"] is not None
@@ -4042,11 +4096,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             ):
                 validated_data["actual_start"] = validated_data["planned_start"]
 
-        # Progress 0 → >0 auto-promote: NOT_STARTED → IN_PROGRESS (#362).
-        # Only fires for MEMBER+ so Viewers (who cannot write tasks in practice
-        # but may arrive via sync paths) do not trigger silent state transitions.
-        # Skipped when percent_complete goes straight to 100 — the percent=100
-        # block below handles that path (REVIEW or COMPLETE, role-gated).
+    def _apply_progress_auto_promote(self, instance: Task, validated_data: dict[str, Any]) -> None:
+        """Progress 0 → >0 auto-promote: NOT_STARTED → IN_PROGRESS (#362).
+
+        Only fires for MEMBER+ so Viewers (who cannot write tasks in practice but
+        may arrive via sync paths) do not trigger silent state transitions. Skipped
+        when percent_complete goes straight to 100 — the percent=100 branch handles
+        that path (REVIEW or COMPLETE, role-gated).
+        """
         new_pc = validated_data.get("percent_complete")
         if (
             new_pc is not None
@@ -4061,15 +4118,19 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 if "actual_start" not in validated_data and not instance.actual_start:
                     validated_data["actual_start"] = timezone.localdate()
 
-        # Option E auto-status on percent_complete=100 (#381 follow-up, VoC
-        # 2026-05-08).  Contributors (role < ADMIN) drop work into REVIEW so a
-        # PM/PMO sign-off step is preserved; PMs and above flip straight to
-        # COMPLETE.  The Review *column* is the governance gate — there is no
-        # separate "review pending" tag (Priya hard-NO'd that as distrust
-        # theater).  Skipped when status is explicitly set in the same
-        # payload, when the card is already past sign-off (REVIEW/COMPLETE),
-        # or when the card is still BACKLOG (an idea jumping straight to
-        # done is an edge case that requires a manual promotion).
+    def _apply_percent_complete_auto_status(
+        self, instance: Task, validated_data: dict[str, Any]
+    ) -> None:
+        """Option E auto-status on percent_complete=100 (#381 follow-up, VoC 2026-05-08).
+
+        Contributors (role < ADMIN) drop work into REVIEW so a PM/PMO sign-off step
+        is preserved; PMs and above flip straight to COMPLETE. The Review *column*
+        is the governance gate — there is no separate "review pending" tag (Priya
+        hard-NO'd that as distrust theater). Skipped when status is explicitly set in
+        the same payload, when the card is already past sign-off (REVIEW/COMPLETE),
+        or when the card is still BACKLOG (an idea jumping straight to done is an edge
+        case that requires a manual promotion).
+        """
         if (
             validated_data.get("percent_complete") == 100
             and "status" not in validated_data
@@ -4081,43 +4142,15 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             else:
                 validated_data["status"] = TaskStatus.REVIEW
 
+    def _apply_status_transition_side_effects(
+        self, instance: Task, validated_data: dict[str, Any]
+    ) -> None:
+        """Auto-set actual dates and remaining effort on a status transition."""
         new_status = validated_data.get("status")
         old_status = instance.status
 
         if new_status and new_status != old_status:
-            today = timezone.localdate()
-
-            # Reopening from COMPLETE: clear actual_finish unless explicitly provided.
-            # Checked first so it applies regardless of the target status.
-            if old_status == TaskStatus.COMPLETE and "actual_finish" not in validated_data:
-                validated_data["actual_finish"] = None
-
-            if new_status == TaskStatus.IN_PROGRESS:
-                if "actual_start" not in validated_data and not instance.actual_start:
-                    validated_data["actual_start"] = today
-
-            elif new_status == TaskStatus.REVIEW:
-                # REVIEW means "work is done, awaiting sign-off"; do NOT set
-                # actual_finish — that's reserved for the COMPLETE transition.
-                # We also do NOT invent an actual_start: a card that jumped to
-                # done without ever being IN_PROGRESS never recorded a start, and
-                # stamping "today" would collapse the schedule bar (the scheduler
-                # treats a start == finish == today task as a single day). Leaving
-                # it null lets the progress-aware CPM pass derive the historical
-                # full-duration span instead (ADR-0136). A genuine actual_start
-                # recorded at IN_PROGRESS, or an explicit payload value, is kept.
-                pass
-
-            elif new_status == TaskStatus.COMPLETE:
-                if "actual_finish" not in validated_data:
-                    validated_data["actual_finish"] = today
-                # Intentionally do not auto-set actual_start here — see the REVIEW
-                # branch above. When no real start was recorded the engine derives
-                # the full-duration span backward from actual_finish (ADR-0136),
-                # which is more truthful than pinning start to "today".
-                # Zero out remaining effort when work is done.
-                if "remaining_points" not in validated_data:
-                    validated_data["remaining_points"] = 0
+            self._apply_transition_actuals(instance, validated_data, new_status, old_status)
 
         # Reopening from COMPLETE restores remaining_points from the commitment baseline.
         if (
@@ -4128,12 +4161,57 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         ):
             validated_data["remaining_points"] = instance.story_points
 
-        # ADR-0124 (#1135): stamp blocked_by (the actor) on the unblocked→blocked
-        # transition. Model.save() stamps blocked_since and clears the structured
-        # fields on unflag, but blocked_by needs the request user — which only the
-        # serializer has. Detected by the same empty→non-empty edge the task.blocked
-        # notification uses (the idempotency key); re-saving an already-blocked task
-        # does not re-stamp the actor.
+    def _apply_transition_actuals(
+        self,
+        instance: Task,
+        validated_data: dict[str, Any],
+        new_status: str,
+        old_status: str,
+    ) -> None:
+        """Auto-set actual_start/actual_finish/remaining_points for the target status."""
+        today = timezone.localdate()
+
+        # Reopening from COMPLETE: clear actual_finish unless explicitly provided.
+        # Checked first so it applies regardless of the target status.
+        if old_status == TaskStatus.COMPLETE and "actual_finish" not in validated_data:
+            validated_data["actual_finish"] = None
+
+        if new_status == TaskStatus.IN_PROGRESS:
+            if "actual_start" not in validated_data and not instance.actual_start:
+                validated_data["actual_start"] = today
+
+        elif new_status == TaskStatus.REVIEW:
+            # REVIEW means "work is done, awaiting sign-off"; do NOT set
+            # actual_finish — that's reserved for the COMPLETE transition.
+            # We also do NOT invent an actual_start: a card that jumped to
+            # done without ever being IN_PROGRESS never recorded a start, and
+            # stamping "today" would collapse the schedule bar (the scheduler
+            # treats a start == finish == today task as a single day). Leaving
+            # it null lets the progress-aware CPM pass derive the historical
+            # full-duration span instead (ADR-0136). A genuine actual_start
+            # recorded at IN_PROGRESS, or an explicit payload value, is kept.
+            pass
+
+        elif new_status == TaskStatus.COMPLETE:
+            if "actual_finish" not in validated_data:
+                validated_data["actual_finish"] = today
+            # Intentionally do not auto-set actual_start here — see the REVIEW
+            # branch above. When no real start was recorded the engine derives
+            # the full-duration span backward from actual_finish (ADR-0136),
+            # which is more truthful than pinning start to "today".
+            # Zero out remaining effort when work is done.
+            if "remaining_points" not in validated_data:
+                validated_data["remaining_points"] = 0
+
+    def _stamp_blocked_by(self, instance: Task, validated_data: dict[str, Any]) -> None:
+        """Stamp blocked_by (the actor) on the unblocked→blocked transition (ADR-0124, #1135).
+
+        Model.save() stamps blocked_since and clears the structured fields on
+        unflag, but blocked_by needs the request user — which only the serializer
+        has. Detected by the same empty→non-empty edge the task.blocked notification
+        uses (the idempotency key); re-saving an already-blocked task does not
+        re-stamp the actor.
+        """
         if "blocked_reason" in validated_data:
             old_blocked = bool((instance.blocked_reason or "").strip())
             new_blocked = bool((validated_data.get("blocked_reason") or "").strip())
@@ -4143,9 +4221,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 if user is not None and getattr(user, "is_authenticated", False):
                     validated_data["blocked_by"] = user
 
-        # Estimate governance: mark as pending when PERT fields are written in
-        # suggest_approve mode. Caller must not pass estimate_status directly;
-        # the approve-estimates action is the only path to 'accepted'.
+    def _apply_estimate_governance(self, instance: Task, validated_data: dict[str, Any]) -> None:
+        """Mark estimate_status pending when PERT fields are written in suggest_approve mode.
+
+        Caller must not pass estimate_status directly; the approve-estimates action
+        is the only path to 'accepted'.
+        """
         _pert_fields = {"optimistic_duration", "most_likely_duration", "pessimistic_duration"}
         if _pert_fields & set(validated_data):
             project = instance.project
@@ -4154,14 +4235,6 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             else:
                 # OPEN or PM_ONLY: clear status tracking — not applicable.
                 validated_data["estimate_status"] = None
-
-        # ADR-0151 (#414): apply the percent-complete policy when this edit changes
-        # the task's duration, and record an audit event. Runs last so it sees the
-        # final validated_data (e.g. a milestone's duration already zeroed) and can
-        # set percent_complete before super().update() persists it.
-        self._apply_duration_change_policy(instance, validated_data)
-
-        return super().update(instance, validated_data)
 
     def _apply_duration_change_policy(self, instance: Task, validated_data: dict[str, Any]) -> None:
         """Apply the duration-change percent policy and record an audit event (ADR-0151).
@@ -6048,28 +6121,50 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        self._validate_date_ordering(attrs)
+        self._validate_state_edit_locks(attrs)
+        self._validate_scheduler_field_permissions(attrs)
+        return attrs
+
+    def _validate_date_ordering(self, attrs: dict[str, Any]) -> None:
+        """Reject a finish_date that is not strictly after start_date."""
         start = attrs.get("start_date") or (self.instance.start_date if self.instance else None)
         finish = attrs.get("finish_date") or (self.instance.finish_date if self.instance else None)
         if start and finish and finish <= start:
             raise serializers.ValidationError(
                 {"finish_date": "finish_date must be after start_date."}
             )
-        # Only PLANNED sprints accept name/goal/date edits via PATCH.
-        # capacity_points is intentionally excluded (ADR-0073) — a PM/SM
-        # may revise the team's points ceiling mid-sprint as the team
-        # changes (PTO, joiners). It is locked only once the sprint is
-        # closed or cancelled.
+
+    def _validate_state_edit_locks(self, attrs: dict[str, Any]) -> None:
+        """Enforce the state-based field locks (ADR-0073).
+
+        - Only PLANNED sprints accept name/goal/date edits via PATCH. capacity_points
+          is intentionally excluded — a PM/SM may revise the team's points ceiling
+          mid-sprint as the team changes (PTO, joiners); it locks only on close/cancel.
+        - capacity_points and wip_limit (#546) stay revisable mid-sprint (PLANNED +
+          ACTIVE) and lock once the sprint is COMPLETED or CANCELLED — the snapshot is
+          the historical record at that point.
+        """
+        if not self.instance:
+            return
+        self._enforce_planned_only_edits(attrs)
+        self._enforce_closed_capacity_lock(attrs)
+
+    def _enforce_planned_only_edits(self, attrs: dict[str, Any]) -> None:
+        """Reject name/goal/date edits on a non-PLANNED sprint (ADR-0073)."""
         if self.instance and self.instance.state != SprintState.PLANNED:
             mutating = {k for k in attrs if k in {"name", "goal", "start_date", "finish_date"}}
             if mutating:
                 raise serializers.ValidationError(
                     f"Sprint is {self.instance.state}; cannot modify {sorted(mutating)}."
                 )
-        # capacity_points and wip_limit are the team's planning knobs (ADR-0073;
-        # #546). Both stay revisable mid-sprint (PLANNED + ACTIVE) as the team
-        # changes, and both lock once the sprint is COMPLETED or CANCELLED — the
-        # snapshot is the historical record at that point.
-        if self.instance and self.instance.state in {SprintState.COMPLETED, SprintState.CANCELLED}:
+
+    def _enforce_closed_capacity_lock(self, attrs: dict[str, Any]) -> None:
+        """Lock capacity_points/wip_limit once the sprint is COMPLETED or CANCELLED."""
+        if self.instance and self.instance.state in {
+            SprintState.COMPLETED,
+            SprintState.CANCELLED,
+        }:
             locked = {f for f in ("capacity_points", "wip_limit") if f in attrs}
             if locked:
                 raise serializers.ValidationError(
@@ -6078,53 +6173,60 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
                         for field in locked
                     }
                 )
-        # capacity_points / wip_limit / goal_outcome / exclude_from_velocity are
-        # owned by the Scrum Master / lead — not per-contributor fields (ADR-0073
-        # sovereignty rule). Field-level RBAC: SCHEDULER+ writes only. The
-        # viewset's IsProjectMemberWrite gate still applies to every other field;
-        # this check is layered on top for these team-owned fields. NOTE
-        # goal_outcome AND exclude_from_velocity are SCHEDULER+-gated but
-        # deliberately NOT in the COMPLETED/CANCELLED lock above — both are
-        # *post-close* judgements (the goal verdict, and the ADR-0113 decision to
-        # keep a setup sprint out of velocity once its contamination is apparent)
-        # and stay editable after the sprint closes.
+
+    def _validate_scheduler_field_permissions(self, attrs: dict[str, Any]) -> None:
+        """Gate the Scrum-Master-owned sprint fields to SCHEDULER+ writes (ADR-0073).
+
+        capacity_points / wip_limit / goal_outcome / exclude_from_velocity are owned
+        by the Scrum Master / lead — not per-contributor fields (ADR-0073 sovereignty
+        rule). Field-level RBAC: SCHEDULER+ writes only. The viewset's
+        IsProjectMemberWrite gate still applies to every other field; this check is
+        layered on top for these team-owned fields. NOTE goal_outcome AND
+        exclude_from_velocity are SCHEDULER+-gated but deliberately NOT in the
+        COMPLETED/CANCELLED lock above — both are *post-close* judgements (the goal
+        verdict, and the ADR-0113 decision to keep a setup sprint out of velocity once
+        its contamination is apparent) and stay editable after the sprint closes.
+        """
         scheduler_fields = {
             f
             for f in ("capacity_points", "wip_limit", "goal_outcome", "exclude_from_velocity")
             if f in attrs
         }
-        if scheduler_fields:
-            from trueppm_api.apps.access.models import ProjectMembership, Role
+        if not scheduler_fields:
+            return
+        from trueppm_api.apps.access.models import Role
 
-            request = self.context.get("request")
-            user = getattr(request, "user", None) if request else None
-            if user is None or not getattr(user, "is_authenticated", False):
-                raise serializers.ValidationError(
-                    {field: "Authentication required." for field in scheduler_fields}
-                )
-            # On update the project comes from the instance; on CREATE the project
-            # is not yet in attrs (perform_create injects it via serializer.save),
-            # so resolve it from the nested route the ProjectScopedViewSet exposes.
-            # Gating only `self.instance is not None` silently skipped CREATE,
-            # letting a Member POST scheduler-owned fields (#1093). When no project
-            # can be resolved the gate fails closed (membership stays None → 400).
-            project_id: Any = self.instance.project_id if self.instance is not None else None
-            if project_id is None:
-                view = self.context.get("view")
-                project_id = getattr(view, "kwargs", {}).get("project_pk") if view else None
-            membership = (
-                ProjectMembership.objects.filter(project_id=project_id, user=user).first()
-                if project_id is not None
-                else None
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        if user is None or not getattr(user, "is_authenticated", False):
+            raise serializers.ValidationError(
+                {field: "Authentication required." for field in scheduler_fields}
             )
-            if membership is None or membership.role < Role.SCHEDULER:
-                raise serializers.ValidationError(
-                    {
-                        field: "Only Scheduler+ may set this sprint field."
-                        for field in scheduler_fields
-                    }
-                )
-        return attrs
+        membership = self._resolve_scheduler_gate_membership(user)
+        if membership is None or membership.role < Role.SCHEDULER:
+            raise serializers.ValidationError(
+                {field: "Only Scheduler+ may set this sprint field." for field in scheduler_fields}
+            )
+
+    def _resolve_scheduler_gate_membership(self, user: Any) -> Any:
+        """Resolve the caller's ProjectMembership for the scheduler-field gate.
+
+        On update the project comes from the instance; on CREATE the project is not
+        yet in attrs (perform_create injects it via serializer.save), so resolve it
+        from the nested route the ProjectScopedViewSet exposes. Gating only
+        ``self.instance is not None`` silently skipped CREATE, letting a Member POST
+        scheduler-owned fields (#1093). When no project can be resolved the gate fails
+        closed (membership stays None → 400).
+        """
+        from trueppm_api.apps.access.models import ProjectMembership
+
+        project_id: Any = self.instance.project_id if self.instance is not None else None
+        if project_id is None:
+            view = self.context.get("view")
+            project_id = getattr(view, "kwargs", {}).get("project_pk") if view else None
+        if project_id is None:
+            return None
+        return ProjectMembership.objects.filter(project_id=project_id, user=user).first()
 
     class Meta:
         model = Sprint
