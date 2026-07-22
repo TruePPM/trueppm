@@ -402,6 +402,35 @@ def _probe_database() -> bool:
         return False
 
 
+def _probe_migrations() -> bool:
+    """Prove every migration shipped in this image is applied to the database.
+
+    A pod that is up but whose database is behind (or ahead of) the code in its
+    image must not report ready. During a rolling upgrade the ``migrate`` init
+    container brings the schema forward while old-image pods are still serving;
+    routing traffic to a new pod before its migrations land — or to a pod whose
+    schema was migrated by a newer image than its own code — serves errors or, at
+    worst, writes against a half-migrated schema. Django's
+    ``MigrationExecutor.migration_plan`` against the full leaf set returns the
+    outstanding steps for *this* code against the connection; a non-empty plan
+    means migrations are unapplied or in flight, so the pod is not ready (#2217).
+
+    Any error is swallowed into ``False`` (not ready), consistent with the DB and
+    cache probes — the caller needs only a boolean, and no detail may reach an
+    unauthenticated client.
+    """
+    from django.db import connection
+    from django.db.migrations.executor import MigrationExecutor
+
+    try:
+        executor = MigrationExecutor(connection)
+        targets = executor.loader.graph.leaf_nodes()
+        # An empty plan ⇒ the database is at the migration state this code expects.
+        return not executor.migration_plan(targets)
+    except Exception:  # any failure means "not ready", by design
+        return False
+
+
 def _probe_cache() -> bool:
     """Prove the Valkey/Redis cache is reachable with a write-then-read round-trip.
 
@@ -424,13 +453,16 @@ def get_readiness() -> tuple[bool, dict[str, str]]:
     """Probe every hard dependency and return ``(ready, per-dependency statuses)``.
 
     Backs the unauthenticated ``/api/v1/readyz`` Kubernetes readiness probe
-    (#1894): a pod is Ready only when both the database and the Valkey/Redis cache
-    answer a live round-trip. Statuses are coarse ``ok``/``fail`` strings so the
+    (#1894): a pod is Ready only when the database and the Valkey/Redis cache
+    answer a live round-trip **and** every migration shipped in this image is
+    applied (#2217), so a rolling upgrade never routes traffic to a pod whose
+    schema and code disagree. Statuses are coarse ``ok``/``fail`` strings so the
     body carries no sensitive infrastructure detail.
     """
     checks = {
         "database": READY_OK if _probe_database() else READY_FAIL,
         "cache": READY_OK if _probe_cache() else READY_FAIL,
+        "migrations": READY_OK if _probe_migrations() else READY_FAIL,
     }
     ready = all(state == READY_OK for state in checks.values())
     return ready, checks

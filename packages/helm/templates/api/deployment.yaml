@@ -112,10 +112,11 @@ spec:
               mountPath: /tmp
             - name: staticfiles
               mountPath: /app/staticfiles
-          # Readiness points at /readyz (#1894) — a deep check that also verifies
-          # the database/cache dependencies are reachable, so a pod is only added to
-          # the Service once it can actually serve. Liveness stays on the shallow
-          # /health/ so a transient dependency blip can't trigger a restart loop.
+          # Readiness points at /readyz (#1894, #2217) — a deep check that verifies
+          # the database/cache dependencies are reachable AND that no migrations are
+          # unapplied/in-flight for this image, so a pod is only added to the Service
+          # once it can actually serve a schema its code agrees with. Liveness stays
+          # on the shallow /health/ so a transient dependency blip can't restart-loop.
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.api.readinessPath | default "/api/v1/readyz" }}

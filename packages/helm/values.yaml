@@ -195,9 +195,11 @@ resources:
 # tunable so operators can loosen timings on constrained clusters.
 probes:
   api:
-    # Readiness points at the deep /readyz check (#1894) so a pod only joins the
-    # Service once its DB/cache dependencies are reachable; liveness stays on the
-    # shallow /health/ so a transient dependency blip cannot restart-loop the pod.
+    # Readiness points at the deep /readyz check (#1894, #2217) so a pod only joins
+    # the Service once its DB/cache dependencies are reachable AND every migration
+    # shipped in its image is applied — during a rolling upgrade this keeps traffic
+    # off a pod whose schema and code disagree. Liveness stays on the shallow
+    # /health/ so a transient dependency blip cannot restart-loop the pod.
     readinessPath: /api/v1/readyz
     readinessInitialDelaySeconds: 10
     readinessPeriodSeconds: 10
