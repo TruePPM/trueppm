@@ -88,6 +88,24 @@ export class GanttPanFSM {
   }
 
   /**
+   * Begin a pan gesture from a single-finger touch on empty canvas (#2160).
+   *
+   * Touch has no Space-arm step and no middle button, so an empty-canvas touch
+   * drag pans directly. Bar/resize/link hits are arbitrated by the engine before
+   * this is called, so reaching here means the finger landed on empty canvas.
+   *
+   * @returns true if the pan claimed the gesture (always, unless already panning).
+   */
+  startTouch(x: number, y: number, pointerId: number): boolean {
+    if (this._state === 'PANNING') return false;
+    this._state = 'PANNING';
+    this._lastX = x;
+    this._lastY = y;
+    this._pointerId = pointerId;
+    return true;
+  }
+
+  /**
    * Continue a pan on pointermove. Returns the pixel delta since the last move,
    * or null when not panning. The engine subtracts the delta from its scroll
    * offsets (drag content right → scroll left decreases).

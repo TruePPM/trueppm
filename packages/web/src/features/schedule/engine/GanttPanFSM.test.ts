@@ -94,4 +94,26 @@ describe('GanttPanFSM', () => {
     fsm.disarm(); // Space released while still dragging
     expect(fsm.isPanning).toBe(true); // unaffected until end()
   });
+
+  it('startTouch() pans immediately from IDLE — no Space-arm, no middle button (#2160)', () => {
+    const fsm = new GanttPanFSM();
+    const claimed = fsm.startTouch(30, 60, 7);
+    expect(claimed).toBe(true);
+    expect(fsm.isPanning).toBe(true);
+    expect(fsm.pointerId).toBe(7);
+    // Deltas flow the same as any other pan.
+    expect(fsm.move(10, 40)).toEqual({ dx: -20, dy: -20 });
+    // A touch pan ends to IDLE (no Space to remain held).
+    fsm.end(/* spaceStillHeld */ false);
+    expect(fsm.state).toBe('IDLE');
+  });
+
+  it('startTouch() does not restart an in-progress pan', () => {
+    const fsm = new GanttPanFSM();
+    fsm.startTouch(0, 0, 1);
+    fsm.move(10, 10);
+    const claimed = fsm.startTouch(100, 100, 2);
+    expect(claimed).toBe(false);
+    expect(fsm.pointerId).toBe(1); // still the original finger
+  });
 });
