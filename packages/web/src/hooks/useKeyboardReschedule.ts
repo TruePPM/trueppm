@@ -2,7 +2,8 @@
  * Keyboard rescheduling for the Gantt chart (issue #34 — WCAG 2.1.1 gap).
  *
  * Closes the pointer-only drag interaction by allowing keyboard users to:
- *   - Press Enter on a selected task to enter keyboard reschedule mode.
+ *   - Press Shift+Enter (or 'r') on a selected task to enter keyboard
+ *     reschedule mode. Plain Enter opens the task detail drawer instead (#2205).
  *   - ArrowRight / ArrowLeft to nudge by 1 working day.
  *   - Shift+Arrow to nudge by 5 working days.
  *   - 'd' to open the date input popover for precise entry.
@@ -165,9 +166,12 @@ export function useKeyboardReschedule({
       // would initiate a keyboard reschedule on the selected task.
       if (isTypingInInput(e.target) && e.key !== 'Escape') return;
 
-      // ── Not in keyboard mode: only Enter can initiate ──────────────────────
+      // ── Not in keyboard mode: Shift+Enter or 'r' initiates ─────────────────
+      // Plain Enter now opens the task detail drawer (#2205); reschedule moved
+      // to Shift+Enter / 'r' so both actions are reachable from a focused bar.
       if (!keyboardModeRef.current) {
-        if (e.key !== 'Enter') return;
+        const initiates = (e.key === 'Enter' && e.shiftKey) || e.key === 'r' || e.key === 'R';
+        if (!initiates) return;
         const taskId = selectedTaskIdRef.current;
         if (!taskId) return;
 

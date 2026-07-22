@@ -40,8 +40,10 @@ describe('KeyboardShortcutsModal', () => {
     expect(screen.getByText('Show or hide the sidebar')).toBeInTheDocument();
     expect(screen.getByText('Run the selected action')).toBeInTheDocument();
     expect(screen.getByText('Move focus between cards')).toBeInTheDocument();
-    // The keyboard-reschedule bindings are documented (#1742).
-    expect(screen.getByText('Reschedule the selected task')).toBeInTheDocument();
+    // The keyboard-reschedule bindings are documented (#1742). Enter opens
+    // details; Shift+Enter / R reschedules (#2205).
+    expect(screen.getByText('Open the focused task details')).toBeInTheDocument();
+    expect(screen.getByText('Reschedule the selected task (or R)')).toBeInTheDocument();
     expect(screen.getByText('Nudge by one working day')).toBeInTheDocument();
   });
 

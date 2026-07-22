@@ -15,9 +15,9 @@ describe('useBoardKeyboard', () => {
     document.body.innerHTML = '';
   });
 
-  it('fires onMoveCardFocus down on J or ArrowDown', () => {
+  it('fires onMoveCardFocus down on J always, and on ArrowDown once focus is active', () => {
     const onMoveCardFocus = vi.fn();
-    renderHook(() => useBoardKeyboard({ onMoveCardFocus }));
+    renderHook(() => useBoardKeyboard({ onMoveCardFocus, boardFocusActive: true }));
 
     dispatch('j');
     expect(onMoveCardFocus).toHaveBeenLastCalledWith('down');
@@ -27,9 +27,9 @@ describe('useBoardKeyboard', () => {
     expect(onMoveCardFocus).toHaveBeenCalledTimes(2);
   });
 
-  it('fires onMoveColumnFocus across H/L/arrows', () => {
+  it('fires onMoveColumnFocus across H/L/arrows when board focus is active', () => {
     const onMoveColumnFocus = vi.fn();
-    renderHook(() => useBoardKeyboard({ onMoveColumnFocus }));
+    renderHook(() => useBoardKeyboard({ onMoveColumnFocus, boardFocusActive: true }));
 
     dispatch('l');
     dispatch('ArrowRight');
@@ -42,6 +42,33 @@ describe('useBoardKeyboard', () => {
       'left',
       'left',
     ]);
+  });
+
+  // #2205: an idle board (no virtual focus) must NOT swallow the four Arrow keys,
+  // or it kills native page scroll window-wide. j/k/l/h still bootstrap focus.
+  it('does not claim Arrow keys while board focus is inactive, but j/k/l/h still fire', () => {
+    const onMoveCardFocus = vi.fn();
+    const onMoveColumnFocus = vi.fn();
+    renderHook(() =>
+      useBoardKeyboard({ onMoveCardFocus, onMoveColumnFocus /* boardFocusActive: false */ }),
+    );
+
+    // Arrows are ignored (fall through to native scroll)…
+    for (const arrow of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+      const ev = new KeyboardEvent('keydown', { key: arrow, bubbles: true, cancelable: true });
+      document.body.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+    }
+    expect(onMoveCardFocus).not.toHaveBeenCalled();
+    expect(onMoveColumnFocus).not.toHaveBeenCalled();
+
+    // …but j/k/l/h always work and can bootstrap the focus.
+    dispatch('j');
+    dispatch('k');
+    dispatch('l');
+    dispatch('h');
+    expect(onMoveCardFocus).toHaveBeenCalledTimes(2);
+    expect(onMoveColumnFocus).toHaveBeenCalledTimes(2);
   });
 
   it('fires onShowDeps on D and onShowCheatsheet on ?', () => {
@@ -123,9 +150,9 @@ describe('useBoardKeyboard', () => {
     expect(onShowComments).toHaveBeenCalled();
   });
 
-  it('fires onMoveCardFocus up on K or ArrowUp', () => {
+  it('fires onMoveCardFocus up on K always, and on ArrowUp once focus is active', () => {
     const onMoveCardFocus = vi.fn();
-    renderHook(() => useBoardKeyboard({ onMoveCardFocus }));
+    renderHook(() => useBoardKeyboard({ onMoveCardFocus, boardFocusActive: true }));
 
     dispatch('k');
     expect(onMoveCardFocus).toHaveBeenLastCalledWith('up');

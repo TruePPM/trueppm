@@ -220,6 +220,14 @@ export interface GanttEngine {
    */
   selectTasks(taskIds: string[]): void;
 
+  /**
+   * Open the task detail drawer for a task. Emits 'task-open' — the same event
+   * a canvas double-click raises — so pointer and keyboard share one open path
+   * (#2160/#2205). Used by the ARIA overlay's Enter binding so keyboard users
+   * reach task details from a focused bar (WCAG 2.1.1 consistency).
+   */
+  openTask(taskId: string): void;
+
   /** Current selection. Immutable — do not mutate the returned set. */
   readonly selectedTaskIds: ReadonlySet<string>;
 

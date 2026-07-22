@@ -244,11 +244,16 @@ function RotateSecretModal({
   const [revealed, setRevealed] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const confirmRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const secretRef = useRef<HTMLInputElement>(null);
 
+  // Never first-focus the destructive action (rule 245b): Enter-on-open must not
+  // rotate the secret. Focus Cancel on open; on reveal, move focus to the secret
+  // field so it is announced and immediately selectable for copy (#2205).
   useEffect(() => {
-    confirmRef.current?.focus();
-  }, []);
+    if (revealed) secretRef.current?.focus();
+    else cancelRef.current?.focus();
+  }, [revealed]);
 
   function handleRotate() {
     setError(null);
@@ -291,6 +296,7 @@ function RotateSecretModal({
             </p>
             <div className="flex items-center gap-2 mb-4">
               <input
+                ref={secretRef}
                 readOnly
                 value={revealed}
                 onFocus={(e) => e.currentTarget.select()}
@@ -332,6 +338,7 @@ function RotateSecretModal({
             )}
             <div className="flex justify-end gap-2">
               <button
+                ref={cancelRef}
                 type="button"
                 onClick={onClose}
                 disabled={rotate.isPending}
@@ -340,7 +347,6 @@ function RotateSecretModal({
                 Cancel
               </button>
               <button
-                ref={confirmRef}
                 type="button"
                 onClick={handleRotate}
                 disabled={rotate.isPending}

@@ -237,7 +237,10 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
       aria-label={created ? 'Token created' : 'Create API token'}
       className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4"
       onPointerDown={(e) => {
-        if (e.target === e.currentTarget && !create.isPending) onClose();
+        // Once the token is revealed, a stray backdrop click must NOT dismiss it
+        // — the plaintext is shown once and is unrecoverable (#2205). Gate on
+        // !created so only the pre-creation form closes on an outside click.
+        if (e.target === e.currentTarget && !create.isPending && !created) onClose();
       }}
     >
       <div

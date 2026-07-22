@@ -52,6 +52,11 @@ function makeEngine() {
       // Synchronous emit — mirrors GanttEngineImpl._applySelection.
       set?.forEach((h) => h({ taskIds: Array.from(selected) }));
     },
+    openTask(taskId: string) {
+      // Mirrors GanttEngineImpl.openTask — emits 'task-open' for the drawer.
+      const set = listeners.get('task-open');
+      set?.forEach((h) => h({ id: taskId }));
+    },
     on<K extends keyof GanttEngineEventMap>(
       event: K,
       handler: (payload: GanttEngineEventMap[K]) => void,
@@ -132,10 +137,30 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('ScheduleAriaOverlay keyboard contract (#1776)', () => {
-  it('Enter on a reschedulable row starts a keyboard reschedule on the same press', () => {
+  it('Enter opens the task detail drawer (task-open) and does NOT start a reschedule (#2205)', () => {
     const engine = makeEngine();
+    const onOpen = vi.fn();
+    engine.on('task-open', onOpen);
     render(<Harness engine={engine} tasks={TASKS} />);
     fireEvent.keyDown(cellFor('Design'), { key: 'Enter' });
+    expect(onOpen).toHaveBeenCalledWith({ id: 't1' });
+    // Enter no longer enters keyboard-reschedule mode.
+    expect(useDragStore.getState().isKeyboardMode).toBe(false);
+  });
+
+  it('Shift+Enter on a reschedulable row starts a keyboard reschedule on the same press (#2205)', () => {
+    const engine = makeEngine();
+    render(<Harness engine={engine} tasks={TASKS} />);
+    fireEvent.keyDown(cellFor('Design'), { key: 'Enter', shiftKey: true });
+    expect(engine.selectedTaskIds.has('t1')).toBe(true);
+    expect(useDragStore.getState().isKeyboardMode).toBe(true);
+    expect(useDragStore.getState().draggedTaskId).toBe('t1');
+  });
+
+  it("'r' is the single-key alias to start a keyboard reschedule (#2205)", () => {
+    const engine = makeEngine();
+    render(<Harness engine={engine} tasks={TASKS} />);
+    fireEvent.keyDown(cellFor('Design'), { key: 'r' });
     expect(engine.selectedTaskIds.has('t1')).toBe(true);
     expect(useDragStore.getState().isKeyboardMode).toBe(true);
     expect(useDragStore.getState().draggedTaskId).toBe('t1');
@@ -175,7 +200,7 @@ describe('ScheduleAriaOverlay keyboard contract (#1776)', () => {
   it('yields all grid navigation while a keyboard reschedule is active', () => {
     const engine = makeEngine();
     render(<Harness engine={engine} tasks={TASKS} />);
-    fireEvent.keyDown(cellFor('Design'), { key: 'Enter' });
+    fireEvent.keyDown(cellFor('Design'), { key: 'Enter', shiftKey: true });
     expect(useDragStore.getState().isKeyboardMode).toBe(true);
     // Mid-reschedule, Up/Down must not move the roving focus out from under
     // the nudge — the document-level hook owns the keyboard until confirm.
@@ -213,6 +238,8 @@ describe('ScheduleAriaOverlay keyboard contract (#1776)', () => {
     render(<Harness engine={engine} tasks={TASKS} />);
     const help = document.getElementById('schedule-grid-help');
     expect(help?.textContent).toMatch(/Home and End/);
+    expect(help?.textContent).toMatch(/Enter to open the focused task's details/i);
+    expect(help?.textContent).toMatch(/Shift\+Enter or R to reschedule/i);
     expect(help?.textContent).toMatch(/left and right arrow keys nudge/i);
     expect(help?.textContent).toMatch(/Escape cancels/);
   });

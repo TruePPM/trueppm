@@ -188,6 +188,12 @@ test.describe('Program Integrations — MCP token surface', () => {
     await expect(snippet).toContainText('"command": "trueppm-mcp"');
     await expect(snippet).toContainText('"TRUEPPM_API_TOKEN": "tppm_PROGRAM_MCP_SECRET"');
     await expect(page.getByRole('button', { name: 'Copy config' })).toBeVisible();
+
+    // #2205: the one-time token is unrecoverable, so a stray backdrop click must
+    // NOT dismiss the reveal. Click the dialog backdrop (top-left corner, outside
+    // the inner card) and assert the token stays on screen.
+    await page.mouse.click(8, 8);
+    await expect(page.getByRole('textbox', { name: 'New API token' })).toBeVisible();
   });
 
   test('shows the empty state when the program has no tokens', async ({ page }) => {

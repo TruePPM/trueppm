@@ -81,7 +81,8 @@ function useShortcutGroups(): ShortcutGroup[] {
       // the build-mode sibling reorder (#347).
       heading: 'Schedule (Gantt)',
       shortcuts: [
-        { keys: ['↵'], label: 'Reschedule the selected task' },
+        { keys: ['↵'], label: 'Open the focused task details' },
+        { keys: ['⇧', '↵'], label: 'Reschedule the selected task (or R)' },
         { keys: ['←', '→'], label: 'Nudge by one working day' },
         { keys: ['⇧', '←', '→'], label: 'Nudge by five working days' },
         { keys: ['D'], label: 'Enter an exact date' },
