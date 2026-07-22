@@ -42,6 +42,8 @@ export interface ExternalConnectionSummary {
   name: string;
   exists: boolean;
   base_url: string;
+  /** Jira deployment this connection targets: `cloud` (default) | `server`. */
+  deployment: string;
   account_email: string;
   status: string;
   last_synced_at: string | null;
@@ -108,6 +110,12 @@ export interface ExternalWorkItem {
 export interface ConnectExternalSourceInput {
   secret: string;
   base_url: string;
+  /**
+   * Jira deployment: `cloud` (Atlassian-hosted, Basic `email:token`) or `server`
+   * (self-hosted Data Center / Server, Bearer PAT). Omitted defaults to `cloud`
+   * server-side. `account_email` is only sent (and only needed) for `cloud`.
+   */
+  deployment?: 'cloud' | 'server';
   account_email?: string;
   jql?: string;
   project_keys?: string[];

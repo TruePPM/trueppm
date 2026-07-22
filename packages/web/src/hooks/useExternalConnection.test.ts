@@ -28,6 +28,7 @@ const CONNECTED: ExternalConnectionSummary = {
   name: 'Jira',
   exists: true,
   base_url: 'https://acme.atlassian.net',
+  deployment: 'cloud',
   account_email: 'p.patel@acme.com',
   status: 'connected',
   last_synced_at: '2026-05-20T14:00:00Z',

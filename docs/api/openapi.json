@@ -41379,6 +41379,14 @@
                     "successor"
                 ]
             },
+            "DeploymentEnum": {
+                "enum": [
+                    "cloud",
+                    "server"
+                ],
+                "type": "string",
+                "description": "* `cloud` - cloud\n* `server` - server"
+            },
             "DidntShipItem": {
                 "type": "object",
                 "description": "One task that was in the sprint at close but didn't complete (#985).\n\n``story_points`` is nulled for readers below the velocity audience (ADR-0104\nside-channel guard). ``disposition`` is null for a provisional (not-yet-closed)\nsprint, where the carry/drop decision hasn't been made.",
@@ -41576,6 +41584,9 @@
                     "base_url": {
                         "type": "string"
                     },
+                    "deployment": {
+                        "type": "string"
+                    },
                     "account_email": {
                         "type": "string"
                     },
@@ -41600,6 +41611,7 @@
                 "required": [
                     "account_email",
                     "base_url",
+                    "deployment",
                     "exists",
                     "jql",
                     "last_synced_at",
@@ -41610,7 +41622,7 @@
             },
             "ExternalConnectionUpsertRequest": {
                 "type": "object",
-                "description": "Payload for ``PUT /me/connections/{source}/`` (connect or update).\n\n``secret`` is the user's own API token (write-only, never echoed).\n``base_url`` is the source host (Jira Cloud ``https://<tenant>.atlassian.net``),\nallow-listed downstream. ``account_email`` + ``jql`` + ``project_keys`` are\nstored in the credential's ``config`` — the source reads them at pull time.",
+                "description": "Payload for ``PUT /me/connections/{source}/`` (connect or update).\n\n``secret`` is the user's own API token / PAT (write-only, never echoed).\n``base_url`` is the source host — Jira Cloud ``https://<tenant>.atlassian.net``\nor a self-hosted Jira Data Center / Server host — allow-listed downstream.\n``deployment`` (``cloud`` default | ``server``) selects the Cloud vs DC/Server\nAPI + auth shape. ``account_email`` (Cloud Basic auth only) + ``jql`` +\n``project_keys`` are stored in the credential's ``config`` — the source reads\nthem at pull time.",
                 "properties": {
                     "secret": {
                         "type": "string",
@@ -41622,6 +41634,14 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 512
+                    },
+                    "deployment": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DeploymentEnum"
+                            }
+                        ],
+                        "default": "cloud"
                     },
                     "account_email": {
                         "oneOf": [

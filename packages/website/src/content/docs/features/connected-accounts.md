@@ -89,8 +89,9 @@ read-only feed of the items assigned to you, not a token for previewing links.
 :::note[Edition]
 External task sources register against the `EXTERNAL_TASK_SOURCES` registry
 (ADR-0097), which is **separate** from the `TASK_LINK_PROVIDERS` registry above.
-**Jira is Community (OSS) here** — a contributor connecting their *own* Jira Cloud
-account for a read-only personal pull is OSS. (In the git-link list above, Jira is
+**Jira is Community (OSS) here** — a contributor connecting their *own* Jira account
+(Cloud or self-hosted Data Center / Server) for a read-only personal pull is OSS. (In
+the git-link list above, Jira is
 an Enterprise provider — same name, different registry, different job.) The
 Enterprise edition adds richer sources (ServiceNow, Azure DevOps, …) that register
 into this same surface without any OSS code change.
@@ -98,21 +99,40 @@ into this same surface without any OSS code change.
 
 The connection is governed by three guarantees, shown as badges on the section:
 **read-only**, **one-way into My Work**, and **never writes back**. TruePPM mirrors
-the work assigned to you; it never pushes a change back to the source. Jira Cloud
-stays your source of truth.
+the work assigned to you; it never pushes a change back to the source. Jira stays
+your source of truth.
+
+Jira here is **Community (OSS)** whether you use Atlassian **Cloud** or self-hosted
+**Data Center / Server** — the read-only, one-way, personal-pull carve-out (ADR-0097)
+keys on *how* you connect, not on where Jira runs.
 
 ### What the section does
 
 - Lists each available source (Jira today) with a short description of what it
   brings into My Work.
 - **Connect a source** — an available source shows a **Connect** button that opens
-  a short, in-page wizard. There is **no OAuth redirect**: you enter your Jira
-  Cloud **site URL**, your **account email**, and a **read-only API token** you
-  create in Jira, then choose **what to pull** — the issues assigned to you
-  (recommended) or a specific **JQL** filter — and, optionally, limit it to named
-  **projects**. TruePPM verifies the token against Jira before storing it
-  (encrypted), so a wrong, expired, or wrong-scope token is rejected up front with
-  a clear message and **nothing is saved**.
+  a short, in-page wizard. There is **no OAuth redirect**. The first choice is the
+  **deployment**:
+  - **Cloud** (Atlassian-hosted) — enter your **site URL**
+    (`https://your-team.atlassian.net`), your **account email**, and a **read-only
+    API token** you create in your Jira Cloud account.
+  - **Data Center / Server** (self-hosted) — enter your instance **site URL**
+    (which may include a context path, e.g. `https://jira.example.com/jira`) and a
+    **Personal Access Token** you create in your Jira profile. No account email is
+    needed — a PAT authenticates on its own. Requires Jira **Data Center / Server
+    8.14+** (the first release with Personal Access Tokens). Your self-hosted host
+    must first be **allow-listed by your TruePPM operator** (see
+    `TRUEPPM_INTEGRATION_ALLOWED_HOSTS` in
+    [Configuration](/administration/configuration/)); if it isn't, the wizard says
+    so and names the setting — ask your operator to add the host. The instance must
+    also be reachable from the TruePPM server over the public internet (an internal
+    / private-network-only Data Center host is not yet supported).
+
+  Then choose **what to pull** — the issues assigned to you (recommended) or a
+  specific **JQL** filter — and, optionally, limit it to named **projects**. TruePPM
+  verifies the token against Jira before storing it (encrypted), so a wrong,
+  expired, wrong-scope, or non-allow-listed-host credential is rejected up front
+  with a clear message and **nothing is saved**.
 - **Connected state** — a connected source shows an **Active** badge, the linked
   account and site, a cached-item count and last-sync time (or "first sync in
   progress" until the first pull lands), and a **Recently pulled** preview of the
@@ -259,6 +279,8 @@ the cached preview — reach the mobile client through the project sync delta.
 - **ADR-0097** — User-scoped external task sources (the OSS Jira personal pull)
 - **ADR-0291** — "Available sources" section on the Connected Accounts page
 - **ADR-0313** — Jira connect flow: PAT-based, in-page connect/manage wizard
+- **ADR-0589** — Jira Data Center / Server as a deployment variant of the `jira`
+  external source
 - **ADR-0155** — At-a-glance external-link status indicators (the schedule
   list/Gantt roll-up)
 - **ADR-0163** — OSS cloud-file URL preview connector (Drive/Dropbox/Box/OneDrive

@@ -35,12 +35,23 @@ const CREDENTIALS = [
   },
 ];
 
-function connectionSummary(connected: boolean, lastSynced: string | null) {
+function connectionSummary(
+  connected: boolean,
+  lastSynced: string | null,
+  deployment: 'cloud' | 'server' = 'cloud',
+) {
+  const isServer = deployment === 'server';
   return {
     name: 'Jira',
     exists: connected,
-    base_url: connected ? 'https://acme.atlassian.net' : '',
-    account_email: connected ? 'alice@example.com' : '',
+    base_url: connected
+      ? isServer
+        ? 'https://jira.corp.example/jira'
+        : 'https://acme.atlassian.net'
+      : '',
+    deployment,
+    // Server/DC has no account email (Bearer PAT), so it stays blank there.
+    account_email: connected && !isServer ? 'alice@example.com' : '',
     status: connected ? 'connected' : 'not_connected',
     last_synced_at: lastSynced,
     jql: '',
@@ -83,7 +94,11 @@ async function setup(page: Page) {
 
   const pj = (data: unknown) => JSON.stringify(data);
   // Mutable connection state driven by the PUT / sync / DELETE handlers.
-  const state = { connected: false, lastSynced: null as string | null };
+  const state = {
+    connected: false,
+    lastSynced: null as string | null,
+    deployment: 'cloud' as 'cloud' | 'server',
+  };
 
   // Catch-all registered FIRST so the specific handlers below (registered later)
   // win — Playwright matches routes in reverse registration order.
@@ -123,12 +138,16 @@ async function setup(page: Page) {
   await page.route('**/api/v1/me/connections/*/', (route: Route) => {
     const method = route.request().method();
     if (method === 'PUT') {
+      // Echo the deployment the dialog sent so the connected card reflects the
+      // right variant (Cloud shows the linked email; Server/DC does not).
+      const body = (route.request().postDataJSON() ?? {}) as { deployment?: 'cloud' | 'server' };
+      state.deployment = body.deployment === 'server' ? 'server' : 'cloud';
       state.connected = true;
       state.lastSynced = null; // first sync not landed yet
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj(connectionSummary(true, state.lastSynced)),
+        body: pj(connectionSummary(true, state.lastSynced, state.deployment)),
       });
     }
     if (method === 'DELETE') {
@@ -139,7 +158,7 @@ async function setup(page: Page) {
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj(connectionSummary(state.connected, state.lastSynced)),
+      body: pj(connectionSummary(state.connected, state.lastSynced, state.deployment)),
     });
   });
 }
@@ -222,6 +241,68 @@ test.describe('Jira connect flow (#1421)', () => {
 
     // Error is surfaced and the wizard is back on the credential step.
     await expect(dialog.getByRole('alert')).toContainText(/Could not verify the credential/i);
+    await expect(dialog.getByLabel('Site URL')).toBeVisible();
+  });
+
+  test('Server / Data Center connect uses a PAT (no email) and reaches connected', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto('/me/settings/connected-accounts');
+
+    const jira = page.locator('#source-jira');
+    await jira.getByRole('button', { name: 'Connect' }).click();
+    const dialog = page.getByRole('dialog');
+
+    // Switch to Data Center / Server — Account email disappears, the token field
+    // becomes "Personal access token", and the allow-list expectation is set.
+    await dialog.getByText('Data Center / Server').click();
+    await expect(dialog.getByLabel('Account email')).toHaveCount(0);
+    await expect(dialog.getByText(/operator must allow-list this host/i)).toBeVisible();
+
+    await dialog.getByLabel('Site URL').fill('https://jira.corp.example/jira');
+    await dialog.getByLabel('Personal access token').fill('dc-pat-token');
+    await dialog.getByRole('button', { name: 'Continue' }).click();
+    await dialog.getByRole('button', { name: 'Start importing' }).click();
+
+    // Connected — Active, and the self-hosted host shown (no linked email).
+    await expect(jira.getByText('Active', { exact: true })).toBeVisible();
+    await expect(jira.getByText(/jira\.corp\.example\/jira/)).toBeVisible();
+  });
+
+  test('a Server host the operator has not allow-listed is rejected inline', async ({ page }) => {
+    await setup(page);
+    // The backend rejects a non-allow-listed self-hosted host with a 400 whose
+    // detail names the operator setting (#2270 / #902). The dialog surfaces it
+    // verbatim on the credential step — it is expected policy, not a bug.
+    await page.route('**/api/v1/me/connections/*/', (route: Route) => {
+      if (route.request().method() === 'PUT') {
+        return route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            detail:
+              "Host URL 'jira.corp.example' is not an allowed host for the 'jira' provider. " +
+              'A self-hosted instance must be added to TRUEPPM_INTEGRATION_ALLOWED_HOSTS by an operator.',
+            code: 'base_url_not_allowed',
+          }),
+        });
+      }
+      return route.fallback();
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    const jira = page.locator('#source-jira');
+    await jira.getByRole('button', { name: 'Connect' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByText('Data Center / Server').click();
+    await dialog.getByLabel('Site URL').fill('https://jira.corp.example');
+    await dialog.getByLabel('Personal access token').fill('dc-pat-token');
+    await dialog.getByRole('button', { name: 'Continue' }).click();
+    await dialog.getByRole('button', { name: 'Start importing' }).click();
+
+    // The operator-allow-list detail is surfaced and the wizard stays put.
+    await expect(dialog.getByRole('alert')).toContainText(/TRUEPPM_INTEGRATION_ALLOWED_HOSTS/);
     await expect(dialog.getByLabel('Site URL')).toBeVisible();
   });
 });

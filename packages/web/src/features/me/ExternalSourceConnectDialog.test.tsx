@@ -71,6 +71,7 @@ describe('ExternalSourceConnectDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: /Start importing/i }));
     expect(connectMutate).toHaveBeenCalledWith(
       {
+        deployment: 'cloud',
         secret: 'tok_secret_123',
         base_url: 'https://acme.atlassian.net',
         account_email: 'p.patel@acme.com',
@@ -102,6 +103,45 @@ describe('ExternalSourceConnectDialog', () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it('Server/DC mode hides Account email and connects with a Bearer PAT (no email)', () => {
+    connectMutate.mockImplementation((_input, opts) => opts?.onSuccess?.());
+    render(<ExternalSourceConnectDialog source={JIRA} onDismiss={vi.fn()} />);
+
+    // Switch to Data Center / Server — the Account email field disappears and the
+    // token field is relabeled "Personal access token".
+    fireEvent.click(screen.getByRole('radio', { name: /Data Center \/ Server/i }));
+    expect(screen.queryByLabelText(/Account email/i)).toBeNull();
+    expect(screen.getByLabelText(/Personal access token/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/operator must allow-list this host/i),
+    ).toBeInTheDocument();
+
+    // Continue is enabled with just host + token (no email required for Server).
+    fireEvent.change(screen.getByLabelText(/Site URL/i), {
+      target: { value: 'https://jira.corp.example/jira' },
+    });
+    fireEvent.change(screen.getByLabelText(/Personal access token/i), {
+      target: { value: 'dc-pat-token' },
+    });
+    const cont = screen.getByRole('button', { name: /Continue/i });
+    expect(cont).toBeEnabled();
+    fireEvent.click(cont);
+    fireEvent.click(screen.getByRole('button', { name: /Start importing/i }));
+
+    expect(connectMutate).toHaveBeenCalledWith(
+      {
+        deployment: 'server',
+        secret: 'dc-pat-token',
+        base_url: 'https://jira.corp.example/jira',
+        jql: '',
+        project_keys: [],
+      },
+      expect.any(Object),
+    );
+    // No account_email key is sent for Server/DC.
+    expect(connectMutate.mock.calls[0][0]).not.toHaveProperty('account_email');
   });
 
   it('surfaces a verification error and returns to the credential step', () => {
