@@ -106,6 +106,19 @@ Jira here is **Community (OSS)** whether you use Atlassian **Cloud** or self-hos
 **Data Center / Server** — the read-only, one-way, personal-pull carve-out (ADR-0097)
 keys on *how* you connect, not on where Jira runs.
 
+:::note[What is mirrored — and what stays in Jira]
+The pull is a **thin, read-only projection**, not a Jira replica. For each
+assigned issue TruePPM mirrors only its **key**, **summary** (shown as the item
+title), **status** (and the To Do / In Progress / Done category it rolls up to),
+**due date**, and a **deep link** back to the issue in Jira. Everything else
+stays in Jira and is **not** pulled — **custom fields**, description, comments,
+story points, labels, components, epics, sprints, attachments, and worklogs. This
+is by design: My Work is a live pointer to your assigned work, not a migration.
+To lift a Jira issue set *into* a TruePPM project as CPM-schedulable tasks, use
+the separate [Jira import](/features/jira-import/), which has its own deliberate
+field limits (custom fields are excluded there too).
+:::
+
 ### What the section does
 
 - Lists each available source (Jira today) with a short description of what it
