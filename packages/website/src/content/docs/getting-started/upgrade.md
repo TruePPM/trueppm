@@ -30,6 +30,49 @@ source (see [Installation](/getting-started/installation/#helm--kubernetes)).
 
 ---
 
+## Per-release operational change notes
+
+Every release carries a short **operational change note** answering one question:
+*what does an operator have to check or change before and after this upgrade?*
+This is distinct from the changelog (user-facing changes) — it is the operator's
+pre-flight. Each release's note appears in a versioned section on this page (see
+[Upgrading to 0.3](#upgrading-to-03) below for the shape); the template used to
+write one is:
+
+```markdown
+## Upgrading to <version>
+
+**Migration behavior:** <additive-only / includes destructive ops / data backfill>.
+Downtime: <none beyond the migrate run / brief write pause / maintenance window>.
+
+**New or changed env vars / Helm values:**
+- `NEW_VAR` — <what it does, default, whether action is required>
+- `changed.helm.value` — <old → new default, action required?>
+
+**Breaking config:** <none / describe what an existing config must change>.
+
+**New migrations operators will see:**
+- `<app>.<NNNN_name>` — <one line: what schema it adds/changes>
+
+**Pre-upgrade action:** <back up (always) / rotate a credential / set a new value>.
+**Post-upgrade verification:** <what "green" looks like — see the checklist below>.
+**Rollback notes:** <forward-only? safe to roll back? migration-reversibility caveat>.
+```
+
+Fill this in from the release's changelog fragments, the diff of
+`packages/helm/values.yaml`, and the new files under
+`packages/api/**/migrations/`. Even an all-additive release gets a note so the
+operator has a complete picture rather than inferring "nothing changed."
+
+:::note[Where the values reference lives]
+When a release changes a Helm default, link the affected knob to the
+[Helm values reference](/administration/helm-values/) rather than restating it,
+so the operational note stays short and the reference stays the single source of
+truth.
+:::
+
+---
+
 ## Upgrading to 0.3
 
 0.3 adds new database tables and columns for the agile-team feature set. All of
@@ -157,6 +200,36 @@ upgrading **from a pre-hardening release**:
 
 :::caution
 Rolling back database migrations is risky and should be a last resort. Prefer rolling forward with a fix unless data integrity is at immediate risk.
+:::
+
+### Migration reversibility — read this first
+
+The safe rollback path depends entirely on **what the upgrade's migrations did**,
+so classify them before you touch anything (the release's [operational change
+note](#per-release-operational-change-notes) states this):
+
+- **Additive-only** (new tables, new nullable columns, new indexes — the common
+  case, and every 0.3 migration). The new schema is a **superset** of the old, so
+  the previous image runs against it unchanged. **Roll back the image/chart
+  revision only — do not reverse the migrations and do not restore the database.**
+  The extra tables/columns sit unused until you roll forward again.
+- **Destructive or transforming** (a column drop/rename, a type change, or a data
+  backfill that rewrites rows). The old code cannot run against the new schema,
+  and reversing the migration **loses the data the new schema captured**. Here a
+  clean rollback means **restore the pre-upgrade backup** — a `migrate` reverse is
+  not a substitute, because Django's reverse operations recreate structure but
+  cannot recover dropped or transformed data. This is why the [pre-upgrade
+  backup](#before-you-upgrade) is mandatory, not optional.
+
+:::caution[The migration-aware readiness probe interacts with rollback]
+The API readiness probe (`/api/v1/readyz`) reports **not-ready** whenever the
+connected database has migrations the running image has not applied — its design
+guard for rolling *forward*. On a **downgrade to an image older than the applied
+schema**, that same check keeps the older pods out of the Service until the schema
+matches their code. So an image-only rollback across a schema change will leave
+pods `Ready: false`; the correct move for a schema-changing release is the
+restore-from-backup path above (restore the old schema, *then* roll the image
+back), not an image-only downgrade.
 :::
 
 ### Docker Compose rollback
