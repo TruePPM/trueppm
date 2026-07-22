@@ -5,6 +5,7 @@ import {
   SettingsShell,
   SettingsSection,
   SettingsPageTitle,
+  FieldRow,
   type SettingsNavGroup,
   type SettingsScopeLink,
 } from './SettingsShell';
@@ -714,5 +715,65 @@ describe('<SettingsShell> heading & region structure (#2204)', () => {
     expect(screen.getByRole('region', { name: 'General' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Access' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'general' })).not.toBeInTheDocument();
+  });
+});
+
+describe('<FieldRow> aria-describedby wiring (web-rule 269, #2266)', () => {
+  it('gives the hint a stable id and forwards it so the control describes by it', () => {
+    render(
+      <FieldRow label="Default timezone" hint="Used for due dates.">
+        {({ describedBy }) => <input aria-label="Default timezone" aria-describedby={describedBy} />}
+      </FieldRow>,
+    );
+    const input = screen.getByLabelText('Default timezone');
+    const hint = screen.getByText('Used for due dates.');
+    // The generated hint id must be present and be exactly what the control
+    // points its aria-describedby at — otherwise the hint is orphaned text.
+    expect(hint.id).toBeTruthy();
+    expect(input).toHaveAttribute('aria-describedby', hint.id);
+  });
+
+  it('joins hint and error ids into describedBy, in that order', () => {
+    render(
+      <FieldRow label="Port" hint="Usually 587." error="Port is required">
+        {({ describedBy }) => <input aria-label="Port" aria-describedby={describedBy} />}
+      </FieldRow>,
+    );
+    const input = screen.getByLabelText('Port');
+    const hint = screen.getByText('Usually 587.');
+    const error = screen.getByRole('alert');
+    expect(input).toHaveAttribute('aria-describedby', `${hint.id} ${error.id}`);
+  });
+
+  it('leaves describedBy undefined when the row has neither hint nor error', () => {
+    render(
+      <FieldRow label="Bare">
+        {({ describedBy }) => <input aria-label="Bare" aria-describedby={describedBy} />}
+      </FieldRow>,
+    );
+    // No hint, no error → nothing to describe by; the attribute must be absent,
+    // never an empty string that points a screen reader at nothing.
+    expect(screen.getByLabelText('Bare')).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('honors an explicit errorId prop over the generated one', () => {
+    render(
+      <FieldRow label="Host" error="Host is required" errorId="host-err">
+        {({ errorId }) => <input aria-label="Host" aria-describedby={errorId} />}
+      </FieldRow>,
+    );
+    expect(screen.getByRole('alert')).toHaveAttribute('id', 'host-err');
+    expect(screen.getByLabelText('Host')).toHaveAttribute('aria-describedby', 'host-err');
+  });
+
+  it('still renders a plain-node child unchanged (backward compatible)', () => {
+    render(
+      <FieldRow label="Name" hint="Shown everywhere.">
+        <input aria-label="Name" />
+      </FieldRow>,
+    );
+    // Legacy callers pass JSX, not a function — the row must render it as-is.
+    expect(screen.getByLabelText('Name')).toBeInTheDocument();
+    expect(screen.getByText('Shown everywhere.')).toBeInTheDocument();
   });
 });
