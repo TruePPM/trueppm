@@ -165,6 +165,55 @@ describe('ProgramRollupPage (settings)', () => {
     ).toBeInTheDocument();
   });
 
+  it('renders a FieldHelp ⓘ on the Enabled KPIs + Aggregation policy section headers whose popover deep-links to the docs (#2266)', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_ADMIN } });
+    useProgramRollupConfig.mockReturnValue({
+      data: defaultConfig(),
+      isLoading: false,
+      isError: false,
+      refetch,
+    });
+    renderPage();
+
+    // Each jargon-dense section header carries an ⓘ trigger named
+    // "About the {label} options" (FieldHelp, web-rule 263).
+    expect(
+      screen.getByRole('button', { name: /About the Enabled KPIs options/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /About the Health aggregation policy options/i }),
+    ).toBeInTheDocument();
+
+    // Opening the KPIs help shows a non-modal dialog with a "Learn more →" link
+    // deep-linking to the program-settings rollup docs anchor (web-rule 212).
+    await user.click(screen.getByRole('button', { name: /About the Enabled KPIs options/i }));
+    const dialog = screen.getByRole('dialog', { name: /Enabled KPIs/i });
+    const learnMore = within(dialog).getByRole('link', { name: /Learn more/i });
+    expect(learnMore).toHaveAttribute('href', expect.stringContaining('program-settings'));
+  });
+
+  it('keeps the FieldHelp ⓘ reachable for read-only viewers — this page has no StubFieldset (#2266)', () => {
+    // Unlike ProgramGeneralPage (whose StubFieldset disables the ⓘ for
+    // non-admins), this page never wraps its controls in a disabled fieldset,
+    // so a Viewer/Member still gets contextual help even though every write
+    // control is read-only. This is the read-only-reachable help deferred in MR3.
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_MEMBER } });
+    useProgramRollupConfig.mockReturnValue({
+      data: defaultConfig(),
+      isLoading: false,
+      isError: false,
+      refetch,
+    });
+    renderPage();
+
+    expect(screen.getByText(/Read-only/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /About the Enabled KPIs options/i })).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: /About the Health aggregation policy options/i }),
+    ).toBeEnabled();
+  });
+
   it('toggling a KPI flips the switch immediately and PATCHes the new list after debounce', async () => {
     const user = userEvent.setup();
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_ADMIN } });

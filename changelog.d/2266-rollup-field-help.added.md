@@ -1,0 +1,1 @@
+Added contextual help (with a "Learn more" documentation link) to the Enabled KPIs and Health aggregation policy sections on a program's Rollup KPIs settings, explaining the schedule/risk/cost signals and the aggregation options. The help affordance stays reachable for read-only viewers.
