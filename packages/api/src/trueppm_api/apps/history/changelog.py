@@ -207,6 +207,58 @@ def _object_id_for(source: ChangelogSource, row: Any) -> str:
     return str(row.id)
 
 
+def _fetch_source_rows(
+    source: ChangelogSource,
+    project: Any,
+    *,
+    since: datetime | None,
+    history_types: set[str] | None,
+    user_id: Any,
+    cursor: ChangelogCursor | None,
+    page_size: int,
+) -> list[Any]:
+    """Fetch one source's bounded, newest-first row window (``LIMIT page_size + 1``).
+
+    Each of the ``since`` / ``history_types`` / ``user_id`` / ``cursor`` filters is
+    applied only when set, so an unconstrained call scans just the project-scoped
+    rows. ``select_related("history_user")`` keeps the per-row ``history_user``
+    render from fanning out into a query per row.
+    """
+    model = _historical_model(source.object_type)
+    qs: QuerySet[Any] = model.objects.filter(**{source.project_filter: project.pk})
+    if since is not None:
+        qs = qs.filter(history_date__gte=since)
+    if history_types is not None:
+        qs = qs.filter(history_type__in=history_types)
+    if user_id is not None:
+        qs = qs.filter(history_user_id=user_id)
+    if cursor is not None:
+        qs = qs.filter(_cursor_filter(source, cursor))
+    return list(
+        qs.select_related("history_user").order_by("-history_date", "-history_id")[: page_size + 1]
+    )
+
+
+def _source_entries(
+    source: ChangelogSource,
+    rows: list[Any],
+    diff_fn: Any,
+) -> list[tuple[tuple[datetime, int, int], dict[str, Any]]]:
+    """Pair one source's rows with their diffs and key each surviving entry.
+
+    Diffs are computed within this source's batch (same model), so the
+    ``history_id``-keyed dict never collides across tables. Rows whose entire diff
+    is redacted (:func:`_row_to_entry` returns ``None``) are dropped.
+    """
+    diffs = diff_fn(rows, all_records=rows)
+    collected: list[tuple[tuple[datetime, int, int], dict[str, Any]]] = []
+    for row in rows:
+        entry = _row_to_entry(source, row, diffs)
+        if entry is not None:
+            collected.append(((row.history_date, source.rank, row.history_id), entry))
+    return collected
+
+
 def build_project_changelog(
     project: Any,
     *,
@@ -247,34 +299,17 @@ def build_project_changelog(
     for source in _sources():
         if wanted_types is not None and source.object_type not in wanted_types:
             continue
-
-        model = _historical_model(source.object_type)
-        qs: QuerySet[Any] = model.objects.filter(**{source.project_filter: project.pk})
-        if since is not None:
-            qs = qs.filter(history_date__gte=since)
-        if history_types is not None:
-            qs = qs.filter(history_type__in=history_types)
-        if user_id is not None:
-            qs = qs.filter(history_user_id=user_id)
-        if cursor is not None:
-            qs = qs.filter(_cursor_filter(source, cursor))
-
-        rows = list(
-            qs.select_related("history_user").order_by("-history_date", "-history_id")[
-                : page_size + 1
-            ]
+        rows = _fetch_source_rows(
+            source,
+            project,
+            since=since,
+            history_types=history_types,
+            user_id=user_id,
+            cursor=cursor,
+            page_size=page_size,
         )
-        if not rows:
-            continue
-
-        # Diffs are paired within this source's batch (same model), so the
-        # ``history_id``-keyed dict never collides across tables.
-        diffs = diff_fn(rows, all_records=rows)
-        for row in rows:
-            entry = _row_to_entry(source, row, diffs)
-            if entry is None:
-                continue
-            entries.append(((row.history_date, source.rank, row.history_id), entry))
+        if rows:
+            entries.extend(_source_entries(source, rows, diff_fn))
 
     # Newest-first total order: history_date DESC, rank ASC, history_id DESC.
     entries.sort(key=lambda item: (item[0][0], -item[0][1], item[0][2]), reverse=True)
