@@ -135,6 +135,48 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByRole('radio', { name: 'Hybrid', checked: true })).toBeInTheDocument();
   });
 
+  it('renders a FieldHelp ⓘ on jargon/policy/cascade fields whose popover deep-links to the docs (#2266)', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    // The ⓘ trigger is a button named "About the {label} options" (FieldHelp,
+    // web-rule 263). Self-evident fields (name, code, description) get no ⓘ.
+    expect(screen.getByRole('button', { name: /About the Methodology options/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /About the Estimation scale options/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /About the Allow guests options/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /About the Program name options/i })).toBeNull();
+
+    // Opening Methodology's help shows a non-modal dialog with a "Learn more →"
+    // link pointing at the methodology-preset docs page (web-rule 212).
+    await user.click(screen.getByRole('button', { name: /About the Methodology options/i }));
+    const dialog = screen.getByRole('dialog', { name: /Methodology/i });
+    const learnMore = within(dialog).getByRole('link', { name: /Learn more/i });
+    expect(learnMore).toHaveAttribute(
+      'href',
+      expect.stringContaining('features/methodology-preset/'),
+    );
+  });
+
+  it('hides the FieldHelp ⓘ for read-only viewers rather than rendering a disabled one (#2266)', () => {
+    // The whole form sits in `<StubFieldset disabled={!canEdit}>` (#1084), whose
+    // `<fieldset disabled>` would disable the ⓘ trigger <button> — a dead, dimmed
+    // affordance (ux-review §8 / web-rule 122). Below Admin we render no trigger;
+    // the always-visible inline hint still explains the field.
+    useProgram.mockReturnValue({ data: makeProgram({ my_role: 0, my_role_label: 'Viewer' }) });
+    renderPage();
+    expect(screen.queryByRole('button', { name: /About the Methodology options/i })).toBeNull();
+    // The inline hint the control describes by is unaffected (it is a <div>, not a
+    // form control) — read-only users still get the plain-language explanation.
+    expect(
+      screen.getByText(/Default methodology for projects in this program/i),
+    ).toBeInTheDocument();
+  });
+
   it('renders the visibility control disabled with a "not yet enforced" note (#2011)', () => {
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();

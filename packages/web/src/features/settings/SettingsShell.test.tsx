@@ -776,4 +776,27 @@ describe('<FieldRow> aria-describedby wiring (web-rule 269, #2266)', () => {
     expect(screen.getByLabelText('Name')).toBeInTheDocument();
     expect(screen.getByText('Shown everywhere.')).toBeInTheDocument();
   });
+
+  it('renders an optional help slot in the label row (#2266)', () => {
+    render(
+      <FieldRow label="Methodology" hint="Planning model." help={<button>ⓘ help</button>}>
+        <input aria-label="Methodology" />
+      </FieldRow>,
+    );
+    // The help affordance (a shared FieldHelp ⓘ, web-rule 263) sits beside the
+    // label; the hint remains the aria-describedby target and is unaffected.
+    expect(screen.getByRole('button', { name: 'ⓘ help' })).toBeInTheDocument();
+    expect(screen.getByText('Planning model.')).toBeInTheDocument();
+  });
+
+  it('renders no help node when the slot is omitted (backward compatible)', () => {
+    render(
+      <FieldRow label="Name">
+        <input aria-label="Name" />
+      </FieldRow>,
+    );
+    // The ~100 existing call sites pass no `help` — the label row is unchanged.
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByLabelText('Name')).toBeInTheDocument();
+  });
 });

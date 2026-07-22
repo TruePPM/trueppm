@@ -886,6 +886,17 @@ interface FieldRowProps {
   label: string;
   hint?: ReactNode;
   /**
+   * Optional contextual-help affordance rendered inline in the label row, to the
+   * right of the label — the home for a shared {@link FieldHelp} ⓘ trigger
+   * (web-rule 263). Kept distinct from `hint`: `hint` is the always-visible
+   * explanatory line the control's `aria-describedby` points at, while `help` is
+   * an on-demand popover trigger that is deliberately NOT part of that
+   * association. Absent → the label renders exactly as before (~100 call sites
+   * unaffected). Previously each FieldHelp field hand-rolled its label row (see
+   * `WorkspaceEmailPage`), losing this row's responsive grid + describedby wiring.
+   */
+  help?: ReactNode;
+  /**
    * Row content. Either a plain node, or a render function that receives the
    * {@link FieldRowDescriptors} for this row so the control can wire
    * `aria-describedby` to the visible hint (and inline error) without the caller
@@ -921,7 +932,7 @@ interface FieldRowProps {
  * `aria-describedby` at it, so the hint and inline error are programmatically
  * associated with the control rather than being merely adjacent text.
  */
-export function FieldRow({ label, hint, children, error, errorId }: FieldRowProps) {
+export function FieldRow({ label, hint, help, children, error, errorId }: FieldRowProps) {
   // Generate ids unconditionally (hooks can't be called conditionally), then
   // only surface the ones whose nodes actually render — a control must never
   // `aria-describedby` an id that isn't in the DOM.
@@ -942,7 +953,10 @@ export function FieldRow({ label, hint, children, error, errorId }: FieldRowProp
   return (
     <div className="grid grid-cols-1 gap-2 md:gap-6 md:grid-cols-[240px_1fr] py-3.5 border-b border-neutral-border/55 items-start">
       <div>
-        <div className="text-[13px] font-medium text-neutral-text-primary">{label}</div>
+        <div className="flex items-center gap-1.5">
+          <div className="text-[13px] font-medium text-neutral-text-primary">{label}</div>
+          {help}
+        </div>
         {hint && (
           <div
             id={hintId}
