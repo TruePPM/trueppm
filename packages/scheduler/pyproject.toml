@@ -57,6 +57,10 @@ dev = [
     "pytest-cov>=4.0,<8.0",
     "diff-cover>=9.0,<10.0",
     "hypothesis>=6.0,<7.0",
+    # Mutation testing (#2282): proves the suite's assertions actually *catch*
+    # regressions, not just that lines execute. Dev/CI-only — never shipped in the
+    # wheel. Pinned below 4 (the 3.x line is the maintained rewrite).
+    "mutmut>=3.6,<4",
     "mypy>=1.0,<2.0",
     "ruff>=0.8,<1.0",
     "types-networkx>=3.0,<4",
@@ -87,6 +91,50 @@ addopts = "--strict-markers --tb=short -q"
 markers = [
     "fuzz: property-based contract-fuzzing tests (#1456); run deep via HYPOTHESIS_PROFILE=deep",
 ]
+
+# Mutation testing (#2282). Coverage proves a line ran under test; mutation
+# testing proves the tests would FAIL if that line were wrong — the missing third
+# leg alongside Hypothesis (#1456) and Schemathesis (#2121). Runs nightly and
+# non-gating via the `scheduler:mutation` CI job (the fuzz-job pattern), never on
+# the MR critical path.
+#
+# Beachhead scope: the pure-logic modules where a weak assertion is most
+# dangerous. engine.py (the ~148 KB CPM/Monte-Carlo core) is the tracked phase-2
+# expansion — add it to `only_mutate` once this baseline is stable so its
+# thousands of mutants don't swamp the first runs.
+[tool.mutmut]
+source_paths = ["src/trueppm_scheduler"]
+only_mutate = [
+    "*/models.py",
+    "*/derive.py",
+    "*/cli.py",
+]
+# The full deterministic behavioral suite runs against every mutant (mutmut's
+# stats pass maps tests to the mutants they cover, then runs only the covering
+# tests per mutant), so a models.py mutant that only test_engine.py would kill is
+# still correctly counted as killed — no narrowing to a subset, which would
+# manufacture false survivors.
+#
+# The exclusions below are NOT behavioral coverage — they are tests that cannot
+# run inside mutmut's copied `mutants/` sandbox or that carry no kill signal:
+#   * test_wasm_conformance / test_reject_in_both_engines — compare the Python and
+#     Rust engines against the shared fixtures/ tree, which is not copied into the
+#     sandbox; both hard-fail (by design, #1506) when the dir is absent.
+#   * test_bench — a timing benchmark (hard-fails at 2s), non-behavioral and would
+#     collide with per-mutant timeouts.
+#   * test_contract_fuzz — Hypothesis property fuzzing; stochastic, run separately
+#     by scheduler:fuzz-deep.
+pytest_add_cli_args = [
+    "--ignore=tests/test_wasm_conformance.py",
+    "--ignore=tests/test_reject_in_both_engines.py",
+    "--ignore=tests/test_bench.py",
+    "--ignore=tests/test_contract_fuzz.py",
+]
+#
+# mutmut runs the suite inside a copied `mutants/` sandbox; copy scripts/ in too so
+# tests/test_mutation_score.py can import the score helper there as it does in a
+# normal run.
+also_copy = ["scripts/"]
 
 [tool.mypy]
 # No python_version pin (#1342): mypy tracks the interpreter it runs under, so it

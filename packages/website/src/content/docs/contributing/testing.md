@@ -83,6 +83,54 @@ coordinate math, hit-testing, dependency routing — and its pure helpers are un
 tested rather than hidden from the number. Visual-regression checks guard the
 pixels; unit tests guard the logic.
 
+## Beyond coverage — does an assertion actually catch a bug?
+
+Coverage answers "did a test *execute* this line?" It does not answer "would a
+test *fail* if this line were wrong?" A suite can run every line and still assert
+almost nothing. Three techniques close that gap, strongest signal on the
+scheduler because it is the core IP:
+
+- **Property-based testing** (Hypothesis) generates thousands of inputs and checks
+  invariants that must always hold — a schedule never starts a task before its
+  predecessor finishes, float is never negative — rather than a handful of
+  hand-picked examples. Runs as a deterministic gate on every scheduler MR and,
+  under a large stochastic budget, nightly via `scheduler:fuzz-deep`.
+- **Contract fuzzing** (Schemathesis) drives every documented API operation with
+  generated inputs and flags any unhandled 500 or response that violates the
+  declared OpenAPI schema. Runs nightly via `api:fuzz`.
+- **Mutation testing** (mutmut) is the direct test of assertion strength: it
+  deliberately corrupts the source — flips a `<` to `<=`, a `+` to `-`, a `True` to
+  `False` — and reruns the suite. If no test fails, that *mutant* **survived**: the
+  line is executed but not actually checked. A surviving mutant points at exactly
+  the assertion the suite is missing.
+
+### Running mutation testing
+
+Mutation testing runs against the `trueppm-scheduler` package. It is scoped (via
+`[tool.mutmut]` in `packages/scheduler/pyproject.toml`) to the pure-logic
+modules — `models.py`, `derive.py`, `cli.py` — where a weak assertion is most
+dangerous; the CPM/Monte-Carlo `engine.py` is the tracked next expansion.
+
+```bash
+cd packages/scheduler
+pip install -e ".[dev]"          # mutmut is in the dev extra
+mutmut run                        # corrupt + rerun; writes results into mutants/
+mutmut results                    # list surviving mutants
+mutmut show <mutant-name>         # see the exact corruption that survived
+```
+
+Each survivor is a triage item: write the assertion that would kill it, then rerun.
+`mutmut export-cicd-stats` writes `mutants/mutmut-cicd-stats.json`, and
+`scripts/check_mutation_score.py` turns that into a single **mutation score** —
+the fraction of mutants the suite killed, excluding mutants on lines no test covers
+(that is a coverage gap, which the coverage gate already owns, not an
+assertion-strength gap).
+
+In CI this runs as **`scheduler:mutation`** — schedule-only and non-gating
+(`allow_failure: true`), the same "triage signal, never a merge gate" shape as the
+fuzz jobs. The score floor (`MUTATION_MIN`) starts report-only so the first nightly
+runs establish a baseline before any threshold is enforced.
+
 ## CI gates
 
 The quality gates that run on every merge request:
