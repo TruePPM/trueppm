@@ -1,5 +1,6 @@
 """Tests for the EXTERNAL_TASK_SOURCES registry, DTO sanitization, and the OSS
-Jira Cloud source (ADR-0097 §1).
+Jira source — Cloud (REST v3 / Basic) and Data Center / Server (REST v2 / Bearer
+PAT) — (ADR-0097 §1, ADR-0589).
 
 The Jira HTTP calls are exercised against a stubbed egress layer — the SSRF
 guard and transport are covered separately in ``test_http_ssrf.py``; here we
@@ -17,7 +18,8 @@ from trueppm_api.apps.integrations.external_sources import (
     ExternalSourceError,
     ExternalTaskSource,
     ExternalWorkItemDTO,
-    JiraCloudSource,
+    JiraSource,
+    _jira_server_base,
 )
 
 
@@ -34,7 +36,7 @@ def test_jira_registered_as_external_source() -> None:
     """OSS owns ``jira`` in EXTERNAL_TASK_SOURCES (a distinct registry)."""
     assert "jira" in EXTERNAL_TASK_SOURCES
     source_cls = EXTERNAL_TASK_SOURCES.get("jira")
-    assert source_cls is JiraCloudSource
+    assert source_cls is JiraSource
     assert issubclass(source_cls, ExternalTaskSource)
 
 
@@ -81,7 +83,7 @@ def test_dto_sanitized_caps_field_lengths() -> None:
 
 
 # ---------------------------------------------------------------------------
-# JiraCloudSource.verify_credential
+# JiraSource.verify_credential
 # ---------------------------------------------------------------------------
 
 
@@ -92,7 +94,7 @@ def test_verify_missing_email_fails_without_network(monkeypatch: pytest.MonkeyPa
         raise AssertionError("verify must not call the network without an email")
 
     monkeypatch.setattr(http, "get", _boom)
-    result = JiraCloudSource().verify_credential(
+    result = JiraSource().verify_credential(
         base_url="https://acme.atlassian.net", secret="tok", config={}
     )
     assert result.ok is False
@@ -101,7 +103,7 @@ def test_verify_missing_email_fails_without_network(monkeypatch: pytest.MonkeyPa
 
 def test_verify_ok_on_200(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(http, "get", lambda *a, **k: _resp(200, b'{"displayName": "Priya"}'))
-    result = JiraCloudSource().verify_credential(
+    result = JiraSource().verify_credential(
         base_url="https://acme.atlassian.net",
         secret="tok",
         config={"account_email": "p@acme.io"},
@@ -112,7 +114,7 @@ def test_verify_ok_on_200(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_verify_invalid_token_on_401(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(http, "get", lambda *a, **k: _resp(401, b"{}"))
-    result = JiraCloudSource().verify_credential(
+    result = JiraSource().verify_credential(
         base_url="https://acme.atlassian.net",
         secret="bad",
         config={"account_email": "p@acme.io"},
@@ -126,7 +128,7 @@ def test_verify_blocked_host_on_egress_block(monkeypatch: pytest.MonkeyPatch) ->
         raise http.EgressBlocked("private range")
 
     monkeypatch.setattr(http, "get", _blocked)
-    result = JiraCloudSource().verify_credential(
+    result = JiraSource().verify_credential(
         base_url="https://acme.atlassian.net",
         secret="tok",
         config={"account_email": "p@acme.io"},
@@ -136,7 +138,7 @@ def test_verify_blocked_host_on_egress_block(monkeypatch: pytest.MonkeyPatch) ->
 
 
 # ---------------------------------------------------------------------------
-# JiraCloudSource.fetch_assigned_items
+# JiraSource.fetch_assigned_items
 # ---------------------------------------------------------------------------
 
 _SEARCH_BODY = b"""
@@ -161,7 +163,7 @@ def test_fetch_maps_issues_to_dtos(monkeypatch: pytest.MonkeyPatch) -> None:
         return _resp(200, _SEARCH_BODY)
 
     monkeypatch.setattr(http, "get", _get)
-    items = JiraCloudSource().fetch_assigned_items(
+    items = JiraSource().fetch_assigned_items(
         base_url="https://acme.atlassian.net",
         secret="tok",
         config={"account_email": "p@acme.io"},
@@ -182,7 +184,7 @@ def test_fetch_auth_error_on_403(monkeypatch: pytest.MonkeyPatch) -> None:
     rather than soft-removing every cached item on an empty list."""
     monkeypatch.setattr(http, "get", lambda *a, **k: _resp(403, b"{}"))
     with pytest.raises(ExternalSourceAuthError):
-        JiraCloudSource().fetch_assigned_items(
+        JiraSource().fetch_assigned_items(
             base_url="https://acme.atlassian.net",
             secret="tok",
             config={"account_email": "p@acme.io"},
@@ -195,8 +197,82 @@ def test_fetch_error_on_transport_failure(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(http, "get", _err)
     with pytest.raises(ExternalSourceError):
-        JiraCloudSource().fetch_assigned_items(
+        JiraSource().fetch_assigned_items(
             base_url="https://acme.atlassian.net",
             secret="tok",
             config={"account_email": "p@acme.io"},
         )
+
+
+# ---------------------------------------------------------------------------
+# Jira Data Center / Server variant (deployment="server") — ADR-0589
+# ---------------------------------------------------------------------------
+
+_SERVER_CONFIG = {"deployment": "server"}
+
+
+def test_server_base_preserves_context_path_and_port() -> None:
+    """A DC/Server host deployed under a context path (and/or non-standard port)
+    keeps both — dropping them (as Cloud does) would 404 every REST call."""
+    assert _jira_server_base("https://jira.corp.example/jira") == "https://jira.corp.example/jira"
+    assert (
+        _jira_server_base("https://jira.corp.example:8443/jira/")
+        == "https://jira.corp.example:8443/jira"
+    )
+    assert _jira_server_base("https://jira.corp.example") == "https://jira.corp.example"
+
+
+def test_server_verify_uses_v2_and_bearer_without_email(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Server pings ``/rest/api/2/myself`` with a Bearer PAT and needs no email
+    (unlike Cloud Basic auth, which fails fast on a missing email)."""
+    captured: dict[str, str] = {}
+
+    def _get(
+        url: str, *, headers: dict[str, str] | None = None, **k: object
+    ) -> http.EgressResponse:
+        captured["url"] = url
+        captured["auth"] = (headers or {}).get("Authorization", "")
+        return _resp(200, b'{"displayName": "Sam"}')
+
+    monkeypatch.setattr(http, "get", _get)
+    result = JiraSource().verify_credential(
+        base_url="https://jira.corp.example/jira", secret="pat-token", config=_SERVER_CONFIG
+    )
+    assert result.ok is True
+    assert result.username == "Sam"
+    assert captured["url"] == "https://jira.corp.example/jira/rest/api/2/myself"
+    assert captured["auth"] == "Bearer pat-token"
+
+
+def test_server_fetch_uses_v2_bearer_and_context_path_browse_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Server fetch hits REST v2 with a Bearer PAT; the browse deep link carries
+    the context path so it opens the right issue on a path-hosted DC install."""
+    captured: dict[str, str] = {}
+
+    def _get(
+        url: str, *, headers: dict[str, str] | None = None, **k: object
+    ) -> http.EgressResponse:
+        captured["url"] = url
+        captured["auth"] = (headers or {}).get("Authorization", "")
+        return _resp(200, _SEARCH_BODY)
+
+    monkeypatch.setattr(http, "get", _get)
+    items = JiraSource().fetch_assigned_items(
+        base_url="https://jira.corp.example/jira", secret="pat-token", config=_SERVER_CONFIG
+    )
+    assert [i.external_id for i in items] == ["RIV-482", "RIV-9"]
+    assert items[0].external_url == "https://jira.corp.example/jira/browse/RIV-482"
+    assert captured["url"].startswith("https://jira.corp.example/jira/rest/api/2/search?")
+    assert captured["auth"] == "Bearer pat-token"
+
+
+def test_server_verify_invalid_token_on_401(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dead/expired PAT is reported as an invalid token, not a transport error."""
+    monkeypatch.setattr(http, "get", lambda *a, **k: _resp(401, b"{}"))
+    result = JiraSource().verify_credential(
+        base_url="https://jira.corp.example", secret="bad", config=_SERVER_CONFIG
+    )
+    assert result.ok is False
+    assert result.reason == "invalid_token"

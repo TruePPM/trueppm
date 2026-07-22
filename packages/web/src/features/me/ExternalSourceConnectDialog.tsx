@@ -11,9 +11,15 @@
  * reassurance framing.
  *
  * Steps:
- *   1. credentials — site URL + account email + API token (+ read-only scopes note)
+ *   1. credentials — deployment (Cloud | Server/DC) + site URL + (Cloud) account
+ *                    email + API token / PAT (+ read-only scopes note)
  *   2. configure   — what to pull (assigned-to-me default | custom JQL) + projects
  *   3. connecting  — spinner while the PUT (and a first sync) resolve
+ *
+ * Jira Cloud (Atlassian-hosted) and self-hosted Data Center / Server differ only
+ * on the credential step: Server/DC authenticates with a Personal Access Token
+ * (no account email) and its host must be operator-allow-listed (#2270,
+ * ADR-0589). The choice rides to the backend as `deployment`.
  *
  * A `422`/`400` (rejected credential or disallowed host) returns to the
  * credential step with the backend `detail` shown inline.
@@ -30,6 +36,7 @@ import type { ExternalTaskSourceEntry } from '@/features/integrations/registry';
 import { SourceMark } from '@/features/integrations/SourceMark';
 
 type Step = 'credentials' | 'configure' | 'connecting';
+type Deployment = 'cloud' | 'server';
 
 const DEFAULT_JQL = 'assignee = currentUser() AND statusCategory != Done';
 
@@ -51,6 +58,7 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
   const descId = useId();
   const [step, setStep] = useState<Step>('credentials');
 
+  const [deployment, setDeployment] = useState<Deployment>('cloud');
   const [baseUrl, setBaseUrl] = useState('');
   const [accountEmail, setAccountEmail] = useState('');
   const [secret, setSecret] = useState('');
@@ -110,9 +118,12 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
     e.preventDefault();
     setError(null);
     const input: ConnectExternalSourceInput = {
+      deployment,
       secret,
       base_url: baseUrl.trim(),
-      account_email: accountEmail.trim(),
+      // Account email is Cloud-only (Basic auth needs it); Server/DC authenticates
+      // with a Bearer PAT alone, so the field is omitted entirely for `server`.
+      ...(deployment === 'cloud' ? { account_email: accountEmail.trim() } : {}),
       // Assigned-to-me is the backend's default when no JQL is stored, so the
       // recommended mode sends an empty filter rather than duplicating the query.
       jql: pullMode === 'jql' ? jql.trim() : '',
@@ -140,8 +151,13 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
     });
   }
 
+  // Account email is required for Cloud (Basic auth) but not Server/DC (PAT Bearer).
   const canSubmitCredentials =
-    baseUrl.trim() !== '' && accountEmail.trim() !== '' && secret.trim() !== '';
+    baseUrl.trim() !== '' &&
+    secret.trim() !== '' &&
+    (deployment === 'server' || accountEmail.trim() !== '');
+
+  const isServer = deployment === 'server';
 
   return (
     <div
@@ -173,32 +189,76 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
               TruePPM pulls your assigned issues into My Work and never writes back to {source.name}.
             </p>
 
+            {/* Deployment gates which fields render, so it is the first choice.
+                Native radios (visually a segmented control) give arrow-key roving
+                + grouping for free; the <legend> supplies the group label. */}
+            <fieldset className="flex flex-col gap-1">
+              <legend className="text-[12px] font-medium text-neutral-text-primary mb-1">Deployment</legend>
+              <div className="flex rounded-control border border-neutral-border overflow-hidden">
+                {([
+                  { value: 'cloud', label: 'Cloud' },
+                  { value: 'server', label: 'Data Center / Server' },
+                ] as const).map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`flex-1 h-9 flex items-center justify-center text-[13px] font-medium cursor-pointer transition-colors ${
+                      deployment === opt.value
+                        ? 'bg-brand-primary text-neutral-text-inverse'
+                        : 'bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-sunken'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="jira-deployment"
+                      value={opt.value}
+                      checked={deployment === opt.value}
+                      onChange={() => setDeployment(opt.value)}
+                      className="sr-only"
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
             <label className="flex flex-col gap-1">
               <span className="text-[12px] font-medium text-neutral-text-primary">Site URL</span>
               <input
                 ref={firstFieldRef}
                 type="url"
                 required
-                placeholder="https://your-team.atlassian.net"
+                placeholder={isServer ? 'https://jira.your-company.com' : 'https://your-team.atlassian.net'}
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 className="h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
               />
+              {isServer && (
+                // Set the expectation before submit: a self-hosted host must be
+                // operator-allow-listed, so a subsequent rejection reads as policy,
+                // not a bug. secondary text on surface (not sunken) stays AA-legible.
+                <span className="text-xs text-neutral-text-secondary">
+                  Your TruePPM operator must allow-list this host before it can be connected.
+                </span>
+              )}
             </label>
+            {!isServer && (
+              <label className="flex flex-col gap-1">
+                <span className="text-[12px] font-medium text-neutral-text-primary">Account email</span>
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="you@your-team.com"
+                  value={accountEmail}
+                  onChange={(e) => setAccountEmail(e.target.value)}
+                  className="h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+                />
+              </label>
+            )}
             <label className="flex flex-col gap-1">
-              <span className="text-[12px] font-medium text-neutral-text-primary">Account email</span>
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                placeholder="you@your-team.com"
-                value={accountEmail}
-                onChange={(e) => setAccountEmail(e.target.value)}
-                className="h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[12px] font-medium text-neutral-text-primary">API token</span>
+              <span className="text-[12px] font-medium text-neutral-text-primary">
+                {isServer ? 'Personal access token' : 'API token'}
+              </span>
               <input
                 type="password"
                 required
@@ -208,8 +268,9 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
                 className="h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
               />
               <span className="text-xs text-neutral-text-secondary">
-                Create a read-only API token in your {source.name} account. It is
-                encrypted at rest and never shown again.
+                {isServer
+                  ? `Create a personal access token in your ${source.name} Data Center profile (read-only). It is encrypted at rest and never shown again.`
+                  : `Create a read-only API token in your ${source.name} Cloud account. It is encrypted at rest and never shown again.`}
               </span>
             </label>
 

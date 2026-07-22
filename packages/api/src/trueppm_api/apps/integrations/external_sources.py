@@ -151,12 +151,23 @@ class ExternalTaskSource(abc.ABC):
 
 
 # ---------------------------------------------------------------------------
-# OSS Jira Cloud source (ADR-0097 §Decision #1)
+# OSS Jira source — Cloud + Data Center / Server (ADR-0097 §Decision #1, ADR-0589)
 # ---------------------------------------------------------------------------
 
-# Jira Cloud REST v3 ``statusCategory.key`` → display bucket. Jira has exactly
-# three status categories; this projection is total and lossless at the category
-# level (the finer per-workflow status is preserved raw in ``external_status``).
+# ``config["deployment"]`` discriminant (ADR-0589). One ``jira`` registry key
+# spans both Atlassian-hosted Cloud and self-hosted Data Center / Server; the
+# deployment selects the API version + auth shape at call time. A stored row
+# without the key predates the discriminant and is treated as Cloud (the only
+# variant that existed then), so the default is a safe upgrade no-op.
+DEPLOYMENT_CLOUD = "cloud"
+DEPLOYMENT_SERVER = "server"
+JIRA_DEPLOYMENTS: tuple[str, ...] = (DEPLOYMENT_CLOUD, DEPLOYMENT_SERVER)
+
+# ``statusCategory.key`` → display bucket. Jira has exactly three status
+# categories and exposes them identically on REST v3 (Cloud) and v2 (Server/DC),
+# so this projection is total, lossless at the category level, and shared across
+# both deployments (the finer per-workflow status is preserved raw in
+# ``external_status``).
 _JIRA_CATEGORY_TO_BUCKET: dict[str, str] = {
     "new": BUCKET_TODO,
     "indeterminate": BUCKET_IN_PROGRESS,
@@ -164,16 +175,20 @@ _JIRA_CATEGORY_TO_BUCKET: dict[str, str] = {
 }
 
 # Default JQL: my open work. Overridable per connection via ``config["jql"]``.
+# Valid on both Cloud (v3) and Server/DC (v2) — ``currentUser()`` and
+# ``statusCategory`` are core JQL, not version-specific.
 _DEFAULT_JIRA_JQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
 
 
 def _jira_origin(base_url: str) -> str:
-    """Return the ``https://host`` origin for a Jira Cloud ``base_url``.
+    """Return the ``https://host`` origin for a Jira **Cloud** ``base_url``.
 
     Defense in depth: the connection endpoint already allow-listed the host to
     ``*.atlassian.net`` before storing it, but this reconstructs the origin from
     the parsed host and forces ``https`` so a stored value can never downgrade
-    the scheme or carry a path/query into the request URL.
+    the scheme or carry a path/query into the request URL. Cloud is always
+    root-hosted, so dropping any path is correct here — Server/DC (which is
+    commonly deployed under a context path) uses :func:`_jira_server_base`.
 
     Raises:
         ValueError: ``base_url`` has no hostname.
@@ -185,55 +200,110 @@ def _jira_origin(base_url: str) -> str:
     return f"https://{host}"
 
 
+def _jira_server_base(base_url: str) -> str:
+    """Return the https API base (origin **+ context path**) for a Jira DC/Server host.
+
+    Unlike Cloud, a Data Center / Server instance is frequently deployed under a
+    context path (``https://jira.corp.example/jira``) and/or a non-standard port
+    (``https://jira.corp.example:8443``). Both must be preserved or every REST
+    call 404s / connects to the wrong port and the connection looks "connected
+    but empty". Forces ``https`` and strips a trailing slash so
+    ``{base}/rest/api/2/...`` is well-formed. The host is already
+    operator-allow-listed (``providers.assert_base_url_allowed``) before this
+    runs, so preserving the port/path does not widen the SSRF surface — the
+    allow-list, not this function, is the egress gate.
+
+    Raises:
+        ValueError: ``base_url`` has no hostname.
+    """
+    parsed = urllib.parse.urlparse(base_url if "//" in base_url else f"https://{base_url}")
+    host = (parsed.hostname or "").lower()
+    if not host:
+        raise ValueError("Jira base_url must include a hostname")
+    port = f":{parsed.port}" if parsed.port else ""
+    path = parsed.path.rstrip("/")
+    return f"https://{host}{port}{path}"
+
+
 def _jira_auth_header(email: str, api_token: str) -> str:
-    """Build the Basic-auth header value for a Jira Cloud API token.
+    """Build the Basic-auth header value for a Jira **Cloud** API token.
 
     Jira Cloud authenticates API tokens with HTTP Basic ``email:token`` (Bearer
     is OAuth-3LO only, which is the Enterprise governance path). Kept as a helper
     so the PAT never appears in a log-adjacent f-string at the call site.
+    Server/DC instead uses a Personal Access Token as ``Authorization: Bearer``.
     """
     raw = f"{email}:{api_token}".encode()
     return "Basic " + base64.b64encode(raw).decode("ascii")
 
 
-class JiraCloudSource(ExternalTaskSource):
-    """Read-only personal pull of a user's assigned Jira Cloud issues (ADR-0097).
+def _jira_issue_to_dto(base: str, issue: dict[str, Any]) -> ExternalWorkItemDTO:
+    """Map one Jira issue JSON object to a sanitized DTO.
 
-    Authenticates with the user's own Jira Cloud API token (Basic auth,
-    ``account_email:token``). ``config`` carries ``{"account_email", "jql",
-    "project_keys"}``; ``base_url`` is the tenant's ``*.atlassian.net`` host,
-    allow-listed by the connection endpoint before any request is made.
+    ``base`` is the deployment's API base (Cloud origin, or Server origin +
+    context path) so the ``/browse/`` deep link stays correct under a DC context
+    path. The issue JSON shape (``fields.{summary,status,duedate}`` and
+    ``status.statusCategory.key``) is identical across REST v2 and v3.
+    """
+    fields = _as_dict(issue.get("fields"))
+    status = _as_dict(fields.get("status"))
+    category = _as_dict(status.get("statusCategory"))
+    bucket = _JIRA_CATEGORY_TO_BUCKET.get(str(category.get("key", "")).lower(), BUCKET_TODO)
+    key = str(issue.get("key", ""))
+    return ExternalWorkItemDTO(
+        external_id=key,
+        external_url=f"{base}/browse/{urllib.parse.quote(key)}" if key else "",
+        title=str(fields.get("summary", "")),
+        external_status=str(status.get("name", "")),
+        display_bucket=bucket,
+        due_date=_parse_iso_date(fields.get("duedate")),
+    ).sanitized()
+
+
+class _JiraBackend(abc.ABC):
+    """Per-deployment API-shape strategy for the ``jira`` source (ADR-0589).
+
+    Cloud and Server/DC differ on only three axes — the REST version, the auth
+    header, and whether an account email is required — so the request, parse, and
+    DTO-mapping logic is shared here and each subclass carries just those deltas.
+    Stateless: instantiated per call by :class:`JiraSource`, holds no credential.
     """
 
-    key: ClassVar[str] = "jira"
-    label: ClassVar[str] = "Jira"
-    requires_credential: ClassVar[bool] = True
+    rest_version: ClassVar[str]
 
-    def _headers(self, email: str, secret: str) -> dict[str, str]:
-        return {
-            "Authorization": _jira_auth_header(email, secret),
-            "Accept": "application/json",
-        }
+    @abc.abstractmethod
+    def _base(self, base_url: str) -> str:
+        """Return the https API base for this deployment (raises ``ValueError`` if no host)."""
 
-    def verify_credential(
-        self, *, base_url: str, secret: str, config: dict[str, Any]
-    ) -> VerifyResult:
-        """Ping ``/rest/api/3/myself`` to confirm the token + email authenticate.
+    @abc.abstractmethod
+    def _headers(self, secret: str, config: dict[str, Any]) -> dict[str, str]:
+        """Auth + Accept headers for this deployment."""
 
-        A 200 means the credential is usable; 401/403 means a wrong/expired
-        token or wrong email; 5xx and transport failures degrade to
-        "unreachable" so the user can retry rather than assume a dead token.
-        A missing ``account_email`` fails fast — Basic auth needs it.
+    def _missing_requirement(self, config: dict[str, Any]) -> str | None:
+        """Return a :class:`VerifyResult` reason if the credential is structurally
+        incomplete for this deployment (Cloud Basic auth needs an account email),
+        else ``None``. Lets ``verify`` fail fast without a network round-trip."""
+        return None
+
+    def verify(self, *, base_url: str, secret: str, config: dict[str, Any]) -> VerifyResult:
+        """Ping ``/rest/api/<v>/myself`` to confirm the credential authenticates.
+
+        A 200 means usable; 401/403 means a wrong/expired token (or wrong email on
+        Cloud); 5xx and transport failures degrade to "unreachable" so the user
+        can retry rather than assume a dead token.
         """
-        email = (config or {}).get("account_email", "").strip()
-        if not email:
-            return VerifyResult(ok=False, reason="missing_email")
+        reason = self._missing_requirement(config)
+        if reason:
+            return VerifyResult(ok=False, reason=reason)
         try:
-            origin = _jira_origin(base_url)
+            base = self._base(base_url)
         except ValueError:
             return VerifyResult(ok=False, reason="blocked_host")
         try:
-            response = http.get(f"{origin}/rest/api/3/myself", headers=self._headers(email, secret))
+            response = http.get(
+                f"{base}/rest/api/{self.rest_version}/myself",
+                headers=self._headers(secret, config),
+            )
         except http.EgressTimeout:
             return VerifyResult(ok=False, reason="provider_timeout")
         except http.EgressBlocked:
@@ -249,25 +319,24 @@ class JiraCloudSource(ExternalTaskSource):
             return VerifyResult(ok=False, reason="provider_unreachable")
         return VerifyResult(ok=False, reason="invalid_token")
 
-    def fetch_assigned_items(
+    def fetch(
         self, *, base_url: str, secret: str, config: dict[str, Any]
     ) -> list[ExternalWorkItemDTO]:
-        """Fetch one page of the user's assigned Jira issues as sanitized DTOs.
+        """Fetch one page of the user's assigned issues as sanitized DTOs.
 
-        Read-only ``GET /rest/api/3/search``. Transport/parse failures raise
-        (the caller — the #1419 worker — maps them to the connection's staleness
-        / auth-failed state); an auth failure raises so the worker can flip the
-        connection to ``auth_failed`` rather than silently returning an empty
-        list that would soft-remove every cached item.
+        Read-only ``GET /rest/api/<v>/search``. Transport/parse failures raise
+        (the #1419 worker maps them to the connection's staleness / auth-failed
+        state); an auth failure raises so the worker flips the connection to
+        ``auth_failed`` rather than silently returning an empty list that would
+        soft-remove every cached item.
 
         Raises:
             ExternalSourceAuthError: 401/403 — token expired or revoked.
             ExternalSourceError: any other non-200 or a transport failure.
         """
         cfg = config or {}
-        email = cfg.get("account_email", "").strip()
         jql = (cfg.get("jql") or "").strip() or _DEFAULT_JIRA_JQL
-        origin = _jira_origin(base_url)
+        base = self._base(base_url)
         query = urllib.parse.urlencode(
             {
                 "jql": jql,
@@ -277,7 +346,8 @@ class JiraCloudSource(ExternalTaskSource):
         )
         try:
             response = http.get(
-                f"{origin}/rest/api/3/search?{query}", headers=self._headers(email, secret)
+                f"{base}/rest/api/{self.rest_version}/search?{query}",
+                headers=self._headers(secret, cfg),
             )
         except http.EgressBlocked as exc:
             raise ExternalSourceError(f"Jira host blocked by egress guard: {exc}") from exc
@@ -295,23 +365,74 @@ class JiraCloudSource(ExternalTaskSource):
         issues = payload.get("issues")
         if not isinstance(issues, list):
             return []
-        return [self._issue_to_dto(origin, issue) for issue in issues if isinstance(issue, dict)]
+        return [_jira_issue_to_dto(base, issue) for issue in issues if isinstance(issue, dict)]
 
-    def _issue_to_dto(self, origin: str, issue: dict[str, Any]) -> ExternalWorkItemDTO:
-        """Map one Jira issue JSON object to a sanitized DTO."""
-        fields = _as_dict(issue.get("fields"))
-        status = _as_dict(fields.get("status"))
-        category = _as_dict(status.get("statusCategory"))
-        bucket = _JIRA_CATEGORY_TO_BUCKET.get(str(category.get("key", "")).lower(), BUCKET_TODO)
-        key = str(issue.get("key", ""))
-        return ExternalWorkItemDTO(
-            external_id=key,
-            external_url=f"{origin}/browse/{urllib.parse.quote(key)}" if key else "",
-            title=str(fields.get("summary", "")),
-            external_status=str(status.get("name", "")),
-            display_bucket=bucket,
-            due_date=_parse_iso_date(fields.get("duedate")),
-        ).sanitized()
+
+class _JiraCloudBackend(_JiraBackend):
+    """Atlassian-hosted Jira Cloud: REST v3 + Basic ``email:token`` auth."""
+
+    rest_version: ClassVar[str] = "3"
+
+    def _base(self, base_url: str) -> str:
+        return _jira_origin(base_url)
+
+    def _headers(self, secret: str, config: dict[str, Any]) -> dict[str, str]:
+        email = (config or {}).get("account_email", "").strip()
+        return {"Authorization": _jira_auth_header(email, secret), "Accept": "application/json"}
+
+    def _missing_requirement(self, config: dict[str, Any]) -> str | None:
+        if not (config or {}).get("account_email", "").strip():
+            return "missing_email"
+        return None
+
+
+class _JiraServerBackend(_JiraBackend):
+    """Self-hosted Jira Data Center / Server: REST v2 + Personal Access Token.
+
+    DC/Server PATs (8.14+) authenticate as ``Authorization: Bearer <pat>`` and
+    need no account email. Basic ``user:password`` (pre-PAT installs) is a tracked
+    follow-up (#2272), not part of this variant.
+    """
+
+    rest_version: ClassVar[str] = "2"
+
+    def _base(self, base_url: str) -> str:
+        return _jira_server_base(base_url)
+
+    def _headers(self, secret: str, config: dict[str, Any]) -> dict[str, str]:
+        return {"Authorization": f"Bearer {secret}", "Accept": "application/json"}
+
+
+class JiraSource(ExternalTaskSource):
+    """Read-only personal pull of a user's assigned Jira issues (ADR-0097, ADR-0589).
+
+    One registry key, ``jira``, spanning both Atlassian Cloud and self-hosted
+    Data Center / Server. ``config["deployment"]`` (``"cloud"`` default |
+    ``"server"``) selects the API version + auth shape; ``base_url`` is the
+    tenant/host, allow-listed by the connection endpoint before any request is
+    made. ``config`` also carries ``{"account_email" (Cloud only), "jql",
+    "project_keys"}``.
+    """
+
+    key: ClassVar[str] = "jira"
+    label: ClassVar[str] = "Jira"
+    requires_credential: ClassVar[bool] = True
+
+    @staticmethod
+    def _backend(config: dict[str, Any]) -> _JiraBackend:
+        """Select the deployment strategy from ``config["deployment"]`` (Cloud default)."""
+        deployment = (config or {}).get("deployment", DEPLOYMENT_CLOUD)
+        return _JiraServerBackend() if deployment == DEPLOYMENT_SERVER else _JiraCloudBackend()
+
+    def verify_credential(
+        self, *, base_url: str, secret: str, config: dict[str, Any]
+    ) -> VerifyResult:
+        return self._backend(config).verify(base_url=base_url, secret=secret, config=config or {})
+
+    def fetch_assigned_items(
+        self, *, base_url: str, secret: str, config: dict[str, Any]
+    ) -> list[ExternalWorkItemDTO]:
+        return self._backend(config).fetch(base_url=base_url, secret=secret, config=config or {})
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -359,8 +480,9 @@ class ExternalSourceAuthError(ExternalSourceError):
 EXTERNAL_TASK_SOURCES = ProviderRegistry("EXTERNAL_TASK_SOURCES", ExternalTaskSource)
 
 # Registered against EXTERNAL_TASK_SOURCES in IntegrationsConfig.ready(). OSS
-# owns ``jira`` here (read-only personal pull); Enterprise appends its own.
-OSS_EXTERNAL_TASK_SOURCES: tuple[type[ExternalTaskSource], ...] = (JiraCloudSource,)
+# owns ``jira`` here (read-only personal pull, Cloud + Data Center / Server);
+# Enterprise appends its own.
+OSS_EXTERNAL_TASK_SOURCES: tuple[type[ExternalTaskSource], ...] = (JiraSource,)
 
 
 # Fields the field-length caps above were sized against, re-exported so the model

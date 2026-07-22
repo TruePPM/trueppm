@@ -44,7 +44,12 @@ from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 
 from . import providers
 from .encryption import encrypt_secret
-from .external_sources import EXTERNAL_TASK_SOURCES, ExternalTaskSource
+from .external_sources import (
+    DEPLOYMENT_CLOUD,
+    EXTERNAL_TASK_SOURCES,
+    JIRA_DEPLOYMENTS,
+    ExternalTaskSource,
+)
 from .models import ExternalWorkItem, IntegrationCredential
 from .services import SyncCooldownActive, enqueue_external_sync
 
@@ -69,23 +74,35 @@ _VERIFY_FAILURE_DETAIL: dict[str | None, str] = {
     "missing_email": "This source needs the account email that owns the API token.",
     "provider_unreachable": "Could not reach the source to verify this credential. Try again.",
     "provider_timeout": "Verifying this credential with the source timed out. Try again.",
-    "blocked_host": "The host URL is not allowed — it must be a Jira Cloud (*.atlassian.net) host.",
+    "blocked_host": (
+        "The host URL could not be reached — check it is correct, reachable over "
+        "https, and not an internal address."
+    ),
 }
 
 
 class ExternalConnectionUpsertSerializer(serializers.Serializer[Any]):
     """Payload for ``PUT /me/connections/{source}/`` (connect or update).
 
-    ``secret`` is the user's own API token (write-only, never echoed).
-    ``base_url`` is the source host (Jira Cloud ``https://<tenant>.atlassian.net``),
-    allow-listed downstream. ``account_email`` + ``jql`` + ``project_keys`` are
-    stored in the credential's ``config`` — the source reads them at pull time.
+    ``secret`` is the user's own API token / PAT (write-only, never echoed).
+    ``base_url`` is the source host — Jira Cloud ``https://<tenant>.atlassian.net``
+    or a self-hosted Jira Data Center / Server host — allow-listed downstream.
+    ``deployment`` (``cloud`` default | ``server``) selects the Cloud vs DC/Server
+    API + auth shape. ``account_email`` (Cloud Basic auth only) + ``jql`` +
+    ``project_keys`` are stored in the credential's ``config`` — the source reads
+    them at pull time.
     """
 
     secret = serializers.CharField(
         write_only=True, min_length=1, max_length=4096, trim_whitespace=False
     )
     base_url = serializers.CharField(max_length=512)
+    # Which Jira deployment this connection targets. Cloud is the default so a
+    # payload from before the field existed (or any non-Jira source that ignores
+    # it) keeps working unchanged.
+    deployment = serializers.ChoiceField(
+        choices=JIRA_DEPLOYMENTS, required=False, default=DEPLOYMENT_CLOUD
+    )
     account_email = serializers.EmailField(required=False, allow_blank=True, default="")
     jql = serializers.CharField(required=False, allow_blank=True, max_length=1024, default="")
     project_keys = serializers.ListField(
@@ -132,6 +149,7 @@ class ExternalConnectionSummarySerializer(serializers.Serializer[Any]):
     name = serializers.CharField()
     exists = serializers.BooleanField()
     base_url = serializers.CharField(allow_blank=True)
+    deployment = serializers.CharField()
     account_email = serializers.CharField(allow_blank=True)
     status = serializers.CharField()
     last_synced_at = serializers.DateTimeField(allow_null=True)
@@ -154,6 +172,8 @@ def _summary(label: str, row: IntegrationCredential | None) -> dict[str, Any]:
         "name": label,
         "exists": row is not None,
         "base_url": row.base_url if row else "",
+        # Cloud is the default for a row stored before the discriminant existed.
+        "deployment": cfg.get("deployment", DEPLOYMENT_CLOUD),
         "account_email": cfg.get("account_email", ""),
         # Freshly-connected rows read ``connected``; the #1419 worker flips this to
         # ``auth_failed`` on a 401/403 so My Work can show a "Reconnect" prompt.
@@ -260,6 +280,7 @@ class ExternalConnectionView(IdempotencyMixin, APIView):
             )
 
         config: dict[str, Any] = {
+            "deployment": data.get("deployment", DEPLOYMENT_CLOUD),
             "account_email": data.get("account_email", ""),
             "jql": data.get("jql", ""),
             "project_keys": data.get("project_keys", []),

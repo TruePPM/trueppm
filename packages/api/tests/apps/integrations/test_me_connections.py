@@ -100,6 +100,8 @@ def test_connect_stores_encrypted_secret(client: APIClient, user: AbstractBaseUs
     assert body["exists"] is True
     assert body["status"] == "connected"
     assert body["account_email"] == "priya@acme.io"
+    # No deployment in the payload defaults to Cloud (the pre-discriminant shape).
+    assert body["deployment"] == "cloud"
     # Secret is never echoed.
     assert "secret" not in body
     assert "secret_ciphertext" not in body
@@ -108,6 +110,7 @@ def test_connect_stores_encrypted_secret(client: APIClient, user: AbstractBaseUs
     assert bytes(row.secret_ciphertext) != b"jira-api-token"
     assert decrypt_secret(row.secret_ciphertext) == "jira-api-token"
     assert row.config["jql"] == "assignee = currentUser()"
+    assert row.config["deployment"] == "cloud"
 
 
 def test_connect_is_idempotent_upsert(client: APIClient, user: AbstractBaseUser) -> None:
@@ -164,6 +167,56 @@ def test_connect_verify_failure_is_422_and_persists_nothing(
     response = client.put("/api/v1/me/connections/jira/", _connect_body(), format="json")
     assert response.status_code == 422
     assert response.json()["reason"] == "invalid_token"
+    assert not IntegrationCredential.objects.filter(user=user, provider="jira").exists()
+
+
+# ---------------------------------------------------------------------------
+# PUT — Jira Data Center / Server variant (deployment="server", ADR-0589)
+# ---------------------------------------------------------------------------
+
+
+def test_connect_server_stores_deployment_on_allowlisted_host(
+    client: APIClient, user: AbstractBaseUser, settings: pytest.FixtureRequest
+) -> None:
+    """A self-hosted DC/Server host that the operator has allow-listed connects
+    with deployment=server, needs no account email, and stores the discriminant."""
+    settings.TRUEPPM_INTEGRATION_ALLOWED_HOSTS = ["jira.corp.example"]  # type: ignore[attr-defined]
+    response = client.put(
+        "/api/v1/me/connections/jira/",
+        _connect_body(
+            base_url="https://jira.corp.example/jira",
+            deployment="server",
+            account_email="",
+            secret="dc-pat-token",
+        ),
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.json()["deployment"] == "server"
+    row = IntegrationCredential.objects.get(user=user, provider="jira")
+    assert row.config["deployment"] == "server"
+    assert row.base_url == "https://jira.corp.example/jira"
+    assert decrypt_secret(row.secret_ciphertext) == "dc-pat-token"
+
+
+def test_connect_server_rejects_non_allowlisted_host(
+    client: APIClient, user: AbstractBaseUser
+) -> None:
+    """The operator allow-list is the exfil gate for self-hosted hosts (#902): a
+    Server host that is not allow-listed is rejected before the PAT is put on the
+    wire, and no row is written. Relaxing this would let a socially-engineered
+    user ship their real DC PAT to an arbitrary host."""
+    response = client.put(
+        "/api/v1/me/connections/jira/",
+        _connect_body(
+            base_url="https://jira.corp.example/jira",
+            deployment="server",
+            account_email="",
+        ),
+        format="json",
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "base_url_not_allowed"
     assert not IntegrationCredential.objects.filter(user=user, provider="jira").exists()
 
 
