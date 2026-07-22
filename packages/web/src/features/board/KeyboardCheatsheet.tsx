@@ -31,10 +31,9 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['Enter'], description: 'Open card detail' },
       { keys: ['E'], description: 'Edit card' },
       { keys: ['D'], description: 'Show dependencies' },
-      { keys: ['C'], description: 'Show comments' },
       { keys: ['/'], description: 'Search cards' },
       { keys: ['F'], description: 'Filter cards' },
-      { keys: ['Space'], description: 'Pick up card to drag (then arrows)' },
+      { keys: ['⋯'], description: 'Move card between columns (open the card actions menu)' },
     ],
   },
   {

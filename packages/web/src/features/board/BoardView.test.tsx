@@ -2535,6 +2535,35 @@ describe('keyboard card navigation (#195)', () => {
     expect(card(/Backend Implementation/).className).toContain(FOCUS_RING);
     expect(card(/Discovery & Design/).className).not.toContain(FOCUS_RING);
   });
+
+  // #2194 — navigation must move *real* DOM focus, not paint a ring only, so
+  // screen readers announce the card and Enter/E reach it.
+  it('j/k moves real DOM focus onto the target card (not just a visual ring)', () => {
+    renderBoard();
+    // A pointer press on a card focuses it *natively* in the browser; jsdom does
+    // not model focus-on-pointerdown, so focus the card explicitly to stand in for
+    // that (the card's own keyboard-focus effect deliberately does NOT re-focus
+    // during a pointer press — #2194). This seeds focus + focusedCardId; the real
+    // assertion is that keyboard nav then moves *DOM* focus, not just the ring.
+    const backend = card(/Backend Implementation/);
+    fireEvent.pointerDown(backend);
+    backend.focus();
+    expect(backend).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: 'j' });
+    expect(card(/Frontend Build/)).toHaveFocus();
+    expect(card(/Backend Implementation/)).not.toHaveFocus();
+  });
+
+  // #2194 — the cheatsheet advertised "E — Edit card" but the handler was never
+  // wired into useBoardKeyboard. Pressing E on a focused card now opens the
+  // unified TaskFormModal in edit mode.
+  it('E opens the focused card in the edit modal', () => {
+    renderBoard();
+    fireEvent.pointerDown(card(/Backend Implementation/));
+    fireEvent.keyDown(window, { key: 'e' });
+    expect(screen.getByRole('dialog', { name: /^Backend Implementation$/ })).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

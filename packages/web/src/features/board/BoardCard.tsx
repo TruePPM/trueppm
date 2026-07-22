@@ -254,9 +254,52 @@ function BoardCardImpl({
     id: task.id,
     disabled: readOnly,
   });
+  // dnd-kit's `attributes` carry `aria-describedby` pointing at its live-region
+  // instruction ("To pick up a draggable item, press space or enter…"). That
+  // pickup path is dead on this board: we override `onKeyDown` below with the
+  // open-detail handler, so the KeyboardSensor activator never fires (#2194).
+  // Announcing a keyboard-drag that cannot happen is a false SR instruction, so
+  // we drop only that association — the keyboard path for moving a card is the
+  // card's ⋯ → "Move to…" menu. `aria-roledescription="draggable"` is kept: the
+  // card genuinely is pointer/touch-draggable, and it is the card-root selector.
+  // True while a pointer press is in flight on this card. On pointer-down the
+  // browser will move DOM focus itself (to the card, or to the exact control the
+  // user pressed — a chain chip, the ··· menu), and `focusedCardId` also updates
+  // via the card's pointer-down / focus-capture tracking. The keyboard-focus
+  // effect below must NOT also `focus()` the card root during that window: at
+  // pointer-down time `document.activeElement` is still `body`, so it would look
+  // "ambient", and stealing focus mid-press cancels the click the user intended
+  // (#2194 — clicking the chain chip opened the card instead of the deps popover).
+  const pointerFocusRef = useRef(false);
+  const markPointerFocus = () => {
+    pointerFocusRef.current = true;
+  };
+  const clearPointerFocus = () => {
+    pointerFocusRef.current = false;
+  };
+
+  // `data-board-card` marks the card root so the keyboard-focus effect can tell
+  // "focus is on another board card" (a legit j/k/l/h hop, follow it) from
+  // "focus is on an unrelated control" (a resize separator, an in-card button —
+  // don't steal it). See the isKeyboardFocused effect below (#2194).
   const dragProps = readOnly
-    ? { role: 'button' as const, tabIndex: 0 }
-    : { ...listeners, ...attributes };
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        'data-board-card': '',
+        onPointerDownCapture: markPointerFocus,
+        onPointerUpCapture: clearPointerFocus,
+        onPointerCancelCapture: clearPointerFocus,
+      }
+    : {
+        ...listeners,
+        ...attributes,
+        'aria-describedby': undefined,
+        'data-board-card': '',
+        onPointerDownCapture: markPointerFocus,
+        onPointerUpCapture: clearPointerFocus,
+        onPointerCancelCapture: clearPointerFocus,
+      };
 
   // Bind the task-aware chain-hover handler to this card once per render. These
   // live inside the component (not in the parent's map) so the card's incoming
@@ -338,6 +381,39 @@ function BoardCardImpl({
     const h = cardElRef.current?.offsetHeight;
     if (h && h > 0) lastHeightRef.current = h;
   });
+
+  // j/k/l/h board navigation must move *real* DOM focus, not just paint a ring
+  // (#2194 — the previous model set `focusedCardId` state only, so screen readers
+  // announced nothing, focus never moved, and Enter/E never reached a card). When
+  // this card becomes the keyboard-focused one, pull DOM focus to it and scroll
+  // it into view so SR announces its aria-label and the card's own Enter/Space
+  // open-handler is now the active target.
+  //
+  // But `focusedCardId` is *not* keyboard-only — it is also set on pointer down
+  // and focus-capture over a card (tracking) and during drag. If we blindly
+  // `focus()` on every change we steal focus from whatever the user is actually
+  // operating: an in-card control (chain/risk chip, ··· menu) or an unrelated
+  // widget like the column resize separator. So we only pull focus when the move
+  // is plausibly a keyboard hop — focus is ambient (body) or already sitting on
+  // another board card — and never when focus is already inside *this* card.
+  useEffect(() => {
+    if (!isKeyboardFocused || isFilteredOut) return;
+    // A pointer press is driving focus natively — don't fight it (see the ref).
+    if (pointerFocusRef.current) return;
+    const el = cardElRef.current;
+    if (!el) return;
+    const active = document.activeElement;
+    // Focus already within this card (e.g. the user clicked its chain chip): leave
+    // it on that control — don't yank it to the card root.
+    if (el.contains(active)) return;
+    // Only follow keyboard board-nav: from body (ambient) or from another card.
+    const fromAmbient = active == null || active === document.body;
+    const fromAnotherCard = active instanceof Element && active.closest('[data-board-card]') != null;
+    if (!fromAmbient && !fromAnotherCard) return;
+    el.focus({ preventScroll: true });
+    // Optional-chained: jsdom has no layout and does not implement scrollIntoView.
+    el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [isKeyboardFocused, isFilteredOut]);
 
   // Close menu on outside click
   useEffect(() => {
@@ -728,7 +804,12 @@ function BoardCardImpl({
         onClick={(e) => onCardClick?.(task, e.currentTarget)}
         onKeyDown={(e) => {
           if ((e.key === 'Enter' || e.key === ' ') && e.currentTarget === e.target) {
+            // The focused card owns Enter/Space (open detail). Stop it here so
+            // the window-level board keyboard registry doesn't double-handle it
+            // (#2194 — cheatsheet "Enter — Open card detail" is now real via
+            // this handler once j/k/l/h moves DOM focus to the card).
             e.preventDefault();
+            e.stopPropagation();
             onCardClick?.(task, e.currentTarget);
           }
         }}
