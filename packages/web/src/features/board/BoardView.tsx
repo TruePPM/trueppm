@@ -4192,6 +4192,22 @@ export function BoardView() {
         <ScheduleTaskDialog
           task={scheduleDialogTask}
           projectId={projectId}
+          // Keyboard parity with drag-to-assign (#2170): when the board is scoped
+          // to a PLANNED/ACTIVE sprint, promoting a backlog card also pulls it
+          // into that sprint — otherwise the promoted card is committed-but-
+          // unscoped and hidden from the sprint board. Mirrors handleDragEnd's
+          // assignSprintId gate (#429); a COMPLETED sprint is read-only.
+          assignSprint={
+            selectedSprint &&
+            (selectedSprint.state === 'ACTIVE' || selectedSprint.state === 'PLANNED') &&
+            scheduleDialogTask.sprintId !== selectedSprint.id
+              ? {
+                  id: selectedSprint.id,
+                  name: selectedSprint.name,
+                  pending: selectedSprint.state === 'ACTIVE',
+                }
+              : null
+          }
           onClose={handleScheduleDialogClose}
         />
       )}

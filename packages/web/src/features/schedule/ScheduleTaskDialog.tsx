@@ -16,6 +16,14 @@ interface ScheduleTaskDialogProps {
    * aria-live region, so it falls back to the schedule action toast only.
    */
   ariaLiveRef?: RefObject<HTMLDivElement | null>;
+  /**
+   * Sprint to assign in the same promote PATCH. Set by the Board when it is
+   * scoped to a PLANNED/ACTIVE sprint, so a keyboard-promoted backlog card is
+   * pulled into that sprint — the WCAG 2.1.1 keyboard parallel to dragging a
+   * card into a phase cell (#2170, #429). Omitted by the Schedule gutter, where
+   * there is no sprint scope, so that path is unchanged.
+   */
+  assignSprint?: { id: string; name: string; pending: boolean } | null;
   /** Close the dialog and return focus to the trigger (handled by caller). */
   onClose: () => void;
 }
@@ -44,6 +52,7 @@ export function ScheduleTaskDialog({
   task,
   projectId,
   ariaLiveRef,
+  assignSprint,
   onClose,
 }: ScheduleTaskDialogProps) {
   const itl = useIterationLabel();
@@ -117,16 +126,29 @@ export function ScheduleTaskDialog({
     setError(null);
     // Decision A2: explicit status: 'NOT_STARTED' skips the server's date-gated
     // → IN_PROGRESS auto-bump, so the promotion is deterministically To Do.
+    // When the Board is scoped to a sprint (#2170) the same PATCH assigns that
+    // sprint, so the promoted card is pulled into the sprint rather than landing
+    // committed-but-unscoped (and hidden from the sprint board).
     promote.mutate(
-      { id: task.id, projectId, planned_start: date, status: 'NOT_STARTED' },
+      {
+        id: task.id,
+        projectId,
+        planned_start: date,
+        status: 'NOT_STARTED',
+        ...(assignSprint ? { sprint: assignSprint.id } : {}),
+      },
       {
         onSuccess: () => {
           const label = formatShortDate(date);
+          const dest = assignSprint ? assignSprint.name : `the ${itl.lower}`;
+          // An ACTIVE sprint injects the card as pending scope (ADR-0102),
+          // mirroring the drag-drop notice copy (#1140).
+          const pendingNote = assignSprint?.pending ? ' as pending scope' : '';
           setActionToast({
-            message: `Added '${task.name}' to the ${itl.lower}, starting ${label}`,
+            message: `Added '${task.name}' to ${dest}${pendingNote}, starting ${label}`,
           });
           if (ariaLiveRef?.current) {
-            ariaLiveRef.current.textContent = `Added ${task.name} to the ${itl.lower}, starting ${label}.`;
+            ariaLiveRef.current.textContent = `Added ${task.name} to ${dest}${pendingNote}, starting ${label}.`;
           }
           onClose();
         },
@@ -136,7 +158,18 @@ export function ScheduleTaskDialog({
         },
       },
     );
-  }, [date, task.id, task.name, projectId, promote, setActionToast, ariaLiveRef, onClose, itl.lower]);
+  }, [
+    date,
+    task.id,
+    task.name,
+    projectId,
+    promote,
+    setActionToast,
+    ariaLiveRef,
+    assignSprint,
+    onClose,
+    itl.lower,
+  ]);
 
   const scheduleDisabled = !date || offline || promote.isPending;
 
@@ -158,7 +191,7 @@ export function ScheduleTaskDialog({
             id={titleId}
             className="flex-1 min-w-0 text-sm font-semibold text-neutral-text-primary truncate"
           >
-            Add &ldquo;{task.name}&rdquo; to a {itl.lower}
+            Add &ldquo;{task.name}&rdquo; to {assignSprint ? assignSprint.name : `a ${itl.lower}`}
           </h2>
           <button
             type="button"
@@ -175,8 +208,10 @@ export function ScheduleTaskDialog({
         </div>
 
         <p id={helperId} className="text-xs text-neutral-text-secondary mb-4">
-          This commits the idea from your backlog to a {itl.lower}, starting on the
-          target date you pick below.
+          This commits the idea from your backlog to{' '}
+          {assignSprint ? assignSprint.name : `a ${itl.lower}`}
+          {assignSprint?.pending ? ' as pending scope' : ''}, starting on the target date you pick
+          below.
         </p>
 
         <label
