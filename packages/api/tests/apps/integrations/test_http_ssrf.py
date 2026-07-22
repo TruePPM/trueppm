@@ -127,6 +127,68 @@ def test_literal_ip_host_is_classified_without_resolution(
     http.assert_host_allowed("8.8.8.8", 25)
 
 
+# ---------------------------------------------------------------------------
+# Operator allow-list (ADR-0590) — EGRESS_ALLOWLISTED_HOSTS bypasses the
+# private-address deny-list for a trusted internal host (e.g. in-cluster IdP).
+# ---------------------------------------------------------------------------
+
+
+def test_allowlisted_host_bypasses_private_deny(
+    monkeypatch: pytest.MonkeyPatch, settings: Any
+) -> None:
+    """An allow-listed hostname is admitted even though it resolves privately.
+
+    A bare hostname (not an IP literal) goes through the resolver path, so the
+    allow-list must short-circuit *before* resolution — proven here by making
+    ``getaddrinfo`` blow up if it is reached.
+    """
+    settings.EGRESS_ALLOWLISTED_HOSTS = ["keycloak"]
+
+    def _boom(*args: object, **kwargs: object) -> Any:
+        raise AssertionError("allow-listed host must not be resolved")
+
+    monkeypatch.setattr(http.socket, "getaddrinfo", _boom)
+    # Both guards honor the allow-list; port is irrelevant (host-level trust).
+    http.assert_url_allowed("http://keycloak:8080/realms/ci/.well-known/openid-configuration")
+    http.assert_host_allowed("keycloak", 8080)
+
+
+def test_allowlist_match_is_case_insensitive(settings: Any) -> None:
+    settings.EGRESS_ALLOWLISTED_HOSTS = ["KeyCloak"]
+    http.assert_url_allowed("http://keycloak:8080/")
+
+
+def test_allowlist_is_exact_not_suffix(monkeypatch: pytest.MonkeyPatch, settings: Any) -> None:
+    """Allow-listing ``keycloak`` must NOT admit a lookalike like ``keycloak.evil``.
+
+    A non-exact host is not bypassed: it still goes through the resolver + address
+    deny-list. Here the lookalike resolves to a private IP, so the guard blocks it —
+    proving the allow-list did not suffix-match.
+    """
+    settings.EGRESS_ALLOWLISTED_HOSTS = ["keycloak"]
+
+    def _resolves_private(*args: object, **kwargs: object) -> Any:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 8080))]
+
+    monkeypatch.setattr(http.socket, "getaddrinfo", _resolves_private)
+    with pytest.raises(http.EgressBlocked):
+        http.assert_url_allowed("http://keycloak.evil.example:8080/")
+
+
+def test_allowlist_still_enforces_scheme(settings: Any) -> None:
+    """The allow-list bypasses the address deny-list, not the scheme gate."""
+    settings.EGRESS_ALLOWLISTED_HOSTS = ["keycloak"]
+    with pytest.raises(http.EgressBlocked):
+        http.assert_url_allowed("file://keycloak/etc/passwd")
+
+
+def test_empty_allowlist_is_default_posture(settings: Any) -> None:
+    """With no allow-list, a private host is blocked exactly as before."""
+    settings.EGRESS_ALLOWLISTED_HOSTS = []
+    with pytest.raises(http.EgressBlocked):
+        http.assert_url_allowed("http://10.0.0.5/")
+
+
 def test_unresolvable_host_raises_egress_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(*args: object, **kwargs: object) -> Any:
         raise socket.gaierror("name or service not known")

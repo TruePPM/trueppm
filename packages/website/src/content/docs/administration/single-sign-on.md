@@ -158,3 +158,36 @@ issuers).
   for every provider.
 - Discovery, token, and JWKS requests (OIDC) and all GitHub API requests are
   subject to TruePPM's outbound SSRF guard.
+
+## Running the identity provider inside your cluster
+
+TruePPM's outbound SSRF guard blocks requests to private, loopback, and
+link-local addresses by default. That is the right posture for a public issuer,
+but it also blocks an **identity provider you run inside the same cluster** — for
+example Keycloak reachable only at a private service address such as
+`keycloak.sso.svc.cluster.local`. Left unset, discovery, token exchange, and JWKS
+fetches to that issuer fail with a "provider unreachable" error and the **Test
+connection** button reports the issuer as unreachable.
+
+To allow it, name the exact hostnames you trust in the
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` environment variable (comma-separated). Those
+hosts — and only those — bypass the private-address check:
+
+```bash
+# Permit an in-cluster Keycloak; every other private host stays blocked.
+TRUEPPM_EGRESS_ALLOWLISTED_HOSTS=keycloak.sso.svc.cluster.local
+```
+
+Matching is an **exact, case-insensitive hostname** compare — no wildcards and no
+suffix matching, so allow-listing `keycloak.sso.svc.cluster.local` never admits a
+lookalike host. Leave the variable unset (the default) unless you actually run an
+IdP on a private address; a public issuer needs no allow-list. This setting is
+operator configuration only and is never influenced by user input.
+
+:::caution[The allow-list applies to *all* outbound requests]
+An allow-listed host is exempt from the private-address check for **every** TruePPM
+outbound integration — not only SSO, but also personal-access-token verification,
+git-link status refresh, webhook delivery, and SMTP relay checks, some of which
+take user-supplied URLs. Only allow-list a host that is at least as trusted as your
+identity provider, and list the specific IdP host — never a broad internal name.
+:::

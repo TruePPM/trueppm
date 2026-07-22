@@ -804,6 +804,20 @@ INTEGRATION_ENCRYPTION_KEY: str = env(
     default="",
 )
 
+# Hostnames exempted from the SSRF egress deny-list (apps/integrations/http). An
+# operator escape hatch for a trusted internal host the operator runs themselves —
+# chiefly an in-cluster identity provider whose OIDC issuer resolves to a private
+# ClusterIP (e.g. Keycloak at ``keycloak.sso.svc``), which the deny-list would
+# otherwise block, making in-cluster SSO impossible. Empty by default keeps the
+# standard "every resolved address must be globally routable" posture. Exact,
+# case-insensitive hostname match — no wildcards. Config-only, never
+# request-derived. NOTE: the allow-list is consulted by *every* egress caller (PAT
+# verification, git-link refresh, webhooks, SMTP relay, SSO), so an allow-listed
+# host is reachable through the user-influenceable URL surfaces too — only list a
+# host at least as trusted as the SSO issuer. See ADR-0590 and the "Running the
+# identity provider inside your cluster" section of docs/administration/single-sign-on.
+EGRESS_ALLOWLISTED_HOSTS: list[str] = env.list("TRUEPPM_EGRESS_ALLOWLISTED_HOSTS", default=[])
+
 # Age in seconds past which a connected external-source connection's cache is
 # "stale" for the My Work on-open refresh (ADR-0097 §4 "on-open refresh-if-
 # stale"; #1921). Reuses the same order of magnitude as the manual-refresh
