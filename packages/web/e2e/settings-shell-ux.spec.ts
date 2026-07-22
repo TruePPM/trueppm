@@ -249,6 +249,66 @@ test.describe('Settings shell — saved-time footer (#596)', () => {
   });
 });
 
+test.describe('Settings shell — rail scroll & scroll-spy reachability (#2252)', () => {
+  // #2252 (2): the active-section highlight froze on the second-to-last section
+  // because the final section is shorter than the viewport, so its top never
+  // scrolled up to the sentinel line. Scrolling the content to the bottom must
+  // advance the highlight to the LAST inline rail item (here "Lifecycle").
+  test('scrolling the content to the bottom advances the rail highlight to the last section', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    const scroll = page.getByTestId('settings-content-scroll');
+    await expect(scroll).toBeVisible();
+
+    // Before scrolling, the last section is not the active one.
+    const lifecycle = page.getByRole('button', { name: 'Lifecycle' });
+    await expect(lifecycle).not.toHaveAttribute('aria-current', 'true');
+
+    // Drive the content scroll container to its bottom.
+    await scroll.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+
+    // The at-bottom guard forces the final rail item active.
+    await expect(lifecycle).toHaveAttribute('aria-current', 'true');
+  });
+
+  // #2252 (1): the rail <nav> was missing min-h-0, so inside the overflow-hidden
+  // aside it took its full content height and the last group was clipped with no
+  // scrollbar. On a short viewport the nav must be a real scroll container
+  // (scrollHeight > clientHeight) rather than an overflowing, clipped list.
+  test.describe('short viewport', () => {
+    test.use({ viewport: { width: 1280, height: 420 } });
+
+    test('the rail nav scrolls to reach its last group instead of clipping it', async ({ page }) => {
+      await setup(page);
+      await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+      const nav = page.getByRole('navigation', { name: 'Settings sections' });
+      await expect(nav).toBeVisible();
+
+      const { canScroll, minHeight, overflowY } = await nav.evaluate((el) => ({
+        canScroll: el.scrollHeight > el.clientHeight,
+        minHeight: getComputedStyle(el).minHeight,
+        overflowY: getComputedStyle(el).overflowY,
+      }));
+      // min-h-0 lets the flex-1 nav shrink below its content height so overflow
+      // becomes a real scroll region instead of being clipped by the aside.
+      expect(minHeight).toBe('0px');
+      expect(overflowY).toBe('auto');
+      expect(canScroll).toBe(true);
+
+      // The last rail item is reachable by scrolling the nav (was clipped before).
+      const lifecycle = page.getByRole('button', { name: 'Lifecycle' });
+      await lifecycle.scrollIntoViewIfNeeded();
+      await expect(lifecycle).toBeInViewport();
+    });
+  });
+});
+
 test.describe('Settings shell — mobile responsive collapse (#539)', () => {
   test.use({ viewport: { width: 375, height: 812 } });
 

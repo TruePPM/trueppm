@@ -1,5 +1,6 @@
+import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { resolveActiveSection } from './useScrollSpy';
+import { resolveActiveSection, useScrollSpy } from './useScrollSpy';
 
 describe('resolveActiveSection (ADR-0146, #1248)', () => {
   const order = ['general', 'access', 'methodology', 'lifecycle'];
@@ -47,5 +48,58 @@ describe('resolveActiveSection (ADR-0146, #1248)', () => {
   it('keeps the first section active when only later sections are measured but below', () => {
     const tops = { general: 10, access: 500 };
     expect(resolveActiveSection(tops, order)).toBe('general');
+  });
+});
+
+describe('useScrollSpy at-bottom guard (#2252)', () => {
+  const sectionIds = ['general', 'email', 'danger'];
+
+  /**
+   * Build a scroll container whose section geometry is fixed so `recompute`'s
+   * getBoundingClientRect reads are deterministic. `danger` (the last section)
+   * sits well below the sentinel line — its top never crosses — so only the
+   * at-bottom override can activate it. `scrollMetrics` decides at-bottom.
+   */
+  function makeContainer(scrollMetrics: {
+    scrollHeight: number;
+    scrollTop: number;
+    clientHeight: number;
+  }) {
+    const container = document.createElement('div');
+    // Section tops (viewport px): general above the line, email just above it,
+    // danger far below it (never crosses the sentinel and can't scroll further).
+    const sectionTop: Record<string, number> = { general: -500, email: 50, danger: 700 };
+    for (const id of sectionIds) {
+      const el = document.createElement('div');
+      el.setAttribute('data-settings-section', id);
+      el.getBoundingClientRect = () => ({ top: sectionTop[id] }) as DOMRect;
+      container.appendChild(el);
+    }
+    container.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+    for (const [k, v] of Object.entries(scrollMetrics)) {
+      Object.defineProperty(container, k, { value: v, configurable: true });
+    }
+    document.body.appendChild(container);
+    return container;
+  }
+
+  it('forces the last section active when scrolled to the bottom', () => {
+    // scrollHeight - scrollTop - clientHeight === 0 → at bottom.
+    const container = makeContainer({ scrollHeight: 1000, scrollTop: 200, clientHeight: 800 });
+    const { result } = renderHook(() =>
+      useScrollSpy({ sectionIds, scrollRef: { current: container } }),
+    );
+    // `danger`'s top never crossed the sentinel, so without the guard this would
+    // be stuck on `email`; the at-bottom override lifts it to `danger`.
+    expect(result.current.activeId).toBe('danger');
+  });
+
+  it('does not force the last section when not at the bottom', () => {
+    // 1000 - 100 - 800 === 100 (> 2px) → not at bottom.
+    const container = makeContainer({ scrollHeight: 1000, scrollTop: 100, clientHeight: 800 });
+    const { result } = renderHook(() =>
+      useScrollSpy({ sectionIds, scrollRef: { current: container } }),
+    );
+    expect(result.current.activeId).toBe('email');
   });
 });

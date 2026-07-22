@@ -136,6 +136,16 @@ describe('<SettingsShell>', () => {
     expect(scroll.className).toContain('overflow-y-auto');
   });
 
+  it('constrains the rail nav with min-h-0 so the SYSTEM group stays reachable (#2252)', () => {
+    // The aside is overflow-hidden; without min-h-0 the flex-1 nav keeps its
+    // content-height min, overflows the aside, and the last group (SYSTEM) is
+    // clipped with no scrollbar — you can never scroll the rail to it.
+    renderShell();
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' });
+    expect(nav.className).toContain('min-h-0');
+    expect(nav.className).toContain('overflow-y-auto');
+  });
+
   it('renders inline sections as scroll-spy buttons, not links', () => {
     renderShell();
     // Inline sections are buttons (scroll-spy), not anchor links — no route swap.
