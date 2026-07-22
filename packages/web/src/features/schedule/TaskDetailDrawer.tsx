@@ -123,6 +123,14 @@ function buildScalarPatch(
   return patch;
 }
 
+/** Join conflicting-field labels into a readable subject, e.g. "Name",
+ *  "Name and Estimates", "Name, Description and Estimates" (#2172). */
+function formatConflictLabels(labels: string[]): string {
+  if (labels.length <= 1) return labels[0] ?? '';
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+}
+
 /** True when the staged estimate triple is complete AND out of order — the
  *  server 400s this (#1982), so Save is gated on it. A partial triple is fine. */
 function estimateTripleInvalid(draft: ScalarDraft): boolean {
@@ -333,14 +341,27 @@ export function TaskDetailDrawer({
     }
   }, [taskProp, renderedTask]);
 
-  // Concurrent-edit signal: the live task's notes drifted from the value we
-  // opened/last-saved from AND from what the user has typed — someone else saved
-  // while this draft was open. Warn rather than clobber.
-  const notesChangedElsewhere =
-    task !== null &&
-    dirty &&
-    (task.notes ?? '') !== baseline.notes &&
-    (task.notes ?? '') !== draft.notes;
+  // Concurrent-edit signal across ALL five staged fields (#2172). For a given
+  // staged column, "changed elsewhere" means the live server value drifted from
+  // the baseline we opened/last-saved from AND from what the user has typed —
+  // someone else saved that field while this draft was open. Previously only
+  // `notes` was watched, so a concurrent name/estimate change showed nothing and
+  // was silently overwritten on the 409-Reload-retry path. The name of each
+  // conflicting field is surfaced in the save bar so the user can reopen before
+  // clobbering; the three estimate columns collapse to one "Estimates" token.
+  const liveDraft = task ? toDraft(task) : EMPTY_DRAFT;
+  const fieldChangedElsewhere = (field: keyof ScalarDraft): boolean =>
+    task !== null && dirty && liveDraft[field] !== baseline[field] && liveDraft[field] !== draft[field];
+  const notesChangedElsewhere = fieldChangedElsewhere('notes');
+  const conflictLabels = [
+    fieldChangedElsewhere('name') ? 'Name' : null,
+    notesChangedElsewhere ? 'Description' : null,
+    fieldChangedElsewhere('optimistic') ||
+    fieldChangedElsewhere('mostLikely') ||
+    fieldChangedElsewhere('pessimistic')
+      ? 'Estimates'
+      : null,
+  ].filter(Boolean) as string[];
 
   // An out-of-order complete estimate triple would 400 server-side (#1982), so
   // Save is gated on it everywhere (bar button, Cmd+S, Save & open).
@@ -687,6 +708,7 @@ export function TaskDetailDrawer({
           changedEstimates={changedEstimates}
           estimateInvalid={estimateInvalid}
           notesChangedElsewhere={notesChangedElsewhere}
+          conflictLabels={conflictLabels}
           deletedExternally={deletedExternally}
           copiedDraft={copiedDraft}
           onCopyDeletedDraft={handleCopyDeletedDraft}
@@ -815,6 +837,10 @@ interface DrawerContentProps {
   /** The staged estimate triple is complete but out of order — blocks Save (#1982). */
   estimateInvalid: boolean;
   notesChangedElsewhere: boolean;
+  /** Human labels of the staged fields the server changed under the open draft
+   *  (#2172) — named in the save bar so a concurrent edit isn't silently
+   *  overwritten. Empty when nothing drifted. */
+  conflictLabels: string[];
   /** The rendered task was deleted by someone else while the draft was dirty
    * (#2054) — show the rescue banner and suppress the (now-futile) Save bar. */
   deletedExternally: boolean;
@@ -854,6 +880,7 @@ function DrawerContent({
   changedEstimates,
   estimateInvalid,
   notesChangedElsewhere,
+  conflictLabels,
   deletedExternally,
   copiedDraft,
   onCopyDeletedDraft,
@@ -1187,6 +1214,19 @@ function DrawerContent({
           changed. An out-of-order estimate triple blocks Save (would 400, #1982). */}
       {dirty && !deletedExternally ? (
         <div className="shrink-0 motion-safe:animate-save-bar-slide">
+          {/* Concurrent-edit warning naming which staged fields drifted on the
+              server while this draft was open (#2172). role="alert" (assertive)
+              because acting on the stale bar overwrites someone else's change —
+              distinct from the polite unsaved-scope announcement above. */}
+          {conflictLabels.length > 0 && (
+            <p
+              role="alert"
+              className="px-4 py-2 border-t border-semantic-at-risk/40 bg-semantic-at-risk/10 text-xs text-semantic-at-risk"
+            >
+              {formatConflictLabels(conflictLabels)} changed elsewhere since you started editing —
+              saving will overwrite {conflictLabels.length > 1 ? 'those changes' : 'that change'}.
+            </p>
+          )}
           <DialogFooter
             onSave={onSave}
             onCancel={onCancel}

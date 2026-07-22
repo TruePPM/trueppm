@@ -181,6 +181,69 @@ describe('TaskDetailDrawer save concurrency (#2038)', () => {
   });
 });
 
+describe('TaskDetailDrawer changed-elsewhere signal across all staged fields (#2172)', () => {
+  it('warns and names Estimates when the server estimate changes under a dirty draft', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({
+      optimisticDuration: 1,
+      mostLikelyDuration: 2,
+      pessimisticDuration: 3,
+    });
+    TASKS = [task];
+    const { rerender } = renderDrawer(task);
+
+    const dialog = within(screen.getAllByRole('dialog')[0]);
+    // Dirty the draft (edit name), leaving estimates untouched.
+    await user.type(dialog.getByLabelText('Task name'), ' reworked');
+    await waitFor(() =>
+      expect(dialog.getByLabelText('Task name')).toHaveValue('Foundation reworked'),
+    );
+    // No conflict yet.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    // Someone else changes the estimate on the server (same task identity).
+    const serverEdit = makeTask({
+      optimisticDuration: 9,
+      mostLikelyDuration: 2,
+      pessimisticDuration: 3,
+    });
+    TASKS = [serverEdit];
+    rerender(
+      <MemoryRouter>
+        <TaskDetailDrawer task={serverEdit} projectId="p1" onClose={() => {}} />
+      </MemoryRouter>,
+    );
+
+    // Old code watched only notes → nothing. Now the save bar warns and names it.
+    const alert = screen.getAllByRole('alert')[0];
+    expect(alert).toHaveTextContent(/Estimates changed elsewhere/i);
+    expect(alert).toHaveTextContent(/overwrite that change/i);
+  });
+
+  it('names the Name field when the server renames the task under a dirty draft', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ name: 'Foundation' });
+    TASKS = [task];
+    const { rerender } = renderDrawer(task);
+
+    const dialog = within(screen.getAllByRole('dialog')[0]);
+    await user.type(dialog.getByLabelText('Task name'), ' reworked');
+    await waitFor(() =>
+      expect(dialog.getByLabelText('Task name')).toHaveValue('Foundation reworked'),
+    );
+
+    const serverEdit = makeTask({ name: 'Renamed On Server' });
+    TASKS = [serverEdit];
+    rerender(
+      <MemoryRouter>
+        <TaskDetailDrawer task={serverEdit} projectId="p1" onClose={() => {}} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByRole('alert')[0]).toHaveTextContent(/Name changed elsewhere/i);
+  });
+});
+
 describe('TaskDetailDrawer deleted-while-dirty guard (#2054)', () => {
   const bannerText = /deleted by someone else/i;
 

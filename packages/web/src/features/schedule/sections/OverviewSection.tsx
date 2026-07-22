@@ -1,5 +1,5 @@
 import { LockIcon } from '@/components/Icons';
-import { type ChangeEvent, useState } from 'react';
+import { type ChangeEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask, parseProgressAnchorError } from '@/hooks/useTaskMutations';
@@ -61,6 +61,21 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
   // Pending BACKLOG demotion — set when user selects Backlog from a guarded status.
   const [pendingBacklog, setPendingBacklog] = useState(false);
 
+  // A pending debounced keyboard commit for the progress slider (#2172). Declared
+  // before the early return so hook order is stable. Arrow/Home/End on the range
+  // input each fire onChange (live local value + aria-valuenow) but must NOT PATCH
+  // per step — stepping 0→50 by keyboard would otherwise issue ~50 sequential
+  // PATCHes, each invalidating the task list + history. The keyboard path debounces
+  // one commit after the user settles; pointer-release, blur, and Enter commit now.
+  const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearCommitTimer = () => {
+    if (commitTimer.current !== null) {
+      clearTimeout(commitTimer.current);
+      commitTimer.current = null;
+    }
+  };
+  useEffect(() => clearCommitTimer, []);
+
   if (!task) return null;
 
   const progressDisplay =
@@ -94,9 +109,11 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
     setPendingBacklog(false);
   }
 
-  function handleProgressBlur() {
-    if (localProgress === null) return;
-    const parsed = Number.parseInt(localProgress, 10);
+  // Commit one clamped progress value as a single PATCH, clearing any pending
+  // debounced commit so blur-after-keyboard never double-fires.
+  function commitProgress(raw: string) {
+    clearCommitTimer();
+    const parsed = Number.parseInt(raw, 10);
     if (Number.isNaN(parsed)) {
       setLocalProgress(null);
       return;
@@ -116,6 +133,27 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
         },
       },
     );
+  }
+
+  // Pointer-release / blur: commit the live local value immediately (once).
+  function handleProgressBlur() {
+    if (localProgress === null) {
+      clearCommitTimer();
+      return;
+    }
+    commitProgress(localProgress);
+  }
+
+  // Keyboard on the slider: Enter commits now; every other step debounces so a
+  // run of arrow presses collapses to a single PATCH once the user settles.
+  function handleProgressKeyUp(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      commitProgress(e.currentTarget.value);
+      return;
+    }
+    const value = e.currentTarget.value;
+    clearCommitTimer();
+    commitTimer.current = setTimeout(() => commitProgress(value), 500);
   }
 
   return (
@@ -198,7 +236,7 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
                 onChange={(e) => setLocalProgress(e.target.value)}
                 onMouseUp={handleProgressBlur}
                 onTouchEnd={handleProgressBlur}
-                onKeyUp={handleProgressBlur}
+                onKeyUp={handleProgressKeyUp}
                 onBlur={handleProgressBlur}
                 className={[
                   'w-full accent-brand-primary cursor-pointer',

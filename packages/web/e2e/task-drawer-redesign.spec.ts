@@ -494,6 +494,38 @@ test.describe('TaskDetailDrawer redesign — tabs', () => {
     await expect(drawer.getByText('CP', { exact: true }).first()).toBeVisible();
     await expect(drawer.getByText(/On the critical path/i)).toBeVisible();
   });
+
+  // #2172 — keyboard-stepping the progress slider must debounce to a single
+  // PATCH, not fire one request per arrow keyup.
+  test('keyboard-stepping the progress slider issues a single debounced PATCH', async ({
+    page,
+  }) => {
+    let progressPatches = 0;
+    page.on('request', (req) => {
+      if (req.method() !== 'PATCH' || !/\/tasks\/[^/]+\//.test(req.url())) return;
+      let body: Record<string, unknown> | null = null;
+      try {
+        body = req.postDataJSON() as Record<string, unknown> | null;
+      } catch {
+        body = null;
+      }
+      if (body && 'percent_complete' in body) progressPatches++;
+    });
+
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    const slider = drawer.getByRole('slider', { name: /Task progress/i });
+    await expect(slider).toBeVisible();
+    await slider.focus();
+
+    // Five discrete keyboard steps. The old handler committed on every keyup → 5
+    // PATCHes; the debounced handler collapses them to one.
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press('ArrowRight');
+    }
+    // Wait past the 500ms debounce window, then assert exactly one commit fired.
+    await page.waitForTimeout(800);
+    expect(progressPatches).toBe(1);
+  });
 });
 
 test.describe('TaskDetailDrawer redesign — tab grouping', () => {
