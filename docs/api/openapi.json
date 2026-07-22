@@ -5422,10 +5422,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/OmniSearchResult"
-                                    }
+                                    "$ref": "#/components/schemas/OmniSearchResultPage"
                                 }
                             }
                         },
@@ -43415,6 +43412,36 @@
                     "project_name",
                     "title",
                     "type"
+                ]
+            },
+            "OmniSearchResultPage": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "next": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "previous": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/OmniSearchResult"
+                        }
+                    }
+                },
+                "required": [
+                    "count",
+                    "next",
+                    "previous",
+                    "results"
                 ]
             },
             "OnFailureEnum": {

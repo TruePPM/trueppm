@@ -354,6 +354,28 @@ def test_sample_import_reuses_existing_persona_resource_by_email(owner: Any) -> 
     assert TaskResource.objects.filter(resource=existing).exists()
 
 
+def test_sample_import_tolerates_duplicate_persona_resources_by_email(owner: Any) -> None:
+    """#2267: the sample path must not 500 when the global catalog already holds two
+    resources matching the persona lookup email.
+
+    ``Resource.email`` carries no uniqueness constraint, and the generic-import branch
+    creates fresh rows unconditionally — so a prior generic import can leave two
+    ``alex@example.com`` rows behind. The old ``get_or_create(email=...)`` then raised
+    ``MultipleObjectsReturned`` (an unhandled 500 the nightly fuzzer hit on a
+    generic-import-then-sample-load sequence). The import must instead reuse the first
+    match and create nothing new.
+    """
+    first = Resource.objects.create(name="Dup Alex A", email="alex@example.com")
+    Resource.objects.create(name="Dup Alex B", email="alex@example.com")
+
+    # Must not raise MultipleObjectsReturned.
+    import_seed(_seed(), owner=owner, create_users=True, is_sample=True)
+
+    # No third row minted, and the assignment binds the first existing match.
+    assert Resource.objects.filter(email="alex@example.com").count() == 2
+    assert TaskResource.objects.filter(resource=first).exists()
+
+
 def test_generic_import_does_not_stamp_existing_victim_user_on_resource(owner: Any) -> None:
     """#1057: on the generic path (create_users=False) a seed's accounts[].username
     resolves to a pre-existing real User. That user must NOT be stamped onto the

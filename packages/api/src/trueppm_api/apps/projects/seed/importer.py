@@ -419,8 +419,19 @@ class _SeedImporter:
                 # Demo path: resources are a global catalog and have no slug
                 # column; reuse the shared persona rows by email (else name) so a
                 # sample reload does not accumulate duplicate demo people.
+                #
+                # Neither ``email`` nor ``name`` is unique, and the generic branch
+                # below creates fresh rows unconditionally — so the catalog can
+                # legitimately already hold two rows matching this lookup. A plain
+                # ``get_or_create`` would then raise ``MultipleObjectsReturned`` (an
+                # unhandled 500 the nightly fuzzer hit on a generic-import-then-
+                # sample-load sequence, #2267). Reuse the first existing match and
+                # only create when none exists, which keeps the dedup intent while
+                # tolerating a pre-existing duplicate.
                 lookup = {"email": res["email"]} if res.get("email") else {"name": res["name"]}
-                obj, _created = Resource.objects.get_or_create(**lookup, defaults=defaults)
+                obj = Resource.objects.filter(**lookup).first() or Resource.objects.create(
+                    **defaults
+                )
             else:
                 # Generic import (#1004): never match a live global resource by
                 # email. Doing so would bind a pre-existing resource — and the

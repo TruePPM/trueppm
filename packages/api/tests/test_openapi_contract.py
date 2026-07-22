@@ -276,6 +276,24 @@ def test_workspace_members_declares_pagination_envelope(schema: dict) -> None:
     assert "results" in props and props["results"].get("type") == "array"
 
 
+def test_me_search_declares_pagination_envelope(schema: dict) -> None:
+    """me/search manually paginates — schema must be the {results:[...]} object, not a
+    bare array (#2267).
+
+    The view returns ``get_paginated_response(...)`` (a ``{count, next, previous,
+    results}`` envelope) but its ``@extend_schema`` declared
+    ``OmniSearchResultSerializer(many=True)`` — a ``type: array``. The nightly fuzzer's
+    ``response_schema_conformance`` check rejected the real object body against that
+    array. Pin the envelope so a regenerate that reverts to a bare array fails here.
+    """
+    sch = _response_2xx_schema(schema, "/api/v1/me/search/", "get")
+    ref = sch.get("$ref", "")
+    assert ref, "me/search 200 must be an object envelope, not a bare array (#2267)."
+    props = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["properties"]
+    assert "results" in props and props["results"].get("type") == "array"
+    assert {"count", "next", "previous"} <= set(props)
+
+
 def test_duration_events_response_is_event_not_task(schema: dict) -> None:
     """duration-events returns TaskDurationChangeEvent rows, not a Task (#2127)."""
     sch = _response_2xx_schema(schema, "/api/v1/tasks/{id}/duration-events/", "get")
