@@ -128,11 +128,13 @@ field limits (custom fields are excluded there too).
   **deployment**:
   - **Cloud** (Atlassian-hosted) — enter your **site URL**
     (`https://your-team.atlassian.net`), your **account email**, and a **read-only
-    API token** you create in your Jira Cloud account.
+    API token** you create in your Jira Cloud account. This authenticates over the
+    Jira REST **v3** API with **Basic auth** (`email:token`).
   - **Data Center / Server** (self-hosted) — enter your instance **site URL**
     (which may include a context path, e.g. `https://jira.example.com/jira`) and a
     **Personal Access Token** you create in your Jira profile. No account email is
-    needed — a PAT authenticates on its own. Requires Jira **Data Center / Server
+    needed — a PAT authenticates on its own over the Jira REST **v2** API with
+    **Bearer auth**. Requires Jira **Data Center / Server
     8.14+** (the first release with Personal Access Tokens). Your self-hosted host
     must first be **allow-listed by your TruePPM operator** (see
     `TRUEPPM_INTEGRATION_ALLOWED_HOSTS` in
