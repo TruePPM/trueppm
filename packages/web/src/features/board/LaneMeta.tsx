@@ -205,10 +205,13 @@ export function LaneMeta({
               title={addTaskLabel ?? `Add task to ${phaseName}`}
               aria-label={addTaskLabel ?? `Add task to ${phaseName}`}
               data-testid={`add-task-${phaseId}`}
-              className="flex-shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded-control
+              // 22px visual control + invisible expander to the 44px touch
+              // target (rule 5), matching the focusToggle sibling.
+              className="relative flex-shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded-control
                 border border-neutral-border bg-neutral-surface text-neutral-text-secondary
                 hover:border-brand-primary/50 hover:text-brand-primary
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                before:absolute before:inset-[-11px] before:content-['']"
             >
               <svg aria-hidden="true" width={10} height={10} viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
                 <line x1="5" y1="1" x2="5" y2="9" />

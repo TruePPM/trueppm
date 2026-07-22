@@ -12,7 +12,12 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DndContext } from '@dnd-kit/core';
-import { BacklogBand, filterBacklogTasks, type BacklogBandProps } from './BacklogBand';
+import {
+  BacklogBand,
+  BacklogCard,
+  filterBacklogTasks,
+  type BacklogBandProps,
+} from './BacklogBand';
 import type { Task } from '@/types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -118,6 +123,15 @@ describe('BacklogBand (rail)', () => {
     });
     expect(screen.queryByLabelText(/stalled/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/stalled/i)).not.toBeInTheDocument();
+  });
+
+  // #2208 / WCAG 2.5.5 rule 5: the 24px rail-collapse control carries an
+  // invisible before-pad so its touch target reaches 44px.
+  it('gives the rail-collapse control a 44px touch target via before-pad', () => {
+    renderBand({ tasks: [makeTask({ name: 'Card A' })] });
+    const cls = screen.getByRole('button', { name: 'Collapse backlog rail' }).className;
+    expect(cls).toContain('relative');
+    expect(cls).toContain("before:inset-[-10px]");
   });
 
   it('collapses to the 44px vertical strip and hides cards', () => {
@@ -323,9 +337,34 @@ describe('BacklogBand (rail)', () => {
     // The base "No backlog yet" empty state must not be shown when tasks exist.
     expect(screen.queryByText(/No backlog yet/i)).not.toBeInTheDocument();
 
+    // #2208 / WCAG 2.5.5 rule 5: the 16px clear-search glyph carries an
+    // invisible before-pad so its touch target reaches 44px.
+    const clearCls = screen.getByRole('button', { name: 'Clear backlog search' }).className;
+    expect(clearCls).toContain('relative');
+    expect(clearCls).toContain("before:inset-[-14px]");
+
     fireEvent.click(screen.getByRole('button', { name: /Clear search/i }));
     expect(screen.getByText('Login rework')).toBeInTheDocument();
     expect(screen.queryByText(/No ideas match/i)).not.toBeInTheDocument();
+  });
+
+  // #2208 / WCAG 2.5.5 rule 5: the 24px backlog-card `···` schedule action
+  // carries an invisible before-pad so its touch target reaches 44px.
+  it('gives the backlog-card schedule action a 44px touch target via before-pad', () => {
+    render(
+      <BacklogCard
+        task={makeTask({ name: 'Spike auth flow' })}
+        density="comfortable"
+        phaseColor="#3E8C6D"
+        ageDays={null}
+        isFocused={false}
+        onFocus={vi.fn()}
+        onClick={vi.fn()}
+        onSchedule={vi.fn()}
+      />,
+    );
+    const cls = screen.getByRole('button', { name: 'Actions for Spike auth flow' }).className;
+    expect(cls).toContain("before:inset-[-10px]");
   });
 
   it('renders a ⌘K handoff button that opens the command palette', () => {
