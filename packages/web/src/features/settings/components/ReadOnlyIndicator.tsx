@@ -50,6 +50,10 @@ export function ReadOnlyIndicator({
   return (
     <div
       className={['flex items-center gap-2 text-[13px]', className].filter(Boolean).join(' ')}
+      // Atomic, non-interactive readout: the children are aria-hidden and the whole
+      // row is announced by one composite label. `aria-label` is prohibited on a
+      // roleless div (WCAG 4.1.2), so name it as a single labeled graphic (#2265).
+      role="img"
       aria-label={`${label}: ${value}, ${provenance}. View only.`}
     >
       <span className="inline-flex items-center gap-1.5" aria-hidden="true">

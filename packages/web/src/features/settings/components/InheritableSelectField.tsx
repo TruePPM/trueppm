@@ -68,6 +68,10 @@ export function InheritableSelectField<T extends string>({
     return (
       <div
         className="flex items-center gap-2 text-[13px]"
+        // Atomic, non-interactive readout (children aria-hidden, one composite
+        // label) — `aria-label` is prohibited on a roleless div, so name it as a
+        // single labeled graphic (WCAG 4.1.2, #2265).
+        role="img"
         aria-label={`${ariaLabel}: ${labelOf(effective)}, ${provenance}. View only.`}
       >
         <span className="font-medium text-neutral-text-primary" aria-hidden="true">

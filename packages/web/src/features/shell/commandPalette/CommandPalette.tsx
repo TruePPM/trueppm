@@ -238,7 +238,7 @@ function PaletteGroup({
       aria-label={GROUP_LABEL[group]}
       data-testid={`cmdk-group-${group}`}
     >
-      <p className="tppm-mono px-3 py-1 text-xs uppercase tracking-wider text-neutral-text-disabled">
+      <p className="tppm-mono px-3 py-1 text-xs uppercase tracking-wider text-neutral-text-secondary">
         {GROUP_LABEL[group]}
       </p>
       <GroupOverflowHint group={group} {...cues} />

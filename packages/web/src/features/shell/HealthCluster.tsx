@@ -636,7 +636,7 @@ export function HealthCluster({ onTaskNavigate }: Props) {
         )}
         {forecastSeg && forecastSeg.p80 == null && (
           <span
-            className="hidden md:inline-flex items-center gap-1 text-neutral-text-disabled"
+            className="hidden md:inline-flex items-center gap-1 text-neutral-text-secondary"
             title="Run the scheduler"
           >
             <span>P80</span>
