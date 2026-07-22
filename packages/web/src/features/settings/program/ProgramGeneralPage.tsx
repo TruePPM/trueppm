@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { MemberPicker } from '../components/MemberPicker';
 import { StubFieldset } from '../components/StubFieldset';
 import { DangerZoneLink } from '../components/DangerZoneLink';
@@ -466,6 +467,18 @@ export function ProgramGeneralPage() {
   // toggles already used this exact gate; it now governs every field.
   const canEdit = program?.my_role != null && program.my_role >= ROLE_ADMIN;
 
+  // Contextual-help ⓘ (web-rule 263) for a jargon/policy/cascade field. Gated on
+  // `canEdit` because the whole form is wrapped in `<StubFieldset disabled={!canEdit}>`
+  // below (#1084): a `<fieldset disabled>` disables every descendant <button> — the
+  // FieldHelp trigger included — so a read-only viewer would get a dimmed, unclickable
+  // ⓘ (a dead affordance; ux-review §8 / web-rule 122). Read-only users still get each
+  // field's always-visible inline `hint`; only the richer popover + docs deep-link is
+  // an editor aid, so we render no trigger at all rather than a disabled one. (Making
+  // the popover reachable read-only needs the write-gate to stop blanket-disabling the
+  // labels — a FieldRow/StubFieldset follow-up, tracked for the Workspace/Project slices.)
+  const fieldHelp = (props: { label: string; body: string; docHref: string }) =>
+    canEdit ? <FieldHelp {...props} /> : undefined;
+
   // The workspace locks methodology overrides under INHERIT (ADR-0107, issue 955).
   // OSS never has an active Enterprise ENFORCE provider, so ENFORCE behaves like
   // SUGGEST here; only INHERIT makes the program picker read-only. The server is
@@ -607,6 +620,11 @@ export function ProgramGeneralPage() {
           <FieldRow
             label="Health"
             hint="Drives the health dot in program lists and portfolio rollups."
+            help={fieldHelp({
+              label: 'Health',
+              body: "Set a manual status — On track, At risk, or Critical — or choose Auto to let the rollup compute the program's health from its projects.",
+              docHref: 'administration/program-settings/#general',
+            })}
           >
             <div className="flex gap-2">
               {HEALTH_OPTIONS.map((opt) => (
@@ -636,6 +654,11 @@ export function ProgramGeneralPage() {
                 ? 'The workspace requires every program to use its default methodology. A workspace admin can relax this on the workspace Methodology page.'
                 : 'Default methodology for projects in this program — unless a project sets its own. Inherits the workspace default until you choose one.'
             }
+            help={fieldHelp({
+              label: 'Methodology',
+              body: "Sets the default planning model — Waterfall, Agile, or Hybrid — for this program's projects. A project can override it, and it inherits the workspace default until you choose one.",
+              docHref: 'features/methodology-preset/',
+            })}
           >
             <div className="flex gap-2" role="radiogroup" aria-label="Methodology">
               {METHODOLOGY_OPTIONS.map((opt) => {
@@ -670,6 +693,11 @@ export function ProgramGeneralPage() {
           <FieldRow
             label="Iteration terminology"
             hint="The word projects in this program use for their iteration container — unless a project sets its own."
+            help={fieldHelp({
+              label: 'Iteration terminology',
+              body: "The word this program's projects use for their iteration container — Sprint, Iteration, or Cycle. Inherits the workspace default unless a project sets its own.",
+              docHref: 'administration/program-settings/#general',
+            })}
           >
             <InheritableIterationLabelField
               value={iterationLabel}
@@ -682,6 +710,11 @@ export function ProgramGeneralPage() {
           <FieldRow
             label="Allow guests"
             hint="Guests are external collaborators (vendors, auditors), limited to what they're invited to. Inherits the workspace setting unless you override it here."
+            help={fieldHelp({
+              label: 'Allow guests',
+              body: "Guests are external collaborators — vendors, auditors — limited to just what they're invited to. Inherits the workspace setting unless you override it here.",
+              docHref: 'administration/sharing-and-access/',
+            })}
           >
             <InheritableToggleField
               value={allowGuests}
@@ -699,6 +732,11 @@ export function ProgramGeneralPage() {
           <FieldRow
             label="Public sharing"
             hint="Anyone with the link can view selected reports — no sign-in required. Inherits the workspace setting unless you override it here."
+            help={fieldHelp({
+              label: 'Public sharing',
+              body: 'Lets anyone with the link view selected reports without signing in. Inherits the workspace setting unless you override it here.',
+              docHref: 'administration/sharing-and-access/',
+            })}
           >
             <InheritableToggleField
               value={publicSharing}
@@ -722,6 +760,11 @@ export function ProgramGeneralPage() {
           <FieldRow
             label="Keep Monte Carlo run history"
             hint={`${MC_HISTORY_HINT} Inherits the workspace setting unless you override it here.`}
+            help={fieldHelp({
+              label: 'Keep Monte Carlo run history',
+              body: "Whether this program keeps past Monte Carlo forecast runs, so you can compare how a project's forecast moved over time. Inherits the workspace setting unless you override it here.",
+              docHref: 'features/monte-carlo/',
+            })}
           >
             <InheritableToggleField
               value={mcHistoryEnabled}
@@ -757,6 +800,11 @@ export function ProgramGeneralPage() {
           <FieldRow
             label="Run attribution visible to"
             hint={`${MC_ATTRIBUTION_HINT} Inherits the workspace setting unless you override it here.`}
+            help={fieldHelp({
+              label: 'Run attribution visible to',
+              body: 'Controls who can see which member ran each Monte Carlo forecast. Inherits the workspace setting unless you override it here.',
+              docHref: 'features/monte-carlo/',
+            })}
           >
             <InheritableSelectField
               value={mcHistoryAttributionAudience}
@@ -773,6 +821,11 @@ export function ProgramGeneralPage() {
           <FieldRow
             label="Duration change &rarr; percent complete"
             hint={`${DURATION_CHANGE_POLICY_HINT} Inherits the workspace setting unless you override it here.`}
+            help={fieldHelp({
+              label: 'Duration change to percent complete',
+              body: "Whether editing a task's duration re-derives its percent complete, and how that recalculation is applied. Inherits the workspace setting unless you override it here.",
+              docHref: 'administration/program-settings/#general',
+            })}
           >
             <InheritableSelectField
               value={taskDurationChangePercentPolicy}
@@ -789,6 +842,11 @@ export function ProgramGeneralPage() {
           <FieldRow
             label="Estimation scale"
             hint={`${ESTIMATION_SCALE_HINT} Inherits the workspace setting unless you override it here.`}
+            help={fieldHelp({
+              label: 'Estimation scale',
+              body: 'The scale this program\'s projects use to size work — story points, hours, or T-shirt sizes. Inherits the workspace setting unless you override it here.',
+              docHref: 'administration/program-settings/#general',
+            })}
           >
             <InheritableSelectField
               value={estimationScale}

@@ -150,6 +150,31 @@ test.describe('Program Settings → General', () => {
     });
   });
 
+  // #2266: jargon/policy/cascade fields carry a FieldHelp ⓘ (web-rule 263) that
+  // opens a non-modal dialog with a "Learn more →" deep-link into the docs.
+  test('opens a field-help popover with a docs deep-link', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
+
+    const general = page.locator('[data-settings-section="general"]');
+    await expect(general.getByRole('heading', { name: 'General' })).toBeVisible();
+
+    await general.getByRole('button', { name: /About the Methodology options/i }).click();
+
+    const dialog = page.getByRole('dialog', { name: /Methodology/i });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('link', { name: /Learn more/i })).toHaveAttribute(
+      'href',
+      /docs\.trueppm\.com\/features\/methodology-preset/,
+    );
+
+    // Escape peels only the popover (capture-phase handler, web-rule 263f) — the
+    // settings page stays put.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(general.getByRole('heading', { name: 'General' })).toBeVisible();
+  });
+
   // #790 / ADR-0095 / #1920: program navigation lives in the left rail's "This
   // program" tier, which persists across settings routes with the Settings entry
   // active. There is no in-content program tab strip, so the shared SettingsShell
