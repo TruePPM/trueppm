@@ -51,8 +51,14 @@ Install k6 from <https://k6.io/docs/get-started/installation/> (Homebrew:
 
 ## Cadence in CI
 
-The `perf:load` job is gated behind the `PERF_SCHEDULED` schedule variable (added
-to the workflow allowlist alongside `RENOVATE`/`SONAR_SCHEDULED`, #2092), so it
-runs only on a dedicated GitLab schedule — not on every Renovate/Sonar nightly.
-To enable it, create a scheduled pipeline on `main` with `PERF_SCHEDULED=true`
-(weekly is enough for load). Until that schedule exists the job is inert.
+The `perf:load` job is schedule-only (`rules: if $CI_PIPELINE_SOURCE ==
+"schedule"`) and non-gating (`allow_failure: true`). Like `api:fuzz`, it
+piggybacks on the existing nightly schedules that the workflow allowlist admits
+(Renovate / SonarCloud, #2092) — it runs on those scheduled pipelines and never
+on MR/push pipelines.
+
+A dedicated weekly schedule with its own flag was the original intent, but
+**pipeline-schedule variables are disabled for this project/group** (#2280), so
+there is no per-schedule flag to gate on — piggybacking on the nightly is the
+working equivalent of `api:fuzz`'s cadence. If schedule variables are re-enabled
+later, the job can be moved back onto its own `PERF_SCHEDULED` schedule.
