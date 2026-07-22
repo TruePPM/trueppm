@@ -8,6 +8,8 @@
  * badge/chip carries a text label and the glyph is decorative (aria-hidden).
  */
 
+import type { ReactNode } from 'react';
+import { ExternalLinkIcon, FolderIcon } from '@/components/Icons';
 import { previewTypeLabel } from '@/lib/previewType';
 import { LINK_STATUS_DOT_CLASS, LINK_STATUS_LABEL, LINK_STATUS_TEXT_CLASS } from '@/lib/linkStatus';
 import type { ExternalLinkStatus } from '@/lib/linkStatus';
@@ -20,17 +22,23 @@ export function isFileProvider(provider: string): boolean {
   return FILE_PROVIDERS.has(provider);
 }
 
-/** Provider glyph — Unicode for zero icon-library cost (matches AttachmentSection).
- *  File providers (issue 571, ADR-0163) get distinct glyphs; the icon is decorative
- *  (aria-hidden) — the link title carries the meaning. */
-export function providerIcon(provider: string): string {
-  if (provider === 'github') return '🐙';
-  if (provider === 'gitlab') return '🦊';
-  if (provider === 'google_drive') return '📂';
-  if (provider === 'dropbox') return '🗄️';
-  if (provider === 'box') return '📦';
-  if (provider === 'onedrive') return '☁️';
-  return '🔗';
+/** Provider glyph — a house SVG mark, never a third-party brand logo (#1748).
+ *
+ *  Cloud-file providers (ADR-0163) render a folder mark; every other link renders
+ *  the neutral external-link mark. The glyph is decorative (aria-hidden) — the link
+ *  title and hostname already carry the provider's identity — so a house kind-mark
+ *  is sufficient and sidesteps the trademark / asset-source cost of shipping ~12
+ *  recognizable brand logos as inline SVG. */
+export function providerIcon(provider: string): ReactNode {
+  const file = isFileProvider(provider);
+  const Glyph = file ? FolderIcon : ExternalLinkIcon;
+  return (
+    <Glyph
+      className="h-4 w-4 text-neutral-text-secondary"
+      aria-hidden="true"
+      data-testid={file ? 'provider-glyph-file' : 'provider-glyph-link'}
+    />
+  );
 }
 
 interface StatusBadgeProps {

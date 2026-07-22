@@ -98,6 +98,9 @@ describe('AssetsPage (project scope)', () => {
     const link = screen.getByRole('link', { name: /PR 7/i });
     expect(link).toHaveAttribute('href', 'https://github.com/acme/api/pull/7');
     expect(screen.getByText('spec')).toBeInTheDocument(); // label pill
+    // Host on the meta line carries provider identity now that the glyph is a
+    // neutral house kind-mark (#1748) — this surface shows no other provider cue.
+    expect(screen.getByText('github.com')).toBeInTheDocument();
   });
 
   it('updates the query when the Files kind chip is clicked', () => {

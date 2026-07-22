@@ -10,9 +10,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import {
   BanIcon,
+  ExternalLinkIcon,
   FileImageIcon,
   FileSpreadsheetIcon,
   FileTextIcon,
+  FolderIcon,
   PaperclipIcon,
   PinIcon,
 } from '@/components/Icons';
@@ -41,9 +43,7 @@ function formatBytes(bytes: number | null): string {
 
 /**
  * File icon based on MIME. Local files use the house SVG file-type set (#1739);
- * external/pinned links still use the per-host emoji glyph from
- * `externalLinkIcon` — those are third-party brand marks whose SVG conversion is
- * a separate brand-asset decision (#1748).
+ * external/pinned links use a house kind-mark from `externalLinkIcon` (#1748).
  */
 function fileIcon(mime: string, isExternal: boolean, externalUrl: string | null): ReactNode {
   if (isExternal) return externalLinkIcon(externalUrl);
@@ -56,15 +56,20 @@ function fileIcon(mime: string, isExternal: boolean, externalUrl: string | null)
   return <PaperclipIcon className={cls} aria-hidden="true" />;
 }
 
-/**
- * Per-host glyph for pinned external URLs. Matches the host substring against
- * the most common knowledge-base / docs / design hosts in PMO tooling
- * (Google Docs, SharePoint / OneDrive, Confluence, Notion, Figma, Jira,
- * GitHub, GitLab, Miro, Dropbox, Slack). Anything unrecognized falls back to
- * the generic link glyph. The full hostname is still rendered next to the
- * title via the `meta` line, so the glyph is decorative — `aria-hidden` on
- * the span carries the WCAG fallback.
- */
+/** Cloud file-storage hosts that render the folder kind-mark rather than the
+ *  generic external-link mark (#1748). A stored file/folder (Drive, SharePoint /
+ *  OneDrive, Dropbox, Box) reads as a folder; every other host is a plain web
+ *  link. Matched by `hostMatches` (exact label, never a raw substring). */
+const FILE_HOST_TOKENS = [
+  'drive.google.com',
+  'docs.google.com',
+  'sharepoint',
+  'onedrive',
+  'office.com',
+  'dropbox',
+  'box.com',
+];
+
 /**
  * True when `host` is `token`, a subdomain of it, or carries `token` as a
  * dot-delimited label — so a brand label matches both the SaaS host
@@ -77,27 +82,32 @@ function hostMatches(host: string, token: string): boolean {
   return host === token || host.endsWith(`.${token}`) || host.split('.').includes(token);
 }
 
-function externalLinkIcon(externalUrl: string | null): string {
-  if (!externalUrl) return '🔗';
-  let host: string;
-  try {
-    host = new URL(externalUrl).host.toLowerCase();
-  } catch {
-    return '🔗';
+/**
+ * House kind-mark for a pinned external URL (#1748). Cloud file-storage hosts
+ * render a folder mark; every other link renders the neutral external-link mark.
+ * Never a third-party brand logo — the full hostname is rendered next to the
+ * title on the `meta` line, so the glyph is decorative (`aria-hidden`) and a
+ * house kind-mark carries the WCAG fallback without the trademark/asset cost of
+ * shipping recognizable brand logos.
+ */
+function externalLinkIcon(externalUrl: string | null): ReactNode {
+  let isFile = false;
+  if (externalUrl) {
+    try {
+      const host = new URL(externalUrl).host.toLowerCase();
+      isFile = FILE_HOST_TOKENS.some((token) => hostMatches(host, token));
+    } catch {
+      isFile = false;
+    }
   }
-  if (hostMatches(host, 'docs.google.com') || hostMatches(host, 'drive.google.com')) return '📝';
-  if (hostMatches(host, 'sharepoint') || hostMatches(host, 'onedrive') || hostMatches(host, 'office.com'))
-    return '📘';
-  if (hostMatches(host, 'atlassian.net') || hostMatches(host, 'confluence')) return '📚';
-  if (hostMatches(host, 'notion')) return '📓';
-  if (hostMatches(host, 'figma')) return '🎨';
-  if (hostMatches(host, 'jira')) return '🟦';
-  if (hostMatches(host, 'github')) return '🐙';
-  if (hostMatches(host, 'gitlab')) return '🦊';
-  if (hostMatches(host, 'miro')) return '🗒';
-  if (hostMatches(host, 'dropbox')) return '📦';
-  if (hostMatches(host, 'slack')) return '💬';
-  return '🔗';
+  const Glyph = isFile ? FolderIcon : ExternalLinkIcon;
+  return (
+    <Glyph
+      className="h-4 w-4 text-neutral-text-secondary"
+      aria-hidden="true"
+      data-testid={isFile ? 'provider-glyph-file' : 'provider-glyph-link'}
+    />
+  );
 }
 
 /**
@@ -174,7 +184,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
       aria-label={`Attachment: ${displayName}`}
     >
       <div className="flex items-start gap-2 min-w-0">
-        <span className="text-base flex-shrink-0" aria-hidden="true">
+        <span className="flex-shrink-0" aria-hidden="true">
           {fileIcon(attachment.file_mime, isExternal, attachment.external_url)}
         </span>
         <div className="flex flex-col min-w-0 flex-1">
