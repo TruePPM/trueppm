@@ -382,6 +382,166 @@ class MentionParseResult(NamedTuple):
     external_targets: list[ExternalStakeholder] = []  # noqa: RUF012
 
 
+def _load_project_udg_members(
+    project_id: uuid.UUID | str, names_lower: list[str]
+) -> dict[str, list[UserType]]:
+    """Project-scoped user-defined mention groups (ADR-0212), keyed by lowercased name.
+
+    Members are snapshotted at write time and filtered to those still on the project.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, UserDefinedMentionGroup
+
+    active_member_ids = set(
+        ProjectMembership.objects.filter(project_id=project_id, is_deleted=False).values_list(
+            "user_id", flat=True
+        )
+    )
+    resolved: dict[str, list[UserType]] = {}
+    udg_groups = (
+        UserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
+        .filter(project_id=project_id, name_lower__in=names_lower, is_deleted=False)
+        .prefetch_related("members")
+    )
+    for group in udg_groups:
+        resolved[group.name.lower()] = [
+            member for member in group.members.all() if member.pk in active_member_ids
+        ]
+    return resolved
+
+
+def _load_program_udg_members(
+    project_id: uuid.UUID | str, names_lower: list[str]
+) -> dict[str, list[UserType]]:
+    """Program-scoped user-defined mention groups (ADR-0248, #516), keyed by lowercased name.
+
+    Returns empty for a standalone project (no program). Members are filtered to those
+    still on any project in the program.
+    """
+    from trueppm_api.apps.access.models import (
+        ProgramUserDefinedMentionGroup,
+        ProjectMembership,
+    )
+    from trueppm_api.apps.projects.models import Project
+
+    program_id = Project.objects.filter(pk=project_id).values_list("program_id", flat=True).first()
+    if program_id is None:
+        return {}
+    program_member_ids = set(
+        ProjectMembership.objects.filter(
+            project__program_id=program_id,
+            project__is_deleted=False,
+            is_deleted=False,
+        ).values_list("user_id", flat=True)
+    )
+    resolved: dict[str, list[UserType]] = {}
+    pudg_groups = (
+        ProgramUserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
+        .filter(program_id=program_id, name_lower__in=names_lower, is_deleted=False)
+        .prefetch_related("members")
+    )
+    for pgroup in pudg_groups:
+        resolved[pgroup.name.lower()] = [
+            member for member in pgroup.members.all() if member.pk in program_member_ids
+        ]
+    return resolved
+
+
+def _resolve_udg_groups_by_lower(
+    project_id: uuid.UUID | str, unresolved: list[str]
+) -> dict[str, list[UserType]]:
+    """Reinterpret non-member @names as user-defined groups (ADR-0212, ADR-0248).
+
+    Batch-resolved in one query set per scope (not per-token) to keep the synchronous
+    comment-create path off the N+1. Precedence is member → project group → program
+    group: a project group shadows a same-named program group, so only names still
+    unresolved after the project step fall through to the program step.
+    """
+    groups_by_lower = _load_project_udg_members(project_id, [name.lower() for name in unresolved])
+    still_unresolved = [name for name in unresolved if name.lower() not in groups_by_lower]
+    if still_unresolved:
+        program_groups = _load_program_udg_members(
+            project_id, [name.lower() for name in still_unresolved]
+        )
+        for key, members in program_groups.items():
+            groups_by_lower[key] = members
+    return groups_by_lower
+
+
+def _resolve_user_mentions(
+    parsed: Sequence[ParsedMention], project_id: uuid.UUID | str
+) -> tuple[list[UserType], list[tuple[str, list[UserType]]], list[str]]:
+    """Resolve @user tokens to project members, user-defined groups, or skipped names.
+
+    A real project member always wins on an exact name collision; a non-member name is
+    promoted to a user-defined group target when one exists (see
+    :func:`_resolve_udg_groups_by_lower`), else recorded in ``skipped_users``.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership
+
+    user_targets: list[UserType] = []
+    group_targets: list[tuple[str, list[UserType]]] = []
+    skipped_users: list[str] = []
+
+    requested_usernames = [m.value for m in parsed if m.kind == "user"]
+    if not requested_usernames:
+        return user_targets, group_targets, skipped_users
+
+    member_users = list(
+        User.objects.filter(
+            username__in=requested_usernames,
+            pk__in=ProjectMembership.objects.filter(
+                project_id=project_id, is_deleted=False
+            ).values_list("user_id", flat=True),
+        )
+    )
+    resolved_by_name = {u.username: u for u in member_users}
+    unresolved = [name for name in requested_usernames if name not in resolved_by_name]
+    groups_by_lower = _resolve_udg_groups_by_lower(project_id, unresolved) if unresolved else {}
+    for name in requested_usernames:
+        if name in resolved_by_name:
+            user_targets.append(resolved_by_name[name])
+        elif name.lower() in groups_by_lower:
+            group_targets.append((name.lower(), groups_by_lower[name.lower()]))
+        else:
+            skipped_users.append(name)
+    return user_targets, group_targets, skipped_users
+
+
+def _resolve_group_mentions(
+    parsed: Sequence[ParsedMention],
+    project_id: uuid.UUID | str,
+    actor_role: int | None,
+) -> tuple[list[tuple[str, list[UserType]]], list[str]]:
+    """Resolve @group tokens via ``resolve_group_members``.
+
+    ``@all`` / ``@program-all`` are unbounded fan-outs and require actor_role >= ADMIN
+    (ADR-0075 locked constraint #2); unknown or oversized groups land in
+    ``skipped_groups`` with a structured marker.
+    """
+    from trueppm_api.apps.access.models import Role
+
+    group_targets: list[tuple[str, list[UserType]]] = []
+    skipped_groups: list[str] = []
+    for m in parsed:
+        if m.kind != "group":
+            continue
+        key = m.value
+        if key in ("all", "program-all") and (actor_role is None or actor_role < Role.ADMIN):
+            skipped_groups.append(key)
+            continue
+        try:
+            member_ids = resolve_group_members(project_id, key)
+        except (InvalidGroupKeyError, GroupTooLargeError):
+            skipped_groups.append(key)
+            continue
+        # resolve_group_members annotates its result list[UUID], but the `pk`
+        # lookup is typed Iterable[str|int] under django-stubs; stringify so the
+        # ids satisfy the lookup type (Django coerces them back to the User pk).
+        members = list(User.objects.filter(pk__in=[str(uid) for uid in member_ids]))
+        group_targets.append((key, members))
+    return group_targets, skipped_groups
+
+
 def resolve_parsed_mentions(
     parsed: Sequence[ParsedMention],
     project_id: uuid.UUID | str,
@@ -402,119 +562,11 @@ def resolve_parsed_mentions(
       `@program-all` require actor_role >= ADMIN (ADR-0075 locked constraint
       #2). Oversized groups land in `skipped_groups` with a structured marker.
     """
-    from trueppm_api.apps.access.models import ProjectMembership, Role
-
-    user_targets: list[UserType] = []
-    group_targets: list[tuple[str, list[UserType]]] = []
-    skipped_users: list[str] = []
-    skipped_groups: list[str] = []
-
-    # Resolve usernames in one query
-    requested_usernames = [m.value for m in parsed if m.kind == "user"]
-    if requested_usernames:
-        member_users = list(
-            User.objects.filter(
-                username__in=requested_usernames,
-                pk__in=ProjectMembership.objects.filter(
-                    project_id=project_id, is_deleted=False
-                ).values_list("user_id", flat=True),
-            )
-        )
-        resolved_by_name = {u.username: u for u in member_users}
-        # Names that are not current project members may be user-defined groups
-        # (ADR-0212). Batch-resolve them in ONE query set (not per-token) so a
-        # comment with many unknown @tokens never fans into an N+1 on the
-        # synchronous comment-create path. Snapshot the members at write time,
-        # filtered to those still on the project.
-        unresolved = [name for name in requested_usernames if name not in resolved_by_name]
-        groups_by_lower: dict[str, list[UserType]] = {}
-        if unresolved:
-            from trueppm_api.apps.access.models import UserDefinedMentionGroup
-
-            active_member_ids = set(
-                ProjectMembership.objects.filter(
-                    project_id=project_id, is_deleted=False
-                ).values_list("user_id", flat=True)
-            )
-            udg_groups = (
-                UserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
-                .filter(
-                    project_id=project_id,
-                    name_lower__in=[name.lower() for name in unresolved],
-                    is_deleted=False,
-                )
-                .prefetch_related("members")
-            )
-            for group in udg_groups:
-                groups_by_lower[group.name.lower()] = [
-                    member for member in group.members.all() if member.pk in active_member_ids
-                ]
-            # Fall through to program-scoped user-defined groups (ADR-0248, #516)
-            # for names still unresolved after the member + project-group steps.
-            # Precedence is member → project group → program group, so we only look
-            # up names not already keyed: a project group shadows a same-named
-            # program group. Skipped for a standalone project (no program).
-            still_unresolved = [name for name in unresolved if name.lower() not in groups_by_lower]
-            if still_unresolved:
-                from trueppm_api.apps.access.models import ProgramUserDefinedMentionGroup
-                from trueppm_api.apps.projects.models import Project
-
-                program_id = (
-                    Project.objects.filter(pk=project_id)
-                    .values_list("program_id", flat=True)
-                    .first()
-                )
-                if program_id is not None:
-                    program_member_ids = set(
-                        ProjectMembership.objects.filter(
-                            project__program_id=program_id,
-                            project__is_deleted=False,
-                            is_deleted=False,
-                        ).values_list("user_id", flat=True)
-                    )
-                    pudg_groups = (
-                        ProgramUserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
-                        .filter(
-                            program_id=program_id,
-                            name_lower__in=[name.lower() for name in still_unresolved],
-                            is_deleted=False,
-                        )
-                        .prefetch_related("members")
-                    )
-                    for pgroup in pudg_groups:
-                        groups_by_lower[pgroup.name.lower()] = [
-                            member
-                            for member in pgroup.members.all()
-                            if member.pk in program_member_ids
-                        ]
-        for name in requested_usernames:
-            if name in resolved_by_name:
-                user_targets.append(resolved_by_name[name])
-            elif name.lower() in groups_by_lower:
-                group_targets.append((name.lower(), groups_by_lower[name.lower()]))
-            else:
-                skipped_users.append(name)
-
-    for m in parsed:
-        if m.kind != "group":
-            continue
-        key = m.value
-        # @all / @program-all role gate (ADR-0075 locked constraint #2). Both
-        # are unbounded fan-outs — the program variant is even wider — so both
-        # require the actor to be Admin+ in the current project.
-        if key in ("all", "program-all") and (actor_role is None or actor_role < Role.ADMIN):
-            skipped_groups.append(key)
-            continue
-        try:
-            member_ids = resolve_group_members(project_id, key)
-        except (InvalidGroupKeyError, GroupTooLargeError):
-            skipped_groups.append(key)
-            continue
-        # resolve_group_members annotates its result list[UUID], but the `pk`
-        # lookup is typed Iterable[str|int] under django-stubs; stringify so the
-        # ids satisfy the lookup type (Django coerces them back to the User pk).
-        members = list(User.objects.filter(pk__in=[str(uid) for uid in member_ids]))
-        group_targets.append((key, members))
+    user_targets, user_group_targets, skipped_users = _resolve_user_mentions(parsed, project_id)
+    auto_group_targets, skipped_groups = _resolve_group_mentions(parsed, project_id, actor_role)
+    # User-token-resolved groups precede auto-groups, preserving the original
+    # single-list append order (user block first, then the @group loop).
+    group_targets = user_group_targets + auto_group_targets
 
     # External stakeholders (#1658, ADR-0264) are the non-account arm of a resolved
     # @program-stakeholders mention. Resolve them ONLY when that group actually
@@ -533,6 +585,279 @@ def resolve_parsed_mentions(
         skipped_users=skipped_users,
         skipped_groups=skipped_groups,
         external_targets=external_targets,
+    )
+
+
+def _build_mention_rows(
+    *,
+    task_comment: TaskComment,
+    mentioner: UserType,
+    parsed_result: MentionParseResult,
+    project_id: uuid.UUID | str,
+    scope: MentionScope,
+) -> tuple[list[Mention], dict[str, list[UserType]]]:
+    """Build the unsaved Mention rows and the per-group member index.
+
+    One Mention row per direct user, then one per group (preserving "@scrum-team was
+    mentioned" semantics); the returned index maps each group key to its members for
+    the later per-member fan-out. Order matches the original append sequence: direct
+    user mentions first, group mentions second.
+    """
+    mentions: list[Mention] = []
+    for user in parsed_result.user_targets:
+        mentions.append(
+            Mention(
+                mentioner=mentioner,
+                mentioned_user=user,
+                task_comment=task_comment,
+                project_id=project_id,
+                scope=scope,
+            )
+        )
+    group_member_index: dict[str, list[UserType]] = {}
+    for group_key, members in parsed_result.group_targets:
+        mentions.append(
+            Mention(
+                mentioner=mentioner,
+                mentioned_group_key=group_key,
+                task_comment=task_comment,
+                project_id=project_id,
+                scope=scope,
+            )
+        )
+        group_member_index[group_key] = members
+    return mentions, group_member_index
+
+
+def _load_udg_email_settings(
+    project_id: uuid.UUID | str, mentioned_group_keys: list[str]
+) -> tuple[dict[str, bool], set[tuple[int | str, str]]]:
+    """Load per-group email defaults and mute sets for mentioned user-defined groups.
+
+    User-defined group routing (ADR-0212 §5). Auto-group keys (@admins, @scrum-team, …)
+    simply don't match and keep their existing global-toggle behavior. The returned
+    ``udg_email_default`` maps a lowercased group name to its manager-set email default;
+    ``udg_mutes`` is the set of ``(user_id, group_name)`` pairs whose owner muted that
+    group. Keys in ``mentioned_group_keys`` are lowercased (see resolve_parsed_mentions),
+    so match on ``Lower(name)`` — group names are case-insensitive mention keys even
+    though the display name preserves the manager's casing.
+
+    Program-scoped user-defined groups (ADR-0248, #516) load first so a same-named
+    project group overwrites the email default (project wins, matching the resolution
+    precedence). Mutes union across scopes — a member who muted either same-named group
+    is defensively suppressed (a negligible, documented name-collision case).
+    """
+    udg_email_default: dict[str, bool] = {}
+    udg_mutes: set[tuple[int | str, str]] = set()
+    if not mentioned_group_keys:
+        return udg_email_default, udg_mutes
+
+    from trueppm_api.apps.access.models import (
+        ProgramUserDefinedMentionGroup,
+        UserDefinedMentionGroup,
+    )
+    from trueppm_api.apps.projects.models import Project
+
+    program_id = Project.objects.filter(pk=project_id).values_list("program_id", flat=True).first()
+    if program_id is not None:
+        pudg_groups = (
+            ProgramUserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
+            .filter(program_id=program_id, name_lower__in=mentioned_group_keys, is_deleted=False)
+            .prefetch_related("muted_by")
+        )
+        for pgroup in pudg_groups:
+            key = pgroup.name.lower()
+            udg_email_default[key] = pgroup.email_default_on
+            for muter in pgroup.muted_by.all():
+                udg_mutes.add((muter.pk, key))
+    udg_groups = (
+        UserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
+        .filter(project_id=project_id, name_lower__in=mentioned_group_keys, is_deleted=False)
+        .prefetch_related("muted_by")
+    )
+    for group in udg_groups:
+        key = group.name.lower()
+        udg_email_default[key] = group.email_default_on
+        for muter in group.muted_by.all():
+            udg_mutes.add((muter.pk, key))
+    return udg_email_default, udg_mutes
+
+
+def _add_group_recipients(
+    recipients: dict[int | str, Mention],
+    group_mention: Mention,
+    members: list[UserType],
+    udg_mutes: set[tuple[int | str, str]],
+    mentioner_pk: int | str,
+) -> None:
+    """Fan a group mention out to its members, mutating ``recipients`` in place.
+
+    Skips the mentioner (don't ping yourself) and any member who muted THIS
+    user-defined group (ADR-0212); ``setdefault`` means a member already claimed by a
+    direct @mention or an earlier un-muted group is left untouched.
+    """
+    group_key = group_mention.mentioned_group_key
+    for member in members:
+        if member.pk == mentioner_pk:
+            continue
+        if (member.pk, group_key) in udg_mutes:
+            continue
+        recipients.setdefault(member.pk, group_mention)
+
+
+def _resolve_mention_recipients(
+    mentions: list[Mention],
+    group_member_index: dict[str, list[UserType]],
+    udg_mutes: set[tuple[int | str, str]],
+    mentioner: UserType,
+) -> dict[int | str, Mention]:
+    """Dedup mentions to one source Mention per recipient.
+
+    A user mentioned directly AND via a group gets one notification; the direct-mention
+    row wins (overwriting a prior group-source entry) so the UI shows "@you". Per-group
+    mutes (ADR-0212) drop a member for the muting group only — they may still be added
+    by a different, un-muted group. The mentioner is never notified.
+    """
+    recipients: dict[int | str, Mention] = {}
+    for mention in mentions:
+        if mention.mentioned_user_id:
+            recipients[mention.mentioned_user_id] = mention
+    for mention in mentions:
+        if mention.mentioned_group_key:
+            _add_group_recipients(
+                recipients,
+                mention,
+                group_member_index[mention.mentioned_group_key],
+                udg_mutes,
+                mentioner.pk,
+            )
+    # Drop the mentioner from direct mentions too (don't ping yourself)
+    recipients.pop(mentioner.pk, None)
+    return recipients
+
+
+class _MentionRoutingContext(NamedTuple):
+    """Batch-loaded, per-fan-out routing state for mention notification delivery."""
+
+    project_tz: ZoneInfo
+    project_prefs: dict[int | str, ProjectNotificationPreference]
+    global_email: dict[int | str, dict[str, bool]]
+    source_project_member_ids: set[Any]
+    dnd_user_ids: set[Any]
+
+
+def _load_mention_routing_context(
+    project_id: uuid.UUID | str, recipient_ids: list[int | str]
+) -> _MentionRoutingContext:
+    """Batch-load the per-recipient routing state in a fixed number of queries.
+
+    - Project timezone + each recipient's ProjectNotificationPreference row (#674):
+      evaluated per recipient without an N+1; a recipient with no row evaluates against
+      an unsaved instance carrying the model defaults (subsumes the #589 pause check).
+    - Global per-user mention email preference (#311): a mention emails only when BOTH
+      the project matrix and this global toggle allow it.
+    - Source-project membership set (cross-project email read boundary, ADR-0248 §5 /
+      ADR-0240 §5): the email render path embeds the raw comment body, so email is
+      suppressed for any recipient not a current member of the source project; they
+      still get the redacted in-app row.
+    - Account-wide DND set (#1707): a mention is not a bypass event, so DND silences its
+      email while the durable in-app inbox row still lands.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership
+    from trueppm_api.apps.projects.models import Project
+
+    project = Project.objects.filter(pk=project_id).only("timezone").first()
+    project_tz = _project_timezone(project)
+    project_prefs: dict[int | str, ProjectNotificationPreference] = {
+        proj_pref.user_id: proj_pref
+        for proj_pref in ProjectNotificationPreference.objects.filter(
+            project_id=project_id, user_id__in=recipient_ids
+        )
+    }
+    global_email: dict[int | str, dict[str, bool]] = {}
+    for global_pref in NotificationPreference.objects.filter(
+        user_id__in=recipient_ids, channel=NotificationChannel.EMAIL
+    ):
+        global_email.setdefault(global_pref.user_id, {})[global_pref.event_type] = (
+            global_pref.enabled
+        )
+    source_project_member_ids = set(
+        ProjectMembership.objects.filter(
+            project_id=project_id, is_deleted=False, user_id__in=recipient_ids
+        ).values_list("user_id", flat=True)
+    )
+    dnd_user_ids = load_dnd_user_ids(recipient_ids)
+    return _MentionRoutingContext(
+        project_tz=project_tz,
+        project_prefs=project_prefs,
+        global_email=global_email,
+        source_project_member_ids=source_project_member_ids,
+        dnd_user_ids=dnd_user_ids,
+    )
+
+
+def _build_mention_notification(
+    *,
+    user_id: int | str,
+    source_mention: Mention,
+    context: _MentionRoutingContext,
+    udg_email_default: dict[str, bool],
+    project_id: uuid.UUID | str,
+    now: datetime.datetime,
+) -> Notification | None:
+    """Build one recipient's Notification row, or None if the in-app gate blocks it.
+
+    The in-app inbox row is matrix-gated only; quiet hours never drop the durable record
+    (see _QUIET_HOURS_EXEMPT_CHANNELS). The email gate layers the project matrix
+    (comment_mention/email) + quiet hours with the per-source opt-in:
+      - user-defined group (ADR-0212 §5): the group manager's per-group email default is
+        the self-contained opt-in — a mute already removed the recipient from the in-app
+        gate above, so reaching here means un-muted; email follows the group default.
+      - direct mention / auto-group: the existing global per-user toggle (#311) —
+        MENTION_INDIVIDUAL / MENTION_GROUP — governs, default OFF.
+    then the cross-project read boundary and account-wide DND (#1707).
+    """
+    event_type_project = ProjectNotificationEventType.COMMENT_MENTION.value
+    pref = context.project_prefs.get(user_id) or ProjectNotificationPreference()
+    if not _preference_allows(
+        pref,
+        event_type=event_type_project,
+        channel=ProjectNotificationChannel.IN_APP.value,
+        now=now,
+        tz=context.project_tz,
+    ):
+        return None
+    global_event = (
+        NotificationEventType.MENTION_INDIVIDUAL.value
+        if source_mention.mentioned_user_id
+        else NotificationEventType.MENTION_GROUP.value
+    )
+    source_group_key = source_mention.mentioned_group_key
+    if source_group_key and source_group_key in udg_email_default:
+        per_user_opt_in = udg_email_default[source_group_key]
+    else:
+        per_user_opt_in = context.global_email.get(user_id, {}).get(global_event, False)
+    email_pending = (
+        _preference_allows(
+            pref,
+            event_type=event_type_project,
+            channel=ProjectNotificationChannel.EMAIL.value,
+            now=now,
+            tz=context.project_tz,
+        )
+        and per_user_opt_in
+        and user_id in context.source_project_member_ids
+        and not _dnd_silences(
+            global_event,
+            ProjectNotificationChannel.EMAIL.value,
+            dnd_enabled=user_id in context.dnd_user_ids,
+        )
+    )
+    return Notification(
+        recipient_id=user_id,
+        mention=source_mention,
+        project_id=project_id,
+        email_pending=email_pending,
     )
 
 
@@ -563,234 +888,41 @@ def create_mention_notifications(
     """
     if now is None:
         now = timezone.now()
-    mentions: list[Mention] = []
 
-    # Direct user mentions
-    for user in parsed_result.user_targets:
-        mentions.append(
-            Mention(
-                mentioner=mentioner,
-                mentioned_user=user,
-                task_comment=task_comment,
-                project_id=project_id,
-                scope=scope,
-            )
-        )
-
-    # Group mentions — store one Mention row per group (preserves "@scrum-team
-    # was mentioned" semantics), then fan out per-member Notification rows.
-    group_member_index: dict[str, list[UserType]] = {}
-    for group_key, members in parsed_result.group_targets:
-        mentions.append(
-            Mention(
-                mentioner=mentioner,
-                mentioned_group_key=group_key,
-                task_comment=task_comment,
-                project_id=project_id,
-                scope=scope,
-            )
-        )
-        group_member_index[group_key] = members
-
-    # User-defined group routing (ADR-0212 §5). Load the email-default and mute
-    # sets for any mentioned key that is a live user-defined group in this
-    # project. Auto-group keys (@admins, @scrum-team, …) simply don't match and
-    # keep their existing global-toggle behavior. udg_email_default maps a group
-    # name to its manager-set email default; udg_mutes is the set of
-    # (user_id, group_name) pairs whose owner muted that group.
-    from trueppm_api.apps.access.models import (
-        ProgramUserDefinedMentionGroup,
-        UserDefinedMentionGroup,
+    mentions, group_member_index = _build_mention_rows(
+        task_comment=task_comment,
+        mentioner=mentioner,
+        parsed_result=parsed_result,
+        project_id=project_id,
+        scope=scope,
     )
-    from trueppm_api.apps.projects.models import Project
-
-    # Keys in group_member_index are lowercased (see resolve_parsed_mentions), so
-    # match on Lower(name) — group names are case-insensitive mention keys even
-    # though the display name preserves the manager's casing.
-    udg_email_default: dict[str, bool] = {}
-    udg_mutes: set[tuple[int | str, str]] = set()
-    mentioned_group_keys = list(group_member_index.keys())
-    if mentioned_group_keys:
-        # Program-scoped user-defined groups (ADR-0248, #516) load first so a
-        # same-named project group overwrites the email default below (project
-        # wins, matching the resolution precedence). Mutes union across scopes —
-        # a member who muted either same-named group is defensively suppressed
-        # (a negligible, documented name-collision case).
-        program_id = (
-            Project.objects.filter(pk=project_id).values_list("program_id", flat=True).first()
-        )
-        if program_id is not None:
-            pudg_groups = (
-                ProgramUserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
-                .filter(
-                    program_id=program_id,
-                    name_lower__in=mentioned_group_keys,
-                    is_deleted=False,
-                )
-                .prefetch_related("muted_by")
-            )
-            for pgroup in pudg_groups:
-                key = pgroup.name.lower()
-                udg_email_default[key] = pgroup.email_default_on
-                for muter in pgroup.muted_by.all():
-                    udg_mutes.add((muter.pk, key))
-        udg_groups = (
-            UserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
-            .filter(
-                project_id=project_id,
-                name_lower__in=mentioned_group_keys,
-                is_deleted=False,
-            )
-            .prefetch_related("muted_by")
-        )
-        for group in udg_groups:
-            key = group.name.lower()
-            udg_email_default[key] = group.email_default_on
-            for muter in group.muted_by.all():
-                udg_mutes.add((muter.pk, key))
+    udg_email_default, udg_mutes = _load_udg_email_settings(
+        project_id, list(group_member_index.keys())
+    )
 
     if not mentions:
         return 0
 
     Mention.objects.bulk_create(mentions)
 
-    # Resolve per-recipient set with dedup. A user mentioned directly AND via
-    # a group gets one notification. Pick the direct-mention row as the
-    # source so it shows up as "@you" in the UI.
-    recipients: dict[int | str, Mention] = {}
-    for mention in mentions:
-        if mention.mentioned_user_id:
-            # Direct mention always wins (overwrites a prior group-source entry)
-            recipients[mention.mentioned_user_id] = mention
-    for mention in mentions:
-        if mention.mentioned_group_key:
-            group_key = mention.mentioned_group_key
-            for member in group_member_index[group_key]:
-                if member.pk == mentioner.pk:
-                    continue  # Don't notify yourself
-                # Per-group mute (ADR-0212): a member who muted THIS user-defined
-                # group is skipped for it. They may still be added by a different,
-                # un-muted group (setdefault below) or a direct @mention above.
-                if (member.pk, group_key) in udg_mutes:
-                    continue
-                recipients.setdefault(member.pk, mention)
-    # Drop the mentioner from direct mentions too (don't ping yourself)
-    recipients.pop(mentioner.pk, None)
-
+    recipients = _resolve_mention_recipients(mentions, group_member_index, udg_mutes, mentioner)
     if not recipients:
         return 0
 
-    # Project-scoped routing gate (#674). Batch-load each recipient's project
-    # preference once and evaluate the matrix + pause kill-switch + quiet-hours
-    # window per recipient without an N+1. A recipient with no row yet evaluates
-    # against an unsaved instance carrying the model defaults, so we neither
-    # write a row per comment nor lose the defaults overlay. This subsumes the
-    # standalone pause check (#589) — _preference_allows returns False for a
-    # paused user on every channel.
-    from trueppm_api.apps.projects.models import Project
-
-    project = Project.objects.filter(pk=project_id).only("timezone").first()
-    project_tz = _project_timezone(project)
-    project_prefs: dict[int | str, ProjectNotificationPreference] = {
-        proj_pref.user_id: proj_pref
-        for proj_pref in ProjectNotificationPreference.objects.filter(
-            project_id=project_id, user_id__in=list(recipients.keys())
-        )
-    }
-    event_type_project = ProjectNotificationEventType.COMMENT_MENTION.value
-
-    # Global per-user mention email preference (#311). A comment mention emails
-    # only when BOTH the project matrix (comment_mention/email, above) and this
-    # global toggle allow it; in-app inbox routing is governed by the project
-    # matrix alone.
-    global_email: dict[int | str, dict[str, bool]] = {}
-    for global_pref in NotificationPreference.objects.filter(
-        user_id__in=recipients.keys(), channel=NotificationChannel.EMAIL
-    ):
-        global_email.setdefault(global_pref.user_id, {})[global_pref.event_type] = (
-            global_pref.enabled
-        )
-
-    # Cross-project email read-boundary (ADR-0248 §5 / ADR-0240 §5). A program
-    # mention can reach a recipient who is a member of a *sibling* project but NOT
-    # of the comment's source project. The in-app inbox already redacts the body
-    # snippet for such recipients (NotificationSerializer._recipient_can_see_source),
-    # but the email render path embeds the raw comment body — so the email channel
-    # MUST honor the same boundary or one project's comment text leaks to another
-    # project's team by email. Gate: email is suppressed entirely for any recipient
-    # who is not a current member of the source project; they still get the (redacted)
-    # in-app row. Direct @mentions are always source-project members, so this only
-    # ever suppresses cross-project group-sourced recipients.
-    from trueppm_api.apps.access.models import ProjectMembership
-
-    source_project_member_ids = set(
-        ProjectMembership.objects.filter(
-            project_id=project_id, is_deleted=False, user_id__in=list(recipients.keys())
-        ).values_list("user_id", flat=True)
-    )
-
-    # Account-wide DND (#1707): a mention is not a bypass event, so DND silences
-    # its email while the durable in-app inbox row (matrix-gated above) still lands.
-    dnd_user_ids = load_dnd_user_ids(list(recipients.keys()))
+    context = _load_mention_routing_context(project_id, list(recipients.keys()))
 
     notifications: list[Notification] = []
     for user_id, source_mention in recipients.items():
-        pref = project_prefs.get(user_id) or ProjectNotificationPreference()
-        # In-app inbox row — matrix-gated only; quiet hours never drop the
-        # durable record (see _QUIET_HOURS_EXEMPT_CHANNELS).
-        if not _preference_allows(
-            pref,
-            event_type=event_type_project,
-            channel=ProjectNotificationChannel.IN_APP.value,
+        notification = _build_mention_notification(
+            user_id=user_id,
+            source_mention=source_mention,
+            context=context,
+            udg_email_default=udg_email_default,
+            project_id=project_id,
             now=now,
-            tz=project_tz,
-        ):
-            continue
-        global_event = (
-            NotificationEventType.MENTION_INDIVIDUAL.value
-            if source_mention.mentioned_user_id
-            else NotificationEventType.MENTION_GROUP.value
         )
-        # Email gate. The project matrix (comment_mention/email) + quiet hours are
-        # the common baseline. The per-user opt-in then differs by source:
-        #   - user-defined group (ADR-0212 §5): the group manager's per-group
-        #     email default is the self-contained opt-in — a mute already removed
-        #     the recipient from the in-app gate above, so reaching here means
-        #     un-muted; email follows the group default.
-        #   - direct mention / auto-group: the existing global per-user toggle
-        #     (#311) — MENTION_INDIVIDUAL / MENTION_GROUP — governs, default OFF.
-        source_group_key = source_mention.mentioned_group_key
-        if source_group_key and source_group_key in udg_email_default:
-            per_user_opt_in = udg_email_default[source_group_key]
-        else:
-            per_user_opt_in = global_email.get(user_id, {}).get(global_event, False)
-        email_pending = (
-            _preference_allows(
-                pref,
-                event_type=event_type_project,
-                channel=ProjectNotificationChannel.EMAIL.value,
-                now=now,
-                tz=project_tz,
-            )
-            and per_user_opt_in
-            # Never email the comment body to a non-source-project recipient
-            # (cross-project read boundary — see source_project_member_ids above).
-            and user_id in source_project_member_ids
-            # Account-wide Do-Not-Disturb (#1707) — mentions are silenceable.
-            and not _dnd_silences(
-                global_event,
-                ProjectNotificationChannel.EMAIL.value,
-                dnd_enabled=user_id in dnd_user_ids,
-            )
-        )
-        notifications.append(
-            Notification(
-                recipient_id=user_id,
-                mention=source_mention,
-                project_id=project_id,
-                email_pending=email_pending,
-            )
-        )
+        if notification is not None:
+            notifications.append(notification)
     if not notifications:
         return 0
     Notification.objects.bulk_create(notifications)
