@@ -18,9 +18,22 @@ import { expect, type Page, type TestInfo } from '@playwright/test';
  *     which includes opinionated rules that are not WCAG success criteria.
  *   - Fails only on `critical` and `serious` impact. `moderate`/`minor` findings
  *     are still attached to the report as ratchet candidates but do not fail.
+ *
+ * ## Impact-floor ratchet (#2202)
+ *
+ * The GLOBAL floor stays `critical`/`serious` — flipping `moderate` on for every
+ * scan at once would light up the not-yet-fixed `moderate` debt on routes whose
+ * audit fixes are still in flight (the 2026-07-18 audit). Instead the floor is
+ * ratcheted **per scope**: a scan that is verified clean at `moderate` opts in
+ * with `gateModerate: true`, so its `moderate` findings fail the build too. As
+ * each remaining route's audit fix lands and its scan proves clean, flip
+ * `gateModerate` on for it; once every scan carries it, promote `moderate` into
+ * the global `GATED_IMPACTS` set and drop the per-call flag. This is a monotonic
+ * ratchet — a scope never loses a gated impact level once it has earned one.
  */
 
-/** Impact levels that fail the build. Ratchet downward as the app gets cleaner. */
+/** Impact levels that fail the build for every scan. Ratchet downward (add
+ *  `moderate`) globally only once every scan opts in via `gateModerate`. */
 const GATED_IMPACTS = new Set(['critical', 'serious']);
 
 /** WCAG 2.1 Level A + AA tags — the success criteria TruePPM commits to. */
@@ -37,6 +50,14 @@ export interface A11yScanOptions {
    * call site — a disabled rule is a hole in the gate, not a convenience.
    */
   disableRules?: string[];
+  /**
+   * Per-scope impact ratchet (#2202). When `true`, `moderate` violations fail
+   * this scan in addition to the global `critical`/`serious` floor. Set it only
+   * on a scan that has been verified clean at `moderate`; leave it off on scopes
+   * whose `moderate` debt is still being worked so the gate stays green. See the
+   * "Impact-floor ratchet" note in the module docstring.
+   */
+  gateModerate?: boolean;
 }
 
 /**
@@ -60,7 +81,10 @@ export async function expectNoA11yViolations(
   if (options.disableRules?.length) builder = builder.disableRules(options.disableRules);
 
   const results = await builder.analyze();
-  const gated = results.violations.filter((v) => GATED_IMPACTS.has(v.impact ?? ''));
+  const gatedImpacts = options.gateModerate
+    ? new Set([...GATED_IMPACTS, 'moderate'])
+    : GATED_IMPACTS;
+  const gated = results.violations.filter((v) => gatedImpacts.has(v.impact ?? ''));
 
   // Attach the FULL violation set (gated + ungated) so a failure is actionable
   // from the report alone — no rerun needed — and so moderate/minor ratchet
@@ -81,8 +105,9 @@ export async function expectNoA11yViolations(
     )
     .join('\n');
 
+  const floorLabel = [...gatedImpacts].join('/');
   expect(
     gated,
-    `Found ${gated.length} critical/serious WCAG 2.1 A/AA accessibility violation(s):\n${summary}`,
+    `Found ${gated.length} ${floorLabel} WCAG 2.1 A/AA accessibility violation(s):\n${summary}`,
   ).toEqual([]);
 }
