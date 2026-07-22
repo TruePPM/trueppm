@@ -45,6 +45,32 @@ Back it up with your object store's own tooling (versioning + lifecycle rules, o
 attachment **metadata** (filename, size, owning task); pair it with your bucket's
 backup so a restore reunites the two.
 
+#### Ordering for an internally-consistent restore
+
+The database and the object store are **two backups of one system**, and the
+order you capture and restore them in decides whether the restored instance is
+internally consistent — the `TaskAttachment` row and the object it points at must
+both exist, or neither.
+
+- **Backup order — object store first, then the database.** Snapshot (or let the
+  lifecycle-versioned bucket settle) the object store **before** you take the
+  `pg_dump`. An attachment upload writes the object, then the row; capturing the
+  bucket first guarantees every row the dump contains has its object already in
+  the bucket snapshot. The reverse order can dump a row whose object was written
+  *after* the bucket snapshot — a **dangling reference** (a row pointing at a
+  missing object).
+- **Restore order — database first, then reconcile the bucket.** Restore the
+  database, then restore/attach the bucket at the **same-or-newer** point in
+  time. Because backup captured the bucket first, a matching-time bucket contains
+  a **superset** of the objects the DB references: every row resolves, and any
+  extra objects (uploads that never committed a row) are harmless orphans the
+  attachment-GC pass reclaims. Restoring an **older** bucket than the database is
+  the one unsafe combination — it reintroduces dangling references.
+- **Quiesce for a clean point.** For a strictly consistent pair, take both while
+  writes are paused (a short maintenance window, or scale the API to zero
+  replicas). Without a quiesce, the object-store-first / DB-first ordering above
+  keeps the result safe (orphans, never dangles) rather than perfectly matched.
+
 ## Manual backup
 
 Both scripts take their connection from `DATABASE_URL` (and optional
@@ -106,6 +132,47 @@ DATABASE_URL="postgres://trueppm:trueppm@localhost:5432/trueppm" \
 `restore.sh` does **not** restore the Redis snapshot even when the artifact
 contains one — the cache and broker rebuild themselves. After a database restore,
 restart the API and worker pods so any cached state is discarded.
+
+### Why the `ltree` / `pg_trgm` extension ordering matters
+
+TruePPM's schema **depends on two PostgreSQL extensions**, and a naive
+dump/restore that reorders or drops their creation produces a database that
+restores "successfully" but is silently broken:
+
+- **`ltree`** backs the `projects_task.wbs_path` column and its GiST index. WBS
+  subtree and ancestor queries ("everything under this summary task") are
+  `ltree` operators — without the extension the column type does not exist and
+  the restore of `projects_task` fails outright; with the extension present but
+  the GiST index dropped, the queries still run but fall back to sequential
+  scans.
+- **`pg_trgm`** backs the trigram GIN indexes that power fuzzy task and project
+  search. Missing it means search either errors (index create fails) or silently
+  degrades to unindexed `ILIKE`.
+
+The extensions must be created **before** any table, column, or index that
+references them. `pg_dump --format=custom` records `CREATE EXTENSION` in the
+archive's table-of-contents ahead of the dependent `CREATE TABLE` / `CREATE
+INDEX` entries, and `pg_restore` replays the TOC in dependency order — so the
+**custom-format** dump preserves the ordering automatically. This is why the
+runbook uses `--format=custom` and **not** a plain `pg_dump > file.sql` piped
+into `psql`: a plain-SQL dump edited or filtered by hand (for example, stripping
+`CREATE EXTENSION` lines because "the target already has them", or restoring a
+single table) can reorder or drop the extension statements and break exactly the
+two indexes above.
+
+If you restore into a database where a platform policy blocks unprivileged
+`CREATE EXTENSION` (some managed Postgres offerings), create the extensions as a
+superuser **first**, then run the restore:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS ltree;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+```
+
+`restore.sh` guards against a silent miss: after the restore it asserts both
+extensions are present (`SELECT 1 FROM pg_extension …`) and **fails the whole
+restore** if either is absent, so a broken schema surfaces loudly instead of at
+the first WBS query weeks later.
 
 ## Scheduled backups with Helm
 

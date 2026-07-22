@@ -259,6 +259,7 @@ export default defineConfig({
           items: [
             { slug: "administration/deployment" },
             { slug: "administration/sizing" },
+            { slug: "administration/helm-values" },
             { slug: "administration/configuration" },
             { slug: "administration/admin-password" },
             { slug: "administration/rbac" },

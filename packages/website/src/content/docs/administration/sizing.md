@@ -35,6 +35,65 @@ The key constraint to understand: uvicorn runs a **single worker per pod** (`pac
 | Valkey / Redis | 1 vCPU / 1Gi | 1 vCPU / 2Gi | 2 vCPU / 4Gi |
 | **Cluster total (with headroom)** | **~4 vCPU / 8 GB, 1 node** | **~8 vCPU / 16 GB, 2 nodes** | **~16 vCPU / 32 GB, 2–3 nodes** |
 
+## Two worked profiles: team of 25 vs team of 250
+
+The tiers above are keyed to *concurrent* users. Most operators plan against a
+**team size** (named seats) instead, so here are two fully worked profiles at the
+ends of the OSS single-program range. Both apply the ~30–40% concurrency rule:
+a **team of 25** is ~8–10 concurrent, a **team of 250** is ~75–100 concurrent.
+Every number is a starting point to load-test against your own workload, not a
+guarantee.
+
+### Profile A — team of 25 (single program, one node)
+
+A single PM and their team. Fits comfortably on one small node; the bundled
+subcharts are *still* not recommended for real data, but a single managed
+Postgres and managed Redis are inexpensive at this size.
+
+| Component | Replicas | Requests (CPU / mem) | Limits (CPU / mem) |
+|---|---|---|---|
+| API (uvicorn, 2 workers/pod) | 2 | `250m / 512Mi` | `1 / 1Gi` |
+| Celery worker (`--concurrency 2`) | 1 | `250m / 512Mi` | `1 / 2Gi` |
+| PostgreSQL (managed) | 1 | `1 vCPU / 2Gi` | `2 / 4Gi` |
+| Valkey / Redis (managed) | 1 | `250m / 512Mi` | `1 / 1Gi` |
+
+- **Cluster total (with headroom):** ~4 vCPU / 8 GB, **1 node**, ~20Gi Postgres disk.
+- **PgBouncer:** not needed — connection count stays well under `max_connections=100`.
+- **API workers:** the single most important non-default change is `--workers 2`
+  on the API pods; at 2 replicas that is 4 request workers, ample for ~10 concurrent.
+
+### Profile B — team of 250 (large program, dedicated pools)
+
+A large program at the top of the OSS single-program envelope. (Coordinating
+*multiple* programs under one PMO is portfolio governance — an Enterprise
+concern, `enterprise#20` — not a bigger version of this profile.) Here the
+scheduler CPU and the Postgres connection ceiling both bite, so Celery gets its
+own pool and PgBouncer is mandatory.
+
+| Component | Replicas | Requests (CPU / mem) | Limits (CPU / mem) |
+|---|---|---|---|
+| API (uvicorn, 2–3 workers/pod) | 4–6 | `500m / 1Gi` | `1 / 2Gi` |
+| Celery worker (`--concurrency 4`, pinned) | 3–4 | `500m / 1Gi` | `2 / 4Gi` |
+| PostgreSQL (managed) | 1 (+ replica optional) | `4 vCPU / 16Gi` | `4 / 16Gi` |
+| PgBouncer | 2 | `100m / 128Mi` | `500m / 256Mi` |
+| Valkey / Redis (managed, persistent) | 1 | `1 vCPU / 2Gi` | `2 / 4Gi` |
+
+- **Cluster total (with headroom):** ~16 vCPU / 32 GB, **2–3 nodes**, ~100Gi Postgres disk.
+- **PgBouncer:** **required.** `ATOMIC_REQUESTS=true` + `CONN_MAX_AGE=60` means every
+  API and Celery worker holds a Postgres connection; 6 API pods × 3 workers + 4
+  Celery pods × 4 will exceed the default `max_connections=100` without pooling.
+- **Celery pinning:** the worker auto-detects concurrency from the node CPU
+  count, which over-allocates on a large shared node and gets OOM-killed. The
+  chart has no dedicated concurrency knob, so pin it by overriding the worker
+  container command to append `--concurrency=4` (matching the pod CPU limit).
+- **Dedicated Celery node pool:** keep reforecast/Monte Carlo CPU bursts off the
+  request-serving API pods so a portfolio recompute never starves interactive traffic.
+
+Both profiles slot into the [values reference](/administration/helm-values/) —
+set `replicaCount` / `web.replicaCount`, `resources.*`, the managed-datastore
+`env.DATABASE_URL` / `env.REDIS_URL`, and (for Profile B) the worker command
+override for `--concurrency`.
+
 ## Bottlenecks, in the order they bite
 
 1. **Celery / Monte Carlo CPU.** The scheduler is the heavy part. A portfolio reforecast or a Monte Carlo run (P50/P80/P95) is a CPU-bound burst. At 100+ concurrent users triggering recalculations, this is the first wall you hit. Scale Celery replicas, and pin `--concurrency` to the pod's CPU limit rather than letting it auto-detect — auto-detect over-allocates and gets OOM-killed (the dev compose file caps it at 2 for exactly this reason).
