@@ -105,11 +105,19 @@ export function FlatMode({ filters, onClearFilters, onOpenDetail, canEdit = true
   }
 
   return (
-    <>
+    // One `role="grid"` owns BOTH the column-header row and the virtualised body
+    // so the header row is not an orphaned `role="row"` outside any grid (#2204).
+    // aria-rowcount is body-only (column header excluded), matching the shipped
+    // schedule TaskListPanel convention; body rows are numbered from 1.
+    <div
+      role="grid"
+      aria-label="Task list"
+      aria-rowcount={listItems.length}
+      className="flex flex-col flex-1 min-h-0"
+    >
       <ColumnHeaders sortCol={sortCol} sortDir={sortDir} onSort={handleHeaderClick} />
       <VirtualRows
         items={listItems}
-        rowCount={filtered.length}
         selectedIds={selectedIds}
         renamingId={renamingId}
         onToggleSelect={(id) => toggle(id)}
@@ -119,7 +127,7 @@ export function FlatMode({ filters, onClearFilters, onOpenDetail, canEdit = true
         onOpenDetail={onOpenDetail}
         selectable={canEdit}
       />
-    </>
+    </div>
   );
 }
 

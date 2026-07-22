@@ -265,101 +265,119 @@ function BacklogGroup({ sprintId, group, onRemoveTask, onOpenTask, iterationLowe
 
   const subtotalPts = group.rows.reduce((sum, t) => sum + (t.story_points ?? 0), 0);
 
+  // Single, unique id for the collapsible region the disclosure button controls.
+  // Previously every data <tr> repeated `id="backlog-group-{status}"`, so the
+  // button's `aria-controls` resolved to a non-unique id — invalid HTML and a
+  // broken disclosure link (#2204). Scoped by sprintId too, so two backlog
+  // tables never collide. The region is a dedicated <tbody> (a valid,
+  // id-addressable table section) that always renders — its rows are what
+  // collapse — so `aria-controls` always resolves.
+  const groupId = `backlog-group-${sprintId}-${group.status}`;
+  // Header spans the full row: 6 base columns (ID, Task, Points, Flags, Owner,
+  // Status) plus the Remove column when it renders. The old colSpan={6} left the
+  // Remove column uncovered whenever onRemoveTask was wired (#2204).
+  const colCount = onRemoveTask ? 7 : 6;
+
   return (
-    <tbody>
-      <tr className="bg-neutral-surface-raised border-y border-neutral-border">
-        <td colSpan={6} className="px-3 py-1.5">
-          <button
-            type="button"
-            onClick={toggle}
-            aria-expanded={!collapsed}
-            aria-controls={`backlog-group-${group.status}`}
-            className="w-full flex items-baseline justify-between gap-2 text-left
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-          >
-            <span className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary flex items-center gap-2">
-              <Chevron expanded={!collapsed} />
-              {group.label}
-              <span className="tppm-mono text-neutral-text-disabled">{group.rows.length}</span>
-            </span>
-            <span className="tppm-mono text-xs text-neutral-text-secondary">{subtotalPts} pts</span>
-          </button>
-        </td>
-      </tr>
-      {!collapsed &&
-        group.rows.map((t) => (
-          <tr
-            key={t.id}
-            id={`backlog-group-${group.status}`}
-            className="border-b border-neutral-border/60 hover:bg-neutral-surface-raised group/row"
-          >
-            <td className="px-3 py-2 align-top w-20 text-xs tppm-mono text-neutral-text-secondary">
-              T-{t.short_id || t.id.slice(0, 6)}
-            </td>
-            <td className="px-3 py-2 align-top">
-              {onOpenTask ? (
-                <button
-                  type="button"
-                  onClick={() => onOpenTask(t.id)}
-                  title={t.name}
-                  aria-label={`Open ${t.name}`}
-                  className="block w-full text-left text-sm text-neutral-text-primary truncate
+    <>
+      <tbody>
+        <tr className="bg-neutral-surface-raised border-y border-neutral-border">
+          <td colSpan={colCount} className="px-3 py-1.5">
+            <button
+              type="button"
+              onClick={toggle}
+              aria-expanded={!collapsed}
+              aria-controls={groupId}
+              className="w-full flex items-baseline justify-between gap-2 text-left
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+            >
+              <span className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary flex items-center gap-2">
+                <Chevron expanded={!collapsed} />
+                {group.label}
+                <span className="tppm-mono text-neutral-text-disabled">{group.rows.length}</span>
+              </span>
+              <span className="tppm-mono text-xs text-neutral-text-secondary">
+                {subtotalPts} pts
+              </span>
+            </button>
+          </td>
+        </tr>
+      </tbody>
+      <tbody id={groupId}>
+        {!collapsed &&
+          group.rows.map((t) => (
+            <tr
+              key={t.id}
+              className="border-b border-neutral-border/60 hover:bg-neutral-surface-raised group/row"
+            >
+              <td className="px-3 py-2 align-top w-20 text-xs tppm-mono text-neutral-text-secondary">
+                T-{t.short_id || t.id.slice(0, 6)}
+              </td>
+              <td className="px-3 py-2 align-top">
+                {onOpenTask ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenTask(t.id)}
+                    title={t.name}
+                    aria-label={`Open ${t.name}`}
+                    className="block w-full text-left text-sm text-neutral-text-primary truncate
                     hover:text-brand-primary hover:underline rounded
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                >
-                  {t.name}
-                </button>
-              ) : (
-                <p className="text-sm text-neutral-text-primary truncate" title={t.name}>
-                  {t.name}
-                </p>
-              )}
-            </td>
-            <td className="px-3 py-2 align-top w-12 text-right text-xs tppm-mono text-neutral-text-primary">
-              {t.story_points ?? '—'}
-            </td>
-            <td className="px-3 py-2 align-top w-12">
-              {t.is_critical && (
+                  >
+                    {t.name}
+                  </button>
+                ) : (
+                  <p className="text-sm text-neutral-text-primary truncate" title={t.name}>
+                    {t.name}
+                  </p>
+                )}
+              </td>
+              <td className="px-3 py-2 align-top w-12 text-right text-xs tppm-mono text-neutral-text-primary">
+                {t.story_points ?? '—'}
+              </td>
+              <td className="px-3 py-2 align-top w-12">
+                {t.is_critical && (
+                  <span
+                    className="tppm-mono text-xs border border-semantic-critical/40 text-semantic-critical bg-transparent rounded px-1 py-0.5"
+                    title="This task is on the critical path — delays here delay the project end date"
+                    aria-label="Critical path task"
+                  >
+                    CP
+                  </span>
+                )}
+              </td>
+              <td className="px-3 py-2 align-top w-20">
+                <OwnerAvatars assignments={t.assignments} />
+              </td>
+              <td className="px-3 py-2 align-top w-32">
                 <span
-                  className="tppm-mono text-xs border border-semantic-critical/40 text-semantic-critical bg-transparent rounded px-1 py-0.5"
-                  title="This task is on the critical path — delays here delay the project end date"
-                  aria-label="Critical path task"
+                  className={`inline-flex items-center text-xs font-medium uppercase tracking-wide bg-transparent border ${STATUS_CHIP_STYLE[t.status] ?? 'border-neutral-border text-neutral-text-secondary'} rounded px-1.5 py-0.5`}
                 >
-                  CP
+                  {prettyStatus(t.status)}
                 </span>
-              )}
-            </td>
-            <td className="px-3 py-2 align-top w-20">
-              <OwnerAvatars assignments={t.assignments} />
-            </td>
-            <td className="px-3 py-2 align-top w-32">
-              <span
-                className={`inline-flex items-center text-xs font-medium uppercase tracking-wide bg-transparent border ${STATUS_CHIP_STYLE[t.status] ?? 'border-neutral-border text-neutral-text-secondary'} rounded px-1.5 py-0.5`}
-              >
-                {prettyStatus(t.status)}
-              </span>
-            </td>
-            {onRemoveTask && (
-              <td className="px-2 py-2 align-top w-8 text-right">
-                <button
-                  type="button"
-                  onClick={() => onRemoveTask(t.id)}
-                  title={`Remove from ${iterationLower}`}
-                  aria-label={`Remove ${t.name} from ${iterationLower}`}
-                  // Always visible below `md` (touch has no hover — rule 247); the
-                  // glyph can't resize, so a mobile-scoped transparent pseudo-element
-                  // gives it a 44px hit zone (rule 247b).
-                  className="relative opacity-0 max-md:opacity-100 group-hover/row:opacity-100 text-neutral-text-disabled hover:text-semantic-critical
+              </td>
+              {onRemoveTask && (
+                <td className="px-2 py-2 align-top w-8 text-right">
+                  <button
+                    type="button"
+                    onClick={() => onRemoveTask(t.id)}
+                    title={`Remove from ${iterationLower}`}
+                    aria-label={`Remove ${t.name} from ${iterationLower}`}
+                    // Always visible below `md` (touch has no hover — rule 247); the
+                    // glyph can't resize, so a mobile-scoped transparent pseudo-element
+                    // gives it a 44px hit zone (rule 247b).
+                    className="relative opacity-0 max-md:opacity-100 group-hover/row:opacity-100 text-neutral-text-disabled hover:text-semantic-critical
                     max-md:before:absolute max-md:before:content-[''] max-md:before:-inset-[14px]
                     focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-                >
-                  ×
-                </button>
-              </td>
-            )}
-          </tr>
-        ))}
-    </tbody>
+                  >
+                    ×
+                  </button>
+                </td>
+              )}
+            </tr>
+          ))}
+      </tbody>
+    </>
   );
 }
 

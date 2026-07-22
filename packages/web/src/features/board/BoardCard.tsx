@@ -443,6 +443,12 @@ function BoardCardImpl({
   }, [peekOpen]);
 
   const otherColumns = columns.filter((c) => c.status !== task.status);
+  // A screen-reader user tabbing card-to-card cannot tell which column/status a
+  // card sits in — the column cells are plain <div>s with no programmatic
+  // context (#2204). Resolve this card's column label and fold it into the
+  // card's accessible name so the status travels with focus. Falls back to the
+  // raw status key when the column has no configured label.
+  const columnLabel = columns.find((c) => c.status === task.status)?.label ?? task.status;
   const { text: stampText, isStalled: derivedStalled, daysAgo } = entryStamp(task);
   const isStalled = isOverrideStalled ?? derivedStalled;
   // COMPLETE clamps display progress to 100% so the ring, the bottom strip,
@@ -816,8 +822,15 @@ function BoardCardImpl({
         className={containerClass}
         role="button"
         tabIndex={isFilteredOut ? -1 : 0}
+        // `inert` (React 19 boolean prop) is the real fix (#2204): it removes a
+        // facet-filtered-out card AND its inner buttons (··· menu, signal chips)
+        // from the tab order — `aria-hidden` alone did NOT (aria-hidden hides
+        // from AT but does not remove focusability, so keyboard focus still
+        // landed on cards the user filtered away). `aria-hidden` is retained
+        // because inert is not yet modeled by every a11y tree consumer.
+        inert={isFilteredOut || undefined}
         aria-hidden={isFilteredOut || undefined}
-        aria-label={`${task.name}, ${effectiveProgress}% complete${showCriticalState ? ', critical path' : ''}`}
+        aria-label={`${task.name}, ${effectiveProgress}% complete${showCriticalState ? ', critical path' : ''}, in ${columnLabel}`}
       >
         <div
           className={`absolute left-0 inset-y-0 w-1 rounded-l-card ${accentBarClass(task, showCriticalState)}`}
@@ -961,8 +974,15 @@ function BoardCardImpl({
       className={containerClass}
       role="button"
       tabIndex={isFilteredOut ? -1 : 0}
+      // `inert` (React 19 boolean prop) is the real fix (#2204): it removes a
+      // facet-filtered-out card AND its inner buttons (··· menu, signal chips)
+      // from the tab order — `aria-hidden` alone did NOT (aria-hidden hides
+      // from AT but does not remove focusability, so keyboard focus still
+      // landed on cards the user filtered away). `aria-hidden` is retained
+      // because inert is not yet modeled by every a11y tree consumer.
+      inert={isFilteredOut || undefined}
       aria-hidden={isFilteredOut || undefined}
-      aria-label={`${task.name}, ${effectiveProgress}% complete${showCriticalState ? ', critical path' : ''}`}
+      aria-label={`${task.name}, ${effectiveProgress}% complete${showCriticalState ? ', critical path' : ''}, in ${columnLabel}`}
     >
       {/* Left accent bar — rounded-l-card matches card's border-radius so the bar
           respects the card corners without needing overflow-hidden on the parent. */}

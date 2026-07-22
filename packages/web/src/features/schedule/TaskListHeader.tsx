@@ -91,6 +91,7 @@ export function TaskListHeader({ widths, visible, setWidth }: Props) {
       className="flex items-center h-7 bg-neutral-surface border-b border-neutral-border
         text-xs font-medium text-neutral-text-secondary select-none sticky top-0 z-10"
       role="row"
+      aria-rowindex={1}
       aria-label="Task list columns"
     >
       {/* WBS column (#248) — leftmost; right-aligned dot-path numbering */}

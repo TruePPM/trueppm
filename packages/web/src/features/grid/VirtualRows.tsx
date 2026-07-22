@@ -12,7 +12,6 @@ export type ListItem =
 
 interface VirtualRowsProps {
   items: ListItem[];
-  rowCount: number;
   selectedIds: Set<string>;
   renamingId: string | null;
   onToggleSelect: (id: string) => void;
@@ -29,10 +28,17 @@ interface VirtualRowsProps {
  * Virtualised row container shared by FlatMode and GroupedMode. Owns its
  * scroll element so the virtualizer measures non-zero height on first paint
  * (the original #247 ResizeObserver fix).
+ *
+ * ARIA: the enclosing `role="grid"` (with the column-header row) lives in the
+ * FlatMode/GroupedMode wrapper — the scroll container is the grid's body
+ * `role="rowgroup"` so the header row and these body rows share one grid
+ * (#2204). Each real row (TaskRow / GroupHeader) owns its own `role="row"` and
+ * carries `aria-rowindex`; the absolutely-positioned layout wrapper is
+ * `role="presentation"` because a bare positioning div is not a grid row and
+ * `aria-rowindex` on a role-less element is ignored.
  */
 export function VirtualRows({
   items,
-  rowCount,
   selectedIds,
   renamingId,
   onToggleSelect,
@@ -69,13 +75,11 @@ export function VirtualRows({
   return (
     <div
       ref={scrollRef}
-      role="grid"
-      aria-label="Task list"
-      aria-rowcount={rowCount}
+      role="rowgroup"
       className="flex-1 overflow-y-auto"
       style={{ contain: 'strict' }}
     >
-      <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+      <div role="presentation" style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
         {rowVirtualizer.getVirtualItems().map((vRow) => {
           const item = items[vRow.index];
           if (!item) return null;
@@ -83,10 +87,17 @@ export function VirtualRows({
           // appears in multiple groups (resource grouping intentionally
           // duplicates multi-assignee tasks per ADR-0053 § 7).
           const rowKey = item.kind === 'header' ? item.id : `${item.task.id}-${vRow.index}`;
+          // Row numbering is body-only (the column header is not counted), matching
+          // the shipped schedule TaskListPanel convention: the first body row is
+          // aria-rowindex 1 and the mode wrapper's aria-rowcount === items.length.
+          const ariaRowIndex = vRow.index + 1;
           return (
+            // The wrapper is purely absolute-positioning chrome — `role="presentation"`
+            // so it is not mistaken for a grid row; the real row (and its aria-rowindex)
+            // is the TaskRow/GroupHeader child, which owns the gridcells.
             <div
               key={rowKey}
-              aria-rowindex={vRow.index + 1}
+              role="presentation"
               style={{
                 position: 'absolute',
                 top: vRow.start,
@@ -96,12 +107,13 @@ export function VirtualRows({
               }}
             >
               {item.kind === 'header' ? (
-                <GroupHeader label={item.label} count={item.count} />
+                <GroupHeader label={item.label} count={item.count} ariaRowIndex={ariaRowIndex} />
               ) : (
                 <TaskRow
                   task={item.task}
                   phase={item.phase}
                   rowIndex={item.rowIndex}
+                  ariaRowIndex={ariaRowIndex}
                   isSelected={selectedIds.has(item.task.id)}
                   isRenaming={renamingId === item.task.id}
                   onToggleSelect={() => onToggleSelect(item.task.id)}

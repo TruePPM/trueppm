@@ -151,7 +151,8 @@ test.describe('Signal privacy — golden path', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/signal-privacy`);
     const velocityRow = page.getByRole('radiogroup', { name: 'Velocity audience' }).locator('xpath=ancestor::li');
     await velocityRow.getByRole('button', { name: /Raise ceiling/ }).click();
-    const dialog = page.getByRole('alertdialog');
+    // In-flow confirmation panel is a labeled group, not a focus-trapping alertdialog (#2204).
+    const dialog = page.getByRole('group', { name: /Raise the ceiling for/ });
     await expect(dialog).toBeVisible();
     expect(raiseDispatched).toBe(false);
     // Scope to the dialog — the ladder's "↑ Raise ceiling…" also matches the name.

@@ -35,8 +35,13 @@ export function RaiseCeilingDialog({
   const [target, setTarget] = useState<SignalAudience>(options[0]);
 
   return (
+    // In-flow confirmation panel, not a modal dialog: it renders inline above the
+    // ladder, does NOT move focus into itself, and has no Escape-to-dismiss, so
+    // `role="alertdialog"` (which promises a focus-trapping modal) would misrepresent
+    // it to AT. Downgrade to `role="group"` with an accessible name so it announces
+    // as a labeled cluster around the target picker and the Raise/Cancel controls.
     <div
-      role="alertdialog"
+      role="group"
       aria-label={`Raise the ceiling for ${signalTitle}`}
       className="mb-4 rounded-card border border-neutral-border bg-neutral-surface-raised p-4"
     >
@@ -46,7 +51,11 @@ export function RaiseCeilingDialog({
       <p className="mt-1 text-[12px] text-neutral-text-secondary">
         This authorizes {signalTitle.toLowerCase()} to be shared as far as:
       </p>
-      <div role="radiogroup" className="mt-2 space-y-1">
+      <div
+        role="radiogroup"
+        aria-label={`New ceiling for ${signalTitle}`}
+        className="mt-2 space-y-1"
+      >
         {options.map((rung) => (
           <label
             key={rung}
@@ -64,7 +73,8 @@ export function RaiseCeilingDialog({
         ))}
       </div>
       <p className="mt-3 text-[12px] text-neutral-text-secondary">
-        ⚠ This is a team decision. It will be recorded in the project history and announced to the
+        {/* Decorative warning glyph — the sentence carries the meaning (rule 6). */}
+        <span aria-hidden="true">⚠</span> This is a team decision. It will be recorded in the project history and announced to the
         team. It does not change who sees {signalTitle.toLowerCase()} right now — it only allows the
         Scrum Master to move the dial up to here.
       </p>

@@ -283,8 +283,10 @@ test.describe('Project Settings → Workflow (#521)', () => {
       statusesSection.getByRole('button', { name: 'In Progress', exact: true }),
     ).toBeVisible();
 
-    // Custom fields list — built-ins above, dynamic below.
-    const fieldsSection = page.getByRole('region', { name: /Fields/i });
+    // Custom fields list — built-ins above, dynamic below. exact: the section
+    // region is now named by its visible heading "Workflow & fields" (#2204),
+    // which also matches /Fields/i — scope to the inner "Fields" region only.
+    const fieldsSection = page.getByRole('region', { name: 'Fields', exact: true });
     await expect(fieldsSection.getByText('Phase')).toBeVisible(); // built-in
     await expect(fieldsSection.getByText('Vendor')).toBeVisible(); // dynamic
 

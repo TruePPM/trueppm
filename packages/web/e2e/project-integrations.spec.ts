@@ -120,7 +120,9 @@ test.describe('Project Integrations — CRUD UI', () => {
 
     await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
 
-    await expect(page.getByRole('heading', { name: 'Integrations' })).toBeVisible();
+    // exact: the shell's sr-only page <h1> reads "Project settings: Integrations
+    // Test Project" (#2204), which substring-matches a bare "Integrations".
+    await expect(page.getByRole('heading', { name: 'Integrations', exact: true })).toBeVisible();
     await expect(page.getByText('Outbound webhooks')).toBeVisible();
     await expect(page.getByText('Inbound API tokens')).toBeVisible();
     await expect(page.getByText('https://hooks.slack.com/services/X/Y/Z')).toBeVisible();

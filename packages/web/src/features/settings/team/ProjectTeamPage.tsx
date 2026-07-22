@@ -107,8 +107,13 @@ export function ProjectTeamPage() {
 
       <div className="max-w-2xl px-6 pb-8">
         {pending && (
+          // In-flow confirmation strip, not a modal dialog: it renders inline above
+          // the roster, does NOT move focus into itself, and has no Escape handling,
+          // so `role="alertdialog"` (which promises a focus-trapping modal) would lie
+          // to AT. It wraps the Reassign/Cancel controls, so downgrade to
+          // `role="group"` with an accessible name — a labeled cluster, honestly.
           <div
-            role="alertdialog"
+            role="group"
             aria-label="Confirm reassignment"
             className="mb-4 flex items-center justify-between gap-3 rounded-card border border-neutral-border bg-neutral-surface-raised px-4 py-3"
           >

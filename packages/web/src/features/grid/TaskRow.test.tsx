@@ -146,6 +146,19 @@ describe('TaskRow', () => {
     expect(screen.getByRole('row')).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('reflects its 1-based grid position via aria-rowindex (#2204)', () => {
+    const task = makeTask({ id: 't1', wbs: '1.1' });
+    render(<TaskRow {...baseProps} task={task} phase="—" ariaRowIndex={3} />);
+    expect(screen.getByRole('row')).toHaveAttribute('aria-rowindex', '3');
+  });
+
+  it('wraps the select checkbox in a gridcell so the row owns only cells (#2204)', () => {
+    const task = makeTask({ id: 't1', wbs: '1.1' });
+    render(<TaskRow {...baseProps} task={task} phase="—" />);
+    const cell = screen.getByLabelText(`Select ${task.name}`).closest('[role="gridcell"]');
+    expect(cell).not.toBeNull();
+  });
+
   it('alternates row background for odd rowIndex', () => {
     const task = makeTask({ id: 't1', wbs: '1.1' });
     const { container } = render(<TaskRow {...baseProps} task={task} phase="—" rowIndex={1} />);

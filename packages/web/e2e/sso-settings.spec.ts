@@ -122,7 +122,11 @@ test.describe('Workspace Single sign-on — admin (multi-provider)', () => {
     await expect(page.getByText('Keycloak · OIDC')).toBeVisible();
     // The consolidated settings page mounts other sections that also render an
     // "Enabled" label, so scope the provider status pill to the SSO section.
-    await expect(page.getByLabel('sso').getByText('Enabled', { exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole('region', { name: 'Single sign-on', exact: true })
+        .getByText('Enabled', { exact: true }),
+    ).toBeVisible();
   });
 
   test('edit panel: redirect URI (copy) and fixed OSS scopes', async ({ page }) => {

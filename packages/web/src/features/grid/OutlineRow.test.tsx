@@ -46,7 +46,7 @@ const baseProps = {
   onCancelRename: vi.fn(),
 };
 
-function renderRow(node: WbsNode, props: Partial<typeof baseProps> = {}) {
+function renderRow(node: WbsNode, props: Partial<Parameters<typeof OutlineRow>[0]> = {}) {
   return render(
     <DndContext>
       <SortableContext items={[node.task.id]} strategy={verticalListSortingStrategy}>
@@ -203,5 +203,58 @@ describe('OutlineRow', () => {
     // Still in the DOM (drawer/desktop) but gated behind `md:` visibility.
     expect(pred.className).toContain('hidden');
     expect(pred.className).toContain('md:block');
+  });
+
+  describe('roving-tabindex entry point (#2204)', () => {
+    it('the first visible row is tabbable when nothing is selected', () => {
+      const node = makeNode({ id: 't1', wbs: '1.1' });
+      renderRow(node, { isFirst: true, hasSelection: false });
+      expect(screen.getByRole('row')).toHaveAttribute('tabindex', '0');
+    });
+
+    it('a non-first, unselected row is not a tab stop', () => {
+      const node = makeNode({ id: 't1', wbs: '1.1' });
+      renderRow(node, { isFirst: false, hasSelection: false });
+      expect(screen.getByRole('row')).toHaveAttribute('tabindex', '-1');
+    });
+
+    it('the first row yields the tab stop to the selected row once a selection exists', () => {
+      const node = makeNode({ id: 't1', wbs: '1.1' });
+      renderRow(node, { isFirst: true, isSelected: false, hasSelection: true });
+      expect(screen.getByRole('row')).toHaveAttribute('tabindex', '-1');
+    });
+
+    it('the selected row is tabbable regardless of position', () => {
+      const node = makeNode({ id: 't1', wbs: '1.1' });
+      renderRow(node, { isFirst: false, isSelected: true, hasSelection: true });
+      expect(screen.getByRole('row')).toHaveAttribute('tabindex', '0');
+    });
+  });
+
+  it('Enter on the focused row invokes onSelect', () => {
+    const onSelect = vi.fn();
+    const node = makeNode({ id: 't1', wbs: '1.1' });
+    renderRow(node, { onSelect });
+    fireEvent.keyDown(screen.getByRole('row'), { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalled();
+  });
+
+  it('Space on the focused row invokes onSelect', () => {
+    const onSelect = vi.fn();
+    const node = makeNode({ id: 't1', wbs: '1.1' });
+    renderRow(node, { onSelect });
+    fireEvent.keyDown(screen.getByRole('row'), { key: ' ' });
+    expect(onSelect).toHaveBeenCalled();
+  });
+
+  it('groups the drag handle and expand toggle into a single gridcell', () => {
+    const child = makeNode({ id: 'c', wbs: '1.1' }, 1);
+    const parent = makeNode({ id: 'p', wbs: '1', isSummary: true }, 0, [child]);
+    renderRow(parent);
+    // The expand button and drag handle are ARIA-owned by one leading control cell,
+    // so they are not orphaned bare children of the row.
+    const cell = screen.getByRole('button', { name: /expand p/i }).closest('[role="gridcell"]');
+    expect(cell).not.toBeNull();
+    expect(cell).toContainElement(screen.getByLabelText('Reorder p'));
   });
 });
