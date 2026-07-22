@@ -118,6 +118,7 @@ class Command(BaseCommand):
         # allauth SocialApp holds the endpoint/claim knowledge; the real secret
         # lives Fernet-encrypted on the policy side row (SocialApp.secret stays
         # empty — ADR-0517 §3.1), so update_or_create the app with an empty secret.
+        # get-or-create-ok: CI seed command, fixed constant provider slug — no duplicate reachable
         app, _ = SocialApp.objects.update_or_create(
             provider_id=_SLUG,
             defaults={
