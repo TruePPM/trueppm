@@ -42,14 +42,21 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 dump_diagnostics() {
   echo "======== DIAGNOSTICS (deploy did not reach a healthy state) ========" >&2
   kubectl get pods -A -o wide 2>&1 | sed 's/^/  /' >&2 || true
-  echo "---- non-Running pods: describe + logs ----" >&2
+  echo "---- not-Ready pods: describe + logs ----" >&2
+  # Filter on the Ready CONDITION, not pod phase: a CrashLoopBackOff container and
+  # an up-but-failing-readiness container both keep the pod in phase "Running", so
+  # a phase-based filter skips exactly the pods that broke the rollout. `--wait`
+  # times out on readiness, so readiness is the signal to dump.
   for p in $(kubectl get pods -o name 2>/dev/null); do
+    ready="$(kubectl get "$p" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
     phase="$(kubectl get "$p" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
-    if [ "$phase" != "Running" ] && [ "$phase" != "Succeeded" ]; then
+    if [ "$phase" != "Succeeded" ] && [ "$ready" != "True" ]; then
       echo "---- describe $p ----" >&2
       kubectl describe "$p" 2>&1 | sed 's/^/  /' >&2 || true
       echo "---- logs $p (all containers, incl. init) ----" >&2
       kubectl logs "$p" --all-containers --prefix --tail=80 2>&1 | sed 's/^/  /' >&2 || true
+      echo "---- previous logs $p (crash before restart, if any) ----" >&2
+      kubectl logs "$p" --all-containers --prefix --previous --tail=80 2>&1 | sed 's/^/  /' >&2 || true
     fi
   done
 }

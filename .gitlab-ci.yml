@@ -1037,12 +1037,22 @@ helm:install:
   # admin password is retrievable from the shared emptyDir, and a negative probe
   # proves the settings.prod SECRET_KEY guard fails closed. See scripts/helm-install-drill.sh.
   #
-  # Trigger: chart / CI changes on MR + main (blocking), plus the nightly schedule
-  # as a drift net (allow_failure there — a scheduled net must not red-X main).
+  # Trigger: chart / CI changes on MR + main, plus the nightly schedule, as a
+  # drift net. ADVISORY (allow_failure) on every variant — NOT a blocking gate.
+  # Why advisory: there is no per-commit deployable image (publish is
+  # tag-triggered), so this drills the HEAD chart against the LAST RELEASED image
+  # tag. Whenever the chart adds an assumption ahead of a release — e.g. the
+  # migration-aware /readyz readiness probe (#2217), absent from images predating
+  # it — the drill red-Xes on version skew, not a real regression. The blocking
+  # deploy-contract gate is helm:template above (static, always valid); this
+  # runtime drill stays a signal until a per-commit image build lands (#2284),
+  # at which point it can become blocking. Standing chart bug it already caught:
+  # web nginx upstream name mismatch (#2283).
   # kind-in-dind needs the privileged docker:27-dind service (same as the image
   # build jobs). Not `interruptible` so a rebased push doesn't abort a cluster
   # mid-provision and leak it.
   stage: test
+  allow_failure: true
   interruptible: false
   timeout: 25m
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
