@@ -101,12 +101,13 @@ workflow:
     on_new_commit: interruptible
   rules:
     # Scheduled pipelines are permitted only for the Renovate runner
-    # (RENOVATE == "true") and the nightly SonarCloud scan (SONAR_SCHEDULED ==
-    # "true"). Block any other scheduled trigger so a stray schedule can't spin
-    # up a full pipeline. Both permitted schedules run on `main` and fall through
-    # to the branch rule below; sonar:scan is the only job gated to the Sonar
-    # schedule, so day-to-day MR/push pipelines are unaffected (#2092).
-    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true" && $SONAR_SCHEDULED != "true"'
+    # (RENOVATE == "true"), the nightly SonarCloud scan (SONAR_SCHEDULED ==
+    # "true"), and the nightly Keycloak SSO smoke (SSO_NIGHTLY == "true", #2274).
+    # Block any other scheduled trigger so a stray schedule can't spin up a full
+    # pipeline. Each permitted schedule runs on `main` and falls through to the
+    # branch rule below; the SSO schedule only matches sso:integration +
+    # ci:build-keycloak-image, so day-to-day MR/push pipelines are unaffected.
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true" && $SONAR_SCHEDULED != "true" && $SSO_NIGHTLY != "true"'
       when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -884,6 +885,45 @@ ci:build-integration-image:
         --cache-from "$IMAGE"
         --tag "$IMAGE"
         --file .gitlab/ci-images/integration.Dockerfile
+        .
+    - docker push "$IMAGE"
+
+ci:build-keycloak-image:
+  # Bake the static realm export into a Keycloak service image for the nightly
+  # sso:integration smoke (#2274). GitLab `services:` containers cannot mount the
+  # job checkout, so the realm JSON must live in the image — this job builds it
+  # (mirrors ci:build-integration-image). FROM quay.io/keycloak (not the throttled
+  # MCR Playwright base), so no mirror dependency.
+  #
+  # Trigger: the Dockerfile or realm export changes (validated on MR so a broken
+  # realm is caught pre-merge), OR the nightly SSO schedule (so sso:integration
+  # always pulls a fresh image). sso:integration `needs:` this job (optional), and
+  # pulls the existing registry tag in steady state.
+  stage: lint
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    IMAGE: "$CI_REGISTRY_IMAGE/ci-keycloak:26"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SSO_NIGHTLY == "true"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - .gitlab/ci-images/keycloak.Dockerfile
+        - .gitlab/keycloak/trueppm-realm.json
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - .gitlab/ci-images/keycloak.Dockerfile
+        - .gitlab/keycloak/trueppm-realm.json
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - docker pull "$IMAGE" || true
+    - docker build
+        --cache-from "$IMAGE"
+        --tag "$IMAGE"
+        --file .gitlab/ci-images/keycloak.Dockerfile
         .
     - docker push "$IMAGE"
 
@@ -2426,6 +2466,124 @@ web:integration:
   script:
     - cd packages/web
     - npx playwright test e2e/integration/ --config playwright.integration.config.ts --reporter=line
+  artifacts:
+    when: on_failure
+    paths:
+      - packages/web/playwright-report/
+    expire_in: 7 days
+
+sso:integration:
+  # Nightly real-OIDC smoke (#2274). Boots the same real stack as web:integration
+  # (Django + PostgreSQL + Valkey + Vite) PLUS a live Keycloak service, then drives
+  # a genuine login handshake end-to-end through a real browser: discovery →
+  # authorize → Keycloak login form → callback → JWKS-verified ID token → session.
+  # Every other SSO test mocks the outbound calls (pytest stubs egress; web:e2e
+  # stubs page.route), so this is the only coverage of the real issuer round-trip
+  # and the only thing that catches a Keycloak/allauth shape drift.
+  #
+  # Cadence: nightly-only (the mocked unit/flow tests give fast per-commit
+  # coverage; this adds slow drift-detection off the MR critical path). It also
+  # runs on MRs that touch the SSO surface / realm / this job so the harness can
+  # be validated before merge.
+  #
+  # Keycloak reaches TruePPM and vice-versa over the private services network, so
+  # the OIDC issuer resolves to a private IP that the SSRF egress guard blocks by
+  # default — TRUEPPM_EGRESS_ALLOWLISTED_HOSTS=keycloak (ADR-0590) is what makes
+  # discovery/token/JWKS reachable, exactly as a self-hoster does for an in-cluster
+  # IdP. The browser (Chromium in the job container) reaches keycloak:8080 too.
+  stage: test
+  image: $CI_REGISTRY_IMAGE/ci-integration:noble
+  needs:
+    - job: ci:build-integration-image
+      optional: true
+    - job: ci:build-keycloak-image
+      optional: true
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+    - name: valkey/valkey:8-alpine
+      alias: valkey
+    - name: $CI_REGISTRY_IMAGE/ci-keycloak:26
+      alias: keycloak
+  variables:
+    DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+    TRUEPPM_ALLOW_DEV_SETTINGS: "1"
+    DATABASE_URL: "postgres://trueppm:trueppm@postgres/trueppm_test"
+    REDIS_URL: "redis://valkey:6379"
+    SECRET_KEY: "ci-integration-secret-not-for-production"
+    API_URL: "http://127.0.0.1:8000"
+    # Deterministic redirect_uri (matches the realm's registered URI) and SPA
+    # completion origin — replayed at the token endpoint, so both must be pinned.
+    TRUEPPM_PUBLIC_API_BASE_URL: "http://127.0.0.1:8000"
+    TRUEPPM_FRONTEND_BASE_URL: "http://127.0.0.1:5173"
+    # The one allow-listed host (ADR-0590) — permits egress to the in-network IdP.
+    TRUEPPM_EGRESS_ALLOWLISTED_HOSTS: "keycloak"
+    # Match the baked realm export + seed_sso_keycloak.
+    SSO_KEYCLOAK_ISSUER: "http://keycloak:8080/realms/trueppm-ci"
+    SSO_KEYCLOAK_CLIENT_ID: "trueppm-web"
+    SSO_KEYCLOAK_CLIENT_SECRET: "trueppm-ci-secret"
+    SSO_KEYCLOAK_ALLOWED_DOMAIN: "trueppm-ci.test"
+    SSO_ADMIN_EMAIL: "sso-admin@trueppm-ci.test"
+    INTEGRATION_USER_EMAIL: "ci@trueppm.test"
+    INTEGRATION_USER_PASSWORD: "ci-integration-pw"
+    # A single interactive login shouldn't hit the throttle, but relax the
+    # per-account login bucket for headroom (as web:integration does, #1717).
+    TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE: "1000/min"
+    # Keycloak start-dev tuning — plain HTTP, request-based hostname.
+    KC_HTTP_ENABLED: "true"
+    KC_HOSTNAME_STRICT: "false"
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SSO_NIGHTLY == "true"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/src/trueppm_api/apps/sso/**/*
+        - packages/api/src/trueppm_api/apps/integrations/http.py
+        - packages/api/src/trueppm_api/settings/base.py
+        - packages/web/e2e/integration/sso-keycloak.spec.ts
+        - .gitlab/keycloak/trueppm-realm.json
+        - .gitlab/ci-images/keycloak.Dockerfile
+  cache:
+    - key:
+        files:
+          - packages/web/package-lock.json
+        prefix: web-npm-cacache
+      paths:
+        - .cache/npm/
+    - key:
+        files:
+          - packages/api/pyproject.toml
+        prefix: api-pip
+      paths:
+        - .cache/pip/
+      policy: pull
+  before_script:
+    - *retry-fn
+    - retry pip install -e "packages/scheduler[dev]" --quiet
+    - retry pip install -e "packages/api[dev]" --quiet
+    - cd packages/api
+    - python manage.py migrate --noinput
+    # A workspace baseline + the Keycloak provider and its test-connection admin.
+    - python manage.py seed_integration_fixtures
+    - python manage.py seed_sso_keycloak
+    - >
+      PYTHONPATH=src uvicorn trueppm_api.asgi:application
+      --host 127.0.0.1 --port 8000 &
+    - cd ../..
+    - >
+      timeout 30 sh -c
+      'until curl -sf http://127.0.0.1:8000/api/v1/health/ > /dev/null;
+       do sleep 1; done'
+    # Wait for Keycloak to finish start-dev + realm import — its discovery doc
+    # answering 200 is the readiness signal the flow actually depends on.
+    - >
+      timeout 150 sh -c
+      'until curl -sf http://keycloak:8080/realms/trueppm-ci/.well-known/openid-configuration > /dev/null;
+       do sleep 3; done'
+    - cd packages/web && retry npm ci --prefer-offline --quiet && cd ../..
+  script:
+    - cd packages/web
+    - npx playwright test e2e/integration/sso-keycloak.spec.ts --config playwright.integration.config.ts --reporter=line
   artifacts:
     when: on_failure
     paths:

@@ -1,0 +1,54 @@
+{
+  "realm": "trueppm-ci",
+  "enabled": true,
+  "sslRequired": "none",
+  "loginWithEmailAllowed": true,
+  "registrationEmailAsUsername": false,
+  "clients": [
+    {
+      "clientId": "trueppm-web",
+      "name": "TruePPM Web (CI)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "trueppm-ci-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://127.0.0.1:8000/api/v1/auth/oidc/callback/"
+      ],
+      "webOrigins": [
+        "http://127.0.0.1:8000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "profile",
+        "roles",
+        "email"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "sso-user",
+      "email": "sso-user@trueppm-ci.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Ess",
+      "lastName": "Oh",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "keycloak-user-pw",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

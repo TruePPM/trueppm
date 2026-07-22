@@ -17,6 +17,21 @@ with one public and one private A record is rejected. A residual DNS-rebinding
 TOCTOU window (re-resolution between check and connect) is accepted for the OSS
 tier; pinning the connection to the validated IP would break TLS SNI / cert
 validation and is an Enterprise hardening item (ADR-0049 §6).
+
+**Operator allow-list (ADR-0590).** A self-hoster who runs an identity provider
+*inside the same cluster* has an OIDC issuer that resolves to a private ClusterIP
+(e.g. ``keycloak.sso.svc``); the deny-list above would block discovery / token /
+JWKS and make in-cluster SSO impossible. ``EGRESS_ALLOWLISTED_HOSTS`` (default
+empty) names the exact hostnames the operator trusts, which then bypass the
+private-address check. It is **operator configuration only** — never derived from
+request or user input — and matches on an **exact, case-insensitive hostname**
+(no wildcard / suffix), so allow-listing ``keycloak`` cannot admit
+``keycloak.attacker.example``. Empty by default keeps every existing install on
+the original "every resolved address must be globally routable" posture. Note the
+allow-list is honored by **every** caller of this chokepoint (PAT verification,
+git-link refresh, webhooks, SMTP relay, SSO), so an allow-listed host is reachable
+through the user-influenceable URL surfaces too — an accepted, operator-declared
+trust, documented for operators alongside the setting.
 """
 
 from __future__ import annotations
@@ -142,6 +157,26 @@ def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return not ip.is_global
 
 
+def _allowlisted_hosts() -> frozenset[str]:
+    """Operator-trusted hostnames exempt from the private-address deny-list (ADR-0590).
+
+    Read from the ``EGRESS_ALLOWLISTED_HOSTS`` setting (default empty). This is an
+    operator escape hatch for a trusted internal host the operator runs
+    themselves — chiefly an in-cluster identity provider whose OIDC issuer resolves
+    to a private ClusterIP, which the deny-list would otherwise block.
+
+    Safety: the value is **configuration only** — never request/user-derived — so
+    it cannot be widened by an attacker. Membership is an **exact, case-insensitive
+    hostname** compare, so an allow-listed ``keycloak`` never admits a lookalike
+    like ``keycloak.attacker.example``. ``django.conf`` is imported lazily to keep
+    this module importable without Django configured (it is otherwise pure stdlib).
+    """
+    from django.conf import settings
+
+    hosts = getattr(settings, "EGRESS_ALLOWLISTED_HOSTS", ()) or ()
+    return frozenset(h.strip().lower() for h in hosts if h and h.strip())
+
+
 def _blocked_if_literal(host: str) -> bool | None:
     """Return the deny-decision for ``host`` if it is an IP literal, else ``None``.
 
@@ -199,6 +234,11 @@ def assert_url_allowed(url: str) -> None:
     host = parsed.hostname
     if not host:
         raise EgressBlocked("URL has no host")
+    # Operator escape hatch (ADR-0590): a hostname the operator explicitly trusts
+    # (e.g. an in-cluster IdP on a private ClusterIP) bypasses the private-address
+    # deny-list. Config-only, exact-match — the scheme gate above still applies.
+    if host.lower() in _allowlisted_hosts():
+        return
     # A bracketed/parseable literal IP still has to clear the deny-list — a
     # user can paste http://169.254.169.254 directly — but needs no resolution.
     literal = _blocked_if_literal(host)
@@ -238,6 +278,10 @@ def assert_host_allowed(host: str, port: int) -> None:
     """
     if not host:
         raise EgressBlocked("SMTP host is empty")
+    # Operator escape hatch (ADR-0590), shared with assert_url_allowed: an
+    # explicitly trusted host (e.g. an in-cluster relay) bypasses the deny-list.
+    if host.lower() in _allowlisted_hosts():
+        return
     # A literal IP SMTP relay needs no resolution — classify it directly (#1628).
     literal = _blocked_if_literal(host)
     if literal is not None:
