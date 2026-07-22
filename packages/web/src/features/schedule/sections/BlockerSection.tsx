@@ -324,7 +324,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
                 disabled={!reasonDraft.trim() || isPending}
                 className="rounded-control bg-sage-500 px-3 py-2 text-sm font-medium text-navy-900 border border-sage-600
                   disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-700 focus-visible:ring-offset-1 focus-visible:ring-offset-sage-500"
+                  focus:outline-none focus:ring-2 focus:ring-navy-700 focus:ring-offset-1 focus:ring-offset-sage-500"
               >
                 Flag blocked
               </button>
@@ -332,7 +332,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
                 type="button"
                 onClick={() => { setFormOpen(false); resetDrafts(); }}
                 className="rounded-control border border-neutral-border px-3 py-2 text-sm text-neutral-text-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
               >
                 Cancel
               </button>
@@ -354,7 +354,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
               type="button"
               onClick={() => setFormOpen(true)}
               className="rounded-control border border-neutral-border px-3 py-2 text-sm font-medium text-neutral-text-primary
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
             >
               Flag as blocked
             </button>
@@ -420,7 +420,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
               disabled={!dirty || isPending}
               className="rounded-control bg-sage-500 px-3 py-2 text-sm font-medium text-navy-900 border border-sage-600
                 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-700 focus-visible:ring-offset-1 focus-visible:ring-offset-sage-500"
+                focus:outline-none focus:ring-2 focus:ring-navy-700 focus:ring-offset-1 focus:ring-offset-sage-500"
             >
               Save changes
             </button>
@@ -430,7 +430,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
               disabled={isPending}
               className="rounded-control border border-neutral-border px-3 py-2 text-sm text-neutral-text-primary
                 disabled:cursor-not-allowed disabled:text-neutral-text-disabled
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
             >
               Unblock
             </button>

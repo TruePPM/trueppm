@@ -32,7 +32,7 @@ export function GuardrailBlock({ detail, onDismiss }: Props) {
         onClick={onDismiss}
         className="min-h-[44px] md:min-h-0 md:h-8 px-3 rounded-control text-xs font-medium
           border border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-raised
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         Got it
       </button>
