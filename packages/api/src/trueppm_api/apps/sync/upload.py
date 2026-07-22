@@ -106,6 +106,10 @@ class BatchApplyResult:
     def changed(self) -> bool:
         return bool(self.created or self.updated or self.deleted)
 
+    def bump(self, version: int) -> None:
+        """Advance the high-water ``server_version`` watermark for the batch."""
+        self.max_version = max(self.max_version, version)
+
 
 def _content(row: dict[str, Any]) -> dict[str, Any]:
     """Strip server-controlled keys from an incoming row."""
@@ -136,6 +140,251 @@ def _row_base_version(row: dict[str, Any], batch_base: int | None) -> int | None
     return value if value >= 0 else batch_base
 
 
+@dataclass(frozen=True)
+class _ApplyContext:
+    """Read-only inputs shared by the per-bucket apply helpers.
+
+    Bundling them keeps each helper's signature small — the alternative is
+    threading the request, project, serializer context, the batched existing-row
+    index, and the batch conflict base through three parallel loops.
+
+    ``serializer_context`` is the DRF context (``request`` / ``caller_role`` /
+    ``project``) every ``TaskSerializer`` in the batch shares. ``existing_by_id``
+    is the project-scoped bulk fetch keyed by ``str(pk)``. ``last_pulled_at`` is
+    the batch's default per-row conflict base.
+    """
+
+    request: Request
+    project: Project
+    serializer_context: dict[str, Any]
+    existing_by_id: dict[str, Task]
+    last_pulled_at: int | None
+
+
+def _validate_and_extract_tasks(changes: dict[str, Any]) -> dict[str, Any]:
+    """Validate the upload envelope and return its ``tasks`` delta.
+
+    Enforces the v1 writable surface (only ``tasks`` — ADR-0082 §B) and the
+    per-batch row cap up front, so a malformed or oversized envelope is rejected
+    before the write transaction touches any row.
+
+    Raises:
+        ValidationError: malformed envelope, an unsupported collection key, or a
+            batch exceeding the row cap.
+    """
+    if not isinstance(changes, dict):
+        raise ValidationError({"changes": "Must be an object."})
+    unsupported = set(changes) - WRITABLE_COLLECTIONS
+    if unsupported:
+        raise ValidationError(
+            {
+                "changes": f"Unsupported collection(s): {', '.join(sorted(unsupported))}. "
+                f"Only {', '.join(sorted(WRITABLE_COLLECTIONS))} may be uploaded."
+            }
+        )
+
+    tasks = changes.get("tasks", {})
+    if not isinstance(tasks, dict):
+        raise ValidationError({"changes.tasks": "Must be an object."})
+
+    # Bound the batch so one request cannot hold a long transaction open.
+    max_rows = getattr(settings, "TRUEPPM_SYNC_BATCH_MAX_ROWS", DEFAULT_MAX_BATCH_ROWS)
+    row_count = sum(
+        len(tasks.get(bucket, []) or []) for bucket in ("created", "updated", "deleted")
+    )
+    if row_count > max_rows:
+        raise ValidationError(
+            {"changes": f"Batch too large: {row_count} rows exceeds the limit of {max_rows}."}
+        )
+    return tasks
+
+
+def _fetch_existing_tasks(tasks: dict[str, Any], project: Project) -> dict[str, Task]:
+    """Bulk-fetch every project-scoped row the batch references in one query.
+
+    So each bucket loop is a dict lookup, not a per-row SELECT (#809): a 500-row
+    batch previously issued up to 500 ``Task.objects.filter(...).first()``
+    round-trips. Keyed by ``str(pk)`` because ``in_bulk()``'s UUID keys won't
+    match the string ids in the JSON payload.
+
+    SECURITY (#887): this lookup is scoped to ``project``. The created-bucket
+    upsert treats a hit as an idempotent re-create and applies content after a
+    role check on the *URL-scoped* project; if the lookup were unscoped a client
+    could land a created row whose id collides with a task in a different project
+    and mutate it using their role here, not their (possibly absent) role there —
+    a cross-project IDOR. Scoping the fetch means a foreign id simply isn't in the
+    returned map; the created loop then probes project-unscoped *only* to
+    distinguish a genuine cross-project collision (→ 409, regenerate) from a fresh
+    id (→ create). The updated and deleted loops re-apply their project +
+    is_deleted predicate in Python as a backstop.
+    """
+    batch_ids = {
+        str(rid)
+        for bucket in ("created", "updated")
+        for row in (tasks.get(bucket, []) or [])
+        if (rid := row.get("id"))
+    } | {str(del_id) for del_id in (tasks.get("deleted", []) or []) if del_id}
+    return (
+        {str(t.pk): t for t in Task.objects.filter(pk__in=batch_ids, project=project)}
+        if batch_ids
+        else {}
+    )
+
+
+def _cross_project_created_ids(
+    tasks: dict[str, Any], existing_by_id: dict[str, Task], project: Project
+) -> set[str]:
+    """Created ids that resolve to a task in *another* project (#887 IDOR guard).
+
+    Such an id must be a 409 rather than a silent foreign-row mutation. Only ids
+    absent from the project-scoped fetch can be foreign, so probe just those — the
+    common (all-local) batch issues no extra query.
+    """
+    created_ids = {str(rid) for row in (tasks.get("created", []) or []) if (rid := row.get("id"))}
+    if not created_ids:
+        return set()
+    unknown_ids = created_ids - set(existing_by_id)
+    if not unknown_ids:
+        return set()
+    return {
+        str(pk)
+        for pk in Task.objects.filter(pk__in=unknown_ids)
+        .exclude(project=project)
+        .values_list("pk", flat=True)
+    }
+
+
+def _apply_created_row(
+    row: dict[str, Any],
+    ctx: _ApplyContext,
+    cross_project_ids: set[str],
+    result: BatchApplyResult,
+) -> None:
+    """Upsert one ``created``-bucket row by its client-generated id.
+
+    A fresh id creates; an id already present in the project is an idempotent
+    re-create applied as an in-place edit (with the stricter edit permission and
+    the same field-level conflict guard as the updated bucket).
+    """
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+    from trueppm_api.apps.projects.services import maybe_record_scope_injection
+    from trueppm_api.apps.sync.conflict import check_row_conflict
+
+    row_id = row.get("id")
+    if not row_id:
+        raise ValidationError({"tasks.created": "Each created row requires an 'id'."})
+    if str(row_id) in cross_project_ids:
+        raise SyncIdCollision()
+    existing = ctx.existing_by_id.get(str(row_id))
+    if existing is not None and existing.is_deleted:
+        # A client re-pushing a created row whose id matches a tombstone —
+        # skip, mirroring the updated/deleted loops (#1730). ``is_deleted`` is
+        # non-writable so this could never resurrect the row anyway; without
+        # the guard the re-create branch below would run a full serializer save
+        # on the dead row, bump server_version, and emit a spurious
+        # task_updated. The next pull reconciles the client via the tombstone.
+        return
+    if existing is not None:
+        # Idempotent re-create (the row already landed in a prior batch) —
+        # apply as an update, but enforce the stricter edit permission.
+        if not can_user_edit_task(ctx.request, existing, method="PATCH"):
+            raise PermissionDenied("You may not edit this task.")
+        old_sprint_id = str(existing.sprint_id) if existing.sprint_id else None
+        # We already know this row exists (it came from the batched
+        # existing_by_id fetch), so tell VersionedModel.save() to skip its
+        # per-row exists() probe. DRF's serializer.save() can't forward a
+        # save() kwarg, so the known state is carried on the instance (#1527).
+        existing._sync_known_exists = True  # type: ignore[attr-defined]
+        ser = TaskSerializer(
+            existing, data=_content(row), partial=True, context=ctx.serializer_context
+        )
+        ser.is_valid(raise_exception=True)
+        # An idempotent re-create is an in-place edit, so it can lose a concurrent
+        # update just like the updated bucket — guard it identically (#1718).
+        conflict = check_row_conflict(ser, _row_base_version(row, ctx.last_pulled_at))
+        if conflict is not None:
+            result.conflicts.append({"id": str(existing.pk), **conflict})
+            return
+        task = ser.save()
+        maybe_record_scope_injection(task, old_sprint_id, ctx.request.user)
+        result.events.append(("task_updated", str(task.pk)))
+    else:
+        # New row. role >= MEMBER (the endpoint gate) is the create bar,
+        # matching TaskViewSet create (IsProjectMemberWrite). project is
+        # injected from the URL (not the client row, which is stripped) so a
+        # push can never create into a different project.
+        data = _content(row)
+        data["project"] = ctx.project.pk
+        ser = TaskSerializer(data=data, context=ctx.serializer_context)
+        ser.is_valid(raise_exception=True)
+        task = ser.save(id=row_id)
+        # A task created directly into an ACTIVE sprint via sync (old link =
+        # None) still enters pending-acceptance, not the commitment.
+        maybe_record_scope_injection(task, None, ctx.request.user)
+        result.events.append(("task_created", str(task.pk)))
+    result.created.append({"id": str(task.pk), "server_version": task.server_version})
+    result.bump(task.server_version)
+
+
+def _apply_updated_row(row: dict[str, Any], ctx: _ApplyContext, result: BatchApplyResult) -> None:
+    """Apply one ``updated``-bucket row, honoring the field-level conflict guard."""
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+    from trueppm_api.apps.projects.services import maybe_record_scope_injection
+    from trueppm_api.apps.sync.conflict import check_row_conflict
+
+    row_id = row.get("id")
+    if not row_id:
+        raise ValidationError({"tasks.updated": "Each updated row requires an 'id'."})
+    target = ctx.existing_by_id.get(str(row_id))
+    if target is None or target.project_id != ctx.project.pk or target.is_deleted:
+        # Unknown, cross-project, or already-tombstoned row — skip; the next
+        # pull reconciles it via the tombstone. Not an error: a benign
+        # offline/online race. (Predicate mirrors the original
+        # filter(pk=row_id, project=project, is_deleted=False).)
+        return
+    if not can_user_edit_task(ctx.request, target, method="PATCH"):
+        raise PermissionDenied("You may not edit this task.")
+    # ADR-0102 §4: capture the prior sprint link so a task linked to an ACTIVE
+    # sprint via sync enters pending-acceptance, same as the REST PATCH path —
+    # otherwise an offline edit could land work straight into the commitment.
+    old_sprint_id = str(target.sprint_id) if target.sprint_id else None
+    # ``target`` came from the batched existing_by_id fetch — the row exists, so
+    # skip VersionedModel.save()'s per-row exists() probe (#1527). Carried on the
+    # instance because DRF's serializer.save() can't forward a save() kwarg.
+    target._sync_known_exists = True  # type: ignore[attr-defined]
+    ser = TaskSerializer(target, data=_content(row), partial=True, context=ctx.serializer_context)
+    ser.is_valid(raise_exception=True)
+    # Field-level lost-update guard (#1718): if this stale edit overlaps a field a
+    # concurrent writer changed since the client's base version, skip it and report
+    # a per-row conflict rather than silently clobbering — mirrors the REST 409.
+    # Skipping before save() means no server_version bump and no broadcast for it.
+    # No batch N+1: check_row_conflict short-circuits (no query) unless the row's
+    # server_version has actually advanced past the client's base, so the bounded
+    # history read runs only for the typically-tiny contended subset, not per row.
+    conflict = check_row_conflict(ser, _row_base_version(row, ctx.last_pulled_at))
+    if conflict is not None:
+        result.conflicts.append({"id": str(target.pk), **conflict})
+        return
+    saved = ser.save()
+    maybe_record_scope_injection(saved, old_sprint_id, ctx.request.user)
+    result.updated.append({"id": str(saved.pk), "server_version": saved.server_version})
+    result.events.append(("task_updated", str(saved.pk)))
+    result.bump(saved.server_version)
+
+
+def _apply_deleted_row(del_id: Any, ctx: _ApplyContext, result: BatchApplyResult) -> None:
+    """Soft-delete one ``deleted``-bucket row; unknown/cross-project ids are idempotent."""
+    target = ctx.existing_by_id.get(str(del_id))
+    if target is None or target.project_id != ctx.project.pk or target.is_deleted:
+        return  # unknown, cross-project, or already gone — idempotent
+    if not can_user_edit_task(ctx.request, target, method="DELETE"):
+        raise PermissionDenied("You may not delete this task.")
+    target.soft_delete()  # bumps server_version, sets deleted_version, cascades
+    result.deleted.append({"id": str(target.pk), "server_version": target.server_version})
+    result.events.append(("task_deleted", str(target.pk)))
+    result.bump(target.server_version)
+
+
 def apply_task_changes(
     *,
     project: Project,
@@ -161,192 +410,28 @@ def apply_task_changes(
         ValidationError: malformed envelope or an unsupported collection key.
         PermissionDenied: a row the caller may not write.
     """
-    from trueppm_api.apps.projects.serializers import TaskSerializer
-    from trueppm_api.apps.projects.services import maybe_record_scope_injection
-    from trueppm_api.apps.sync.conflict import check_row_conflict
+    tasks = _validate_and_extract_tasks(changes)
 
-    if not isinstance(changes, dict):
-        raise ValidationError({"changes": "Must be an object."})
-    unsupported = set(changes) - WRITABLE_COLLECTIONS
-    if unsupported:
-        raise ValidationError(
-            {
-                "changes": f"Unsupported collection(s): {', '.join(sorted(unsupported))}. "
-                f"Only {', '.join(sorted(WRITABLE_COLLECTIONS))} may be uploaded."
-            }
-        )
-
-    tasks = changes.get("tasks", {})
-    if not isinstance(tasks, dict):
-        raise ValidationError({"changes.tasks": "Must be an object."})
-
-    # Bound the batch so one request cannot hold a long transaction open.
-    max_rows = getattr(settings, "TRUEPPM_SYNC_BATCH_MAX_ROWS", DEFAULT_MAX_BATCH_ROWS)
-    row_count = sum(
-        len(tasks.get(bucket, []) or []) for bucket in ("created", "updated", "deleted")
+    ctx = _ApplyContext(
+        request=request,
+        project=project,
+        serializer_context={"request": request, "caller_role": role, "project": project},
+        existing_by_id=_fetch_existing_tasks(tasks, project),
+        last_pulled_at=last_pulled_at,
     )
-    if row_count > max_rows:
-        raise ValidationError(
-            {"changes": f"Batch too large: {row_count} rows exceeds the limit of {max_rows}."}
-        )
-
-    user = request.user
-    ctx = {"request": request, "caller_role": role, "project": project}
     result = BatchApplyResult()
 
-    def _bump(version: int) -> None:
-        result.max_version = max(result.max_version, version)
-
-    # Bulk-fetch every row the batch references in one query so each bucket loop
-    # below is a dict lookup, not a per-row SELECT (#809). A 500-row batch
-    # previously issued up to 500 Task.objects.filter(...).first() round-trips.
-    # Keyed by str(pk) because in_bulk()'s UUID keys won't match the string ids in
-    # the JSON payload.
-    #
-    # SECURITY (#887): this lookup is scoped to ``project``. The created-bucket
-    # upsert treats a hit as an idempotent re-create and applies content after a
-    # role check on the *URL-scoped* project; if the lookup were unscoped a client
-    # could land a created row whose id collides with a task in a different
-    # project and mutate it using their role here, not their (possibly absent)
-    # role there — a cross-project IDOR. Scoping the fetch means a foreign id
-    # simply isn't in ``existing_by_id``; the created loop then probes
-    # project-unscoped *only* to distinguish a genuine cross-project collision
-    # (→ 409, regenerate) from a fresh id (→ create). The updated and deleted
-    # loops re-apply their project + is_deleted predicate in Python as a backstop.
-    _batch_ids = {
-        str(rid)
-        for bucket in ("created", "updated")
-        for row in (tasks.get(bucket, []) or [])
-        if (rid := row.get("id"))
-    } | {str(del_id) for del_id in (tasks.get("deleted", []) or []) if del_id}
-    existing_by_id: dict[str, Task] = (
-        {str(t.pk): t for t in Task.objects.filter(pk__in=_batch_ids, project=project)}
-        if _batch_ids
-        else {}
-    )
-
     # --- created (upsert by client-generated id) ------------------------------
-    # Pre-compute which created ids resolve to a task in *another* project so a
-    # collision is a 409 rather than a silent foreign-row mutation (#887).
-    created_ids = {str(rid) for row in (tasks.get("created", []) or []) if (rid := row.get("id"))}
-    cross_project_ids: set[str] = set()
-    if created_ids:
-        # Only ids absent from the project-scoped fetch can be foreign; probe just
-        # those, so the common (all-local) batch issues no extra query.
-        unknown_ids = created_ids - set(existing_by_id)
-        if unknown_ids:
-            cross_project_ids = {
-                str(pk)
-                for pk in Task.objects.filter(pk__in=unknown_ids)
-                .exclude(project=project)
-                .values_list("pk", flat=True)
-            }
-
+    cross_project_ids = _cross_project_created_ids(tasks, ctx.existing_by_id, project)
     for row in tasks.get("created", []) or []:
-        row_id = row.get("id")
-        if not row_id:
-            raise ValidationError({"tasks.created": "Each created row requires an 'id'."})
-        if str(row_id) in cross_project_ids:
-            raise SyncIdCollision()
-        existing = existing_by_id.get(str(row_id))
-        if existing is not None and existing.is_deleted:
-            # A client re-pushing a created row whose id matches a tombstone —
-            # skip, mirroring the updated/deleted loops (#1730). ``is_deleted`` is
-            # non-writable so this could never resurrect the row anyway; without
-            # the guard the re-create branch below would run a full serializer save
-            # on the dead row, bump server_version, and emit a spurious
-            # task_updated. The next pull reconciles the client via the tombstone.
-            continue
-        if existing is not None:
-            # Idempotent re-create (the row already landed in a prior batch) —
-            # apply as an update, but enforce the stricter edit permission.
-            if not can_user_edit_task(request, existing, method="PATCH"):
-                raise PermissionDenied("You may not edit this task.")
-            old_sprint_id = str(existing.sprint_id) if existing.sprint_id else None
-            # We already know this row exists (it came from the batched
-            # existing_by_id fetch), so tell VersionedModel.save() to skip its
-            # per-row exists() probe. DRF's serializer.save() can't forward a
-            # save() kwarg, so the known state is carried on the instance (#1527).
-            existing._sync_known_exists = True  # type: ignore[attr-defined]
-            ser = TaskSerializer(existing, data=_content(row), partial=True, context=ctx)
-            ser.is_valid(raise_exception=True)
-            # An idempotent re-create is an in-place edit, so it can lose a concurrent
-            # update just like the updated bucket — guard it identically (#1718).
-            conflict = check_row_conflict(ser, _row_base_version(row, last_pulled_at))
-            if conflict is not None:
-                result.conflicts.append({"id": str(existing.pk), **conflict})
-                continue
-            task = ser.save()
-            maybe_record_scope_injection(task, old_sprint_id, user)
-            result.events.append(("task_updated", str(task.pk)))
-        else:
-            # New row. role >= MEMBER (the endpoint gate) is the create bar,
-            # matching TaskViewSet create (IsProjectMemberWrite). project is
-            # injected from the URL (not the client row, which is stripped) so a
-            # push can never create into a different project.
-            data = _content(row)
-            data["project"] = project.pk
-            ser = TaskSerializer(data=data, context=ctx)
-            ser.is_valid(raise_exception=True)
-            task = ser.save(id=row_id)
-            # A task created directly into an ACTIVE sprint via sync (old link =
-            # None) still enters pending-acceptance, not the commitment.
-            maybe_record_scope_injection(task, None, user)
-            result.events.append(("task_created", str(task.pk)))
-        result.created.append({"id": str(task.pk), "server_version": task.server_version})
-        _bump(task.server_version)
+        _apply_created_row(row, ctx, cross_project_ids, result)
 
     # --- updated --------------------------------------------------------------
     for row in tasks.get("updated", []) or []:
-        row_id = row.get("id")
-        if not row_id:
-            raise ValidationError({"tasks.updated": "Each updated row requires an 'id'."})
-        target = existing_by_id.get(str(row_id))
-        if target is None or target.project_id != project.pk or target.is_deleted:
-            # Unknown, cross-project, or already-tombstoned row — skip; the next
-            # pull reconciles it via the tombstone. Not an error: a benign
-            # offline/online race. (Predicate mirrors the original
-            # filter(pk=row_id, project=project, is_deleted=False).)
-            continue
-        if not can_user_edit_task(request, target, method="PATCH"):
-            raise PermissionDenied("You may not edit this task.")
-        # ADR-0102 §4: capture the prior sprint link so a task linked to an ACTIVE
-        # sprint via sync enters pending-acceptance, same as the REST PATCH path —
-        # otherwise an offline edit could land work straight into the commitment.
-        old_sprint_id = str(target.sprint_id) if target.sprint_id else None
-        # ``target`` came from the batched existing_by_id fetch — the row exists, so
-        # skip VersionedModel.save()'s per-row exists() probe (#1527). Carried on the
-        # instance because DRF's serializer.save() can't forward a save() kwarg.
-        target._sync_known_exists = True  # type: ignore[attr-defined]
-        ser = TaskSerializer(target, data=_content(row), partial=True, context=ctx)
-        ser.is_valid(raise_exception=True)
-        # Field-level lost-update guard (#1718): if this stale edit overlaps a field a
-        # concurrent writer changed since the client's base version, skip it and report
-        # a per-row conflict rather than silently clobbering — mirrors the REST 409.
-        # Skipping before save() means no server_version bump and no broadcast for it.
-        # No batch N+1: check_row_conflict short-circuits (no query) unless the row's
-        # server_version has actually advanced past the client's base, so the bounded
-        # history read runs only for the typically-tiny contended subset, not per row.
-        conflict = check_row_conflict(ser, _row_base_version(row, last_pulled_at))
-        if conflict is not None:
-            result.conflicts.append({"id": str(target.pk), **conflict})
-            continue
-        saved = ser.save()
-        maybe_record_scope_injection(saved, old_sprint_id, user)
-        result.updated.append({"id": str(saved.pk), "server_version": saved.server_version})
-        result.events.append(("task_updated", str(saved.pk)))
-        _bump(saved.server_version)
+        _apply_updated_row(row, ctx, result)
 
     # --- deleted --------------------------------------------------------------
     for del_id in tasks.get("deleted", []) or []:
-        target = existing_by_id.get(str(del_id))
-        if target is None or target.project_id != project.pk or target.is_deleted:
-            continue  # unknown, cross-project, or already gone — idempotent
-        if not can_user_edit_task(request, target, method="DELETE"):
-            raise PermissionDenied("You may not delete this task.")
-        target.soft_delete()  # bumps server_version, sets deleted_version, cascades
-        result.deleted.append({"id": str(target.pk), "server_version": target.server_version})
-        result.events.append(("task_deleted", str(target.pk)))
-        _bump(target.server_version)
+        _apply_deleted_row(del_id, ctx, result)
 
     return result
