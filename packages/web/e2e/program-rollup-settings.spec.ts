@@ -238,4 +238,31 @@ test.describe('Program Settings → Rollup KPIs', () => {
     // Deferred KPI shows its label with an em-dash value rather than being hidden.
     await expect(preview.getByText('P80 completion')).toBeVisible();
   });
+
+  test('a section-header field-help ⓘ opens a docs deep-link popover (#2266)', async ({ page }) => {
+    const captures: Captures = { patchCount: 0 };
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
+
+    const rollup = page.locator('[data-settings-section="rollup"]');
+    await expect(rollup.getByRole('heading', { name: /^Rollup KPIs/ })).toBeVisible();
+
+    // The Enabled KPIs section header carries a contextual-help ⓘ (FieldHelp).
+    await rollup.getByRole('button', { name: /About the Enabled KPIs options/i }).click();
+
+    // The popover is portaled to <body> (useAnchoredPopover), so query it at
+    // page scope, not inside the section locator.
+    const dialog = page.getByRole('dialog', { name: /Enabled KPIs/i });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('link', { name: /Learn more/i })).toHaveAttribute(
+      'href',
+      /docs\.trueppm\.com\/administration\/program-settings/,
+    );
+
+    // Escape closes the popover (capture-phase, peels one layer) but keeps the
+    // section heading — it never tears down the settings page.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(rollup.getByRole('heading', { name: /^Rollup KPIs/ })).toBeVisible();
+  });
 });

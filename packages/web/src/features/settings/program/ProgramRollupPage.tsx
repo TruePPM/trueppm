@@ -5,6 +5,7 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN } from '@/lib/roles';
+import { FieldHelp } from '@/components/FieldHelp';
 import {
   HEALTH_LABEL,
   HEALTH_VARIANT,
@@ -423,9 +424,20 @@ export function ProgramRollupPage() {
           className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-neutral-border/55 bg-neutral-surface-sunken">
-            <h2 id="kpi-heading" className="text-[13px] font-semibold text-neutral-text-primary">
-              Enabled KPIs
-            </h2>
+            {/* FieldHelp is unconditional here (unlike ProgramGeneralPage): this
+                page has no StubFieldset, so the ⓘ trigger is never inside a
+                disabled fieldset and stays reachable for read-only viewers —
+                exactly the read-only-reachable help deferred from #2266 MR3. */}
+            <div className="flex items-center gap-1.5">
+              <h2 id="kpi-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+                Enabled KPIs
+              </h2>
+              <FieldHelp
+                label="Enabled KPIs"
+                body="Program-level health signals that roll up from member projects onto the program overview — schedule metrics (schedule health, schedule variance, baseline and milestone health), risk (at-risk tasks, risk score, and the P80 Monte Carlo forecast date), and cost (cost variance and budget utilization). Only the signals you enable here appear on the overview and rollup tiles."
+                docHref="administration/program-settings/#rollup-kpis"
+              />
+            </div>
             <p className="text-[12px] text-neutral-text-secondary mt-0.5">
               Toggle KPIs visible on the program overview and rollup tiles.
             </p>
@@ -510,9 +522,19 @@ export function ProgramRollupPage() {
           className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-neutral-border/55">
-            <h2 id="policy-heading" className="text-[13px] font-semibold text-neutral-text-primary">
-              Health aggregation policy
-            </h2>
+            <div className="flex items-center gap-1.5">
+              <h2
+                id="policy-heading"
+                className="text-[13px] font-semibold text-neutral-text-primary"
+              >
+                Health aggregation policy
+              </h2>
+              <FieldHelp
+                label="Health aggregation policy"
+                body="How each project's health combines into the single program health dot when General → Health is set to Auto. Worst-case means one critical project makes the whole program critical; the average options blend project health, optionally weighting each project by its budget or task count."
+                docHref="administration/program-settings/#rollup-kpis"
+              />
+            </div>
             <p className="text-[12px] text-neutral-text-secondary mt-0.5">
               How project health signals are combined into the program health dot.
             </p>
