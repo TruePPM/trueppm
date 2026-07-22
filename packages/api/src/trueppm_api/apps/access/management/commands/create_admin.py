@@ -74,6 +74,7 @@ class Command(BaseCommand):
             16
         )
 
+        # get-or-create-ok: bootstrap command, single CLI/env admin email — no duplicate reachable
         user, created = User.objects.get_or_create(
             email=email,
             defaults={"username": username},
