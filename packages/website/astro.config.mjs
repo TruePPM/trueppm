@@ -265,6 +265,7 @@ export default defineConfig({
             { slug: "administration/rbac" },
             { slug: "administration/security" },
             { slug: "administration/project-settings" },
+            { slug: "administration/program-settings" },
             { slug: "administration/management-commands" },
             { slug: "administration/data-export" },
             { slug: "administration/durability" },
