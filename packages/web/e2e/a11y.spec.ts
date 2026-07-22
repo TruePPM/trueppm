@@ -178,6 +178,51 @@ async function setupShell(page: import('@playwright/test').Page): Promise<void> 
       body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
     }),
   );
+  // Workspace settings (object) — read by `useWorkspaceSettings` on the
+  // consolidated Project Settings page. The Methodology section (which mounts
+  // alongside General, ADR-0146) skeletons until BOTH the project AND workspace
+  // settings resolve, and its skeleton renders no `SettingsPageTitle` — so the
+  // section's `aria-labelledby` (→ `#settings-heading-methodology`, stamped only
+  // by the title) dangles and axe flags a serious `aria-prohibited-attr` on the
+  // now-unnamed `<section>`. The 404-catch-all left `ws` undefined → permanent
+  // skeleton → the failure. Object endpoint, so mock its REAL shape (never the
+  // list-shaped catch-all). Shape mirrors WorkspaceSettingsRaw.
+  await page.route('**/api/v1/workspace/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        name: 'Accessibility Audit Workspace',
+        subdomain: 'a11y',
+        timezone: '',
+        fiscal_year_start_month: 1,
+        fiscal_year_start_day: 1,
+        fiscal_year_start_display: 'January 1',
+        work_week: [true, true, true, true, true, false, false],
+        default_project_view: 'SCHEDULE',
+        allow_guests: false,
+        public_sharing: false,
+        public_sharing_override_policy: 'suggest',
+        iteration_label: 'Sprint',
+        iteration_label_override_policy: 'suggest',
+        mc_history_enabled: true,
+        mc_history_retention_cap: 50,
+        mc_history_attribution_audience: 'SCHEDULER_PLUS',
+        mc_history_override_policy: 'suggest',
+        task_duration_change_percent_policy: 'confirm',
+        task_duration_change_percent_override_policy: 'suggest',
+        estimation_scale: 'fibonacci',
+        methodology: 'HYBRID',
+        methodology_override_policy: 'suggest',
+        attachments_enabled: true,
+        allowed_attachment_types: [],
+        attachments_override_policy: 'suggest',
+        calendar: null,
+        calendar_override_policy: 'suggest',
+        logo_url: null,
+      }),
+    }),
+  );
   // My Work feed (paginated envelope + delta metadata) — read on /me/work. The
   // catch-all would 404 this into an error card; return an empty-but-valid feed
   // so the shell renders its calm empty state instead. Shape mirrors the
