@@ -12,6 +12,7 @@ from datetime import date
 
 import pytest
 from django.contrib.auth import get_user_model
+from rest_framework import serializers
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -190,6 +191,95 @@ def test_validate_rejects_unknown_select_option(project):
     with pytest.raises(Exception) as exc:
         validate_custom_field_write(field, "staging")
     assert "valid option" in str(exc.value)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "field_type,options,bad_value,needle",
+    [
+        # TEXT — non-string, and the 2000-char length cap.
+        (CustomFieldType.TEXT, None, 123, "must be a string"),
+        (CustomFieldType.TEXT, None, "x" * 2001, "2000 characters"),
+        # NUMBER — the type guard (bool is an int subclass; lists are not numbers) fires
+        # before the Decimal parse, so it is a distinct branch from the parse-failure path.
+        (CustomFieldType.NUMBER, None, True, "must be a number"),
+        (CustomFieldType.NUMBER, None, [1], "must be a number"),
+        # DATE — a non-string never reaches date.fromisoformat.
+        (CustomFieldType.DATE, None, 20260812, "date string"),
+        # SINGLE_SELECT — a non-string never reaches the option-membership check.
+        (CustomFieldType.SINGLE_SELECT, [{"value": "prod", "label": "P"}], 123, "option value"),
+        # MULTI_SELECT — non-list, list of non-strings, and the 50-option cap (which is
+        # checked before option membership, so raw ints past the length limit still trip it).
+        (CustomFieldType.MULTI_SELECT, [{"value": "be", "label": "B"}], "be", "list of option"),
+        (CustomFieldType.MULTI_SELECT, [{"value": "be", "label": "B"}], [1, 2], "list of option"),
+        (
+            CustomFieldType.MULTI_SELECT,
+            [{"value": "be", "label": "B"}],
+            [str(i) for i in range(51)],
+            "at most 50",
+        ),
+        # USER — a non-string never reaches the DB lookup.
+        (CustomFieldType.USER, None, 123, "user id string"),
+    ],
+)
+def test_validate_type_guard_branches(project, field_type, options, bad_value, needle):
+    """Each writer's leading type/shape guard raises the documented 400 message.
+
+    These are the guard branches that fire *before* value parsing / DB lookup, so
+    they are not reachable through the endpoint's parse-failure and membership tests.
+    """
+    field = _field(project, "F", field_type, options=options)
+    with pytest.raises(serializers.ValidationError) as exc:
+        validate_custom_field_write(field, bad_value)
+    assert needle in str(exc.value)
+
+
+@pytest.mark.django_db
+def test_validate_user_unknown_id_is_not_an_oracle(project):
+    """A non-existent (or malformed) user id resolves to the same generic 400 as a
+    live-but-non-member user, so the endpoint is not a user-existence oracle."""
+    field = _field(project, "Reviewer", CustomFieldType.USER)
+    for bad in ["00000000-0000-0000-0000-000000000000", "not-a-uuid"]:
+        with pytest.raises(serializers.ValidationError) as exc:
+            validate_custom_field_write(field, bad)
+        assert "not a valid member" in str(exc.value)
+
+
+@pytest.mark.django_db
+def test_validate_unsupported_field_type_rejected(project):
+    """An unknown field_type has no writer and is rejected rather than silently no-op."""
+    field = _field(project, "F", CustomFieldType.TEXT)
+    field.field_type = "geospatial"  # not in _VALUE_WRITERS
+    with pytest.raises(serializers.ValidationError) as exc:
+        validate_custom_field_write(field, "x")
+    assert "unsupported field type" in str(exc.value)
+
+
+@pytest.mark.django_db
+def test_validate_happy_paths_return_column_kwargs(project, member_user):
+    """Each writer's success branch sets exactly its own typed column and returns kwargs."""
+    ProjectMembership.objects.create(project=project, user=member_user, role=Role.MEMBER)
+
+    text = _field(project, "Client", CustomFieldType.TEXT)
+    assert validate_custom_field_write(text, "Northwind")["value_text"] == "Northwind"
+
+    dt = _field(project, "Go-live", CustomFieldType.DATE)
+    assert validate_custom_field_write(dt, "2026-08-12")["value_date"] == date(2026, 8, 12)
+
+    boolean = _field(project, "Signed", CustomFieldType.BOOLEAN)
+    assert validate_custom_field_write(boolean, True)["value_bool"] is True
+
+    multi = _field(
+        project,
+        "Area",
+        CustomFieldType.MULTI_SELECT,
+        options=[{"value": "be", "label": "BE"}, {"value": "fe", "label": "FE"}],
+    )
+    # Duplicates are collapsed while author order is preserved.
+    assert validate_custom_field_write(multi, ["be", "fe", "be"])["value_multi"] == ["be", "fe"]
+
+    person = _field(project, "Reviewer", CustomFieldType.USER)
+    assert validate_custom_field_write(person, str(member_user.pk))["value_user"] == member_user
 
 
 # ---------------------------------------------------------------------------
