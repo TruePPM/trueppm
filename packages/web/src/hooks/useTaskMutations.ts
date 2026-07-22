@@ -423,6 +423,14 @@ export interface PromoteTaskPayload {
    * the server's auto-bump (decision A2). Mirrors the optimistic cache logic.
    */
   status?: string;
+  /**
+   * Sprint UUID to assign in the same PATCH. Set by the Board's backlog
+   * ScheduleTaskDialog when the board is scoped to a PLANNED/ACTIVE sprint, so
+   * a keyboard-promoted backlog card lands in that sprint (keyboard parity with
+   * drag-to-assign, #2170) instead of becoming committed-but-unscoped and
+   * vanishing from the sprint board. Omitted by the gutter path.
+   */
+  sprint?: string | null;
 }
 
 /**
@@ -446,13 +454,14 @@ export function usePromoteTask() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, planned_start, status }: PromoteTaskPayload) => {
+    mutationFn: async ({ id, planned_start, status, sprint }: PromoteTaskPayload) => {
       await apiClient.patch(`/tasks/${id}/`, {
         planned_start,
         ...(status !== undefined ? { status } : {}),
+        ...(sprint !== undefined ? { sprint } : {}),
       });
     },
-    onMutate: async ({ id, projectId, planned_start, status }) => {
+    onMutate: async ({ id, projectId, planned_start, status, sprint }) => {
       // Cancel in-flight fetches so they don't clobber the optimistic patch.
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
@@ -473,6 +482,9 @@ export function usePromoteTask() {
               plannedStart: planned_start,
               ...(status !== undefined ? { status: status as Task['status'] } : {}),
               ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
+              // Keep the card visible on a sprint-scoped board the instant it's
+              // promoted (#2170) — otherwise the refetch briefly hides it.
+              ...(sprint !== undefined ? { sprintId: sprint } : {}),
             };
           }) ?? [],
       );
