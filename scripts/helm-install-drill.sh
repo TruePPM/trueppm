@@ -59,6 +59,22 @@ dump_diagnostics() {
       kubectl logs "$p" --all-containers --prefix --previous --tail=80 2>&1 | sed 's/^/  /' >&2 || true
     fi
   done
+  # The api pod stays Running-but-0/1 when /readyz returns 503; the access log
+  # only shows the 503, not WHICH dependency failed. readyz reports a coarse
+  # ok/fail per dependency (database/cache/migrations) in its body, so fetch it
+  # in-container (curl is absent from the slim image; python's stdlib is not) to
+  # name the exact failing dependency instead of re-guessing across CI cycles.
+  api_pod="$(kubectl get pod -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  if [ -n "$api_pod" ]; then
+    echo "---- api /readyz body (per-dependency ok/fail) ----" >&2
+    kubectl exec "$api_pod" -c api -- python -c 'import urllib.request as u
+try:
+    print(u.urlopen("http://127.0.0.1:8000/api/v1/readyz", timeout=5).read().decode())
+except u.HTTPError as e:
+    print("HTTP", e.code, e.read().decode())
+except Exception as e:
+    print("probe error:", e)' 2>&1 | sed 's/^/  /' >&2 || true
+  fi
 }
 
 cleanup() { log "deleting kind cluster '$CLUSTER'"; kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true; }

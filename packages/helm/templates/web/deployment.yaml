@@ -31,6 +31,12 @@ spec:
           emptyDir: {}
         - name: nginx-run
           emptyDir: {}
+        # Chart-rendered nginx server config, mounted over the image's baked
+        # default.conf so the reverse-proxy upstream points at the release-scoped
+        # API Service (`<fullname>-api`) instead of the docker-compose-only `api`.
+        - name: nginx-conf
+          configMap:
+            name: {{ include "trueppm.fullname" . }}-web-nginx
       containers:
         - name: web
           image: "{{ .Values.image.webRepository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -48,6 +54,10 @@ spec:
               mountPath: /var/cache/nginx
             - name: nginx-run
               mountPath: /var/run
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /
