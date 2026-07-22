@@ -744,7 +744,7 @@ export function BacklogBand({
             onClick={onCaptureIdea}
             disabled={isCaptureIdeaPending || !onCaptureIdea}
             aria-busy={isCaptureIdeaPending}
-            className="mt-1.5 flex items-center justify-center gap-1.5 rounded-control border border-dashed border-neutral-border bg-transparent text-xs text-neutral-text-disabled
+            className="mt-1.5 flex items-center justify-center gap-1.5 rounded-control border border-dashed border-neutral-border bg-transparent text-xs text-neutral-text-secondary
               hover:border-brand-primary hover:text-brand-primary disabled:opacity-50 disabled:cursor-not-allowed
               focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
             style={{ height: 36 }}

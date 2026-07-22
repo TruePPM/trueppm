@@ -192,7 +192,9 @@ function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
     on_track: 'border-semantic-on-track/40 text-semantic-on-track',
     at_risk: 'border-semantic-at-risk/40 text-semantic-at-risk',
     critical: 'border-semantic-critical/40 text-semantic-critical',
-    unknown: 'border-neutral-border text-neutral-text-disabled',
+    // `text-neutral-text-disabled` (#A09D99, 2.33:1) is a decorative weight, but this
+    // chip carries a real status word ("Unknown") — use readable secondary (#2265).
+    unknown: 'border-neutral-border text-neutral-text-secondary',
   }[overview.schedule_health];
 
   const healthLabel = {

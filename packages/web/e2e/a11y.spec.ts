@@ -37,12 +37,11 @@ import {
  * the matching `disableRules` entry:
  *   - `aria-required-children` / `aria-required-attr` / `nested-interactive`
  *     (Schedule grid, Board resize handles + card overlay + backlog rail) → #2204
- *   - `color-contrast` (HealthCluster chip, ⌘K kbd chips, Schedule/Board toolbar
- *     labels, Settings chips, drawer body text) + `aria-prohibited-attr` (mobile
- *     `.select-none`) → #2265
- * `color-contrast` stays fully enforced on the surfaces that are already clean
- * (login, the light/dark/mobile shell, the NotificationBell + UserMenu popovers),
- * so contrast regressions there still fail the build.
+ * The `color-contrast` (HealthCluster/health chip, ⌘K kbd chips + group labels,
+ * Schedule/Board toolbar labels, Add-milestone button, Settings chips, drawer body
+ * text) and `aria-prohibited-attr` (mobile logo `.select-none`) debt tracked by
+ * #2265 has been FIXED and its exclusions dropped — every scan below now enforces
+ * `color-contrast`, so contrast regressions anywhere fail the build.
  */
 
 /**
@@ -76,6 +75,11 @@ const PROJECT: ProjectFixture = {
   visibility: 'WORKSPACE',
   timezone: '',
   methodology: 'HYBRID',
+  // The consolidated settings page mounts every section, incl. Methodology, which
+  // reads these + workspace settings; without them it stays in its loading skeleton
+  // (whose absent heading dangles the section's aria-labelledby → aria-prohibited-attr).
+  effective_methodology: 'HYBRID',
+  inherited_methodology: 'HYBRID',
   estimation_mode: 'OPEN',
   agile_features: true,
   default_view: 'SCHEDULE',
@@ -331,14 +335,9 @@ test.describe('accessibility @a11y — theme + viewport matrix', () => {
     await page.goto('/');
     await expectShellReady(page);
 
-    // Ratchet note (#2202): `aria-prohibited-attr` is excluded here only — a
-    // single `.select-none` node carries an ARIA attr not permitted for its role
-    // at the phone breakpoint (tracked #2265). Every other rule, contrast
-    // included, is enforced in dark + mobile. Drop this exclusion when #2265 lands.
-    await expectNoA11yViolations(page, testInfo, {
-      gateModerate: true,
-      disableRules: ['aria-prohibited-attr'],
-    });
+    // Every rule — contrast and aria-prohibited-attr included — is enforced in
+    // dark + mobile. (The mobile logo's roleless `aria-label` was fixed in #2265.)
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
   });
 });
 
@@ -395,12 +394,9 @@ test.describe('accessibility @a11y — routes', () => {
       timeout: 10_000,
     });
 
-    // The only gated finding here is the TopBar HealthCluster chip contrast
-    // (tracked #2265); everything else on Overview is clean at the moderate floor.
-    await expectNoA11yViolations(page, testInfo, {
-      gateModerate: true,
-      disableRules: ['color-contrast'],
-    });
+    // Overview (incl. the TopBar HealthCluster chip + health badge, fixed #2265)
+    // is clean at the moderate floor with every rule enforced.
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
   });
 
   test('HealthCluster popover has no critical/serious WCAG violations', async ({
@@ -414,18 +410,15 @@ test.describe('accessibility @a11y — routes', () => {
     await page.getByTestId('health-cluster').click();
     await expect(page.getByRole('dialog', { name: 'Project health' })).toBeVisible();
 
-    // Chip/placeholder contrast tracked #2265; the popover's structure is clean.
-    await expectNoA11yViolations(page, testInfo, {
-      gateModerate: true,
-      disableRules: ['color-contrast'],
-    });
+    // Chip/placeholder contrast fixed (#2265); the popover's structure is clean too.
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
   });
 
   // The Schedule task-list `role="grid"` is missing required child roles on its
-  // virtualized rows (`aria-required-children`, tracked #2204), and the toolbar
-  // carries the shared contrast debt (#2265). Both are excluded so the scan runs
-  // live for every OTHER rule; remove each exclusion when its issue lands.
-  const SCHEDULE_EXCLUDED_RULES = ['aria-required-children', 'color-contrast'];
+  // virtualized rows (`aria-required-children`, tracked #2204). Excluded so the
+  // scan runs live for every OTHER rule (contrast now enforced — #2265 landed);
+  // remove this last exclusion when #2204 lands.
+  const SCHEDULE_EXCLUDED_RULES = ['aria-required-children'];
 
   test('project Schedule has no critical/serious WCAG violations', async ({ page }, testInfo) => {
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
@@ -465,16 +458,11 @@ test.describe('accessibility @a11y — routes', () => {
     // Board carries the most in-flight audit debt: resize handles miss required
     // ARIA (`aria-required-attr`), the backlog rail misses required children
     // (`aria-required-children`), and a card overlay nests interactive controls
-    // (`nested-interactive`) — all tracked #2204 — plus the shared contrast debt
-    // (#2265). Excluded so the scan still gates name/role/region/valid-attr etc.
+    // (`nested-interactive`) — all tracked #2204. Excluded so the scan still gates
+    // name/role/region/valid-attr and (now #2265 landed) contrast.
     await expectNoA11yViolations(page, testInfo, {
       gateModerate: true,
-      disableRules: [
-        'aria-required-attr',
-        'aria-required-children',
-        'nested-interactive',
-        'color-contrast',
-      ],
+      disableRules: ['aria-required-attr', 'aria-required-children', 'nested-interactive'],
     });
   });
 
@@ -484,11 +472,8 @@ test.describe('accessibility @a11y — routes', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
     await expect(page.getByRole('heading', { name: 'General' })).toBeVisible({ timeout: 10_000 });
 
-    // Only gated finding is chip/label contrast (#2265); structure is clean.
-    await expectNoA11yViolations(page, testInfo, {
-      gateModerate: true,
-      disableRules: ['color-contrast'],
-    });
+    // Chip/label contrast fixed (#2265); the settings surface is fully clean.
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
   });
 
   test('task drawer (open) has no critical/serious WCAG violations', async ({ page }, testInfo) => {
@@ -499,13 +484,22 @@ test.describe('accessibility @a11y — routes', () => {
     const drawer = page.getByRole('dialog', { name: /Technical Design/ }).first();
     await expect(drawer).toBeVisible({ timeout: 5_000 });
 
-    // The scan sees both the open drawer AND the Schedule grid behind it, so it
-    // inherits the grid's `aria-required-children` (#2204); the drawer's own
-    // low-contrast body text is tracked #2265. Excluded so the drawer's
-    // structure, naming, and focus semantics are still gated.
+    // Clicking a row leaves the pointer hovering it, which triggers the transient
+    // dependency-hover dim (opacity) on the non-chain rows behind the drawer —
+    // dimmed-but-in-tree text that trips color-contrast for a pointer state that
+    // is not the resting drawer view. Move the pointer off the grid so the scan
+    // reflects the settled state (the same "don't scan a transient" discipline the
+    // fixture docstring calls out); the drawer's own body text is contrast-clean
+    // after #2265. See a11y-diag: 18 nodes → 7 → 0 once the dim clears + fixes land.
+    await page.mouse.move(2, 2);
+    await expect(drawer).toBeVisible();
+
+    // The scan still sees the Schedule grid behind the open drawer, so it inherits
+    // the grid's `aria-required-children` (#2204). Every other rule — contrast
+    // included (#2265 landed) — is enforced.
     await expectNoA11yViolations(page, testInfo, {
       gateModerate: true,
-      disableRules: ['aria-required-children', 'color-contrast'],
+      disableRules: ['aria-required-children'],
     });
   });
 
@@ -517,11 +511,8 @@ test.describe('accessibility @a11y — routes', () => {
     await page.keyboard.press('Control+k');
     await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
 
-    // Only gated finding is the kbd-chip/group-label contrast (#2265); the
-    // palette's listbox/option/combobox semantics are clean and stay gated.
-    await expectNoA11yViolations(page, testInfo, {
-      gateModerate: true,
-      disableRules: ['color-contrast'],
-    });
+    // Kbd-chip + group-label contrast fixed (#2265); the palette's
+    // listbox/option/combobox semantics and contrast are all clean and gated.
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
   });
 });

@@ -75,7 +75,7 @@ export function ResourceAssignmentSection({
       ) : (
         <>
           {assignments && assignments.length === 0 && (
-            <p className="text-xs text-neutral-text-disabled mb-2">None</p>
+            <p className="text-xs text-neutral-text-secondary mb-2">None</p>
           )}
 
           {assignments?.map((assignment) => (

@@ -37,8 +37,12 @@ export function ScheduleAddMilestoneButton({
         disabled
           ? 'bg-neutral-surface-sunken text-neutral-text-disabled border border-neutral-border cursor-not-allowed'
           : pending
-            ? 'bg-brand-accent/15 border border-brand-accent text-brand-accent cursor-wait opacity-70'
-            : 'bg-transparent border border-brand-accent/40 text-brand-accent hover:border-brand-accent hover:bg-brand-accent/10',
+            ? // `text-brand-accent` (#E8A020) is only 2.08:1 on the light toolbar — a
+              // fill/border weight, not a foreground. Use the AA-safe `accent-text`
+              // (#92400E, ~5.9:1) for the label, keeping the amber accent on the
+              // border/tint, with `dark:text-brand-accent` per rule 86 (#2265).
+              'bg-brand-accent/15 border border-brand-accent text-brand-accent-text dark:text-brand-accent cursor-wait opacity-70'
+            : 'bg-transparent border border-brand-accent/40 text-brand-accent-text dark:text-brand-accent hover:border-brand-accent hover:bg-brand-accent/10',
       ].join(' ')}
     >
       <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">

@@ -25,7 +25,7 @@ export interface LogoProps {
  */
 export function Logo({ showWordmark = true }: LogoProps = {}) {
   return (
-    <span className="flex items-center gap-2 select-none" aria-label="TruePPM">
+    <span className="flex items-center gap-2 select-none" role="img" aria-label="TruePPM">
       <LogoMark size={22} className="flex-shrink-0" />
       {showWordmark && (
         <span className="font-display text-base font-bold tracking-[-0.02em] leading-none">

@@ -58,7 +58,12 @@
     --neutral-surface-sunken:  234 229 217;   /* #EAE5D9 — paper-3 (warm, was #EBEBEB) */
     --neutral-border:          230 225 214;   /* #E6E1D6 — line (warm, was #D4D2CE) */
     --neutral-text-primary:    27 42 74;      /* #1B2A4A — navy ink (brand v1.0); ~12.6:1 on white */
-    --neutral-text-secondary:  107 105 101;   /* #6B6965 — 4.63:1 on white */
+    --neutral-text-secondary:  100 98 93;     /* #64625D — was #6B6965, which is only
+                                                 4.35:1 on the warm sunken paper-3
+                                                 (#EAE5D9), just under AA. Darkened to
+                                                 clear 4.5:1 on every light surface
+                                                 (4.85:1 sunken, 5.9:1 white); monotonic
+                                                 contrast gain everywhere else (#2265). */
     --neutral-text-disabled:   160 157 153;   /* #A09D99 */
     --neutral-text-inverse:    255 255 255;   /* #FFFFFF */
     /* #2207 a11y (WCAG 1.4.11): ≥3:1 boundary/mark tokens. --neutral-border

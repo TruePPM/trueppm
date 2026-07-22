@@ -120,7 +120,7 @@ export function FlowAnalyticsPanel({ projectId, boardCadence }: Props) {
         </span>
         Flow analytics
         {!open && (
-          <span className="ml-2 font-normal normal-case text-neutral-text-disabled">
+          <span className="ml-2 font-normal normal-case text-neutral-text-secondary">
             <LockIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />team-private
           </span>
         )}

@@ -199,7 +199,7 @@ export function TaskDescriptionField({
         {hasContent ? (
           <RenderedMarkdown value={value} />
         ) : (
-          <p className="text-sm text-neutral-text-disabled">Add a description…</p>
+          <p className="text-sm text-neutral-text-secondary">Add a description…</p>
         )}
       </div>
       {changedElsewhere && (

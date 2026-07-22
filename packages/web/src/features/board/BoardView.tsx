@@ -3777,7 +3777,7 @@ export function BoardView() {
                       ),
                     }}
                   >
-                    <div className="sticky left-0 z-20 bg-neutral-surface text-xs uppercase tracking-wide text-neutral-text-disabled px-2 flex items-center">
+                    <div className="sticky left-0 z-20 bg-neutral-surface text-xs uppercase tracking-wide text-neutral-text-secondary px-2 flex items-center">
                       Phase
                     </div>
                     {COLUMNS.map((col) => {
