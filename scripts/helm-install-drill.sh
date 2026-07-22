@@ -6,7 +6,7 @@
 # BOOTS the chart and proves
 #   1. images pull and every workload rolls out (`helm install --wait`);
 #   2. the migrate -> bootstrap(create_admin) init sequence completes and the api
-#      answers /readyz (`helm test`, templates/tests/api-connection.yaml);
+#      answers its health probe (`helm test`, templates/tests/api-connection.yaml);
 #   3. the one-time admin password lands in the shared emptyDir and is retrievable
 #      (`kubectl exec <api-pod> -- cat <passwordFile>`);
 #   4. the settings.prod boot guards fail CLOSED — a deploy missing SECRET_KEY
@@ -15,7 +15,11 @@
 # KNOWN LIMITATION: there is no per-commit deployable image (the api/web images
 # are built only in the tag-triggered publish stage), so this drills the CHART
 # against the last released image tag ($RELEASE_IMAGE_TAG), not branch/main HEAD
-# application code. See #2279.
+# application code. A concrete consequence: when the chart is ahead of the last
+# release on a probe PATH, that path may not exist in the released image. The
+# migration-aware /api/v1/readyz endpoint (#1894, #2217) is exactly this case, so
+# the install below gates readiness on /health/ and disables the `helm test`
+# readyz leg (see step 4). readyz's own behavior is covered by pytest. See #2279.
 #
 # Expects a working Docker daemon (dind in CI) and helm, kind, kubectl, docker on
 # PATH. Registry auth via $CI_REGISTRY{,_USER,_PASSWORD} (set by GitLab CI).
@@ -147,10 +151,22 @@ kubectl create secret generic trueppm-env \
   --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
 
 # ---- 4. install + wait for full rollout ------------------------------------
+# Version-skew handling: this drill deploys the last RELEASED image
+# ($RELEASE_IMAGE_TAG=latest) while the chart under test is ahead of that
+# release. The chart's readiness probe and `helm test` hook point at the
+# migration-aware /api/v1/readyz endpoint (#1894, #2217), which a pre-#1894
+# released image does not serve — it 404s, the pod never goes Ready, and
+# `--wait` times out (context deadline exceeded). Until an app image containing
+# readyz is released, gate readiness on the cross-release-stable /health/ and
+# tell `helm test` to skip its readyz leg. Everything else in the chart (secret,
+# migrate->bootstrap init sequence, uvicorn, postgres, valkey, celery, Services)
+# still boots and is verified. readyz itself is covered by pytest (#1894/#2217).
 log "helm install ${RELEASE} (image tag ${RELEASE_IMAGE_TAG})"
 helm install "$RELEASE" "$CHART" \
   --set image.tag="$RELEASE_IMAGE_TAG" \
   --set 'envFrom[0].secretRef.name=trueppm-env' \
+  --set probes.api.readinessPath=/api/v1/health/ \
+  --set tests.probeReadyz=false \
   --wait --timeout "$INSTALL_TIMEOUT"
 log "rollout complete"
 kubectl get pods -o wide

@@ -60,7 +60,13 @@ spec:
           echo "probing http://${host}/api/v1/health/ ..."
           curl -fsS --retry 30 --retry-delay 2 --retry-all-errors "http://${host}/api/v1/health/"
           echo
+          {{- if .Values.tests.probeReadyz }}
           echo "probing http://${host}/api/v1/readyz ..."
           curl -fsS --retry 30 --retry-delay 2 --retry-all-errors "http://${host}/api/v1/readyz"
           echo
           echo "OK: api /health/ and /readyz reachable — install booted clean"
+          {{- else }}
+          # readyz omitted: this deploy targets an app image older than the
+          # readyz endpoint (#1894). See tests.probeReadyz in values.yaml.
+          echo "OK: api /health/ reachable — install booted clean (readyz probe skipped)"
+          {{- end }}
