@@ -1667,6 +1667,44 @@ scheduler:fuzz-deep:
     expire_in: 30 days
     when: always
 
+scheduler:mutation:
+  # Mutation testing of the scheduler (#2282) — the missing third leg alongside
+  # Hypothesis (#1456) and Schemathesis (#2121). Coverage proves a line ran under
+  # test; mutmut proves the tests would FAIL if that line were wrong by corrupting
+  # the code and checking whether the suite catches it.
+  #
+  # Schedule-only and NON-GATING, exactly like scheduler:fuzz-deep and api:fuzz: a
+  # surviving mutant is a triage signal (write an assertion that kills it), never
+  # an MR merge gate. `allow_failure: true` keeps a finding from redding the shared
+  # nightly schedule (Renovate + SonarCloud) while the survivor list + score stay
+  # visible via the artifacts.
+  #
+  # Scope is the beachhead in [tool.mutmut]: models.py, derive.py, cli.py. The
+  # engine.py expansion is tracked as phase 2. The score floor is report-only until
+  # the first nightly establishes a baseline; promote the observed score into
+  # MUTATION_MIN here to turn it into a warning threshold.
+  extends: .scheduler
+  stage: test
+  needs:
+    - job: ci:build-scheduler-image
+      optional: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  allow_failure: true
+  variables:
+    MUTATION_MIN: "0"
+  script:
+    - cd packages/scheduler
+    - mutmut run || true          # a non-zero exit just means survivors exist
+    - mutmut results || true
+    - mutmut export-cicd-stats
+    - python scripts/check_mutation_score.py mutants/mutmut-cicd-stats.json
+  artifacts:
+    paths:
+      - packages/scheduler/mutants/mutmut-cicd-stats.json
+    expire_in: 30 days
+    when: always
+
 api:fuzz:
   # Nightly OpenAPI contract-fuzzing of the live HTTP API with Schemathesis
   # (#2121) — the API-surface sibling of scheduler:fuzz-deep. Schedule-only and

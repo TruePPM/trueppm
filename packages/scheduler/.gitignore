@@ -1,0 +1,3 @@
+# mutmut (#2282) copies the source + tests into this sandbox to run mutants, and
+# writes its results DB and mutmut-cicd-stats.json here. Never commit it.
+mutants/
