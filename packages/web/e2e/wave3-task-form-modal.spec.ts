@@ -118,6 +118,26 @@ async function setup(page: import('@playwright/test').Page) {
       body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }),
     }),
   );
+  // Single-project detail — `ProjectShell` gates every project route on this
+  // query and swaps in `ProjectNotFound` when it 404s (the #2040 "unavailable"
+  // gate). Without this mock the request falls to the 404 catch-all and, as the
+  // late 404 lands mid-test, the whole board (modal + FieldHelp popover) is torn
+  // out — a flaky teardown that fails whichever assertion is in flight (#2262).
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        id: FIXTURE_PROJECT_ID, name: 'Task Modal Project', description: '',
+        start_date: '2026-04-01', calendar: 'default', estimation_mode: 'OPEN',
+        agile_features: false, methodology: 'HYBRID', code: '', health: 'AUTO',
+        visibility: 'WORKSPACE', timezone: '', default_view: 'BOARD',
+        lead: null, lead_detail: null, iteration_label: 'Sprint',
+        is_archived: false, archived_at: null, archived_by: null,
+        recalculated_at: null, is_sample: false, program_detail: null,
+        server_version: 1,
+      }),
+    }),
+  );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
     route.fulfill({
       status: 200, contentType: 'application/json',
