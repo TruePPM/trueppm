@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, cast
+from typing import Any
 
 import redis
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
@@ -13,6 +13,7 @@ from django.conf import settings
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.sync.broadcast import WS_PROTOCOL_VERSION
 from trueppm_api.apps.sync.ws_auth import authenticate_scope, warn_if_legacy
+from trueppm_api.core.redis_throttle import incr_with_ttl
 
 logger = logging.getLogger(__name__)
 
@@ -217,9 +218,10 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             bucket_key = f"rate:workshop_relay:{project_pk}:{user_pk}"
             try:
                 client = _client()  # pooled — no per-frame connection (#perf)
-                count = int(cast(int, client.incr(bucket_key)))
-                if count == 1:
-                    client.expire(bucket_key, RELAY_RATE_WINDOW)
+                # Atomic INCR + first-hit EXPIRE (#1757): one EVAL so a crash
+                # between the two can't strand the bucket without a TTL and wedge
+                # this user's live collaboration at the relay cap indefinitely.
+                count = incr_with_ttl(client, bucket_key, RELAY_RATE_WINDOW)
             except redis.RedisError:
                 logger.exception("workshop relay rate limit: Redis error, failing open")
                 return True

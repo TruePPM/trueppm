@@ -1400,6 +1400,23 @@ RETENTION_PURGE_INFLIGHT_SECONDS: int = env.int("RETENTION_PURGE_INFLIGHT_SECOND
 # that transaction (and its per-task row locks) can be held by one request.
 TRUEPPM_SYNC_BATCH_MAX_ROWS: int = env.int("TRUEPPM_SYNC_BATCH_MAX_ROWS", default=500)
 
+# Max simultaneously in-flight sync upload batches per user (#1756, defense in
+# depth over the SyncUploadThrottle rate cap). Each accepted batch is a heavy
+# transaction.atomic() (up to TRUEPPM_SYNC_BATCH_MAX_ROWS row locks + a CPM recalc
+# enqueue); under lock contention a burst of concurrent batches from one user can
+# tie up worker/DB resources *within* the per-minute rate cap. A per-user Redis
+# semaphore (INCR on entry / DECR in finally) bounds simultaneous heavy
+# transactions. Fails OPEN on a Redis error — parity with the rate throttle's
+# offline-client-retries reasoning would over-penalize here, and the rate cap
+# remains the hard bound. The counter carries a TTL so a worker that dies holding
+# a slot cannot leak it permanently.
+TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES: int = env.int("TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES", default=4)
+# TTL (seconds) on the per-user in-flight counter. A crashed worker's slot is
+# reclaimed once no further batch refreshes the key within this window; set
+# comfortably above the longest legitimate batch-apply time so an in-progress
+# slot is never reclaimed out from under a live request.
+TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS: int = env.int("TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS", default=120)
+
 # Cursor pagination for the offline delta PULL (#1013). A cold start (since=0)
 # on a large project would otherwise materialize every row into one unbounded
 # multi-MB response, past the "500-task delta < 3s" mobile target. The pull now

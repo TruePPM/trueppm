@@ -191,17 +191,19 @@ def test_personal_token_cap_raised_allows_more(owner: Any) -> None:
 
 
 class _FakeRedis:
-    """Minimal stand-in for the ``incr``/``expire`` calls the throttle issues."""
+    """Stand-in for the atomic ``incr_with_ttl`` EVAL the throttle now issues (#1757).
+
+    The throttle collapsed its ``incr`` + conditional ``expire`` into one Lua
+    script run via ``eval``; the fake emulates it as an INCR (the TTL arg is
+    irrelevant to this counting test)."""
 
     def __init__(self) -> None:
         self._counts: dict[str, int] = {}
 
-    def incr(self, key: str) -> int:
+    def eval(self, script: str, numkeys: int, *args: object) -> int:
+        key = str(args[0])
         self._counts[key] = self._counts.get(key, 0) + 1
         return self._counts[key]
-
-    def expire(self, _key: str, _ttl: int) -> None:
-        return None
 
 
 def _auth_user(pk: str = "u1") -> SimpleNamespace:

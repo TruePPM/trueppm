@@ -14,6 +14,8 @@ import redis
 from django.conf import settings
 from rest_framework.throttling import BaseThrottle
 
+from trueppm_api.core.redis_throttle import incrby_with_ttl
+
 from .services import MENTION_DAILY_LIMIT, MENTION_HOURLY_BURST
 
 if TYPE_CHECKING:
@@ -85,13 +87,12 @@ def record_mention_usage(user_pk: str | int, count: int) -> None:
         return
     try:
         client = _client()
-        pipe = client.pipeline()
         hourly_key = f"mention:hour:{user_pk}"
         daily_key = f"mention:day:{user_pk}"
-        pipe.incrby(hourly_key, count)
-        pipe.expire(hourly_key, 3600)
-        pipe.incrby(daily_key, count)
-        pipe.expire(daily_key, 86400)
-        pipe.execute()
+        # Atomic INCRBY + EXPIRE per key (#1757): one EVAL each, so a crash between
+        # the increment and the TTL can't leave a mention counter without a window
+        # (which would wedge the user at the mention cap indefinitely).
+        incrby_with_ttl(client, hourly_key, count, 3600)
+        incrby_with_ttl(client, daily_key, count, 86400)
     except redis.RedisError:
         logger.exception("record_mention_usage: Redis error, failing open")

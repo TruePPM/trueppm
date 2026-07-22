@@ -29,47 +29,25 @@ from trueppm_api.apps.sync.throttles import (
 )
 
 
-class _FakePipeline:
-    """Applies queued incr/expire ops against the parent fake's counter dict."""
+class _FakeRedis:
+    """In-memory INCR counters via the atomic incr_with_ttl EVAL (#1757).
 
-    def __init__(self, parent: _FakeRedis, raise_on_execute: bool = False) -> None:
-        self._parent = parent
-        self._ops: list[tuple[str, str]] = []
-        self._raise = raise_on_execute
+    The throttle now issues one ``eval`` per bucket (INCR + first-hit EXPIRE in a
+    single Lua script) instead of a pipeline of ``incr``/``expire`` round trips, so
+    the fake emulates that script: INCR the key, ignore the TTL arg (the real
+    throttle sets a 60s window). Optionally raises on ``eval`` to model an outage.
+    """
 
-    def incr(self, key: str) -> _FakePipeline:
-        self._ops.append(("incr", key))
-        return self
+    def __init__(self, counts: dict[str, int] | None = None, raise_on_eval: bool = False) -> None:
+        self.counts = dict(counts or {})
+        self._raise = raise_on_eval
 
-    def expire(self, key: str, ttl: int) -> _FakePipeline:
-        # ttl is unused by the fake — the real throttle sets a 60s window.
-        self._ops.append(("expire", key))
-        return self
-
-    def execute(self) -> list[int]:
+    def eval(self, script: str, numkeys: int, *args: object) -> int:
         if self._raise:
             raise redis.RedisError("down")
-        results: list[int] = []
-        for kind, key in self._ops:
-            if kind == "incr":
-                self._parent.counts[key] = self._parent.counts.get(key, 0) + 1
-                results.append(self._parent.counts[key])
-            else:  # expire
-                results.append(1)
-        return results
-
-
-class _FakeRedis:
-    """In-memory INCR counters, optionally raising on pipeline execute()."""
-
-    def __init__(
-        self, counts: dict[str, int] | None = None, raise_on_execute: bool = False
-    ) -> None:
-        self.counts = dict(counts or {})
-        self._raise = raise_on_execute
-
-    def pipeline(self) -> _FakePipeline:
-        return _FakePipeline(self, self._raise)
+        key = str(args[0])
+        self.counts[key] = self.counts.get(key, 0) + 1
+        return self.counts[key]
 
 
 def _request(user: object) -> SimpleNamespace:
@@ -157,7 +135,7 @@ def test_fails_closed_on_redis_error(monkeypatch: pytest.MonkeyPatch) -> None:
     The pre-#1719 code returned True here, so a single cache blip removed the only
     DoS bound. The offline client retries with backoff, so a brief 429 is safe.
     """
-    monkeypatch.setattr(throttles, "_client", lambda: _FakeRedis(raise_on_execute=True))
+    monkeypatch.setattr(throttles, "_client", lambda: _FakeRedis(raise_on_eval=True))
     throttle = SyncUploadThrottle()
     assert throttle.allow_request(_request(_auth_user()), _view("p1")) is False
     assert throttle.wait() == 60

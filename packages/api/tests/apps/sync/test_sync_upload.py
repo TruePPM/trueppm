@@ -9,6 +9,7 @@ unsupported-collection guard.
 from __future__ import annotations
 
 import uuid
+from contextlib import nullcontext
 from datetime import date, timedelta
 from typing import Any
 from unittest.mock import patch
@@ -18,6 +19,7 @@ from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+from rest_framework.exceptions import Throttled
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -45,17 +47,26 @@ User = get_user_model()
 
 @pytest.fixture(autouse=True)
 def _bypass_upload_throttle() -> Any:
-    """Bypass SyncUploadThrottle on the upload path for these integration tests.
+    """Bypass the upload rate throttle AND the concurrency slot for these tests.
 
-    The throttle hits Redis (which now fails *closed* on error, #1719), so leaving it
-    live would couple every upload assertion to a running Redis and turn a cache blip
-    into a spurious 429. Its own behavior — fail-closed, per-project + per-user global
-    buckets — is covered directly in ``test_upload_throttle.py``. Mirrors the
+    Both hit Redis, so leaving them live would couple every upload assertion to a
+    running Redis and turn a cache blip into a spurious 429. The rate throttle fails
+    *closed* on error (#1719); the concurrency slot (#1756) fails *open*, but pinning
+    it to a plain passthrough keeps these integration tests deterministic regardless
+    of Redis state. Each guard's own behavior is covered directly — the rate throttle
+    in ``test_upload_throttle.py``, the slot in ``test_sync_concurrency.py`` (unit)
+    and ``test_concurrency_slot_returns_429`` below (wiring). Mirrors the
     throttle-bypass pattern in ``test_task_collaboration.py``.
     """
-    with patch(
-        "trueppm_api.apps.sync.throttles.SyncUploadThrottle.allow_request",
-        return_value=True,
+    with (
+        patch(
+            "trueppm_api.apps.sync.throttles.SyncUploadThrottle.allow_request",
+            return_value=True,
+        ),
+        patch(
+            "trueppm_api.apps.sync.throttles.sync_batch_concurrency_slot",
+            lambda _user_pk: nullcontext(),
+        ),
     ):
         yield
 
@@ -1284,3 +1295,63 @@ def test_unflagging_sprint_targeted_milestone_rejects_batch(
     assert not SyncBatch.objects.exists()
     milestone.refresh_from_db()
     assert milestone.is_milestone is True  # unchanged — batch rolled back
+
+
+# ---------------------------------------------------------------------------
+# Per-user concurrency semaphore wiring (#1756)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_concurrency_slot_returns_429(admin_client: APIClient, project: Project) -> None:
+    """The POST is wrapped in ``sync_batch_concurrency_slot``: when the slot rejects
+    (per-user concurrency cap exceeded), the endpoint responds 429 and never applies
+    the batch — no SyncBatch row is written.
+
+    Patches the guard to raise ``Throttled`` (overriding the autouse passthrough for
+    this test) so the wiring is asserted deterministically without a live Redis. The
+    slot's own accept/reject/release logic is unit-tested in ``test_sync_concurrency``.
+    """
+    with patch(
+        "trueppm_api.apps.sync.throttles.sync_batch_concurrency_slot",
+        side_effect=Throttled(wait=1),
+    ):
+        resp = admin_client.post(
+            _url(project),
+            _payload(created=[{"id": str(uuid.uuid4()), "name": "Blocked"}]),
+            format="json",
+        )
+
+    assert resp.status_code == 429
+    # Rejected before the apply — nothing committed.
+    assert not SyncBatch.objects.exists()
+
+
+@pytest.mark.django_db
+def test_concurrency_slot_does_not_block_replay(admin_client: APIClient, project: Project) -> None:
+    """A fast-path idempotent replay returns BEFORE the concurrency slot, so a
+    duplicate upload never consumes a slot even when the cap is exhausted.
+
+    Records a completed batch, then patches the guard to always reject; the replay
+    must still return the stored 200 response because it short-circuits ahead of the
+    slot (the guard is asserted to never be entered).
+    """
+    batch_id = str(uuid.uuid4())
+    task_id = str(uuid.uuid4())
+    payload = _payload(client_batch_id=batch_id, created=[{"id": task_id, "name": "Once"}])
+
+    # First upload completes (autouse passthrough slot).
+    first = admin_client.post(_url(project), payload, format="json")
+    assert first.status_code == 200
+
+    # Now the cap is "exhausted": the guard would reject any real apply. The replay
+    # must still succeed because it never reaches the guard.
+    with patch(
+        "trueppm_api.apps.sync.throttles.sync_batch_concurrency_slot",
+        side_effect=AssertionError("replay must not enter the concurrency slot"),
+    ):
+        replay = admin_client.post(_url(project), payload, format="json")
+
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+    assert SyncBatch.objects.filter(client_batch_id=batch_id).count() == 1

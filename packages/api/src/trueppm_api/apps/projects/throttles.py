@@ -18,6 +18,8 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.throttling import BaseThrottle
 
+from trueppm_api.core.redis_throttle import incr_with_ttl
+
 if TYPE_CHECKING:
     from rest_framework.request import Request
     from rest_framework.views import APIView
@@ -88,10 +90,9 @@ class TaskSyncThrottle(BaseThrottle):
         count: int
         try:
             client = _client()
-            count = int(client.incr(bucket_key))  # type: ignore[arg-type]
-            if count == 1:
-                # First request in the window — set the 60-second TTL.
-                client.expire(bucket_key, 60)
+            # Atomic INCR + first-hit EXPIRE (#1757): one EVAL so a crash between
+            # the two can't strand the counter without a TTL (a self-DoS 429 lock).
+            count = incr_with_ttl(client, bucket_key, 60)
         except redis.RedisError:
             # Fail-open: a Redis outage must not block legitimate sync traffic.
             # Logged so an operator can alert on it.
@@ -133,9 +134,8 @@ class AcceptanceResultThrottle(BaseThrottle):
         count: int
         try:
             client = _client()
-            count = int(client.incr(bucket_key))  # type: ignore[arg-type]
-            if count == 1:
-                client.expire(bucket_key, 60)
+            # Atomic INCR + first-hit EXPIRE (#1757), see incr_with_ttl.
+            count = incr_with_ttl(client, bucket_key, 60)
         except redis.RedisError:
             logger.exception("AcceptanceResultThrottle: Redis error, failing open")
             return True
@@ -202,9 +202,8 @@ class TokenIssuanceThrottle(BaseThrottle):
         count: int
         try:
             client = _client()
-            count = int(client.incr(bucket_key))  # type: ignore[arg-type]
-            if count == 1:
-                client.expire(bucket_key, 60)
+            # Atomic INCR + first-hit EXPIRE (#1757), see incr_with_ttl.
+            count = incr_with_ttl(client, bucket_key, 60)
         except redis.RedisError:
             logger.exception("TokenIssuanceThrottle: Redis error, failing open")
             return True
@@ -244,9 +243,8 @@ class TaskAttachmentUploadThrottle(BaseThrottle):
         count: int
         try:
             client = _client()
-            count = int(client.incr(bucket_key))  # type: ignore[arg-type]
-            if count == 1:
-                client.expire(bucket_key, 60)
+            # Atomic INCR + first-hit EXPIRE (#1757), see incr_with_ttl.
+            count = incr_with_ttl(client, bucket_key, 60)
         except redis.RedisError:
             logger.exception("TaskAttachmentUploadThrottle: Redis error, failing open")
             return True

@@ -440,6 +440,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         """
         from trueppm_api.apps.access.models import Role
         from trueppm_api.apps.sync.models import SyncBatch, SyncBatchStatus
+        from trueppm_api.apps.sync.throttles import sync_batch_concurrency_slot
 
         envelope = SyncUploadRequestSerializer(data=request.data)
         envelope.is_valid(raise_exception=True)
@@ -494,34 +495,40 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         ):
             return Response(existing.response_body, status=existing.response_status)
 
-        try:
-            return self._apply_and_record(
-                request, project, role, client_batch_id, changes, last_pulled_at
-            )
-        except IntegrityError:
-            # A concurrent duplicate committed between our check and create, or a
-            # stale row exists. Re-fetch (project + actor-scoped) and resolve.
-            existing = SyncBatch.objects.filter(  # type: ignore[misc]
-                project=project, actor_user=request.user, client_batch_id=client_batch_id
-            ).first()
-            if existing is None:
-                raise  # genuinely unexpected — surface it
-            if existing.is_fresh(ttl_hours=ttl):
-                if existing.status == SyncBatchStatus.COMPLETED:
-                    return Response(existing.response_body, status=existing.response_status)
-                # Fresh but still pending: a true concurrent race whose winner has
-                # not committed yet. Ask the client to retry — the next attempt
-                # hits the fast-path replay.
-                return Response(
-                    {"detail": "This batch is already being processed; retry shortly."},
-                    status=status.HTTP_409_CONFLICT,
+        # Bound simultaneously in-flight heavy batch applies for this user (#1756).
+        # Wraps the whole apply — including the IntegrityError re-run — so one
+        # logical upload holds exactly one slot. Placed AFTER the fast-path replay
+        # so a cheap idempotent retry never consumes a slot. Raises 429 (Throttled)
+        # when the per-user concurrency cap is exceeded; fails open on Redis error.
+        with sync_batch_concurrency_slot(request.user.pk):
+            try:
+                return self._apply_and_record(
+                    request, project, role, client_batch_id, changes, last_pulled_at
                 )
-            # Expired row is blocking a re-run: drop it and apply once more. After
-            # the freshness window the same client_batch_id is allowed to re-run.
-            existing.delete()
-            return self._apply_and_record(
-                request, project, role, client_batch_id, changes, last_pulled_at
-            )
+            except IntegrityError:
+                # A concurrent duplicate committed between our check and create, or a
+                # stale row exists. Re-fetch (project + actor-scoped) and resolve.
+                existing = SyncBatch.objects.filter(  # type: ignore[misc]
+                    project=project, actor_user=request.user, client_batch_id=client_batch_id
+                ).first()
+                if existing is None:
+                    raise  # genuinely unexpected — surface it
+                if existing.is_fresh(ttl_hours=ttl):
+                    if existing.status == SyncBatchStatus.COMPLETED:
+                        return Response(existing.response_body, status=existing.response_status)
+                    # Fresh but still pending: a true concurrent race whose winner has
+                    # not committed yet. Ask the client to retry — the next attempt
+                    # hits the fast-path replay.
+                    return Response(
+                        {"detail": "This batch is already being processed; retry shortly."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                # Expired row is blocking a re-run: drop it and apply once more. After
+                # the freshness window the same client_batch_id is allowed to re-run.
+                existing.delete()
+                return self._apply_and_record(
+                    request, project, role, client_batch_id, changes, last_pulled_at
+                )
 
     def _apply_and_record(
         self,
