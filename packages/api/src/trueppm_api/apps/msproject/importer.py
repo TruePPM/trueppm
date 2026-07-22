@@ -35,16 +35,8 @@ def import_project(
         feed the post-import summary the UI shows on the project landing.
     """
     from django.conf import settings
-    from django.db.models import F
 
-    from trueppm_api.apps.projects.models import (
-        DeliveryMode,
-        Dependency,
-        Project,
-        Task,
-        TaskStatus,
-    )
-    from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
+    from trueppm_api.apps.projects.models import Task
 
     # Chunk every bulk_create (#1721) so a large import is not emitted as one
     # unbounded multi-row INSERT (which pins the whole set in a single statement
@@ -56,7 +48,49 @@ def import_project(
             tracker.update(pct, msg)
 
     _update(5, "Preparing import...")
+    summary = _init_summary(data)
 
+    if wipe_existing:
+        # Safe because the project was created empty for this import (ADR-0092);
+        # only a partial prior attempt could leave rows. Dependency/TaskResource
+        # cascade off Task, so deleting tasks clears the prior attempt.
+        Task.objects.filter(project_id=project_id).delete()
+
+    # --- Step 0: Apply the file's calendar (#1769) ---
+    # Runs before the no-tasks early return: the calendar is header-level plan
+    # data (like name/start_date) and applies even to a file with no tasks.
+    _update(8, "Applying project calendar...")
+    _apply_calendar(project_id, data, summary, overwrite=wipe_existing, batch_size=batch_size)
+
+    if not data.tasks:
+        summary["warnings"].append("No tasks found in file")
+        return summary
+
+    # --- Step 1: Create or match resources ---
+    _update(10, "Matching resources...")
+    resource_uid_to_pk = _import_resources(data, summary, batch_size=batch_size)
+
+    # --- Step 2: Create tasks ---
+    _update(30, f"Creating {len(data.tasks)} tasks...")
+    task_objects = _create_tasks(project_id, data, summary, batch_size=batch_size)
+    task_uid_to_pk = {td.uid: str(task_objects[i].pk) for i, td in enumerate(data.tasks)}
+
+    # --- Step 3: Create dependencies ---
+    _update(50, "Creating dependencies...")
+    _import_dependencies(data, task_uid_to_pk, summary, batch_size=batch_size)
+
+    # --- Step 4: Create resource assignments ---
+    _update(70, "Creating resource assignments...")
+    _import_assignments(
+        project_id, data, task_uid_to_pk, resource_uid_to_pk, summary, batch_size=batch_size
+    )
+
+    _update(90, "Import complete, triggering schedule recalculation...")
+    return summary
+
+
+def _init_summary(data: ProjectData) -> dict[str, Any]:
+    """Build the zeroed result-summary dict, seeded from the parsed file."""
     summary: dict[str, Any] = {
         "tasks_created": 0,
         "task_count": 0,
@@ -92,54 +126,69 @@ def import_project(
     summary["tasks_skipped_partial_three_point"] = sum(
         1 for w in data.warnings if "partial three-point estimate" in w
     )
+    return summary
 
-    if wipe_existing:
-        # Safe because the project was created empty for this import (ADR-0092);
-        # only a partial prior attempt could leave rows. Dependency/TaskResource
-        # cascade off Task, so deleting tasks clears the prior attempt.
-        Task.objects.filter(project_id=project_id).delete()
 
-    # --- Step 0: Apply the file's calendar (#1769) ---
-    # Runs before the no-tasks early return: the calendar is header-level plan
-    # data (like name/start_date) and applies even to a file with no tasks.
-    _update(8, "Applying project calendar...")
-    _apply_calendar(project_id, data, summary, overwrite=wipe_existing, batch_size=batch_size)
+def _import_resources(
+    data: ProjectData, summary: dict[str, Any], *, batch_size: int
+) -> dict[int, str]:
+    """Match parsed resources to the shared library by name, creating the rest.
 
-    if not data.tasks:
-        summary["warnings"].append("No tasks found in file")
-        return summary
+    Returns a map from the file's resource UID to the TruePPM Resource PK.
+    """
+    from trueppm_api.apps.resources.models import Resource
 
-    # --- Step 1: Create or match resources ---
-    _update(10, "Matching resources...")
     resource_uid_to_pk: dict[int, str] = {}
+    if not data.resources:
+        return resource_uid_to_pk
 
-    if data.resources:
-        existing = {r.name.lower(): r for r in Resource.objects.all()}
-        new_resources: list[Resource] = []
+    existing = {r.name.lower(): r for r in Resource.objects.all()}
+    new_resources: list[Resource] = []
 
-        for rd in data.resources:
-            name_lower = rd.name.lower()
-            if name_lower in existing:
-                resource_uid_to_pk[rd.uid] = str(existing[name_lower].pk)
-                summary["resources_matched"] += 1
-            else:
-                r = Resource(name=rd.name, max_units=rd.max_units)
-                new_resources.append(r)
+    for rd in data.resources:
+        name_lower = rd.name.lower()
+        if name_lower in existing:
+            resource_uid_to_pk[rd.uid] = str(existing[name_lower].pk)
+            summary["resources_matched"] += 1
+        else:
+            new_resources.append(Resource(name=rd.name, max_units=rd.max_units))
 
-        if new_resources:
-            Resource.objects.bulk_create(new_resources, batch_size=batch_size)
-            summary["resources_created"] = len(new_resources)
-            all_resources = {r.name.lower(): r for r in Resource.objects.all()}
-            for rd in data.resources:
-                if rd.uid not in resource_uid_to_pk:
-                    matched = all_resources.get(rd.name.lower())
-                    if matched:
-                        resource_uid_to_pk[rd.uid] = str(matched.pk)
+    if new_resources:
+        Resource.objects.bulk_create(new_resources, batch_size=batch_size)
+        summary["resources_created"] = len(new_resources)
+        _map_created_resource_pks(data, resource_uid_to_pk)
+    return resource_uid_to_pk
 
-    # --- Step 2: Create tasks ---
-    _update(30, f"Creating {len(data.tasks)} tasks...")
-    task_uid_to_pk: dict[int, str] = {}
-    task_objects: list[Task] = []
+
+def _map_created_resource_pks(data: ProjectData, resource_uid_to_pk: dict[int, str]) -> None:
+    """Fill in PKs for the just-created resources by re-reading the library by name.
+
+    bulk_create does not populate PKs on the passed instances for every backend, so
+    the newly created rows are re-fetched and matched to their file UIDs by name.
+    """
+    from trueppm_api.apps.resources.models import Resource
+
+    all_resources = {r.name.lower(): r for r in Resource.objects.all()}
+    for rd in data.resources:
+        if rd.uid not in resource_uid_to_pk:
+            matched = all_resources.get(rd.name.lower())
+            if matched:
+                resource_uid_to_pk[rd.uid] = str(matched.pk)
+
+
+def _create_tasks(
+    project_id: str, data: ProjectData, summary: dict[str, Any], *, batch_size: int
+) -> list[Any]:
+    """Bulk-create Task rows for the parsed tasks and return them in file order.
+
+    Allocates a contiguous block of short_ids, computes WBS paths and summary-task
+    membership once, builds each row, pulls the project start back if a task
+    predates it, then bulk-creates. Returns the built Task objects so the caller
+    can map file UIDs to persisted PKs.
+    """
+    from django.db.models import F
+
+    from trueppm_api.apps.projects.models import Project, Task
 
     # Allocate a batch of short_ids: increment object_sequence by len(tasks)
     # in one UPDATE, then assign sequential hex IDs.
@@ -157,101 +206,135 @@ def import_project(
     # would drift on re-export.
     summary_indices = _summary_indices(wbs_paths)
 
-    for i, td in enumerate(data.tasks):
-        wbs_path = wbs_paths[i]
-        # All-or-none gate (ADR-0093 Q3): the parser already enforces it, so
-        # if any one of the three fields is set we know the other two are too.
-        # Skip three-point write on summaries (Q5) and milestones (already
-        # nulled by the parser, but kept defensive here).
-        is_summary = i in summary_indices
-        if is_summary or td.is_milestone:
-            opt = ml = pess = None
-            est_status = None
-        else:
-            opt = td.optimistic_duration_days
-            ml = td.most_likely_duration_days
-            pess = td.pessimistic_duration_days
-            # estimate_status="accepted" on import (ADR-0093 Q4): the uploader
-            # holds project-admin permission and the values are PM-authored
-            # migration data, not contributor suggestions. Setting "pending"
-            # would force re-approval per task under SUGGEST_APPROVE for no
-            # governance benefit (the PM chose to import them).
-            est_status = "accepted" if ml is not None else None
-        if ml is not None:
-            summary["tasks_with_three_point_estimates"] += 1
-        # #1768: carry the source status onto Task.status so completed / in-flight
-        # work does not re-import as NOT_STARTED (which the scheduler treats as
-        # unstarted future work, inflating every forecast). Both importers populate
-        # td.status upstream — the Jira parser from the issue status name, the MS
-        # Project parser from the raw PercentComplete gated on start — so this path
-        # is agnostic to the percent storage scale (#1759). Fall back to the model
-        # default when the source supplied no usable status.
-        task_status = td.status or TaskStatus.NOT_STARTED.value
-        # Clamp percent to 0 when no start date — preserves the progress-anchor
-        # invariant that bulk_create bypasses (ADR-0057 Q5). A .mpp file can encode
-        # PercentComplete > 0 on an *unstarted* task; importing that value would
-        # create a task with ghost progress and no schedule anchor. A task whose
-        # status is terminal (REVIEW/COMPLETE) is not "unstarted" — its progress is
-        # real completion, not ghost — so it keeps its percent even with no start
-        # (the Jira path, which carries no dates), otherwise a COMPLETE issue would
-        # persist at 0% and read as unstarted future work (#1768).
-        _terminal = task_status in (TaskStatus.REVIEW.value, TaskStatus.COMPLETE.value)
-        effective_percent = td.percent_complete if (td.start or _terminal) else 0
-        task = Task(
-            project_id=project_id,
-            name=td.name,
-            wbs_path=wbs_path if wbs_path else None,
-            # Milestone invariant (#1773): bulk_create bypasses the TaskSerializer
-            # coupling, so enforce the canonical milestone state here — a milestone
-            # is zero-duration and carries delivery_mode='milestone' so the phase
-            # rollup weights it at 0. A source .mpp can encode a non-zero duration
-            # on a <Milestone> task; importing it raw would violate the invariant
-            # and the next PATCH would silently re-zero the duration and shift dates.
-            duration=0 if td.is_milestone else td.duration_days,
-            is_milestone=td.is_milestone,
-            delivery_mode=DeliveryMode.MILESTONE if td.is_milestone else DeliveryMode.WATERFALL,
-            status=task_status,
-            percent_complete=effective_percent,
-            notes=td.notes,
-            planned_start=td.start if td.start else None,
-            optimistic_duration=opt,
-            most_likely_duration=ml,
-            pessimistic_duration=pess,
-            estimate_status=est_status,
-            short_id=f"{start_seq + i:08X}",
+    task_objects: list[Task] = [
+        _build_task_object(
+            td, wbs_paths[i], i in summary_indices, project_id, start_seq + i, summary
         )
-        task_objects.append(task)
+        for i, td in enumerate(data.tasks)
+    ]
 
-    # #873/#867: pull the project start back to the earliest imported task start
-    # before persisting. The importer bulk_creates tasks, bypassing the
-    # TaskSerializer auto-shift, so a .mpp whose tasks predate the project start
-    # would otherwise persist sub-start "ghost" planned_starts the CPM clamps.
-    # Mirrors the interactive path: the project boundary is elastic earlier.
-    # ``td.start`` is an ISO date string (sorts chronologically), parsed to a
-    # date for the comparison/assignment the helper performs.
-    from datetime import date as _date
-
-    from trueppm_api.apps.projects.services import shift_project_start_if_needed
-
-    task_start_strs = [td.start for td in data.tasks if td.start]
-    if task_start_strs:
-        earliest_start = _date.fromisoformat(min(task_start_strs))
-        project = Project.objects.filter(pk=project_id).first()
-        if project is not None and shift_project_start_if_needed(project, earliest_start):
-            summary["project_start_date"] = project.start_date.isoformat()
-            summary["project_start_shifted"] = True
+    _maybe_shift_project_start(project_id, data, summary)
 
     Task.objects.bulk_create(task_objects, batch_size=batch_size)
     summary["tasks_created"] = len(task_objects)
     summary["task_count"] = len(task_objects)
+    return task_objects
 
-    for i, td in enumerate(data.tasks):
-        task_uid_to_pk[td.uid] = str(task_objects[i].pk)
 
-    # --- Step 3: Create dependencies ---
-    _update(50, "Creating dependencies...")
+def _build_task_object(
+    td: TaskData,
+    wbs_path: str,
+    is_summary: bool,
+    project_id: str,
+    short_id_seq: int,
+    summary: dict[str, Any],
+) -> Any:
+    """Construct a single Task row from parsed TaskData, applying the import-time
+    invariants (three-point gating, milestone normalization, progress-anchor
+    clamp) that bulk_create bypasses by skipping the TaskSerializer.
+    """
+    from trueppm_api.apps.projects.models import DeliveryMode, Task, TaskStatus
+
+    # All-or-none gate (ADR-0093 Q3): the parser already enforces it, so
+    # if any one of the three fields is set we know the other two are too.
+    # Skip three-point write on summaries (Q5) and milestones (already
+    # nulled by the parser, but kept defensive here).
+    if is_summary or td.is_milestone:
+        opt = ml = pess = None
+        est_status = None
+    else:
+        opt = td.optimistic_duration_days
+        ml = td.most_likely_duration_days
+        pess = td.pessimistic_duration_days
+        # estimate_status="accepted" on import (ADR-0093 Q4): the uploader
+        # holds project-admin permission and the values are PM-authored
+        # migration data, not contributor suggestions. Setting "pending"
+        # would force re-approval per task under SUGGEST_APPROVE for no
+        # governance benefit (the PM chose to import them).
+        est_status = "accepted" if ml is not None else None
+    if ml is not None:
+        summary["tasks_with_three_point_estimates"] += 1
+    # #1768: carry the source status onto Task.status so completed / in-flight
+    # work does not re-import as NOT_STARTED (which the scheduler treats as
+    # unstarted future work, inflating every forecast). Both importers populate
+    # td.status upstream — the Jira parser from the issue status name, the MS
+    # Project parser from the raw PercentComplete gated on start — so this path
+    # is agnostic to the percent storage scale (#1759). Fall back to the model
+    # default when the source supplied no usable status.
+    task_status = td.status or TaskStatus.NOT_STARTED.value
+    # Clamp percent to 0 when no start date — preserves the progress-anchor
+    # invariant that bulk_create bypasses (ADR-0057 Q5). A .mpp file can encode
+    # PercentComplete > 0 on an *unstarted* task; importing that value would
+    # create a task with ghost progress and no schedule anchor. A task whose
+    # status is terminal (REVIEW/COMPLETE) is not "unstarted" — its progress is
+    # real completion, not ghost — so it keeps its percent even with no start
+    # (the Jira path, which carries no dates), otherwise a COMPLETE issue would
+    # persist at 0% and read as unstarted future work (#1768).
+    _terminal = task_status in (TaskStatus.REVIEW.value, TaskStatus.COMPLETE.value)
+    effective_percent = td.percent_complete if (td.start or _terminal) else 0
+    return Task(
+        project_id=project_id,
+        name=td.name,
+        wbs_path=wbs_path if wbs_path else None,
+        # Milestone invariant (#1773): bulk_create bypasses the TaskSerializer
+        # coupling, so enforce the canonical milestone state here — a milestone
+        # is zero-duration and carries delivery_mode='milestone' so the phase
+        # rollup weights it at 0. A source .mpp can encode a non-zero duration
+        # on a <Milestone> task; importing it raw would violate the invariant
+        # and the next PATCH would silently re-zero the duration and shift dates.
+        duration=0 if td.is_milestone else td.duration_days,
+        is_milestone=td.is_milestone,
+        delivery_mode=DeliveryMode.MILESTONE if td.is_milestone else DeliveryMode.WATERFALL,
+        status=task_status,
+        percent_complete=effective_percent,
+        notes=td.notes,
+        planned_start=td.start if td.start else None,
+        optimistic_duration=opt,
+        most_likely_duration=ml,
+        pessimistic_duration=pess,
+        estimate_status=est_status,
+        short_id=f"{short_id_seq:08X}",
+    )
+
+
+def _maybe_shift_project_start(project_id: str, data: ProjectData, summary: dict[str, Any]) -> None:
+    """Pull the project start back to the earliest imported task start (#873/#867).
+
+    The importer bulk_creates tasks, bypassing the TaskSerializer auto-shift, so a
+    .mpp whose tasks predate the project start would otherwise persist sub-start
+    "ghost" planned_starts the CPM clamps. Mirrors the interactive path: the
+    project boundary is elastic earlier. ``td.start`` is an ISO date string (sorts
+    chronologically), parsed to a date for the comparison/assignment.
+    """
+    from datetime import date as _date
+
+    from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.projects.services import shift_project_start_if_needed
+
+    task_start_strs = [td.start for td in data.tasks if td.start]
+    if not task_start_strs:
+        return
+    earliest_start = _date.fromisoformat(min(task_start_strs))
+    project = Project.objects.filter(pk=project_id).first()
+    if project is not None and shift_project_start_if_needed(project, earliest_start):
+        summary["project_start_date"] = project.start_date.isoformat()
+        summary["project_start_shifted"] = True
+
+
+def _import_dependencies(
+    data: ProjectData,
+    task_uid_to_pk: dict[int, str],
+    summary: dict[str, Any],
+    *,
+    batch_size: int,
+) -> None:
+    """Create Dependency rows from parsed predecessor links.
+
+    Warns (one entry per link) on any predecessor UID absent from the import.
+    """
+    from trueppm_api.apps.projects.models import Dependency
+
     dep_objects: list[Dependency] = []
-
     for td in data.tasks:
         successor_pk = task_uid_to_pk.get(td.uid)
         if not successor_pk:
@@ -277,10 +360,20 @@ def import_project(
         Dependency.objects.bulk_create(dep_objects, ignore_conflicts=True, batch_size=batch_size)
         summary["dependencies_created"] = len(dep_objects)
 
-    # --- Step 4: Create resource assignments ---
-    _update(70, "Creating resource assignments...")
-    assignment_objects: list[TaskResource] = []
 
+def _import_assignments(
+    project_id: str,
+    data: ProjectData,
+    task_uid_to_pk: dict[int, str],
+    resource_uid_to_pk: dict[int, str],
+    summary: dict[str, Any],
+    *,
+    batch_size: int,
+) -> None:
+    """Create TaskResource assignments, then auto-roster each assigned resource."""
+    from trueppm_api.apps.resources.models import TaskResource
+
+    assignment_objects: list[TaskResource] = []
     for td in data.tasks:
         task_pk = task_uid_to_pk.get(td.uid)
         if not task_pk:
@@ -290,42 +383,46 @@ def import_project(
             if not resource_pk:
                 continue
             assignment_objects.append(
-                TaskResource(
-                    task_id=task_pk,
-                    resource_id=resource_pk,
-                    units=ad.units,
-                )
+                TaskResource(task_id=task_pk, resource_id=resource_pk, units=ad.units)
             )
 
-    if assignment_objects:
-        TaskResource.objects.bulk_create(
-            assignment_objects, ignore_conflicts=True, batch_size=batch_size
-        )
-        summary["assignments_created"] = len(assignment_objects)
+    if not assignment_objects:
+        return
 
-        # Auto-roster every assigned resource so they appear in Team → Roster /
-        # Heatmap / Allocation views after import (#241). Bulk-builds the rows
-        # because bulk_create skipped the per-row signal path used by the API
-        # ViewSet.
-        rostered_resource_pks = {a.resource_id for a in assignment_objects}
-        existing_pairs = set(
-            ProjectResource.objects.filter(
-                project_id=project_id,
-                resource_id__in=rostered_resource_pks,
-            ).values_list("resource_id", flat=True)
-        )
-        new_roster = [
-            ProjectResource(project_id=project_id, resource_id=pk)
-            for pk in rostered_resource_pks
-            if pk not in existing_pairs
-        ]
-        if new_roster:
-            ProjectResource.objects.bulk_create(
-                new_roster, ignore_conflicts=True, batch_size=batch_size
-            )
+    TaskResource.objects.bulk_create(
+        assignment_objects, ignore_conflicts=True, batch_size=batch_size
+    )
+    summary["assignments_created"] = len(assignment_objects)
+    _roster_assigned_resources(project_id, assignment_objects, batch_size=batch_size)
 
-    _update(90, "Import complete, triggering schedule recalculation...")
-    return summary
+
+def _roster_assigned_resources(
+    project_id: str, assignment_objects: list[Any], *, batch_size: int
+) -> None:
+    """Roster every assigned resource onto the project so they appear in Team →
+    Roster / Heatmap / Allocation views after import (#241).
+
+    Bulk-builds the rows because bulk_create skipped the per-row signal path used
+    by the API ViewSet.
+    """
+    from trueppm_api.apps.resources.models import ProjectResource
+
+    rostered_resource_pks = {a.resource_id for a in assignment_objects}
+    existing_pairs = set(
+        ProjectResource.objects.filter(
+            project_id=project_id,
+            resource_id__in=rostered_resource_pks,
+        ).values_list("resource_id", flat=True)
+    )
+    new_roster = [
+        ProjectResource(project_id=project_id, resource_id=pk)
+        for pk in rostered_resource_pks
+        if pk not in existing_pairs
+    ]
+    if new_roster:
+        ProjectResource.objects.bulk_create(
+            new_roster, ignore_conflicts=True, batch_size=batch_size
+        )
 
 
 def _apply_calendar(
@@ -359,36 +456,9 @@ def _apply_calendar(
         return
 
     by_uid = {c.uid: c for c in data.calendars}
-    cal_data = by_uid.get(data.calendar_uid) if data.calendar_uid is not None else None
-    if cal_data is None:
-        if data.calendar_uid is not None:
-            summary["warnings"].append(
-                f"Project calendar UID {data.calendar_uid} not found among the "
-                f"file's base calendars; project calendar left unchanged"
-            )
-        elif len(data.calendars) == 1:
-            cal_data = data.calendars[0]
-        else:
-            summary["warnings"].append(
-                f"File defines {len(data.calendars)} base calendars but no "
-                f"project CalendarUID; project calendar left unchanged"
-            )
+    cal_data = _resolve_project_calendar_data(data, by_uid, summary)
 
-    # Aggregate per-task calendar references we cannot honor: one warning per
-    # distinct calendar, not per task (a 500-task plan on a shared task calendar
-    # must not produce 500 warnings).
-    project_cal_uid = cal_data.uid if cal_data is not None else data.calendar_uid
-    task_cal_counts: dict[int, int] = {}
-    for td in data.tasks:
-        if td.calendar_uid is not None and td.calendar_uid != project_cal_uid:
-            task_cal_counts[td.calendar_uid] = task_cal_counts.get(td.calendar_uid, 0) + 1
-    for uid, count in sorted(task_cal_counts.items()):
-        ref = by_uid.get(uid)
-        label = f"'{ref.name}' (UID {uid})" if ref is not None else f"UID {uid}"
-        summary["warnings"].append(
-            f"{count} task(s) reference calendar {label}; TruePPM has no "
-            f"per-task calendars — they are scheduled on the project calendar"
-        )
+    _warn_unhonored_task_calendars(data, cal_data, by_uid, summary)
 
     if cal_data is None:
         return
@@ -416,6 +486,55 @@ def _apply_calendar(
         project.save(update_fields=["calendar"])
     summary["calendar_applied"] = True
     summary["calendar_name"] = calendar.name
+
+
+def _resolve_project_calendar_data(
+    data: ProjectData, by_uid: dict[int, CalendarData], summary: dict[str, Any]
+) -> CalendarData | None:
+    """Pick the file's project calendar: the explicit ``CalendarUID`` if present,
+    else the sole base calendar when unambiguous. Warns and returns None when the
+    referenced UID is missing, or when the header omits it and several calendars exist.
+    """
+    cal_data = by_uid.get(data.calendar_uid) if data.calendar_uid is not None else None
+    if cal_data is not None:
+        return cal_data
+    if data.calendar_uid is not None:
+        summary["warnings"].append(
+            f"Project calendar UID {data.calendar_uid} not found among the "
+            f"file's base calendars; project calendar left unchanged"
+        )
+    elif len(data.calendars) == 1:
+        cal_data = data.calendars[0]
+    else:
+        summary["warnings"].append(
+            f"File defines {len(data.calendars)} base calendars but no "
+            f"project CalendarUID; project calendar left unchanged"
+        )
+    return cal_data
+
+
+def _warn_unhonored_task_calendars(
+    data: ProjectData,
+    cal_data: CalendarData | None,
+    by_uid: dict[int, CalendarData],
+    summary: dict[str, Any],
+) -> None:
+    """Emit one aggregated warning per distinct task-level calendar TruePPM cannot
+    honor (it has no per-task calendars) — never one warning per task, so a
+    500-task plan on a shared task calendar produces a single line, not 500.
+    """
+    project_cal_uid = cal_data.uid if cal_data is not None else data.calendar_uid
+    task_cal_counts: dict[int, int] = {}
+    for td in data.tasks:
+        if td.calendar_uid is not None and td.calendar_uid != project_cal_uid:
+            task_cal_counts[td.calendar_uid] = task_cal_counts.get(td.calendar_uid, 0) + 1
+    for uid, count in sorted(task_cal_counts.items()):
+        ref = by_uid.get(uid)
+        label = f"'{ref.name}' (UID {uid})" if ref is not None else f"UID {uid}"
+        summary["warnings"].append(
+            f"{count} task(s) reference calendar {label}; TruePPM has no "
+            f"per-task calendars — they are scheduled on the project calendar"
+        )
 
 
 def _match_or_create_calendar(
