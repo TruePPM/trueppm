@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useSettingsSaveStore, DEFAULT_SECTION_KEY } from './hooks/useSettingsSaveStore';
 import { useScrollSpy } from './hooks/useScrollSpy';
@@ -864,18 +864,49 @@ export function SettingsPageTitle({ title, subtitle, count, action }: SettingsPa
   );
 }
 
+/**
+ * DOM ids a {@link FieldRow} generates for the nodes a control should point its
+ * `aria-describedby` at — the visible hint and the inline error. Delivered to a
+ * render-prop child; each is `undefined` when that node is absent, so
+ * `describedBy` is `undefined` (not an empty string) when the row has neither.
+ */
+export interface FieldRowDescriptors {
+  /** id of the hint node, or `undefined` when the row has no hint. */
+  hintId?: string;
+  /** id of the inline error node, or `undefined` when the row has no error. */
+  errorId?: string;
+  /**
+   * Space-joined `hintId`+`errorId` ready to drop into `aria-describedby`, or
+   * `undefined` when neither exists. Prefer this over composing the two by hand.
+   */
+  describedBy?: string;
+}
+
 interface FieldRowProps {
   label: string;
-  hint?: string;
-  children: ReactNode;
+  hint?: ReactNode;
+  /**
+   * Row content. Either a plain node, or a render function that receives the
+   * {@link FieldRowDescriptors} for this row so the control can wire
+   * `aria-describedby` to the visible hint (and inline error) without the caller
+   * having to invent ids. The hint is a plain `<div>` with no implicit
+   * association, so a control that omits this wiring announces as an unlabeled,
+   * hint-less edit box to screen readers (web-rule 269, WCAG 1.3.1 / 4.1.2).
+   */
+  children: ReactNode | ((ids: FieldRowDescriptors) => ReactNode);
   /**
    * Server-side validation message for the control in this row. When set, an
-   * inline `role="alert"` line is rendered under the control; pair it with an
-   * `errorId` and point the control's `aria-describedby`/`aria-invalid` at it so
-   * the association is programmatic (WCAG 3.3.1 / 4.1.2).
+   * inline `role="alert"` line is rendered under the control; point the
+   * control's `aria-describedby`/`aria-invalid` at the error node so the
+   * association is programmatic (WCAG 3.3.1 / 4.1.2). Use the render-prop
+   * `errorId`, or pass an explicit `errorId` prop and reference it yourself.
    */
   error?: string;
-  /** DOM id for the inline error node — the control references it via `aria-describedby`. */
+  /**
+   * DOM id for the inline error node — the control references it via
+   * `aria-describedby`. Optional: when omitted the row generates one and hands
+   * it back through the render-prop `errorId`.
+   */
   errorId?: string;
 }
 
@@ -884,20 +915,47 @@ interface FieldRowProps {
  * Below md the fixed 240px label column would leave a phone <140px for the
  * control, so the row stacks to a single column (label above content) — this is
  * the actual fix for settings-form overflow at 375px (issue 539).
+ *
+ * The hint is rendered with a generated `id`; pass a render-prop child to
+ * receive that id (plus the error id) and point the control's
+ * `aria-describedby` at it, so the hint and inline error are programmatically
+ * associated with the control rather than being merely adjacent text.
  */
 export function FieldRow({ label, hint, children, error, errorId }: FieldRowProps) {
+  // Generate ids unconditionally (hooks can't be called conditionally), then
+  // only surface the ones whose nodes actually render — a control must never
+  // `aria-describedby` an id that isn't in the DOM.
+  const generatedHintId = useId();
+  const generatedErrorId = useId();
+  // Truthy check (not `!= null`) mirrors the original `{hint && …}` render guard
+  // so a falsy hint — `""`, or a `cond && "text"` that resolved to `false` —
+  // renders no hint node and therefore surfaces no `hintId` to describe by.
+  const hintId = hint ? generatedHintId : undefined;
+  const resolvedErrorId = error ? (errorId ?? generatedErrorId) : undefined;
+  const describedBy = [hintId, resolvedErrorId].filter(Boolean).join(' ') || undefined;
+
+  const content =
+    typeof children === 'function'
+      ? children({ hintId, errorId: resolvedErrorId, describedBy })
+      : children;
+
   return (
     <div className="grid grid-cols-1 gap-2 md:gap-6 md:grid-cols-[240px_1fr] py-3.5 border-b border-neutral-border/55 items-start">
       <div>
         <div className="text-[13px] font-medium text-neutral-text-primary">{label}</div>
         {hint && (
-          <div className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug">{hint}</div>
+          <div
+            id={hintId}
+            className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug"
+          >
+            {hint}
+          </div>
         )}
       </div>
       <div className="min-w-0">
-        {children}
+        {content}
         {error && (
-          <p id={errorId} role="alert" className="mt-1 text-[12px] text-semantic-critical">
+          <p id={resolvedErrorId} role="alert" className="mt-1 text-[12px] text-semantic-critical">
             {error}
           </p>
         )}
