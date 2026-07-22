@@ -97,6 +97,9 @@ interface RowStubProps {
   isExpanded?: boolean;
   prevTaskId?: string | null;
   nextTaskId?: string | null;
+  ariaRowIndex?: number;
+  isActiveRow?: boolean;
+  onFocusEdge?: (edge: 'first' | 'last') => void;
   siblingIds?: string[];
   siblingNames?: string[];
   nameSuggestions?: string[];
@@ -118,6 +121,9 @@ vi.mock('./TaskListRow', () => ({
       data-expanded={String(props.isExpanded ?? false)}
       data-prev={props.prevTaskId ?? ''}
       data-next={props.nextTaskId ?? ''}
+      data-aria-rowindex={props.ariaRowIndex ?? ''}
+      data-active-row={String(props.isActiveRow ?? false)}
+      data-has-focus-edge={String(Boolean(props.onFocusEdge))}
       data-sibling-names={(props.siblingNames ?? []).join(',')}
       data-name-suggestions={(props.nameSuggestions ?? []).join('|')}
       data-milestone-parents={(props.milestoneParents ?? []).map((p) => p.name).join(',')}
@@ -179,7 +185,39 @@ describe('TaskListPanel — grid + row wiring', () => {
     expect(screen.getByTestId('task-list-header')).toBeInTheDocument();
     expect(screen.getByTestId('row-a')).toHaveTextContent('Alpha');
     expect(screen.getByTestId('row-b')).toHaveTextContent('Beta');
-    expect(screen.getByRole('grid', { name: 'Task list' })).toHaveAttribute('aria-rowcount', '2');
+    // Header row (1) + one row per task (2) = 3 (#2204: aria-rowindex on the
+    // header is 1 and on data rows is 2-based, so the count includes the header).
+    expect(screen.getByRole('grid', { name: 'Task list' })).toHaveAttribute('aria-rowcount', '3');
+  });
+
+  it('assigns 2-based aria-rowindex to data rows (header is row 1) (#2204)', () => {
+    renderPanel({
+      tasks: [task({ id: 'a', name: 'Alpha' }), task({ id: 'b', wbs: '2', name: 'Beta' })],
+    });
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-aria-rowindex', '2');
+    expect(screen.getByTestId('row-b')).toHaveAttribute('data-aria-rowindex', '3');
+  });
+
+  it('makes exactly the first row the roving tab stop by default (#2204)', () => {
+    renderPanel({
+      tasks: [task({ id: 'a', name: 'Alpha' }), task({ id: 'b', wbs: '2', name: 'Beta' })],
+    });
+    // Roving tabindex: only one row is active (Tab-reachable) until focus moves.
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-active-row', 'true');
+    expect(screen.getByTestId('row-b')).toHaveAttribute('data-active-row', 'false');
+    // Each row receives the Home/End edge-jump callback.
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-has-focus-edge', 'true');
+  });
+
+  it('marks the layout wrappers presentation so grid → row ownership is intact (#2204)', () => {
+    const { container } = renderPanel({ tasks: [task({ id: 'a', name: 'Alpha' })] });
+    // No bare unroled div may sit between role="grid" and the rows; the scroll
+    // wrapper, sizer, and per-row wrapper are all role="presentation".
+    const grid = screen.getByRole('grid', { name: 'Task list' });
+    const presentationWrappers = container.querySelectorAll('[role="presentation"]');
+    expect(presentationWrappers.length).toBeGreaterThanOrEqual(3);
+    // The active row still lives inside the grid subtree.
+    expect(grid).toContainElement(screen.getByTestId('row-a'));
   });
 
   it('derives the WBS nesting level from the dotted wbs string', () => {

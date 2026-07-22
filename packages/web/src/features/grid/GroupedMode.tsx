@@ -113,11 +113,19 @@ export function GroupedMode({
   }
 
   return (
-    <>
+    // One `role="grid"` owns BOTH the column-header row and the virtualised body
+    // (incl. group-header rows) so no `role="row"` is orphaned outside a grid
+    // (#2204). aria-rowcount counts every body row (group headers + tasks),
+    // column header excluded; body rows are numbered from 1.
+    <div
+      role="grid"
+      aria-label="Task list"
+      aria-rowcount={listItems.length}
+      className="flex flex-col flex-1 min-h-0"
+    >
       <ColumnHeaders sortCol={sortCol} sortDir={sortDir} onSort={handleHeaderClick} />
       <VirtualRows
         items={listItems}
-        rowCount={filtered.length}
         selectedIds={selectedIds}
         renamingId={renamingId}
         onToggleSelect={(id) => toggle(id)}
@@ -127,7 +135,7 @@ export function GroupedMode({
         onOpenDetail={onOpenDetail}
         selectable={canEdit}
       />
-    </>
+    </div>
   );
 }
 

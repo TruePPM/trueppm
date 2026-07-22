@@ -336,6 +336,11 @@ export function OutlineMode({
   const tree = buildWbsTree(visibleTasks);
   const visible = flattenVisible(tree, expandedIds);
   const sortableIds = visible.map((n) => n.task.id);
+  // Drives the roving-tabindex entry point: if no visible row is selected, the
+  // first row becomes tabbable so the tree is keyboard-reachable on first Tab
+  // (#2204). A selection that scrolled out of view (collapsed ancestor) counts
+  // as "no visible selection", so the entry point falls back to the first row.
+  const hasSelection = visible.some((n) => n.task.id === selectedTaskId);
 
   return (
     <>
@@ -379,7 +384,7 @@ export function OutlineMode({
           onDragCancel={() => setReparentTargetId(null)}
         >
           <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-            {visible.map((node) => (
+            {visible.map((node, index) => (
               <OutlineRow
                 key={node.task.id}
                 node={node}
@@ -387,6 +392,8 @@ export function OutlineMode({
                 isRenaming={renamingId === node.task.id}
                 isSelected={selectedTaskId === node.task.id}
                 isReparentTarget={reparentTargetId === node.task.id}
+                isFirst={index === 0}
+                hasSelection={hasSelection}
                 predecessorText={predecessorTextById.get(node.task.id) ?? ''}
                 onToggle={() => toggle(node.task.id)}
                 onSelect={() => setSelectedTaskId(node.task.id)}

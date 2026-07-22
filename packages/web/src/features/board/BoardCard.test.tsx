@@ -1276,7 +1276,9 @@ describe('BoardCard compact bar touch affordances (#1947)', () => {
     overflowState.value = true;
     renderCard({ task: baseTask, density: 'compact' });
 
-    const trigger = screen.getByRole('button', { name: /show full title: backend implementation/i });
+    const trigger = screen.getByRole('button', {
+      name: /show full title: backend implementation/i,
+    });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('note')).not.toBeInTheDocument();
 
@@ -1318,9 +1320,7 @@ describe('BoardCard compact bar touch affordances (#1947)', () => {
     overflowState.value = true; // even if it would overflow, fine pointer adds nothing
     renderCard({ task: { ...baseTask, isCritical: true }, density: 'compact' });
 
-    expect(
-      screen.queryByRole('button', { name: /what does this mean/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /what does this mean/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /show full title/i })).not.toBeInTheDocument();
 
     // The badge is a plain span carrying its meaning in title + aria-label.
@@ -1405,13 +1405,17 @@ describe('BoardCard additional branch coverage', () => {
   // riskChipToneClass amber / green bands (ADR-0035)
   it('renders an amber-band risk chip for a mid severity (6–14)', () => {
     renderCard({ task: { ...baseTask, linkedRisksCount: 2, linkedRisksMaxSeverity: 10 } });
-    expect(screen.getByLabelText(/2 linked risks, severity amber\. Click to view\./)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/2 linked risks, severity amber\. Click to view\./),
+    ).toBeInTheDocument();
   });
 
   it('renders a green-band risk chip for a low severity (1–5) and singularizes one risk', () => {
     renderCard({ task: { ...baseTask, linkedRisksCount: 1, linkedRisksMaxSeverity: 3 } });
     // singular "risk" (not "risks") + green band
-    expect(screen.getByLabelText(/1 linked risk, severity green\. Click to view\./)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/1 linked risk, severity green\. Click to view\./),
+    ).toBeInTheDocument();
   });
 
   // non-blocked singular dependency aria-label (L488)
@@ -1483,21 +1487,41 @@ describe('BoardCard additional branch coverage', () => {
     expect(card.className).not.toContain('cursor-default');
   });
 
-  // isFilteredOut hard-dim + removal from tab order / a11y tree (L662, L862, L720)
-  it('comfortable: a filtered-out card is hard-dimmed, aria-hidden, and out of tab order', () => {
+  // isFilteredOut hard-dim + removal from tab order / a11y tree (#2204). `inert`
+  // (React 19 boolean prop) is the fix: it removes the card AND its inner buttons
+  // (··· menu, signal chips) from the tab order — the old aria-hidden left those
+  // focusable (aria-hidden ≠ non-focusable). aria-hidden is retained alongside it.
+  it('comfortable: a filtered-out card is hard-dimmed, inert, aria-hidden, and out of tab order', () => {
     renderCardFull({ isFilteredOut: true, density: 'comfortable' });
     const card = cardRoot();
     expect(card.className).toContain('opacity-30');
     expect(card.className).toContain('pointer-events-none');
+    expect(card).toHaveAttribute('inert');
     expect(card).toHaveAttribute('tabindex', '-1');
     expect(card).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('compact: a filtered-out card is also aria-hidden and out of tab order', () => {
+  it('compact: a filtered-out card is also inert, aria-hidden, and out of tab order', () => {
     renderCardFull({ isFilteredOut: true, density: 'compact' });
     const card = cardRoot();
+    expect(card).toHaveAttribute('inert');
     expect(card).toHaveAttribute('tabindex', '-1');
     expect(card).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  // Column/status context in the card's accessible name (#2204) — a screen-reader
+  // user tabbing card-to-card can tell which column each card sits in. baseTask is
+  // IN_PROGRESS; COLUMNS labels that column "IN PROGRESS".
+  it('comfortable: card aria-label carries its column label', () => {
+    renderCardFull({ density: 'comfortable' });
+    const card = cardRoot();
+    expect(card.getAttribute('aria-label')).toMatch(/, in IN PROGRESS$/);
+  });
+
+  it('compact: card aria-label carries its column label', () => {
+    renderCardFull({ density: 'compact' });
+    const card = cardRoot();
+    expect(card.getAttribute('aria-label')).toMatch(/, in IN PROGRESS$/);
   });
 
   // compact click open (L711)
@@ -1590,9 +1614,7 @@ describe('BoardCard additional branch coverage', () => {
   it('renders no pending-sync badge when nothing is queued', () => {
     pendingSyncState.value = false;
     renderCard({ task: baseTask, density: 'comfortable' });
-    expect(
-      screen.queryByLabelText(/Sync pending/),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Sync pending/)).not.toBeInTheDocument();
   });
 
   // compact pending chip (L765)

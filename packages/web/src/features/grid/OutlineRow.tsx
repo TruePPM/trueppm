@@ -13,6 +13,14 @@ interface OutlineRowProps {
   predecessorText: string;
   /** This summary row is the current drop target during a reparent drag. */
   isReparentTarget?: boolean;
+  /**
+   * This is the first visible row. When nothing is selected it becomes the
+   * roving-tabindex entry point so the tree is keyboard-reachable on first Tab
+   * (without a prior mouse click). See `hasSelection` (#2204).
+   */
+  isFirst?: boolean;
+  /** Whether any visible row is currently selected (drives the entry point). */
+  hasSelection?: boolean;
   onToggle: () => void;
   onSelect: () => void;
   onStartRename: () => void;
@@ -33,6 +41,8 @@ export function OutlineRow({
   isSelected,
   predecessorText,
   isReparentTarget = false,
+  isFirst = false,
+  hasSelection = false,
   onToggle,
   onSelect,
   onStartRename,
@@ -65,10 +75,19 @@ export function OutlineRow({
     else if (e.key === 'Escape') onCancelRename();
   };
 
-  const handleNameKeyDown = (e: KeyboardEvent) => {
+  const handleRowKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'F2') {
       e.preventDefault();
       onStartRename();
+      return;
+    }
+    // Enter/Space select the row — but only when the row div itself holds focus.
+    // The drag handle and expand button own Enter/Space for their own activation;
+    // guarding on target === currentTarget stops a bubbled keypress from
+    // double-firing a selection or fighting dnd-kit's keyboard drag.
+    if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+      e.preventDefault();
+      onSelect();
     }
   };
 
@@ -118,55 +137,66 @@ export function OutlineRow({
       `}
       onClick={onSelect}
       onDoubleClick={task.isSummary ? undefined : onStartRename}
-      onKeyDown={handleNameKeyDown}
-      tabIndex={isSelected ? 0 : -1}
+      onKeyDown={handleRowKeyDown}
+      // Roving tabindex: the selected row is the single tab stop. When nothing is
+      // selected yet, the first visible row is the entry point so the tree is
+      // reachable by keyboard without a prior mouse click (#2204).
+      tabIndex={isSelected || (isFirst && !hasSelection) ? 0 : -1}
     >
       <div role="presentation" className="flex items-center gap-1 min-w-0 md:contents">
-        <span
-          {...attributes}
-          {...listeners}
-          aria-label={`Reorder ${task.name}`}
-          className={`
-            relative w-4 h-4 flex items-center justify-center flex-shrink-0
-            cursor-grab active:cursor-grabbing text-neutral-text-secondary
-            opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100 transition-opacity
-            max-md:before:absolute max-md:before:content-[''] max-md:before:-inset-[14px]
-            ${task.isSummary ? 'invisible' : ''}
-          `}
-        >
-          ⠿
-        </span>
-
-        <span style={{ width: indent, flexShrink: 0 }} aria-hidden="true" />
-
-        {hasChildren ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggle();
-            }}
-            aria-expanded={isExpanded}
-            aria-controls={`grid-subtree-${task.id}`}
-            aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
-            className="
-              w-4 h-4 flex items-center justify-center flex-shrink-0
-              text-xs font-bold text-neutral-text-secondary
-              hover:text-neutral-text-primary rounded
-              focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none
-            "
-          >
-            {isExpanded ? '−' : '+'}
-          </button>
-        ) : (
+        {/* Drag handle, depth indent, and expand/collapse toggle form the row's
+            leading "controls" cell. A grid row may only own cells, so these
+            interactive controls live inside one `role="gridcell"` rather than
+            floating as bare children of the row. It stays a plain flex box (not
+            `md:contents`) because `display:contents` would drop the gridcell role
+            from the a11y tree, re-orphaning the controls (#2204). */}
+        <span role="gridcell" className="flex items-center gap-1 flex-shrink-0">
           <span
-            aria-hidden="true"
-            className="w-4 h-4 flex items-center justify-center flex-shrink-0
-              text-xs text-neutral-text-disabled"
+            {...attributes}
+            {...listeners}
+            aria-label={`Reorder ${task.name}`}
+            className={`
+              relative w-4 h-4 flex items-center justify-center flex-shrink-0
+              cursor-grab active:cursor-grabbing text-neutral-text-secondary
+              opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100 transition-opacity
+              max-md:before:absolute max-md:before:content-[''] max-md:before:-inset-[14px]
+              ${task.isSummary ? 'invisible' : ''}
+            `}
           >
-            {task.isMilestone ? <span className="text-brand-accent">◆</span> : '□'}
+            ⠿
           </span>
-        )}
+
+          <span style={{ width: indent, flexShrink: 0 }} aria-hidden="true" />
+
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+              aria-expanded={isExpanded}
+              aria-controls={`grid-subtree-${task.id}`}
+              aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
+              className="
+                w-4 h-4 flex items-center justify-center flex-shrink-0
+                text-xs font-bold text-neutral-text-secondary
+                hover:text-neutral-text-primary rounded
+                focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none
+              "
+            >
+              {isExpanded ? '−' : '+'}
+            </button>
+          ) : (
+            <span
+              aria-hidden="true"
+              className="w-4 h-4 flex items-center justify-center flex-shrink-0
+                text-xs text-neutral-text-disabled"
+            >
+              {task.isMilestone ? <span className="text-brand-accent">◆</span> : '□'}
+            </span>
+          )}
+        </span>
 
         <span
           role="gridcell"

@@ -18,9 +18,8 @@ beforeEach(() => {
 });
 
 vi.mock('@tanstack/react-virtual', () => ({
-  // The mock honours the `count` arg from VirtualRows (which is `items.length`)
-  // for the typical case, but rowCount > items.length is what triggers the
-  // out-of-range guard tested below.
+  // The mock emits one virtual row per `count` (which VirtualRows derives from
+  // items.length), so every list item renders inline for DOM-order assertions.
   useVirtualizer: ({ count, estimateSize }: { count: number; estimateSize: (i: number) => number }) => ({
     getVirtualItems: () => Array.from({ length: count }, (_, index) => ({
       index, key: index,
@@ -63,7 +62,6 @@ describe('VirtualRows', () => {
     render(
       <VirtualRows
         items={items}
-        rowCount={2}
         selectedIds={new Set()}
         renamingId={null}
         onToggleSelect={vi.fn()}
@@ -78,19 +76,16 @@ describe('VirtualRows', () => {
     expect(screen.getByText('Task 2')).toBeInTheDocument();
   });
 
-  it('returns null gracefully for an item index that is out of range', () => {
-    // Forces the `if (!item) return null` branch — VirtualRows guards against
-    // virtualizer overshoot during a measurement race.
+  it('renders one row per item without throwing', () => {
+    // The `if (!item) return null` guard in VirtualRows protects against
+    // virtualizer overshoot during a measurement race; with a single item the
+    // body renders exactly one row and nothing throws.
     const items: ListItem[] = [
       { kind: 'task', task: makeTask({ id: 't1', wbs: '1.1', name: 'Only Task' }), phase: '—', rowIndex: 0 },
     ];
-    // Pass rowCount=2 to force the virtualizer mock to emit 2 vRow entries
-    // while items[] only has 1 element — index 1 is out of range and the
-    // guard `if (!item) return null` in VirtualRows must skip it without throwing.
     const { container } = render(
       <VirtualRows
         items={items}
-        rowCount={2}
         selectedIds={new Set()}
         renamingId={null}
         onToggleSelect={vi.fn()}
@@ -99,7 +94,8 @@ describe('VirtualRows', () => {
         onCancelRename={vi.fn()}
       />,
     );
-    // Only one task row is rendered; no exception thrown.
+    // Only one task row is rendered; no exception thrown. The absolutely
+    // positioned layout wrappers are role="presentation", not role="row".
     expect(container.querySelectorAll('[role="row"]').length).toBe(1);
   });
 
@@ -116,7 +112,6 @@ describe('VirtualRows', () => {
     const { container } = render(
       <VirtualRows
         items={items}
-        rowCount={2}
         selectedIds={new Set()}
         renamingId={null}
         onToggleSelect={vi.fn()}
@@ -136,7 +131,6 @@ describe('VirtualRows', () => {
     const { container } = render(
       <VirtualRows
         items={items}
-        rowCount={1}
         selectedIds={new Set()}
         renamingId={null}
         onToggleSelect={vi.fn()}
@@ -145,10 +139,12 @@ describe('VirtualRows', () => {
         onCancelRename={vi.fn()}
       />,
     );
-    // The virtual-item wrapper is positioned at the mobile estimate (56px), so
-    // the two-line card is never clipped by a 44px desktop-height slot.
-    const wrapper = container.querySelector('[aria-rowindex="1"]') as HTMLElement;
-    expect(wrapper.style.height).toBe('56px');
+    // The absolutely positioned layout wrapper (role="presentation", parent of the
+    // aria-rowindex row) is sized to the mobile estimate (56px), so the two-line
+    // card is never clipped by a 44px desktop-height slot. aria-rowindex now lives
+    // on the row itself (#2204), so the height is read from its parent wrapper.
+    const row = container.querySelector('[aria-rowindex="1"]') as HTMLElement;
+    expect((row.parentElement as HTMLElement).style.height).toBe('56px');
     vi.mocked(useBreakpoint).mockReturnValue('lg');
   });
 });

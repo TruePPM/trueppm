@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
@@ -113,6 +113,52 @@ describe('TaskListRow — Owner column (#248)', () => {
       <TaskListRow task={fiveAssignees} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
     );
     expect(screen.getByText('+2')).toBeInTheDocument();
+  });
+});
+
+describe('TaskListRow — grid ARIA structure & roving tabindex (#2204)', () => {
+  it('applies aria-rowindex passed by the panel', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={2} widths={defaultWidths} visible={defaultVisible} ariaRowIndex={7} {...defaultTreeProps} />,
+    );
+    expect(screen.getByRole('row')).toHaveAttribute('aria-rowindex', '7');
+  });
+
+  it('is the tab stop (tabIndex 0) when active — the default', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={2} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    expect(screen.getByRole('row')).toHaveAttribute('tabindex', '0');
+  });
+
+  it('drops the row and its per-row buttons out of the tab order when inactive', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={2} widths={defaultWidths} visible={defaultVisible} isActiveRow={false} {...defaultTreeProps} />,
+    );
+    expect(screen.getByRole('row')).toHaveAttribute('tabindex', '-1');
+    // The properties button must not add a tab stop for an inactive row.
+    expect(screen.getByLabelText(/Open properties/i)).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('exposes the Task-name column as a gridcell, like its sibling columns', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={2} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    // The task name lives inside a role="gridcell" (not a bare div).
+    const nameCell = screen.getByText('Design Phase').closest('[role="gridcell"]');
+    expect(nameCell).not.toBeNull();
+  });
+
+  it('routes Home/End to the panel edge-jump callback', () => {
+    const onFocusEdge = vi.fn();
+    renderWithRouter(
+      <TaskListRow task={base} level={2} widths={defaultWidths} visible={defaultVisible} onFocusEdge={onFocusEdge} {...defaultTreeProps} />,
+    );
+    const row = screen.getByRole('row');
+    fireEvent.keyDown(row, { key: 'Home' });
+    fireEvent.keyDown(row, { key: 'End' });
+    expect(onFocusEdge).toHaveBeenNthCalledWith(1, 'first');
+    expect(onFocusEdge).toHaveBeenNthCalledWith(2, 'last');
   });
 });
 

@@ -120,18 +120,20 @@ describe('ProjectLabelsPage', () => {
     });
     renderPage();
 
+    // The confirm strip is an in-flow labeled group (not a focus-trapping
+    // alertdialog): it appears inline, doesn't move focus, has no Escape handling.
     fireEvent.click(screen.getByTestId('label-delete-l-1'));
-    expect(screen.getByRole('alertdialog', { name: /Delete bug\?/ })).toHaveTextContent(
+    expect(screen.getByRole('group', { name: /Delete bug\?/ })).toHaveTextContent(
       /Used on 3 tasks/,
     );
 
     fireEvent.click(screen.getByTestId('label-delete-l-2'));
-    expect(screen.getByRole('alertdialog', { name: /Delete debt\?/ })).toHaveTextContent(
+    expect(screen.getByRole('group', { name: /Delete debt\?/ })).toHaveTextContent(
       /Used on 1 task —/,
     );
 
     fireEvent.click(screen.getByTestId('label-delete-l-3'));
-    expect(screen.getByRole('alertdialog', { name: /Delete idea\?/ })).toHaveTextContent(
+    expect(screen.getByRole('group', { name: /Delete idea\?/ })).toHaveTextContent(
       /not used on any tasks/,
     );
   });

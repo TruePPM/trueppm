@@ -150,7 +150,8 @@ describe('ProjectSignalPrivacyPage', () => {
       .getByRole('radiogroup', { name: 'Velocity audience' })
       .closest('li')!;
     await user.click(within(velocityRow).getByRole('button', { name: /Raise ceiling/ }));
-    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    // In-flow confirmation panel is a labeled group, not a focus-trapping alertdialog.
+    expect(screen.getByRole('group', { name: /Raise the ceiling for/ })).toBeInTheDocument();
     expect(raiseCeilingMutate).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Raise ceiling' }));
     expect(raiseCeilingMutate).toHaveBeenCalledWith(

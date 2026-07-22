@@ -273,7 +273,11 @@ describe('SprintsView', () => {
   it('does not render the My Teams toggle when user has < 2 active sprints', () => {
     useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+      closed: [],
+      active: ACTIVE,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
     useMyActiveSprintsMock.mockReturnValue({
       data: [{ project_id: 'p1', project_name: 'Alpha' }],
@@ -281,30 +285,34 @@ describe('SprintsView', () => {
       error: null,
     });
     renderWithRouter(<SprintsView />);
-    expect(screen.queryByRole('tablist', { name: /Sprint scope/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: /Sprint scope/i })).not.toBeInTheDocument();
   });
 
   it('opens the Plan sprint modal when Plan next sprint is clicked', async () => {
     const userEvent = (await import('@testing-library/user-event')).default;
     useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+      closed: [],
+      active: ACTIVE,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />);
     // Match the header button (exact label) — the timeline's "+ Plan next sprint" slot
     // has a different accessible name and shouldn't be the trigger under test.
-    await userEvent.click(
-      screen.getByRole('button', { name: /^Plan next sprint$/i }),
-    );
-    expect(
-      screen.getByRole('dialog', { name: /Plan next sprint/i }),
-    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^Plan next sprint$/i }));
+    expect(screen.getByRole('dialog', { name: /Plan next sprint/i })).toBeInTheDocument();
   });
 
   it('renders the My Teams toggle when user has 2+ active sprints', () => {
     useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+      closed: [],
+      active: ACTIVE,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
     useMyActiveSprintsMock.mockReturnValue({
       data: [
@@ -315,8 +323,9 @@ describe('SprintsView', () => {
       error: null,
     });
     renderWithRouter(<SprintsView />);
-    expect(screen.getByRole('tablist', { name: /Sprint scope/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /My Teams \(2\)/i })).toBeInTheDocument();
+    // Scope switcher is a segmented radiogroup (web-rule 179/167), not a tablist (#2204).
+    expect(screen.getByRole('radiogroup', { name: /Sprint scope/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /My Teams \(2\)/i })).toBeInTheDocument();
   });
 });
 
@@ -362,11 +371,15 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     });
   });
 
-  it('swaps the sprint header for the My Teams lens when the scope tab is toggled', async () => {
+  it('swaps the sprint header for the My Teams lens when the scope radio is toggled', async () => {
     const userEvent = (await import('@testing-library/user-event')).default;
     useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+      closed: [],
+      active: ACTIVE,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
     useMyActiveSprintsMock.mockReturnValue({
       data: [makeTeamEntry('p1', 'Alpha'), makeTeamEntry('p2', 'Beta')],
@@ -380,15 +393,15 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
       screen.getByRole('heading', { level: 1, name: /Telemetry & FAT prep/ }),
     ).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('tab', { name: /My Teams \(2\)/i }));
+    await userEvent.click(screen.getByRole('radio', { name: /My Teams \(2\)/i }));
 
     // Teams scope replaces the header/body with the cross-project lens.
     expect(
       screen.queryByRole('heading', { level: 1, name: /Telemetry & FAT prep/ }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /^My Teams$/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /My Teams/i })).toHaveAttribute(
-      'aria-selected',
+    expect(screen.getByRole('radio', { name: /My Teams/i })).toHaveAttribute(
+      'aria-checked',
       'true',
     );
     // Each team renders a card linking to that project's sprint.
@@ -396,24 +409,58 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     expect(screen.getByText('Beta')).toBeInTheDocument();
 
     // Switching back restores the sprint header.
-    await userEvent.click(screen.getByRole('tab', { name: /This project/i }));
+    await userEvent.click(screen.getByRole('radio', { name: /This project/i }));
     expect(
       screen.getByRole('heading', { level: 1, name: /Telemetry & FAT prep/ }),
     ).toBeInTheDocument();
   });
 
+  it('scope radiogroup: ArrowRight moves focus and commits the selection (web-rule 179)', async () => {
+    const userEvent = (await import('@testing-library/user-event')).default;
+    useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
+    useSprintsByStateMock.mockReturnValue({
+      closed: [],
+      active: ACTIVE,
+      planned: [],
+      isLoading: false,
+      error: null,
+    });
+    useMyActiveSprintsMock.mockReturnValue({
+      data: [makeTeamEntry('p1', 'Alpha'), makeTeamEntry('p2', 'Beta')],
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
+
+    const projectRadio = screen.getByRole('radio', { name: /This project/i });
+    // Roving tabindex: only the selected radio is tabbable.
+    expect(projectRadio).toHaveAttribute('tabindex', '0');
+    projectRadio.focus();
+
+    // ArrowRight moves focus to the Teams radio AND commits it (the scope swap is
+    // non-destructive, so arrow navigation applies immediately).
+    await userEvent.keyboard('{ArrowRight}');
+    const teamsRadio = screen.getByRole('radio', { name: /My Teams \(2\)/i });
+    expect(teamsRadio).toHaveFocus();
+    expect(teamsRadio).toHaveAttribute('aria-checked', 'true');
+    expect(teamsRadio).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('heading', { name: /^My Teams$/i })).toBeInTheDocument();
+  });
+
   it('renders the planning-bridge surface for a PLANNED selection', () => {
     useSprintsMock.mockReturnValue({ sprints: [PLANNED], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: null, planned: [PLANNED], isLoading: false, error: null,
+      closed: [],
+      active: null,
+      planned: [PLANNED],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
     // Default selection falls back to the next planned sprint → planning bridge.
     expect(screen.getByRole('heading', { name: /Planning bridge/i })).toBeInTheDocument();
     // No active sprint → the header advertises the empty active slot.
-    expect(
-      screen.getByRole('heading', { level: 1, name: /No sprint yet/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /No sprint yet/i })).toBeInTheDocument();
   });
 
   it('renders the closed-outcome skeleton for a COMPLETED selection via ?sprint=', () => {
@@ -421,15 +468,17 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     // proving ?sprint= overrides the active→planned→closed fallback.
     useSprintsMock.mockReturnValue({ sprints: [ACTIVE, CLOSED], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [CLOSED], active: ACTIVE, planned: [], isLoading: false, error: null,
+      closed: [CLOSED],
+      active: ACTIVE,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, {
       initialEntries: ['/projects/proj-1/sprints?sprint=sp-closed'],
     });
     // outcomeQuery.data is undefined in the mock → the outcome skeleton renders.
-    expect(
-      screen.getByRole('status', { name: /Loading Sprint outcome/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: /Loading Sprint outcome/i })).toBeInTheDocument();
     // The active sprint still owns the header even though a closed one is selected.
     expect(
       screen.getByRole('heading', { level: 1, name: /Telemetry & FAT prep/ }),
@@ -440,7 +489,11 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     const userEvent = (await import('@testing-library/user-event')).default;
     useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+      closed: [],
+      active: ACTIVE,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
@@ -449,9 +502,7 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     ).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /^Filter$/i }));
-    expect(
-      screen.getByRole('dialog', { name: /Filter sprint backlog/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Filter sprint backlog/i })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /^Filter$/i }));
     expect(
@@ -461,8 +512,8 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
 
   it('closes the active sprint, confirms with a toast + retro handoff, then clears the banner on Run', async () => {
     const userEvent = (await import('@testing-library/user-event')).default;
-    const closeMutate = vi.fn(
-      (_vars: unknown, opts: { onSuccess?: () => void }) => opts.onSuccess?.(),
+    const closeMutate = vi.fn((_vars: unknown, opts: { onSuccess?: () => void }) =>
+      opts.onSuccess?.(),
     );
     useSprintMutationsMock.mockReturnValue({
       closeSprint: { mutate: closeMutate, isPending: false },
@@ -471,10 +522,16 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
       updateSprint: { mutate: vi.fn(), isPending: false },
     });
     useSprintsMock.mockReturnValue({
-      sprints: [ACTIVE, PLANNED], isLoading: false, error: null,
+      sprints: [ACTIVE, PLANNED],
+      isLoading: false,
+      error: null,
     });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: ACTIVE, planned: [PLANNED], isLoading: false, error: null,
+      closed: [],
+      active: ACTIVE,
+      planned: [PLANNED],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
@@ -505,9 +562,7 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
 
   it('shows an error toast and keeps the dialog logic when close fails', async () => {
     const userEvent = (await import('@testing-library/user-event')).default;
-    const closeMutate = vi.fn(
-      (_vars: unknown, opts: { onError?: () => void }) => opts.onError?.(),
-    );
+    const closeMutate = vi.fn((_vars: unknown, opts: { onError?: () => void }) => opts.onError?.());
     useSprintMutationsMock.mockReturnValue({
       closeSprint: { mutate: closeMutate, isPending: false },
       createSprint: { mutate: vi.fn() },
@@ -516,7 +571,11 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     });
     useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+      closed: [],
+      active: ACTIVE,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
@@ -547,7 +606,11 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
       error: null,
     });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: ACTIVE, planned: [readyPlanned], isLoading: false, error: null,
+      closed: [],
+      active: ACTIVE,
+      planned: [readyPlanned],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
@@ -562,11 +625,10 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
 
   it('surfaces capacity warnings after activating a planned sprint and dismisses them', async () => {
     const userEvent = (await import('@testing-library/user-event')).default;
-    const activateMutate = vi.fn(
-      (_id: string, opts: { onSuccess?: (data: unknown) => void }) =>
-        opts.onSuccess?.({
-          warnings: [{ resource_id: 'r1', message: 'Alice is overallocated' }],
-        }),
+    const activateMutate = vi.fn((_id: string, opts: { onSuccess?: (data: unknown) => void }) =>
+      opts.onSuccess?.({
+        warnings: [{ resource_id: 'r1', message: 'Alice is overallocated' }],
+      }),
     );
     useSprintMutationsMock.mockReturnValue({
       closeSprint: { mutate: vi.fn(), isPending: false },
@@ -577,7 +639,11 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     // Past start_date → the timeline card is ready-to-activate.
     useSprintsMock.mockReturnValue({ sprints: [PLANNED], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: null, planned: [PLANNED], isLoading: false, error: null,
+      closed: [],
+      active: null,
+      planned: [PLANNED],
+      isLoading: false,
+      error: null,
     });
     // PLANNED default start_date is in the past → force ready-to-activate.
     const readyPlanned = makeSprint({
@@ -589,7 +655,11 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     });
     useSprintsMock.mockReturnValue({ sprints: [readyPlanned], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: null, planned: [readyPlanned], isLoading: false, error: null,
+      closed: [],
+      active: null,
+      planned: [readyPlanned],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
@@ -607,12 +677,11 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
   it('toasts the server reason when activating a sprint fails (#2150)', async () => {
     const userEvent = (await import('@testing-library/user-event')).default;
     // The activate mutate rejects with a DRF 409 body (single-active-sprint rule).
-    const activateMutate = vi.fn(
-      (_id: string, opts: { onError?: (e: unknown) => void }) =>
-        opts.onError?.({
-          isAxiosError: true,
-          response: { status: 409, data: { detail: 'Another sprint is already active.' } },
-        }),
+    const activateMutate = vi.fn((_id: string, opts: { onError?: (e: unknown) => void }) =>
+      opts.onError?.({
+        isAxiosError: true,
+        response: { status: 409, data: { detail: 'Another sprint is already active.' } },
+      }),
     );
     useSprintMutationsMock.mockReturnValue({
       closeSprint: { mutate: vi.fn(), isPending: false },
@@ -629,7 +698,11 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     });
     useSprintsMock.mockReturnValue({ sprints: [readyPlanned], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: null, planned: [readyPlanned], isLoading: false, error: null,
+      closed: [],
+      active: null,
+      planned: [readyPlanned],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
@@ -642,14 +715,16 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     const userEvent = (await import('@testing-library/user-event')).default;
     useSprintsMock.mockReturnValue({ sprints: [PLANNED_FAR], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: null, planned: [PLANNED_FAR], isLoading: false, error: null,
+      closed: [],
+      active: null,
+      planned: [PLANNED_FAR],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
     await userEvent.click(screen.getByRole('button', { name: /^Edit$/i }));
-    expect(
-      screen.getByRole('dialog', { name: /Edit planned sprint/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Edit planned sprint/i })).toBeInTheDocument();
   });
 
   it('gates the scope "Review pending" button on manage-scope permission', () => {
@@ -661,7 +736,11 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     });
     useSprintsMock.mockReturnValue({ sprints: [pendingSprint], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: pendingSprint, planned: [], isLoading: false, error: null,
+      closed: [],
+      active: pendingSprint,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
 
     // Denied: pending items exist but the user can't manage scope → no button.
@@ -669,23 +748,23 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     const { unmount } = renderWithRouter(<SprintsView />, {
       initialEntries: ['/projects/proj-1/sprints'],
     });
-    expect(
-      screen.queryByRole('button', { name: /Review pending/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Review pending/i })).not.toBeInTheDocument();
     unmount();
 
     // Allowed: same pending count, manage-scope granted → the review button shows.
     canManageScopeMock.mockReturnValue(true);
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
-    expect(
-      screen.getByRole('button', { name: /Review pending \(2\)/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Review pending \(2\)/i })).toBeInTheDocument();
   });
 
   it('offers a Plan CTA in the empty state only when the user can manage scope', () => {
     useSprintsMock.mockReturnValue({ sprints: [], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: null, planned: [], isLoading: false, error: null,
+      closed: [],
+      active: null,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
 
     canManageScopeMock.mockReturnValue(false);
@@ -711,18 +790,18 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     );
     useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+      closed: [],
+      active: ACTIVE,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
     await userEvent.click(screen.getByRole('button', { name: /^Filter$/i }));
     // The stored IN_PROGRESS status shows as pressed; a different one does not.
-    expect(
-      screen.getByRole('button', { name: /In Progress/i, pressed: true }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /^Backlog$/i, pressed: false }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /In Progress/i, pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Backlog$/i, pressed: false })).toBeInTheDocument();
 
     // Toggling another status persists the merged set back to sessionStorage.
     await userEvent.click(screen.getByRole('button', { name: /^Backlog$/i }));
@@ -735,7 +814,11 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
   it('opens the add-task modal targeting the active sprint on the "c" shortcut', () => {
     useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+      closed: [],
+      active: ACTIVE,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
@@ -753,7 +836,11 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
   it('falls back to the planned sprint for the "c" shortcut when there is no active sprint', () => {
     useSprintsMock.mockReturnValue({ sprints: [PLANNED], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: null, planned: [PLANNED], isLoading: false, error: null,
+      closed: [],
+      active: null,
+      planned: [PLANNED],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
@@ -765,16 +852,15 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
 
   it('truncates the capacity-warning list to three with an overflow note, then dismisses', async () => {
     const userEvent = (await import('@testing-library/user-event')).default;
-    const activateMutate = vi.fn(
-      (_id: string, opts: { onSuccess?: (data: unknown) => void }) =>
-        opts.onSuccess?.({
-          warnings: [
-            { resource_id: 'r1', message: 'Alice overallocated' },
-            { resource_id: 'r2', message: 'Bob overallocated' },
-            { resource_id: 'r3', message: 'Cara overallocated' },
-            { resource_id: 'r4', message: 'Dan overallocated' },
-          ],
-        }),
+    const activateMutate = vi.fn((_id: string, opts: { onSuccess?: (data: unknown) => void }) =>
+      opts.onSuccess?.({
+        warnings: [
+          { resource_id: 'r1', message: 'Alice overallocated' },
+          { resource_id: 'r2', message: 'Bob overallocated' },
+          { resource_id: 'r3', message: 'Cara overallocated' },
+          { resource_id: 'r4', message: 'Dan overallocated' },
+        ],
+      }),
     );
     useSprintMutationsMock.mockReturnValue({
       closeSprint: { mutate: vi.fn(), isPending: false },
@@ -791,7 +877,11 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     });
     useSprintsMock.mockReturnValue({ sprints: [readyPlanned], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: null, planned: [readyPlanned], isLoading: false, error: null,
+      closed: [],
+      active: null,
+      planned: [readyPlanned],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
@@ -810,8 +900,8 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
 
   it('dismisses the retro handoff banner without opening the retro', async () => {
     const userEvent = (await import('@testing-library/user-event')).default;
-    const closeMutate = vi.fn(
-      (_vars: unknown, opts: { onSuccess?: () => void }) => opts.onSuccess?.(),
+    const closeMutate = vi.fn((_vars: unknown, opts: { onSuccess?: () => void }) =>
+      opts.onSuccess?.(),
     );
     useSprintMutationsMock.mockReturnValue({
       closeSprint: { mutate: closeMutate, isPending: false },
@@ -821,15 +911,17 @@ describe('SprintsView — surfaces, lifecycle, and gates', () => {
     });
     useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
-      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+      closed: [],
+      active: ACTIVE,
+      planned: [],
+      isLoading: false,
+      error: null,
     });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
     await userEvent.click(screen.getByRole('button', { name: /Close active sprint/i }));
     await userEvent.click(screen.getByRole('button', { name: /^Close sprint$/i }));
-    expect(
-      screen.getByRole('button', { name: /Dismiss retro handoff/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Dismiss retro handoff/i })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /Dismiss retro handoff/i }));
     expect(

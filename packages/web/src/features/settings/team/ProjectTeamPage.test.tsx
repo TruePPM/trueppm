@@ -106,6 +106,9 @@ describe('ProjectTeamPage', () => {
     // No immediate mutation — a confirm appears first.
     expect(mockMutate).not.toHaveBeenCalled();
     expect(screen.getByText(/carol is currently Scrum Master/i)).toBeInTheDocument();
+    // The in-flow confirm is a labeled group, not a focus-trapping alertdialog.
+    expect(screen.getByRole('group', { name: 'Confirm reassignment' })).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Reassign' }));
     expect(mockMutate).toHaveBeenCalledWith({

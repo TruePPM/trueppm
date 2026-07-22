@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
-import { useSettingsSaveStore } from './hooks/useSettingsSaveStore';
+import { useSettingsSaveStore, DEFAULT_SECTION_KEY } from './hooks/useSettingsSaveStore';
 import { useScrollSpy } from './hooks/useScrollSpy';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { ConfirmDiscardDialog } from './components/ConfirmDiscardDialog';
 import { SettingsContextSwitcher, type SettingsContextOption } from './SettingsContextSwitcher';
-import { SettingsSectionContext } from './SettingsSectionContext';
+import { SettingsSectionContext, useSettingsSectionId } from './SettingsSectionContext';
 import { SettingsSectionErrorBoundary } from './SettingsSectionErrorBoundary';
 import { formatRelative } from '../../lib/formatRelative';
 
@@ -97,6 +97,16 @@ const HEALTH_COLOR: Record<string, string> = {
   onTrack: 'bg-semantic-on-track',
   atRisk: 'bg-semantic-at-risk',
   critical: 'bg-semantic-critical',
+};
+
+// The consolidated page's single <h1>. Each section's title strip is an <h2>
+// (see SettingsPageTitle), so the shell owns the one page-level heading required
+// by WCAG 1.3.1 / 2.4.6. Scope-derived so it never double-prints "settings" when
+// a contextName fallback already reads "… settings".
+const SCOPE_HEADING: Record<'workspace' | 'project' | 'program', string> = {
+  workspace: 'Workspace settings',
+  project: 'Project settings',
+  program: 'Program settings',
 };
 
 /**
@@ -412,6 +422,13 @@ export function SettingsShell({
 
       {/* ── Right content area ── */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        {/* The one page-level heading for the consolidated settings page. Section
+            title strips are <h2> under this, so the document has exactly one <h1>
+            (WCAG 1.3.1 / 2.4.6). sr-only: the design surfaces each section's own
+            <h2> visually; a duplicate visible page title would be redundant chrome. */}
+        <h1 className="sr-only">
+          {contextName ? `${SCOPE_HEADING[scope]}: ${contextName}` : SCOPE_HEADING[scope]}
+        </h1>
         {/* Mobile settings header — stands in for the rail below md: (issue 539).
             Scope switcher + context row + a native "jump to section" select that
             mirrors the scroll-spy (value tracks activeId). Native <select> gives an
@@ -754,6 +771,15 @@ function ContextRow({
 
 /* ── Anchored section wrapper (ADR-0146) ── */
 
+/**
+ * DOM id for a section's heading node, minted from the section id. `SettingsSection`
+ * points its `aria-labelledby` here and `SettingsPageTitle` stamps the matching id
+ * on its `<h2>`, so a region is named by its real title instead of the raw slug.
+ */
+function settingsHeadingId(sectionId: string): string {
+  return `settings-heading-${sectionId}`;
+}
+
 interface SettingsSectionProps {
   /** Anchor id — matches the nav item id and the old route slug. */
   id: string;
@@ -771,7 +797,11 @@ export function SettingsSection({ id, children }: SettingsSectionProps) {
     <SettingsSectionContext.Provider value={id}>
       <section
         data-settings-section={id}
-        aria-label={id}
+        // Name the region by its visible heading (the <h2> SettingsPageTitle
+        // renders under this same section id) rather than the raw slug — a bare
+        // `aria-label={id}` announced "signal-privacy" verbatim to SR users. The
+        // heading id is minted from the section id below, so this always resolves.
+        aria-labelledby={settingsHeadingId(id)}
         // Section-level break so adjacent sections are visually separable at a
         // glance (issues 1986/2007). `neutral-border` #E6E1D6 is only ~5% darker
         // than the warm canvas, so opacity alone can't rank a section boundary
@@ -804,10 +834,18 @@ interface SettingsPageTitleProps {
 
 /** Standardised section title strip with optional count and action button. */
 export function SettingsPageTitle({ title, subtitle, count, action }: SettingsPageTitleProps) {
+  // Each section renders one of these on the consolidated page, so it must be an
+  // <h2> under the shell's single page <h1> (WCAG 1.3.1 / 2.4.6). When mounted
+  // inside a <SettingsSection>, stamp the id its region's aria-labelledby targets
+  // so the region is named by this real title, not the slug; outside a section
+  // (standalone tool pages) the context is the default key and we omit the id.
+  const sectionId = useSettingsSectionId();
+  const headingId = sectionId !== DEFAULT_SECTION_KEY ? settingsHeadingId(sectionId) : undefined;
   return (
     <div className="px-6 pt-5 pb-3.5 flex items-end gap-3.5 border-b border-neutral-border/55">
       <div className="flex-1 min-w-0">
-        <h1
+        <h2
+          id={headingId}
           // Focus target for scroll-spy keyboard nav (ADR-0146): activating a rail
           // item moves focus here so keyboard / SR users land in the section.
           data-settings-section-heading
@@ -818,7 +856,7 @@ export function SettingsPageTitle({ title, subtitle, count, action }: SettingsPa
           {count != null && (
             <span className="text-[13px] font-medium text-neutral-text-secondary">{count}</span>
           )}
-        </h1>
+        </h2>
         {subtitle && <p className="mt-1 text-[13px] text-neutral-text-secondary">{subtitle}</p>}
       </div>
       {action && <div className="shrink-0">{action}</div>}

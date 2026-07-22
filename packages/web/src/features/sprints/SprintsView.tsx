@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_SCHEDULER } from '@/lib/roles';
@@ -100,6 +107,11 @@ function writeStoredFilter(sprintId: string, value: SprintFilterValue): void {
 }
 
 const EMPTY_FILTER: SprintFilterValue = { assignee: 'anyone', statuses: new Set() };
+
+// Scope-switcher option order — drives the roving-tabindex arrow navigation on
+// the segmented radiogroup (web-rule 179/167).
+const SCOPE_ORDER = ['project', 'teams'] as const;
+type SprintScope = (typeof SCOPE_ORDER)[number];
 
 // The task statuses close-time carry-over actually moves — mirrors the backend
 // `_CARRY_OVER_INCOMPLETE_STATUSES` (projects/services.py). Used to estimate the
@@ -220,7 +232,33 @@ export function SprintsView() {
   const myTeamsCount = myTeams.data?.length ?? 0;
   // Toggle only useful when the user has assignments in ≥ 2 active sprints.
   const showLensToggle = myTeamsCount >= 2;
-  const [scope, setScope] = useState<'project' | 'teams'>('project');
+  const [scope, setScope] = useState<SprintScope>('project');
+  // Roving-tabindex refs + arrow handler for the scope segmented radiogroup
+  // (web-rule 179/167): arrow keys move DOM focus AND commit the selection
+  // immediately (a scope switch is non-destructive), Home/End jump to the ends,
+  // and only the selected radio is tabbable.
+  const scopeRadioRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const onScopeKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+      const current = SCOPE_ORDER.indexOf(scope);
+      let next: number;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        next = (current + 1) % SCOPE_ORDER.length;
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        next = (current - 1 + SCOPE_ORDER.length) % SCOPE_ORDER.length;
+      } else if (e.key === 'Home') {
+        next = 0;
+      } else if (e.key === 'End') {
+        next = SCOPE_ORDER.length - 1;
+      } else {
+        return;
+      }
+      e.preventDefault();
+      setScope(SCOPE_ORDER[next]);
+      scopeRadioRefs.current[next]?.focus();
+    },
+    [scope],
+  );
   const [planOpen, setPlanOpen] = useState(false);
   // Edit-mode for the planned sprint card "Edit" button (#299).
   const [editSprintId, setEditSprintId] = useState<string | null>(null);
@@ -495,32 +533,48 @@ export function SprintsView() {
           </span>
           <span>{itl.plural}</span>
         </div>
+        {/* Scope switcher — the house segmented radiogroup (web-rule 179/167),
+            NOT a tablist. The previous `role="tablist"` was a broken tabs
+            pattern (#2204): it had no roving tabindex, no arrow-key handling,
+            and no `role="tabpanel"` regions — so a keyboard user could not
+            navigate it and AT announced tabs with no panels. This is a
+            single-select scope choice, so it maps to a `radiogroup` of `radio`
+            buttons: roving tabindex, wrapping Arrow + Home/End that commit the
+            selection immediately (the swap is non-destructive), and the rule-179
+            `bg-brand-primary` active fill so selection is conveyed by fill, not
+            text shade alone. `focus:` (not `focus-visible:`) per rule 4/214 so
+            the ring renders on the scripted `.focus()` the arrow keys drive. */}
         {showLensToggle && (
           <div
-            role="tablist"
+            role="radiogroup"
             aria-label={`${itl.singular} scope`}
-            className="inline-flex rounded border border-neutral-border bg-neutral-surface text-xs"
+            className="inline-flex rounded border border-neutral-border bg-neutral-surface overflow-hidden text-xs"
           >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={scope === 'project'}
-              onClick={() => setScope('project')}
-              className={`px-3 py-1 ${scope === 'project' ? 'bg-brand-primary/10 text-brand-primary font-medium' : 'text-neutral-text-secondary'}
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-l`}
-            >
-              This project
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={scope === 'teams'}
-              onClick={() => setScope('teams')}
-              className={`px-3 py-1 ${scope === 'teams' ? 'bg-brand-primary/10 text-brand-primary font-medium' : 'text-neutral-text-secondary'}
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-r`}
-            >
-              My Teams ({myTeamsCount})
-            </button>
+            {SCOPE_ORDER.map((value, i) => {
+              const selected = scope === value;
+              const label = value === 'project' ? 'This project' : `My Teams (${myTeamsCount})`;
+              return (
+                <button
+                  key={value}
+                  ref={(el) => {
+                    scopeRadioRefs.current[i] = el;
+                  }}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => setScope(value)}
+                  onKeyDown={onScopeKeyDown}
+                  className={`px-3 py-1 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary ${
+                    selected
+                      ? 'bg-brand-primary text-neutral-text-inverse font-medium'
+                      : 'bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         )}
       </nav>

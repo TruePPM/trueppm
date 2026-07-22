@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useMemo, type RefObject } from 'react';
+import { useCallback, useRef, useState, useEffect, useMemo, type RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Task } from '@/types';
 import { ROW_HEIGHT } from './scheduleConstants';
@@ -251,6 +251,46 @@ export function TaskListPanel({
     overscan: 5,
   });
 
+  // Roving-tabindex model for the grid rows (#2204), mirroring ScheduleAriaOverlay:
+  // exactly ONE row is Tab-reachable at a time so the grid is a single tab stop
+  // rather than dozens. `activeRowId` follows keyboard/click focus; until the user
+  // has focused a row it falls back to the first task, so Tab always lands on a
+  // real row (WCAG 2.1.1). Arrow Up/Down move the stop via each row's own focus
+  // traversal (its onFocus reports back here); Home/End jump to the edges below.
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const activeRowIdResolved = activeRowId ?? tasks[0]?.id ?? null;
+
+  // Deferred focus target for Home/End: the edge row is often outside the
+  // virtualized window, so we scroll to it and focus once it mounts. Mirrors the
+  // overlay's pendingFocusRef + no-deps effect.
+  const pendingFocusRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = pendingFocusRef.current;
+    if (!id) return;
+    const el = scrollRef.current?.querySelector<HTMLElement>(`[data-row-id="${id}"]`);
+    if (el) {
+      pendingFocusRef.current = null;
+      el.focus();
+    }
+  });
+
+  // Home/End: move the roving stop to the first/last row, scrolling it into the
+  // virtualized window first. The row's onFocus updates `activeRowId`, so the
+  // stop persists after the jump.
+  const focusEdgeRow = useCallback(
+    (edge: 'first' | 'last') => {
+      if (tasks.length === 0) return;
+      const idx = edge === 'first' ? 0 : tasks.length - 1;
+      const id = tasks[idx].id;
+      setActiveRowId(id);
+      virtualizer.scrollToIndex(idx, { align: edge === 'first' ? 'start' : 'end' });
+      const el = scrollRef.current?.querySelector<HTMLElement>(`[data-row-id="${id}"]`);
+      if (el) el.focus();
+      else pendingFocusRef.current = id; // focus once the row mounts (effect above)
+    },
+    [tasks, virtualizer, scrollRef],
+  );
+
   // Scroll-to-task: triggered by badge popover navigation (issue #32)
   useEffect(() => {
     if (!scrollToTaskId) return;
@@ -267,18 +307,27 @@ export function TaskListPanel({
       className="flex flex-col flex-shrink-0 border-r border-neutral-border h-full bg-neutral-surface"
       role="grid"
       aria-label="Task list"
-      aria-rowcount={tasks.length}
+      // Header row (row 1) + one row per task, so the count and the 1-based
+      // aria-rowindex on each data row (which starts at 2) stay consistent (#2204).
+      aria-rowcount={tasks.length + 1}
     >
       <TaskListHeader widths={widths} visible={visible} setWidth={setWidth} />
 
-      {/* Scrollable virtualized rows */}
+      {/*
+        Scrollable virtualized rows. The scroll wrapper, the sizer, and each
+        row's absolute-positioning wrapper are pure layout — mark them
+        role="presentation" so they don't sever the grid → row ownership the
+        way a bare unroled div between role="grid" and role="row" would (#2204).
+      */}
       <div
         ref={scrollRef}
+        role="presentation"
         className="flex-1 overflow-y-auto overflow-x-hidden"
         style={{ contain: 'strict' }}
       >
         <div
           ref={containerRef}
+          role="presentation"
           style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
         >
           {items.map((virtualRow) => {
@@ -286,6 +335,7 @@ export function TaskListPanel({
             return (
               <div
                 key={virtualRow.key}
+                role="presentation"
                 style={{
                   position: 'absolute',
                   top: virtualRow.start,
@@ -296,6 +346,11 @@ export function TaskListPanel({
               >
                 <TaskListRow
                   task={task}
+                  // Header is row 1, so data rows are 1-based from 2 (#2204).
+                  ariaRowIndex={virtualRow.index + 2}
+                  isActiveRow={task.id === activeRowIdResolved}
+                  onRowFocus={setActiveRowId}
+                  onFocusEdge={focusEdgeRow}
                   level={wbsLevel(task.wbs)}
                   widths={widths}
                   visible={visible}
@@ -333,7 +388,7 @@ export function TaskListPanel({
 
         {/* Pending rows — non-virtualised; appear below scheduled tasks until CPM runs */}
         {pendingTaskIds && pendingTaskIds.size > 0 && (
-          <div>
+          <div role="presentation">
             {Array.from(pendingTaskIds.entries()).map(([id, name]) => (
               <PendingTaskRow key={id} name={name} />
             ))}

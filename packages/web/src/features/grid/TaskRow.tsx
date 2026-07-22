@@ -7,6 +7,8 @@ interface TaskRowProps {
   /** Closest summary ancestor's name; "—" for tasks with no summary parent. */
   phase: string;
   rowIndex: number;
+  /** 1-based grid row index (body rows numbered from 1; column header excluded). */
+  ariaRowIndex?: number;
   isSelected: boolean;
   isRenaming: boolean;
   onToggleSelect: () => void;
@@ -32,6 +34,7 @@ export function TaskRow({
   task,
   phase,
   rowIndex,
+  ariaRowIndex,
   isSelected,
   isRenaming,
   onToggleSelect,
@@ -115,6 +118,7 @@ export function TaskRow({
   return (
     <div
       role="row"
+      aria-rowindex={ariaRowIndex}
       aria-selected={isSelected}
       // When the row is a click-to-open detail target, name the affordance so a
       // screen-reader / pointer user knows Enter/Space/click opens the task
@@ -157,27 +161,33 @@ export function TaskRow({
           `.closest('input, button, a, label')` — no click handler on the label itself.
         */}
         {selectable && (
-          <label
-            className="
-              relative flex items-center justify-center flex-shrink-0 cursor-pointer
-              before:absolute before:left-1/2 before:top-1/2
-              before:-translate-x-1/2 before:-translate-y-1/2
-              before:h-11 before:w-11 before:content-[''] md:before:hidden
-            "
-          >
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={onToggleSelect}
-              aria-label={`Select ${task.name}`}
+          // Every child of a grid row must be a cell — the select control is its
+          // own gridcell. `flex-shrink-0` + no width keeps it laying out exactly as
+          // the bare label did (the `md:contents` wrapper and 44px hit-area are
+          // unchanged inside).
+          <span role="gridcell" className="flex items-center flex-shrink-0">
+            <label
               className="
-                w-4 h-4 rounded border-neutral-border bg-transparent flex-shrink-0
-                checked:bg-brand-primary checked:border-brand-primary
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
-                cursor-pointer
+                relative flex items-center justify-center flex-shrink-0 cursor-pointer
+                before:absolute before:left-1/2 before:top-1/2
+                before:-translate-x-1/2 before:-translate-y-1/2
+                before:h-11 before:w-11 before:content-[''] md:before:hidden
               "
-            />
-          </label>
+            >
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={onToggleSelect}
+                aria-label={`Select ${task.name}`}
+                className="
+                  w-4 h-4 rounded border-neutral-border bg-transparent flex-shrink-0
+                  checked:bg-brand-primary checked:border-brand-primary
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+                  cursor-pointer
+                "
+              />
+            </label>
+          </span>
         )}
 
         <span

@@ -63,6 +63,23 @@ interface Props {
   /** Next visible task id — null at the bottom. Drives ArrowDown navigation. */
   nextTaskId?: string | null;
   /**
+   * 1-based grid row index for `aria-rowindex` (#2204). The header is row 1, so
+   * the panel passes 2-based indices for data rows. Optional so a row rendered
+   * outside the grid (tests) still works.
+   */
+  ariaRowIndex?: number;
+  /**
+   * Roving-tabindex flag (#2204): true when this row is the single Tab-reachable
+   * row in the grid. Defaults to `true` so a standalone row (tests / non-grid
+   * use) keeps its historical `tabIndex=0`. When false the row and its per-row
+   * controls drop to `tabIndex=-1`, so the whole grid is one tab stop.
+   */
+  isActiveRow?: boolean;
+  /** Reports focus back to the panel so the roving stop follows the focused row. */
+  onRowFocus?: (id: string) => void;
+  /** Home/End: ask the panel to jump the roving stop to the first/last row. */
+  onFocusEdge?: (edge: 'first' | 'last') => void;
+  /**
    * When focus mode is active and this task is NOT in the focused chain,
    * the row is dimmed to ~22% opacity (spec: focus mode § ④).
    */
@@ -313,6 +330,7 @@ interface RowKeyDownCtx {
   task: Task;
   setSelectedTaskId: (id: string | null) => void;
   focusRowDom: (id: string) => void;
+  onFocusEdge?: (edge: 'first' | 'last') => void;
   handleToggleComplete: () => void;
   handleDuplicate: () => void;
   startEdit: () => void;
@@ -412,13 +430,23 @@ function handleRowShortcuts(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
  * verbatim from the previous inline handler (#2081).
  */
 function handleRowKeyDown(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
-  const { sprintOutcome, buildMode, runBuildKeyDown, isEditing, anyCellInEdit } = ctx;
+  const { sprintOutcome, buildMode, runBuildKeyDown, isEditing, anyCellInEdit, onFocusEdge } = ctx;
   // When the sprint-outcome panel is mounted (warn/block after SprintPrompt
   // committed), any key originating inside it — especially Space typed into
   // the optional reason input, or Esc to dismiss — must not bubble into
   // the row's Mark-Complete / clear-focus shortcuts. ADR-0101 §2: the
   // warn reason field is always optional and never blocked from input.
   if (sprintOutcome && e.target !== e.currentTarget) return;
+  // Home/End jump the roving tab stop to the first/last grid row (#2204,
+  // role="grid" contract). Only when the row div itself is the target — if the
+  // event bubbled up from a cell input/button, Home/End move the caret there
+  // instead. Handled ahead of the build-mode reducer since the jump is
+  // identical in both modes and neither reducer claims these keys.
+  if ((e.key === 'Home' || e.key === 'End') && e.target === e.currentTarget && !isEditing && !anyCellInEdit) {
+    e.preventDefault();
+    onFocusEdge?.(e.key === 'Home' ? 'first' : 'last');
+    return;
+  }
   // Build-mode owns Tab/Letter/Delete/Esc on the row; let it run first.
   if (buildMode) {
     runBuildKeyDown(e);
@@ -539,6 +567,10 @@ function TaskListRowInner({
   onToggleId,
   prevTaskId = null,
   nextTaskId = null,
+  ariaRowIndex,
+  isActiveRow = true,
+  onRowFocus,
+  onFocusEdge,
   dimmed = false,
   depChips,
   siblingIds,
@@ -874,12 +906,20 @@ function TaskListRowInner({
     if (isStructuralPending) setMenuAnchor(null);
   }, [isStructuralPending]);
 
+  // Roving tabindex (#2204): only the grid's single active row is Tab-reachable;
+  // its per-row controls (chevron, properties) ride the same flag so an inactive
+  // row contributes zero tab stops, while the active row's controls stay reachable
+  // by Tab. A row being edited drops out entirely (its inputs own focus).
+  const rovingRowTabIndex = isEditing || anyCellInEdit ? -1 : isActiveRow ? 0 : -1;
+  const rovingChildTabIndex = isActiveRow ? 0 : -1;
+
   return (
     <div
       role="row"
       data-row-id={task.id}
+      aria-rowindex={ariaRowIndex}
       aria-selected={buildMode ? isBuildSelected : isSelected}
-      tabIndex={isEditing || anyCellInEdit ? -1 : 0}
+      tabIndex={rovingRowTabIndex}
       style={{ height: ROW_HEIGHT }}
       className={[
         'relative group flex items-stretch text-xs border-b border-neutral-border/20',
@@ -920,7 +960,13 @@ function TaskListRowInner({
       onContextMenu={handleContextMenu}
       onMouseEnter={() => onHoverChange?.(task.id)}
       onMouseLeave={() => onHoverChange?.(null)}
-      onFocus={() => onHoverChange?.(task.id)}
+      onFocus={() => {
+        onHoverChange?.(task.id);
+        // Move the grid's roving tab stop to whichever row gains focus (#2204),
+        // so Tab out-and-back returns to the last-focused row (mirrors the
+        // overlay's onFocus → setFocusedTaskId).
+        onRowFocus?.(task.id);
+      }}
       onBlur={(e) => {
         // Only clear hover when focus actually leaves the row, not when it
         // moves to a child element (e.g. EditableCell input).
@@ -941,6 +987,7 @@ function TaskListRowInner({
           task,
           setSelectedTaskId,
           focusRowDom,
+          onFocusEdge,
           handleToggleComplete,
           handleDuplicate,
           startEdit,
@@ -987,8 +1034,11 @@ function TaskListRowInner({
 
       {/* ── Task column ─────────────────────────────────────────────────────── */}
       {/* Positioned wrapper carries the WBS indent. Properties button lives here
-          so it never overlaps the Dur·Start or % columns. */}
+          so it never overlaps the Dur·Start or % columns. role="gridcell" (#2204)
+          so the Task-name column is a cell like every sibling column, not a bare
+          div that would leave the row's gridcell set incomplete. */}
       <div
+        role="gridcell"
         className="relative flex items-center shrink-0 border-r border-neutral-border/20"
         style={{ width: widths.task, paddingLeft: (level - 1) * WBS_INDENT + 8 }}
       >
@@ -1000,6 +1050,7 @@ function TaskListRowInner({
               e.stopPropagation();
               onToggleId?.(task.id);
             }}
+            tabIndex={rovingChildTabIndex}
             aria-expanded={isExpanded}
             aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
             className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
@@ -1068,6 +1119,7 @@ function TaskListRowInner({
           type="button"
           aria-label={`Open properties for ${task.name}`}
           title="Task properties"
+          tabIndex={rovingChildTabIndex}
           onClick={(e) => {
             e.stopPropagation();
             setSelectedTaskId(task.id);

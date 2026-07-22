@@ -683,3 +683,36 @@ describe('<SettingsShell> route-departure affordance & scope hiding', () => {
     expect(screen.getByRole('button', { name: 'Project' })).toBeEnabled();
   });
 });
+
+describe('<SettingsShell> heading & region structure (#2204)', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
+  });
+
+  it('renders exactly one page <h1> — the shell owns it (WCAG 1.3.1 / 2.4.6)', () => {
+    // The consolidated page previously rendered one <h1> per section; the shell now
+    // owns the single page heading and each section title is an <h2>.
+    renderShell();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+  });
+
+  it('demotes each section title strip to <h2>', () => {
+    renderShell();
+    const h2Text = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(h2Text).toContain('General');
+    expect(h2Text).toContain('Access');
+    // The old per-section <h1> title strips must be gone.
+    const h1Text = screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent);
+    expect(h1Text).not.toContain('General');
+  });
+
+  it('names each section region by its heading, not the raw slug', () => {
+    renderShell();
+    // aria-labelledby points at the <h2>, so the region announces "General", never
+    // the verbatim slug "general".
+    expect(screen.getByRole('region', { name: 'General' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Access' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'general' })).not.toBeInTheDocument();
+  });
+});

@@ -260,9 +260,14 @@ function LabelRow({
       )}
 
       {confirming && (
+        // In-flow confirmation strip, not a modal dialog: it appears inline below
+        // the row, does NOT move focus into itself, and has no Escape handling, so
+        // `role="alertdialog"` (which promises a focus-trapping modal) would lie to
+        // AT. Downgrade to `role="group"` with an accessible name so it announces as
+        // a labeled cluster of the Delete/Cancel controls that actually live here.
         <div
           className="flex w-full items-center gap-2 pt-1 text-sm"
-          role="alertdialog"
+          role="group"
           aria-label={`Delete ${label.name}?`}
         >
           <span className="text-neutral-text-secondary">
@@ -275,14 +280,14 @@ function LabelRow({
               setConfirming(false);
             }}
             data-testid={`label-delete-confirm-${label.id}`}
-            className="ml-auto rounded-control bg-semantic-critical px-2 py-1 text-white"
+            className="ml-auto rounded-control bg-semantic-critical px-2 py-1 text-white focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             Delete
           </button>
           <button
             type="button"
             onClick={() => setConfirming(false)}
-            className="rounded-control border border-neutral-border px-2 py-1"
+            className="rounded-control border border-neutral-border px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             Cancel
           </button>
