@@ -101,12 +101,16 @@ workflow:
     on_new_commit: interruptible
   rules:
     # Scheduled pipelines are permitted only for the Renovate runner
-    # (RENOVATE == "true") and the nightly SonarCloud scan (SONAR_SCHEDULED ==
-    # "true"). Block any other scheduled trigger so a stray schedule can't spin
-    # up a full pipeline. Both permitted schedules run on `main` and fall through
-    # to the branch rule below; sonar:scan is the only job gated to the Sonar
-    # schedule, so day-to-day MR/push pipelines are unaffected (#2092).
-    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true" && $SONAR_SCHEDULED != "true"'
+    # (RENOVATE == "true"), the nightly SonarCloud scan (SONAR_SCHEDULED ==
+    # "true"), and the perf/load harness (PERF_SCHEDULED == "true"). Block any
+    # other scheduled trigger so a stray schedule can't spin up a full pipeline.
+    # All permitted schedules run on `main` and fall through to the branch rule
+    # below; each is gated to its own job (sonar:scan / perf:load), so day-to-day
+    # MR/push pipelines are unaffected (#2092, #2280). PERF_SCHEDULED is a
+    # separate flag (not piggybacked on the Sonar schedule) so load tests run on
+    # their own, lighter cadence — create a `main` schedule with
+    # PERF_SCHEDULED=true to enable; until then perf:load is inert.
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true" && $SONAR_SCHEDULED != "true" && $PERF_SCHEDULED != "true"'
       when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -1634,6 +1638,101 @@ api:fuzz:
       junit: packages/api/junit-fuzz.xml
     paths:
       - packages/api/junit-fuzz.xml
+    expire_in: 30 days
+
+perf:load:
+  # Nightly perf/load regression harness (#2280) — the throughput/latency sibling
+  # of the per-MR N+1 query-count guards (test_perf_n_plus_one.py, #1482). Boots
+  # the same real stack as api:fuzz (Django ASGI + PostgreSQL + Valkey), seeds
+  # fixtures, mints a JWT, then drives k6 (packages/api/perf/load.js) against the
+  # hot read endpoints under concurrency.
+  #
+  # RELATIVE-regression harness, not a capacity test: it runs against a single
+  # in-pipeline uvicorn process on shared runner hardware, so absolute numbers are
+  # noise — the value is the trend across runs and the loose tripwires in the k6
+  # `thresholds`. k6 exits non-zero on a threshold breach, but `allow_failure:
+  # true` (as api:fuzz, #2212) keeps a breach a triage signal, never a merge gate.
+  #
+  # Schedule-gated on its OWN flag (PERF_SCHEDULED), not piggybacked on the Sonar
+  # nightly, so load tests run on a lighter cadence and don't fire on every
+  # Renovate/Sonar schedule. Inert until a `main` schedule sets PERF_SCHEDULED=true.
+  stage: test
+  allow_failure: true
+  image: $CI_REGISTRY_IMAGE/ci-integration:noble
+  needs:
+    - job: ci:build-integration-image
+      optional: true
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+    - name: valkey/valkey:8-alpine
+      alias: valkey
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $PERF_SCHEDULED == "true"'
+  variables:
+    DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+    TRUEPPM_ALLOW_DEV_SETTINGS: "1"
+    DATABASE_URL: "postgres://trueppm:trueppm@postgres/trueppm_test"
+    REDIS_URL: "redis://valkey:6379"
+    # Non-secret CI key — dev settings enforce ALLOWED_HOSTS=* + AllowAny guard.
+    SECRET_KEY: "ci-perf-secret-not-for-production"
+    INTEGRATION_USER_EMAIL: "ci@trueppm.test"
+    INTEGRATION_USER_PASSWORD: "ci-perf-pw"
+    # The harness signs in once to mint a token; relax the per-account login
+    # throttle so token exchange isn't rate-limited (as api:fuzz, #1717).
+    TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE: "1000/min"
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+    # Pinned k6 binary (bump deliberately; the harness is version-tolerant).
+    K6_VERSION: "0.50.0"
+    PERF_VUS: "20"
+  before_script:
+    - *retry-fn
+    # Image bakes scheduler[dev] + api[dev]; re-link editable. [binary] pulls
+    # psycopg for the DB connection.
+    - retry pip install -e "packages/scheduler[dev]" --quiet
+    - retry pip install -e "packages/api[binary]" --quiet
+    # Install the pinned k6 binary (single static Go binary). Extract to a
+    # writable dir and add it to PATH — the ci-integration image runs as a
+    # non-root user, so a write to /usr/local/bin would be denied.
+    - >
+      retry curl -sfL
+      "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-amd64.tar.gz"
+      -o /tmp/k6.tar.gz
+    - tar -xzf /tmp/k6.tar.gz -C /tmp
+    - export PATH="/tmp/k6-v${K6_VERSION}-linux-amd64:$PATH"
+    - k6 version
+    - cd packages/api
+    - python manage.py migrate --noinput
+    - python manage.py seed_integration_fixtures
+    # Start the Django ASGI server in the background.
+    - >
+      PYTHONPATH=src uvicorn trueppm_api.asgi:application
+      --host 127.0.0.1 --port 8000 &
+    - cd ../..
+    # Wait up to 30 s for Django to accept connections.
+    - >
+      timeout 30 sh -c
+      'until curl -sf http://127.0.0.1:8000/api/v1/health/ > /dev/null;
+       do sleep 1; done'
+    # Mint a JWT for the seeded OWNER user so the harness exercises authenticated
+    # reads, not the anonymous 401 path.
+    - >
+      PERF_TOKEN=$(curl -sf -X POST http://127.0.0.1:8000/api/v1/auth/token/
+      -H 'Content-Type: application/json'
+      -d "{\"username\":\"$INTEGRATION_USER_EMAIL\",\"password\":\"$INTEGRATION_USER_PASSWORD\"}"
+      | python -c 'import sys, json; print(json.load(sys.stdin)["access"])')
+    - export PERF_TOKEN
+  script:
+    - >
+      k6 run
+      -e BASE_URL=http://127.0.0.1:8000
+      -e PERF_TOKEN="$PERF_TOKEN"
+      -e PERF_VUS="$PERF_VUS"
+      packages/api/perf/load.js
+  artifacts:
+    when: always
+    paths:
+      - perf-summary.json
     expire_in: 30 days
 
 wasm:test:
