@@ -34,13 +34,13 @@ one substrate and two interchangeable adapters onto it:
   only a **self-hosted** endpoint is genuinely zero-egress/in-boundary; a hosted API
   (Anthropic/Bedrock/Vertex) sends spec text to a third-party cloud under the operator's
   own DPA — §4 requires the config UI to disclose this per credential type, so "in-boundary"
-  is not claimed uniformly. **Depends on nothing unbuilt → near-term (0.5).**
+  is not claimed uniformly. **Depends on nothing unbuilt → near-term (0.6).**
 - **Adapter (b): client-agent dissector** — the user's own MCP-connected agent holds the
   spec, dissects it off-server, and populates the draft via a **narrow new
   `mcp:write:draft` capability scope** (per-project, draft-only, never touches the live
   schedule, independently revocable). The agent can **request** promotion but a human
   approver performs it — never self-promote. **Depends on a small MCP-write scope →
-  0.5-stretch / 0.6.**
+  0.6 (stretch increment).**
 
 Both doors land the same PlanDraft, so neither is throwaway.
 
@@ -116,7 +116,8 @@ A dedicated `planbootstrap` app (not bloating the ~5,900-line `projects/models.p
   (the repo convention — no `GenericForeignKey`): `span_start`/`span_end` (+ denormalized
   `span_excerpt`), `generating_model[_version]`, `confidence`.
 
-`PlanDraftStatus`: `DRAFTING → GENERATING → GENERATED → REVIEW → APPROVED / REJECTED / FAILED`.
+`PlanDraftStatus`: `DRAFTING → SPEC_REVIEW → GENERATING → GENERATED → REVIEW → APPROVED / REJECTED / FAILED`
+(`SPEC_REVIEW` is the ingest-time spec-completeness gate — §8).
 
 **Extension-point stability (🔴 #2):** the `PlanDraft` status/forecast serializer and the
 `SpecProvenance` serializer are declared **stable ADR-0029/0030 slots** from day one —
@@ -144,7 +145,7 @@ Elicited `team_velocity_per_day` + `team_size` **seed** a velocity-based release
 auto-reconciled after each sprint close — it is never frozen as "the" velocity (closes
 Alex's "manual velocity" concern).
 
-### 4. Adapter (a) — web-upload dissector (near-term, 0.5)
+### 4. Adapter (a) — web-upload dissector (near-term, 0.6)
 - **BYO-LLM config**: a workspace singleton `LlmProviderSettings` (templated on
   `WorkspaceEmailSettings`): `api_base_url` (SSRF-validated), `model_name`,
   `api_key_ciphertext` (Fernet via shared `encrypt_secret`), `timeout_seconds`, `enabled`,
@@ -168,7 +169,7 @@ Alex's "manual velocity" concern).
   LLM queue + liveness/readiness probes for the ingestion worker + a documented sizing
   worksheet + a tested backup/restore for the new tables.
 
-### 5. Adapter (b) — client-agent dissector (0.5-stretch / 0.6)
+### 5. Adapter (b) — client-agent dissector (0.6, stretch increment)
 - A new **`mcp:write:draft`** capability scope on `ApiToken`: per-project, **draft-rows-
   only**, independently revocable. Write-capable MCP tools (`create_plan_draft`,
   `add_plan_draft_items`, `attach_spec_provenance`, `request_plan_promotion`). The agent
@@ -242,6 +243,55 @@ backlog**; `draft_schedule` is advisory only.
   `promotion.requested`, `promotion.completed`) with a dead-letter queue, *alongside* the
   WebSocket, so a fire-and-forget CI bot needn't hold a socket.
 
+### 8. Ingest-time spec-completeness gate — elicit-or-waive (added 2026-07-21)
+
+The coverage/reconciliation view (§1, §Risks) is *output-side*: it verifies every
+requirement **present in the spec** landed as a `PlanDraftItem` — it catches the LLM
+dropping or hallucinating a requirement. It does **not** check whether the uploaded spec
+*contained* the things that prevent downstream rework in the first place. A thin spec
+produces a thin backlog: with no testable acceptance criteria, no test contract (which
+endpoints a page reads and their response shapes; the e2e assertions a flow must satisfy),
+no RBAC notes, and no edge-case coverage, the generated items inherit those gaps and every
+downstream implement → CI-fail → fix loop reappears — amplified, because the items are
+AI-generated with nothing to test against. So the gate pushes the "a spec is only done
+when it carries the test contract" principle **up to ingest**.
+
+**Completeness rubric (shipped default).** On ingest the dissector evaluates the spec for
+the presence and substance of: (1) **testable acceptance criteria** per epic/story;
+(2) the **test contract** — e2e assertions per user-visible flow, and the endpoints a
+data-driven page reads plus their response shapes; (3) the **API contract** — endpoints,
+request/response shapes, error cases, and RBAC/permission rules; (4) **state & edge cases**
+— empty/error/loading, permission boundaries, offline; (5) **boundary & cross-cutting** —
+OSS vs Enterprise classification, real-time broadcast needs, migration implications.
+Per-workspace rubric customization is an explicit non-goal for this increment.
+
+**Elicit-or-waive.** Each detected gap must be **either filled** (the user supplies the
+missing information in the elicitation step) **or explicitly waived by the team**; a waiver
+is recorded as a first-class provenance/audit fact. The gate never silently proceeds and
+never silently drops a gap. It is **team-waivable and never a hard org gate** — this is
+load-bearing for the OSS classification and the VoC trail: Panel 1 rejected "AI imposes a
+plan the PM approves" (Alex/Morgan 🔴), so no org policy may turn the gate into a
+mandatory, non-waivable block. Team-level plan quality is OSS; an org-enforced completeness
+policy would be Enterprise governance and is out of scope.
+
+**Per-adapter enforcement is residency-aware.** Adapter (a) holds the full
+`source_spec_text`, so the server runs a completeness **pre-scan** and surfaces named gaps
+in the `SPEC_REVIEW` elicitation step (alongside team-size/velocity) before generation.
+Adapter (b) never receives the full spec (only per-item `span_excerpt`s — §5, invariant
+🔴 #1), so the server **cannot** scan it; instead it enforces on the *draft items'*
+completeness via the existing state-machine refusal (`refused: items for epics X, Y have no
+acceptance criteria — supply them or waive`), which doubles as the `verdict=REFUSED`
+`AgentAction` entry already required. The MCP tool descriptions + `SERVER_INSTRUCTIONS`
+prescribe the rubric so the client agent produces complete items.
+
+**State + data.** `PlanDraftStatus` gains `SPEC_REVIEW` (§1), resolvable by fill-or-waive
+back into `GENERATING`. A lightweight `SpecGap` record — `(category, status: OPEN | FILLED
+| WAIVED, waived_by, waived_at, note)` — hangs off `PlanDraft`; its serializer follows the
+ADR-0029/0030 stable-slot discipline (Enterprise may later roll up waiver rates; do not
+build that here). The result is surfaced in the **same** coverage/reconciliation view, which
+becomes **bidirectional**: output-side (every requirement → an item) *and* input-side (does
+the spec carry the rubric elements).
+
 ## Alternatives Considered
 
 | Option | Verdict | Why |
@@ -249,7 +299,7 @@ backlog**; `draft_schedule` is advisory only.
 | **A. Server-side upload only** | Rejected as sole shape | VoC avg 4.75, zero champions; not API-first; risks being throwaway once MCP writes land; owns the whole BYO-LLM ops burden upfront |
 | **B. Client-agent (R/W MCP) only** | Rejected as sole shape | VoC avg 4.88 but **two 🔴** — Sarah (no door without an agent) and Marcus (spec egress to an ungoverned client agent); strands non-agent users |
 | **C. Substrate + pluggable dissectors, agent-first** | Superseded by C-prime | VoC avg 6.6 but inherited B's Sarah + Marcus 🔴s because it deferred the web door |
-| **C-prime. Substrate + two co-equal adapters + co-drafting (chosen)** | **Chosen** | VoC 6.0/7.8-target, **zero unexpected 🔴**; both doors on one substrate; in-boundary LLM is the compliance path (not throwaway); web door has no unbuilt dependency → ships 0.5 |
+| **C-prime. Substrate + two co-equal adapters + co-drafting (chosen)** | **Chosen** | VoC 6.0/7.8-target, **zero unexpected 🔴**; both doors on one substrate; in-boundary LLM is the compliance path (not throwaway); web door has no unbuilt dependency → ships 0.6 |
 | Agent writes straight to live Tasks (no draft) | Rejected | Loses provenance/coverage/idempotency; auto-commits AI output; resurrects Morgan/Priya 🔴s |
 | Bespoke approval gate now (skip phasing) | Rejected | Forks the ADR-0112/#1312 gate the platform is standardizing; risks an OSS approval-workflow engine (Enterprise-line violation) |
 
@@ -264,7 +314,9 @@ the ops kill-switch; a new `mcp:write:draft` scope to secure (needs `rbac-check`
 `security-review`); the spec-egress question for adapter (b) (needs `threat-model`).
 
 **Risks**: LLM drops/hallucinates a requirement → mitigated by the coverage/reconciliation
-view + per-item confidence + mandatory human grooming (never auto-promote). Re-ingest
+view + per-item confidence + mandatory human grooming (never auto-promote). *A thin input
+spec* (no acceptance criteria / test contract / RBAC) → mitigated by the ingest-time
+spec-completeness gate (§8: elicit-or-waive before generation). Re-ingest
 duplication → `(program, source_spec_hash)` correlation + `promoted_program` OneToOne.
 Boundary creep (Janet's exec digest, Marcus's cross-program rollup) → both are Enterprise;
 OSS exposes only the per-draft facts as stable slots.
@@ -286,21 +338,21 @@ OSS exposes only the per-draft facts as stable slots.
 
 ### Roadmap / milestones
 
-**Target: 0.5.** 0.4 is shipping and is **not** a target for this feature. The MVP is
+**Target: 0.6.** 0.5 is underway and is **not** a target for this feature. The MVP is
 scoped so its entire critical path rides *already-built* primitives (seed importer,
 `external_sync` outbox, `WorkspaceEmailSettings` config, `AgentAction` audit) with
 human-RBAC promotion — so it has **no dependency on the 0.7 durable-write gate** and can
-start clean at the top of 0.5.
+start clean at the top of 0.6.
 
 | Increment | Milestone | Gating dependency |
 |---|---|---|
-| Substrate (`PlanDraft`/`PlanDraftItem`/`SpecProvenance`) + provenance/coverage + team grooming + promotion via `import_seed` + **web-upload adapter** + ops kill-switch | **0.5 (MVP)** | None unbuilt |
-| Client-agent adapter — `mcp:write:draft` scope + 4 draft-write tools + `bootstrap_plan_from_spec` MCP prompt + next-step hints + co-drafting | **0.5-stretch / 0.6** | A *narrow* MCP-write scope only — **not** the 0.7 gate (promotion stays human) |
-| Retro→next-draft auto-seeding; Enterprise exec-digest + cross-program rollup (register against the OSS ADR-0029/0030 slots) | **0.6+ / Enterprise** | — |
+| Substrate (`PlanDraft`/`PlanDraftItem`/`SpecProvenance`) + provenance/coverage + team grooming + promotion via `import_seed` + **web-upload adapter** + **ingest-time spec-completeness gate (§8)** + ops kill-switch | **0.6 (MVP)** | None unbuilt |
+| Client-agent adapter — `mcp:write:draft` scope + 4 draft-write tools + `bootstrap_plan_from_spec` MCP prompt + next-step hints + co-drafting | **0.6 (stretch)** | A *narrow* MCP-write scope only — **not** the 0.7 gate (promotion stays human) |
+| Retro→next-draft auto-seeding; Enterprise exec-digest + cross-program rollup (register against the OSS ADR-0029/0030 slots) | **0.7+ / Enterprise** | — |
 
-**0.5 workstream — issues to file (each carries its own gate chain):**
+**0.6 workstream — issues to file (each carries its own gate chain):**
 
-| # | Issue (file into the 0.5 milestone) | Gate chain before MR |
+| # | Issue (file into the 0.6 milestone) | Gate chain before MR |
 |---|---|---|
 | 1 | `planbootstrap` app: `PlanDraft`/`PlanDraftItem`/`SpecProvenance` models + migrations | `data-model` → `migration-check` → `test-scaffold` |
 | 2 | `LlmProviderSettings` config + `WorkspaceLlmPage` admin (BYO-LLM, credential-model docs) | `security-review` (SSRF/secret) → `rbac-check` → `docs` → `test-scaffold` |
@@ -309,15 +361,17 @@ start clean at the top of 0.5.
 | 5 | Review/groom UI + team-default approver setting + silent-until-promotion digest | `ux-design` → `ux-review` → `test-scaffold` (+ Playwright) |
 | 6 | Promotion via `import_seed` + `AgentAction` audit on generation/promotion | `regression-check` → `broadcast-check` → `test-scaffold` |
 | 7 | Ops package + `webUpload.enabled` kill-switch (probes, metrics, sizing, backup/restore) | `devops` → `docs` |
+| 8 | **Ingest-time spec-completeness gate (§8)** — rubric pre-scan + `SPEC_REVIEW` elicit-or-waive + `SpecGap` + bidirectional coverage surfacing (#2264) | `ux-design` → `ai-review` → `security-review` + `rbac-check` → `test-scaffold` → `docs` |
 
-**0.5-stretch / 0.6 workstream** (file now, tag for the later milestone): `mcp:write:draft`
+**0.6 stretch workstream** (client-agent door): `mcp:write:draft`
 scope + permission class (non-durability guard) · the 4 draft-write MCP tools · the
 `bootstrap_plan_from_spec` prompt + `SERVER_INSTRUCTIONS` + next-step hints · co-drafting
 over the WebSocket channel · the `plan_draft.*` webhooks. Gate chain: `rbac-check` +
 `security-review` (the scope) → `threat-model` (spec egress) → `ai-review` → `test-scaffold`.
 
-**Design gates run now, in parallel with 0.4** (they precede code, so they don't move the
-0.5 milestone — they let 0.5 start without a design phase): the four boundary 🔴 invariants,
+**Design gates ran before code, in parallel with 0.4** (they precede code, so they don't
+move the 0.6 milestone — they let 0.6 start without a design phase): the four boundary 🔴
+invariants,
 `ai-review`, `rbac-check` + `security-review` (on `mcp:write:draft`), `threat-model` (spec
 egress).
 
@@ -349,8 +403,8 @@ egress).
 2. **`LlmProviderSettings` scope** — admin-wide singleton (chosen, OIDC/email precedent)
    vs per-user (`IntegrationCredential`, ADR-0097). Confirm; also the home for `#1061`
    BYO-local-model adapter.
-3. **Decision memory (#1059)** — RESOLVED (see Pre-code gate outcomes #5): explicit 0.5
-   non-goal; revisit in 0.6.
+3. **Decision memory (#1059)** — RESOLVED (see Pre-code gate outcomes #5): explicit 0.6
+   non-goal; revisit in 0.7.
 4. **Extension-point shape** — freeze the `PlanDraft` status/forecast + `SpecProvenance`
    serializer shapes (ADR-0029/0030) before Enterprise builds against them.
 5. **MCP prompt args** — settle the `bootstrap_plan_from_spec` prompt's parameters (spec
@@ -382,7 +436,7 @@ recommendations):**
    (never `import_seed`'s "any authenticated user" policy) with an approver role floor of
    **Admin+** (baseline-create precedent). Changing the configurable approver is gated to
    Admin+, and the approver may not be set below Member — closing the self-escalation path.
-5. **Decision-memory (#1059) — RESOLVED.** Explicit **0.5 non-goal**; revisit in 0.6. The
+5. **Decision-memory (#1059) — RESOLVED.** Explicit **0.6 non-goal**; revisit in 0.7. The
    elicitation answers + de-scoped requirements are not fed to the decision store in the MVP.
 
 Note: the SSRF guard is `assert_url_allowed` (ADR-0049 §3, `integrations/http.py`) applied
