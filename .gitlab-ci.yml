@@ -1046,8 +1046,8 @@ helm:install:
   # it — the drill red-Xes on version skew, not a real regression. The blocking
   # deploy-contract gate is helm:template above (static, always valid); this
   # runtime drill stays a signal until a per-commit image build lands (#2284),
-  # at which point it can become blocking. Standing chart bug it already caught:
-  # web nginx upstream name mismatch (#2283).
+  # at which point it can become blocking. It already earned its keep: it caught
+  # the web nginx upstream mismatch now fixed in-chart (#2283).
   # kind-in-dind needs the privileged docker:27-dind service (same as the image
   # build jobs). Not `interruptible` so a rebased push doesn't abort a cluster
   # mid-provision and leak it.
