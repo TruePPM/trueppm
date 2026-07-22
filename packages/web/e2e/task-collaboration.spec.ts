@@ -364,10 +364,20 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
     `**/api/v1/projects/${PROJECT_ID}/tasks/${TASK_ID}/comments/*/reactions/`,
     (route) => {
       const c = comments.find((entry) => (entry as { id: string }).id === COMMENT_ID) as
-        | (Record<string, unknown> & { reaction_count: number })
+        | (Record<string, unknown> & {
+            reaction_count: number;
+            has_my_reaction?: boolean;
+            my_reaction_id?: string | null;
+          })
         | undefined;
       if (route.request().method() === 'POST') {
-        if (c) c.reaction_count = (c.reaction_count ?? 0) + 1;
+        // Stateful toggle-on: flip has_my_reaction/my_reaction_id so a refetch
+        // renders the reacted (pressed) state (#2171).
+        if (c) {
+          c.reaction_count = (c.reaction_count ?? 0) + 1;
+          c.has_my_reaction = true;
+          c.my_reaction_id = 'rxn-1';
+        }
         return route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -384,6 +394,57 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
         });
       }
       return route.fulfill({ status: 204, contentType: 'application/json', body: '' });
+    },
+  );
+
+  // Reaction toggle-off — DELETE /reactions/{id}/ clears the caller's reaction (#2171).
+  await page.route(
+    `**/api/v1/projects/${PROJECT_ID}/tasks/${TASK_ID}/comments/*/reactions/*/`,
+    (route) => {
+      const c = comments.find((entry) => (entry as { id: string }).id === COMMENT_ID) as
+        | (Record<string, unknown> & {
+            reaction_count: number;
+            has_my_reaction?: boolean;
+            my_reaction_id?: string | null;
+          })
+        | undefined;
+      if (route.request().method() === 'DELETE' && c) {
+        c.reaction_count = Math.max(0, (c.reaction_count ?? 0) - 1);
+        c.has_my_reaction = false;
+        c.my_reaction_id = null;
+      }
+      return route.fulfill({ status: 204, contentType: 'application/json', body: '' });
+    },
+  );
+
+  // Comment edit (PATCH) + delete (DELETE) on the detail route (#2171). Note the
+  // trailing `*/` matches only the bare comment URL, not /acknowledge/ or
+  // /reactions/ sub-routes (a single `*` never crosses a path segment).
+  await page.route(
+    `**/api/v1/projects/${PROJECT_ID}/tasks/${TASK_ID}/comments/*/`,
+    (route) => {
+      const req = route.request();
+      const c = comments.find((entry) => (entry as { id: string }).id === COMMENT_ID) as
+        | (Record<string, unknown> & { body: string; edited_at: string | null })
+        | undefined;
+      if (req.method() === 'PATCH') {
+        const patch = req.postDataJSON() as { body?: string };
+        if (c && patch.body != null) {
+          c.body = patch.body;
+          c.edited_at = new Date().toISOString();
+        }
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(c ?? {}),
+        });
+      }
+      if (req.method() === 'DELETE') {
+        const idx = comments.findIndex((entry) => (entry as { id: string }).id === COMMENT_ID);
+        if (idx >= 0) comments.splice(idx, 1);
+        return route.fulfill({ status: 204, contentType: 'application/json', body: '' });
+      }
+      return route.fallback();
     },
   );
 
@@ -901,12 +962,99 @@ test.describe('Task collaboration — ack/react are silent signals (#311)', () =
     const drawer = await openDrawer(page);
     await openSection(drawer, 'Comments');
 
-    const reactButton = drawer.getByRole('button', { name: 'React with 👍' });
-    await reactButton.click();
-    await expect(reactButton).toContainText('1', { timeout: 5_000 });
+    await drawer.getByRole('button', { name: 'React with 👍' }).click();
+    // After reacting the button flips to the reacted (toggle-off) affordance and
+    // shows the count (#2171 — reactions are now a real toggle with aria-pressed).
+    const reacted = drawer.getByRole('button', { name: 'Remove your 👍 reaction' });
+    await expect(reacted).toContainText('1', { timeout: 5_000 });
 
     const bell = page.getByRole('button', { name: /Notifications/ });
     await expect(bell).toHaveAccessibleName(/^Notifications$/);
+  });
+});
+
+// =============================================================================
+// 3b. Reaction toggle-off + author edit/delete (#2171)
+// =============================================================================
+
+// bootProjectPage's setupApiMocks re-registers /auth/me/ with FIXTURE_USER, so
+// the logged-in user is Priya — author-only affordances require the comment
+// author to be her.
+const SELF_AUTHOR = {
+  id: FIXTURE_USER.id,
+  username: FIXTURE_USER.username,
+  display_name: FIXTURE_USER.display_name,
+};
+
+function selfComment(overrides: Record<string, unknown> = {}) {
+  return {
+    id: COMMENT_ID,
+    task: TASK_ID,
+    parent: null,
+    author: SELF_AUTHOR,
+    body: 'Draft wording',
+    edited_at: null,
+    created_at: new Date().toISOString(),
+    is_deleted: false,
+    deleted_at: null,
+    deleted_by: null,
+    acknowledged_count: 0,
+    reaction_count: 0,
+    has_my_acknowledgement: false,
+    has_my_reaction: false,
+    my_reaction_id: null,
+    ...overrides,
+  };
+}
+
+test.describe('Task collaboration — reaction toggle + edit/delete (#2171)', () => {
+  test('👍 is a real toggle — a second click removes the reaction', async ({ page }) => {
+    await bootProjectPage(page, {
+      comments: [selfComment({ author: { id: 'user-sarah', username: 'sarah', display_name: 'Sarah Chen' } })],
+      unreadCount: 0,
+    });
+    const drawer = await openDrawer(page);
+    await openSection(drawer, 'Comments');
+
+    // React → pressed state + count 1.
+    await drawer.getByRole('button', { name: 'React with 👍' }).click();
+    const pressed = drawer.getByRole('button', { name: 'Remove your 👍 reaction' });
+    await expect(pressed).toBeVisible({ timeout: 5_000 });
+    await expect(pressed).toHaveAttribute('aria-pressed', 'true');
+    await expect(pressed).toContainText('1');
+
+    // Un-react → back to the un-pressed affordance, count cleared.
+    await pressed.click();
+    const unpressed = drawer.getByRole('button', { name: 'React with 👍' });
+    await expect(unpressed).toBeVisible({ timeout: 5_000 });
+    await expect(unpressed).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('the author can edit their own comment within the window', async ({ page }) => {
+    await bootProjectPage(page, { comments: [selfComment({ body: 'teh plan' })], unreadCount: 0 });
+    const drawer = await openDrawer(page);
+    await openSection(drawer, 'Comments');
+
+    await drawer.getByRole('button', { name: 'Edit this comment' }).click();
+    const textarea = drawer.getByLabel('Edit comment');
+    await textarea.fill('the plan');
+    await drawer.getByRole('button', { name: 'Save' }).click();
+
+    // The refetched thread shows the corrected body + the "edited" marker.
+    await expect(drawer.getByText('the plan')).toBeVisible({ timeout: 5_000 });
+    await expect(drawer.getByText(/edited/)).toBeVisible();
+  });
+
+  test('the author can delete their own comment', async ({ page }) => {
+    await bootProjectPage(page, { comments: [selfComment({ body: 'oops wrong task' })], unreadCount: 0 });
+    const drawer = await openDrawer(page);
+    await openSection(drawer, 'Comments');
+
+    await expect(drawer.getByText('oops wrong task')).toBeVisible();
+    await drawer.getByRole('button', { name: 'Delete this comment' }).click();
+
+    // After the DELETE + refetch the row is gone and the empty state returns.
+    await expect(drawer.getByText('oops wrong task')).toHaveCount(0, { timeout: 5_000 });
   });
 });
 

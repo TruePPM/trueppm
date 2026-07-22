@@ -999,6 +999,11 @@ export interface TaskComment {
   reaction_count: number;
   /** Whether the requesting user has acknowledged this comment. */
   has_my_acknowledgement: boolean;
+  /** Whether the requesting user has 👍-reacted to this comment. */
+  has_my_reaction: boolean;
+  /** The requesting user's reaction row id — DELETE this to un-react. Null when
+   *  they haven't reacted. Only ever the caller's own reaction. */
+  my_reaction_id: string | null;
 }
 
 /**

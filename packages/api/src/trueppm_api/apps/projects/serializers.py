@@ -7897,6 +7897,8 @@ class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
     acknowledged_count = serializers.SerializerMethodField()
     reaction_count = serializers.SerializerMethodField()
     has_my_acknowledgement = serializers.SerializerMethodField()
+    has_my_reaction = serializers.SerializerMethodField()
+    my_reaction_id = serializers.SerializerMethodField()
 
     class Meta:
         model = TaskComment
@@ -7914,6 +7916,8 @@ class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
             "acknowledged_count",
             "reaction_count",
             "has_my_acknowledgement",
+            "has_my_reaction",
+            "my_reaction_id",
         ]
         read_only_fields = [
             "id",
@@ -7927,6 +7931,8 @@ class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
             "acknowledged_count",
             "reaction_count",
             "has_my_acknowledgement",
+            "has_my_reaction",
+            "my_reaction_id",
         ]
 
     def get_acknowledged_count(self, obj: TaskComment) -> int:
@@ -7950,6 +7956,33 @@ class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
         # filter(user=…).exists() query.
         user_pk = request.user.pk
         return any(a.user_id == user_pk for a in obj.acknowledgements.all())
+
+    def _my_reaction(self, obj: TaskComment) -> CommentReaction | None:
+        """The requesting user's reaction on this comment, or None.
+
+        Read from the ``reactions`` prefetch cache (populated by the viewset) so a
+        thread of N comments issues no extra query. The 0.2 allow-list is a single
+        emoji, so at most one reaction per (comment, user) — the first match wins.
+        """
+        request = self.context.get("request")
+        if request is None or not getattr(request.user, "is_authenticated", False):
+            return None
+        user_pk = request.user.pk
+        for r in obj.reactions.all():
+            if r.user_id == user_pk:
+                return r
+        return None
+
+    def get_has_my_reaction(self, obj: TaskComment) -> bool:
+        # Lets the client render the reacted/pressed state and pick toggle-on vs
+        # toggle-off — without it the 👍 button was a one-way write (#2171).
+        return self._my_reaction(obj) is not None
+
+    def get_my_reaction_id(self, obj: TaskComment) -> str | None:
+        # The reaction row id the client DELETEs to un-react. Only ever the
+        # requesting user's own reaction, so this leaks nothing about others.
+        reaction = self._my_reaction(obj)
+        return str(reaction.pk) if reaction is not None else None
 
     def validate_body(self, value: str) -> str:
         if not value or not value.strip():

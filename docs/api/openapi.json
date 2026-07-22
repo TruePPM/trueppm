@@ -53455,6 +53455,15 @@
                     "has_my_acknowledgement": {
                         "type": "boolean",
                         "readOnly": true
+                    },
+                    "has_my_reaction": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "my_reaction_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -53466,8 +53475,10 @@
                     "deleted_by",
                     "edited_at",
                     "has_my_acknowledgement",
+                    "has_my_reaction",
                     "id",
                     "is_deleted",
+                    "my_reaction_id",
                     "reaction_count",
                     "task"
                 ]
