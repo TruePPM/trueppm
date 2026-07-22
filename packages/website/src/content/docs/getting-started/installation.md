@@ -7,7 +7,7 @@ description: Four ways to run TruePPM — Docker Compose, Helm/Kubernetes, singl
 TruePPM 0.3 has shipped — the engine, API, real-time backend, web UI, and the 0.3 agile-team feature set are functional. It ships as the `0.3.0-alpha.1` pre-release; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. The product is pre-GA: expect API contract changes across 0.x point releases; a stable contract arrives at 1.0. Install for evaluation and early-adopter deployments.
 :::
 
-TruePPM ships as pre-built Docker images on the GitLab Container Registry (`registry.gitlab.com/trueppm/trueppm/{api,web}`) and a Python package on PyPI. GHCR mirrors are planned as part of the 0.4 supply-chain work. Pick the path that fits your environment:
+TruePPM ships as pre-built Docker images and a Python package on PyPI. Starting with the 0.4 beta, the images and Helm chart are published to the **GitHub Container Registry (GHCR)** as the public pull path — `ghcr.io/trueppm/{api,web}` for the images and `oci://ghcr.io/trueppm/charts` for the chart — and every published artifact ships **Trivy-scanned, with a CycloneDX SBOM, Cosign-signed (keyless), and SBOM-attested** so you can verify provenance before you run it. The 0.4 beta is the first release to push to GHCR; through 0.3 (alpha) the images lived on the internal GitLab Container Registry only. Pick the path that fits your environment:
 
 | Path | Best for |
 |------|----------|
@@ -106,7 +106,7 @@ Use the Helm chart to deploy TruePPM on any Kubernetes cluster (kind, k3s, EKS, 
 
 ### Get the chart
 
-Public OCI publication of the chart (GHCR) is planned; today the release pipeline pushes to GHCR only when optional GHCR credentials are configured. Until the public registry is live, install from the chart source in the repository:
+The 0.4 beta is the first release to publish the chart to a public OCI registry (`oci://ghcr.io/trueppm/charts`). Until that tag lands you install from the chart source in the repository (this path keeps working after 0.4 too):
 
 ```bash
 git clone https://gitlab.com/trueppm/trueppm.git
@@ -161,8 +161,38 @@ helm install trueppm packages/helm \
   -f my-values.yaml
 ```
 
-Once the chart is published to a public OCI registry, the same install will work
-with `helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>`.
+From the 0.4 beta onward the same install works straight from GHCR, no clone
+needed: `helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>`.
+
+### Verify the images and chart
+
+Every 0.4-beta-and-later image and chart is signed with [Cosign](https://docs.sigstore.dev/)
+keyless (Sigstore) in CI, so you can confirm the artifact was built by the
+TruePPM release pipeline before you run it. Verify against the GitLab CI OIDC
+issuer and the release-tag identity:
+
+```bash
+# API and web images (repeat for web)
+cosign verify \
+  --certificate-identity-regexp '^https://gitlab.com/trueppm/trueppm//.gitlab-ci.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer https://gitlab.com \
+  ghcr.io/trueppm/api:<version>
+
+# CycloneDX SBOM attestation
+cosign verify-attestation --type cyclonedx \
+  --certificate-identity-regexp '^https://gitlab.com/trueppm/trueppm//.gitlab-ci.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer https://gitlab.com \
+  ghcr.io/trueppm/api:<version>
+
+# Helm OCI chart
+cosign verify \
+  --certificate-identity-regexp '^https://gitlab.com/trueppm/trueppm//.gitlab-ci.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer https://gitlab.com \
+  ghcr.io/trueppm/charts/trueppm:<version>
+```
+
+A verified signature proves the image came from a TruePPM release tag; the
+attestation lets you pull the exact CycloneDX SBOM for that digest.
 
 For real secrets, prefer injecting `SECRET_KEY` / `DATABASE_URL` / `REDIS_URL`
 via an external Kubernetes Secret over putting them in `my-values.yaml` or
