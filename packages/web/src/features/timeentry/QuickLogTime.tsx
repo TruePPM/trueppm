@@ -58,7 +58,7 @@ const TRIGGER =
 // `h-11` (44px) below md meets the mobile touch-target floor (rule 5); `md:h-9`
 // keeps the compact desktop popover density (#1800).
 const INPUT =
-  'h-11 md:h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1';
+  'h-11 md:h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1';
 
 /** Duration presets — the design's 15m / 30m / 1h / 2h chip row. */
 const PRESETS: { label: string; minutes: number }[] = [
@@ -386,7 +386,7 @@ export function QuickLogTime() {
             placeholder="1:30"
             aria-label="Custom duration (h:mm or minutes)"
             aria-invalid={manualInvalid}
-            className={`tppm-mono h-11 md:h-8 w-16 rounded-control border bg-neutral-surface px-2 text-center text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${
+            className={`tppm-mono h-11 md:h-8 w-16 rounded-control border bg-neutral-surface px-2 text-center text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${
               manualInvalid ? 'border-semantic-critical' : 'border-neutral-border'
             }`}
           />

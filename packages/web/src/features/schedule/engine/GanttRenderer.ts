@@ -109,8 +109,13 @@ export const COLOR = {
   // complete bar — distinguishability triad (ADR-0103 D4): complete=sage fill,
   // selected=navy ring, today=sage line. navy/white = 12.6:1.
   selectionRing: '#1B2A4A', // navy-700
-  ghostFill: 'rgba(100,116,139,0.12)',
-  ghostBorder: 'rgba(100,116,139,0.55)',
+  // Drag-preview / actual-date ghost bar (slate-500). Border alpha raised from
+  // 0.55 → 0.85 for WCAG 1.4.11 non-text contrast (#2207): slate-500 @55% was
+  // only 2.12:1 on the white surface (the old "3.05:1" comment was wrong);
+  // @85% ≈ 3.6:1, clearing the 3:1 bar. Fill stays a subtle 0.14 wash (matches
+  // the DOM --ghost-fill token). Border, not fill, carries the affordance.
+  ghostFill: 'rgba(100,116,139,0.14)',
+  ghostBorder: 'rgba(100,116,139,0.85)',
   // Chip text token (ADR-0040 #212): named so a future high-contrast theme can
   // override it without touching draw call sites. Light mode uses the darker
   // 500/600 bar stops, where white in-bar text reads (the dark palette flips this
@@ -160,8 +165,12 @@ export const COLOR_DARK: ColorPalette = {
   arrowNormal: '#B8B5AE',
   arrowCritical: '#B8B5AE',
   selectionRing: '#E9EDF3', // reversed ink — pale ring, distinct from sage bars on dark (ADR-0103)
-  ghostFill: 'rgba(100,116,139,0.12)',
-  ghostBorder: 'rgba(100,116,139,0.55)',
+  // Ghost bar on the dark navy surface (#2207). slate-500 @55% was only 1.91:1
+  // on navy — the border vanished. Flip to the lighter slate-400 stop at 0.85
+  // alpha ≈ 4.6:1, clearing WCAG 1.4.11 (3:1) — the mode-aware counterpart to
+  // the light palette's slate-500 border. Fill flips to slate-400 @0.14 too.
+  ghostFill: 'rgba(148,163,184,0.14)',
+  ghostBorder: 'rgba(148,163,184,0.85)',
   // In dark mode the bar fills are the 400 stops (sage-400 #66B998, blue-400,
   // red-400) — light enough that white in-bar text fails WCAG 1.4.3 (white on
   // sage-400 ≈ 2.27:1). Near-black reads on every 400 fill (≈15.5:1 on sage-400),
@@ -1244,7 +1253,8 @@ export function drawTimelineNameGutter(
  * positioned below the planned bar.  Color:
  *   - Finished late (scheduleVarianceDays > 0) → semantic-critical (#B91C1C)
  *   - Finished early (scheduleVarianceDays < 0) → semantic-on-track (#166534)
- *   - In progress or no variance info        → ghostBorder (slate-500 @55%)
+ *   - In progress or no variance info        → ghostBorder (slate-500 @85%,
+ *     slate-400 @85% on dark — WCAG 1.4.11 non-text contrast, #2207)
  *
  * Drawn on canvas-bars (rule 59) after the main bar so it appears on top.
  * Callers must translate(0, -scrollTop) before invoking.

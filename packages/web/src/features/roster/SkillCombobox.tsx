@@ -114,7 +114,7 @@ export function SkillCombobox({
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
         className="w-full h-8 px-2.5 rounded border border-neutral-border text-xs
-          text-neutral-text-primary bg-neutral-surface placeholder:text-neutral-text-disabled
+          text-neutral-text-primary bg-neutral-surface placeholder:text-neutral-text-secondary
           focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       />
 

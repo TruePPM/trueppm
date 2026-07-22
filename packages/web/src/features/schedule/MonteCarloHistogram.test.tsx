@@ -27,6 +27,19 @@ describe('MonteCarloHistogram', () => {
     expect(rects).toHaveLength(FIXTURE_MC_RESULT.buckets.length);
   });
 
+  it('renders histogram bars at the ≥3:1 chart-neutral mark, not the 2.70:1 disabled token (#2207, WCAG 1.4.11)', () => {
+    const { container } = renderWithProviders(
+      <MonteCarloHistogram result={FIXTURE_MC_RESULT} />,
+    );
+    const rects = container.querySelectorAll('rect');
+    expect(rects.length).toBeGreaterThan(0);
+    for (const rect of rects) {
+      const cls = rect.getAttribute('class') ?? '';
+      expect(cls).toContain('fill-chart-neutral');
+      expect(cls).not.toContain('fill-neutral-text-disabled');
+    }
+  });
+
   it('renders three percentile rules (P50/P80/P95)', () => {
     const { container } = renderWithProviders(
       <MonteCarloHistogram result={FIXTURE_MC_RESULT} />,

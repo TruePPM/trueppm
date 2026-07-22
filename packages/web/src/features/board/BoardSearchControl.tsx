@@ -63,7 +63,7 @@ export function BoardSearchControl({
             'pl-6 pr-2 py-1 text-xs text-neutral-text-primary',
             'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
             'focus-visible:outline-none transition-[width] duration-150',
-            'placeholder:text-neutral-text-disabled',
+            'placeholder:text-neutral-text-secondary',
             '[&::-webkit-search-cancel-button]:appearance-none',
             expanded ? 'w-44' : 'w-7 cursor-pointer',
           ].join(' ')}

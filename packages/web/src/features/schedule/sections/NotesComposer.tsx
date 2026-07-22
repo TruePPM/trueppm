@@ -86,7 +86,7 @@ export function NotesComposer({ projectId, taskId }: Props) {
         disabled={createNote.isPending}
         aria-describedby={`note-counter-${taskId}`}
         className="text-sm bg-neutral-surface border border-neutral-border rounded-control p-2
-          text-neutral-text-primary placeholder:text-neutral-text-disabled
+          text-neutral-text-primary placeholder:text-neutral-text-secondary
           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
           disabled:opacity-50 resize-y min-h-[60px]"
         maxLength={MAX_BODY_CHARS}

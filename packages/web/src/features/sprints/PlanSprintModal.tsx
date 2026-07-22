@@ -213,7 +213,7 @@ export function PlanSprintModal({
                 aria-required="true"
                 placeholder={`${itl.singular} 13 — Pilot deployment`}
                 className="h-9 px-3 rounded border border-neutral-border bg-neutral-surface
-                  text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
+                  text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               />
             </label>
@@ -267,7 +267,7 @@ export function PlanSprintModal({
                 maxLength={1000}
                 placeholder={`What does this ${itl.lower} deliver?`}
                 className="px-3 py-2 rounded border border-neutral-border bg-neutral-surface
-                  text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled resize-none
+                  text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary resize-none
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               />
             </label>

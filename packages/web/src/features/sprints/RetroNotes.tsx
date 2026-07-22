@@ -20,7 +20,7 @@ export function RetroNotes({ notes, onChange }: Props) {
         maxLength={4000}
         placeholder="Facilitator wrap-up — what the team is taking away…"
         className="px-3 py-2 rounded border border-neutral-border bg-neutral-surface
-          text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled resize-y
+          text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary resize-y
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       />
     </label>

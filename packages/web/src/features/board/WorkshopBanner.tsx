@@ -54,9 +54,7 @@ export function WorkshopBanner({ session, onEnd, isEnding = false }: WorkshopBan
       />
 
       {/* Session label */}
-      <span className="font-semibold text-brand-primary">
-        Workshop mode
-      </span>
+      <span className="font-semibold text-brand-primary">Workshop mode</span>
 
       {/* Elapsed timer */}
       <span
@@ -81,7 +79,10 @@ export function WorkshopBanner({ session, onEnd, isEnding = false }: WorkshopBan
         {activeParticipants.slice(0, 5).map((p) => (
           <span
             key={p.id}
-            className="w-5 h-5 rounded-full border border-neutral-surface flex items-center justify-center text-xs font-semibold text-white"
+            // #2207 (WCAG 1.4.3): the dark-mode avatar palette is light pastels
+            // (amber-300 #FCD34D etc.), where white initials fall to 1.44:1. Pair
+            // those pastels with navy ink; light mode keeps white on the -600 fills.
+            className="w-5 h-5 rounded-full border border-neutral-surface flex items-center justify-center text-xs font-semibold text-white dark:text-navy-900"
             style={{ backgroundColor: `var(--avatar-color-${p.color_index % 8})` }}
             title={p.display_name}
           >

@@ -151,7 +151,7 @@ export function DeadLetterActionDialog({
               rows={3}
               maxLength={1000}
               placeholder="Why is this being dropped? (recorded in the audit trail)"
-              className="w-full resize-none rounded-control border border-neutral-border bg-neutral-surface-raised px-2.5 py-2 text-[13px] text-neutral-text-primary placeholder:text-neutral-text-disabled focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+              className="w-full resize-none rounded-control border border-neutral-border bg-neutral-surface-raised px-2.5 py-2 text-[13px] text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             />
           </div>
         )}

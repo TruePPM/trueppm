@@ -61,7 +61,7 @@ export function RetroStickyEditor({ initialText = '', label, onSubmit, onCancel 
         aria-label={label}
         placeholder="Type a card… (Enter to save, Esc to cancel)"
         className="w-full px-2 py-1.5 rounded border border-neutral-border bg-neutral-surface
-          text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled resize-y
+          text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary resize-y
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       />
       <div className="flex items-center justify-between">

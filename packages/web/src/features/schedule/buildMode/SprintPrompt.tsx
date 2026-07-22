@@ -183,7 +183,7 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
               }}
               className="w-20 h-8 px-2 text-sm tppm-mono text-neutral-text-primary bg-neutral-surface
                 border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary
-                focus-visible:outline-none placeholder:text-neutral-text-disabled"
+                focus-visible:outline-none placeholder:text-neutral-text-secondary"
               aria-label="Story points (optional)"
             />
             <Button

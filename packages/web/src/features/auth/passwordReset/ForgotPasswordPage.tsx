@@ -87,7 +87,7 @@ export function ForgotPasswordPage() {
             className="
               h-10 px-3 rounded border border-neutral-border
               bg-neutral-surface text-neutral-text-primary text-sm
-              placeholder:text-neutral-text-disabled
+              placeholder:text-neutral-text-secondary
               focus-visible:outline-none focus-visible:border-brand-primary
               focus-visible:ring-[3px] focus-visible:ring-brand-primary/20
               disabled:opacity-50 disabled:cursor-not-allowed

@@ -244,7 +244,7 @@ export function WorkspaceDangerPage() {
                 disabled={!confirmTarget}
                 className={[
                   'w-[260px] h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
-                  'placeholder:text-neutral-text-disabled',
+                  'placeholder:text-neutral-text-secondary',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical',
                   confirmText && !confirmed ? 'border-semantic-critical' : 'border-neutral-border',
                 ].join(' ')}

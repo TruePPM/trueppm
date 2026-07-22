@@ -218,7 +218,7 @@ function RosterPageToolbar({
         value={filterQuery}
         onChange={(e) => onFilterChange(e.target.value)}
         className="flex-1 max-w-xs text-sm border border-neutral-border rounded px-3 py-1.5
-          bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-disabled
+          bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-secondary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       />
 

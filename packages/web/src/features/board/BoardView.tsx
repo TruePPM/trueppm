@@ -1186,7 +1186,7 @@ function PhaseLaneImpl({
                 className="bg-neutral-surface-sunken border-l border-neutral-border p-2 min-h-[56px] flex items-center justify-center"
               >
                 {count > 0 ? (
-                  <span className="text-xs text-neutral-text-disabled">
+                  <span className="text-xs text-neutral-text-secondary">
                     {count} task{count !== 1 ? 's' : ''}
                   </span>
                 ) : (
@@ -1634,7 +1634,9 @@ function MobileBoard({
                 <h2 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
                   {col.label}
                 </h2>
-                <span className="text-xs text-neutral-text-disabled tppm-mono">{cards.length}</span>
+                <span className="text-xs text-neutral-text-secondary tppm-mono">
+                  {cards.length}
+                </span>
                 {(() => {
                   // WIP-creep arrow (issue 1213) + breach chip share the trailing
                   // cluster on mobile, same left-to-right order as desktop.
@@ -3691,9 +3693,7 @@ export function BoardView() {
                   onCardFocus={handleCardFocus}
                   onCardClick={handleCardClick}
                   onSchedule={projectId ? handleScheduleRequest : undefined}
-                  onQuickCapture={
-                    projectId && !readOnly ? handleQuickCaptureBacklog : undefined
-                  }
+                  onQuickCapture={projectId && !readOnly ? handleQuickCaptureBacklog : undefined}
                   isQuickCapturePending={createTask.isPending}
                   onCaptureIdea={() => handleAddTask('root', 'backlog', true)}
                   isCaptureIdeaPending={false}

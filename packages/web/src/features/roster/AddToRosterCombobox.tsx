@@ -156,7 +156,7 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
         onKeyDown={handleKeyDown}
         disabled={inlineCreate.isPending}
         className="w-full text-sm border border-neutral-border rounded-control px-3 py-2
-          bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-disabled
+          bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-secondary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
           disabled:opacity-50"
       />

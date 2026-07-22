@@ -764,7 +764,7 @@ export function TaskFormModal({
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             placeholder={isMilestoneCreate ? 'e.g. Phase 1 sign-off' : 'What needs doing?'}
-            className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
+            className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-secondary disabled:opacity-60"
           />
         </div>
 
@@ -1192,7 +1192,7 @@ export function TaskFormModal({
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
             placeholder="Notes, acceptance criteria, links…"
-            className="w-full px-3 py-2 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control resize-vertical focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
+            className="w-full px-3 py-2 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control resize-vertical focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-secondary disabled:opacity-60"
           />
         </div>
 

@@ -950,9 +950,10 @@ describe('MC histogram (shared MonteCarloHistogram, #1774)', () => {
     });
     const rects = container.querySelectorAll('rect');
     expect(rects.length).toBe(3);
-    // Distribution shape is neutral — no semantic color, no hardcoded hex (rule 19).
+    // Distribution shape is neutral — the ≥3:1 chart-neutral mark (WCAG 1.4.11),
+    // no semantic color, no hardcoded hex (rule 19).
     rects.forEach((r) => {
-      expect(r.getAttribute('class')).toContain('fill-neutral-text-disabled');
+      expect(r.getAttribute('class')).toContain('fill-chart-neutral');
       expect(r.getAttribute('fill')).toBeNull();
     });
     expect(container.innerHTML).not.toContain('#4ade80');

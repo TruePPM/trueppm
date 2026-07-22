@@ -123,7 +123,7 @@ export function PredecessorsEditor({
             }}
             placeholder="Search tasks by name or WBS…"
             aria-label="Search predecessor tasks"
-            className="w-full h-8 px-2 text-[13px] text-neutral-text-primary bg-transparent border-none focus-visible:outline-none placeholder:text-neutral-text-disabled"
+            className="w-full h-8 px-2 text-[13px] text-neutral-text-primary bg-transparent border-none focus-visible:outline-none placeholder:text-neutral-text-secondary"
           />
           {filteredTasks.length > 0 && (
             // Plain <ul> (implicit role="list"), not role="listbox": Tab-focusable

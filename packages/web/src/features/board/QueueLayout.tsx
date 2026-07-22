@@ -440,83 +440,85 @@ export function QueueRow({
 
   return (
     <div role="listitem" className="relative">
-    <button
-      ref={rowRef}
-      type="button"
-      aria-label={`${task.name}, ${STATUS_LABEL[task.status]}, in ${phaseName}`}
-      onFocus={onFocus}
-      onClick={(e) => onClick(e.currentTarget)}
-      data-testid={`queue-row-${task.id}`}
-      className={`grid items-center gap-3 px-4 py-2 text-left w-full
+      <button
+        ref={rowRef}
+        type="button"
+        aria-label={`${task.name}, ${STATUS_LABEL[task.status]}, in ${phaseName}${
+          task.priorityRank ? `, priority ${task.priorityRank}` : ''
+        }`}
+        onFocus={onFocus}
+        onClick={(e) => onClick(e.currentTarget)}
+        data-testid={`queue-row-${task.id}`}
+        className={`grid items-center gap-3 px-4 py-2 text-left w-full
         border-b border-neutral-border/40 hover:bg-neutral-surface-sunken
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset
         ${focusRing}`}
-      style={{
-        gridTemplateColumns:
-          'minmax(14px, auto) minmax(80px, 130px) minmax(0, 1fr) minmax(120px, 160px) minmax(110px, auto) 28px',
-      }}
-    >
-      <PriorityBars rank={task.priorityRank} />
-      <PhaseTag name={phaseName} color={phaseColor} />
+        style={{
+          gridTemplateColumns:
+            'minmax(14px, auto) minmax(80px, 130px) minmax(0, 1fr) minmax(120px, 160px) minmax(110px, auto) 28px',
+        }}
+      >
+        <PriorityBars rank={task.priorityRank} />
+        <PhaseTag name={phaseName} color={phaseColor} />
 
-      {/* Name + inline affordances */}
-      <span className="flex items-center gap-1.5 min-w-0">
-        <span
-          className={`flex-1 min-w-0 truncate text-xs font-medium ${
-            isIdeaTone ? 'italic text-neutral-text-secondary' : 'text-neutral-text-primary'
-          }`}
-        >
-          {task.name}
+        {/* Name + inline affordances */}
+        <span className="flex items-center gap-1.5 min-w-0">
+          <span
+            className={`flex-1 min-w-0 truncate text-xs font-medium ${
+              isIdeaTone ? 'italic text-neutral-text-secondary' : 'text-neutral-text-primary'
+            }`}
+          >
+            {task.name}
+          </span>
+          {isMilestone && (
+            <span
+              aria-label="Milestone"
+              title="Milestone"
+              className="text-brand-accent-dark"
+              style={{ fontSize: 11, lineHeight: 1, flexShrink: 0 }}
+            >
+              ◆
+            </span>
+          )}
+          {riskCount > 0 && (
+            <span
+              aria-label={`${riskCount} linked risk${riskCount === 1 ? '' : 's'}`}
+              title={`${riskCount} linked risk${riskCount === 1 ? '' : 's'}`}
+              className="text-semantic-at-risk"
+              style={{ fontSize: 11, lineHeight: 1, flexShrink: 0 }}
+            >
+              ⚠
+            </span>
+          )}
+          {isCp && (
+            <span
+              aria-label="On the critical path"
+              title="On the critical path — a delay here delays the project end date"
+              className="inline-flex items-center rounded-chip border border-semantic-critical/40 px-1 text-[9.5px] font-bold uppercase tracking-wider text-semantic-critical"
+              style={{ height: 14, lineHeight: 1, flexShrink: 0 }}
+            >
+              CP
+            </span>
+          )}
         </span>
-        {isMilestone && (
-          <span
-            aria-label="Milestone"
-            title="Milestone"
-            className="text-brand-accent-dark"
-            style={{ fontSize: 11, lineHeight: 1, flexShrink: 0 }}
-          >
-            ◆
-          </span>
-        )}
-        {riskCount > 0 && (
-          <span
-            aria-label={`${riskCount} linked risk${riskCount === 1 ? '' : 's'}`}
-            title={`${riskCount} linked risk${riskCount === 1 ? '' : 's'}`}
-            className="text-semantic-at-risk"
-            style={{ fontSize: 11, lineHeight: 1, flexShrink: 0 }}
-          >
-            ⚠
-          </span>
-        )}
-        {isCp && (
-          <span
-            aria-label="On the critical path"
-            title="On the critical path — a delay here delays the project end date"
-            className="inline-flex items-center rounded-chip border border-semantic-critical/40 px-1 text-[9.5px] font-bold uppercase tracking-wider text-semantic-critical"
-            style={{ height: 14, lineHeight: 1, flexShrink: 0 }}
-          >
-            CP
-          </span>
-        )}
-      </span>
 
-      {/* Status / readiness column */}
-      {task.status === 'BACKLOG' ? (
-        <ReadinessChip readiness={readiness} variant="compact" />
-      ) : (
-        <StatusBadge status={task.status} progress={task.progress} />
-      )}
+        {/* Status / readiness column */}
+        {task.status === 'BACKLOG' ? (
+          <ReadinessChip readiness={readiness} variant="compact" />
+        ) : (
+          <StatusBadge status={task.status} progress={task.progress} />
+        )}
 
-      {/* Duration + owner */}
-      <span className="flex items-center gap-2 justify-end text-xs text-neutral-text-secondary">
-        {task.duration > 0 && <span className="tppm-mono">{task.duration}d</span>}
-        <Avatar initials={initials} />
-      </span>
+        {/* Duration + owner */}
+        <span className="flex items-center gap-2 justify-end text-xs text-neutral-text-secondary">
+          {task.duration > 0 && <span className="tppm-mono">{task.duration}d</span>}
+          <Avatar initials={initials} />
+        </span>
 
-      {/* Column 6 (28px) is a spacer — the overflow trigger overlays it as an
+        {/* Column 6 (28px) is a spacer — the overflow trigger overlays it as an
           absolutely-positioned sibling of this button (a button cannot nest an
           interactive control). */}
-    </button>
+      </button>
       <QueueRowOverflow
         task={task}
         reorder={reorder}
@@ -594,10 +596,7 @@ export function QueueLayout({
   }
 
   return (
-    <div
-      className="flex-1 overflow-auto min-h-0 bg-neutral-surface"
-      data-testid="queue-layout"
-    >
+    <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface" data-testid="queue-layout">
       {header}
       {groups.map((group) => (
         <section
@@ -629,7 +628,7 @@ export function QueueLayout({
           {group.tasks.length === 0 ? (
             <div
               role="status"
-              className="px-4 py-3 text-xs italic text-neutral-text-disabled"
+              className="px-4 py-3 text-xs italic text-neutral-text-secondary"
               data-testid={`queue-group-empty-${group.key}`}
             >
               {group.emptyCopy}
@@ -644,8 +643,10 @@ export function QueueLayout({
                   ? {
                       canPromote: index > 0,
                       canDemote: index < group.tasks.length - 1,
-                      onPromote: () => moveWithinGroup(group.tasks, index, index - 1, onReorderGroup),
-                      onDemote: () => moveWithinGroup(group.tasks, index, index + 1, onReorderGroup),
+                      onPromote: () =>
+                        moveWithinGroup(group.tasks, index, index - 1, onReorderGroup),
+                      onDemote: () =>
+                        moveWithinGroup(group.tasks, index, index + 1, onReorderGroup),
                     }
                   : null;
                 return (

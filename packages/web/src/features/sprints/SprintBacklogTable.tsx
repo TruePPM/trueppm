@@ -53,8 +53,8 @@ const STATUS_CHIP_STYLE: Partial<Record<TaskStatus, string>> = {
   REVIEW: 'border-brand-accent-dark/40 text-brand-accent-dark',
   IN_PROGRESS: 'border-brand-primary/40 text-brand-primary',
   NOT_STARTED: 'border-neutral-border text-neutral-text-secondary',
-  BACKLOG: 'border-neutral-border text-neutral-text-disabled',
-  ON_HOLD: 'border-neutral-border text-neutral-text-disabled',
+  BACKLOG: 'border-neutral-border text-neutral-text-secondary',
+  ON_HOLD: 'border-neutral-border text-neutral-text-secondary',
 };
 
 function persistKey(sprintId: string, status: TaskStatus): string {

@@ -234,7 +234,7 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
                     aria-required="true"
                     placeholder="My Project"
                     className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface
-                      text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
+                      text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary
                       focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                   />
                 </label>
@@ -247,7 +247,7 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
                     maxLength={1000}
                     placeholder="Optional"
                     className="px-3 py-2 rounded-control border border-neutral-border bg-neutral-surface
-                      text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled resize-none
+                      text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary resize-none
                       focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                   />
                 </label>

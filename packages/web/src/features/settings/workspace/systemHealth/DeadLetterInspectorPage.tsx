@@ -677,7 +677,7 @@ export function DeadLetterInspectorPage() {
             value={taskNameInput}
             onChange={(e) => setTaskNameInput(e.target.value)}
             placeholder="Task name…"
-            className="flex-1 bg-transparent outline-none text-[12px] text-neutral-text-primary placeholder:text-neutral-text-disabled min-w-0"
+            className="flex-1 bg-transparent outline-none text-[12px] text-neutral-text-primary placeholder:text-neutral-text-secondary min-w-0"
           />
         </div>
 

@@ -75,7 +75,7 @@ export function RetroActionItems({
                   placeholder="What did the team agree to do?"
                   aria-label={`Action item ${idx + 1} text`}
                   className="flex-1 h-8 px-2 rounded border border-neutral-border bg-neutral-surface
-                    text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
+                    text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 />
                 <input
@@ -88,7 +88,7 @@ export function RetroActionItems({
                   placeholder="pts"
                   aria-label={`Action item ${idx + 1} story points`}
                   className="w-16 h-8 px-2 rounded border border-neutral-border bg-neutral-surface
-                    text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled tppm-mono
+                    text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary tppm-mono
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 />
                 {isPromoted && persisted ? (
