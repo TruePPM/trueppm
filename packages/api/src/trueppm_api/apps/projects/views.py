@@ -9016,6 +9016,231 @@ def _dependency_activity_events(
     return candidates[:cap], truncated
 
 
+def _comment_activity_events(
+    task: Any, cap: int, until: datetime.datetime | None
+) -> tuple[list[tuple[Any, dict[str, Any]]], bool]:
+    """Comment add/edit/delete events for the task activity feed.
+
+    Fetches ``cap + 1`` newest-first (so a truncated batch keeps the most recent
+    comments) and joins ``deleted_by`` for the ``comment_deleted`` actor. Deleted
+    comments contribute only their add + delete events with no preview — the body is
+    gone from the thread, so it is not resurfaced.
+    """
+    created_before = {"created_at__lt": until} if until is not None else {}
+    comments = list(
+        task.comments.filter(**created_before)
+        .select_related("author", "deleted_by")
+        .order_by("-created_at")[: cap + 1]
+    )
+    truncated = len(comments) > cap
+    events: list[tuple[Any, dict[str, Any]]] = []
+    for c in comments[:cap]:
+        preview = "" if c.is_deleted else c.body[:_ACTIVITY_COMMENT_PREVIEW_CHARS]
+        events.append(
+            (
+                c.created_at,
+                {
+                    "event_type": "comment_added",
+                    "actor": _activity_actor(c.author),
+                    "timestamp": c.created_at.isoformat(),
+                    "detail": {
+                        "comment_id": str(c.id),
+                        "parent_id": str(c.parent_id) if c.parent_id else None,
+                        "preview": preview,
+                    },
+                },
+            )
+        )
+        if c.edited_at is not None and not c.is_deleted:
+            events.append(
+                (
+                    c.edited_at,
+                    {
+                        "event_type": "comment_edited",
+                        "actor": _activity_actor(c.author),
+                        "timestamp": c.edited_at.isoformat(),
+                        "detail": {"comment_id": str(c.id), "preview": preview},
+                    },
+                )
+            )
+        if c.is_deleted and c.deleted_at is not None:
+            events.append(
+                (
+                    c.deleted_at,
+                    {
+                        "event_type": "comment_deleted",
+                        "actor": _activity_actor(c.deleted_by),
+                        "timestamp": c.deleted_at.isoformat(),
+                        "detail": {"comment_id": str(c.id)},
+                    },
+                )
+            )
+    return events, truncated
+
+
+def _time_activity_events(
+    task: Any, request: Request, cap: int, until: datetime.datetime | None
+) -> tuple[list[tuple[Any, dict[str, Any]]], bool]:
+    """Time-logged/deleted events, scoped to the requesting user's own entries.
+
+    Time entries are private to the logging user: ``TaskTimeEntryView`` filters
+    ``user=request.user`` and never exposes another member's hours/notes, and the
+    shared activity feed MUST NOT widen that boundary (security-review: no cross-user
+    time disclosure).
+
+    Soft-deleted entries are deliberately INCLUDED (no ``is_deleted`` filter, issue
+    #1888): a deleted entry keeps its ``time_logged`` event and gains a synthesized
+    ``time_deleted`` from ``deleted_at`` so revised/removed hours leave a trace — an
+    EVM/billing integrity requirement, mirroring the attachments stream (#1879).
+    """
+    from trueppm_api.apps.timetracking.models import TimeEntry
+
+    created_before = {"created_at__lt": until} if until is not None else {}
+    entries = list(
+        TimeEntry.objects.select_related("deleted_by")
+        .filter(
+            task=task,
+            user=request.user,  # type: ignore[misc]
+            **created_before,
+        )
+        .order_by("-created_at")[: cap + 1]
+    )
+    truncated = len(entries) > cap
+    actor = _activity_actor(request.user)
+    events: list[tuple[Any, dict[str, Any]]] = []
+    for e in entries[:cap]:
+        events.append(
+            (
+                e.created_at,
+                {
+                    "event_type": "time_logged",
+                    "actor": actor,
+                    "timestamp": e.created_at.isoformat(),
+                    "detail": {
+                        "time_entry_id": str(e.id),
+                        "minutes": e.minutes,
+                        "entry_date": e.entry_date.isoformat(),
+                        "note": e.note,
+                        "source": e.source,
+                    },
+                },
+            )
+        )
+        # Rows deleted before deleted_at was stamped (legacy null) contribute only
+        # their retained log event — no timestamp to anchor a delete. The note is
+        # omitted from the delete event: the entry is gone, so don't resurface its
+        # body (same reasoning as the deleted-comment preview).
+        if e.is_deleted and e.deleted_at is not None:
+            events.append(
+                (
+                    e.deleted_at,
+                    {
+                        "event_type": "time_deleted",
+                        "actor": _activity_actor(e.deleted_by),
+                        "timestamp": e.deleted_at.isoformat(),
+                        "detail": {
+                            "time_entry_id": str(e.id),
+                            "minutes": e.minutes,
+                            "entry_date": e.entry_date.isoformat(),
+                        },
+                    },
+                )
+            )
+    return events, truncated
+
+
+def _attachment_activity_events(
+    task: Any, cap: int, until: datetime.datetime | None
+) -> tuple[list[tuple[Any, dict[str, Any]]], bool]:
+    """Attachment upload/delete events (append-only feed, #1879).
+
+    Soft-deleted attachments keep their upload event (the label is non-sensitive
+    metadata, mirroring the comments stream) and gain an ``attachment_deleted`` event
+    synthesized from ``deleted_at``.
+    """
+    created_before = {"created_at__lt": until} if until is not None else {}
+    attachments = list(
+        task.attachments.filter(**created_before)
+        .select_related("uploaded_by", "deleted_by")
+        .order_by("-created_at")[: cap + 1]
+    )
+    truncated = len(attachments) > cap
+    events: list[tuple[Any, dict[str, Any]]] = []
+    for a in attachments[:cap]:
+        is_url = bool(a.external_url)
+        detail = {
+            "attachment_id": str(a.id),
+            "kind": "url" if is_url else "file",
+            "label": a.external_title if is_url else a.file_name,
+        }
+        events.append(
+            (
+                a.created_at,
+                {
+                    "event_type": "attachment_uploaded",
+                    "actor": _activity_actor(a.uploaded_by),
+                    "timestamp": a.created_at.isoformat(),
+                    "detail": detail,
+                },
+            )
+        )
+        # Rows deleted before deleted_at was stamped (legacy null) contribute only
+        # their retained upload event — no timestamp to anchor a delete.
+        if a.is_deleted and a.deleted_at is not None:
+            events.append(
+                (
+                    a.deleted_at,
+                    {
+                        "event_type": "attachment_deleted",
+                        "actor": _activity_actor(a.deleted_by),
+                        "timestamp": a.deleted_at.isoformat(),
+                        "detail": dict(detail),
+                    },
+                )
+            )
+    return events, truncated
+
+
+def _stored_activity_events(
+    task: Any,
+    event_types: list[str],
+    cap: int,
+    until: datetime.datetime | None,
+) -> tuple[list[tuple[Any, dict[str, Any]]], bool]:
+    """Events read verbatim from ``TaskActivityEvent`` for the given ``event_types``.
+
+    Backs the ``schedule`` (``cpm_recalculated``, ``baseline_drift_detected``),
+    ``risks`` (``risk_linked``, ``risk_unlinked``), and ``resources``
+    (``assignee_added``/``assignee_removed``/``assignee_units_changed``) sources —
+    each selects its own event_type subset so per-source cap semantics match the other
+    streams (ADR-0207; resources back TaskResource's history-less through-table,
+    ADR-0394 #1886). ``detail`` is stored verbatim on the row (CPM date deltas /
+    assignment units cannot be reconstructed at read time) and surfaced as-is;
+    ``actor`` is null for the system events (``cpm_recalculated``,
+    ``baseline_drift_detected``).
+    """
+    created_before = {"created_at__lt": until} if until is not None else {}
+    rows = list(
+        task.activity_events.select_related("actor")
+        .filter(event_type__in=event_types, **created_before)
+        .order_by("-created_at")[: cap + 1]
+    )
+    truncated = len(rows) > cap
+    events: list[tuple[Any, dict[str, Any]]] = [
+        (
+            ev.created_at,
+            {
+                "event_type": ev.event_type,
+                "actor": _activity_actor(ev.actor),
+                "timestamp": ev.created_at.isoformat(),
+                "detail": ev.detail,
+            },
+        )
+        for ev in rows[:cap]
+    ]
+    return events, truncated
+
+
 def _build_activity_events(
     task: Any,
     include: frozenset[str],
@@ -9029,7 +9254,10 @@ def _build_activity_events(
     and ``payload`` is the unified ``{event_type, actor, timestamp, detail}`` shape.
     ``truncated`` is true when any source hit ``cap`` (so the caller can OR it into
     ``count_truncated``). Each source is independently bounded and uses
-    ``select_related`` on its actor FK to avoid an N+1 over the stream.
+    ``select_related`` on its actor FK to avoid an N+1 over the stream; sources are
+    concatenated in a fixed order (comments, time, attachments, schedule, risks,
+    resources, dependencies), which the caller then sorts newest-first (ties keep this
+    insertion order).
 
     ``until`` (keyset paging, #1882) bounds every source to events strictly older
     than the cursor: the bound is pushed into each source's ``created_at`` DB filter
@@ -9037,252 +9265,38 @@ def _build_activity_events(
     derived ``edited_at``/``deleted_at`` events (whose parent row's ``created_at``
     passed the DB filter but whose own timestamp may not).
     """
-    from trueppm_api.apps.timetracking.models import TimeEntry
-
-    # Keyset bound: strictly-older-than on the source row's created_at.
-    created_before = {"created_at__lt": until} if until is not None else {}
+    sources: list[tuple[list[tuple[Any, dict[str, Any]]], bool]] = []
+    if "comments" in include:
+        sources.append(_comment_activity_events(task, cap, until))
+    if "time" in include:
+        sources.append(_time_activity_events(task, request, cap, until))
+    if "attachments" in include:
+        sources.append(_attachment_activity_events(task, cap, until))
+    if "schedule" in include:
+        sources.append(
+            _stored_activity_events(
+                task, ["cpm_recalculated", "baseline_drift_detected"], cap, until
+            )
+        )
+    if "risks" in include:
+        sources.append(_stored_activity_events(task, ["risk_linked", "risk_unlinked"], cap, until))
+    if "resources" in include:
+        sources.append(
+            _stored_activity_events(
+                task,
+                ["assignee_added", "assignee_removed", "assignee_units_changed"],
+                cap,
+                until,
+            )
+        )
+    if "dependencies" in include:
+        sources.append(_dependency_activity_events(task, request, cap, until))
 
     events: list[tuple[Any, dict[str, Any]]] = []
     truncated = False
-
-    if "comments" in include:
-        # Fetch cap+1 to detect truncation. Newest-first so a truncated batch keeps
-        # the most recent comments. deleted_by joined for the comment_deleted actor.
-        comments = list(
-            task.comments.filter(**created_before)
-            .select_related("author", "deleted_by")
-            .order_by("-created_at")[: cap + 1]
-        )
-        truncated = truncated or len(comments) > cap
-        for c in comments[:cap]:
-            # Deleted comments contribute only the add + delete events with no
-            # preview — the body is gone from the thread, so don't resurface it.
-            preview = "" if c.is_deleted else c.body[:_ACTIVITY_COMMENT_PREVIEW_CHARS]
-            events.append(
-                (
-                    c.created_at,
-                    {
-                        "event_type": "comment_added",
-                        "actor": _activity_actor(c.author),
-                        "timestamp": c.created_at.isoformat(),
-                        "detail": {
-                            "comment_id": str(c.id),
-                            "parent_id": str(c.parent_id) if c.parent_id else None,
-                            "preview": preview,
-                        },
-                    },
-                )
-            )
-            if c.edited_at is not None and not c.is_deleted:
-                events.append(
-                    (
-                        c.edited_at,
-                        {
-                            "event_type": "comment_edited",
-                            "actor": _activity_actor(c.author),
-                            "timestamp": c.edited_at.isoformat(),
-                            "detail": {"comment_id": str(c.id), "preview": preview},
-                        },
-                    )
-                )
-            if c.is_deleted and c.deleted_at is not None:
-                events.append(
-                    (
-                        c.deleted_at,
-                        {
-                            "event_type": "comment_deleted",
-                            "actor": _activity_actor(c.deleted_by),
-                            "timestamp": c.deleted_at.isoformat(),
-                            "detail": {"comment_id": str(c.id)},
-                        },
-                    )
-                )
-
-    if "time" in include:
-        # Time entries are private to the logging user: TaskTimeEntryView filters
-        # ``user=request.user`` and never exposes another member's hours/notes. The
-        # shared activity feed MUST NOT widen that boundary, so scope to the
-        # caller's own entries (security-review: no cross-user time disclosure).
-        #
-        # Soft-deleted entries are deliberately INCLUDED (no ``is_deleted`` filter,
-        # issue #1888): a deleted entry keeps its ``time_logged`` event and gains a
-        # synthesized ``time_deleted`` from ``deleted_at`` so revised/removed hours
-        # leave a trace — an EVM/billing integrity requirement — mirroring the
-        # attachments stream (#1879) below.
-        entries = list(
-            TimeEntry.objects.select_related("deleted_by")
-            .filter(
-                task=task,
-                user=request.user,  # type: ignore[misc]
-                **created_before,
-            )
-            .order_by("-created_at")[: cap + 1]
-        )
-        truncated = truncated or len(entries) > cap
-        actor = _activity_actor(request.user)
-        for e in entries[:cap]:
-            events.append(
-                (
-                    e.created_at,
-                    {
-                        "event_type": "time_logged",
-                        "actor": actor,
-                        "timestamp": e.created_at.isoformat(),
-                        "detail": {
-                            "time_entry_id": str(e.id),
-                            "minutes": e.minutes,
-                            "entry_date": e.entry_date.isoformat(),
-                            "note": e.note,
-                            "source": e.source,
-                        },
-                    },
-                )
-            )
-            # Rows deleted before deleted_at was stamped (legacy null) contribute
-            # only their retained log event — no timestamp to anchor a delete. The
-            # note is omitted from the delete event: the entry is gone, so don't
-            # resurface its body (same reasoning as the deleted-comment preview).
-            if e.is_deleted and e.deleted_at is not None:
-                events.append(
-                    (
-                        e.deleted_at,
-                        {
-                            "event_type": "time_deleted",
-                            "actor": _activity_actor(e.deleted_by),
-                            "timestamp": e.deleted_at.isoformat(),
-                            "detail": {
-                                "time_entry_id": str(e.id),
-                                "minutes": e.minutes,
-                                "entry_date": e.entry_date.isoformat(),
-                            },
-                        },
-                    )
-                )
-
-    if "attachments" in include:
-        # Append-only feed (#1879): soft-deleted attachments keep their upload
-        # event (the label is non-sensitive metadata, mirroring the comments
-        # stream above) and gain an attachment_deleted event from deleted_at.
-        attachments = list(
-            task.attachments.filter(**created_before)
-            .select_related("uploaded_by", "deleted_by")
-            .order_by("-created_at")[: cap + 1]
-        )
-        truncated = truncated or len(attachments) > cap
-        for a in attachments[:cap]:
-            is_url = bool(a.external_url)
-            detail = {
-                "attachment_id": str(a.id),
-                "kind": "url" if is_url else "file",
-                "label": a.external_title if is_url else a.file_name,
-            }
-            events.append(
-                (
-                    a.created_at,
-                    {
-                        "event_type": "attachment_uploaded",
-                        "actor": _activity_actor(a.uploaded_by),
-                        "timestamp": a.created_at.isoformat(),
-                        "detail": detail,
-                    },
-                )
-            )
-            # Rows deleted before deleted_at was stamped (legacy null) contribute
-            # only their retained upload event — no timestamp to anchor a delete.
-            if a.is_deleted and a.deleted_at is not None:
-                events.append(
-                    (
-                        a.deleted_at,
-                        {
-                            "event_type": "attachment_deleted",
-                            "actor": _activity_actor(a.deleted_by),
-                            "timestamp": a.deleted_at.isoformat(),
-                            "detail": dict(detail),
-                        },
-                    )
-                )
-
-    # schedule + risks share the TaskActivityEvent source (ADR-0207); each token
-    # selects its own event_type subset so the per-source cap semantics match the
-    # other streams. detail is stored verbatim on the row (CPM date deltas cannot
-    # be reconstructed at read time), so it is surfaced as-is. actor is null for
-    # the system events (cpm_recalculated, baseline_drift_detected).
-    if "schedule" in include:
-        rows = list(
-            task.activity_events.select_related("actor")
-            .filter(
-                event_type__in=["cpm_recalculated", "baseline_drift_detected"], **created_before
-            )
-            .order_by("-created_at")[: cap + 1]
-        )
-        truncated = truncated or len(rows) > cap
-        for ev in rows[:cap]:
-            events.append(
-                (
-                    ev.created_at,
-                    {
-                        "event_type": ev.event_type,
-                        "actor": _activity_actor(ev.actor),
-                        "timestamp": ev.created_at.isoformat(),
-                        "detail": ev.detail,
-                    },
-                )
-            )
-
-    if "risks" in include:
-        rows = list(
-            task.activity_events.select_related("actor")
-            .filter(event_type__in=["risk_linked", "risk_unlinked"], **created_before)
-            .order_by("-created_at")[: cap + 1]
-        )
-        truncated = truncated or len(rows) > cap
-        for ev in rows[:cap]:
-            events.append(
-                (
-                    ev.created_at,
-                    {
-                        "event_type": ev.event_type,
-                        "actor": _activity_actor(ev.actor),
-                        "timestamp": ev.created_at.isoformat(),
-                        "detail": ev.detail,
-                    },
-                )
-            )
-
-    # resources: assignment add/remove/re-allocation, also backed by TaskActivityEvent
-    # (TaskResource is a through-table with no history; ADR-0394, #1886). detail is
-    # stored verbatim ({resource_id, resource_name, units}) and surfaced as-is.
-    if "resources" in include:
-        rows = list(
-            task.activity_events.select_related("actor")
-            .filter(
-                event_type__in=[
-                    "assignee_added",
-                    "assignee_removed",
-                    "assignee_units_changed",
-                ],
-                **created_before,
-            )
-            .order_by("-created_at")[: cap + 1]
-        )
-        truncated = truncated or len(rows) > cap
-        for ev in rows[:cap]:
-            events.append(
-                (
-                    ev.created_at,
-                    {
-                        "event_type": ev.event_type,
-                        "actor": _activity_actor(ev.actor),
-                        "timestamp": ev.created_at.isoformat(),
-                        "detail": ev.detail,
-                    },
-                )
-            )
-
-    if "dependencies" in include:
-        dep_events, dep_truncated = _dependency_activity_events(task, request, cap, until)
-        events.extend(dep_events)
-        truncated = truncated or dep_truncated
+    for src_events, src_truncated in sources:
+        events.extend(src_events)
+        truncated = truncated or src_truncated
 
     if until is not None:
         # The DB filter above bounds created_at only; a comment/attachment created
