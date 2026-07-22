@@ -283,7 +283,7 @@ function CommentRow({
               disabled={update.isPending || draft.trim().length === 0}
               className="text-xs border border-brand-primary/40 text-brand-primary rounded-control px-3 h-7 font-medium
                 hover:bg-brand-primary/10
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
                 disabled:opacity-50"
             >
               {update.isPending ? 'Saving…' : 'Save'}
@@ -297,7 +297,7 @@ function CommentRow({
               disabled={update.isPending}
               className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
                 disabled:opacity-50"
             >
               Cancel
@@ -319,7 +319,7 @@ function CommentRow({
               onClick={onReplyClick}
               className="text-xs border border-neutral-border rounded-control px-2 min-h-11 md:min-h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
               aria-label="Reply to this comment"
             >
               ↩ Reply
@@ -336,7 +336,7 @@ function CommentRow({
                 : 'Acknowledge this comment'
             }
             className={`text-xs border rounded-control px-2 min-h-11 md:min-h-7 font-medium
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
               disabled:opacity-50
               ${
                 comment.has_my_acknowledgement
@@ -356,7 +356,7 @@ function CommentRow({
             aria-pressed={comment.has_my_reaction}
             aria-label={comment.has_my_reaction ? 'Remove your 👍 reaction' : 'React with 👍'}
             className={`text-xs border rounded-control px-2 min-h-11 md:min-h-7 font-medium
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
               disabled:opacity-50
               ${
                 comment.has_my_reaction
@@ -378,7 +378,7 @@ function CommentRow({
               }}
               className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
               aria-label="Edit this comment"
             >
               Edit
@@ -391,7 +391,7 @@ function CommentRow({
               disabled={del.isPending}
               className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
                 text-neutral-text-secondary hover:bg-semantic-critical-bg hover:text-semantic-critical hover:border-semantic-critical/40
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
                 disabled:opacity-50"
               aria-label="Delete this comment"
             >
@@ -422,7 +422,7 @@ function CommentRow({
               disabled={del.isPending}
               className="text-xs border border-semantic-critical/40 text-semantic-critical rounded-control px-3 h-7 font-medium
                 hover:bg-semantic-critical-bg
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
                 disabled:opacity-50"
             >
               Delete anyway
@@ -432,7 +432,7 @@ function CommentRow({
               onClick={() => setConfirmingDelete(false)}
               className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
             >
               Keep it
             </button>

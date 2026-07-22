@@ -50,7 +50,7 @@ export function GuardrailNotice({ warnings, onUndo, onKeep }: Props) {
           onClick={() => onKeep(reason)}
           className="min-h-[44px] md:min-h-0 md:h-8 px-3 rounded-control text-xs font-medium
             border border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-raised
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           Keep it here
         </button>
@@ -59,7 +59,7 @@ export function GuardrailNotice({ warnings, onUndo, onKeep }: Props) {
           onClick={onUndo}
           className="min-h-[44px] md:min-h-0 md:h-8 px-3 rounded-control text-xs font-medium
             text-neutral-text-secondary hover:text-neutral-text-primary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           Undo
         </button>
@@ -81,7 +81,7 @@ export function GuardrailNotice({ warnings, onUndo, onKeep }: Props) {
           type="button"
           onClick={() => setShowReason(true)}
           className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary rounded-control"
         >
           ▸ Add a note (optional)
         </button>

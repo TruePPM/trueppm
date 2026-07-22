@@ -169,7 +169,7 @@ export function RelatedLinksSection({ taskId, projectId, userRole, canEdit }: Dr
             type="button"
             onClick={() => setPickerOpen(true)}
             className="inline-flex min-h-11 items-center gap-1 text-sm text-brand-primary hover:underline
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
+              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control"
           >
             <span aria-hidden="true">＋</span> Link task
           </button>
@@ -216,7 +216,7 @@ function RelationRow({ row, canEdit, onNavigate, onRemove }: RelationRowProps) {
         onClick={onNavigate}
         aria-label={accessibleName}
         className="flex-1 min-w-0 flex items-center gap-2 text-left rounded-control
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <span className="tppm-mono text-xs text-neutral-text-disabled shrink-0">
           {row.hexId || '—'}
@@ -240,7 +240,7 @@ function RelationRow({ row, canEdit, onNavigate, onRemove }: RelationRowProps) {
           aria-label="Remove relation"
           className="w-6 h-6 shrink-0 flex items-center justify-center rounded-control text-neutral-text-disabled
             hover:text-semantic-critical
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           ×
         </button>

@@ -190,7 +190,7 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
               disabled={isPending}
               aria-label={`Remove from ${itl.lower}`}
               className="text-xs text-neutral-text-secondary hover:text-semantic-critical rounded-control shrink-0
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
                 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Remove ×

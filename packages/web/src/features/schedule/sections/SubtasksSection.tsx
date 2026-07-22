@@ -226,7 +226,7 @@ export function SubtasksSection({ taskId, projectId, userRole, canEdit }: Drawer
             aria-label="Cancel adding subtask"
             className={[
               'h-8 px-2 rounded-control text-sm text-neutral-text-secondary hover:text-neutral-text-primary',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+              'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
             ].join(' ')}
           >
             ×
@@ -238,7 +238,7 @@ export function SubtasksSection({ taskId, projectId, userRole, canEdit }: Drawer
           onClick={startAdding}
           className={[
             'text-xs font-medium text-brand-primary hover:text-brand-primary/80 rounded-control',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+            'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
           ].join(' ')}
         >
           + Add subtask
