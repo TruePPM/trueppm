@@ -87,9 +87,26 @@ describe('WorkspaceEmailPage (writable)', () => {
     expect(screen.getByLabelText<HTMLInputElement>('From address').value).toBe(
       'notify@truescope.io',
     );
-    // Cloud is the default → the cloud explainer shows and there is no Host field.
+    // Cloud is the default → the server-default explainer shows and there is no Host field.
     expect(screen.getByText(/No credentials needed/i)).toBeInTheDocument();
     expect(screen.queryByLabelText('SMTP host')).not.toBeInTheDocument();
+  });
+
+  it('orders providers server-default first, then Custom, then branded presets alphabetically', () => {
+    render(<WorkspaceEmailPage />);
+    const select = screen.getByLabelText<HTMLSelectElement>('Provider');
+    const options = Array.from(select.options).map((o) => o.textContent);
+    expect(options).toEqual([
+      'Server default (built-in)',
+      'Custom (generic) SMTP',
+      'Amazon SES',
+      'Fastmail',
+      'Gmail',
+      'Microsoft 365 / Outlook',
+      'SendGrid',
+    ]);
+    // The default fallback is no longer branded "TruePPM cloud".
+    expect(screen.queryByText('TruePPM cloud')).not.toBeInTheDocument();
   });
 
   it('reveals SMTP fields when the Custom provider is selected', () => {

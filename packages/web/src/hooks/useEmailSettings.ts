@@ -2,7 +2,7 @@
  * Writable workspace Email & SMTP configuration (#712, ADR-0213).
  *
  * Upgrades the #639 read-only status hook to the writable surface: the transport
- * (TruePPM cloud / custom SMTP / SendGrid / SES), From identity, DKIM, delivery
+ * (server default / custom SMTP / SendGrid / SES), From identity, DKIM, delivery
  * limits, and bounce webhook. The SMTP password is write-only — the payload
  * never carries it, only `password_is_set`. Reads are org-admin gated; writes
  * (and the test-email / health actions) require the install operator, surfaced
