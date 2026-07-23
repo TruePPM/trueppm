@@ -29,6 +29,12 @@ const PARAMS = {
   headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {},
 };
 
+// k6's script transform (goja + a pinned Babel) does not support object spread,
+// so `{ ...PARAMS, tags }` fails to parse. Build per-request params explicitly.
+function taggedParams(endpoint) {
+  return { headers: PARAMS.headers, tags: { endpoint } };
+}
+
 export const options = {
   scenarios: {
     hot_reads: {
@@ -68,29 +74,29 @@ export function setup() {
 }
 
 export default function (data) {
-  const projectList = http.get(`${BASE}/api/v1/projects/`, {
-    ...PARAMS,
-    tags: { endpoint: "project_list" },
-  });
+  const projectList = http.get(
+    `${BASE}/api/v1/projects/`,
+    taggedParams("project_list"),
+  );
   check(projectList, { "project list 200": (r) => r.status === 200 });
 
-  const programList = http.get(`${BASE}/api/v1/programs/`, {
-    ...PARAMS,
-    tags: { endpoint: "program_list" },
-  });
+  const programList = http.get(
+    `${BASE}/api/v1/programs/`,
+    taggedParams("program_list"),
+  );
   check(programList, { "program list 200": (r) => r.status === 200 });
 
   if (data.projectId) {
     const taskList = http.get(
       `${BASE}/api/v1/tasks/?project=${data.projectId}`,
-      { ...PARAMS, tags: { endpoint: "task_list" } },
+      taggedParams("task_list"),
     );
     check(taskList, { "task list 200": (r) => r.status === 200 });
 
-    http.get(`${BASE}/api/v1/projects/${data.projectId}/sync/`, {
-      ...PARAMS,
-      tags: { endpoint: "sync_delta" },
-    });
+    http.get(
+      `${BASE}/api/v1/projects/${data.projectId}/sync/`,
+      taggedParams("sync_delta"),
+    );
   }
 
   sleep(1);
