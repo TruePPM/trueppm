@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  PICKER_PROVIDERS,
   PROVIDERS,
   providerDef,
   providerTypeLabel,
@@ -23,6 +24,25 @@ describe('provider registry', () => {
     ]);
     expect(providerDef('keycloak')?.name).toBe('Keycloak');
     expect(providerDef('nope')).toBeUndefined();
+  });
+
+  it('orders the picker with Generic first, then the rest alphabetically by name (#2296)', () => {
+    expect(PICKER_PROVIDERS.map((p) => p.name)).toEqual([
+      'Generic OIDC',
+      'Auth0',
+      'Authentik',
+      'GitHub',
+      'GitLab',
+      'Google',
+      'Keycloak',
+      'Microsoft Entra ID',
+      'Okta',
+      'Zitadel',
+    ]);
+    // Same set as the registry, just reordered for display.
+    expect([...PICKER_PROVIDERS].map((p) => p.slug).sort()).toEqual(
+      [...PROVIDERS].map((p) => p.slug).sort(),
+    );
   });
 
   it('labels GitHub as OAuth and OIDC providers as OIDC', () => {

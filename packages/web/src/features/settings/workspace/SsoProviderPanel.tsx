@@ -25,7 +25,7 @@ import { FieldRow } from '../SettingsShell';
 import { Toggle } from '../components/Toggle';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import {
-  PROVIDERS,
+  PICKER_PROVIDERS,
   providerDef,
   resolvedIssuer,
   seedFields,
@@ -560,7 +560,7 @@ export function SsoProviderPanel({
               className={`${SELECT_CLASS} w-full max-w-[260px]`}
               style={SELECT_STYLE}
             >
-              {PROVIDERS.map((p) => (
+              {PICKER_PROVIDERS.map((p) => (
                 <option key={p.slug} value={p.slug}>
                   {p.name} ({p.type})
                 </option>
