@@ -33,6 +33,12 @@ ENV KC_BOOTSTRAP_ADMIN_USERNAME=admin \
     KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
     KC_HEALTH_ENABLED=true
 
+# Run as the non-root Keycloak user (uid 1000 — the base image's own default).
+# Made explicit so this image never runs as root: the analyzer cannot resolve the
+# base image's USER, and the realm file COPYed above is world-readable (0644), so
+# uid 1000 still imports it fine.
+USER 1000
+
 # `start-dev` serves plain HTTP and relaxes hostname strictness — correct for a
 # throwaway CI issuer reached over http://keycloak:8080. The realm import is
 # idempotent on a fresh dev (H2) database.
