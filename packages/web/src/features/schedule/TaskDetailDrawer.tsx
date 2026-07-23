@@ -10,6 +10,7 @@ import {
 import type { Task } from '@/types';
 import {
   registry,
+  type DrawerSectionContext,
   type DrawerSectionRegistration,
   type DrawerSectionTab,
 } from '@/lib/widget-registry';
@@ -36,6 +37,8 @@ import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
 import { TaskScheduleStrip } from './TaskScheduleStrip';
 import { TaskSummaryStrip } from './TaskSummaryStrip';
 import { TaskDescriptionField } from './TaskDescriptionField';
+import { AddDetailRow } from './AddDetailRow';
+import { useDrawerSectionStore, revealKey } from '@/stores/drawerSectionStore';
 import { registerOssDrawerSections } from './sections';
 
 // Register OSS sections at module init — Enterprise registers in its own
@@ -228,7 +231,7 @@ export function TaskDetailDrawer({
   // Captured on open for the focus-restore ladder on close (web-rule 264d).
   const openerRef = useRef<HTMLElement | null>(null);
 
-  const { tasks: allTasks } = useScheduleTasks();
+  const { tasks: allTasks, links: allLinks } = useScheduleTasks();
   const { mutate: updateTask, isPending: isSaving, isError: saveFailed } = useUpdateTask();
   // 1046: thread the viewer's project role into the sections so write controls
   // (add link, add attachment, edit description) are hidden from Viewers instead
@@ -648,6 +651,27 @@ export function TaskDetailDrawer({
     );
   }, [task, sectionContext?.user, allTasks]);
 
+  // Progressive disclosure (ADR-0605, #2315): for each section that declares an
+  // `isPopulated` predicate, record whether it has content for THIS task. Reads
+  // the already-warm schedule cache (tasks + links) so no section query fires.
+  // Sections without a predicate (related-links, recurring, Enterprise) are
+  // absent from the map and stay always-shown. `false` here = collapse behind
+  // the Details-tab "Add detail" affordance instead of an empty header.
+  const sectionPopulated = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    if (!task) return map;
+    const ctx: DrawerSectionContext = {
+      user: sectionContext?.user,
+      task,
+      tasks: allTasks,
+      links: allLinks,
+    };
+    for (const s of sections) {
+      if (s.isPopulated) map[s.id] = s.isPopulated(ctx);
+    }
+    return map;
+  }, [sections, task, sectionContext?.user, allTasks, allLinks]);
+
   // Group the filtered sections by tab (default `details`), preserving the
   // priority order the registry already sorted them into.
   const sectionsByTab = useMemo(() => {
@@ -699,6 +723,7 @@ export function TaskDetailDrawer({
           activeTab={activeTab}
           onTabChange={changeTab}
           sectionsByTab={sectionsByTab}
+          sectionPopulated={sectionPopulated}
           subtaskStats={subtaskStats}
           draftName={draft.name}
           onNameChange={(v) => setField('name', v)}
@@ -826,6 +851,10 @@ interface DrawerContentProps {
   activeTab: DrawerSectionTab;
   onTabChange: (tab: DrawerSectionTab) => void;
   sectionsByTab: Record<DrawerSectionTab, DrawerSectionRegistration[]>;
+  /** Per-section content presence for the current task (ADR-0605, #2315). Keyed
+   *  by section id; only sections with an `isPopulated` predicate appear.
+   *  `false` collapses the section behind the Details-tab "Add detail" row. */
+  sectionPopulated: Record<string, boolean>;
   subtaskStats: { total: number; done: number };
   draftName: string;
   onNameChange: (value: string) => void;
@@ -871,6 +900,7 @@ function DrawerContent({
   activeTab,
   onTabChange,
   sectionsByTab,
+  sectionPopulated,
   subtaskStats,
   draftName,
   onNameChange,
@@ -892,6 +922,14 @@ function DrawerContent({
   onSave,
   onCancel,
 }: DrawerContentProps) {
+  // Progressive-disclosure state (ADR-0605, #2315): which empty optional
+  // sections the user re-added via "Add detail", and the configurable iteration
+  // label for the Sprint add-button (SprintSection registers a static title —
+  // resolved at the render boundary, ADR-0111/#862).
+  const revealed = useDrawerSectionStore((s) => s.revealed);
+  const revealSection = useDrawerSectionStore((s) => s.reveal);
+  const iterationLabel = useIterationLabel(projectId);
+
   // Which staged fields changed — names the bar's scope for sighted users (the
   // per-field • markers) and for AT (the sr-only live region below). The three
   // estimate fields collapse to one "Estimates" token (the per-field • carries
@@ -1151,11 +1189,32 @@ function DrawerContent({
             // the Overview section's work-state (status/progress/people)
             // rendered inline rather than behind an "Overview" accordion, and
             // the deferred Description. The remaining registered details
-            // sections (sprint, dependencies, recurrence, estimates, and any
-            // Enterprise sections) render as collapsed accordions below.
+            // sections render below — but with progressive disclosure (ADR-0605,
+            // #2315): a section that reports itself empty for this task
+            // (`sectionPopulated[id] === false`) is folded out of the main flow
+            // and offered under a single "Add detail" row instead of showing an
+            // empty collapsed header (the drawer-v2 VoC blocker). Populated and
+            // just-revealed sections open by default; always-shown sections
+            // (no predicate — related-links, recurring, Enterprise) keep the
+            // lazy-load collapsed default.
             const overview = sectionsByTab.details.find((s) => s.id === 'overview');
             const OverviewComp = overview?.component;
             const rest = sectionsByTab.details.filter((s) => s.id !== 'overview');
+            const isRevealed = (id: string) => revealed[revealKey(task.id, id)] === true;
+            const isCollapsedEmpty = (s: DrawerSectionRegistration) =>
+              sectionPopulated[s.id] === false && !isRevealed(s.id);
+            const present = rest.filter((s) => !isCollapsedEmpty(s));
+            const absent = rest.filter(isCollapsedEmpty);
+            // Auto-open a section the user just re-added via "Add detail" so they
+            // land in it without a second click. Populated sections keep the
+            // collapsed-by-default lazy-load (ADR-0050) — showing them is the win;
+            // opening them all would re-introduce the query fan-out and flip the
+            // established click-to-expand behavior.
+            const openIds = new Set(present.filter((s) => isRevealed(s.id)).map((s) => s.id));
+            const addItems = absent.map((s) => ({
+              id: s.id,
+              label: s.id === 'sprint' ? iterationLabel.singular : s.title,
+            }));
             return (
               <div>
                 <div className="px-4 py-4 space-y-5">
@@ -1180,14 +1239,18 @@ function DrawerContent({
                     scrollTopRef={descScrollRef}
                   />
                 </div>
-                <SectionList
-                  sections={rest}
-                  taskId={task.id}
-                  projectId={projectId}
-                  userRole={userRole}
-                  canEdit={canEdit}
-                  firstOpen={false}
-                />
+                {present.length > 0 && (
+                  <SectionList
+                    sections={present}
+                    taskId={task.id}
+                    projectId={projectId}
+                    userRole={userRole}
+                    canEdit={canEdit}
+                    firstOpen={false}
+                    openIds={openIds}
+                  />
+                )}
+                <AddDetailRow items={addItems} onReveal={(id) => revealSection(task.id, id)} />
               </div>
             );
           })()}
@@ -1258,6 +1321,11 @@ function DrawerContent({
  * fire only on expand (ADR-0050 lazy-load, preserved tab-by-tab). The Details
  * tab passes `firstOpen={false}` because its primary content (Overview) is
  * rendered curated above these secondary accordions.
+ *
+ * `openIds` (ADR-0605) overrides the `firstOpen` heuristic: any section whose id
+ * is in the set opens by default (used by the Details tab to auto-expand the
+ * populated / just-revealed sections), and sections not in the set stay
+ * collapsed. When `openIds` is omitted the `firstOpen && idx === 0` default holds.
  */
 export function SectionList({
   sections,
@@ -1266,6 +1334,7 @@ export function SectionList({
   userRole,
   canEdit,
   firstOpen = true,
+  openIds,
 }: {
   sections: DrawerSectionRegistration[];
   taskId: string;
@@ -1275,6 +1344,8 @@ export function SectionList({
    *  to every section so write controls gate off the authoritative verdict. */
   canEdit?: boolean;
   firstOpen?: boolean;
+  /** Section ids to open by default, overriding `firstOpen` (ADR-0605, #2315). */
+  openIds?: Set<string>;
 }) {
   // The 'sprint' section is registered with a static title in the module-level
   // registry (sections/index.ts) which has no project context; resolve the
@@ -1295,7 +1366,7 @@ export function SectionList({
             <CollapsibleSection
               id={section.id}
               title={sectionTitle}
-              defaultOpen={firstOpen && idx === 0}
+              defaultOpen={openIds ? openIds.has(section.id) : firstOpen && idx === 0}
             >
               {() => (
                 <SectionComponent

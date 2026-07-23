@@ -538,8 +538,32 @@ test.describe('TaskDetailDrawer redesign — tab grouping', () => {
 
   test('Dependencies + Estimates live under the Details tab', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
-    await expect(drawer.getByRole('button', { name: 'Dependencies' })).toBeVisible();
+    // Estimates is populated (PERT triple on t1) → a real Details section header.
     await expect(drawer.getByRole('button', { name: 'Estimates' })).toBeVisible();
+    // Dependencies is empty on t1 → offered under the "Add detail" row (#2315,
+    // ADR-0605 progressive disclosure) rather than an empty collapsed header.
+    await expect(drawer.getByRole('button', { name: 'Dependencies' })).toBeVisible();
+  });
+
+  test('empty optional sections fold behind "Add detail"; revealing one opens it', async ({
+    page,
+  }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    // t1 has no sprint / blocker / dependencies, so none render as collapsed
+    // headers — they are offered under the single "Add detail" affordance
+    // (#2315, ADR-0605). Estimates IS populated, so it is NOT offered there.
+    const addDetail = drawer.getByRole('region', { name: 'Add detail' });
+    await expect(addDetail).toBeVisible();
+    await expect(addDetail.getByRole('button', { name: 'Sprint' })).toBeVisible();
+    await expect(addDetail.getByRole('button', { name: 'Dependencies' })).toBeVisible();
+    await expect(addDetail.getByRole('button', { name: 'Estimates' })).toHaveCount(0);
+
+    // Revealing an offered section moves it into the flow, auto-opened.
+    await addDetail.getByRole('button', { name: 'Dependencies' }).click();
+    await expect(drawer.getByRole('button', { name: 'Dependencies' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 
   test('Attachments + External links live under the Files tab', async ({ page }) => {
@@ -598,8 +622,9 @@ test.describe('TaskDetailDrawer redesign — tab grouping', () => {
     // button; its Assignees region is visible directly.
     await expect(drawer.getByRole('button', { name: 'Overview' })).toHaveCount(0);
     await expect(drawer.getByRole('region', { name: 'Assignees' })).toBeVisible();
-    // Dependencies (a secondary Details section) starts collapsed.
-    await expect(drawer.getByRole('button', { name: 'Dependencies' })).toHaveAttribute(
+    // A populated secondary Details section (Estimates — t1 carries a PERT triple)
+    // still starts collapsed (ADR-0050 lazy-load; only revealed sections auto-open).
+    await expect(drawer.getByRole('button', { name: 'Estimates' })).toHaveAttribute(
       'aria-expanded',
       'false',
     );

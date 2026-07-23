@@ -19,7 +19,7 @@
 
 import { registry } from '@/lib/widget-registry';
 import type { DrawerSectionContext } from '@/lib/widget-registry';
-import type { Task } from '@/types';
+import type { Task, TaskLink } from '@/types';
 import { OverviewSection } from './OverviewSection';
 import { BlockerSection } from './BlockerSection';
 import { SprintSection } from './SprintSection';
@@ -34,6 +34,50 @@ import { ActivityTimeline } from '../ActivityTimeline';
 import { RecurrenceSection } from './RecurrenceSection';
 import { EstimatesSection } from './EstimatesSection';
 import { BaselineSection } from './BaselineSection';
+
+// ---------------------------------------------------------------------------
+// Progressive-disclosure predicates (ADR-0605, #2315)
+//
+// `isPopulated(ctx)` reports whether an optional Details-tab section has content
+// for the current task, WITHOUT firing that section's TanStack Query — every
+// signal below is read from the task object (or the already-warm schedule cache
+// threaded onto the context), so the drawer can collapse empty sections behind
+// "Add detail" without the eager fetch ADR-0050's lazy-load exists to avoid.
+// Only sections whose emptiness is task-derivable get a predicate; related-links
+// and recurring carry no task-level signal (they need a server annotation,
+// deferred follow-up) and so stay always-shown by omitting `isPopulated`.
+// ---------------------------------------------------------------------------
+
+/** Narrow the registry's `unknown` predicate context to the drawer context.
+ *  Mirrors how the `canRender` predicates in this file cast inline. */
+function asDrawerCtx(ctx: unknown): DrawerSectionContext {
+  return ctx as DrawerSectionContext;
+}
+
+/** Read the task off the (loosely-typed) drawer-section context. */
+function ctxTask(ctx: unknown): Task {
+  return asDrawerCtx(ctx).task as Task;
+}
+
+/** Any three-point (PERT) duration set directly on a leaf task. */
+function hasOwnPert(t: Task): boolean {
+  return (
+    t.optimisticDuration != null || t.mostLikelyDuration != null || t.pessimisticDuration != null
+  );
+}
+
+/**
+ * True when any descendant (recursive, by `parentId`) carries a PERT estimate.
+ * A summary task surfaces a rolled-up PERT block, so it counts as populated when
+ * a child does — mirroring EstimatesSection's own summary render gate. Reads the
+ * already-loaded task list; an empty/cold list reports false (the section is
+ * then revealable via "Add detail"), never a wrong fetch.
+ */
+function hasDescendantPert(tasks: Task[], rootId: string): boolean {
+  return tasks.some(
+    (c) => c.parentId === rootId && (hasOwnPert(c) || hasDescendantPert(tasks, c.id)),
+  );
+}
 
 let registered = false;
 
@@ -65,6 +109,8 @@ export function registerOssDrawerSections(): void {
       const t = (ctx as { task: Task }).task;
       return !t.isSummary && !t.isMilestone;
     },
+    // Populated once the task is assigned to a sprint (ADR-0605).
+    isPopulated: (ctx) => ctxTask(ctx).sprintId != null,
   });
 
   registry.register('task_detail.section', {
@@ -90,6 +136,16 @@ export function registerOssDrawerSections(): void {
     component: DependenciesSection,
     priority: 200,
     tab: 'details',
+    // Populated when any dependency edge touches this task, in either direction.
+    // Prefer the warm `links` cache (exact — catches outgoing-only tasks that
+    // `predecessorCount`, an incoming-only count, would miss); fall back to
+    // `predecessorCount` when the cache isn't threaded (ADR-0605).
+    isPopulated: (ctx) => {
+      const t = ctxTask(ctx);
+      const links = asDrawerCtx(ctx).links as TaskLink[] | undefined;
+      if (links) return links.some((l) => l.sourceId === t.id || l.targetId === t.id);
+      return (t.predecessorCount ?? 0) > 0;
+    },
   });
 
   // Related links (#2068) — relative, non-scheduling cross-references
@@ -129,6 +185,11 @@ export function registerOssDrawerSections(): void {
     priority: 175,
     tab: 'details',
     canRender: (ctx) => !(ctx as { task: Task }).task.isSummary,
+    // Populated when the task is flagged blocked. Use `blockedAgeSeconds` (the
+    // team-visible "is flagged" signal), NOT `blockedReason` — the reason is
+    // privacy-gated to undefined for some viewers even on a flagged task, which
+    // would under-report and wrongly collapse the section (ADR-0605).
+    isPopulated: (ctx) => ctxTask(ctx).blockedAgeSeconds != null,
   });
 
   // Notes (ADR-0143, issue 740) — the task's why/decision log. Sits above Comments
@@ -185,6 +246,13 @@ export function registerOssDrawerSections(): void {
     // Milestones have no PERT estimates — duration is always 0 and
     // the three-point fields are meaningless (ADR-0058).
     canRender: (ctx) => !(ctx as { task: Task }).task.isMilestone,
+    // Populated when a leaf carries a PERT triple, or (summary) any descendant
+    // does — mirroring EstimatesSection's own render gate (ADR-0605).
+    isPopulated: (ctx) => {
+      const t = ctxTask(ctx);
+      const tasks = (asDrawerCtx(ctx).tasks ?? []) as Task[];
+      return t.isSummary ? hasDescendantPert(tasks, t.id) : hasOwnPert(t);
+    },
   });
 
   registry.register('task_detail.section', {

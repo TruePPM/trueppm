@@ -23,9 +23,28 @@ import { create } from 'zustand';
 interface DrawerSectionState {
   overrides: Record<string, boolean>;
   setOpen: (id: string, open: boolean) => void;
+  /**
+   * Sections the user has revealed via the Details-tab "Add detail" affordance
+   * (ADR-0605, #2315), keyed `${taskId}:${sectionId}`. Progressive disclosure
+   * hides an *empty* optional section (`isPopulated` returned false) behind
+   * "Add detail"; revealing it moves it back into the main flow. Keyed by task
+   * so revealing Recurrence on task A does not reveal it on task B. Same
+   * session-scoped, in-memory lifetime as `overrides` (a reload resets to the
+   * populated-only default, which is acceptable transient UI state).
+   */
+  revealed: Record<string, boolean>;
+  reveal: (taskId: string, id: string) => void;
+}
+
+/** Reveal-set key — task-scoped so a reveal never leaks across tasks. */
+export function revealKey(taskId: string, id: string): string {
+  return `${taskId}:${id}`;
 }
 
 export const useDrawerSectionStore = create<DrawerSectionState>((set) => ({
   overrides: {},
   setOpen: (id, open) => set((s) => ({ overrides: { ...s.overrides, [id]: open } })),
+  revealed: {},
+  reveal: (taskId, id) =>
+    set((s) => ({ revealed: { ...s.revealed, [revealKey(taskId, id)]: true } })),
 }));
