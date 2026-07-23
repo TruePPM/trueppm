@@ -81,6 +81,16 @@ describe('ProjectNotificationsPage', () => {
     expect(screen.getAllByRole('switch').length).toBeGreaterThanOrEqual(9 * 4); // 36 toggles + quiet hours
   });
 
+  it('renders contextual help for the routing matrix and quiet hours (#2266)', () => {
+    renderPage();
+    expect(
+      screen.getByRole('button', { name: /About the Notification routing options/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /About the Quiet hours options/i }),
+    ).toBeInTheDocument();
+  });
+
   it('reflects seeded matrix values on each toggle', () => {
     renderPage();
     const overdueEmail = screen.getByRole('switch', { name: /task i own is overdue via email/i });

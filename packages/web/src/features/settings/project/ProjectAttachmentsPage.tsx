@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { InheritableToggleField } from '../components/InheritableToggleField';
 import { InheritableMultiSelectField } from '../components/InheritableMultiSelectField';
 import { useDirtyForm } from '../hooks/useDirtyForm';
@@ -96,9 +97,19 @@ export function ProjectAttachmentsPage() {
       />
 
       <div className="px-6 pb-8 max-w-[720px]">
+        {/* This page has no StubFieldset (the Inheritable* controls render their own
+            read-only view below Admin), so the ⓘ stays clickable for every role —
+            it is not gated on canEdit the way the StubFieldset-wrapped pages are. */}
         <FieldRow
           label="File attachments"
           hint="Allow uploading files to tasks in this project. Turning this off keeps existing files but hides the upload controls."
+          help={
+            <FieldHelp
+              label="File attachments"
+              body="Whether contributors can upload files to tasks in this project. Turning it off keeps existing files but hides the upload controls, and external links are always allowed either way. Inherits the program or workspace policy unless you override it here."
+              docHref="administration/attachment-policy/#the-two-attachment-settings"
+            />
+          }
         >
           <InheritableToggleField
             value={attachmentsEnabled}
@@ -116,6 +127,13 @@ export function ProjectAttachmentsPage() {
         <FieldRow
           label="Allowed file types"
           hint="The file types contributors may upload. A few are permanently disallowed for security."
+          help={
+            <FieldHelp
+              label="Allowed file types"
+              body="The set of file types contributors may attach to tasks. Leave it inheriting to follow the program or workspace allowlist, or override it to a narrower set here. A few executable and script types are permanently blocked for security and can never be added. If the resolved list is empty while attachments are on, no file can be uploaded."
+              docHref="administration/attachment-policy/#permanently-blocked-types-security-denylist"
+            />
+          }
         >
           <div className="flex flex-col gap-3">
             <InheritableMultiSelectField

@@ -192,6 +192,11 @@ describe('ProjectSignalPrivacyPage', () => {
     expect(
       screen.queryByRole('button', { name: 'Make everything team-only' }),
     ).not.toBeInTheDocument();
+    // The ⓘ explaining the ladder/ceiling/ratchet sits in the title strip, so it
+    // stays reachable even when every write control is hidden (#2266).
+    expect(
+      screen.getByRole('button', { name: /About the Signal privacy options/i }),
+    ).toBeInTheDocument();
   });
 
   describe('pending ceiling-raise proposal', () => {

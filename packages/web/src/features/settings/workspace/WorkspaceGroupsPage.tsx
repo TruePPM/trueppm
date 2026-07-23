@@ -4,6 +4,7 @@ import { useWorkspaceGroups, type WorkspaceGroup } from '../hooks/useWorkspaceGr
 import { useCreateGroup, useDeleteGroup } from '../hooks/useWorkspaceGroupMutations';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { GroupManageDrawer } from './GroupManageDrawer';
+import { FieldHelp } from '@/components/FieldHelp';
 
 // Below this member count the card shows member NAMES (who is in the group);
 // at or above it the roster collapses to the overlapping initial stack (an
@@ -313,6 +314,24 @@ export function WorkspaceGroupsPage() {
           </div>
         }
       />
+
+      {/* Section-level FieldHelp (web-rule 263): one ⓘ explains what groups do
+          (bulk project access + capacity rollup) and the groups-vs-mention-groups
+          distinction — the surrounding policy jargon, not the self-evident name /
+          description inputs (#2266, #2253/#2254). Rendered unconditionally so it
+          stays reachable before any group exists. */}
+      <div className="px-6 pt-1">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-[13px] font-semibold text-neutral-text-primary">
+            How groups work
+          </h2>
+          <FieldHelp
+            label="Groups & teams"
+            body="Groups bundle members so you can grant project access in bulk and roll up team capacity. Adding a member to a group grants them access to every project the group can reach; deleting a group removes that access from all of its members. Groups are not for @-mentions — to notify a named audience in comments, use a project's Mention groups instead."
+            docHref="administration/sharing-and-access"
+          />
+        </div>
+      </div>
 
       {/* Inline create form */}
       {showCreateForm && (

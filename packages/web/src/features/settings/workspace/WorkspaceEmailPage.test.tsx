@@ -456,6 +456,50 @@ describe('WorkspaceEmailPage — deliverability health', () => {
   });
 });
 
+describe('WorkspaceEmailPage — contextual help (#2266)', () => {
+  it('opens a docs popover on the Provider field pointing at the provider guide', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.click(screen.getByRole('button', { name: /About the Provider options/i }));
+    expect(screen.getByRole('link', { name: /Choosing a provider/i })).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/administration/email/#choosing-a-provider',
+    );
+  });
+
+  it('carries an ⓘ on every jargon/policy delivery field', () => {
+    render(<WorkspaceEmailPage />);
+    for (const name of [
+      /About the Reply-to address options/i,
+      /About the DKIM selector options/i,
+      /About the Max recipients options/i,
+      /About the Throttle options/i,
+      /About the Bounce webhook options/i,
+    ]) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+  });
+
+  it('does not add an ⓘ to self-evident fields (From name, From address)', () => {
+    render(<WorkspaceEmailPage />);
+    expect(
+      screen.queryByRole('button', { name: /About the From name options/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /About the From address options/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('opens a docs popover on the SES region field', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'ses' } });
+    fireEvent.click(screen.getByRole('button', { name: /About the SES region options/i }));
+    expect(screen.getByRole('link', { name: /Amazon SES setup/i })).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/administration/email',
+    );
+  });
+});
+
 describe('WorkspaceEmailPage — field editing', () => {
   it('edits every From-identity and delivery field and PUTs the new values', async () => {
     const mutateAsync = vi.fn().mockResolvedValue(undefined);

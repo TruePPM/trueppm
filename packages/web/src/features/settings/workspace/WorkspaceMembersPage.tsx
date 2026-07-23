@@ -12,6 +12,7 @@ import {
   useResendAllInvites,
 } from '../hooks/useWorkspaceInvites';
 import { toast } from '@/components/Toast';
+import { FieldHelp } from '@/components/FieldHelp';
 import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
 import { filterMembers } from './filterMembers';
 
@@ -422,12 +423,36 @@ export function WorkspaceMembersPage() {
           />
         </div>
         <div className="flex flex-col gap-0.5">
-          <label
-            htmlFor={inviteRoleId}
-            className="text-[11px] font-medium text-neutral-text-secondary"
-          >
-            Role
-          </label>
+          {/* Section-level FieldHelp (web-rule 263): the workspace-role vocabulary
+              is policy jargon, so one ⓘ on the invite Role select explains every
+              value — it applies equally to the per-row Role selects below (#2266). */}
+          <div className="flex items-center gap-1.5">
+            <label
+              htmlFor={inviteRoleId}
+              className="text-[11px] font-medium text-neutral-text-secondary"
+            >
+              Role
+            </label>
+            <FieldHelp
+              label="Workspace role"
+              intro="The workspace role is the highest level a member can act with anywhere. Change it per person in the table below."
+              options={[
+                {
+                  label: 'Member',
+                  desc: 'Standard access. Works within the projects they are added to; cannot manage the workspace.',
+                },
+                {
+                  label: 'Admin',
+                  desc: 'Manages workspace members, groups, and settings on top of Member access.',
+                },
+                {
+                  label: 'Owner',
+                  desc: 'Full control of the workspace, including ownership transfer. The highest workspace role.',
+                },
+              ]}
+              docHref="administration/rbac"
+            />
+          </div>
           <select
             id={inviteRoleId}
             value={inviteRole}

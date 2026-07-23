@@ -61,6 +61,22 @@ describe('ProjectIntegrationsPage', () => {
     );
   });
 
+  it('links each integration section to its docs page (#2266)', () => {
+    render(<ProjectIntegrationsPage />);
+    expect(screen.getByRole('link', { name: 'webhooks' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('features/webhooks') as unknown as string,
+    );
+    expect(screen.getByRole('link', { name: 'API tokens' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('features/personal-access-tokens') as unknown as string,
+    );
+    expect(screen.getByRole('link', { name: 'Git-event automation' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('administration/git-event-automation') as unknown as string,
+    );
+  });
+
   it('returns null when projectId is unavailable', () => {
     useProjectId.mockReturnValue(undefined);
     const { container } = render(<ProjectIntegrationsPage />);

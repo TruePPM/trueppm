@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -275,5 +275,30 @@ describe('WorkspaceGroupsPage — directory sync is an Enterprise affordance (#7
 
     // Manual group creation stays OSS — the adjacent action is still live.
     expect(screen.getByRole('button', { name: '+ Create group' })).toBeEnabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Contextual help (#2266)
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceGroupsPage — contextual help (#2266)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMocks();
+  });
+
+  it('exposes a section-level FieldHelp ⓘ deep-linking to the sharing-and-access docs', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceGroupsPage />, { wrapper: makeWrapper() });
+
+    // Rendered unconditionally (before any group loads) so read-only viewers
+    // reach it too (web-rule 263).
+    const trigger = screen.getByRole('button', { name: /About the Groups & teams options/i });
+    await user.click(trigger);
+
+    const dialog = screen.getByRole('dialog', { name: /Groups & teams/i });
+    const learnMore = within(dialog).getByRole('link', { name: /Learn more/i });
+    expect(learnMore).toHaveAttribute('href', expect.stringContaining('sharing-and-access'));
   });
 });

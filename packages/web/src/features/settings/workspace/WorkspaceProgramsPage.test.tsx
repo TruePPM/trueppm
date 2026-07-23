@@ -1,4 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -116,5 +117,20 @@ describe('WorkspaceProgramsPage', () => {
     expect(screen.queryByTestId('bulk-fields-action-bar')).not.toBeInTheDocument();
     // No per-row selection checkbox without edit rights.
     expect(screen.queryByLabelText('Select Apollo')).not.toBeInTheDocument();
+  });
+
+  it('exposes a section-level FieldHelp ⓘ explaining the policy columns, deep-linking to the docs (#2266)', async () => {
+    const user = userEvent.setup();
+    usePrograms.mockReturnValue({ data: [program()], isLoading: false, error: null });
+    renderPage();
+
+    const trigger = screen.getByRole('button', {
+      name: /About the Program policy fields options/i,
+    });
+    await user.click(trigger);
+
+    const dialog = screen.getByRole('dialog', { name: /Program policy fields/i });
+    const learnMore = within(dialog).getByRole('link', { name: /Learn more/i });
+    expect(learnMore).toHaveAttribute('href', expect.stringContaining('workspace-settings'));
   });
 });

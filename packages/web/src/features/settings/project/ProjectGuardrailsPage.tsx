@@ -11,6 +11,12 @@ import {
   type GuardrailLevel,
 } from '@/hooks/useProjectGuardrailPolicy';
 import { SettingsPageTitle } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
+
+// Sprint guardrails has no StubFieldset (the pills carry their own role-gate), so
+// every FieldHelp ⓘ here renders unconditionally and stays clickable for all roles —
+// it is purely informational, never a disabled-fieldset dead affordance (web-rule 122).
+const GUARDRAILS_DOC = 'administration/project-settings/#sprint-guardrails';
 
 /**
  * Project > Sprint guardrails settings page (ADR-0101 §3).
@@ -101,9 +107,16 @@ export function ProjectGuardrailsPage() {
             ].join(' ')}
           >
             <div className="flex-1">
-              <h2 className="text-[13px] font-semibold text-neutral-text-primary">
-                Policy set by {policy.sourceLabel || 'an external administrator'}
-              </h2>
+              <div className="flex items-center gap-1.5">
+                <h2 className="text-[13px] font-semibold text-neutral-text-primary">
+                  Policy set by {policy.sourceLabel || 'an external administrator'}
+                </h2>
+                <FieldHelp
+                  label="External policy"
+                  body="This guardrail policy was supplied by an external administrator (a TruePPM Enterprise resolver), not set on this project. Any rule configured as Block stays inert — warning only — until this team acknowledges the policy. Acknowledging activates those blocks; you can withdraw acknowledgement at any time. Warnings always fire regardless."
+                  docHref={GUARDRAILS_DOC}
+                />
+              </div>
               <p className="text-[12px] text-neutral-text-secondary leading-snug mt-0.5">
                 {policy.acknowledgedByTeam
                   ? 'This team has acknowledged the policy. Any blocks below are enforced.'
@@ -136,7 +149,14 @@ export function ProjectGuardrailsPage() {
               text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             style={{ gridTemplateColumns: '2fr 220px' }}>
             <span>Rule</span>
-            <span className="text-right">Enforcement</span>
+            <span className="flex items-center justify-end gap-1.5">
+              Enforcement
+              <FieldHelp
+                label="Enforcement"
+                body="How each guardrail acts when a rule is broken. Warn lets the team proceed with a caution — the action is allowed with an override. Block stops the action outright with no override. Only a project Owner can escalate a composition rule from Warn to Block; any member can lower a Block back to Warn."
+                docHref={GUARDRAILS_DOC}
+              />
+            </span>
           </div>
 
           {ALL_RULES.map((rule) => {
@@ -161,13 +181,20 @@ export function ProjectGuardrailsPage() {
                 </div>
                 <div className="flex items-center justify-end gap-1.5">
                   {isAdvisoryOnly ? (
-                    <span
-                      className="inline-flex items-center px-2.5 py-1 rounded-chip text-[11px] font-medium
-                        border border-neutral-border text-neutral-text-secondary bg-neutral-surface"
-                      title="Advisory — cannot be escalated to a hard block"
-                    >
-                      Warn (advisory)
-                    </span>
+                    <>
+                      <span
+                        className="inline-flex items-center px-2.5 py-1 rounded-chip text-[11px] font-medium
+                          border border-neutral-border text-neutral-text-secondary bg-neutral-surface"
+                        title="Advisory — cannot be escalated to a hard block"
+                      >
+                        Warn (advisory)
+                      </span>
+                      <FieldHelp
+                        label="Advisory rule"
+                        body="This rule is advisory only. It always warns the team and can never be escalated to a hard Block on either side — so it can flag the mistake without ever stopping the work."
+                        docHref={GUARDRAILS_DOC}
+                      />
+                    </>
                   ) : (
                     <>
                       <LevelPill

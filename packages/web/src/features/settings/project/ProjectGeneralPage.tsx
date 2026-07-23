@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { MemberPicker } from '../components/MemberPicker';
 import { MoveProgramDialog } from '../components/MoveProgramDialog';
 import { StubFieldset } from '../components/StubFieldset';
@@ -487,6 +488,18 @@ export function ProjectGeneralPage() {
   // ADR-0135 sharing toggles already used this exact gate; it now governs every field.
   const canEdit = role !== null && role >= ROLE_ADMIN;
 
+  // Contextual-help ⓘ (web-rule 263) for a jargon/policy/cascade field. Gated on
+  // `canEdit` because the whole form is wrapped in `<StubFieldset disabled={!canEdit}>`
+  // below (#1084): a `<fieldset disabled>` disables every descendant <button> — the
+  // FieldHelp trigger included — so a read-only viewer would get a dimmed, unclickable
+  // ⓘ (a dead affordance; ux-review §8 / web-rule 122). Read-only users still get each
+  // field's always-visible inline `hint`; only the richer popover + docs deep-link is
+  // an editor aid, so we render no trigger at all rather than a disabled one. (Making
+  // the popover reachable read-only needs the write-gate to stop blanket-disabling the
+  // labels — a FieldRow/StubFieldset follow-up, tracked for the Workspace/Project slices.)
+  const fieldHelp = (props: { label: string; body: string; docHref: string }) =>
+    canEdit ? <FieldHelp {...props} /> : undefined;
+
   return (
     <div>
       <SettingsPageTitle
@@ -558,6 +571,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Program"
             hint="The program this project rolls up into. Moving it needs Manager role on both this project and the target program."
+            help={fieldHelp({
+              label: 'Program',
+              body: "A program groups related projects under one manager, so this project's schedule and status roll up into the program's overview. Use Move to change which program it belongs to, or leave it Standalone. Moving needs Manager (Admin+) on both this project and the target program.",
+              docHref: 'administration/project-settings/#general',
+            })}
           >
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2">
@@ -585,6 +603,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Health"
             hint="Drives the dot color in project lists and rollups. Override is auto-cleared after 14 days."
+            help={fieldHelp({
+              label: 'Health',
+              body: "Set a manual status — On track, At risk, or Critical — or choose Auto to let TruePPM derive the project's health from its schedule. A manual override is automatically cleared after 14 days so a stale status doesn't linger.",
+              docHref: 'administration/project-settings/#general',
+            })}
           >
             <div className="flex gap-2">
               {HEALTH_OPTIONS.map((opt) => (
@@ -667,6 +690,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Allow guests"
             hint="Guests are external collaborators (vendors, auditors), limited to what they're invited to. Inherits the program or workspace setting unless you override it here."
+            help={fieldHelp({
+              label: 'Allow guests',
+              body: "Guests are external collaborators — vendors, auditors — limited to just what they're invited to. Inherits the program or workspace setting unless you override it here.",
+              docHref: 'administration/sharing-and-access/',
+            })}
           >
             <InheritableToggleField
               value={allowGuests}
@@ -684,6 +712,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Public sharing"
             hint="Anyone with the link can view selected reports — no sign-in required. Inherits the program or workspace setting unless you override it here."
+            help={fieldHelp({
+              label: 'Public sharing',
+              body: 'Lets anyone with the link view selected reports without signing in. Inherits the program or workspace setting unless you override it here.',
+              docHref: 'administration/sharing-and-access/',
+            })}
           >
             <InheritableToggleField
               value={publicSharing}
@@ -707,6 +740,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Keep Monte Carlo run history"
             hint={`${MC_HISTORY_HINT} Inherits the program or workspace setting unless you override it here.`}
+            help={fieldHelp({
+              label: 'Keep Monte Carlo run history',
+              body: "Whether this project keeps past Monte Carlo forecast runs, so you can compare how its forecast moved over time. Inherits the program or workspace setting unless you override it here.",
+              docHref: 'features/monte-carlo/#forecast-history',
+            })}
           >
             <InheritableToggleField
               value={mcHistoryEnabled}
@@ -724,6 +762,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Run history limit"
             hint="The most recent runs kept for this project. Older runs are pruned. Inherits the program or workspace setting unless you override it here."
+            help={fieldHelp({
+              label: 'Run history limit',
+              body: 'The most recent Monte Carlo runs kept for this project. Once the limit is reached, the oldest runs are pruned as new ones are recorded. Inherits the program or workspace setting unless you override it here.',
+              docHref: 'features/monte-carlo/#retention',
+            })}
           >
             <InheritableNumberField
               value={mcHistoryRetentionCap}
@@ -742,6 +785,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Run attribution visible to"
             hint={`${MC_ATTRIBUTION_HINT} Inherits the program or workspace setting unless you override it here.`}
+            help={fieldHelp({
+              label: 'Run attribution visible to',
+              body: 'Controls who can see which member ran each Monte Carlo forecast. Inherits the program or workspace setting unless you override it here.',
+              docHref: 'features/monte-carlo/#forecast-history',
+            })}
           >
             <InheritableSelectField
               value={mcHistoryAttributionAudience}
@@ -758,6 +806,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Duration change &rarr; percent complete"
             hint={`${DURATION_CHANGE_POLICY_HINT} Inherits the program or workspace setting unless you override it here.`}
+            help={fieldHelp({
+              label: 'Duration change to percent complete',
+              body: "Whether editing a task's duration re-derives its percent complete, and how that recalculation is applied. Inherits the program or workspace setting unless you override it here.",
+              docHref: 'administration/project-settings/#general',
+            })}
           >
             <InheritableSelectField
               value={taskDurationChangePercentPolicy}
@@ -774,6 +827,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Timezone"
             hint="Used for due dates, Gantt rendering, and sprint cutovers."
+            help={fieldHelp({
+              label: 'Timezone',
+              body: "The timezone due dates, Gantt rendering, and sprint cutovers are interpreted in. It's display-only — changing it never shifts a task's stored calendar dates. Leave it on Workspace default to follow the workspace setting.",
+              docHref: 'features/timezone-and-date-format/#timezone',
+            })}
           >
             <div className="relative inline-block w-[280px]">
               <select
@@ -810,6 +868,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Working calendar"
             hint="The base calendar and holiday overlays are composed on the Working calendars page — the single place they're edited (ADR-0441)."
+            help={fieldHelp({
+              label: 'Working calendar',
+              body: 'The working calendar sets which days count as working time, so scheduling skips weekends and holidays. It resolves from the base calendar plus any holiday overlays. This row is read-only — compose it on the Working calendars page. When no override is set, the project inherits the program or workspace calendar.',
+              docHref: 'administration/working-calendars/',
+            })}
           >
             {/* Read-only summary + link (#2009). The base FK used to be editable here
                 AND on the Working calendars page, so a save here could silently clobber
@@ -892,6 +955,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Status date (data date)"
             hint="Forecasts and % complete are measured as of this date. Leave on Today to always use the current date (ADR-0132)."
+            help={fieldHelp({
+              label: 'Status date (data date)',
+              body: "The as-of date TruePPM measures forecasts and percent complete from — sometimes called the data date. Leave it on Today (dynamic) to always use the current date, or pin a fixed date to freeze progress reporting to a reporting cutoff.",
+              docHref: 'administration/project-settings/#general',
+            })}
           >
             {/* null = "Today (dynamic)"; picking a date arms a fixed anchor. Mirrors the
                 inherit/override toggle pattern used elsewhere on this page. */}
@@ -929,6 +997,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Backlog scoring model"
             hint="How backlog items are scored for ranking. None hides the scoring inputs — pure manual order (ADR-0105)."
+            help={fieldHelp({
+              label: 'Backlog scoring model',
+              body: 'The prioritization formula used to rank backlog items — WSJF, RICE, or Value / Effort — each adding its own scoring inputs to a backlog item. Choose None to hide the scoring inputs and rank the backlog by manual drag order only.',
+              docHref: 'administration/project-settings/#general',
+            })}
           >
             <div className="relative inline-block w-[200px]">
               <select
@@ -973,6 +1046,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Stale-task nudge after"
             hint="Warn when a task's status hasn't changed in this many days. Between 1 and 365."
+            help={fieldHelp({
+              label: 'Stale-task nudge after',
+              body: "The number of days a task can sit with no status change before TruePPM nudges its assignee. Set it between 1 and 365 to match how quickly work should move in this project.",
+              docHref: 'administration/project-settings/#stale-task-threshold',
+            })}
           >
             <div className="flex items-center gap-2">
               <input
@@ -991,6 +1069,11 @@ export function ProjectGeneralPage() {
           <FieldRow
             label="Notify on end-date shift of"
             hint="Alert the project lead when a recompute moves the finish by at least this many days. Between 1 and 365."
+            help={fieldHelp({
+              label: 'Notify on end-date shift of',
+              body: "How far the project's computed finish date must move — in either direction — before the project lead is alerted. Set it between 1 and 365 days so only meaningful schedule slips or pull-ins trigger a notification.",
+              docHref: 'administration/project-settings/#project-end-date-shift-threshold',
+            })}
           >
             <div className="flex items-center gap-2">
               <input
@@ -1013,6 +1096,11 @@ export function ProjectGeneralPage() {
             <FieldRow
               label="Iteration terminology"
               hint="What this team calls a time-boxed iteration. Display only — it never changes how anything works."
+              help={fieldHelp({
+                label: 'Iteration terminology',
+                body: "The word this project uses for its time-boxed iteration container — Sprint, Iteration, or Cycle. It's display-only labeling and never changes how anything works. Inherits the program or workspace default unless you set your own.",
+                docHref: 'features/methodology-preset/#iteration-terminology',
+              })}
             >
               <InheritableIterationLabelField
                 value={iterationLabel}

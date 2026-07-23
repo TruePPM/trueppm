@@ -133,6 +133,15 @@ describe('ProjectTeamPage', () => {
     expect(mockMutate).not.toHaveBeenCalled();
   });
 
+  it('exposes a section-level role-vs-facet contextual-help trigger (#2266)', () => {
+    roleHolder.role = 100; // a read-only Member still reaches the ⓘ in the title strip
+    membersHolder.data = [member()];
+    renderWithRouter(<ProjectTeamPage />);
+    expect(
+      screen.getByRole('button', { name: /About the Roles and facets options/i }),
+    ).toBeInTheDocument();
+  });
+
   it('is read-only for a plain member (no role select, disabled switches)', () => {
     roleHolder.role = 100; // project Member, and not a team admin row
     membersHolder.data = [member()];

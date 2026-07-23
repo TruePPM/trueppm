@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
@@ -95,12 +96,19 @@ export function WorkspaceCalendarPage() {
       <div className="px-6 pb-8 max-w-[720px] space-y-6">
         {/* Default calendar picker */}
         <section aria-labelledby="calendar-heading">
-          <h2
-            id="calendar-heading"
-            className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary mb-3"
-          >
-            Default calendar
-          </h2>
+          <div className="flex items-center gap-1.5 mb-3">
+            <h2
+              id="calendar-heading"
+              className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
+            >
+              Default calendar
+            </h2>
+            <FieldHelp
+              label="Default calendar"
+              body="The working calendar new programs and projects start from — its working days and hours drive every CPM date calculation. Leave it on the system default (Mon–Fri, 8h/day) or pick one you've defined. Lower scopes may override it unless you require a single calendar below."
+              docHref="administration/working-calendars/#inherit-vs-override"
+            />
+          </div>
           <div className="relative inline-block w-[280px]">
             <select
               value={calendarId ?? ''}
@@ -151,12 +159,19 @@ export function WorkspaceCalendarPage() {
           className="rounded-card border border-neutral-border bg-neutral-surface-raised overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-neutral-border/55">
-            <h2
-              id="calendar-policy-heading"
-              className="text-[13px] font-semibold text-neutral-text-primary"
-            >
-              Program &amp; project override policy
-            </h2>
+            <div className="flex items-center gap-1.5">
+              <h2
+                id="calendar-policy-heading"
+                className="text-[13px] font-semibold text-neutral-text-primary"
+              >
+                Program &amp; project override policy
+              </h2>
+              <FieldHelp
+                label="Override policy"
+                body="Controls whether programs and projects may deviate from the workspace calendar. Suggest pre-fills it but lets each scope change it; Inherit makes it win everywhere and per-scope pickers read-only; Enforce is a hard lock available in TruePPM Enterprise."
+                docHref="administration/working-calendars/"
+              />
+            </div>
             <p className="text-[12px] text-neutral-text-secondary mt-0.5">
               Controls how programs and projects deviate from the workspace default.
             </p>

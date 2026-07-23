@@ -177,6 +177,14 @@ describe('ProjectLabelsPage', () => {
     expect(body).not.toBeNull();
   });
 
+  it('exposes a section-level contextual-help trigger (#2266)', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_VIEWER });
+    renderPage();
+    // Reachable even for a read-only Viewer — the ⓘ lives in the page title strip,
+    // not behind an edit control.
+    expect(screen.getByRole('button', { name: /About the Labels options/i })).toBeInTheDocument();
+  });
+
   it('hides the create form and shows the cap message at the soft limit', () => {
     useCurrentUserRole.mockReturnValue({ role: ROLE_ADMIN });
     useLabels.mockReturnValue({

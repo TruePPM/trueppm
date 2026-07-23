@@ -927,3 +927,40 @@ describe('ProjectWorkflowPage — OptionsEditor', () => {
     expect(payload.options).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Contextual help (web-rule 263 FieldHelp) on jargon/policy fields (#2266)
+// ---------------------------------------------------------------------------
+
+describe('ProjectWorkflowPage — contextual help', () => {
+  it('renders help triggers on the cadence, statuses, and field-type/required affordances', () => {
+    renderPage();
+    expect(
+      screen.getByRole('button', { name: /About the Board cadence options/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /About the Statuses options/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /About the Field type options/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /About the Required options/i })).toBeInTheDocument();
+  });
+
+  it('opens the field-type help and shows the enumerated types plus a docs link', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /About the Field type options/i }));
+    const dialog = screen.getByRole('dialog', { name: /Field type/i });
+    expect(within(dialog).getByText('Single-select')).toBeInTheDocument();
+    expect(within(dialog).getByText('Boolean')).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: /Learn more/i })).toBeInTheDocument();
+  });
+
+  it('exposes contextual help to a read-only MEMBER viewer', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_MEMBER, isLoading: false });
+    renderPage();
+    // The help triggers live in the section headers / table header, not behind an
+    // edit-only control, so read-only viewers still reach them (#2266).
+    expect(
+      screen.getByRole('button', { name: /About the Board cadence options/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /About the Field type options/i })).toBeInTheDocument();
+  });
+});

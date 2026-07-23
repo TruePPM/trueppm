@@ -6,6 +6,7 @@ import { WORKSPACE_ADMIN_ROLE } from '@/hooks/useIsWorkspaceAdmin';
 import { useBulkProgramFields } from '@/hooks/useBulkProgramFields';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { BulkFieldsMatrix, type FieldDescriptor } from '../components/BulkFieldsMatrix';
+import { FieldHelp } from '@/components/FieldHelp';
 import type { Program } from '@/api/types';
 
 /**
@@ -92,6 +93,36 @@ export function WorkspaceProgramsPage() {
       />
 
       <div className="px-6 pb-8 max-w-[920px]">
+        {/* Section-level FieldHelp (web-rule 263): the four bulk columns live in
+            the shared BulkFieldsMatrix header, so one ⓘ here explains each policy
+            column's meaning rather than modifying the shared component (#2266). */}
+        <div className="mt-4 flex items-center gap-1.5">
+          <h2 className="text-[13px] font-semibold text-neutral-text-primary">Policy fields</h2>
+          <FieldHelp
+            label="Program policy fields"
+            intro="What each column sets when you apply it across the selected programs."
+            options={[
+              {
+                label: 'Methodology',
+                desc: 'Agile, Waterfall, or Hybrid delivery. Each program inherits the workspace methodology unless overridden here.',
+              },
+              {
+                label: 'Iteration label',
+                desc: 'What a time-box is called in this program — "Sprint", "Iteration", "Cycle". Blank inherits the workspace label.',
+              },
+              {
+                label: 'Slip propagation',
+                desc: 'What happens when a task slips past a dependency: take no action, warn only, or block and escalate.',
+              },
+              {
+                label: 'Escalation days',
+                desc: 'How many days a slip must persist before it escalates (1–30).',
+              },
+            ]}
+            docHref="administration/workspace-settings"
+          />
+        </div>
+
         {isLoading && (
           <div aria-label="Loading programs" className="space-y-2 mt-4">
             {[1, 2, 3].map((i) => (

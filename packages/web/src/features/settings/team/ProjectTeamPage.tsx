@@ -10,6 +10,7 @@
 
 import { useMemo, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -103,6 +104,13 @@ export function ProjectTeamPage() {
       <SettingsPageTitle
         title="Team"
         subtitle="Assign facilitation and ownership. Roles control who can manage the team; facets mark the Scrum Master and Product Owner — independent of role."
+        action={
+          <FieldHelp
+            label="Roles and facets"
+            body="A team role — Member or Admin — controls who can manage the team roster. The Scrum Master and Product Owner facets are separate markers, independent of role: a Member can hold a facet, and holding a facet doesn't grant management rights. At most one person holds each facet; assigning it to someone else moves it."
+            docHref="features/settings/project-team/#role-and-facets-are-independent"
+          />
+        }
       />
 
       <div className="max-w-2xl px-6 pb-8">

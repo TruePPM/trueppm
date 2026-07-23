@@ -294,3 +294,22 @@ describe('WorkspaceGeneralPage — public-sharing override policy (#2014)', () =
     expect(document.getElementById(hintId as string)?.textContent).toMatch(/Enterprise/i);
   });
 });
+
+// ----- Contextual help (web-rule 263 / #2266) --------------------------------
+
+describe('WorkspaceGeneralPage — contextual help', () => {
+  it('renders a FieldHelp ⓘ trigger on jargon/policy fields but not self-evident ones', () => {
+    renderPage();
+    // Jargon/policy/cascade fields get the ⓘ affordance…
+    expect(
+      screen.getByRole('button', { name: 'About the Default timezone options' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'About the Public sharing options' }),
+    ).toBeInTheDocument();
+    // …but self-evident fields (workspace name) keep only their plain inline hint.
+    expect(
+      screen.queryByRole('button', { name: 'About the Workspace name options' }),
+    ).not.toBeInTheDocument();
+  });
+});

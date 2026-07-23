@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { InheritableToggleField } from '../components/InheritableToggleField';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -23,6 +24,9 @@ const SURFACES = [
     label: 'Reports',
     hint: 'Show the Reports view for this project. Turning it off hides the Reports tab; the reporting data is still computed and the page stays reachable by direct link.',
     ariaLabel: 'Show the Reports surface',
+    helpBody:
+      'The Reports view for this project. Turning it off only hides the Reports tab — the reporting data is still computed, and the page stays reachable by direct link (hide-only).',
+    docHref: 'administration/project-settings',
   },
   {
     field: 'show_time_tracking',
@@ -30,6 +34,9 @@ const SURFACES = [
     label: 'Time tracking',
     hint: 'Show time-entry surfaces for this project. Turning it off hides the time-logging chrome (currently mobile); existing time entries are kept and the API is untouched.',
     ariaLabel: 'Show the Time tracking surface',
+    helpBody:
+      'The time-entry surfaces for this project. Turning it off hides the time-logging chrome (currently mobile); existing time entries are kept and the API is untouched.',
+    docHref: 'features/timesheet',
   },
   {
     field: 'show_baselines',
@@ -37,6 +44,9 @@ const SURFACES = [
     label: 'Baselines',
     hint: 'Show the baseline-vs-current comparison in the task drawer. Turning it off hides that section; captured baselines are kept and stay reachable.',
     ariaLabel: 'Show the Baselines surface',
+    helpBody:
+      'The baseline-vs-current comparison in the task drawer. Turning it off hides that section; captured baselines are kept and stay reachable.',
+    docHref: 'features/baselines',
   },
   {
     field: 'show_monte_carlo',
@@ -44,6 +54,9 @@ const SURFACES = [
     label: 'Monte-Carlo forecast',
     hint: 'Show the probabilistic finish-date forecast on the Schedule. Turning it off hides the forecast bar; the simulation still runs and its results stay available via the API.',
     ariaLabel: 'Show the Monte-Carlo forecast surface',
+    helpBody:
+      'The probabilistic finish-date forecast on the Schedule. Turning it off hides the forecast bar; the simulation still runs and its results stay available via the API.',
+    docHref: 'features/monte-carlo',
   },
 ] as const;
 
@@ -122,7 +135,16 @@ export function ProjectVisibilityPage() {
 
       <div className="px-6 pb-8 max-w-[720px]">
         {SURFACES.map((s) => (
-          <FieldRow key={s.field} label={s.label} hint={s.hint}>
+          <FieldRow
+            key={s.field}
+            label={s.label}
+            hint={s.hint}
+            // Unconditional ⓘ: this page has no StubFieldset, so the trigger is
+            // never inside a disabled fieldset and stays reachable for read-only
+            // viewers (matches ProgramRollupPage; the read-only-reachable pattern
+            // deferred from #2266 MR3).
+            help={<FieldHelp label={s.label} body={s.helpBody} docHref={s.docHref} />}
+          >
             <InheritableToggleField
               value={values[s.field]}
               onChange={(next) => setField(s.field, next)}

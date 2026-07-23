@@ -206,7 +206,7 @@ test.describe('Project Settings → General', () => {
     );
 
     // Timezone + default view seed from the response.
-    await expect(section.getByLabel('Timezone')).toHaveValue('Europe/London');
+    await expect(section.getByLabel('Timezone', { exact: true })).toHaveValue('Europe/London');
     await expect(section.getByLabel('Default view')).toHaveValue('BOARD');
 
     // Flip a few fields and save.
@@ -359,7 +359,7 @@ test.describe('Project Settings → General', () => {
     await expect(section.getByRole('combobox', { name: 'Backlog scoring model' })).toHaveValue(
       'none',
     );
-    await expect(section.getByLabel('Stale-task nudge after')).toHaveValue('14');
+    await expect(section.getByLabel('Stale-task nudge after', { exact: true })).toHaveValue('14');
     // status_date null → "Today (dynamic)" is the pressed state.
     await expect(section.getByRole('button', { name: 'Today (dynamic)' })).toHaveAttribute(
       'aria-pressed',
@@ -368,7 +368,7 @@ test.describe('Project Settings → General', () => {
 
     // Edit a couple of fields and save.
     await section.getByRole('combobox', { name: 'Backlog scoring model' }).selectOption('wsjf');
-    await section.getByLabel('Stale-task nudge after').fill('30');
+    await section.getByLabel('Stale-task nudge after', { exact: true }).fill('30');
     await page.getByRole('button', { name: /Save changes/i }).click();
 
     await expect.poll(() => captures.patch).toBeDefined();

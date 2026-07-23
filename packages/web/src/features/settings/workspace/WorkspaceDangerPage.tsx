@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuthStore } from '@/stores/authStore';
+import { docsUrl } from '@/lib/docsUrl';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers';
@@ -17,6 +18,29 @@ const WORKSPACE_OWNER_ROLE = 400; // WorkspaceRole.OWNER ordinal
 interface InlineToast {
   message: string;
   variant: 'error' | 'success';
+}
+
+/**
+ * Per-card "Learn more →" deep-link into the docs for a destructive action.
+ *
+ * Danger-zone actions are irreversible, so each card carries a docs pointer to
+ * the reference page explaining what the action does before an operator commits
+ * (web-rule 263 — a card-level docs link, not a per-input FieldHelp popover,
+ * because there is no single "field" to explain, the whole action is the subject).
+ */
+function LearnMoreLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={docsUrl(href)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-2 inline-flex items-center gap-1 text-[12px] font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+    >
+      {label}
+      <span className="sr-only"> (opens in a new tab)</span>
+      <span aria-hidden="true">→</span>
+    </a>
+  );
 }
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -144,6 +168,7 @@ export function WorkspaceDangerPage() {
             programs, projects, tasks, baselines, and history. We email a download link when it is
             ready; the link expires after a few days.
           </p>
+          <LearnMoreLink href="administration/data-export" label="Learn more" />
           <div className="mt-3 flex items-center gap-3">
             {exportStatus === 'success' && exportJob ? (
               <button
@@ -185,6 +210,7 @@ export function WorkspaceDangerPage() {
             Transfer workspace ownership to another active member. You will be demoted to Admin
             after the transfer.
           </p>
+          <LearnMoreLink href="administration/rbac" label="Learn more" />
           <div className="mt-3 flex items-center gap-2">
             <label htmlFor="new-owner" className="sr-only">
               New owner
@@ -227,6 +253,9 @@ export function WorkspaceDangerPage() {
             project, task, baseline, group, and member. This cannot be undone. All members lose
             access immediately.
           </p>
+          <div className="mb-3">
+            <LearnMoreLink href="administration/workspace-settings" label="Learn more" />
+          </div>
           <div className="rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
             <div className="text-[12px] text-neutral-text-secondary mb-2">
               To confirm, type the workspace name:

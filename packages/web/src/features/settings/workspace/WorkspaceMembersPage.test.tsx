@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -400,5 +400,26 @@ describe('WorkspaceMembersPage — Resend invite (issue 969)', () => {
     await waitFor(() =>
       expect(postMock).toHaveBeenCalledWith('/workspace/invites/resend-all/'),
     );
+  });
+});
+
+describe('WorkspaceMembersPage — contextual help (#2266)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMocks();
+  });
+
+  it('exposes a FieldHelp ⓘ on the invite Role select deep-linking to the RBAC docs', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const trigger = await screen.findByRole('button', {
+      name: /About the Workspace role options/i,
+    });
+    await user.click(trigger);
+
+    const dialog = screen.getByRole('dialog', { name: /Workspace role/i });
+    const learnMore = within(dialog).getByRole('link', { name: /Learn more/i });
+    expect(learnMore).toHaveAttribute('href', expect.stringContaining('rbac'));
   });
 });

@@ -214,4 +214,13 @@ describe('WorkspaceRolesPage — read-only reference framing (#1649)', () => {
     expect(screen.getByText(/Need custom roles/i)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Available in TruePPM Enterprise/i })).toBeNull();
   });
+
+  it('renders a section-level "Learn more" link to the RBAC docs (#2266)', () => {
+    mockUseEdition.mockReturnValue({ edition: 'community', isLoading: false });
+    render(<WorkspaceRolesPage />);
+    // A read-only reference matrix gets one inline docs link, not a per-row ⓘ.
+    const link = screen.getByRole('link', { name: /Learn more about roles and permissions/i });
+    expect(link).toHaveAttribute('href', expect.stringContaining('administration/rbac'));
+    expect(link).toHaveAttribute('target', '_blank');
+  });
 });

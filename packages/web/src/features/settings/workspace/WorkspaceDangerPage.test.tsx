@@ -83,6 +83,20 @@ describe('WorkspaceDangerPage (#641 wired)', () => {
     expect(transferMutate).toHaveBeenCalledWith(2, expect.any(Object));
   });
 
+  it('gives each destructive card a docs "Learn more" link (#2266)', () => {
+    renderPage();
+    const links = screen.getAllByRole('link', { name: /Learn more/i });
+    const hrefs = links.map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain('https://docs.trueppm.com/administration/data-export');
+    expect(hrefs).toContain('https://docs.trueppm.com/administration/rbac');
+    expect(hrefs).toContain('https://docs.trueppm.com/administration/workspace-settings');
+    // All three open in a new tab safely.
+    links.forEach((a) => {
+      expect(a).toHaveAttribute('target', '_blank');
+      expect(a).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    });
+  });
+
   it('keeps Delete disabled until the workspace name is typed exactly', () => {
     renderPage();
     const deleteBtn = screen.getByRole('button', { name: 'Delete workspace permanently' });
