@@ -1029,35 +1029,91 @@ helm:template:
     - kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered.yaml
     - bash scripts/helm-structure-check.sh packages/helm
 
-helm:install:
-  # Runtime deploy smoke test on a real kind cluster (#2279): the half helm:template
-  # cannot reach — actually BOOT the chart. Installs against the last released image
-  # tag (there is no per-commit deployable image; publish is tag-triggered), waits
-  # for full rollout, runs `helm test` (migrate->bootstrap->api /readyz), asserts the
-  # admin password is retrievable from the shared emptyDir, and a negative probe
-  # proves the settings.prod SECRET_KEY guard fails closed. See scripts/helm-install-drill.sh.
+ci:build-deploy-images:
+  # Build the deployable api + web runtime images from the CURRENT COMMIT's code
+  # and tag them $CI_COMMIT_SHA (#2284). This is the prerequisite that lets
+  # helm:install below drill the HEAD chart against HEAD application code instead
+  # of the last released tag — closing the version-skew hole that forced the
+  # drill advisory (a chart assumption ahead of a release, e.g. the /readyz probe,
+  # no longer red-Xes against a stale image).
   #
-  # Trigger: chart / CI changes on MR + main, plus the nightly schedule, as a
-  # drift net. ADVISORY (allow_failure) on every variant — NOT a blocking gate.
-  # Why advisory: there is no per-commit deployable image (publish is
-  # tag-triggered), so this drills the HEAD chart against the LAST RELEASED image
-  # tag. Whenever the chart adds an assumption ahead of a release — e.g. the
-  # migration-aware /readyz readiness probe (#2217), absent from images predating
-  # it — the drill red-Xes on version skew, not a real regression. The blocking
-  # deploy-contract gate is helm:template above (static, always valid); this
-  # runtime drill stays a signal until a per-commit image build lands (#2284),
-  # at which point it can become blocking. It already earned its keep: it caught
-  # the web nginx upstream mismatch now fixed in-chart (#2283).
-  # kind-in-dind needs the privileged docker:27-dind service (same as the image
-  # build jobs). Not `interruptible` so a rebased push doesn't abort a cluster
-  # mid-provision and leak it.
+  # Internal GitLab Container Registry only — this is a transient, per-commit
+  # drill artifact, NOT a public release. The Trivy scan, SBOM, GHCR mirror, and
+  # Cosign signing live on api:publish / web:publish (tag-triggered); duplicating
+  # them here would tax every chart/CI MR for no release value.
+  #
+  # Rules mirror helm:install EXACTLY so the two always co-occur (helm:install
+  # `needs:` this job non-optionally). kind-in-dind + docker build both need the
+  # privileged docker:27-dind service.
   stage: test
-  allow_failure: true
   interruptible: false
   timeout: 25m
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
     - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-install-drill.sh
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-install-drill.sh
+        - .gitlab-ci.yml
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - |
+      API_IMAGE="${CI_REGISTRY_IMAGE}/api:${CI_COMMIT_SHA}"
+      WEB_IMAGE="${CI_REGISTRY_IMAGE}/web:${CI_COMMIT_SHA}"
+      # api: context = repo root, Dockerfile under packages/api (mirrors api:publish).
+      # --cache-from the published :latest layers so a no-op rebuild is cheap.
+      docker pull "${CI_REGISTRY_IMAGE}/api:latest" || true
+      docker build -f packages/api/Dockerfile \
+        --cache-from "${CI_REGISTRY_IMAGE}/api:latest" \
+        -t "$API_IMAGE" .
+      docker push "$API_IMAGE"
+      # web: context = packages/web (mirrors web:publish's `cd packages/web`).
+      docker pull "${CI_REGISTRY_IMAGE}/web:latest" || true
+      docker build \
+        --cache-from "${CI_REGISTRY_IMAGE}/web:latest" \
+        -t "$WEB_IMAGE" packages/web
+      docker push "$WEB_IMAGE"
+
+helm:install:
+  # Runtime deploy smoke test on a real kind cluster (#2279): the half helm:template
+  # cannot reach — actually BOOT the chart. Installs the HEAD chart against the
+  # per-commit image built by ci:build-deploy-images (#2284, tag $CI_COMMIT_SHA),
+  # waits for full rollout, runs `helm test` (migrate->bootstrap->api /readyz),
+  # asserts the admin password is retrievable from the shared emptyDir, and a
+  # negative probe proves the settings.prod SECRET_KEY guard fails closed. See
+  # scripts/helm-install-drill.sh.
+  #
+  # Trigger: chart / CI changes on MR + main, plus the nightly schedule.
+  # BLOCKING on MR + main (#2284): now that the drill runs HEAD chart against HEAD
+  # app code, a red means a real deploy regression, not version skew — so it gates
+  # the merge. Schedule stays advisory (allow_failure) so a nightly infra blip on
+  # the shared pipeline is a signal, not a hard red. The static deploy-contract
+  # gate is helm:template above; this is the runtime half. It already earned its
+  # keep: it caught the web nginx upstream mismatch now fixed in-chart (#2283).
+  # kind-in-dind needs the privileged docker:27-dind service (same as the image
+  # build jobs). Not `interruptible` so a rebased push doesn't abort a cluster
+  # mid-provision and leak it. `needs:` the image build so it drills real code.
+  stage: test
+  interruptible: false
+  timeout: 25m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs:
+    - job: ci:build-deploy-images
+      artifacts: false
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
     DOCKER_HOST: "tcp://docker:2376"
@@ -1066,7 +1122,7 @@ helm:install:
     KIND_VERSION: "0.24.0"
     KUBECTL_VERSION: "1.31.2"
     HELM_VERSION: "3.16.3"
-    RELEASE_IMAGE_TAG: "latest"
+    RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
     APISERVER_HOST: "docker"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
