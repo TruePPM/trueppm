@@ -57,12 +57,14 @@ export function ChipStrip({
             border-brand-primary/40 bg-brand-primary/10 text-xs text-brand-primary"
         >
           {chip.label}
+          {/* Chip remove button: focus: (not focus-visible:) so the ring shows on
+              pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7). */}
           <button
             type="button"
             onClick={() => onRemove(chip.key)}
             aria-label={`Remove ${chip.label} filter`}
             className="ml-0.5 hover:text-brand-primary-dark
-              focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary rounded-full"
+              focus:outline-none focus:ring-1 focus:ring-brand-primary rounded-full"
           >
             ✕
           </button>

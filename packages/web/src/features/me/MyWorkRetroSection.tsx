@@ -71,8 +71,8 @@ function SuggestedGroup({ items }: { items: MyWorkRetroActionItem[] }) {
                   disabled={accept.isPending}
                   className="h-9 px-3 rounded-control text-xs font-medium bg-brand-primary text-neutral-text-inverse
                     disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-                    focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+                    focus:outline-none focus:ring-2 focus:ring-white
+                    focus:ring-offset-2 focus:ring-offset-brand-primary"
                 >
                   Accept
                 </button>
@@ -85,7 +85,7 @@ function SuggestedGroup({ items }: { items: MyWorkRetroActionItem[] }) {
                   className="h-9 px-3 rounded-control text-xs font-medium border border-neutral-border text-neutral-text-primary
                     hover:bg-neutral-surface
                     disabled:opacity-50 disabled:cursor-not-allowed
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                    focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                 >
                   Decline
                 </button>

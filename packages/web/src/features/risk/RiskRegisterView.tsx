@@ -353,8 +353,11 @@ export function RiskRegisterView() {
             aria-pressed={newestSort}
             className={[
               'inline-flex items-center gap-1 h-8 px-3 rounded-control text-xs font-medium',
-              'border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
-              'focus-visible:ring-offset-1',
+              // Standalone toggle/trigger buttons in this toolbar use focus: (not
+              // focus-visible:) so the ring shows on pointer-initiated focus in
+              // Firefox/Safari (rule 214, WCAG 2.4.7).
+              'border focus:outline-none focus:ring-2 focus:ring-brand-primary',
+              'focus:ring-offset-1',
               newestSort
                 ? 'border-brand-primary/40 bg-brand-primary/10 text-brand-primary'
                 : 'border-neutral-border text-neutral-text-primary bg-neutral-surface hover:bg-neutral-surface-raised',
@@ -370,8 +373,8 @@ export function RiskRegisterView() {
             className="inline-flex items-center gap-1 h-8 px-3 rounded-control text-xs font-medium
               border border-neutral-border text-neutral-text-primary bg-neutral-surface
               hover:bg-neutral-surface-raised
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-              focus-visible:ring-offset-1"
+              focus:outline-none focus:ring-2 focus:ring-brand-primary
+              focus:ring-offset-1"
           >
             Heatmap
             <span
@@ -391,8 +394,8 @@ export function RiskRegisterView() {
               className="inline-flex items-center gap-1 h-8 px-3 rounded-control text-xs font-medium
                 border border-neutral-border text-neutral-text-secondary bg-neutral-surface
                 hover:text-neutral-text-primary hover:bg-neutral-surface-raised
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                focus-visible:ring-offset-1"
+                focus:outline-none focus:ring-2 focus:ring-brand-primary
+                focus:ring-offset-1"
             >
               Import CSV
             </button>
@@ -405,8 +408,8 @@ export function RiskRegisterView() {
               className="inline-flex items-center gap-1 h-8 px-3 rounded-control text-xs font-medium
                 border border-neutral-border text-neutral-text-secondary bg-neutral-surface
                 hover:text-neutral-text-primary hover:bg-neutral-surface-raised
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                focus-visible:ring-offset-1"
+                focus:outline-none focus:ring-2 focus:ring-brand-primary
+                focus:ring-offset-1"
             >
               Export CSV
             </button>
@@ -418,8 +421,8 @@ export function RiskRegisterView() {
             className="inline-flex items-center gap-1 h-8 px-3 rounded-control text-sm font-medium
               text-neutral-text-inverse bg-brand-primary border border-brand-primary-dark
               hover:bg-brand-primary-dark
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-              focus-visible:ring-offset-1"
+              focus:outline-none focus:ring-2 focus:ring-brand-primary
+              focus:ring-offset-1"
           >
             + New risk
           </button>
@@ -438,8 +441,8 @@ export function RiskRegisterView() {
               aria-label="More actions"
               className="inline-flex items-center justify-center w-10 h-10 rounded-control
                 text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                focus-visible:ring-offset-1"
+                focus:outline-none focus:ring-2 focus:ring-brand-primary
+                focus:ring-offset-1"
             >
               <span aria-hidden="true" className="text-xl leading-none">
                 ⋯
@@ -461,7 +464,7 @@ export function RiskRegisterView() {
                     }}
                     className="w-full text-left px-3 py-2 text-sm text-neutral-text-primary
                       hover:bg-neutral-surface-raised
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:bg-neutral-surface-raised"
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset focus:bg-neutral-surface-raised"
                   >
                     Import CSV
                   </button>
@@ -476,7 +479,7 @@ export function RiskRegisterView() {
                     }}
                     className="w-full text-left px-3 py-2 text-sm text-neutral-text-primary
                       hover:bg-neutral-surface-raised
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:bg-neutral-surface-raised"
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset focus:bg-neutral-surface-raised"
                   >
                     Export CSV
                   </button>
@@ -603,8 +606,8 @@ export function RiskRegisterView() {
                         onClick={() => setFilter('all')}
                         aria-label="Clear severity/ownership filter"
                         className="text-brand-primary hover:text-brand-primary-dark
-                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                          focus-visible:ring-offset-1 rounded-control"
+                          focus:outline-none focus:ring-2 focus:ring-brand-primary
+                          focus:ring-offset-1 rounded-control"
                       >
                         ✕
                       </button>
@@ -621,8 +624,8 @@ export function RiskRegisterView() {
                         onClick={() => setSelectedCell(null)}
                         aria-label="Clear matrix cell filter"
                         className="text-brand-primary hover:text-brand-primary-dark
-                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                          focus-visible:ring-offset-1 rounded-control"
+                          focus:outline-none focus:ring-2 focus:ring-brand-primary
+                          focus:ring-offset-1 rounded-control"
                       >
                         ✕
                       </button>
@@ -635,8 +638,8 @@ export function RiskRegisterView() {
                     type="button"
                     onClick={clearAllFilters}
                     className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary ml-1
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                      focus-visible:ring-offset-1 rounded-control"
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary
+                      focus:ring-offset-1 rounded-control"
                   >
                     Clear all
                   </button>
@@ -661,8 +664,8 @@ export function RiskRegisterView() {
                     type="button"
                     onClick={clearAllFilters}
                     className="text-sm text-brand-primary hover:underline
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                      focus-visible:ring-offset-1 rounded-control"
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary
+                      focus:ring-offset-1 rounded-control"
                   >
                     Show all risks
                   </button>
@@ -715,8 +718,8 @@ export function RiskRegisterView() {
                             }}
                             className="inline-flex items-center gap-1 font-medium text-neutral-text-secondary
                             hover:text-neutral-text-primary text-xs uppercase tracking-wide
-                            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                            focus-visible:ring-offset-1 rounded-control"
+                            focus:outline-none focus:ring-2 focus:ring-brand-primary
+                            focus:ring-offset-1 rounded-control"
                           >
                             Severity
                             <span aria-hidden="true" className="text-xs leading-none">
@@ -755,8 +758,11 @@ export function RiskRegisterView() {
                               isOverdue
                                 ? 'bg-semantic-at-risk-bg hover:bg-semantic-at-risk/10'
                                 : 'hover:bg-neutral-surface-raised',
-                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
-                              'focus-visible:ring-inset',
+                              // Row acts as a button: focus: (not focus-visible:) so the
+                              // ring shows on pointer-initiated focus in Firefox/Safari
+                              // (rule 214, WCAG 2.4.7). ring-inset — row lives in a scroll area.
+                              'focus:outline-none focus:ring-2 focus:ring-brand-primary',
+                              'focus:ring-inset',
                             ].join(' ')}
                             tabIndex={0}
                             role="button"
@@ -846,11 +852,11 @@ export function RiskRegisterView() {
                                   e.stopPropagation();
                                   openRiskEdit(risk);
                                 }}
-                                className="opacity-0 max-md:opacity-100 group-hover:opacity-100 focus-visible:opacity-100
+                                className="opacity-0 max-md:opacity-100 group-hover:opacity-100 focus:opacity-100
                             h-11 w-11 md:h-8 md:w-8 flex items-center justify-center rounded-control
                             text-neutral-text-secondary hover:text-neutral-text-primary
-                            focus-visible:outline-none focus-visible:ring-2
-                            focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                            focus:outline-none focus:ring-2
+                            focus:ring-brand-primary focus:ring-offset-1"
                               >
                                 ✎
                               </button>
@@ -889,8 +895,8 @@ export function RiskRegisterView() {
         className="md:hidden fixed bottom-16 right-4 w-14 h-14 rounded-full
           bg-brand-primary border border-brand-primary-dark
           flex items-center justify-center
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-2
+          focus:outline-none focus:ring-2 focus:ring-brand-primary
+          focus:ring-offset-2
           z-20"
         aria-label="Add risk"
       >

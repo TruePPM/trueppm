@@ -30,13 +30,15 @@ export function GridFilteredEmptyState({ onClear }: { onClear: () => void }) {
       <p className="text-sm text-neutral-text-primary font-medium">
         No tasks match these filters
       </p>
+      {/* Standalone button: focus: (not focus-visible:) so the ring shows on
+          pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7). */}
       <button
         type="button"
         onClick={onClear}
         className="
           text-xs text-brand-primary underline
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1
+          focus:outline-none focus:ring-2 focus:ring-brand-primary
+          focus:ring-offset-1
         "
       >
         Clear filters

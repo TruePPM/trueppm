@@ -307,7 +307,7 @@ export function TimezoneFormatSection() {
                 onKeyDown={handleTriggerKeyDown}
                 className="w-full h-11 flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-3 text-left text-sm text-neutral-text-primary
                   disabled:cursor-not-allowed disabled:text-neutral-text-secondary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
               >
                 <span className="flex-1 truncate">{triggerLabel}</span>
                 <span aria-hidden="true" className="shrink-0 text-neutral-text-secondary">

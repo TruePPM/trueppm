@@ -216,7 +216,7 @@ export function SettingsContextSwitcher({
         aria-expanded={open}
         aria-label={`Current ${entityLabel}: ${withHealth(contextName, contextHealth)}. Switch ${entityLabel}.`}
         className="w-full min-w-0 flex items-center gap-1.5 rounded text-left
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <HealthDot health={contextHealth} />
         <span className="flex-1 truncate text-neutral-text-primary font-medium">{contextName}</span>

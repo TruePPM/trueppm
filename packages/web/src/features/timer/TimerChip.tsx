@@ -54,6 +54,9 @@ export function TimerChip() {
       <span className="hidden max-w-[10rem] truncate text-xs font-medium sm:inline" aria-hidden="true">
         {taskLabel}
       </span>
+      {/* a11y rule 214: this standalone trigger uses focus: (not focus-visible:)
+          so pointer-click focus still shows a ring in Firefox/desktop Safari,
+          which don't match :focus-visible on pointer-initiated focus (WCAG 2.4.7). */}
       <button
         type="button"
         onClick={() => stopTimer()}
@@ -61,7 +64,7 @@ export function TimerChip() {
         aria-label={`Stop timer and log time on ${taskLabel}`}
         className="grid h-11 w-11 shrink-0 place-items-center rounded-control md:h-7 md:w-7
           hover:bg-current/10
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
           disabled:cursor-progress disabled:opacity-60"
       >
         {/* Stop glyph — filled square with a punched hole matching the chip tint. */}

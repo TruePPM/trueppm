@@ -125,6 +125,9 @@ export function TaskRow({
       // (the row's cells still carry the task data). `ring-inset` (not offset)
       // because the row lives inside the `role="grid"` scroll container, where an
       // offset ring is clipped top/bottom (the rule-137/174 constrained-ring case).
+      // Uses focus: (not focus-visible:) so the ring shows on pointer-initiated
+      // focus in Firefox/Safari (rule 214, WCAG 2.4.7); the rename input keeps
+      // focus-visible: as a text field.
       aria-label={onOpenDetail ? `Open details for ${task.name}` : undefined}
       title={onOpenDetail ? 'Open task details' : undefined}
       tabIndex={0}
@@ -146,7 +149,7 @@ export function TaskRow({
         border-b border-neutral-border
         hover:bg-neutral-text-primary/5 group
         focus-within:bg-neutral-text-primary/5
-        ${onOpenDetail ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary' : ''}
+        ${onOpenDetail ? 'cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary' : ''}
         ${rowBg}
       `}
     >

@@ -168,6 +168,8 @@ export function RiskImportModal({ projectId, onClose }: Props) {
             Upload a CSV to add risks to this project. Columns match the export — Title is required;
             unknown columns are ignored.
           </p>
+          {/* Standalone action buttons use focus: (not focus-visible:) so the ring
+              shows on pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7). */}
 
           {importMut.isSuccess && result ? (
             /* Result — partial success: counts + per-row diagnostics. */
@@ -187,7 +189,7 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                   onClick={importAnother}
                   className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
                     text-neutral-text-secondary hover:text-neutral-text-primary
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                    focus:outline-none focus:ring-2 focus:ring-brand-primary"
                 >
                   Import another
                 </button>
@@ -195,8 +197,8 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                   type="button"
                   onClick={onClose}
                   className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse
-                    hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2
-                    focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+                    hover:bg-brand-primary-dark focus:outline-none focus:ring-2
+                    focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary"
                 >
                   Done
                 </button>
@@ -215,7 +217,7 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                   onClick={onClose}
                   className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
                     text-neutral-text-secondary hover:text-neutral-text-primary
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                    focus:outline-none focus:ring-2 focus:ring-brand-primary"
                 >
                   Close
                 </button>
@@ -223,8 +225,8 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                   type="button"
                   onClick={importAnother}
                   className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse
-                    hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2
-                    focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+                    hover:bg-brand-primary-dark focus:outline-none focus:ring-2
+                    focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary"
                 >
                   Try a different file
                 </button>
@@ -266,7 +268,7 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                   onClick={onClose}
                   className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
                     text-neutral-text-secondary hover:text-neutral-text-primary
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                    focus:outline-none focus:ring-2 focus:ring-brand-primary"
                 >
                   Cancel
                 </button>
@@ -276,8 +278,8 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                   disabled={!file}
                   className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse
                     hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-50
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-                    focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+                    focus:outline-none focus:ring-2 focus:ring-white
+                    focus:ring-offset-2 focus:ring-offset-brand-primary"
                 >
                   Import
                 </button>

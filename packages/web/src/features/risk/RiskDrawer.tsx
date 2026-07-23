@@ -202,6 +202,9 @@ function DrawerContent({
         <h2 className="text-base font-semibold text-neutral-text-primary truncate pr-2">
           {drawerTitle}
         </h2>
+        {/* Standalone drawer controls use focus: (not focus-visible:) so the ring
+            shows on pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7).
+            Form fields (the note textarea) keep focus-visible:. */}
         <div className="flex items-center gap-2">
           {!isCreateMode && !isEditing && (
             <button
@@ -209,7 +212,7 @@ function DrawerContent({
               onClick={onEdit}
               className="h-8 px-3 rounded-control text-sm font-medium border border-neutral-border
                 text-neutral-text-secondary hover:text-neutral-text-primary
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
             >
               Edit
             </button>
@@ -220,7 +223,7 @@ function DrawerContent({
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-control text-neutral-text-secondary
               hover:text-neutral-text-primary
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
             aria-label="Close"
           >
             ×
@@ -413,8 +416,8 @@ function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: st
         aria-expanded={open}
         className="w-full flex items-center justify-between text-xs font-medium
           text-neutral-text-secondary hover:text-neutral-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1 rounded-control"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary
+          focus:ring-offset-1 rounded-control"
       >
         <span>Notes {!isLoading && comments.length > 0 ? `(${comments.length})` : ''}</span>
         <svg
@@ -503,8 +506,8 @@ function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: st
                 className="self-end h-8 px-3 rounded-control text-xs font-medium
                   bg-brand-primary border border-brand-primary-dark text-neutral-text-inverse
                   hover:bg-brand-primary-dark
-                  focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                  focus:outline-none focus:ring-2
+                  focus:ring-brand-primary focus:ring-offset-1
                   disabled:opacity-50"
               >
                 {createComment.isPending ? 'Posting…' : 'Add note'}

@@ -245,7 +245,10 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
       {/* Linked tasks (#2156) — attach existing project tasks (max 10) */}
       <RiskTaskPicker projectId={projectId} selectedIds={taskIds} onChange={setTaskIds} />
 
-      {/* Advanced (risk framework) — collapsible */}
+      {/* Advanced (risk framework) — collapsible.
+          Standalone buttons (this toggle, the Cancel/Save actions) use focus: (not
+          focus-visible:) so the ring shows on pointer-initiated focus in Firefox/Safari
+          (rule 214, WCAG 2.4.7). Form fields (INPUT_BASE inputs/selects) keep focus-visible:. */}
       <div className="border border-neutral-border rounded-card">
         <button
           type="button"
@@ -253,7 +256,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
           aria-expanded={advancedOpen}
           className="w-full flex items-center justify-between px-3 h-10 text-sm font-medium rounded-control
             text-neutral-text-secondary hover:text-neutral-text-primary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           <span>Advanced</span>
           <svg
@@ -396,7 +399,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
           className="h-10 px-4 rounded-control text-sm font-medium text-neutral-text-secondary
             border border-neutral-border
             hover:text-neutral-text-primary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
             disabled:opacity-50"
         >
           Cancel
@@ -407,7 +410,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
           className="h-10 px-4 rounded-control text-sm font-medium text-neutral-text-inverse
             bg-brand-primary border border-brand-primary-dark
             hover:bg-brand-primary-dark
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
             disabled:opacity-50"
         >
           {isPending ? 'Saving…' : 'Save'}

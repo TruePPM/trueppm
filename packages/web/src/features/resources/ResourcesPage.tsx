@@ -96,8 +96,10 @@ export function ResourcesPage() {
         <button
           type="button"
           onClick={handleAddClick}
+          /* Standalone trigger button: focus: not focus-visible: — Firefox/Safari skip
+             :focus-visible on pointer focus (rule 214). The search input above keeps focus-visible:. */
           className="shrink-0 min-h-11 md:min-h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           + Add resource
         </button>
@@ -150,7 +152,7 @@ export function ResourcesPage() {
               type="button"
               onClick={() => setMobileShowDetail(false)}
               className="flex items-center gap-1 text-xs text-neutral-text-secondary
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+                focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
                 <path d="M9 11L5 7l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
@@ -196,7 +198,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
         type="button"
         onClick={onAdd}
         className="mt-1 h-8 px-4 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         + Add your first resource
       </button>

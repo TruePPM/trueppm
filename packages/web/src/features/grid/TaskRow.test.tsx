@@ -308,7 +308,9 @@ describe('TaskRow', () => {
       render(<TaskRow {...baseProps} task={task} phase="—" onOpenDetail={vi.fn()} />);
       const row = screen.getByRole('row', { name: 'Open details for Build' });
       expect(row.className).toMatch(/cursor-pointer/);
-      expect(row.className).toMatch(/focus-visible:ring-2/);
+      // Standalone focusable row uses focus: (not focus-visible:) so the ring shows
+      // on pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7).
+      expect(row.className).toMatch(/focus:ring-2/);
     });
   });
 

@@ -16,8 +16,10 @@ describe('Button', () => {
 
   it('always renders the rule-4 focus ring', () => {
     render(<Button>Go</Button>);
+    // Standalone-trigger primitive uses `focus:` (not `focus-visible:`) so the
+    // pointer-focused button shows a ring in Firefox/Safari (rule 214, WCAG 2.4.7).
     expect(screen.getByRole('button', { name: 'Go' }).className).toContain(
-      'focus-visible:ring-brand-primary',
+      'focus:ring-brand-primary',
     );
   });
 

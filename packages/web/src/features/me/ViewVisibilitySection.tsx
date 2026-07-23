@@ -101,7 +101,7 @@ export function ViewVisibilitySection() {
           onClick={() => commit([])}
           disabled={!canReset}
           title={canReset ? undefined : 'No views hidden'}
-          className="text-sm text-brand-primary hover:underline disabled:text-neutral-text-secondary disabled:no-underline disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
+          className="text-sm text-brand-primary hover:underline disabled:text-neutral-text-secondary disabled:no-underline disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control"
         >
           Reset to default
         </button>

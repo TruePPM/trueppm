@@ -304,14 +304,14 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
               <button
                 type="button"
                 onClick={onDismiss}
-                className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+                className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={!canSubmitCredentials}
-                className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+                className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary focus:outline-none"
               >
                 Continue
               </button>
@@ -392,13 +392,13 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
               <button
                 type="button"
                 onClick={() => { setError(null); setStep('credentials'); }}
-                className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+                className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
               >
                 Back
               </button>
               <button
                 type="submit"
-                className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+                className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary focus:outline-none"
               >
                 Start importing
               </button>

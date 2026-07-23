@@ -83,8 +83,8 @@ export function StatusPicker({ taskName, current, onSelect, onClose }: Props) {
                 className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm text-left
                   text-neutral-text-primary hover:bg-neutral-surface-raised
                   disabled:cursor-default disabled:text-neutral-text-secondary
-                  focus-visible:outline-none focus-visible:bg-brand-primary/10
-                  focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
+                  focus:outline-none focus:bg-brand-primary/10
+                  focus:ring-2 focus:ring-inset focus:ring-brand-primary"
               >
                 <span>{opt.label}</span>
                 {selected && (
@@ -102,7 +102,7 @@ export function StatusPicker({ taskName, current, onSelect, onClose }: Props) {
           type="button"
           onClick={onClose}
           className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
             rounded-control px-1"
         >
           Cancel

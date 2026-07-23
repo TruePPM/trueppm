@@ -153,6 +153,8 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
       aria-sort={sortCol === col ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
       className={className}
     >
+      {/* Sort column-header button: focus: (not focus-visible:) so the ring shows on
+          pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7). */}
       <button
         type="button"
         onClick={() => onSort(col)}
@@ -164,8 +166,8 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
         }}
         className="flex items-center gap-0.5 text-left w-full
           hover:text-neutral-text-primary transition-colors
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary
+          focus:ring-offset-1"
       >
         {label}
         <SortIndicator active={sortCol === col} dir={sortDir} />

@@ -123,7 +123,7 @@ export function LandingPrimaryUsePrompt() {
         aria-label="Skip — decide later"
         className="absolute right-2 top-2 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control
           text-neutral-text-secondary hover:text-neutral-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <CloseIcon className="h-4 w-4" />
       </button>

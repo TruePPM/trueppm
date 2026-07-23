@@ -60,7 +60,7 @@ function AssignmentsSectionInner({ resourceId }: { resourceId: string }) {
               <button
                 type="button"
                 onClick={() => void refetch()}
-                className="shrink-0 underline hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+                className="shrink-0 underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded"
               >
                 Retry
               </button>
