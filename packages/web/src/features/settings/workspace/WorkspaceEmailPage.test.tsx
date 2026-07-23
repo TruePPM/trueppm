@@ -411,7 +411,10 @@ describe('WorkspaceEmailPage — send test email', () => {
       data: { sent: false, error: 'Connection refused' },
     });
     render(<WorkspaceEmailPage />);
-    expect(screen.getByText(/✗ Connection refused/)).toBeInTheDocument();
+    // The fail state now leads with the house XMarkIcon SVG (issue 1749), not a "✗" glyph.
+    const failMsg = screen.getByText('Connection refused');
+    expect(failMsg).toBeInTheDocument();
+    expect(failMsg.querySelector('svg')).toBeInTheDocument();
   });
 
   it('shows the pending label while a test send is in flight', () => {
@@ -437,6 +440,9 @@ describe('WorkspaceEmailPage — deliverability health', () => {
     expect(screen.getByText('Pass')).toBeInTheDocument();
     expect(screen.getByText('Warn')).toBeInTheDocument();
     expect(screen.getByText('Fail')).toBeInTheDocument();
+    // Pass/Fail chips now lead with house CheckIcon/XMarkIcon SVGs (issue 1749), not glyphs.
+    expect(screen.getByText('Pass').querySelector('svg')).toBeInTheDocument();
+    expect(screen.getByText('Fail').querySelector('svg')).toBeInTheDocument();
   });
 
   it('shows the unavailable message when the server cannot run checks', () => {

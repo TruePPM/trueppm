@@ -1103,3 +1103,24 @@ export function CheckIcon({ className, ...rest }: IconProps) {
     </svg>
   );
 }
+
+/** Cross mark — fail/reject status signal (issue 1749) */
+export function XMarkIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <line x1="4" y1="4" x2="12" y2="12" />
+      <line x1="12" y1="4" x2="4" y2="12" />
+    </svg>
+  );
+}

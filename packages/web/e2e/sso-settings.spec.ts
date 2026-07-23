@@ -156,7 +156,10 @@ test.describe('Workspace Single sign-on — admin (multi-provider)', () => {
     await expect(page.getByText('SSO sign-in is live')).toBeVisible();
     await page.getByRole('button', { name: 'Edit' }).click();
     await page.getByRole('button', { name: 'Test connection' }).click();
-    await expect(page.getByText('✓ Reachable.')).toBeVisible();
+    // The leading "✓" is now a house CheckIcon SVG (issue 1749); assert on the text.
+    // Exact match: the section's help copy ("…are reachable.") also contains the
+    // word, so a substring match would collide (strict-mode violation).
+    await expect(page.getByText('Reachable.', { exact: true })).toBeVisible();
   });
 
   test('save: editing the display name persists via PUT to the slug item', async ({ page }) => {

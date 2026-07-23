@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 export interface RowMenuItem {
@@ -6,8 +6,8 @@ export interface RowMenuItem {
   key: string;
   /** Visible label text. */
   label: string;
-  /** Optional unicode glyph rendered to the left. */
-  icon?: string;
+  /** Optional leading glyph or house SVG icon rendered to the left. */
+  icon?: ReactNode;
   /** Optional hotkey hint rendered right-aligned (e.g. "F2", "Tab"). */
   hint?: string;
   /** When true, the item is rendered with destructive (red) styling. */

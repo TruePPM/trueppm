@@ -25,6 +25,7 @@ import { FieldRow } from '../SettingsShell';
 import { Toggle } from '../components/Toggle';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { FieldHelp } from '@/components/FieldHelp';
+import { CheckIcon, XMarkIcon } from '@/components/Icons';
 import {
   PICKER_PROVIDERS,
   providerDef,
@@ -387,12 +388,13 @@ function TestConnectionSection({
         <p className="text-[12px]" aria-live="polite">
           {testResult?.ok === true && (
             <span className="text-semantic-on-track">
-              <span aria-hidden="true">✓</span> Reachable.
+              <CheckIcon aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]" />
+              Reachable.
             </span>
           )}
           {testResult?.ok === false && (
             <span className="text-semantic-critical">
-              <span aria-hidden="true">✗</span>{' '}
+              <XMarkIcon aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]" />
               {testResult.detail || testResult.error || 'Not reachable.'}
             </span>
           )}

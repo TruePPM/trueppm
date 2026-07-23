@@ -6,8 +6,10 @@
  * the panel maps its chip state onto the `type` / `actor` / `since` params.
  */
 
+import type { ReactNode } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { PencilIcon } from '@/components/Icons';
 
 export type BoardEventType =
   | 'task_created'
@@ -44,9 +46,13 @@ interface BoardActivityResponse {
 
 /** Per-event-type glyph, semantic tint, and verb phrase. Color is never the only cue —
  *  the verb carries the meaning and the icon is aria-hidden (rule 6). */
-export const EVENT_META: Record<BoardEventType, { icon: string; tint: string; verb: string }> = {
+export const EVENT_META: Record<BoardEventType, { icon: ReactNode; tint: string; verb: string }> = {
   task_created: { icon: '＋', tint: 'text-semantic-on-track', verb: 'created' },
-  task_updated: { icon: '✎', tint: 'text-neutral-text-secondary', verb: 'updated' },
+  task_updated: {
+    icon: <PencilIcon className="h-4 w-4" aria-hidden="true" />,
+    tint: 'text-neutral-text-secondary',
+    verb: 'updated',
+  },
   task_deleted: { icon: '✕', tint: 'text-semantic-critical', verb: 'deleted' },
   entered_sprint: { icon: '→', tint: 'text-brand-primary', verb: 'added to sprint' },
   exited_sprint: { icon: '←', tint: 'text-brand-primary', verb: 'removed from sprint' },

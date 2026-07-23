@@ -28,7 +28,7 @@ import {
 import { SettingsPageTitle, FieldRow, SettingsCard } from '../SettingsShell';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { FieldHelp, type FieldHelpOption } from '@/components/FieldHelp';
-import { ChevronDownIcon, ChevronRightIcon } from '@/components/Icons';
+import { ChevronDownIcon, ChevronRightIcon, CheckIcon, XMarkIcon } from '@/components/Icons';
 import { extractFieldErrors, extractFormLevelMessage } from '@/lib/apiError';
 
 const INPUT_CLASS =
@@ -1216,11 +1216,15 @@ export function WorkspaceEmailPage() {
                 </button>
                 <p className="text-[12px]" aria-live="polite">
                   {sendTest.data?.sent === true && (
-                    <span className="text-semantic-on-track">✓ Sent — check your inbox.</span>
+                    <span className="text-semantic-on-track">
+                      <CheckIcon aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]" />
+                      Sent — check your inbox.
+                    </span>
                   )}
                   {sendTest.data?.sent === false && (
                     <span className="text-semantic-critical">
-                      ✗ {sendTest.data.error ?? 'Send failed.'}
+                      <XMarkIcon aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]" />
+                      {sendTest.data.error ?? 'Send failed.'}
                     </span>
                   )}
                 </p>
@@ -1273,10 +1277,10 @@ const CHIP_STYLES: Record<HealthStatus, string> = {
   fail: 'bg-semantic-critical-bg text-semantic-critical',
   unknown: 'bg-neutral-surface-sunken text-neutral-text-secondary',
 };
-const CHIP_GLYPH: Record<HealthStatus, string> = {
-  pass: '✓',
+const CHIP_GLYPH: Record<HealthStatus, ReactNode> = {
+  pass: <CheckIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.0625em]" />,
   warn: '⚠',
-  fail: '✗',
+  fail: <XMarkIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.0625em]" />,
   unknown: '–',
 };
 const CHIP_WORD: Record<HealthStatus, string> = {
