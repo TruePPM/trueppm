@@ -33067,15 +33067,6 @@
                         "schema": {
                             "type": "string"
                         }
-                    },
-                    {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
                     }
                 ],
                 "tags": [
@@ -33094,7 +33085,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedTaskRelationList"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/TaskRelation"
+                                    }
                                 }
                             }
                         },
@@ -44863,37 +44857,6 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/TaskRecurrenceRule"
-                        }
-                    }
-                }
-            },
-            "PaginatedTaskRelationList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/TaskRelation"
                         }
                     }
                 }
