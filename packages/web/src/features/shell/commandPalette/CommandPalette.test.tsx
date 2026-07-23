@@ -277,6 +277,30 @@ describe('CommandPalette', () => {
     expect(screen.queryByText('Platform · 2h ago')).not.toBeInTheDocument();
   });
 
+  it('holds the settings-section group until a query is typed (query-only, #2319)', () => {
+    mockItems = [
+      {
+        id: 'settings:ws:sso',
+        label: 'Single sign-on',
+        group: 'settings' as const,
+        tag: 'Settings',
+        detail: 'Workspace',
+        keywords: 'oidc saml',
+        run: vi.fn(),
+      },
+      ...MOCK_ITEMS,
+    ];
+    open();
+    render(<CommandPalette />);
+    // Cold: the Settings section group and its row are absent (unlike the 3 cold
+    // top-level jumps), so an empty palette isn't flooded with ~20 sections.
+    expect(screen.queryByText('Single sign-on')).not.toBeInTheDocument();
+    // Typing a synonym surfaces the section row (its presence proves the group
+    // rendered; the "Settings" label collides with the tag chip so isn't asserted).
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'oidc' } });
+    expect(screen.getByRole('option', { name: /Single sign-on/ })).toBeInTheDocument();
+  });
+
   it('shows the off-project hint only when there is no current project (cold)', () => {
     mockProjectId.mockReturnValue(undefined);
     open();

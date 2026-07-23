@@ -25,6 +25,7 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
   story: 'Stories',
   recent: 'Recent',
   jump: 'Jump to',
+  settings: 'Settings',
   backlog: 'Backlog',
   board: 'Board',
   action: 'Actions',
@@ -46,6 +47,7 @@ const GROUP_ORDER: CommandItem['group'][] = [
   'story',
   'recent',
   'jump',
+  'settings',
   'backlog',
   'board',
   'action',
@@ -100,6 +102,9 @@ const QUERY_ONLY_GROUPS = new Set<CommandItem['group']>([
   'task',
   'epic',
   'story',
+  // Settings sections (ADR-0605/#2319) surface only when typing — cold, the palette
+  // shows the three top-level `jump` settings targets, not ~20 section rows.
+  'settings',
 ]);
 
 /** Whether `item` survives the caps, mutating `counts` when it is kept. Drops

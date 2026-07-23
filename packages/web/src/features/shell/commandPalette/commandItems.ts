@@ -13,8 +13,9 @@
  * sprint" action; `sprintTask` (active-sprint tasks) and `task` (all other tasks)
  * and `current` are Tier-2 (current project only); `person`, `epic`, and `story`
  * are global, query-gated cross-program searches; `recent` is the cold-only
- * recently-visited-projects strip; the rest are Tier-1 (all reachable projects) or
- * global.
+ * recently-visited-projects strip; `settings` (added ADR-0605/#2319) is the
+ * query-only group of individual settings sections; the rest are Tier-1 (all
+ * reachable projects) or global.
  */
 export type CommandGroup =
   | 'sprint'
@@ -26,6 +27,7 @@ export type CommandGroup =
   | 'story'
   | 'recent'
   | 'jump'
+  | 'settings'
   | 'backlog'
   | 'board'
   | 'action';

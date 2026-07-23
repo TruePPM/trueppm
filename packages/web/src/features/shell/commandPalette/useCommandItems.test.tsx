@@ -183,20 +183,53 @@ describe('useCommandItems — tier assembly', () => {
     expect(items.get('jump:project:p2')?.label).toBe('Hoover Dam');
   });
 
-  it('always offers Personal settings + Trash, and hides Workspace settings for non-admins (#2298)', () => {
+  it('offers Personal settings to any role, and hides the admin-only Workspace jumps for non-admins (#2298, #2319)', () => {
     const { result } = renderHook(() => useCommandItems(true));
     const items = byId(result.current);
     expect(items.get('jump:personal-settings')?.label).toBe('Personal settings');
-    expect(items.get('jump:trash')?.label).toBe('Trash');
-    // Admin-only entry is HIDDEN (not shown-disabled) for a member — no dead end.
+    // Admin-only entries are HIDDEN (not shown-disabled) for a member — no dead
+    // end. Trash lives under the admin-gated /settings tree, so its cold jump is
+    // gated too (fixes the pre-#2319 bounce where a member could click it).
     expect(items.has('jump:workspace-settings')).toBe(false);
+    expect(items.has('jump:trash')).toBe(false);
   });
 
-  it('adds the Workspace settings jump only for a workspace admin (#2298)', () => {
+  it('adds the Workspace settings + Trash jumps only for a workspace admin (#2298, #2319)', () => {
     userWorkspaceRole = 300;
     const { result } = renderHook(() => useCommandItems(true));
     const items = byId(result.current);
     expect(items.get('jump:workspace-settings')?.label).toBe('Workspace settings');
+    expect(items.get('jump:trash')?.label).toBe('Trash');
+  });
+
+  it('indexes individual settings sections as a query-only "settings" group (#2319)', () => {
+    userWorkspaceRole = 300;
+    const { result } = renderHook(() => useCommandItems(true, 'sso'));
+    const items = byId(result.current);
+    // Workspace section derived from the shared workspaceNav builder, admin-gated,
+    // tagged Workspace, deep-linking to the /settings anchor.
+    const sso = items.get('settings:ws:sso');
+    expect(sso?.label).toBe('Single sign-on');
+    expect(sso?.group).toBe('settings');
+    expect(sso?.detail).toBe('Workspace');
+    sso?.run();
+    expect(navigate).toHaveBeenCalledWith('/settings#sso');
+    // Keyword synonym matches (the builder carries "oidc"): both surfaces share it.
+    expect(sso?.keywords).toContain('oidc');
+    // Personal sections are ungated and tagged Personal.
+    const tokens = items.get('settings:me:/me/settings/api-tokens');
+    expect(tokens?.label).toBe('API tokens');
+    expect(tokens?.detail).toBe('Personal');
+    // Trash is NOT duplicated into the section group — it stays the cold jump.
+    expect(items.has('settings:ws:trash')).toBe(false);
+  });
+
+  it('omits admin-only workspace settings sections for a non-admin, keeping personal ones (#2319)', () => {
+    const { result } = renderHook(() => useCommandItems(true, 'general'));
+    const items = byId(result.current);
+    expect(items.has('settings:ws:general')).toBe(false);
+    // Personal "General" still indexed for any role.
+    expect(items.get('settings:me:/me/settings/general')?.detail).toBe('Personal');
   });
 
   it('builds a global people tier from the resource search, deep-linking to the catalog (#1940)', () => {

@@ -24,6 +24,8 @@ import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import type { Methodology } from '@/types';
 import type { CommandItem } from './commandItems';
 import { buildOmniSearchItems } from './omniSearch';
+import { buildWorkspaceNavGroups } from '@/features/settings/workspace/workspaceNav';
+import { ME_SETTINGS_LINKS } from '@/features/me/MeSettingsSubNav';
 
 const THEME_CYCLE: Record<Theme, Theme> = { light: 'dark', dark: 'auto', auto: 'light' };
 
@@ -297,11 +299,12 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     }
 
     // ---- Settings (always findable via ⌘K, #2298) ----------------------------
-    // Workspace settings is admin-only, so it is HIDDEN (not shown-disabled) for
-    // members — a palette entry a member can never act on is noise, and hiding it
-    // means no permission-wall dead end. Personal settings + Trash are reachable by
-    // any role. Mirrors the role-aware sidebar gear and ⌘, shortcut.
-    if ((user?.workspace_role ?? -1) >= WORKSPACE_ADMIN_ROLE) {
+    // Cold-visible top-level landings. Workspace settings is admin-only, so it is
+    // HIDDEN (not shown-disabled) for members — a palette entry a member can never
+    // act on is noise, and hiding it means no permission-wall dead end. Personal
+    // settings is reachable by any role. Mirrors the role-aware sidebar gear and ⌘,.
+    const isWorkspaceAdmin = (user?.workspace_role ?? -1) >= WORKSPACE_ADMIN_ROLE;
+    if (isWorkspaceAdmin) {
       jumps.push({
         id: 'jump:workspace-settings',
         label: 'Workspace settings',
@@ -319,14 +322,57 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
       keywords: 'settings preferences profile account me notifications tokens connected',
       run: go('/me/settings/general'),
     });
-    jumps.push({
-      id: 'jump:trash',
-      label: 'Trash',
-      group: 'jump',
-      tag: 'Settings',
-      keywords: 'trash deleted restore recover projects',
-      run: go('/settings/trash'),
-    });
+    // Trash lives under the workspace-admin-gated /settings tree, so gate its
+    // cold jump the same way — an unconditional entry bounced a member on click
+    // (pre-existing #2298 inconsistency, fixed here). Keeps its dedicated
+    // /settings/trash route (a full page) rather than the #trash landing card, so
+    // the generated Settings section group below intentionally omits `trash`.
+    if (isWorkspaceAdmin) {
+      jumps.push({
+        id: 'jump:trash',
+        label: 'Trash',
+        group: 'jump',
+        tag: 'Settings',
+        keywords: 'trash deleted restore recover projects',
+        run: go('/settings/trash'),
+      });
+    }
+
+    // ---- Settings sections (ADR-0605/#2319) ----------------------------------
+    // Individual settings sections as a query-only group so typing "smtp" / "oidc"
+    // jumps straight to Email & SMTP / Single sign-on. Workspace sections derive
+    // from the SAME builder that feeds the rail (labels/keywords/anchors stay in
+    // lockstep) and are admin-gated as a whole (the /settings tree is
+    // RequireWorkspaceAdmin). Personal sections come from ME_SETTINGS_LINKS and are
+    // ungated. `linked: true` gives every workspace item a `/settings#<id>` anchor.
+    const settingsSections: CommandItem[] = [];
+    if (isWorkspaceAdmin) {
+      for (const group of buildWorkspaceNavGroups({ linked: true })) {
+        for (const item of group.items) {
+          if (item.id === 'trash' || !item.to) continue; // trash → cold jump above
+          settingsSections.push({
+            id: `settings:ws:${item.id}`,
+            label: item.label,
+            group: 'settings',
+            tag: 'Settings',
+            detail: 'Workspace',
+            keywords: item.keywords,
+            run: go(item.to),
+          });
+        }
+      }
+    }
+    for (const link of ME_SETTINGS_LINKS) {
+      settingsSections.push({
+        id: `settings:me:${link.to}`,
+        label: link.label,
+        group: 'settings',
+        tag: 'Settings',
+        detail: 'Personal',
+        keywords: link.keywords,
+        run: go(link.to),
+      });
+    }
 
     // ---- Tier 1: Backlog + Board (global) ------------------------------------
     const backlog: CommandItem[] = [];
@@ -386,6 +432,7 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
       ...storyItems,
       ...recentItems,
       ...jumps,
+      ...settingsSections,
       ...backlog,
       ...board,
       ...actions,

@@ -26,7 +26,7 @@ const NAV_GROUPS: SettingsNavGroup[] = [
     label: 'Setup',
     items: [
       { id: 'general', label: 'General', icon: <span /> },
-      { id: 'access', label: 'Access', icon: <span /> },
+      { id: 'access', label: 'Access', keywords: 'permissions rbac roles', icon: <span /> },
     ],
   },
   {
@@ -645,6 +645,86 @@ describe('<SettingsShell>', () => {
       expect(screen.queryByTestId('settings-saved-footer')).not.toBeInTheDocument();
       expect(screen.getByText('You have unsaved changes')).toBeInTheDocument();
     });
+  });
+});
+
+describe('<SettingsShell> rail filter (#2320)', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
+  });
+
+  function filterInput() {
+    return screen.getByRole('searchbox', { name: 'Filter settings sections' });
+  }
+
+  it('narrows the rail to matching sections and hides now-empty groups', () => {
+    renderShell();
+    fireEvent.change(filterInput(), { target: { value: 'access' } });
+    expect(screen.getByRole('button', { name: 'Access' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'General' })).not.toBeInTheDocument();
+    // The System group has no match, so its heading drops out entirely.
+    expect(screen.queryByRole('button', { name: 'System health' })).not.toBeInTheDocument();
+    expect(screen.queryByText('System')).not.toBeInTheDocument();
+  });
+
+  it('matches on keywords, not just the visible label', () => {
+    renderShell();
+    // "rbac" is a keyword on Access, not in its label.
+    fireEvent.change(filterInput(), { target: { value: 'rbac' } });
+    expect(screen.getByRole('button', { name: 'Access' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'General' })).not.toBeInTheDocument();
+  });
+
+  it('shows an empty state when nothing matches', () => {
+    renderShell();
+    fireEvent.change(filterInput(), { target: { value: 'zzzznope' } });
+    expect(screen.getByText(/No settings match/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'General' })).not.toBeInTheDocument();
+  });
+
+  it('clears via the ✕ button and restores the full rail', () => {
+    renderShell();
+    fireEvent.change(filterInput(), { target: { value: 'access' } });
+    expect(screen.queryByRole('button', { name: 'General' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filter' }));
+    expect(screen.getByRole('button', { name: 'General' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Access' })).toBeInTheDocument();
+  });
+
+  it('Escape clears the query while it is non-empty', () => {
+    renderShell();
+    const input = filterInput();
+    fireEvent.change(input, { target: { value: 'access' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect((input as HTMLInputElement).value).toBe('');
+    expect(screen.getByRole('button', { name: 'General' })).toBeInTheDocument();
+  });
+
+  it('Enter jumps to the first match and clears the filter (inline section)', () => {
+    renderShell();
+    const input = filterInput();
+    fireEvent.change(input, { target: { value: 'access' } });
+    act(() => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    // Same mounted page (scroll-spy), filter cleared so the rail is ready again.
+    expect((input as HTMLInputElement).value).toBe('');
+    expect(screen.getByText('ACCESS_SECTION')).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('has no clear button until a query is entered', () => {
+    renderShell();
+    expect(screen.queryByRole('button', { name: 'Clear filter' })).not.toBeInTheDocument();
+    fireEvent.change(filterInput(), { target: { value: 'a' } });
+    expect(screen.getByRole('button', { name: 'Clear filter' })).toBeInTheDocument();
+  });
+
+  it('is not rendered on mobile (the native jump-to-section select serves findability)', () => {
+    mockBreakpoint = 'sm';
+    renderShell();
+    expect(screen.queryByRole('searchbox', { name: 'Filter settings sections' })).not.toBeInTheDocument();
   });
 });
 

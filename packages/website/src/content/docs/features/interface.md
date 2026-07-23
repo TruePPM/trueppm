@@ -64,11 +64,25 @@ is the fastest path to:
   project has an active sprint, that sprint's tasks get their own **Current sprint
   tasks** group with room for more results, so a search scoped to the sprint you're
   working in isn't cut short.
+- **Jump to a settings section** — start typing and a **Settings** group surfaces the
+  exact section you want (type "smtp" for *Email & SMTP*, "oidc" for *Single sign-on*,
+  "tokens" for your personal *API tokens*). Workspace sections appear for workspace
+  admins; your personal settings appear for everyone, each labeled **Workspace** or
+  **Personal** so same-named sections stay clear. Pick one to land right on it.
 - **Run actions** in context.
 
 Type to filter; arrow keys move; Enter activates; Escape closes. The palette is a
 pop surface with a focus trap, so keyboard and screen-reader users get the same
 reach as a pointer.
+
+### Filtering the settings rail
+
+Once you're inside settings, the left navigation rail has a **filter box** at the top.
+Type to narrow the section list — it matches synonyms as well as labels, so "smtp"
+finds *Email & SMTP* and "oidc" finds *Single sign-on* — and press **Enter** to jump to
+the first match. Clearing it (the **✕**, or Escape) restores the full rail. The filter
+is on the desktop rail; on a phone the settings header keeps its **Jump to section**
+menu.
 
 ## The methodology-adaptive context bar
 

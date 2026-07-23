@@ -95,35 +95,35 @@ export function ProjectSettingsPage() {
     {
       label: 'Setup',
       items: [
-        { id: 'general',     label: 'General',     icon: <NavIcon><OverviewIcon aria-hidden="true" /></NavIcon> },
-        { id: 'access',      label: 'Access',      icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> },
-        { id: 'methodology', label: 'Methodology', icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
+        { id: 'general',     label: 'General',     keywords: 'name description code project', icon: <NavIcon><OverviewIcon aria-hidden="true" /></NavIcon> },
+        { id: 'access',      label: 'Access',      keywords: 'members permissions roles visibility rbac', icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> },
+        { id: 'methodology', label: 'Methodology', keywords: 'agile scrum kanban waterfall hybrid', icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
         ...(showTeamTab
-          ? [{ id: 'team', label: 'Team', icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> }]
+          ? [{ id: 'team', label: 'Team', keywords: 'members capacity roster assignees', icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> }]
           : []),
       ],
     },
     {
       label: 'Configuration',
       items: [
-        { id: 'workflow',   label: 'Workflow & fields',                icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
-        { id: 'labels',     label: 'Labels',                           icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
-        { id: 'calendars',  label: 'Working calendars',                icon: <NavIcon><CalendarIcon aria-hidden="true" /></NavIcon> },
-        { id: 'guardrails', label: `${iterationSingular} guardrails`,  icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
+        { id: 'workflow',   label: 'Workflow & fields',                keywords: 'statuses columns custom fields board states', icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'labels',     label: 'Labels',                           keywords: 'tags colors chips categorize', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'calendars',  label: 'Working calendars',                keywords: 'holidays working days hours timezone', icon: <NavIcon><CalendarIcon aria-hidden="true" /></NavIcon> },
+        { id: 'guardrails', label: `${iterationSingular} guardrails`,  keywords: 'sprint iteration wip limits capacity policy', icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
         ...(showTeamTab
-          ? [{ id: 'signal-privacy', label: 'Signal privacy', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> }]
+          ? [{ id: 'signal-privacy', label: 'Signal privacy', keywords: 'anonymize retro sentiment confidential', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> }]
           : []),
-        { id: 'attachments', label: 'Attachments', icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
-        { id: 'surfaces',    label: 'Surfaces',    icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
-        { id: 'sharing',     label: 'Sharing',     icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
-        { id: 'integrations',  label: 'Integrations',  icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
-        { id: 'notifications', label: 'Notifications', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'attachments', label: 'Attachments', keywords: 'files uploads storage size limit', icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
+        { id: 'surfaces',    label: 'Surfaces',    keywords: 'views tabs overview board schedule wbs table', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'sharing',     label: 'Sharing',     keywords: 'public link share external guest', icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
+        { id: 'integrations',  label: 'Integrations',  keywords: 'jira gitlab connect external source', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'notifications', label: 'Notifications', keywords: 'email alerts mentions digest', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
       ],
     },
     {
       label: 'Danger',
       items: [
-        { id: 'lifecycle', label: 'Lifecycle', icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
+        { id: 'lifecycle', label: 'Lifecycle', keywords: 'archive close delete complete status', icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
       ],
     },
   ];
