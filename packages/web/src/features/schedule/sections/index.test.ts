@@ -162,3 +162,68 @@ describe('registerOssDrawerSections — Sprint canRender', () => {
     expect(sprint!.priority).toBeLessThan(dependencies!.priority);
   });
 });
+
+describe('registerOssDrawerSections — isPopulated (progressive disclosure, ADR-0605)', () => {
+  const find = (id: string) => registry.get('task_detail.section').find((s) => s.id === id)!;
+
+  it('sprint is populated only when the task is assigned to a sprint', () => {
+    const sprint = find('sprint');
+    expect(sprint.isPopulated!({ task: { ...regularTask, sprintId: 's1' } })).toBe(true);
+    expect(sprint.isPopulated!({ task: { ...regularTask, sprintId: null } })).toBe(false);
+    expect(sprint.isPopulated!({ task: { ...regularTask } })).toBe(false);
+  });
+
+  it('blocker is populated from blockedAgeSeconds, not the privacy-gated reason', () => {
+    const blocker = find('blocker');
+    expect(blocker.isPopulated!({ task: { ...regularTask, blockedAgeSeconds: 120 } })).toBe(true);
+    // A flagged task whose reason is privacy-gated to undefined still counts.
+    expect(
+      blocker.isPopulated!({ task: { ...regularTask, blockedAgeSeconds: 5, blockedReason: undefined } }),
+    ).toBe(true);
+    expect(blocker.isPopulated!({ task: { ...regularTask, blockedAgeSeconds: null } })).toBe(false);
+  });
+
+  it('dependencies is populated when any link edge touches the task (either direction)', () => {
+    const dependencies = find('dependencies');
+    const links = [
+      { id: 'l1', sourceId: 't9', targetId: 't1', type: 'FS' },
+      { id: 'l2', sourceId: 't2', targetId: 't3', type: 'FS' },
+    ];
+    // Incoming edge (t1 is a target).
+    expect(dependencies.isPopulated!({ task: regularTask, links })).toBe(true);
+    // Outgoing-only edge (t1 is a source) — the case predecessorCount misses.
+    expect(
+      dependencies.isPopulated!({
+        task: regularTask,
+        links: [{ id: 'l3', sourceId: 't1', targetId: 't4', type: 'FS' }],
+      }),
+    ).toBe(true);
+    // No edge touches t1.
+    expect(dependencies.isPopulated!({ task: regularTask, links: [links[1]] })).toBe(false);
+    // Falls back to predecessorCount when the links cache is not threaded.
+    expect(dependencies.isPopulated!({ task: { ...regularTask, predecessorCount: 2 } })).toBe(true);
+    expect(dependencies.isPopulated!({ task: { ...regularTask, predecessorCount: 0 } })).toBe(false);
+  });
+
+  it('estimates is populated from a leaf PERT triple, or any descendant PERT on a summary', () => {
+    const estimates = find('estimates');
+    // Leaf with any PERT field set.
+    expect(estimates.isPopulated!({ task: { ...regularTask, optimisticDuration: 3 } })).toBe(true);
+    expect(estimates.isPopulated!({ task: regularTask })).toBe(false);
+    // Summary: populated iff a descendant carries PERT (walked via parentId).
+    const tasks = [
+      summaryTask, // t3
+      { ...regularTask, id: 'child', parentId: 't3', mostLikelyDuration: 5 } as unknown as Task,
+    ];
+    expect(estimates.isPopulated!({ task: summaryTask, tasks })).toBe(true);
+    expect(estimates.isPopulated!({ task: summaryTask, tasks: [summaryTask] })).toBe(false);
+  });
+
+  it('related-links and recurring have NO isPopulated predicate (stay always-shown)', () => {
+    // No task-level signal exists for these, so they must not collapse — they
+    // omit the predicate and render as always-shown headers until a server
+    // annotation lands (ADR-0605 follow-up).
+    expect(find('related-links').isPopulated).toBeUndefined();
+    expect(find('recurring').isPopulated).toBeUndefined();
+  });
+});

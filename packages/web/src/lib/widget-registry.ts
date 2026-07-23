@@ -113,6 +113,18 @@ export interface SlotRegistration<T = ComponentType<any>> {
    */
   canRender?: (ctx: unknown) => boolean;
   /**
+   * Optional predicate that reports whether this section has *content* for the
+   * current task (ADR-0605). Distinct from {@link canRender} (capability — "can
+   * this task type ever have this section"): `isPopulated` answers "does THIS
+   * task have data here right now". Only meaningful for `task_detail.section`.
+   * When it returns `false` the drawer's Details tab collapses the section out
+   * of the main flow and offers it under a single "Add detail" affordance
+   * instead of rendering an empty header (the #2315 empty-sprawl fix). A
+   * registration that omits it (every Enterprise section, and OSS sections whose
+   * emptiness can't be derived from the task) is always shown — backward-compatible.
+   */
+  isPopulated?: (ctx: unknown) => boolean;
+  /**
    * Optional drawer tab grouping. Only meaningful for `task_detail.section`
    * registrations (#962) — ignored by other slots. See {@link DrawerSectionTab}.
    */
@@ -218,6 +230,18 @@ export interface DrawerSectionContext {
    * cache, so it costs no extra fetch.
    */
   hasStructuralChildren?: boolean;
+  /**
+   * The full loaded task list and dependency-link list from the shared schedule
+   * cache (ADR-0605). Threaded so an {@link SlotRegistration.isPopulated}
+   * predicate can decide emptiness without firing the section's own query —
+   * e.g. dependencies (any link touching the task) and summary-task estimates
+   * (any descendant PERT). Both optional: a predicate that only needs `task`
+   * ignores them, and a caller without the cache warm (unusual) omits them.
+   * Typed `unknown` to keep this module free of a hard `@/types` dependency,
+   * matching {@link user}/{@link task}; predicates cast as needed.
+   */
+  tasks?: unknown;
+  links?: unknown;
 }
 
 /**
@@ -232,10 +256,16 @@ export interface DrawerSectionContext {
  */
 export interface DrawerSectionRegistration extends Omit<
   SlotRegistration<ComponentType<DrawerSectionProps>>,
-  'canRender'
+  'canRender' | 'isPopulated'
 > {
   title: string;
   canRender?: (ctx: DrawerSectionContext) => boolean;
+  /**
+   * Narrows {@link SlotRegistration.isPopulated} to the drawer context (ADR-0605).
+   * Returns whether this section has content for `ctx.task` — `false` collapses
+   * it behind the "Add detail" affordance; absent = always shown.
+   */
+  isPopulated?: (ctx: DrawerSectionContext) => boolean;
   /**
    * Which tab this section renders under in the drawer (#962). Optional and
    * backward-compatible: a registration that omits `tab` (including every
