@@ -27,48 +27,33 @@ from trueppm_api.apps.notifications.throttles import (
 )
 
 
-class _FakePipeline:
-    """Records the incrby/expire ops issued before execute()."""
-
-    def __init__(self, raise_on_execute: bool = False) -> None:
-        self.ops: list[tuple[str, str, int]] = []
-        self.executed = False
-        self._raise_on_execute = raise_on_execute
-
-    def incrby(self, key: str, amount: int) -> _FakePipeline:
-        self.ops.append(("incrby", key, amount))
-        return self
-
-    def expire(self, key: str, ttl: int) -> _FakePipeline:
-        self.ops.append(("expire", key, ttl))
-        return self
-
-    def execute(self) -> list[None]:
-        if self._raise_on_execute:
-            raise redis.RedisError("down")
-        self.executed = True
-        return [None] * len(self.ops)
-
-
 class _FakeRedis:
-    """Minimal stand-in returning canned counter values."""
+    """Minimal stand-in: ``get`` for the read throttle, ``eval`` for the atomic
+    INCRBY+EXPIRE helper (#1757) ``record_mention_usage`` now issues."""
 
     def __init__(
         self,
         values: dict[str, int] | None = None,
-        raise_on_execute: bool = False,
+        raise_on_eval: bool = False,
     ) -> None:
         self._values = values or {}
-        self._raise_on_execute = raise_on_execute
-        self.pipelines: list[_FakePipeline] = []
+        self._raise_on_eval = raise_on_eval
+        # Recorded (key, amount, ttl) for each incrby_with_ttl EVAL, in call order.
+        self.eval_calls: list[tuple[str, int, int]] = []
 
     def get(self, key: str) -> int | None:
         return self._values.get(key)
 
-    def pipeline(self) -> _FakePipeline:
-        pipe = _FakePipeline(raise_on_execute=self._raise_on_execute)
-        self.pipelines.append(pipe)
-        return pipe
+    def eval(self, script: str, numkeys: int, *args: object) -> int:
+        """Emulate the incrby_with_ttl Lua: INCRBY the key by args[1], stamp TTL."""
+        if self._raise_on_eval:
+            raise redis.RedisError("down")
+        key = str(args[0])
+        amount = int(args[1])  # type: ignore[arg-type]
+        ttl = int(args[2])  # type: ignore[arg-type]
+        self._values[key] = int(self._values.get(key, 0)) + amount
+        self.eval_calls.append((key, amount, ttl))
+        return self._values[key]
 
 
 def _request(user: object) -> SimpleNamespace:
@@ -141,20 +126,21 @@ def test_allow_request_fails_open_on_redis_error(monkeypatch: pytest.MonkeyPatch
 
 
 def test_record_increments_both_windows(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A positive count bumps the hour and day counters and (re)sets their TTLs."""
+    """A positive count atomically bumps the hour and day counters with their TTLs.
+
+    Each counter is a single ``incrby_with_ttl`` EVAL (#1757) — the INCRBY and the
+    EXPIRE are one atomic unit, so a crash can no longer strand a mention counter
+    without a window (which would wedge the user at the mention cap indefinitely).
+    """
     fake = _FakeRedis()
     monkeypatch.setattr(throttles, "_client", lambda: fake)
 
     record_mention_usage("u1", 3)
 
-    pipe = fake.pipelines[0]
-    assert pipe.ops == [
-        ("incrby", "mention:hour:u1", 3),
-        ("expire", "mention:hour:u1", 3600),
-        ("incrby", "mention:day:u1", 3),
-        ("expire", "mention:day:u1", 86400),
+    assert fake.eval_calls == [
+        ("mention:hour:u1", 3, 3600),
+        ("mention:day:u1", 3, 86400),
     ]
-    assert pipe.executed is True
 
 
 @pytest.mark.parametrize("count", [0, -5])
@@ -170,7 +156,7 @@ def test_record_is_noop_for_nonpositive_count(count: int, monkeypatch: pytest.Mo
 
 
 def test_record_fails_open_on_redis_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If the pipeline execute fails, the caller is not blown up — fail open."""
-    monkeypatch.setattr(throttles, "_client", lambda: _FakeRedis(raise_on_execute=True))
+    """If the atomic EVAL fails, the caller is not blown up — fail open."""
+    monkeypatch.setattr(throttles, "_client", lambda: _FakeRedis(raise_on_eval=True))
 
     record_mention_usage("u1", 2)  # must not raise

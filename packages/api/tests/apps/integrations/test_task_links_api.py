@@ -661,15 +661,16 @@ def test_refresh_throttle_caps_per_user(monkeypatch: pytest.MonkeyPatch) -> None
     from trueppm_api.apps.integrations import throttles
 
     class _FakeRedis:
+        """Emulates the atomic incr_with_ttl EVAL the throttle now issues (#1757):
+        one Lua script (INCR + first-hit EXPIRE) instead of incr + expire."""
+
         def __init__(self) -> None:
             self.counts: dict[str, int] = {}
 
-        def incr(self, key: str) -> int:
+        def eval(self, script: str, numkeys: int, *args: object) -> int:
+            key = str(args[0])
             self.counts[key] = self.counts.get(key, 0) + 1
             return self.counts[key]
-
-        def expire(self, key: str, ttl: int) -> None:
-            return None
 
     fake = _FakeRedis()
     monkeypatch.setattr(throttles, "_client", lambda: fake)

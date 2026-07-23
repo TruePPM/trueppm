@@ -23,6 +23,7 @@ from rest_framework.throttling import BaseThrottle
 # Reuse the single shared connection pool + client factory from the projects
 # throttles module rather than opening a second pool.
 from trueppm_api.apps.projects.throttles import _client
+from trueppm_api.core.redis_throttle import incr_with_ttl
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -58,9 +59,8 @@ class GitWebhookThrottle(BaseThrottle):
         bucket_key = f"rate:git_webhook:{project_pk}"
         try:
             client = _client()
-            count = int(client.incr(bucket_key))  # type: ignore[arg-type]
-            if count == 1:
-                client.expire(bucket_key, 60)
+            # Atomic INCR + first-hit EXPIRE (#1757), see incr_with_ttl.
+            count = incr_with_ttl(client, bucket_key, 60)
         except redis.RedisError:
             logger.exception("GitWebhookThrottle: Redis error, failing open")
             return True
@@ -91,9 +91,8 @@ class TaskLinkRefreshThrottle(BaseThrottle):
         bucket_key = f"rate:link_refresh:{user_id}"
         try:
             client = _client()
-            count = int(client.incr(bucket_key))  # type: ignore[arg-type]
-            if count == 1:
-                client.expire(bucket_key, 60)
+            # Atomic INCR + first-hit EXPIRE (#1757), see incr_with_ttl.
+            count = incr_with_ttl(client, bucket_key, 60)
         except redis.RedisError:
             logger.exception("TaskLinkRefreshThrottle: Redis error, failing open")
             return True

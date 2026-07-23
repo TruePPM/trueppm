@@ -31,21 +31,28 @@ User = get_user_model()
 
 
 class _FakeRedis:
-    """Minimal stand-in for the ``incr``/``expire`` calls the throttle issues."""
+    """Stand-in for the atomic ``incr_with_ttl`` EVAL the throttle now issues (#1757).
 
-    def __init__(self, raise_on_incr: bool = False) -> None:
+    The throttle used to call ``incr`` then a conditional ``expire``; it now runs
+    one Lua script (INCR + first-hit EXPIRE) via ``eval``. The fake emulates that:
+    INCR the key and, on the transition to 1, record the TTL in ``expire_calls`` so
+    the "TTL set once" assertion still holds.
+    """
+
+    def __init__(self, raise_on_eval: bool = False) -> None:
         self._counts: dict[str, int] = {}
         self.expire_calls: list[tuple[str, int]] = []
-        self._raise_on_incr = raise_on_incr
+        self._raise_on_eval = raise_on_eval
 
-    def incr(self, key: str) -> int:
-        if self._raise_on_incr:
+    def eval(self, script: str, numkeys: int, *args: object) -> int:
+        if self._raise_on_eval:
             raise redis.RedisError("down")
+        key = str(args[0])
+        ttl = int(args[1])  # type: ignore[arg-type]
         self._counts[key] = self._counts.get(key, 0) + 1
+        if self._counts[key] == 1:
+            self.expire_calls.append((key, ttl))
         return self._counts[key]
-
-    def expire(self, key: str, ttl: int) -> None:
-        self.expire_calls.append((key, ttl))
 
 
 def _request(user: object) -> SimpleNamespace:
