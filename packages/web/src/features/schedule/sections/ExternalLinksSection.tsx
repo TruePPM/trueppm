@@ -20,7 +20,7 @@ import type { DetectedProvider } from '@/lib/detectProvider';
 import { previewTypeIcon } from '@/lib/previewType';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
-import { LinkIcon } from '@/components/Icons';
+import { LinkIcon, PencilIcon } from '@/components/Icons';
 import {
   isFileProvider,
   LabelPills,
@@ -374,7 +374,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
               aria-label={`Edit ${title}`}
             >
-              ✎
+              <PencilIcon aria-hidden="true" className="h-4 w-4" />
             </button>
           )}
           {canEdit &&

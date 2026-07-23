@@ -1,10 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BuildModeRowMenu, type RowMenuItem } from './BuildModeRowMenu';
+import { PencilIcon } from '@/components/Icons';
 
 function makeItems(overrides: Partial<RowMenuItem>[] = []): RowMenuItem[] {
   const defaults: RowMenuItem[] = [
-    { key: 'edit', label: 'Edit', icon: '✎', hint: 'F2', onSelect: vi.fn() },
+    { key: 'edit', label: 'Edit', icon: <PencilIcon aria-hidden="true" />, hint: 'F2', onSelect: vi.fn() },
     { key: 'indent', label: 'Indent', icon: '⇥', hint: 'Tab', startsGroup: true, onSelect: vi.fn() },
     { key: 'outdent', label: 'Outdent', icon: '⇤', hint: '⇧+Tab', onSelect: vi.fn() },
     { key: 'delete', label: 'Delete', icon: '🗑', hint: '⌫', destructive: true, startsGroup: true, onSelect: vi.fn() },

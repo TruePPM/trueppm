@@ -30,7 +30,7 @@ import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
-import { LinkIcon, WarningIcon } from '@/components/Icons';
+import { LinkIcon, WarningIcon, PencilIcon } from '@/components/Icons';
 import { LINK_STATUS_TEXT_CLASS } from '@/lib/linkStatus';
 import { localTodayIso } from '@/lib/localDate';
 import type { PhasePlannedBadge } from './plannedByPhase';
@@ -482,7 +482,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
     {
       key: 'edit',
       label: 'Edit',
-      icon: '✎',
+      icon: <PencilIcon className="h-4 w-4" aria-hidden="true" />,
       hint: 'F2',
       onSelect: () => buildMode.focus.enterCellEdit(task.id, 'name'),
     },

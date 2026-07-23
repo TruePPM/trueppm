@@ -63,6 +63,9 @@ describe('CeilingDecisionHistory', () => {
     await user.click(screen.getByRole('button', { name: /Decision history/ }));
     expect(screen.getByText('Ratified')).toBeInTheDocument();
     expect(screen.getByText('Rejected')).toBeInTheDocument();
+    // Ratified/Rejected now lead with house CheckIcon/XMarkIcon SVGs (issue 1749), not glyphs.
+    expect(screen.getByText('Ratified').querySelector('svg')).toBeInTheDocument();
+    expect(screen.getByText('Rejected').querySelector('svg')).toBeInTheDocument();
     // The open one is shown inline on its ladder row, not in the audit tail.
     expect(screen.queryByText('Velocity')).not.toBeInTheDocument();
   });

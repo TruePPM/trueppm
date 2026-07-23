@@ -7,8 +7,9 @@
  * expired) and exists purely as the "what did the team decide, and when" record.
  */
 
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { formatRelative } from '@/lib/formatRelative';
+import { CheckIcon, XMarkIcon } from '@/components/Icons';
 import {
   AUDIENCE_RUNG_LABEL_FULL,
   SIGNALS,
@@ -21,9 +22,17 @@ const SIGNAL_TITLE: Record<string, string> = Object.fromEntries(
   SIGNALS.map((s) => [s.key, s.title]),
 );
 
-const OUTCOME: Record<Exclude<CeilingRaiseStatus, 'open'>, { glyph: string; label: string; cls: string }> = {
-  ratified: { glyph: '✓', label: 'Ratified', cls: 'text-semantic-on-track' },
-  rejected: { glyph: '✗', label: 'Rejected', cls: 'text-semantic-critical' },
+const OUTCOME: Record<Exclude<CeilingRaiseStatus, 'open'>, { glyph: ReactNode; label: string; cls: string }> = {
+  ratified: {
+    glyph: <CheckIcon aria-hidden="true" className="inline-block h-3.5 w-3.5 align-[-0.125em]" />,
+    label: 'Ratified',
+    cls: 'text-semantic-on-track',
+  },
+  rejected: {
+    glyph: <XMarkIcon aria-hidden="true" className="inline-block h-3.5 w-3.5 align-[-0.125em]" />,
+    label: 'Rejected',
+    cls: 'text-semantic-critical',
+  },
   expired: { glyph: '⋯', label: 'Expired', cls: 'text-neutral-text-disabled' },
 };
 

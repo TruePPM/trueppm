@@ -8,6 +8,7 @@
  * active team members ratify, never management (Amendment A.2).
  */
 
+import { CheckIcon, XMarkIcon } from '@/components/Icons';
 import type { CeilingProposal, CeilingVoteChoice } from './useSignalPrivacy';
 
 interface CeilingVoteControlProps {
@@ -71,7 +72,11 @@ export function CeilingVoteControl({ proposal, voting, onVote }: CeilingVoteCont
                     : 'border border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
                 ].join(' ')}
               >
-                {choice === 'approve' ? '✓ ' : '✗ '}
+                {choice === 'approve' ? (
+                  <CheckIcon aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]" />
+                ) : (
+                  <XMarkIcon aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]" />
+                )}
                 {label}
               </button>
             );
