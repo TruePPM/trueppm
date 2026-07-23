@@ -402,6 +402,18 @@ export function groupItemsByTask(items: AssetItem[]): AssetGroup[] {
   return order.map((id) => byTask.get(id)!);
 }
 
+/** Hostname for a link asset's meta line. The house kind-glyph (#1748) no longer
+ *  differentiates provider on the Assets surface, which — unlike the task-drawer
+ *  sections — does not otherwise render the host, so the provider identity is
+ *  carried here as text instead. Unparseable URLs fall back to a neutral label. */
+function assetLinkHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return 'external link';
+  }
+}
+
 /** One asset row — a file or a link, rendered with the shared issue 970 primitives. */
 function AssetRow({
   item,
@@ -413,13 +425,20 @@ function AssetRow({
   showProject?: boolean;
 }) {
   const when = formatRelative(new Date(item.added_at));
-  const glyph = item.kind === 'link' ? providerIcon(item.provider ?? 'generic') : '📎';
+  // Links render a house provider kind-mark (#1748); uploaded attachments render
+  // the paperclip mark — never an emoji, matching the drawer sections.
+  const glyph =
+    item.kind === 'link' ? (
+      providerIcon(item.provider ?? 'generic')
+    ) : (
+      <PaperclipIcon className="h-4 w-4 text-neutral-text-secondary" aria-hidden="true" />
+    );
   const safeHref = item.url ? safeExternalHref(item.url) : null;
 
   return (
     <li className="flex flex-col gap-1 px-4 py-3">
       <div className="flex items-start gap-2 min-w-0">
-        <span className="text-base flex-shrink-0" aria-hidden="true">
+        <span className="flex-shrink-0" aria-hidden="true">
           {glyph}
         </span>
         {safeHref ? (
@@ -468,6 +487,12 @@ function AssetRow({
         {showTask && (
           <>
             <span className="truncate">{item.task.name}</span>
+            <span aria-hidden="true">·</span>
+          </>
+        )}
+        {item.kind === 'link' && item.url && (
+          <>
+            <span className="truncate tppm-mono">{assetLinkHost(item.url)}</span>
             <span aria-hidden="true">·</span>
           </>
         )}

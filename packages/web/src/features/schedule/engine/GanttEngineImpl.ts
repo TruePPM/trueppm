@@ -38,7 +38,8 @@ import {
   COLOR_DARK,
   setRendererColorMode,
   setRendererChartOptions,
-  CANVAS_FONT,
+  canvasFont,
+  refreshFontScale,
   drawRowBands,
   drawHoverRowBand,
   drawGridLines,
@@ -297,10 +298,12 @@ export class GanttEngineImpl implements GanttEngine {
     this._barsCtx = barsCtx;
     this._ixCtx = ixCtx;
 
-    // Font set once (rule 71)
-    this._bgCtx.font = CANVAS_FONT;
-    this._barsCtx.font = CANVAS_FONT;
-    this._ixCtx.font = CANVAS_FONT;
+    // Font set once (rule 71), scaled for text-only zoom (#1758). Recompute the
+    // scale from the root font-size here and on every resize (see _onResize).
+    refreshFontScale();
+    this._bgCtx.font = canvasFont();
+    this._barsCtx.font = canvasFont();
+    this._ixCtx.font = canvasFont();
 
     // prefers-reduced-motion (rule 70)
     if (typeof window !== 'undefined') {
@@ -825,10 +828,13 @@ export class GanttEngineImpl implements GanttEngine {
     this._barsCtx.scale(this._dpr, this._dpr);
     this._ixCtx.scale(this._dpr, this._dpr);
 
-    // Restore font after context re-acquisition
-    this._bgCtx.font = CANVAS_FONT;
-    this._barsCtx.font = CANVAS_FONT;
-    this._ixCtx.font = CANVAS_FONT;
+    // Restore font after context re-acquisition, recomputing the text-only-zoom
+    // scale (#1758) — text-only zoom / a default-font change reflows the canvas
+    // container, so this ResizeObserver path is where the scale is refreshed.
+    refreshFontScale();
+    this._bgCtx.font = canvasFont();
+    this._barsCtx.font = canvasFont();
+    this._ixCtx.font = canvasFont();
 
     // Resizing the canvas backing store wipes every pixel, including the retained
     // header band, and the viewport width the header is laid out against just

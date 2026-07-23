@@ -379,10 +379,10 @@ describe('ExternalLinksSection — add-link input', () => {
   });
 
   it.each<[string, string]>([
-    ['github.com/acme/api/pull/5', '🐙 GitHub detected · refresh fetches live status'],
-    ['gitlab.com/acme/api/-/merge_requests/5', '🦊 GitLab detected · refresh fetches live status'],
-    ['drive.google.com/file/d/abc', '📂 Google Drive detected · refresh loads a preview'],
-    ['example.com/whatever', '🔗 Saved as a generic link (no live status)'],
+    ['github.com/acme/api/pull/5', 'GitHub detected · refresh fetches live status'],
+    ['gitlab.com/acme/api/-/merge_requests/5', 'GitLab detected · refresh fetches live status'],
+    ['drive.google.com/file/d/abc', 'Google Drive detected · refresh loads a preview'],
+    ['example.com/whatever', 'Saved as a generic link (no live status)'],
   ])('shows the provider hint for %s', (url, hint) => {
     render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     fireEvent.change(screen.getByLabelText('Add a link URL'), { target: { value: url } });

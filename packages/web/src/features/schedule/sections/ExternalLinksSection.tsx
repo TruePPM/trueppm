@@ -37,23 +37,25 @@ import {
 } from '@/hooks/useTaskLinks';
 import type { TaskExternalLink } from '@/hooks/useTaskLinks';
 
-/** Live "provider detected" hint for the add-link field (issues 637, 571). */
+/** Live "provider detected" hint for the add-link field (issues 637, 571).
+ *  Plain text — the leading provider emoji was dropped (#1748); the provider name
+ *  is already in the hint and the row renders a house kind-mark. */
 function addHint(detected: DetectedProvider | null): string {
   switch (detected) {
     case 'github':
-      return '🐙 GitHub detected · refresh fetches live status';
+      return 'GitHub detected · refresh fetches live status';
     case 'gitlab':
-      return '🦊 GitLab detected · refresh fetches live status';
+      return 'GitLab detected · refresh fetches live status';
     case 'google_drive':
-      return '📂 Google Drive detected · refresh loads a preview';
+      return 'Google Drive detected · refresh loads a preview';
     case 'dropbox':
-      return '🗄️ Dropbox detected · refresh loads a preview';
+      return 'Dropbox detected · refresh loads a preview';
     case 'box':
-      return '📦 Box detected · refresh loads a preview';
+      return 'Box detected · refresh loads a preview';
     case 'onedrive':
-      return '☁️ OneDrive detected · refresh loads a preview';
+      return 'OneDrive detected · refresh loads a preview';
     case 'generic':
-      return '🔗 Saved as a generic link (no live status)';
+      return 'Saved as a generic link (no live status)';
     default:
       return '';
   }
@@ -318,7 +320,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
       aria-label={`Link: ${title}`}
     >
       <div className="flex items-start gap-2 min-w-0">
-        <span className="text-base flex-shrink-0" aria-hidden="true">
+        <span className="flex-shrink-0" aria-hidden="true">
           {providerIcon(link.provider)}
         </span>
         {safeHref ? (

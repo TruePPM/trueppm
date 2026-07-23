@@ -512,48 +512,35 @@ describe('AttachmentSection — external-link host glyphs', () => {
     return attachment({ id, file_name: '', file_mime: '', external_url: url, external_title: title });
   }
 
-  it('maps well-known hosts to their brand glyph and unknown hosts to a link glyph', () => {
+  it('renders a house folder mark for cloud file-storage hosts and a link mark otherwise', () => {
     useListMock.mockReturnValue({
       attachments: [
-        externalAttachment('https://github.com/acme/repo', 'GitHub repo', 'g1'),
-        externalAttachment('https://gitlab.com/acme/repo', 'GitLab repo', 'g2'),
-        externalAttachment('https://www.figma.com/file/x', 'Figma board', 'g3'),
-        externalAttachment('https://acme.notion.site/page', 'Notion page', 'g4'),
-        externalAttachment('https://jira.corp.example/browse/X-1', 'Jira ticket', 'g5'),
-        externalAttachment('https://acme.sharepoint.com/doc', 'SharePoint doc', 'g6'),
-        externalAttachment('https://acme.atlassian.net/wiki', 'Confluence page', 'g7'),
-        externalAttachment('https://docs.google.com/document/x', 'Google doc', 'g8'),
-        externalAttachment('https://www.dropbox.com/s/x', 'Dropbox file', 'g9'),
-        externalAttachment('https://acme.slack.com/archives/x', 'Slack thread', 'g10'),
-        externalAttachment('https://miro.com/app/board/x', 'Miro board', 'g11'),
-        externalAttachment('https://example.com/thing', 'Generic link', 'g12'),
+        externalAttachment('https://github.com/acme/repo', 'GitHub repo', 'g1'), // link
+        externalAttachment('https://gitlab.com/acme/repo', 'GitLab repo', 'g2'), // link
+        externalAttachment('https://www.figma.com/file/x', 'Figma board', 'g3'), // link
+        externalAttachment('https://example.com/thing', 'Generic link', 'g4'), // link
+        externalAttachment('https://acme.sharepoint.com/doc', 'SharePoint doc', 'g5'), // file
+        externalAttachment('https://docs.google.com/document/x', 'Google doc', 'g6'), // file
+        externalAttachment('https://www.dropbox.com/s/x', 'Dropbox file', 'g7'), // file
       ],
       isLoading: false,
       error: null,
     });
     render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
-    expect(screen.getByText('🐙')).toBeInTheDocument();
-    expect(screen.getByText('🦊')).toBeInTheDocument();
-    expect(screen.getByText('🎨')).toBeInTheDocument();
-    expect(screen.getByText('📓')).toBeInTheDocument();
-    expect(screen.getByText('🟦')).toBeInTheDocument();
-    expect(screen.getByText('📘')).toBeInTheDocument();
-    expect(screen.getByText('📚')).toBeInTheDocument();
-    expect(screen.getByText('📝')).toBeInTheDocument();
-    expect(screen.getByText('📦')).toBeInTheDocument();
-    expect(screen.getByText('💬')).toBeInTheDocument();
-    expect(screen.getByText('🗒')).toBeInTheDocument();
-    expect(screen.getByText('🔗')).toBeInTheDocument();
+    // Every provider mark is now a house SVG (#1748) — no emoji glyphs remain.
+    // Cloud file-storage hosts get the folder mark; every other link the link mark.
+    expect(screen.getAllByTestId('provider-glyph-file')).toHaveLength(3);
+    expect(screen.getAllByTestId('provider-glyph-link')).toHaveLength(4);
   });
 
-  it('uses the generic link glyph when the external URL is unparseable', () => {
+  it('uses the generic link mark when the external URL is unparseable', () => {
     useListMock.mockReturnValue({
       attachments: [externalAttachment('http://[bad', 'Broken', 'b1')],
       isLoading: false,
       error: null,
     });
     render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
-    expect(screen.getByText('🔗')).toBeInTheDocument();
+    expect(screen.getByTestId('provider-glyph-link')).toBeInTheDocument();
   });
 });
 

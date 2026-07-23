@@ -8,6 +8,8 @@
 export interface IconProps {
   className?: string;
   'aria-hidden'?: boolean | 'true' | 'false';
+  /** Test hook for decorative icons that carry no accessible name of their own. */
+  'data-testid'?: string;
 }
 
 /** Clock — a circle with hour/minute hands; the "log time" affordance */
