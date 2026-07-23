@@ -350,7 +350,11 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
 
     cap: int | None = settings.MC_SIMULATION_CAP
-    raw_n = request.data.get("n_simulations", cap or 1_000)
+    # A JSON `null` (or absent) body parses to request.data == None; the body is
+    # documented as fully optional, so fall back to the default rather than
+    # letting None.get(...) raise AttributeError → 500 (#2310).
+    body = request.data if isinstance(request.data, dict) else {}
+    raw_n = body.get("n_simulations", cap or 1_000)
     try:
         n_simulations: int = int(raw_n)
     except (TypeError, ValueError):
