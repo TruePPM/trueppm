@@ -206,3 +206,12 @@ piecemeal here. Deferred to a follow-up; this feature matches the current
    engine's documented `SchedulerError`/`InvalidScheduleInput`/`CyclicDependencyError`,
    caught and mapped to `400` with the engine's user-facing message (same handling
    as the Monte Carlo endpoint); nothing to retry or dead-letter.
+
+## Amendment — 2026-07-23 (Issue #2311)
+
+The "never recomputed in the browser" rule above governs **authoritative** schedule
+values — the ones a persisted fact depends on. It does not forbid the
+non-authoritative interactive drag/keyboard preview, which recomputes downstream
+dates locally for interactivity and is reconciled by this server-side derivation on
+commit. [ADR-0599](0599-api-first-boundary-scheduling-compute.md) names that boundary
+and the invariant that keeps the two compatible: the server always has the last word.
