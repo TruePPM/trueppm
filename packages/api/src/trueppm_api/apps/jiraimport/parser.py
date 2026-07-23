@@ -161,6 +161,141 @@ def _linked_keys(container: Element) -> list[str]:
     return keys
 
 
+def _parse_channel(content: bytes) -> Element:
+    """Parse the export bytes and return its ``<channel>`` element.
+
+    Raises:
+        JiraImportError: If the bytes are not well-formed XML or carry no
+            ``<channel>`` element.
+    """
+    try:
+        # _safe_fromstring is untyped (Any); pin to Element so the resolved
+        # channel keeps its type through the return.
+        root: Element = _safe_fromstring(content)
+    except Exception as exc:  # defusedxml raises various parse/entity errors
+        raise JiraImportError(f"Not a parseable Jira XML export: {exc}") from exc
+
+    channel = root.find("channel") if root.tag != "channel" else root
+    if channel is None:
+        raise JiraImportError("Jira XML export has no <channel> element.")
+    return channel
+
+
+def _enforce_row_cap(items: list[Element]) -> None:
+    """Reject an export whose issue count exceeds the import row cap.
+
+    The upload SIZE is bounded but the issue count is not (#1721) — a large
+    export would build one Task object per issue and bulk-create the lot through
+    the shared importer, a worker-memory / transaction-time DoS within the byte
+    cap. Reject outright before building anything.
+    """
+    max_rows = getattr(settings, "JIRA_IMPORT_MAX_ROWS", 20_000)
+    if len(items) > max_rows:
+        raise JiraImportError(
+            f"Jira export has too many issues ({len(items)}); the import limit is "
+            f"{max_rows}. Split the export and import in batches."
+        )
+
+
+def _collect_ordered_issues(
+    items: list[Element], warnings: list[str]
+) -> tuple[dict[str, int], list[tuple[str, Element]]]:
+    """Collect keyed issues in document order and assign each a synthetic uid.
+
+    The ProjectData interchange keys by int uid; Jira keys are strings, so a
+    stable ``key_to_uid`` map is built here. Keyless and duplicate-key issues are
+    dropped with a warning (keeping the first of a duplicate pair).
+    """
+    key_to_uid: dict[str, int] = {}
+    ordered: list[tuple[str, Element]] = []
+    for item in items:
+        key = _issue_key(item)
+        if key is None:
+            warnings.append("Skipped an issue with no key.")
+            continue
+        if key in key_to_uid:
+            warnings.append(f"Duplicate issue key {key} skipped.")
+            continue
+        key_to_uid[key] = len(key_to_uid) + 1
+        ordered.append((key, item))
+    return key_to_uid, ordered
+
+
+def _collect_blocks_edges(
+    ordered: list[tuple[str, Element]], key_to_uid: dict[str, int], warnings: list[str]
+) -> set[tuple[str, str]]:
+    """Collect and dedupe ``(blocker, blocked)`` Blocks edges across all issues.
+
+    Self-loops and edges touching an issue absent from this export can't be
+    scheduled and are dropped with a warning; the returned set is deduped so the
+    two halves of a link that appears on both endpoints' exports collapse.
+    """
+    edge_set: set[tuple[str, str]] = set()
+    for key, item in ordered:
+        for blocker, blocked in _blocks_edges(item, key):
+            if blocker == blocked:
+                warnings.append(f"Self-referential Blocks link on {blocker} skipped.")
+                continue
+            if blocker not in key_to_uid or blocked not in key_to_uid:
+                missing = blocker if blocker not in key_to_uid else blocked
+                warnings.append(f"Blocks link to {missing} (not in this export) skipped.")
+                continue
+            edge_set.add((blocker, blocked))
+    return edge_set
+
+
+def _group_predecessors_by_successor(
+    edge_set: set[tuple[str, str]], key_to_uid: dict[str, int]
+) -> dict[str, list[int]]:
+    """Group predecessor uids by successor key for the ProjectData shape.
+
+    Each ``TaskData`` carries the links for which it is the successor, so the
+    blocker→blocked edges are inverted into ``{blocked_key: [blocker_uid, ...]}``.
+    """
+    predecessors_by_successor: dict[str, list[int]] = {}
+    for blocker, blocked in edge_set:
+        predecessors_by_successor.setdefault(blocked, []).append(key_to_uid[blocker])
+    return predecessors_by_successor
+
+
+def _build_task(
+    index: int,
+    key: str,
+    item: Element,
+    key_to_uid: dict[str, int],
+    predecessors_by_successor: dict[str, list[int]],
+) -> TaskData:
+    """Build one ``TaskData`` from a Jira ``<item>`` and its resolved predecessors."""
+    estimate = item.find("timeoriginalestimate")
+    seconds = estimate.get("seconds") if estimate is not None else None
+    predecessor_links = [
+        PredecessorLinkData(predecessor_uid=pred_uid, dep_type="FS", lag_days=0)
+        for pred_uid in sorted(predecessors_by_successor.get(key, []))
+    ]
+    mapped_status = _map_status(item)
+    # A terminal status (Done/Closed → COMPLETE, or Review) means the work is
+    # 100% delivered, but the basic Jira XML export carries no percent field, so
+    # bulk_create would persist COMPLETE at 0% — an incoherent card and a task
+    # the Monte Carlo completion check still treats as unstarted. Set the
+    # fraction the FloatField stores (1.0 == 100%, matching the MS Project
+    # parser's raw/100; the 0-100 storage correction is tracked as #1759).
+    percent = 1.0 if mapped_status in (TaskStatus.COMPLETE.value, TaskStatus.REVIEW.value) else 0.0
+    return TaskData(
+        uid=key_to_uid[key],
+        name=_issue_name(item, key)[:512],
+        duration_days=_seconds_to_days(seconds),
+        # Flat WBS: sequential top-level outline numbers. Subtask / parent
+        # hierarchy is deferred (ADR-0259 out-of-scope).
+        outline_number=str(index + 1),
+        outline_level=0,
+        # #1768: carry the source status so completed/in-flight issues do not
+        # re-import as NOT_STARTED and inflate the forecast.
+        status=mapped_status,
+        percent_complete=percent,
+        predecessor_links=predecessor_links,
+    )
+
+
 def parse_jira_xml(content: bytes) -> ProjectData:
     """Parse Jira XML export bytes into ``ProjectData`` (tasks + FS dependencies).
 
@@ -179,103 +314,22 @@ def parse_jira_xml(content: bytes) -> ProjectData:
         JiraImportError: If the bytes are not a well-formed Jira XML export
             (unparseable XML, or no ``<channel>``/``<item>`` structure).
     """
-    try:
-        root = _safe_fromstring(content)
-    except Exception as exc:  # defusedxml raises various parse/entity errors
-        raise JiraImportError(f"Not a parseable Jira XML export: {exc}") from exc
-
-    channel = root.find("channel") if root.tag != "channel" else root
-    if channel is None:
-        raise JiraImportError("Jira XML export has no <channel> element.")
-
+    channel = _parse_channel(content)
     items = channel.findall("item")
-
-    # Row-count cap (#1721): the upload SIZE is bounded but the issue count is
-    # not — a large export would build one Task object per issue and bulk-create
-    # the lot through the shared importer, a worker-memory / transaction-time
-    # DoS within the byte cap. Reject outright before building anything.
-    max_rows = getattr(settings, "JIRA_IMPORT_MAX_ROWS", 20_000)
-    if len(items) > max_rows:
-        raise JiraImportError(
-            f"Jira export has too many issues ({len(items)}); the import limit is "
-            f"{max_rows}. Split the export and import in batches."
-        )
+    _enforce_row_cap(items)
 
     warnings: list[str] = []
-
-    # Pass 1: collect issues in document order and assign a stable synthetic uid
-    # (the ProjectData interchange keys by int uid; Jira keys are strings).
-    key_to_uid: dict[str, int] = {}
-    ordered: list[tuple[str, Element]] = []
-    for item in items:
-        key = _issue_key(item)
-        if key is None:
-            warnings.append("Skipped an issue with no key.")
-            continue
-        if key in key_to_uid:
-            # Duplicate key in the export (shouldn't happen) — keep the first.
-            warnings.append(f"Duplicate issue key {key} skipped.")
-            continue
-        key_to_uid[key] = len(key_to_uid) + 1
-        ordered.append((key, item))
-
+    key_to_uid, ordered = _collect_ordered_issues(items, warnings)
     if not ordered:
         raise JiraImportError("Jira XML export contains no importable issues.")
 
-    # Pass 2: collect + dedupe Blocks edges, dropping self-loops and dangling
-    # endpoints (a link to an issue not in this export can't be scheduled).
-    edge_set: set[tuple[str, str]] = set()
-    for key, item in ordered:
-        for blocker, blocked in _blocks_edges(item, key):
-            if blocker == blocked:
-                warnings.append(f"Self-referential Blocks link on {blocker} skipped.")
-                continue
-            if blocker not in key_to_uid or blocked not in key_to_uid:
-                missing = blocker if blocker not in key_to_uid else blocked
-                warnings.append(f"Blocks link to {missing} (not in this export) skipped.")
-                continue
-            edge_set.add((blocker, blocked))
+    edge_set = _collect_blocks_edges(ordered, key_to_uid, warnings)
+    predecessors_by_successor = _group_predecessors_by_successor(edge_set, key_to_uid)
 
-    # Group predecessors by successor for the ProjectData shape (each TaskData
-    # carries the links for which it is the successor).
-    predecessors_by_successor: dict[str, list[int]] = {}
-    for blocker, blocked in edge_set:
-        predecessors_by_successor.setdefault(blocked, []).append(key_to_uid[blocker])
-
-    tasks: list[TaskData] = []
-    for index, (key, item) in enumerate(ordered):
-        estimate = item.find("timeoriginalestimate")
-        seconds = estimate.get("seconds") if estimate is not None else None
-        predecessor_links = [
-            PredecessorLinkData(predecessor_uid=pred_uid, dep_type="FS", lag_days=0)
-            for pred_uid in sorted(predecessors_by_successor.get(key, []))
-        ]
-        mapped_status = _map_status(item)
-        # A terminal status (Done/Closed → COMPLETE, or Review) means the work is
-        # 100% delivered, but the basic Jira XML export carries no percent field, so
-        # bulk_create would persist COMPLETE at 0% — an incoherent card and a task
-        # the Monte Carlo completion check still treats as unstarted. Set the
-        # fraction the FloatField stores (1.0 == 100%, matching the MS Project
-        # parser's raw/100; the 0-100 storage correction is tracked as #1759).
-        percent = (
-            1.0 if mapped_status in (TaskStatus.COMPLETE.value, TaskStatus.REVIEW.value) else 0.0
-        )
-        tasks.append(
-            TaskData(
-                uid=key_to_uid[key],
-                name=_issue_name(item, key)[:512],
-                duration_days=_seconds_to_days(seconds),
-                # Flat WBS: sequential top-level outline numbers. Subtask /
-                # parent hierarchy is deferred (ADR-0259 out-of-scope).
-                outline_number=str(index + 1),
-                outline_level=0,
-                # #1768: carry the source status so completed/in-flight issues do
-                # not re-import as NOT_STARTED and inflate the forecast.
-                status=mapped_status,
-                percent_complete=percent,
-                predecessor_links=predecessor_links,
-            )
-        )
+    tasks = [
+        _build_task(index, key, item, key_to_uid, predecessors_by_successor)
+        for index, (key, item) in enumerate(ordered)
+    ]
 
     channel_title = (channel.findtext("title") or "").strip()
     name = channel_title or "Imported from Jira"
