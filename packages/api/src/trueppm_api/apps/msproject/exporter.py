@@ -75,20 +75,9 @@ def export_project_xml(project_id: str) -> bytes:
     resources = list(Resource.objects.filter(pk__in=resource_ids))
 
     # UID maps - MS Project expects sequential integer UIDs.
-    task_pk_to_uid: dict[str, int] = {}
-    resource_pk_to_uid: dict[str, int] = {}
-
-    for i, t in enumerate(tasks, start=1):
-        task_pk_to_uid[str(t.pk)] = i
-    for i, r in enumerate(resources, start=1):
-        resource_pk_to_uid[str(r.pk)] = i
-
-    # Build dependency lookup: successor_pk -> [(predecessor_pk, dep_type, lag)]
-    dep_by_successor: dict[str, list[tuple[str, str, int]]] = {}
-    for dep in dependencies:
-        dep_by_successor.setdefault(str(dep.successor_id), []).append(
-            (str(dep.predecessor_id), dep.dep_type, dep.lag)
-        )
+    task_pk_to_uid = {str(t.pk): i for i, t in enumerate(tasks, start=1)}
+    resource_pk_to_uid = {str(r.pk): i for i, r in enumerate(resources, start=1)}
+    dep_by_successor = _build_dep_lookup(dependencies)
 
     # --- Build XML ---
     ET.register_namespace("", _NS)
@@ -107,20 +96,8 @@ def export_project_xml(project_id: str) -> bytes:
     # Emit the four PERT slots only when at least one non-summary, non-milestone
     # task carries all three values. MS Project tolerates the block being
     # absent; emitting it unconditionally would clutter files that don't use
-    # three-point estimates. The summary set is precomputed once for O(N)
-    # filtering of per-task emission below.
-    summary_pks = _summary_pks_from_tasks(tasks)
-    pert_tasks = [
-        t
-        for t in tasks
-        if (
-            str(t.pk) not in summary_pks
-            and not t.is_milestone
-            and t.optimistic_duration is not None
-            and t.most_likely_duration is not None
-            and t.pessimistic_duration is not None
-        )
-    ]
+    # three-point estimates.
+    pert_tasks = _select_pert_tasks(tasks)
     if pert_tasks:
         _add_pert_extended_attribute_defs(root)
 
@@ -139,72 +116,124 @@ def export_project_xml(project_id: str) -> bytes:
 
     pert_task_pks = {str(t.pk) for t in pert_tasks}
     for task in tasks:
-        uid = task_pk_to_uid[str(task.pk)]
-        task_el = ET.SubElement(tasks_el, f"{{{_NS}}}Task")
-        _sub_text(task_el, "UID", str(uid))
-        _sub_text(task_el, "Name", task.name)
-        _sub_text(task_el, "Duration", _days_to_duration(task.duration))
-        _sub_text(task_el, "DurationFormat", "7")
-        if task.wbs_path:
-            _sub_text(task_el, "OutlineNumber", task.wbs_path)
-            _sub_text(task_el, "OutlineLevel", str(task.wbs_path.count(".") + 1))
-        else:
-            _sub_text(task_el, "OutlineLevel", "1")
-        _sub_text(task_el, "Milestone", "1" if task.is_milestone else "0")
-        # Task.percent_complete is already a 0-100 percent (#1759) and MSPDI
-        # PercentComplete is the same 0-100 scale, so emit it as-is. The earlier
-        # `* 100` turned a native 50% task into an invalid PercentComplete=5000.
-        _sub_text(
-            task_el,
-            "PercentComplete",
-            str(round(task.percent_complete or 0)),
+        _add_task_element(
+            tasks_el,
+            task,
+            task_pk_to_uid[str(task.pk)],
+            is_pert=str(task.pk) in pert_task_pks,
+            preds=dep_by_successor.get(str(task.pk), []),
+            task_pk_to_uid=task_pk_to_uid,
         )
-        if task.notes:
-            _sub_text(task_el, "Notes", task.notes)
-        if task.early_start:
-            _sub_text(task_el, "Start", _format_date(task.early_start))
-        elif task.planned_start:
-            _sub_text(task_el, "Start", _format_date(task.planned_start))
-        if task.early_finish:
-            _sub_text(task_el, "Finish", _format_date(task.early_finish))
 
-        # PERT three-point per-task values. Only emitted for the leaf,
-        # non-milestone tasks selected into pert_task_pks above (ADR-0093 Q5).
-        # Duration4 is the PERT-Expected formula slot; MS Project derives it
-        # on read from the project-level Formula definition, so we never emit
-        # a per-task Duration4 value.
-        if str(task.pk) in pert_task_pks:
-            # All three are non-None by the pert_tasks filter above, but mypy
-            # can't carry that proof across the comprehension.
-            assert task.optimistic_duration is not None
-            assert task.most_likely_duration is not None
-            assert task.pessimistic_duration is not None
-            _add_pert_task_values(
-                task_el,
-                task.optimistic_duration,
-                task.most_likely_duration,
-                task.pessimistic_duration,
-            )
+    _add_resources_block(root, resources, resource_pk_to_uid)
+    _add_assignments_block(root, assignments, task_pk_to_uid, resource_pk_to_uid)
 
-        # Predecessor links
-        preds = dep_by_successor.get(str(task.pk), [])
-        for pred_pk, dep_type, lag in preds:
-            pred_uid = task_pk_to_uid.get(pred_pk)
-            if pred_uid is None:
-                continue
-            pred_el = ET.SubElement(task_el, f"{{{_NS}}}PredecessorLink")
-            _sub_text(pred_el, "PredecessorUID", str(pred_uid))
-            _sub_text(
-                pred_el,
-                "Type",
-                _DEP_TYPE_TO_LINK_TYPE.get(dep_type, "1"),
-            )
-            # LinkLag is tenths of a minute; one working day of lag is
-            # MSPDI_LAG_TENTHS_PER_WORKING_DAY (#2290 unit seam).
-            _sub_text(pred_el, "LinkLag", str(lag * MSPDI_LAG_TENTHS_PER_WORKING_DAY))
-            _sub_text(pred_el, "LagFormat", "7")
+    # Serialize
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
 
-    # --- Resources ---
+    xml_decl = b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+    return xml_decl + ET.tostring(root, encoding="unicode").encode("utf-8")
+
+
+def _build_dep_lookup(dependencies: list[Any]) -> dict[str, list[tuple[str, str, int]]]:
+    """Index dependencies by successor: ``successor_pk -> [(pred_pk, dep_type, lag)]``."""
+    dep_by_successor: dict[str, list[tuple[str, str, int]]] = {}
+    for dep in dependencies:
+        dep_by_successor.setdefault(str(dep.successor_id), []).append(
+            (str(dep.predecessor_id), dep.dep_type, dep.lag)
+        )
+    return dep_by_successor
+
+
+def _select_pert_tasks(tasks: list[Any]) -> list[Any]:
+    """Return the leaf, non-milestone tasks carrying all three PERT durations.
+
+    The summary set is precomputed once for O(N) filtering — a summary or
+    milestone task never emits three-point values (ADR-0093 Q5).
+    """
+    summary_pks = _summary_pks_from_tasks(tasks)
+    return [
+        t
+        for t in tasks
+        if (
+            str(t.pk) not in summary_pks
+            and not t.is_milestone
+            and t.optimistic_duration is not None
+            and t.most_likely_duration is not None
+            and t.pessimistic_duration is not None
+        )
+    ]
+
+
+def _add_task_element(
+    tasks_el: ET.Element,
+    task: Any,
+    uid: int,
+    *,
+    is_pert: bool,
+    preds: list[tuple[str, str, int]],
+    task_pk_to_uid: dict[str, int],
+) -> None:
+    """Emit one ``<Task>`` element, including PERT values and predecessor links."""
+    task_el = ET.SubElement(tasks_el, f"{{{_NS}}}Task")
+    _sub_text(task_el, "UID", str(uid))
+    _sub_text(task_el, "Name", task.name)
+    _sub_text(task_el, "Duration", _days_to_duration(task.duration))
+    _sub_text(task_el, "DurationFormat", "7")
+    if task.wbs_path:
+        _sub_text(task_el, "OutlineNumber", task.wbs_path)
+        _sub_text(task_el, "OutlineLevel", str(task.wbs_path.count(".") + 1))
+    else:
+        _sub_text(task_el, "OutlineLevel", "1")
+    _sub_text(task_el, "Milestone", "1" if task.is_milestone else "0")
+    # Task.percent_complete is already a 0-100 percent (#1759) and MSPDI
+    # PercentComplete is the same 0-100 scale, so emit it as-is. The earlier
+    # `* 100` turned a native 50% task into an invalid PercentComplete=5000.
+    _sub_text(task_el, "PercentComplete", str(round(task.percent_complete or 0)))
+    if task.notes:
+        _sub_text(task_el, "Notes", task.notes)
+    if task.early_start:
+        _sub_text(task_el, "Start", _format_date(task.early_start))
+    elif task.planned_start:
+        _sub_text(task_el, "Start", _format_date(task.planned_start))
+    if task.early_finish:
+        _sub_text(task_el, "Finish", _format_date(task.early_finish))
+
+    # PERT three-point per-task values. Only emitted for the leaf, non-milestone
+    # tasks selected by _select_pert_tasks. Duration4 is the PERT-Expected
+    # formula slot; MS Project derives it on read from the project-level Formula
+    # definition, so we never emit a per-task Duration4 value.
+    if is_pert:
+        # All three are non-None by the _select_pert_tasks filter, but mypy
+        # can't carry that proof across the call boundary.
+        assert task.optimistic_duration is not None
+        assert task.most_likely_duration is not None
+        assert task.pessimistic_duration is not None
+        _add_pert_task_values(
+            task_el,
+            task.optimistic_duration,
+            task.most_likely_duration,
+            task.pessimistic_duration,
+        )
+
+    for pred_pk, dep_type, lag in preds:
+        pred_uid = task_pk_to_uid.get(pred_pk)
+        if pred_uid is None:
+            continue
+        pred_el = ET.SubElement(task_el, f"{{{_NS}}}PredecessorLink")
+        _sub_text(pred_el, "PredecessorUID", str(pred_uid))
+        _sub_text(pred_el, "Type", _DEP_TYPE_TO_LINK_TYPE.get(dep_type, "1"))
+        # LinkLag is tenths of a minute; one working day of lag is
+        # MSPDI_LAG_TENTHS_PER_WORKING_DAY (#2290 unit seam).
+        _sub_text(pred_el, "LinkLag", str(lag * MSPDI_LAG_TENTHS_PER_WORKING_DAY))
+        _sub_text(pred_el, "LagFormat", "7")
+
+
+def _add_resources_block(
+    root: ET.Element, resources: list[Any], resource_pk_to_uid: dict[str, int]
+) -> None:
+    """Emit the ``<Resources>`` block."""
     resources_el = ET.SubElement(root, f"{{{_NS}}}Resources")
     for resource in resources:
         uid = resource_pk_to_uid[str(resource.pk)]
@@ -213,7 +242,14 @@ def export_project_xml(project_id: str) -> bytes:
         _sub_text(res_el, "Name", resource.name)
         _sub_text(res_el, "MaxUnits", f"{float(resource.max_units):.2f}")
 
-    # --- Assignments ---
+
+def _add_assignments_block(
+    root: ET.Element,
+    assignments: list[Any],
+    task_pk_to_uid: dict[str, int],
+    resource_pk_to_uid: dict[str, int],
+) -> None:
+    """Emit the ``<Assignments>`` block, skipping any dangling task/resource ref."""
     assignments_el = ET.SubElement(root, f"{{{_NS}}}Assignments")
     asgn_uid = 1
     for asgn in assignments:
@@ -227,13 +263,6 @@ def export_project_xml(project_id: str) -> bytes:
         _sub_text(asgn_el, "ResourceUID", str(res_uid))
         _sub_text(asgn_el, "Units", f"{float(asgn.units):.2f}")
         asgn_uid += 1
-
-    # Serialize
-    tree = ET.ElementTree(root)
-    ET.indent(tree, space="  ")
-
-    xml_decl = b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-    return xml_decl + ET.tostring(root, encoding="unicode").encode("utf-8")
 
 
 def _sub_text(parent: ET.Element, tag: str, text: str) -> ET.Element:
@@ -280,14 +309,7 @@ def _add_calendars_block(root: ET.Element, applied_calendars: list[Any]) -> None
     ``_add_pert_extended_attribute_defs``).
     """
     base = applied_calendars[0]
-    mask = base.working_days
-    # First writer wins on a duplicate range so the base calendar's description
-    # (not an overlay's) labels the exception.
-    merged_exceptions: dict[tuple[Any, Any], str] = {}
-    for cal in applied_calendars:
-        mask &= cal.working_days
-        for exc in cal.exceptions.all():
-            merged_exceptions.setdefault((exc.exc_start, exc.exc_end), exc.description)
+    mask, merged_exceptions = _merge_applied_calendars(applied_calendars)
 
     cals_el = ET.SubElement(root, f"{{{_NS}}}Calendars")
     cal_el = ET.SubElement(cals_el, f"{{{_NS}}}Calendar")
@@ -301,6 +323,33 @@ def _add_calendars_block(root: ET.Element, applied_calendars: list[Any]) -> None
     if start_minute + shift_minutes > 24 * 60:
         start_minute = 0
 
+    _add_weekday_elements(cal_el, mask, start_minute, shift_minutes)
+    if merged_exceptions:
+        _add_calendar_exception_elements(cal_el, merged_exceptions)
+
+
+def _merge_applied_calendars(
+    applied_calendars: list[Any],
+) -> tuple[int, dict[tuple[Any, Any], str]]:
+    """Fold the applied calendar layers into one working mask and exception set.
+
+    Weekday masks are AND-ed and exception ranges unioned, matching how the CPM
+    pass composes layers. First writer wins on a duplicate range so the base
+    calendar's description (not an overlay's) labels the exception.
+    """
+    mask = applied_calendars[0].working_days
+    merged_exceptions: dict[tuple[Any, Any], str] = {}
+    for cal in applied_calendars:
+        mask &= cal.working_days
+        for exc in cal.exceptions.all():
+            merged_exceptions.setdefault((exc.exc_start, exc.exc_end), exc.description)
+    return mask, merged_exceptions
+
+
+def _add_weekday_elements(
+    cal_el: ET.Element, mask: int, start_minute: int, shift_minutes: int
+) -> None:
+    """Emit the seven ``<WeekDay>`` entries, each with a single synthesized shift."""
     weekdays_el = ET.SubElement(cal_el, f"{{{_NS}}}WeekDays")
     for day_type, bit in _DAY_TYPES_AND_BITS:
         day_el = ET.SubElement(weekdays_el, f"{{{_NS}}}WeekDay")
@@ -313,16 +362,20 @@ def _add_calendars_block(root: ET.Element, applied_calendars: list[Any]) -> None
             _sub_text(wt_el, "FromTime", _minutes_to_time(start_minute))
             _sub_text(wt_el, "ToTime", _minutes_to_time(start_minute + shift_minutes))
 
-    if merged_exceptions:
-        excs_el = ET.SubElement(cal_el, f"{{{_NS}}}Exceptions")
-        for (exc_start, exc_end), description in sorted(merged_exceptions.items()):
-            exc_el = ET.SubElement(excs_el, f"{{{_NS}}}Exception")
-            period_el = ET.SubElement(exc_el, f"{{{_NS}}}TimePeriod")
-            _sub_text(period_el, "FromDate", f"{exc_start.isoformat()}T00:00:00")
-            _sub_text(period_el, "ToDate", f"{exc_end.isoformat()}T23:59:00")
-            if description:
-                _sub_text(exc_el, "Name", description)
-            _sub_text(exc_el, "DayWorking", "0")
+
+def _add_calendar_exception_elements(
+    cal_el: ET.Element, merged_exceptions: dict[tuple[Any, Any], str]
+) -> None:
+    """Emit the ``<Exceptions>`` block for the merged non-working date ranges."""
+    excs_el = ET.SubElement(cal_el, f"{{{_NS}}}Exceptions")
+    for (exc_start, exc_end), description in sorted(merged_exceptions.items()):
+        exc_el = ET.SubElement(excs_el, f"{{{_NS}}}Exception")
+        period_el = ET.SubElement(exc_el, f"{{{_NS}}}TimePeriod")
+        _sub_text(period_el, "FromDate", f"{exc_start.isoformat()}T00:00:00")
+        _sub_text(period_el, "ToDate", f"{exc_end.isoformat()}T23:59:00")
+        if description:
+            _sub_text(exc_el, "Name", description)
+        _sub_text(exc_el, "DayWorking", "0")
 
 
 def _add_summary_task(tasks_el: ET.Element, project: object) -> None:

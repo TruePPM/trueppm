@@ -283,24 +283,11 @@ def _parse_weekday_definitions(
     exceptions: list[CalendarExceptionData] = []
 
     weekdays_el = cal_el.find(f"{ns}WeekDays")
-    for day_el in weekdays_el.findall(f"{ns}WeekDay") if weekdays_el is not None else []:
-        day_type = (day_el.findtext(f"{ns}DayType") or "").strip()
-        working = (day_el.findtext(f"{ns}DayWorking") or "").strip() == "1"
-        if day_type == "0":
-            exc = _legacy_weekday_exception(day_el, ns, name, working=working, warnings=warnings)
-            if exc is not None:
-                exceptions.append(exc)
-            continue
-        bit = _DAY_TYPE_TO_BIT.get(day_type)
-        if bit is None:
-            continue
-        if working:
-            mask |= bit
-            hours = _weekday_working_hours(day_el, ns)
-            if hours > 0:
-                day_hours.append(hours)
-        else:
-            mask &= ~bit
+    day_els = weekdays_el.findall(f"{ns}WeekDay") if weekdays_el is not None else []
+    for day_el in day_els:
+        mask = _apply_weekday_entry(
+            day_el, ns, name, mask, day_hours=day_hours, exceptions=exceptions, warnings=warnings
+        )
 
     if mask & 0b111_1111 == 0:
         warnings.append(
@@ -309,6 +296,43 @@ def _parse_weekday_definitions(
         mask = 31
 
     return mask, day_hours, exceptions
+
+
+def _apply_weekday_entry(
+    day_el: ET.Element,
+    ns: str,
+    name: str,
+    mask: int,
+    *,
+    day_hours: list[float],
+    exceptions: list[CalendarExceptionData],
+    warnings: list[str],
+) -> int:
+    """Fold one ``<WeekDay>`` entry into the mask, appending any hours/exception.
+
+    Returns the updated mask. ``day_hours`` and ``exceptions`` are appended in
+    place (the same accumulate-in-place convention the surrounding parser uses
+    for ``warnings``). A ``DayType=0`` entry is a legacy dated exception; an
+    unrecognized DayType is ignored.
+    """
+    day_type = (day_el.findtext(f"{ns}DayType") or "").strip()
+    working = (day_el.findtext(f"{ns}DayWorking") or "").strip() == "1"
+    if day_type == "0":
+        exc = _legacy_weekday_exception(day_el, ns, name, working=working, warnings=warnings)
+        if exc is not None:
+            exceptions.append(exc)
+        return mask
+    bit = _DAY_TYPE_TO_BIT.get(day_type)
+    if bit is None:
+        return mask
+    if working:
+        mask |= bit
+        hours = _weekday_working_hours(day_el, ns)
+        if hours > 0:
+            day_hours.append(hours)
+    else:
+        mask &= ~bit
+    return mask
 
 
 def _parse_calendar_exceptions(
@@ -759,36 +783,47 @@ def _parse_pert_extended_attribute_defs(
         return {}
     bound: dict[str, str] = {}
     for ea in ea_block.findall(f"{ns}ExtendedAttribute"):
-        fid_el = ea.find(f"{ns}FieldID")
-        if fid_el is None:
-            continue
-        field_id = (fid_el.text or "").strip()
-        if not field_id:
-            continue
-        role = PERT_ROLE_BY_FIELD_ID.get(field_id)
-        if role is None or role == "expected":
-            # Either not a PERT slot, or the formula slot (Duration4) we never
-            # import. Skip silently.
-            continue
-        alias_el = ea.find(f"{ns}Alias")
-        alias_raw = alias_el.text if alias_el is not None else None
-        alias_text = (alias_raw or "").strip().lower()
-        if alias_text:
-            expected_tokens = PERT_ALIAS_TOKENS.get(field_id, ())
-            if not any(tok in alias_text for tok in expected_tokens):
-                # Truncate the reflected alias before surfacing it in the
-                # import summary — a multi-megabyte <Alias> would bloat the
-                # warnings list (and any frontend rendering it). 100 chars
-                # is enough to diagnose the mismatch.
-                alias_display = (alias_raw or "")[:100]
-                warnings.append(
-                    f"Project ExtendedAttribute FieldID {field_id} has "
-                    f"non-standard alias '{alias_display}'; three-point "
-                    f"estimate ({role}) skipped"
-                )
-                continue
-        bound[role] = field_id
+        binding = _bind_pert_role(ea, ns, warnings)
+        if binding is not None:
+            role, field_id = binding
+            bound[role] = field_id
     return bound
+
+
+def _bind_pert_role(ea: ET.Element, ns: str, warnings: list[str]) -> tuple[str, str] | None:
+    """Resolve one ``<ExtendedAttribute>`` to a ``(role, field_id)`` PERT binding.
+
+    Returns ``None`` when the element is not a bindable PERT slot: missing/empty
+    FieldID, a non-PERT or formula (Duration4) FieldID, or a FieldID whose alias
+    text contradicts the slot (evidence the slot has been repurposed — warned).
+    """
+    fid_el = ea.find(f"{ns}FieldID")
+    if fid_el is None:
+        return None
+    field_id = (fid_el.text or "").strip()
+    if not field_id:
+        return None
+    role = PERT_ROLE_BY_FIELD_ID.get(field_id)
+    if role is None or role == "expected":
+        # Either not a PERT slot, or the formula slot (Duration4) we never import.
+        return None
+    alias_el = ea.find(f"{ns}Alias")
+    alias_raw = alias_el.text if alias_el is not None else None
+    alias_text = (alias_raw or "").strip().lower()
+    if alias_text:
+        expected_tokens = PERT_ALIAS_TOKENS.get(field_id, ())
+        if not any(tok in alias_text for tok in expected_tokens):
+            # Truncate the reflected alias before surfacing it in the import
+            # summary — a multi-megabyte <Alias> would bloat the warnings list
+            # (and any frontend rendering it). 100 chars is enough to diagnose.
+            alias_display = (alias_raw or "")[:100]
+            warnings.append(
+                f"Project ExtendedAttribute FieldID {field_id} has "
+                f"non-standard alias '{alias_display}'; three-point "
+                f"estimate ({role}) skipped"
+            )
+            return None
+    return role, field_id
 
 
 def _extract_pert_task_values(
