@@ -8,7 +8,7 @@ import { test, expect } from './fixtures/coverage';
  * - NOT_STARTED + no planned_start + no sprint → in the gutter
  * - NOT_STARTED + sprint → excluded (sprint is a scheduling commitment)
  * - IN_PROGRESS / REVIEW / COMPLETE without start → not in gutter, but render
- *   a `⚠ missing dates` data-integrity chip on the task list row
+ *   a `⚠ no committed start` data-integrity chip on the task list row
  */
 
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000001';
@@ -194,7 +194,9 @@ test.describe('Unscheduled gutter — data integrity chip (#317)', () => {
   test('IN_PROGRESS task with no dates renders the missing-dates chip in the task list', async ({ page }) => {
     await gotoSchedule(page);
     // Chip lives on the task list row, not in the unscheduled gutter region.
-    const chip = page.getByLabel('Missing schedule dates').first();
+    const chip = page
+      .getByLabel('No committed start date — dates shown are auto-calculated, not committed.')
+      .first();
     await expect(chip).toBeVisible();
   });
 
