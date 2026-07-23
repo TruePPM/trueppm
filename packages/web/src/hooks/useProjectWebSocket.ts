@@ -39,14 +39,19 @@
  *
  * The event-type → handler wiring is a lookup table (`on(...)` registrations),
  * so `handleMessage` is a flat parse → seq-gate → dispatch rather than a ~50-branch
- * else-if chain (#2081). Grouped event types (the dependency_*, sprint_*, … families
- * that share one invalidation) register the same handler under every member key.
+ * else-if chain (#2081). The registrations are grouped into small module-level
+ * `register*Handlers(on, deps)` functions — each closes over nothing, taking the
+ * queryClient / refs / store setters it needs through the `deps` bag — so the
+ * connection effect stays a lifecycle-only closure instead of a 130+-complexity
+ * wall of inline handlers (#2081). Grouped event types (the dependency_*, sprint_*,
+ * … families that share one invalidation) register the same handler under every
+ * member key.
  *
  * Reconnects with exponential backoff (1s → 2s → 4s → … up to 30s).
  * Stops reconnecting when `projectId` is null/undefined or the token is absent.
  */
-import { useEffect, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, type MutableRefObject } from 'react';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useSchedulerStore } from '@/stores/schedulerStore';
@@ -85,6 +90,950 @@ const MAX_BACKOFF_MS = 30_000;
  */
 const TASKS_INVALIDATE_DEBOUNCE_MS = 300;
 
+// Coalescable query keys — the burst-prone invalidations routed through
+// scheduleInvalidate (see the hook's effect) rather than fired immediately.
+type InvalidateKey = 'tasks' | 'dependencies' | 'board-activity' | 'standup';
+type ScheduleInvalidateFn = (...keys: InvalidateKey[]) => void;
+
+// A single dispatched-event handler. `on(...)` registers these against one or
+// more event_type keys; `handleMessage` looks the handler up by event_type.
+type WsHandler = (payload: Record<string, unknown>, event_type: string) => void;
+type OnFn = (types: string | readonly string[], handler: WsHandler) => void;
+
+// Store slices whose setters the handlers dispatch into. Deriving the setter
+// types from the live store state keeps them exact without hand-typing (and
+// with no `any`): a store signature change surfaces here at compile time.
+type SchedulerStoreState = ReturnType<typeof useSchedulerStore.getState>;
+type TaskRunStoreState = ReturnType<typeof useTaskRunStore.getState>;
+type PresenceStoreState = ReturnType<typeof usePresenceStore.getState>;
+
+/**
+ * Everything an event handler needs, threaded explicitly so the `register*`
+ * functions can live at module scope (out of the connection effect) and close
+ * over nothing but their arguments. `queryClient` and the store setters are
+ * stable across the effect's lifetime; the refs give handlers the current
+ * project id / seq cursor / seen-versions map without recapturing them.
+ */
+interface WsHandlerDeps {
+  queryClient: QueryClient;
+  projectIdRef: MutableRefObject<string | null | undefined>;
+  seenTaskVersionsRef: MutableRefObject<Map<string, number>>;
+  lastSeqRef: MutableRefObject<number>;
+  scheduleInvalidate: ScheduleInvalidateFn;
+  setRecalculating: SchedulerStoreState['setRecalculating'];
+  setCpmError: SchedulerStoreState['setCpmError'];
+  setCpmComplete: SchedulerStoreState['setCpmComplete'];
+  addRun: TaskRunStoreState['addRun'];
+  updateProgress: TaskRunStoreState['updateProgress'];
+  completeRun: TaskRunStoreState['completeRun'];
+  failRun: TaskRunStoreState['failRun'];
+  cancelRun: TaskRunStoreState['cancelRun'];
+  addPresenceUser: PresenceStoreState['addUser'];
+  removePresenceUser: PresenceStoreState['removeUser'];
+}
+
+// --- ADR-0236 (#321): server could not replay the full gap ---
+function registerReplayHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  const { queryClient, projectIdRef, lastSeqRef } = deps;
+  // The requested ?since= aged out of the retention window (or the client was
+  // further behind than the replay cap). Refetch the project-scoped caches and
+  // baseline the cursor to the buffer head so the next reconnect doesn't
+  // re-request the purged gap. resync_required carries seq: null, so the seq
+  // gate in handleMessage never drops it.
+  on('resync_required', (payload) => {
+    const latest = (payload as { latest_seq?: unknown }).latest_seq;
+    void queryClient.invalidateQueries({
+      predicate: (q) => q.queryKey.includes(projectIdRef.current),
+    });
+    void queryClient.invalidateQueries({ queryKey: ['projects'] });
+    if (typeof latest === 'number') lastSeqRef.current = latest;
+  });
+}
+
+// --- Task run progress events ---
+function registerTaskRunHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  const {
+    queryClient,
+    projectIdRef,
+    setRecalculating,
+    setCpmError,
+    setCpmComplete,
+    addRun,
+    updateProgress,
+    completeRun,
+    failRun,
+    cancelRun,
+  } = deps;
+
+  on('task_run_started', (payload) => {
+    const taskRunId = payload.task_run_id as string;
+    const taskName = payload.task_name as string;
+    const pid = (payload.project_id as string | null) ?? null;
+    addRun({ taskRunId, taskName, projectId: pid, pct: 0, msg: '', status: 'running' });
+    // Scheduling integration: signal CPM is running.
+    if (taskName === 'scheduling.recalculate') {
+      setRecalculating(true);
+    }
+  });
+  on('task_run_progress', (payload) => {
+    const taskRunId = payload.task_run_id as string;
+    const pct = typeof payload.pct === 'number' ? payload.pct : 0;
+    const msg = typeof payload.msg === 'string' ? payload.msg : '';
+    updateProgress(taskRunId, pct, msg);
+  });
+  on('task_run_completed', (payload) => {
+    const taskRunId = payload.task_run_id as string;
+    const resultSummary = (payload.result_summary as Record<string, unknown> | null) ?? null;
+    // Capture the run's identity before completeRun mutates the store.
+    const wasScheduling =
+      useTaskRunStore.getState().runs[taskRunId]?.taskName === 'scheduling.recalculate';
+    completeRun(taskRunId, resultSummary);
+    // task_run_completed from the scheduler carries result_summary with project_finish.
+    // cpm_complete is still also broadcast for compatibility; this handles the task_run path.
+    if (wasScheduling) {
+      if (resultSummary && typeof resultSummary.project_finish === 'string') {
+        setCpmComplete(resultSummary.project_finish);
+      } else {
+        // A recalc can complete successfully without producing a finish date —
+        // e.g. a project with no schedulable tasks, or a run that escalates to
+        // the program. Those paths never emit the compat cpm_complete event, so
+        // clear the spinner here regardless, or the "Recalculating…" badge
+        // spins forever (#1976).
+        setRecalculating(false);
+      }
+      // Task-date freshness is owned by the task_dates_updated delta event
+      // (ADR-0091) — we no longer invalidate the tasks query here. We still
+      // refresh the project-finish pill and the shell health stats.
+      void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
+    }
+  });
+  on('task_run_failed', (payload) => {
+    const taskRunId = payload.task_run_id as string;
+    const errorDetail = typeof payload.error_detail === 'string' ? payload.error_detail : '';
+    // Capture the run's identity before failRun mutates the store.
+    const taskName = useTaskRunStore.getState().runs[taskRunId]?.taskName;
+    failRun(taskRunId, errorDetail);
+    // Scheduling integration: if this was the CPM task, set error state.
+    if (taskName === 'scheduling.recalculate') {
+      setCpmError({ error: 'internal_error', cycle: [] } as CpmError);
+    } else if (taskName?.startsWith('import.')) {
+      // An async import (MS Project / Jira) that fails is otherwise invisible on
+      // the Schedule that launched it: `task_run_failed` only updates the run
+      // store, and the sole trace is a "Failed" chip in the Overview's import
+      // provenance section — which the user has no reason to open. Without this
+      // they wait on the Schedule for tasks that never arrive (#2151). Toast so
+      // the failure surfaces on whatever project surface they are looking at.
+      toast.error('Import failed — see recent imports on the project Overview.');
+    }
+  });
+  on('task_run_cancelled', (payload) => {
+    const taskRunId = payload.task_run_id as string;
+    cancelRun(taskRunId);
+  });
+}
+
+// --- Presence + CPM lifecycle events ---
+function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  const {
+    queryClient,
+    projectIdRef,
+    scheduleInvalidate,
+    setRecalculating,
+    setCpmError,
+    setCpmComplete,
+    addPresenceUser,
+    removePresenceUser,
+  } = deps;
+
+  // --- Presence events ---
+  on('presence_join', (payload) => {
+    const userId = payload.user_id as string;
+    const displayName = (payload.display_name as string | undefined) ?? userId;
+    addPresenceUser({ user_id: userId, display_name: displayName });
+  });
+  on('presence_leave', (payload) => {
+    removePresenceUser(payload.user_id as string);
+  });
+
+  // --- CPM error (timeout / hard failure) ---
+  on('cpm_error', (payload) => {
+    setCpmError({
+      error: (payload.error as string | undefined) ?? 'timeout',
+      cycle: [],
+    } as CpmError);
+    setRecalculating(false);
+  });
+
+  // --- Legacy CPM compat broadcast ---
+  on('cpm_complete', (payload) => {
+    // cpm_complete is still emitted by the scheduler for any client that hasn't
+    // migrated to task_run_completed. Handle it here so nothing breaks during
+    // the transition period.
+    const projectFinish =
+      typeof payload.project_finish === 'string'
+        ? payload.project_finish
+        : new Date().toISOString();
+    setCpmComplete(projectFinish);
+    // The tasks cache is maintained by task_dates_updated (ADR-0091); the
+    // coarse compat event no longer invalidates it. Pill + stats only.
+    void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
+  });
+
+  // --- Per-task CPM date deltas (ADR-0091) ---
+  on('task_dates_updated', (payload) => {
+    // Batched per-task CPM deltas, broadcast at the end of recalculate_schedule.
+    // This handler is the sole maintainer of CPM freshness in the tasks cache:
+    // it splices the moved tasks in place so a collaborator's bars slide
+    // instantly, with no full re-fetch. The coarse task_run_completed /
+    // cpm_complete events above intentionally no longer invalidate tasks.
+    if (payload.truncated === true) {
+      // Too many tasks moved to ship economically — fall back to a re-fetch.
+      scheduleInvalidate('tasks');
+    } else if (Array.isArray(payload.tasks)) {
+      const deltas = payload.tasks as unknown as TaskDatesDelta[];
+      if (deltas.length > 0) {
+        const byId = new Map(deltas.map((d) => [d.id, d]));
+        queryClient.setQueryData<Task[]>(['tasks', projectIdRef.current], (old) =>
+          old?.map((t) => {
+            const delta = byId.get(t.id);
+            return delta ? applyTaskDatesDelta(t, delta) : t;
+          }),
+        );
+      }
+    }
+  });
+}
+
+// --- Task mutation + dependency + baseline events ---
+function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  const { queryClient, projectIdRef, seenTaskVersionsRef, scheduleInvalidate } = deps;
+
+  on('task_updated', (payload) => {
+    // ADR-0152 (#327): the enriched task_updated delta lets us avoid two
+    // wasteful refetches.
+    //  1. Self-echo: the originating client already applied its optimistic
+    //     update; re-fetching here would clobber an in-flight edit and flicker.
+    //  2. Duplicate/replayed events: ignore a version we've already observed
+    //     for this task.
+    // Either way the values themselves are role-gated (ADR-0104), so a genuine
+    // remote change still goes through the coalesced list invalidate, which
+    // re-reads via the serializer and keeps gating intact.
+    const taskId = typeof payload.id === 'string' ? payload.id : null;
+    const actorId = typeof payload.actor_id === 'string' ? payload.actor_id : null;
+    const version = typeof payload.version === 'number' ? payload.version : null;
+    const currentUserId = queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
+
+    const isSelfEcho = actorId !== null && actorId === currentUserId;
+    let isDuplicate = false;
+    if (taskId !== null && version !== null) {
+      const seen = seenTaskVersionsRef.current.get(taskId);
+      if (seen !== undefined && version <= seen) {
+        isDuplicate = true;
+      } else {
+        seenTaskVersionsRef.current.set(taskId, version);
+      }
+    }
+
+    if (!isSelfEcho && !isDuplicate) {
+      scheduleInvalidate('tasks');
+    }
+    // The board activity feed is an append-only audit log, so it refetches
+    // even for the originating client's own edit (you want your action to land
+    // in the feed) — only a true duplicate/replay at an already-seen version is
+    // skipped. No-op while the panel is closed: an inactive infinite query is
+    // marked stale, not refetched, until the panel remounts (ADR-0160 B1, issue 1264).
+    if (!isDuplicate) {
+      // The standup walk's done/in-progress/blocker buckets are derived from the
+      // same card state, so a status/assignee/blocker move refetches it too
+      // (inactive → marked stale while standup mode is closed; ADR-0166).
+      scheduleInvalidate('board-activity', 'standup');
+      // The task drawer's Activity tab merges the per-task history feed
+      // (useTaskHistory), so a remote edit must refresh it too (#1867).
+      void queryClient.invalidateQueries({
+        queryKey:
+          taskId !== null
+            ? ['task-history', projectIdRef.current, taskId]
+            : ['task-history', projectIdRef.current],
+      });
+    }
+  });
+  on(['task_created', 'task_deleted', 'task_restored'], (payload) => {
+    scheduleInvalidate('tasks', 'board-activity', 'standup');
+    // The drawer Activity tab merges the per-task history feed (#1867) —
+    // create/delete/restore all append a history record for the affected task.
+    const historyTaskId = typeof payload.id === 'string' ? payload.id : null;
+    void queryClient.invalidateQueries({
+      queryKey:
+        historyTaskId !== null
+          ? ['task-history', projectIdRef.current, historyTaskId]
+          : ['task-history', projectIdRef.current],
+    });
+  });
+  on(
+    [
+      'dependency_created',
+      'dependency_updated',
+      'dependency_deleted',
+      'dependency_accepted',
+      'dependency_rejected',
+    ],
+    () => {
+      // Collaborators see new/edited dependency edges shortly after the event
+      // rather than waiting for the next fallback poll. `accepted`/`rejected`
+      // are the cross-project pending-edge resolutions (ADR-0120): accepting
+      // binds the external edge, rejecting soft-deletes it — both change the
+      // dependency list and the external edges drawn on the schedule, so peers
+      // need the same refetch (issue 1323). Without a handler they stayed stale until
+      // the next fallback poll. The follow-up cpm_complete event refreshes
+      // computed dates; the edge itself becomes visible on the next coalesced flush.
+      scheduleInvalidate('dependencies', 'tasks');
+    },
+  );
+  // task_duration_changed is intentionally unregistered (no-op, issue 1323): the
+  // duration delta is already delivered by the task_updated event broadcast in the
+  // same commit batch, which refreshes the tasks cache *with* ADR-0152 self-echo
+  // suppression. Re-invalidating tasks here — the event carries no actor_id to
+  // suppress on — would clobber the editor's in-flight optimistic edit, the exact
+  // regression ADR-0152 prevents. The event's only extra payload is the inline
+  // "Recalc %?" affordance hint (ADR-0151), consumed locally by the editing client.
+  on(['slip_conflict_acknowledged', 'slip_conflicts_updated'], () => {
+    // A downstream scope manager acknowledged a cross-project slip conflict
+    // (ADR-0120 D4), or the program CPM pass detected/auto-resolved conflicts
+    // (`slip_conflicts_updated`, issue 1359). Either way the conflict set on the
+    // `/slip-conflicts/` endpoint changed — refetch so a mounted badge/view
+    // reflects it live instead of waiting on the next poll. A no-op until that
+    // surface mounts, then live from day one.
+    void queryClient.invalidateQueries({ queryKey: ['slip-conflicts'] });
+  });
+  on('sprint_retro_updated', (payload) => {
+    // A peer upserted the sprint retro (notes + action items) or toggled its
+    // visibility (issue 1359). Both REST writes previously emitted nothing, so a
+    // collaborator with the retro open silently desynced until a manual refresh.
+    // Refetch the named sprint's retro; keyed to ['sprint', id, 'retro'] to match
+    // useSprintRetro. A no-op until the retro panel is mounted.
+    const sprintId = typeof payload.sprint_id === 'string' ? payload.sprint_id : null;
+    if (sprintId !== null) {
+      void queryClient.invalidateQueries({ queryKey: ['sprint', sprintId, 'retro'] });
+    }
+  });
+  on(['baseline_created', 'baseline_activated', 'baseline_deleted'], (_payload, event_type) => {
+    void queryClient.invalidateQueries({ queryKey: ['baselines', projectIdRef.current] });
+    // Active baseline change affects the task overlay annotation.
+    if (event_type === 'baseline_activated' || event_type === 'baseline_deleted') {
+      scheduleInvalidate('tasks');
+    }
+  });
+}
+
+// --- Bulk task mutations + product backlog rerank ---
+function registerBulkAndBacklogHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  const { queryClient, projectIdRef, scheduleInvalidate } = deps;
+
+  // --- Bulk task mutations (reorder, indent/outdent, bulk ops) ---
+  on(
+    [
+      'tasks_reordered',
+      'tasks_restructured',
+      'tasks_bulk_mutated',
+      'phases_reordered',
+      // A collaborator promoted/demoted a queue row (issue 1610) — the board queue
+      // orders by priority_rank, so refetch the tasks cache to snap to server order.
+      'queue_reordered',
+    ],
+    () => {
+      scheduleInvalidate('tasks');
+    },
+  );
+
+  // --- Product-backlog priority_rank change (ADR-0105 auto-rank / ADR-0110 reorder) ---
+  on('backlog_reranked', () => {
+    // A collaborator reordered or auto-ranked the backlog. Refresh the grooming view
+    // and the tasks cache (the board/schedule may order by priority_rank).
+    void queryClient.invalidateQueries({
+      queryKey: ['product-backlog', projectIdRef.current],
+    });
+    scheduleInvalidate('tasks');
+  });
+}
+
+// --- Risk, comment, note, attachment, link, suggestion events ---
+function registerCollaborationHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  const { queryClient, projectIdRef, scheduleInvalidate } = deps;
+
+  // --- Risk events ---
+  // `risks_imported` is the single batched event from a CSV import (issue 223) —
+  // one refetch covers the whole batch rather than one per created risk.
+  on(['risk_created', 'risk_updated', 'risk_deleted', 'risks_imported'], () => {
+    void queryClient.invalidateQueries({ queryKey: ['risks', projectIdRef.current] });
+  });
+
+  // --- Risk comment events ---
+  on('comment_created', () => {
+    void queryClient.invalidateQueries({ queryKey: ['riskComments', projectIdRef.current] });
+  });
+
+  // --- Task collaboration events (ADR-0075) ---
+  // Disambiguated from risk comments with the `task_` prefix so peers see
+  // task-thread updates without falsely invalidating the riskComments cache.
+  // Reactions (#837) and acknowledgements render inline on the comment, so
+  // they refetch the same task-comments cache. The ack ping is body-less
+  // (no acker identity) — the gated ack list is refetched via REST.
+  on(
+    [
+      'task_comment_created',
+      'task_comment_updated',
+      'task_comment_deleted',
+      'task_comment_reaction_added',
+      'task_comment_reaction_removed',
+      'task_comment_ack_changed',
+    ],
+    (payload, event_type) => {
+      const taskId = payload?.task_id;
+      if (typeof taskId === 'string') {
+        void queryClient.invalidateQueries({ queryKey: ['task-comments', taskId] });
+      }
+      // Only a brand-new comment is a `comment_added` row in the board activity
+      // feed; edits/deletes/reactions/acks don't add feed rows (ADR-0160 B1, issue 1264).
+      if (event_type === 'task_comment_created') {
+        scheduleInvalidate('board-activity');
+      }
+    },
+  );
+  on(['task_attachment_created', 'task_attachment_deleted'], (payload) => {
+    const taskId = payload?.task_id;
+    if (typeof taskId === 'string') {
+      void queryClient.invalidateQueries({ queryKey: ['task-attachments', taskId] });
+    }
+  });
+
+  // --- Task note events (ADR-0143, issue 740; decision toggle ADR-0167, issue 748) ---
+  // A note create/edit/pin/delete invalidates the per-task notes list AND the
+  // task list/board (the `latest_note_at` freshness chip is annotated on the
+  // task serializer, so peers' cards re-fetch to show the new timestamp). A
+  // `task_note_decision_toggled` additionally invalidates the project Decisions
+  // list so an open Decisions view reflects a peer's flag without a reload.
+  on(
+    [
+      'task_note_created',
+      'task_note_updated',
+      'task_note_deleted',
+      'task_note_pinned',
+      'task_note_decision_toggled',
+    ],
+    (payload, event_type) => {
+      const taskId = payload?.task_id;
+      if (typeof taskId === 'string') {
+        void queryClient.invalidateQueries({ queryKey: ['task-notes', taskId] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+      if (event_type === 'task_note_decision_toggled') {
+        void queryClient.invalidateQueries({ queryKey: ['decisions', projectIdRef.current] });
+      }
+    },
+  );
+
+  // --- Task external-link events (integrations) ---
+  // The backend emits these on TaskLink create/refresh/delete; without a
+  // handler peers keep a stale link list until reload.
+  on(['task_link_created', 'task_link_updated', 'task_link_deleted'], (payload) => {
+    const taskId = payload?.task_id;
+    if (typeof taskId === 'string') {
+      void queryClient.invalidateQueries({ queryKey: ['task-links', taskId] });
+    }
+  });
+
+  // --- Task suggestion lifecycle (retro promotion + decline/revoke) ---
+  // A promoted action item creates a TaskSuggestedAssignee; a decline or revoke
+  // resolves it (issue 1323). Either way refresh the task feed and the suggested
+  // user's My Work queue (same keys as useSuggestionAction) so the suggestion
+  // surfaces — or clears — for connected peers without a manual refetch. The
+  // decline/revoke payloads carry no actor identity, matching the backend's
+  // psych-safety contract: this is a silent state reconciliation, not a callout.
+  on(['suggestion_created', 'suggestion_declined', 'suggestion_revoked'], () => {
+    scheduleInvalidate('tasks');
+    void queryClient.invalidateQueries({ queryKey: ['me', 'work'] });
+  });
+}
+
+// --- Project token, custom-field, estimation-poker events ---
+function registerTokenAndFieldHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  const { queryClient, projectIdRef } = deps;
+
+  // --- Project API token events ---
+  // Key must match useApiTokens' tokensKey: ['api-tokens', scope.kind, id].
+  on(['api_token_minted', 'api_token_revoked'], () => {
+    void queryClient.invalidateQueries({
+      queryKey: ['api-tokens', 'project', projectIdRef.current],
+    });
+  });
+
+  // --- Project custom-field schema events ---
+  on('project_custom_fields_updated', () => {
+    // Must match useProjectCustomFields' FIELDS_KEY exactly, or a live definition
+    // change (incl. a show_on_card toggle #2144) never refreshes the board's fields.
+    void queryClient.invalidateQueries({
+      queryKey: ['project-custom-fields', projectIdRef.current],
+    });
+  });
+
+  // --- Estimation poker (ADR-0179, issue 863) ---
+  // A vote/reveal/commit nudge; the payload carries no sprint_id (and no vote values),
+  // so invalidate every mounted poker query — only the live sprint's is mounted, and a
+  // commit also writes story_points, so refresh the planning backlog.
+  on('poker_session_updated', () => {
+    void queryClient.invalidateQueries({ queryKey: ['poker'] });
+    void queryClient.invalidateQueries({ queryKey: ['sprint-backlog', projectIdRef.current] });
+  });
+}
+
+// --- Sprint, retro-board, scope-injection, review-curation, milestone events ---
+function registerSprintHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  const { queryClient, projectIdRef, scheduleInvalidate } = deps;
+
+  // --- Sprint events ---
+  on(
+    [
+      'sprint_created',
+      'sprint_updated',
+      'sprint_deleted',
+      'sprint_activated',
+      'sprint_cancelled',
+      'sprint_closed',
+    ],
+    () => {
+      void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
+      // Sprint state changes drive milestone rollup recompute (ADR-0074);
+      // refresh task data so the Gantt milestone reflects the new value
+      // even if the milestone_rollup_updated event lands first.
+      scheduleInvalidate('tasks');
+      // A sprint's velocity contribution changes on these events — close adds
+      // a data point, exclude_from_velocity (ADR-0113) drops one, activate /
+      // cancel move committed scope — so a peer's velocity band and delivery
+      // forecast must refetch live, matching the local mutation in useSprints.
+      // Without this, collaborators see stale velocity/forecast until a manual
+      // refetch.
+      void queryClient.invalidateQueries({
+        queryKey: ['project', projectIdRef.current, 'velocity'],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['project', projectIdRef.current, 'forecast'],
+      });
+    },
+  );
+
+  // --- Live retro board events (ADR-0117 §4) ---
+  // A peer created/edited/moved/deleted a sticky on the multi-writer retro
+  // board. The board cache is keyed by sprint id, but the broadcast carries
+  // the retro_id (the board is project-scoped, sprint-derived), so we
+  // invalidate every open retro-board query rather than one key. Stale data
+  // is the only failure mode of the best-effort channel; a blanket refetch
+  // of the (at most one or two) open retro boards is cheap and reconciles
+  // LWW collisions deterministically.
+  on(
+    ['retro_item_created', 'retro_item_updated', 'retro_item_deleted', 'retro_item_moved'],
+    () => {
+      void queryClient.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'retro-board',
+      });
+    },
+  );
+
+  // --- Scope-injection accept/reject events (ADR-0102) ---
+  // A peer accepting/rejecting a pending injection (or rejecting on close)
+  // flips task.sprint_pending and the sprint's pending_count. Without this
+  // handler, other clients kept showing the stale "Pending acceptance" chip
+  // and the "accepted scope only" forecast caveat until a manual refetch.
+  on('sprint_scope_changed', (payload) => {
+    // Accept/reject flips a task's sprint membership → an entered/exited_sprint
+    // row in the board activity feed (ADR-0160 B1, issue 1264) and changes which
+    // cards the standup walk groups (ADR-0166).
+    scheduleInvalidate('tasks', 'board-activity', 'standup');
+    void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
+    // The accepted/rejected task's points enter or leave the committed-scope
+    // line, so an open burndown for that sprint must refetch too — it is a
+    // separate query key (['sprint', id, 'burndown']) from the sprint list.
+    // The broadcast carries the sprint id; fall back to all burndown queries.
+    const scopeSprintId = payload?.sprint_id;
+    if (typeof scopeSprintId === 'string') {
+      void queryClient.invalidateQueries({
+        queryKey: ['sprint', scopeSprintId, 'burndown'],
+      });
+    } else {
+      void queryClient.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'burndown',
+      });
+    }
+  });
+
+  // --- Sprint Review curation events (ADR-0118 amend, #1130/#1131/#1132) ---
+  // A peer reordered the demo list, set a presenter or contributor note, or
+  // flagged a not-shipped story for the backlog. All four mutate the
+  // consolidated Sprint Review read (['sprint', id, 'outcome']). demo_toggled
+  // (#924) shares the same key and had no handler, so co-viewers' review
+  // surfaces drifted until a manual refetch — fold it in here. The broadcast
+  // carries sprint_id; fall back to every open outcome query when absent.
+  // (flag-for-backlog also emits task_created, handled above, which refreshes
+  // the task/backlog feed — so the new backlog item reaches peers too.)
+  on(
+    [
+      'demo_toggled',
+      'demo_reordered',
+      'demo_presenter_set',
+      'review_note_set',
+      'flagged_for_backlog',
+    ],
+    (payload) => {
+      const reviewSprintId = payload?.sprint_id;
+      if (typeof reviewSprintId === 'string') {
+        void queryClient.invalidateQueries({
+          queryKey: ['sprint', reviewSprintId, 'outcome'],
+        });
+      } else {
+        void queryClient.invalidateQueries({
+          predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'outcome',
+        });
+      }
+    },
+  );
+
+  // --- Milestone rollup events (ADR-0074) ---
+  on('milestone_rollup_updated', () => {
+    // Aggregated rollup payload arrives independent of the task feed.
+    // Invalidate both tasks (Gantt + drawer) and sprints (the rollup
+    // mirrors onto SprintTargetMilestone.rollup).
+    scheduleInvalidate('tasks');
+    void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
+  });
+
+  // --- Milestone forecast events (ADR-0106 §3.4, #1007) ---
+  on('milestone_forecast_updated', () => {
+    // A sprint close or (re)bind reforecast a bound milestone and persisted a
+    // new ForecastSnapshot. The per-milestone snapshot is served by the
+    // project forecast read, and the promote dialog's live preview shares the
+    // same CPM spine — refresh both (plus the slim milestone list, whose
+    // early_finish may have shifted) so a peer viewing the forecast or promote
+    // surfaces on another tab sees the new range without reloading. The
+    // forecast read is project-scoped, so the payload's milestone_id is not
+    // needed to target it.
+    void queryClient.invalidateQueries({
+      queryKey: ['project', projectIdRef.current, 'forecast'],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['project-milestones', projectIdRef.current],
+    });
+    void queryClient.invalidateQueries({
+      predicate: (q) => q.queryKey[0] === 'reforecast-preview',
+    });
+  });
+}
+
+// --- Resource, membership, mention-group, team, board-config, project events ---
+function registerMembershipAndBoardHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  const { queryClient, projectIdRef, scheduleInvalidate } = deps;
+
+  // --- Resource assignment events ---
+  on(['assignment_created', 'assignment_updated', 'assignment_deleted', 'roster_changed'], () => {
+    // Assignments are surfaced on task rows (assignee chips, overalloc flag).
+    scheduleInvalidate('tasks');
+  });
+
+  // --- Membership events ---
+  on(['member_added', 'member_role_changed', 'member_removed'], (payload, event_type) => {
+    void queryClient.invalidateQueries({ queryKey: ['members', projectIdRef.current] });
+    // Also refresh the caller's *own* role row (#2039). `useCurrentUserRole`
+    // caches `['project-member-self', projectId]` with a 5-min staleTime, and
+    // nothing else invalidates it — so an admin demoting you would leave every
+    // role gate (canEdit, canManageScope, Monte Carlo row…) rendering write
+    // affordances that then 403 generically for minutes. Refetching here
+    // reconciles the gates the moment the membership event lands. When the
+    // event targets the current user, toast so the affordance change is
+    // explained rather than silently appearing. The server only broadcasts
+    // member_role_changed when the role actually moved, so no client-side
+    // "did it change" comparison is needed.
+    void queryClient.invalidateQueries({
+      queryKey: ['project-member-self', projectIdRef.current],
+    });
+    const affectedUserId = typeof payload.user_id === 'string' ? payload.user_id : null;
+    const currentUserId = queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
+    if (
+      event_type === 'member_role_changed' &&
+      affectedUserId !== null &&
+      affectedUserId === currentUserId
+    ) {
+      toast.info('Your role in this project changed.');
+    }
+  });
+
+  // --- User-defined @mention group events (issue 515 / #516) ---
+  // A peer creating/renaming/deleting a group or editing its roster broadcasts
+  // mention_group_changed; invalidate the group list so a second admin viewing
+  // the same tab reconciles live (mirrors membership). A program-scoped group
+  // (ADR-0248) rides project channels but targets the program cache, so branch
+  // on scope and invalidate the program key by payload.program_id — never the
+  // project key, which would spuriously refetch an unrelated project list.
+  on('mention_group_changed', (payload) => {
+    if (payload.scope === 'program') {
+      const programId = payload.program_id;
+      if (typeof programId === 'string') {
+        void queryClient.invalidateQueries({
+          queryKey: ['program-mention-groups', programId],
+        });
+      }
+    } else {
+      void queryClient.invalidateQueries({
+        queryKey: ['mention-groups', projectIdRef.current],
+      });
+    }
+  });
+
+  // --- Team facet / role events (ADR-0078) ---
+  // A peer flipping a Scrum Master / Product Owner facet or a team role on
+  // the Project Settings → Team tab broadcasts team_member_changed. A facet
+  // reassign is a soft-singleton, so the prior holder's row changed too; the
+  // payload carries team_id (not project_id), so invalidate that team's
+  // whole roster and let a second admin viewing the same tab see it live.
+  on('team_member_changed', (payload) => {
+    const teamId = payload?.team_id;
+    if (typeof teamId === 'string') {
+      void queryClient.invalidateQueries({ queryKey: ['team-members', teamId] });
+    }
+  });
+
+  // --- Board config and saved-view events ---
+  on('board_config_updated', () => {
+    void queryClient.invalidateQueries({ queryKey: ['boardConfig', projectIdRef.current] });
+  });
+  on(['board_view_created', 'board_view_updated', 'board_view_deleted'], () => {
+    void queryClient.invalidateQueries({ queryKey: ['boardViews', projectIdRef.current] });
+  });
+
+  // --- Project-level events ---
+  // The backend emits archive/unarchive/transfer/hard-delete lifecycle
+  // events, but the client had no handler — a user watching a project that
+  // was archived or transferred under them saw no update until a refetch.
+  on(
+    [
+      'project_created',
+      'project_updated',
+      'project_deleted',
+      'project_hard_deleted',
+      'project_archived',
+      'project_unarchived',
+      'project_transferred',
+    ],
+    () => {
+      void queryClient.invalidateQueries({ queryKey: ['project', projectIdRef.current] });
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  );
+}
+
+/**
+ * Register every event_type → handler binding on `on`, grouped into focused
+ * families. Each `register*` call is self-contained (it closes only over its
+ * arguments), so the connection effect never inlines the wall of handlers.
+ */
+function registerEventHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  registerReplayHandlers(on, deps);
+  registerTaskRunHandlers(on, deps);
+  registerPresenceAndCpmHandlers(on, deps);
+  registerTaskMutationHandlers(on, deps);
+  registerBulkAndBacklogHandlers(on, deps);
+  registerCollaborationHandlers(on, deps);
+  registerTokenAndFieldHandlers(on, deps);
+  registerSprintHandlers(on, deps);
+  registerMembershipAndBoardHandlers(on, deps);
+}
+
+// The hook-owned refs backing the trailing-invalidation debounce (#773).
+interface InvalidateTimerRefs {
+  pending: MutableRefObject<Set<InvalidateKey>>;
+  timer: MutableRefObject<ReturnType<typeof setTimeout> | null>;
+}
+
+/**
+ * Build the trailing-debounce `scheduleInvalidate` used to coalesce a burst of
+ * invalidations into a single trailing refetch per query key. High-frequency
+ * mutation events (task_*, dependency_*, cpm_complete, bulk/reorder,
+ * assignment_*, sprint/rollup, board-activity) route through here instead of
+ * invalidating immediately, so a sync batch of N row events produces 1 refetch
+ * rather than N. Low-frequency, narrowly-scoped invalidations (per-task
+ * comments, members, board config, project-level) stay immediate.
+ */
+function makeScheduleInvalidate(
+  queryClient: QueryClient,
+  projectIdRef: MutableRefObject<string | null | undefined>,
+  refs: InvalidateTimerRefs,
+): ScheduleInvalidateFn {
+  return (...keys) => {
+    for (const key of keys) refs.pending.current.add(key);
+    if (refs.timer.current !== null) return;
+    refs.timer.current = setTimeout(() => {
+      refs.timer.current = null;
+      const pending = refs.pending.current;
+      refs.pending.current = new Set();
+      for (const key of pending) {
+        void queryClient.invalidateQueries({ queryKey: [key, projectIdRef.current] });
+      }
+    }, TASKS_INVALIDATE_DEBOUNCE_MS);
+  };
+}
+
+interface ProjectSocketConfig {
+  projectIdRef: MutableRefObject<string | null | undefined>;
+  tokenRef: MutableRefObject<string | null | undefined>;
+  // Guards every reconnect/callback so we never open or retry after unmount /
+  // a projectId change (the effect re-arms it true and sets it false on cleanup).
+  mountedRef: MutableRefObject<boolean>;
+  lastSeqRef: MutableRefObject<number>;
+  eventHandlers: Record<string, WsHandler>;
+}
+
+/**
+ * Owns one project's WebSocket connection lifecycle: ticket mint → socket open →
+ * message dispatch → exponential-backoff reconnect (1s → 2s → … → 30s) →
+ * auth-reject / teardown. Split out of the connection effect so each step is an
+ * independently-scored method rather than a deeply-nested inline closure (#2081);
+ * the effect just constructs one, `start()`s it, and `stop()`s it on cleanup.
+ * `handleMessage` is a bound field so the same reference can be removed on stop.
+ */
+class ProjectSocketController {
+  private ws: WebSocket | null = null;
+  private backoffMs = 1_000;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(private readonly cfg: ProjectSocketConfig) {}
+
+  // Parse → ADR-0236 seq-gate → O(1) dispatch for one incoming frame.
+  private readonly handleMessage = (event: MessageEvent<string>): void => {
+    let envelope: WsEnvelope;
+    try {
+      envelope = JSON.parse(event.data) as WsEnvelope;
+    } catch {
+      return;
+    }
+
+    const { event_type, payload } = envelope;
+
+    // --- ADR-0236 (#321): replay sequence dedup ---
+    // Frames carrying a numeric seq are strictly ordered; drop any at or below
+    // the highest we've processed. This neutralizes the one duplicate the replay
+    // protocol can produce (an event both replayed and re-delivered live at the
+    // same seq during the group_add race) and any redundant replay. Frames
+    // without a seq (presence, task_run_*, and legacy servers) are never gated.
+    const seq = envelope.seq;
+    if (typeof seq === 'number') {
+      if (seq <= this.cfg.lastSeqRef.current) return;
+      this.cfg.lastSeqRef.current = seq;
+    }
+
+    // O(1) dispatch. An unrecognized event_type has no handler and is a no-op
+    // (e.g. task_duration_changed, intentionally unregistered). Guard the
+    // dynamic lookup with Object.hasOwn so an inherited Object.prototype key
+    // arriving as event_type ("constructor", "toString", "__proto__", …) can
+    // never resolve to a prototype method and be invoked (CodeQL
+    // js/unvalidated-dynamic-method-call; event_type is off the wire frame).
+    const handler = Object.hasOwn(this.cfg.eventHandlers, event_type)
+      ? this.cfg.eventHandlers[event_type]
+      : undefined;
+    handler?.(payload, event_type);
+  };
+
+  private scheduleReconnect(): void {
+    this.retryTimer = setTimeout(() => {
+      this.backoffMs = Math.min(this.backoffMs * 2, MAX_BACKOFF_MS);
+      this.connect();
+    }, this.backoffMs);
+  }
+
+  private connect(): void {
+    if (!this.cfg.mountedRef.current) return;
+
+    const pid = this.cfg.projectIdRef.current;
+    const token = this.cfg.tokenRef.current;
+    if (!pid || !token) return;
+
+    // Mint a single-use ticket, then open the socket with ?ticket= (ADR-0141)
+    // so no JWT ever appears in a WebSocket URL / access log. Tickets are
+    // single-use, so this runs on every (re)connect.
+    void fetchWsTicket()
+      .then((ticket) => {
+        // The component may have unmounted, or projectId changed, during the
+        // ticket round-trip — bail rather than open a stale socket.
+        if (!this.cfg.mountedRef.current || this.cfg.projectIdRef.current !== pid) return;
+        // Pass the last-processed sequence so a reconnect replays only the
+        // missed events (ADR-0236). 0 on a fresh mount → the server skips
+        // replay and the initial REST load provides current state.
+        this.openSocket(pid, ticket, this.cfg.lastSeqRef.current);
+      })
+      .catch(() => {
+        if (!this.cfg.mountedRef.current) return;
+        // A failed mint usually means the session expired (apiClient already
+        // ran refresh-and-retry). Treat it like the 4001 auth-reject close so
+        // we don't retry into a void; otherwise back off and try again.
+        if (useAuthStore.getState().sessionExpired) {
+          useWsConnectionStore.getState().markFailed();
+          return;
+        }
+        useWsConnectionStore.getState().markDisconnected();
+        this.scheduleReconnect();
+      });
+  }
+
+  private openSocket(pid: string, ticket: string, since: number): void {
+    const base = `${WS_BASE}/ws/v1/projects/${pid}/?ticket=${encodeURIComponent(ticket)}`;
+    // Only append &since= on a reconnect that has processed events (since > 0);
+    // a fresh connect omits it so the server streams live without replay.
+    const url = since > 0 ? `${base}&since=${since}` : base;
+    const ws = new WebSocket(url);
+    this.ws = ws;
+
+    ws.addEventListener('message', this.handleMessage);
+
+    ws.addEventListener('close', (event) => {
+      if (!this.cfg.mountedRef.current) return;
+      // Server-side auth rejection (Channels closes with 4001 when the
+      // token in the connect URL is invalid/expired). Without this branch
+      // the socket would silently retry forever while the cache stayed
+      // alive and the user kept editing into a void (#352).
+      if (event.code === 4001) {
+        useWsConnectionStore.getState().markFailed();
+        useAuthStore.getState().markSessionExpired();
+        window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
+        return;
+      }
+      // Retryable close (network drop, server restart, idle timeout):
+      // escalate the connection state (reconnecting → stale after a few
+      // attempts) and schedule an exponential-backoff reconnect.
+      useWsConnectionStore.getState().markDisconnected();
+      this.scheduleReconnect();
+    });
+
+    ws.addEventListener('open', () => {
+      this.backoffMs = 1_000; // reset on successful connection
+      useWsConnectionStore.getState().markLive();
+    });
+  }
+
+  // Initial handshake. Retries are driven from the close handler and must not
+  // reset the connection state back to `connecting`.
+  start(): void {
+    useWsConnectionStore.getState().markConnecting();
+    this.connect();
+  }
+
+  stop(): void {
+    if (this.retryTimer !== null) clearTimeout(this.retryTimer);
+    if (this.ws) {
+      this.ws.removeEventListener('message', this.handleMessage);
+      this.ws.close();
+    }
+    // Reset to idle so a stale `live`/`failed` does not linger after leaving
+    // the project (StatusBar also gates the pill on projectId).
+    useWsConnectionStore.getState().markConnecting();
+  }
+}
+
 export function useProjectWebSocket(projectId: string | null | undefined): void {
   const queryClient = useQueryClient();
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -112,9 +1061,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
   // dependencies, and the board activity feed). The set accumulates which query
   // keys a burst touched; the timer flushes them as a single invalidation per key
   // once the burst goes quiet (#773).
-  const pendingInvalidationsRef = useRef<
-    Set<'tasks' | 'dependencies' | 'board-activity' | 'standup'>
-  >(new Set());
+  const pendingInvalidationsRef = useRef<Set<InvalidateKey>>(new Set());
   const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // ADR-0152 (#327): highest task_updated server_version observed per task, so a
   // duplicate or out-of-order replayed delta is ignored rather than triggering a
@@ -155,793 +1102,50 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
 
     if (!projectId || !accessToken) return;
 
-    let ws: WebSocket | null = null;
-    let backoffMs = 1_000;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleInvalidate = makeScheduleInvalidate(queryClient, projectIdRef, {
+      pending: pendingInvalidationsRef,
+      timer: invalidateTimerRef,
+    });
 
-    // Coalesce a burst of invalidations into a single trailing refetch per query
-    // key. High-frequency mutation events (task_*, dependency_*, cpm_complete,
-    // bulk/reorder, assignment_*, sprint/rollup, board-activity) route through
-    // here instead of invalidating immediately, so a sync batch of N row events
-    // produces 1 refetch rather than N. Low-frequency, narrowly-scoped
-    // invalidations (per-task comments, members, board config, project-level)
-    // stay immediate — they are not part of a burst.
-    function scheduleInvalidate(
-      ...keys: Array<'tasks' | 'dependencies' | 'board-activity' | 'standup'>
-    ) {
-      for (const key of keys) pendingInvalidationsRef.current.add(key);
-      if (invalidateTimerRef.current !== null) return;
-      invalidateTimerRef.current = setTimeout(() => {
-        invalidateTimerRef.current = null;
-        const pending = pendingInvalidationsRef.current;
-        pendingInvalidationsRef.current = new Set();
-        for (const key of pending) {
-          void queryClient.invalidateQueries({ queryKey: [key, projectIdRef.current] });
-        }
-      }, TASKS_INVALIDATE_DEBOUNCE_MS);
-    }
-
-    // event_type → handler dispatch table. Handlers close over this effect's
-    // queryClient / refs / store setters; grouped event types register one shared
-    // handler under every member key. `handleMessage` is a flat O(1) lookup (#2081).
-    type WsHandler = (payload: Record<string, unknown>, event_type: string) => void;
+    // event_type → handler dispatch table. Handlers receive queryClient / refs /
+    // store setters through the `deps` bag; grouped event types register one
+    // shared handler under every member key. The controller's handleMessage is
+    // a flat O(1) lookup into this table (#2081).
     const eventHandlers: Record<string, WsHandler> = {};
-    const on = (types: string | readonly string[], handler: WsHandler) => {
+    const on: OnFn = (types, handler) => {
       for (const t of typeof types === 'string' ? [types] : types) eventHandlers[t] = handler;
     };
 
-    // --- ADR-0236 (#321): server could not replay the full gap ---
-    // The requested ?since= aged out of the retention window (or the client was
-    // further behind than the replay cap). Refetch the project-scoped caches and
-    // baseline the cursor to the buffer head so the next reconnect doesn't
-    // re-request the purged gap. resync_required carries seq: null, so the seq
-    // gate in handleMessage never drops it.
-    on('resync_required', (payload) => {
-      const latest = (payload as { latest_seq?: unknown }).latest_seq;
-      void queryClient.invalidateQueries({
-        predicate: (q) => q.queryKey.includes(projectIdRef.current),
-      });
-      void queryClient.invalidateQueries({ queryKey: ['projects'] });
-      if (typeof latest === 'number') lastSeqRef.current = latest;
+    registerEventHandlers(on, {
+      queryClient,
+      projectIdRef,
+      seenTaskVersionsRef,
+      lastSeqRef,
+      scheduleInvalidate,
+      setRecalculating,
+      setCpmError,
+      setCpmComplete,
+      addRun,
+      updateProgress,
+      completeRun,
+      failRun,
+      cancelRun,
+      addPresenceUser,
+      removePresenceUser,
     });
 
-    // --- Task run progress events ---
-    on('task_run_started', (payload) => {
-      const taskRunId = payload.task_run_id as string;
-      const taskName = payload.task_name as string;
-      const pid = (payload.project_id as string | null) ?? null;
-      addRun({ taskRunId, taskName, projectId: pid, pct: 0, msg: '', status: 'running' });
-      // Scheduling integration: signal CPM is running.
-      if (taskName === 'scheduling.recalculate') {
-        setRecalculating(true);
-      }
+    const controller = new ProjectSocketController({
+      projectIdRef,
+      tokenRef,
+      mountedRef,
+      lastSeqRef,
+      eventHandlers,
     });
-    on('task_run_progress', (payload) => {
-      const taskRunId = payload.task_run_id as string;
-      const pct = typeof payload.pct === 'number' ? payload.pct : 0;
-      const msg = typeof payload.msg === 'string' ? payload.msg : '';
-      updateProgress(taskRunId, pct, msg);
-    });
-    on('task_run_completed', (payload) => {
-      const taskRunId = payload.task_run_id as string;
-      const resultSummary = (payload.result_summary as Record<string, unknown> | null) ?? null;
-      // Capture the run's identity before completeRun mutates the store.
-      const wasScheduling =
-        useTaskRunStore.getState().runs[taskRunId]?.taskName === 'scheduling.recalculate';
-      completeRun(taskRunId, resultSummary);
-      // task_run_completed from the scheduler carries result_summary with project_finish.
-      // cpm_complete is still also broadcast for compatibility; this handles the task_run path.
-      if (wasScheduling) {
-        if (resultSummary && typeof resultSummary.project_finish === 'string') {
-          setCpmComplete(resultSummary.project_finish);
-        } else {
-          // A recalc can complete successfully without producing a finish date —
-          // e.g. a project with no schedulable tasks, or a run that escalates to
-          // the program. Those paths never emit the compat cpm_complete event, so
-          // clear the spinner here regardless, or the "Recalculating…" badge
-          // spins forever (#1976).
-          setRecalculating(false);
-        }
-        // Task-date freshness is owned by the task_dates_updated delta event
-        // (ADR-0091) — we no longer invalidate the tasks query here. We still
-        // refresh the project-finish pill and the shell health stats.
-        void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
-      }
-    });
-    on('task_run_failed', (payload) => {
-      const taskRunId = payload.task_run_id as string;
-      const errorDetail = typeof payload.error_detail === 'string' ? payload.error_detail : '';
-      // Capture the run's identity before failRun mutates the store.
-      const taskName = useTaskRunStore.getState().runs[taskRunId]?.taskName;
-      failRun(taskRunId, errorDetail);
-      // Scheduling integration: if this was the CPM task, set error state.
-      if (taskName === 'scheduling.recalculate') {
-        setCpmError({ error: 'internal_error', cycle: [] } as CpmError);
-      } else if (taskName?.startsWith('import.')) {
-        // An async import (MS Project / Jira) that fails is otherwise invisible on
-        // the Schedule that launched it: `task_run_failed` only updates the run
-        // store, and the sole trace is a "Failed" chip in the Overview's import
-        // provenance section — which the user has no reason to open. Without this
-        // they wait on the Schedule for tasks that never arrive (#2151). Toast so
-        // the failure surfaces on whatever project surface they are looking at.
-        toast.error('Import failed — see recent imports on the project Overview.');
-      }
-    });
-    on('task_run_cancelled', (payload) => {
-      const taskRunId = payload.task_run_id as string;
-      cancelRun(taskRunId);
-    });
-
-    // --- Presence events ---
-    on('presence_join', (payload) => {
-      const userId = payload.user_id as string;
-      const displayName = (payload.display_name as string | undefined) ?? userId;
-      addPresenceUser({ user_id: userId, display_name: displayName });
-    });
-    on('presence_leave', (payload) => {
-      removePresenceUser(payload.user_id as string);
-    });
-
-    // --- CPM error (timeout / hard failure) ---
-    on('cpm_error', (payload) => {
-      setCpmError({
-        error: (payload.error as string | undefined) ?? 'timeout',
-        cycle: [],
-      } as CpmError);
-      setRecalculating(false);
-    });
-
-    // --- Legacy CPM compat broadcast ---
-    on('cpm_complete', (payload) => {
-      // cpm_complete is still emitted by the scheduler for any client that hasn't
-      // migrated to task_run_completed. Handle it here so nothing breaks during
-      // the transition period.
-      const projectFinish =
-        typeof payload.project_finish === 'string'
-          ? payload.project_finish
-          : new Date().toISOString();
-      setCpmComplete(projectFinish);
-      // The tasks cache is maintained by task_dates_updated (ADR-0091); the
-      // coarse compat event no longer invalidates it. Pill + stats only.
-      void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
-    });
-
-    // --- Per-task CPM date deltas (ADR-0091) ---
-    on('task_dates_updated', (payload) => {
-      // Batched per-task CPM deltas, broadcast at the end of recalculate_schedule.
-      // This handler is the sole maintainer of CPM freshness in the tasks cache:
-      // it splices the moved tasks in place so a collaborator's bars slide
-      // instantly, with no full re-fetch. The coarse task_run_completed /
-      // cpm_complete events above intentionally no longer invalidate tasks.
-      if (payload.truncated === true) {
-        // Too many tasks moved to ship economically — fall back to a re-fetch.
-        scheduleInvalidate('tasks');
-      } else if (Array.isArray(payload.tasks)) {
-        const deltas = payload.tasks as unknown as TaskDatesDelta[];
-        if (deltas.length > 0) {
-          const byId = new Map(deltas.map((d) => [d.id, d]));
-          queryClient.setQueryData<Task[]>(['tasks', projectIdRef.current], (old) =>
-            old?.map((t) => {
-              const delta = byId.get(t.id);
-              return delta ? applyTaskDatesDelta(t, delta) : t;
-            }),
-          );
-        }
-      }
-    });
-
-    // --- Mutation events ---
-    on('task_updated', (payload) => {
-      // ADR-0152 (#327): the enriched task_updated delta lets us avoid two
-      // wasteful refetches.
-      //  1. Self-echo: the originating client already applied its optimistic
-      //     update; re-fetching here would clobber an in-flight edit and flicker.
-      //  2. Duplicate/replayed events: ignore a version we've already observed
-      //     for this task.
-      // Either way the values themselves are role-gated (ADR-0104), so a genuine
-      // remote change still goes through the coalesced list invalidate, which
-      // re-reads via the serializer and keeps gating intact.
-      const taskId = typeof payload.id === 'string' ? payload.id : null;
-      const actorId = typeof payload.actor_id === 'string' ? payload.actor_id : null;
-      const version = typeof payload.version === 'number' ? payload.version : null;
-      const currentUserId = queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
-
-      const isSelfEcho = actorId !== null && actorId === currentUserId;
-      let isDuplicate = false;
-      if (taskId !== null && version !== null) {
-        const seen = seenTaskVersionsRef.current.get(taskId);
-        if (seen !== undefined && version <= seen) {
-          isDuplicate = true;
-        } else {
-          seenTaskVersionsRef.current.set(taskId, version);
-        }
-      }
-
-      if (!isSelfEcho && !isDuplicate) {
-        scheduleInvalidate('tasks');
-      }
-      // The board activity feed is an append-only audit log, so it refetches
-      // even for the originating client's own edit (you want your action to land
-      // in the feed) — only a true duplicate/replay at an already-seen version is
-      // skipped. No-op while the panel is closed: an inactive infinite query is
-      // marked stale, not refetched, until the panel remounts (ADR-0160 B1, issue 1264).
-      if (!isDuplicate) {
-        // The standup walk's done/in-progress/blocker buckets are derived from the
-        // same card state, so a status/assignee/blocker move refetches it too
-        // (inactive → marked stale while standup mode is closed; ADR-0166).
-        scheduleInvalidate('board-activity', 'standup');
-        // The task drawer's Activity tab merges the per-task history feed
-        // (useTaskHistory), so a remote edit must refresh it too (#1867).
-        void queryClient.invalidateQueries({
-          queryKey:
-            taskId !== null
-              ? ['task-history', projectIdRef.current, taskId]
-              : ['task-history', projectIdRef.current],
-        });
-      }
-    });
-    on(['task_created', 'task_deleted', 'task_restored'], (payload) => {
-      scheduleInvalidate('tasks', 'board-activity', 'standup');
-      // The drawer Activity tab merges the per-task history feed (#1867) —
-      // create/delete/restore all append a history record for the affected task.
-      const historyTaskId = typeof payload.id === 'string' ? payload.id : null;
-      void queryClient.invalidateQueries({
-        queryKey:
-          historyTaskId !== null
-            ? ['task-history', projectIdRef.current, historyTaskId]
-            : ['task-history', projectIdRef.current],
-      });
-    });
-    on(
-      [
-        'dependency_created',
-        'dependency_updated',
-        'dependency_deleted',
-        'dependency_accepted',
-        'dependency_rejected',
-      ],
-      () => {
-        // Collaborators see new/edited dependency edges shortly after the event
-        // rather than waiting for the next fallback poll. `accepted`/`rejected`
-        // are the cross-project pending-edge resolutions (ADR-0120): accepting
-        // binds the external edge, rejecting soft-deletes it — both change the
-        // dependency list and the external edges drawn on the schedule, so peers
-        // need the same refetch (issue 1323). Without a handler they stayed stale until
-        // the next fallback poll. The follow-up cpm_complete event refreshes
-        // computed dates; the edge itself becomes visible on the next coalesced flush.
-        scheduleInvalidate('dependencies', 'tasks');
-      },
-    );
-    // task_duration_changed is intentionally unregistered (no-op, issue 1323): the
-    // duration delta is already delivered by the task_updated event broadcast in the
-    // same commit batch, which refreshes the tasks cache *with* ADR-0152 self-echo
-    // suppression. Re-invalidating tasks here — the event carries no actor_id to
-    // suppress on — would clobber the editor's in-flight optimistic edit, the exact
-    // regression ADR-0152 prevents. The event's only extra payload is the inline
-    // "Recalc %?" affordance hint (ADR-0151), consumed locally by the editing client.
-    on(['slip_conflict_acknowledged', 'slip_conflicts_updated'], () => {
-      // A downstream scope manager acknowledged a cross-project slip conflict
-      // (ADR-0120 D4), or the program CPM pass detected/auto-resolved conflicts
-      // (`slip_conflicts_updated`, issue 1359). Either way the conflict set on the
-      // `/slip-conflicts/` endpoint changed — refetch so a mounted badge/view
-      // reflects it live instead of waiting on the next poll. A no-op until that
-      // surface mounts, then live from day one.
-      void queryClient.invalidateQueries({ queryKey: ['slip-conflicts'] });
-    });
-    on('sprint_retro_updated', (payload) => {
-      // A peer upserted the sprint retro (notes + action items) or toggled its
-      // visibility (issue 1359). Both REST writes previously emitted nothing, so a
-      // collaborator with the retro open silently desynced until a manual refresh.
-      // Refetch the named sprint's retro; keyed to ['sprint', id, 'retro'] to match
-      // useSprintRetro. A no-op until the retro panel is mounted.
-      const sprintId = typeof payload.sprint_id === 'string' ? payload.sprint_id : null;
-      if (sprintId !== null) {
-        void queryClient.invalidateQueries({ queryKey: ['sprint', sprintId, 'retro'] });
-      }
-    });
-    on(['baseline_created', 'baseline_activated', 'baseline_deleted'], (_payload, event_type) => {
-      void queryClient.invalidateQueries({ queryKey: ['baselines', projectIdRef.current] });
-      // Active baseline change affects the task overlay annotation.
-      if (event_type === 'baseline_activated' || event_type === 'baseline_deleted') {
-        scheduleInvalidate('tasks');
-      }
-    });
-
-    // --- Bulk task mutations (reorder, indent/outdent, bulk ops) ---
-    on(
-      [
-        'tasks_reordered',
-        'tasks_restructured',
-        'tasks_bulk_mutated',
-        'phases_reordered',
-        // A collaborator promoted/demoted a queue row (issue 1610) — the board queue
-        // orders by priority_rank, so refetch the tasks cache to snap to server order.
-        'queue_reordered',
-      ],
-      () => {
-        scheduleInvalidate('tasks');
-      },
-    );
-
-    // --- Product-backlog priority_rank change (ADR-0105 auto-rank / ADR-0110 reorder) ---
-    on('backlog_reranked', () => {
-      // A collaborator reordered or auto-ranked the backlog. Refresh the grooming view
-      // and the tasks cache (the board/schedule may order by priority_rank).
-      void queryClient.invalidateQueries({
-        queryKey: ['product-backlog', projectIdRef.current],
-      });
-      scheduleInvalidate('tasks');
-    });
-
-    // --- Risk events ---
-    // `risks_imported` is the single batched event from a CSV import (issue 223) —
-    // one refetch covers the whole batch rather than one per created risk.
-    on(['risk_created', 'risk_updated', 'risk_deleted', 'risks_imported'], () => {
-      void queryClient.invalidateQueries({ queryKey: ['risks', projectIdRef.current] });
-    });
-
-    // --- Risk comment events ---
-    on('comment_created', () => {
-      void queryClient.invalidateQueries({ queryKey: ['riskComments', projectIdRef.current] });
-    });
-
-    // --- Task collaboration events (ADR-0075) ---
-    // Disambiguated from risk comments with the `task_` prefix so peers see
-    // task-thread updates without falsely invalidating the riskComments cache.
-    // Reactions (#837) and acknowledgements render inline on the comment, so
-    // they refetch the same task-comments cache. The ack ping is body-less
-    // (no acker identity) — the gated ack list is refetched via REST.
-    on(
-      [
-        'task_comment_created',
-        'task_comment_updated',
-        'task_comment_deleted',
-        'task_comment_reaction_added',
-        'task_comment_reaction_removed',
-        'task_comment_ack_changed',
-      ],
-      (payload, event_type) => {
-        const taskId = payload?.task_id;
-        if (typeof taskId === 'string') {
-          void queryClient.invalidateQueries({ queryKey: ['task-comments', taskId] });
-        }
-        // Only a brand-new comment is a `comment_added` row in the board activity
-        // feed; edits/deletes/reactions/acks don't add feed rows (ADR-0160 B1, issue 1264).
-        if (event_type === 'task_comment_created') {
-          scheduleInvalidate('board-activity');
-        }
-      },
-    );
-    on(['task_attachment_created', 'task_attachment_deleted'], (payload) => {
-      const taskId = payload?.task_id;
-      if (typeof taskId === 'string') {
-        void queryClient.invalidateQueries({ queryKey: ['task-attachments', taskId] });
-      }
-    });
-
-    // --- Task note events (ADR-0143, issue 740; decision toggle ADR-0167, issue 748) ---
-    // A note create/edit/pin/delete invalidates the per-task notes list AND the
-    // task list/board (the `latest_note_at` freshness chip is annotated on the
-    // task serializer, so peers' cards re-fetch to show the new timestamp). A
-    // `task_note_decision_toggled` additionally invalidates the project Decisions
-    // list so an open Decisions view reflects a peer's flag without a reload.
-    on(
-      [
-        'task_note_created',
-        'task_note_updated',
-        'task_note_deleted',
-        'task_note_pinned',
-        'task_note_decision_toggled',
-      ],
-      (payload, event_type) => {
-        const taskId = payload?.task_id;
-        if (typeof taskId === 'string') {
-          void queryClient.invalidateQueries({ queryKey: ['task-notes', taskId] });
-        }
-        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
-        if (event_type === 'task_note_decision_toggled') {
-          void queryClient.invalidateQueries({ queryKey: ['decisions', projectIdRef.current] });
-        }
-      },
-    );
-
-    // --- Task external-link events (integrations) ---
-    // The backend emits these on TaskLink create/refresh/delete; without a
-    // handler peers keep a stale link list until reload.
-    on(['task_link_created', 'task_link_updated', 'task_link_deleted'], (payload) => {
-      const taskId = payload?.task_id;
-      if (typeof taskId === 'string') {
-        void queryClient.invalidateQueries({ queryKey: ['task-links', taskId] });
-      }
-    });
-
-    // --- Task suggestion lifecycle (retro promotion + decline/revoke) ---
-    // A promoted action item creates a TaskSuggestedAssignee; a decline or revoke
-    // resolves it (issue 1323). Either way refresh the task feed and the suggested
-    // user's My Work queue (same keys as useSuggestionAction) so the suggestion
-    // surfaces — or clears — for connected peers without a manual refetch. The
-    // decline/revoke payloads carry no actor identity, matching the backend's
-    // psych-safety contract: this is a silent state reconciliation, not a callout.
-    on(['suggestion_created', 'suggestion_declined', 'suggestion_revoked'], () => {
-      scheduleInvalidate('tasks');
-      void queryClient.invalidateQueries({ queryKey: ['me', 'work'] });
-    });
-
-    // --- Project API token events ---
-    // Key must match useApiTokens' tokensKey: ['api-tokens', scope.kind, id].
-    on(['api_token_minted', 'api_token_revoked'], () => {
-      void queryClient.invalidateQueries({
-        queryKey: ['api-tokens', 'project', projectIdRef.current],
-      });
-    });
-
-    // --- Project custom-field schema events ---
-    on('project_custom_fields_updated', () => {
-      // Must match useProjectCustomFields' FIELDS_KEY exactly, or a live definition
-      // change (incl. a show_on_card toggle #2144) never refreshes the board's fields.
-      void queryClient.invalidateQueries({
-        queryKey: ['project-custom-fields', projectIdRef.current],
-      });
-    });
-
-    // --- Estimation poker (ADR-0179, issue 863) ---
-    // A vote/reveal/commit nudge; the payload carries no sprint_id (and no vote values),
-    // so invalidate every mounted poker query — only the live sprint's is mounted, and a
-    // commit also writes story_points, so refresh the planning backlog.
-    on('poker_session_updated', () => {
-      void queryClient.invalidateQueries({ queryKey: ['poker'] });
-      void queryClient.invalidateQueries({ queryKey: ['sprint-backlog', projectIdRef.current] });
-    });
-
-    // --- Sprint events ---
-    on(
-      [
-        'sprint_created',
-        'sprint_updated',
-        'sprint_deleted',
-        'sprint_activated',
-        'sprint_cancelled',
-        'sprint_closed',
-      ],
-      () => {
-        void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
-        // Sprint state changes drive milestone rollup recompute (ADR-0074);
-        // refresh task data so the Gantt milestone reflects the new value
-        // even if the milestone_rollup_updated event lands first.
-        scheduleInvalidate('tasks');
-        // A sprint's velocity contribution changes on these events — close adds
-        // a data point, exclude_from_velocity (ADR-0113) drops one, activate /
-        // cancel move committed scope — so a peer's velocity band and delivery
-        // forecast must refetch live, matching the local mutation in useSprints.
-        // Without this, collaborators see stale velocity/forecast until a manual
-        // refetch.
-        void queryClient.invalidateQueries({
-          queryKey: ['project', projectIdRef.current, 'velocity'],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ['project', projectIdRef.current, 'forecast'],
-        });
-      },
-    );
-
-    // --- Live retro board events (ADR-0117 §4) ---
-    // A peer created/edited/moved/deleted a sticky on the multi-writer retro
-    // board. The board cache is keyed by sprint id, but the broadcast carries
-    // the retro_id (the board is project-scoped, sprint-derived), so we
-    // invalidate every open retro-board query rather than one key. Stale data
-    // is the only failure mode of the best-effort channel; a blanket refetch
-    // of the (at most one or two) open retro boards is cheap and reconciles
-    // LWW collisions deterministically.
-    on(
-      ['retro_item_created', 'retro_item_updated', 'retro_item_deleted', 'retro_item_moved'],
-      () => {
-        void queryClient.invalidateQueries({
-          predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'retro-board',
-        });
-      },
-    );
-
-    // --- Scope-injection accept/reject events (ADR-0102) ---
-    // A peer accepting/rejecting a pending injection (or rejecting on close)
-    // flips task.sprint_pending and the sprint's pending_count. Without this
-    // handler, other clients kept showing the stale "Pending acceptance" chip
-    // and the "accepted scope only" forecast caveat until a manual refetch.
-    on('sprint_scope_changed', (payload) => {
-      // Accept/reject flips a task's sprint membership → an entered/exited_sprint
-      // row in the board activity feed (ADR-0160 B1, issue 1264) and changes which
-      // cards the standup walk groups (ADR-0166).
-      scheduleInvalidate('tasks', 'board-activity', 'standup');
-      void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
-      // The accepted/rejected task's points enter or leave the committed-scope
-      // line, so an open burndown for that sprint must refetch too — it is a
-      // separate query key (['sprint', id, 'burndown']) from the sprint list.
-      // The broadcast carries the sprint id; fall back to all burndown queries.
-      const scopeSprintId = payload?.sprint_id;
-      if (typeof scopeSprintId === 'string') {
-        void queryClient.invalidateQueries({
-          queryKey: ['sprint', scopeSprintId, 'burndown'],
-        });
-      } else {
-        void queryClient.invalidateQueries({
-          predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'burndown',
-        });
-      }
-    });
-
-    // --- Sprint Review curation events (ADR-0118 amend, #1130/#1131/#1132) ---
-    // A peer reordered the demo list, set a presenter or contributor note, or
-    // flagged a not-shipped story for the backlog. All four mutate the
-    // consolidated Sprint Review read (['sprint', id, 'outcome']). demo_toggled
-    // (#924) shares the same key and had no handler, so co-viewers' review
-    // surfaces drifted until a manual refetch — fold it in here. The broadcast
-    // carries sprint_id; fall back to every open outcome query when absent.
-    // (flag-for-backlog also emits task_created, handled above, which refreshes
-    // the task/backlog feed — so the new backlog item reaches peers too.)
-    on(
-      [
-        'demo_toggled',
-        'demo_reordered',
-        'demo_presenter_set',
-        'review_note_set',
-        'flagged_for_backlog',
-      ],
-      (payload) => {
-        const reviewSprintId = payload?.sprint_id;
-        if (typeof reviewSprintId === 'string') {
-          void queryClient.invalidateQueries({
-            queryKey: ['sprint', reviewSprintId, 'outcome'],
-          });
-        } else {
-          void queryClient.invalidateQueries({
-            predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'outcome',
-          });
-        }
-      },
-    );
-
-    // --- Milestone rollup events (ADR-0074) ---
-    on('milestone_rollup_updated', () => {
-      // Aggregated rollup payload arrives independent of the task feed.
-      // Invalidate both tasks (Gantt + drawer) and sprints (the rollup
-      // mirrors onto SprintTargetMilestone.rollup).
-      scheduleInvalidate('tasks');
-      void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
-    });
-
-    // --- Milestone forecast events (ADR-0106 §3.4, #1007) ---
-    on('milestone_forecast_updated', () => {
-      // A sprint close or (re)bind reforecast a bound milestone and persisted a
-      // new ForecastSnapshot. The per-milestone snapshot is served by the
-      // project forecast read, and the promote dialog's live preview shares the
-      // same CPM spine — refresh both (plus the slim milestone list, whose
-      // early_finish may have shifted) so a peer viewing the forecast or promote
-      // surfaces on another tab sees the new range without reloading. The
-      // forecast read is project-scoped, so the payload's milestone_id is not
-      // needed to target it.
-      void queryClient.invalidateQueries({
-        queryKey: ['project', projectIdRef.current, 'forecast'],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ['project-milestones', projectIdRef.current],
-      });
-      void queryClient.invalidateQueries({
-        predicate: (q) => q.queryKey[0] === 'reforecast-preview',
-      });
-    });
-
-    // --- Resource assignment events ---
-    on(['assignment_created', 'assignment_updated', 'assignment_deleted', 'roster_changed'], () => {
-      // Assignments are surfaced on task rows (assignee chips, overalloc flag).
-      scheduleInvalidate('tasks');
-    });
-
-    // --- Membership events ---
-    on(['member_added', 'member_role_changed', 'member_removed'], (payload, event_type) => {
-      void queryClient.invalidateQueries({ queryKey: ['members', projectIdRef.current] });
-      // Also refresh the caller's *own* role row (#2039). `useCurrentUserRole`
-      // caches `['project-member-self', projectId]` with a 5-min staleTime, and
-      // nothing else invalidates it — so an admin demoting you would leave every
-      // role gate (canEdit, canManageScope, Monte Carlo row…) rendering write
-      // affordances that then 403 generically for minutes. Refetching here
-      // reconciles the gates the moment the membership event lands. When the
-      // event targets the current user, toast so the affordance change is
-      // explained rather than silently appearing. The server only broadcasts
-      // member_role_changed when the role actually moved, so no client-side
-      // "did it change" comparison is needed.
-      void queryClient.invalidateQueries({
-        queryKey: ['project-member-self', projectIdRef.current],
-      });
-      const affectedUserId = typeof payload.user_id === 'string' ? payload.user_id : null;
-      const currentUserId = queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
-      if (
-        event_type === 'member_role_changed' &&
-        affectedUserId !== null &&
-        affectedUserId === currentUserId
-      ) {
-        toast.info('Your role in this project changed.');
-      }
-    });
-
-    // --- User-defined @mention group events (issue 515 / #516) ---
-    // A peer creating/renaming/deleting a group or editing its roster broadcasts
-    // mention_group_changed; invalidate the group list so a second admin viewing
-    // the same tab reconciles live (mirrors membership). A program-scoped group
-    // (ADR-0248) rides project channels but targets the program cache, so branch
-    // on scope and invalidate the program key by payload.program_id — never the
-    // project key, which would spuriously refetch an unrelated project list.
-    on('mention_group_changed', (payload) => {
-      if (payload.scope === 'program') {
-        const programId = payload.program_id;
-        if (typeof programId === 'string') {
-          void queryClient.invalidateQueries({
-            queryKey: ['program-mention-groups', programId],
-          });
-        }
-      } else {
-        void queryClient.invalidateQueries({
-          queryKey: ['mention-groups', projectIdRef.current],
-        });
-      }
-    });
-
-    // --- Team facet / role events (ADR-0078) ---
-    // A peer flipping a Scrum Master / Product Owner facet or a team role on
-    // the Project Settings → Team tab broadcasts team_member_changed. A facet
-    // reassign is a soft-singleton, so the prior holder's row changed too; the
-    // payload carries team_id (not project_id), so invalidate that team's
-    // whole roster and let a second admin viewing the same tab see it live.
-    on('team_member_changed', (payload) => {
-      const teamId = payload?.team_id;
-      if (typeof teamId === 'string') {
-        void queryClient.invalidateQueries({ queryKey: ['team-members', teamId] });
-      }
-    });
-
-    // --- Board config and saved-view events ---
-    on('board_config_updated', () => {
-      void queryClient.invalidateQueries({ queryKey: ['boardConfig', projectIdRef.current] });
-    });
-    on(['board_view_created', 'board_view_updated', 'board_view_deleted'], () => {
-      void queryClient.invalidateQueries({ queryKey: ['boardViews', projectIdRef.current] });
-    });
-
-    // --- Project-level events ---
-    // The backend emits archive/unarchive/transfer/hard-delete lifecycle
-    // events, but the client had no handler — a user watching a project that
-    // was archived or transferred under them saw no update until a refetch.
-    on(
-      [
-        'project_created',
-        'project_updated',
-        'project_deleted',
-        'project_hard_deleted',
-        'project_archived',
-        'project_unarchived',
-        'project_transferred',
-      ],
-      () => {
-        void queryClient.invalidateQueries({ queryKey: ['project', projectIdRef.current] });
-        void queryClient.invalidateQueries({ queryKey: ['projects'] });
-      },
-    );
-
-    function handleMessage(event: MessageEvent<string>) {
-      let envelope: WsEnvelope;
-      try {
-        envelope = JSON.parse(event.data) as WsEnvelope;
-      } catch {
-        return;
-      }
-
-      const { event_type, payload } = envelope;
-
-      // --- ADR-0236 (#321): replay sequence dedup ---
-      // Frames carrying a numeric seq are strictly ordered; drop any at or below
-      // the highest we've processed. This neutralizes the one duplicate the replay
-      // protocol can produce (an event both replayed and re-delivered live at the
-      // same seq during the group_add race) and any redundant replay. Frames
-      // without a seq (presence, task_run_*, and legacy servers) are never gated.
-      const seq = envelope.seq;
-      if (typeof seq === 'number') {
-        if (seq <= lastSeqRef.current) return;
-        lastSeqRef.current = seq;
-      }
-
-      // O(1) dispatch. An unrecognized event_type has no handler and is a no-op
-      // (e.g. task_duration_changed, intentionally unregistered above). Guard the
-      // dynamic lookup with Object.hasOwn so an inherited Object.prototype key
-      // arriving as event_type ("constructor", "toString", "__proto__", …) can
-      // never resolve to a prototype method and be invoked (CodeQL
-      // js/unvalidated-dynamic-method-call; event_type is off the wire frame).
-      const handler = Object.hasOwn(eventHandlers, event_type)
-        ? eventHandlers[event_type]
-        : undefined;
-      handler?.(payload, event_type);
-    }
-
-    function scheduleReconnect() {
-      retryTimer = setTimeout(() => {
-        backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
-        connect();
-      }, backoffMs);
-    }
-
-    function connect() {
-      if (!mountedRef.current) return;
-
-      const pid = projectIdRef.current;
-      const token = tokenRef.current;
-      if (!pid || !token) return;
-
-      // Mint a single-use ticket, then open the socket with ?ticket= (ADR-0141)
-      // so no JWT ever appears in a WebSocket URL / access log. Tickets are
-      // single-use, so this runs on every (re)connect.
-      void fetchWsTicket()
-        .then((ticket) => {
-          // The component may have unmounted, or projectId changed, during the
-          // ticket round-trip — bail rather than open a stale socket.
-          if (!mountedRef.current || projectIdRef.current !== pid) return;
-          // Pass the last-processed sequence so a reconnect replays only the
-          // missed events (ADR-0236). 0 on a fresh mount → the server skips
-          // replay and the initial REST load provides current state.
-          openSocket(pid, ticket, lastSeqRef.current);
-        })
-        .catch(() => {
-          if (!mountedRef.current) return;
-          // A failed mint usually means the session expired (apiClient already
-          // ran refresh-and-retry). Treat it like the 4001 auth-reject close so
-          // we don't retry into a void; otherwise back off and try again.
-          if (useAuthStore.getState().sessionExpired) {
-            useWsConnectionStore.getState().markFailed();
-            return;
-          }
-          useWsConnectionStore.getState().markDisconnected();
-          scheduleReconnect();
-        });
-    }
-
-    function openSocket(pid: string, ticket: string, since: number) {
-      const base = `${WS_BASE}/ws/v1/projects/${pid}/?ticket=${encodeURIComponent(ticket)}`;
-      // Only append &since= on a reconnect that has processed events (since > 0);
-      // a fresh connect omits it so the server streams live without replay.
-      const url = since > 0 ? `${base}&since=${since}` : base;
-      ws = new WebSocket(url);
-
-      ws.addEventListener('message', handleMessage);
-
-      ws.addEventListener('close', (event) => {
-        if (!mountedRef.current) return;
-        // Server-side auth rejection (Channels closes with 4001 when the
-        // token in the connect URL is invalid/expired). Without this branch
-        // the socket would silently retry forever while the cache stayed
-        // alive and the user kept editing into a void (#352).
-        if (event.code === 4001) {
-          useWsConnectionStore.getState().markFailed();
-          useAuthStore.getState().markSessionExpired();
-          window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
-          return;
-        }
-        // Retryable close (network drop, server restart, idle timeout):
-        // escalate the connection state (reconnecting → stale after a few
-        // attempts) and schedule an exponential-backoff reconnect.
-        useWsConnectionStore.getState().markDisconnected();
-        scheduleReconnect();
-      });
-
-      ws.addEventListener('open', () => {
-        backoffMs = 1_000; // reset on successful connection
-        useWsConnectionStore.getState().markLive();
-      });
-    }
-
-    // Initial handshake. Retries are driven from the close handler and must not
-    // reset the connection state back to `connecting`.
-    useWsConnectionStore.getState().markConnecting();
-    connect();
+    controller.start();
 
     return () => {
       mountedRef.current = false;
-      if (retryTimer !== null) clearTimeout(retryTimer);
+      controller.stop();
       // Drop any pending coalesced invalidation — the project/token changed, so
       // the new effect run will refetch the correct project's caches on its own.
       if (invalidateTimerRef.current !== null) {
@@ -949,13 +1153,6 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         invalidateTimerRef.current = null;
         pendingInvalidationsRef.current = new Set();
       }
-      if (ws) {
-        ws.removeEventListener('message', handleMessage);
-        ws.close();
-      }
-      // Reset to idle so a stale `live`/`failed` does not linger after leaving
-      // the project (StatusBar also gates the pill on projectId).
-      useWsConnectionStore.getState().markConnecting();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, accessToken]);
