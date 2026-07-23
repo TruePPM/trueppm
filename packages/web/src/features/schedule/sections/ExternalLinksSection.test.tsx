@@ -346,7 +346,11 @@ describe('ExternalLinksSection — loading / error / empty states', () => {
   it('shows the empty-state note plus the add control for an editor', () => {
     useLinksMock.mockReturnValue({ links: [], isLoading: false, error: null });
     render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
-    expect(screen.getByRole('note')).toBeInTheDocument();
+    const note = screen.getByRole('note');
+    expect(note).toBeInTheDocument();
+    // The leading affordance is the SVG LinkIcon, not the 🔗 emoji (#1749).
+    expect(note.querySelector('svg')).toBeInTheDocument();
+    expect(note.textContent).not.toContain('🔗');
     expect(screen.getByLabelText('Add a link URL')).toBeInTheDocument();
   });
 

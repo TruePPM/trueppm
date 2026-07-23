@@ -20,6 +20,7 @@ import type { DetectedProvider } from '@/lib/detectProvider';
 import { previewTypeIcon } from '@/lib/previewType';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
+import { LinkIcon } from '@/components/Icons';
 import {
   isFileProvider,
   LabelPills,
@@ -582,8 +583,9 @@ export function ExternalLinksSection({
           className="text-xs text-neutral-text-secondary border border-dashed border-neutral-border
             bg-neutral-surface-sunken rounded-card px-4 py-3"
         >
-          🔗 Paste a GitLab, GitHub, Drive, Dropbox, Box, or OneDrive URL. Git links show live
-          status; cloud-file links show a preview. Add a title and labels.
+          <LinkIcon aria-hidden="true" className="inline-block w-3.5 h-3.5 mr-1 align-text-bottom" />
+          Paste a GitLab, GitHub, Drive, Dropbox, Box, or OneDrive URL. Git links show live status;
+          cloud-file links show a preview. Add a title and labels.
         </p>
       )}
 

@@ -25,7 +25,7 @@ import { ReadinessChip } from './ReadinessChip';
 import { TypeBadge } from '@/features/project/backlog/components/TypeBadge';
 import { classifyCardSignal, cardSignalToneClass } from './cardSignal';
 import { phaseColor } from './phaseColors';
-import { LinkIcon, WarningIcon, MoreHorizontalIcon } from '@/components/Icons';
+import { LinkIcon, WarningIcon, MoreHorizontalIcon, ClockIcon } from '@/components/Icons';
 import { LabelPillRow } from '@/components/LabelPill';
 import { CardPeekButton } from './CardPeekButton';
 import { CustomFieldMarks, CustomFieldCompactPeek } from './CustomFieldMarks';
@@ -1250,7 +1250,7 @@ function BoardCardImpl({
               title={`${daysAgo}d in column — SLA: ${slaDays}d`}
               aria-label={`${daysAgo} days in this column, exceeds ${slaDays}-day SLA`}
             >
-              <span aria-hidden="true">⏱</span>
+              <ClockIcon aria-hidden="true" className="w-3.5 h-3.5" />
               <span className="tppm-mono">{daysAgo}d</span>
             </div>
           )}

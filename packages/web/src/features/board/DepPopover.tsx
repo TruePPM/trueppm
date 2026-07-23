@@ -1,5 +1,6 @@
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useTaskDependencies, type TaskDependencyEdge } from '@/hooks/useTaskDependencies';
+import { LinkIcon } from '@/components/Icons';
 import type { Task, TaskStatus } from '@/types';
 
 interface DepPopoverProps {
@@ -60,7 +61,7 @@ function DepRow({ edge, task, isBlocking, onJumpTo }: DepRowProps) {
         {isBlocking ? (
           <span className="inline-flex w-2 h-2 rounded-full bg-semantic-critical" />
         ) : (
-          <span className="inline-flex text-neutral-text-disabled">🔗</span>
+          <LinkIcon className="w-3.5 h-3.5 text-neutral-text-disabled" />
         )}
       </span>
       <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{name}</span>
