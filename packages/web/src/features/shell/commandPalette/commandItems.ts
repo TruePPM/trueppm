@@ -13,7 +13,7 @@
  * sprint" action; `sprintTask` (active-sprint tasks) and `task` (all other tasks)
  * and `current` are Tier-2 (current project only); `person`, `epic`, and `story`
  * are global, query-gated cross-program searches; `recent` is the cold-only
- * recently-visited-projects strip; `settings` (added ADR-0605/#2319) is the
+ * recently-visited-projects strip; `settings` (added ADR-0606/#2319) is the
  * query-only group of individual settings sections; the rest are Tier-1 (all
  * reachable projects) or global.
  */

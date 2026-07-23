@@ -22,7 +22,7 @@ export interface SettingsNavItem {
    * "Single sign-on". Not rendered — the `label` is the accessible name. Optional:
    * an item with no keywords still matches on its label. Shared source of truth with
    * the palette (workspace entries derive from `buildWorkspaceNavGroups`), so a
-   * keyword authored here is reused by both surfaces (ADR-0605).
+   * keyword authored here is reused by both surfaces (ADR-0606).
    */
   keywords?: string;
   /**

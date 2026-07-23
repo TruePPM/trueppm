@@ -102,7 +102,7 @@ const QUERY_ONLY_GROUPS = new Set<CommandItem['group']>([
   'task',
   'epic',
   'story',
-  // Settings sections (ADR-0605/#2319) surface only when typing — cold, the palette
+  // Settings sections (ADR-0606/#2319) surface only when typing — cold, the palette
   // shows the three top-level `jump` settings targets, not ~20 section rows.
   'settings',
 ]);

@@ -338,7 +338,7 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
       });
     }
 
-    // ---- Settings sections (ADR-0605/#2319) ----------------------------------
+    // ---- Settings sections (ADR-0606/#2319) ----------------------------------
     // Individual settings sections as a query-only group so typing "smtp" / "oidc"
     // jumps straight to Email & SMTP / Single sign-on. Workspace sections derive
     // from the SAME builder that feeds the rail (labels/keywords/anchors stay in

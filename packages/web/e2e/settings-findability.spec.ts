@@ -2,7 +2,7 @@ import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 /**
- * Settings findability (ADR-0605).
+ * Settings findability (ADR-0606).
  *
  * FEATURE A (#2320) — the desktop settings rail filter: type to narrow the
  * section list, empty state, clear, and Enter-to-jump.

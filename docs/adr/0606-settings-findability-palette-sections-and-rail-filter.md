@@ -1,4 +1,4 @@
-# ADR-0605: Settings findability — ⌘K section indexing and in-rail filter
+# ADR-0606: Settings findability — ⌘K section indexing and in-rail filter
 
 ## Status
 Proposed
