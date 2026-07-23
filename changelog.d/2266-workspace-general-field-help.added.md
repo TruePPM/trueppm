@@ -1,0 +1,1 @@
+Workspace → General settings now carry contextual **help (ⓘ)** on the jargon, policy, and cascade fields — Work week, Iteration terminology, Allow guests, Public sharing, and the Monte Carlo forecast-history controls. Each popover explains the setting in plain language and deep-links to the relevant documentation page.

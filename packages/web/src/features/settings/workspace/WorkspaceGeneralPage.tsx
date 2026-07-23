@@ -9,6 +9,7 @@ import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { IterationLabelField } from '../project/IterationLabelField';
 import { WorkspaceLogoField } from './WorkspaceLogoField';
 import { Toggle } from '../components/Toggle';
+import { FieldHelp } from '@/components/FieldHelp';
 import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
 import {
   DURATION_CHANGE_POLICY_OPTIONS,
@@ -388,7 +389,25 @@ export function WorkspaceGeneralPage() {
           />
         </FieldRow>
 
-        <FieldRow label="Work week" hint="Non-working days are skipped by the scheduler.">
+        <FieldRow
+          label="Work week"
+          hint="Non-working days are skipped by the scheduler."
+          help={
+            <FieldHelp
+              label="Work week"
+              docHref="administration/working-calendars/#the-working-calendar-setting"
+              docLabel="Working calendars guide"
+              body={
+                <p>
+                  The days the scheduler treats as working days. Deselected days are skipped when
+                  the engine spreads task durations, so a 5-day task starting Friday finishes the
+                  following Thursday when the weekend is off. Programs and projects inherit this
+                  unless they set their own calendar.
+                </p>
+              }
+            />
+          }
+        >
           <div className="flex gap-1" role="group" aria-label="Work week days">
             {DAYS.map((d, i) => (
               <button
@@ -436,6 +455,26 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Iteration terminology"
           hint="The word every project uses for its time-boxed iteration container. Programs and projects inherit this unless they set their own."
+          help={
+            <FieldHelp
+              label="Iteration terminology"
+              docHref="administration/workspace-settings/"
+              docLabel="Workspace settings guide"
+              body={
+                <div className="space-y-1.5">
+                  <p>
+                    Sets the noun the whole workspace uses for a time-boxed iteration — &ldquo;Sprint&rdquo;,
+                    &ldquo;Iteration&rdquo;, &ldquo;Cycle&rdquo;. It renames the concept in the UI; it does not
+                    change how iterations behave.
+                  </p>
+                  <p>
+                    <strong>May override</strong> lets each program and project pick its own word.
+                    <strong> Enforce</strong> pins this term everywhere (an Enterprise capability).
+                  </p>
+                </div>
+              }
+            />
+          }
         >
           <div className="flex flex-col gap-3">
             <IterationLabelField value={iterationLabel} onChange={setIterationLabel} />
@@ -502,6 +541,20 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Allow guests"
           hint="Guests are external collaborators (vendors, auditors). Limited to projects they're invited to."
+          help={
+            <FieldHelp
+              label="Allow guests"
+              docHref="administration/sharing-and-access/#the-two-sharing-settings"
+              docLabel="Sharing &amp; access guide"
+              body={
+                <p>
+                  When on, users with <strong>guest</strong> status can be added to individual
+                  projects — useful for vendors or auditors who should see only what they&rsquo;re
+                  invited to. When off, only full workspace members may be added anywhere.
+                </p>
+              }
+            />
+          }
         >
           <Toggle on={allowGuests} onChange={setAllowGuests} ariaLabel="Allow guest access" />
         </FieldRow>
@@ -509,6 +562,27 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Public sharing"
           hint="Anyone with a link can view selected schedules and boards — no sign-in required. Off turns off all public links across every project."
+          help={
+            <FieldHelp
+              label="Public sharing"
+              docHref="administration/sharing-and-access/#the-two-sharing-settings"
+              docLabel="Sharing &amp; access guide"
+              body={
+                <div className="space-y-1.5">
+                  <p>
+                    The master switch for unauthenticated link sharing. When on, designated
+                    read-only views can be opened by <strong>anyone with the link</strong>, no
+                    sign-in required. When off, every public link across every project stops
+                    resolving.
+                  </p>
+                  <p>
+                    Programs and projects may <strong>narrow</strong> this (turn their own sharing
+                    off) but can never widen it beyond the workspace setting.
+                  </p>
+                </div>
+              }
+            />
+          }
         >
           <Toggle
             on={publicSharing}
@@ -586,7 +660,25 @@ export function WorkspaceGeneralPage() {
           Forecast history
         </h3>
 
-        <FieldRow label="Keep Monte Carlo run history" hint={MC_HISTORY_HINT}>
+        <FieldRow
+          label="Keep Monte Carlo run history"
+          hint={MC_HISTORY_HINT}
+          help={
+            <FieldHelp
+              label="Keep Monte Carlo run history"
+              docHref="administration/retention/#forecast-snapshots"
+              docLabel="Forecast retention"
+              body={
+                <p>
+                  When on, each Monte Carlo schedule-risk run is saved so you can compare how the
+                  forecast (P50/P80/P95) moved over time. When off, only the latest run is kept and
+                  the history trend is unavailable. The number of runs kept per project is capped by
+                  the <strong>Run history limit</strong> below.
+                </p>
+              }
+            />
+          }
+        >
           <Toggle
             on={mcHistoryEnabled}
             onChange={setMcHistoryEnabled}
@@ -616,7 +708,25 @@ export function WorkspaceGeneralPage() {
           </div>
         </FieldRow>
 
-        <FieldRow label="Run attribution visible to" hint={MC_ATTRIBUTION_HINT}>
+        <FieldRow
+          label="Run attribution visible to"
+          hint={MC_ATTRIBUTION_HINT}
+          help={
+            <FieldHelp
+              label="Run attribution visible to"
+              docHref="administration/retention/#forecast-snapshots"
+              docLabel="Forecast retention"
+              body={
+                <p>
+                  Who can see <strong>which user</strong> ran each saved Monte Carlo forecast.
+                  The run and its results stay visible to everyone with project access — this only
+                  gates the &ldquo;run by&rdquo; attribution. Use <strong>No one</strong> to keep the
+                  numbers while hiding who produced them.
+                </p>
+              }
+            />
+          }
+        >
           <label htmlFor={`${defaultViewId}-mc-attr`} className="sr-only">
             Run attribution visible to
           </label>

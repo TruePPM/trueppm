@@ -294,3 +294,37 @@ describe('WorkspaceGeneralPage — public-sharing override policy (#2014)', () =
     expect(document.getElementById(hintId as string)?.textContent).toMatch(/Enterprise/i);
   });
 });
+
+describe('WorkspaceGeneralPage — contextual help (#2266)', () => {
+  // The ⓘ triggers are unconditional (no StubFieldset write-gate on this page),
+  // so they are reachable by read-only viewers too.
+  it('renders a FieldHelp ⓘ on the jargon/policy/cascade fields', () => {
+    renderPage();
+    for (const field of [
+      'Work week',
+      'Iteration terminology',
+      'Allow guests',
+      'Public sharing',
+      'Keep Monte Carlo run history',
+      'Run attribution visible to',
+    ]) {
+      const trigger = screen.getByRole('button', { name: `About the ${field} options` });
+      expect(trigger).toBeEnabled();
+    }
+  });
+
+  it('opens the Public sharing popover and deep-links into the docs site', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: 'About the Public sharing options' }));
+    const dialog = screen.getByRole('dialog', { name: 'Public sharing' });
+    // The popover explains the workspace→program→project cascade, not just the toggle.
+    expect(within(dialog).getByText(/narrow/i)).toBeInTheDocument();
+    const learnMore = within(dialog).getByRole('link', { name: /Sharing & access guide/i });
+    expect(learnMore).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/administration/sharing-and-access/#the-two-sharing-settings',
+    );
+    expect(learnMore).toHaveAttribute('target', '_blank');
+  });
+});

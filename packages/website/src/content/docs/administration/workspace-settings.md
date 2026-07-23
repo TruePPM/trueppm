@@ -35,6 +35,17 @@ one workspace per deployment.
 | `public_sharing` | boolean | `false` | When `true`, designated read-only views may be shared via link so anyone with the link can view without signing in. This is the **workspace default**; programs and projects inherit it and may override it per scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/). |
 | `public_sharing_override_policy` | string | `"suggest"` | Whether downstream scopes may override the workspace sharing values. `"suggest"` (default) lets programs/projects override; `"enforce"` makes the workspace value a hard ceiling. **`enforce` is an Enterprise capability — in the community edition it degrades to `suggest` (no lock).** |
 
+### In-product help
+
+The jargon, policy, and cascade fields on this page carry a contextual-help
+affordance — a circled **ⓘ** beside the field label. Opening it explains the
+setting in plain language and deep-links (**Learn more →**) to the relevant guide:
+Work week → [Working calendars](/administration/working-calendars/), Allow guests
+and Public sharing → [Sharing & access](/administration/sharing-and-access/), and
+the Monte Carlo forecast-history controls → [Retention](/administration/retention/#forecast-snapshots).
+The ⓘ is reachable by read-only members too, so a viewer can understand a setting
+without permission to change it.
+
 ### Access
 
 - **Any active workspace member** can `GET /api/v1/workspace/`.
