@@ -217,6 +217,7 @@ def dead_letter_metrics(_request: Request) -> HttpResponse:
                 "dead_letter": serializers.DictField(),
                 "retention": serializers.ListField(child=serializers.DictField()),
                 "telemetry": serializers.DictField(),
+                "security": serializers.DictField(),
             },
         ),
     },

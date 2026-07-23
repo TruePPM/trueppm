@@ -9,6 +9,7 @@ import { StatusBar } from './StatusBar';
 import { BottomNav } from './BottomNav';
 import { SessionExpiredBanner, SessionExpiredReadOnlyBar } from './SessionExpiredBanner';
 import { OfflineBanner } from './OfflineBanner';
+import { RateLimitDisabledBanner } from './RateLimitDisabledBanner';
 import { PendingWritesGuard } from './PendingWritesGuard';
 import { StartExploringCallout } from './StartExploringCallout';
 import { CommandPalette } from './commandPalette/CommandPalette';
@@ -115,6 +116,11 @@ export function AppShell() {
 
         {/* Proactive offline indicator (WCAG 4.1.3) — renders only when offline */}
         <OfflineBanner />
+
+        {/* Admin-only operator warning (#2316): API rate limiting disabled via env.
+            Always-mounted live region; renders text only for admins when the
+            server reports abuse/DoS protection is off. */}
+        <RateLimitDisabledBanner />
 
         {/* #2028: warn before a reload/close while writes are still un-drained
             (in-memory queue would be lost). Renders nothing. */}

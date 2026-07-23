@@ -25,6 +25,7 @@ from django.conf import settings
 from rest_framework.exceptions import Throttled
 from rest_framework.throttling import BaseThrottle
 
+from trueppm_api.core.ratelimit import bypass_when_disabled
 from trueppm_api.core.redis_throttle import incr_with_ttl, incrby_with_ttl
 
 if TYPE_CHECKING:
@@ -59,8 +60,15 @@ def _client() -> redis.Redis:
     return redis.Redis(connection_pool=_pool)
 
 
+@bypass_when_disabled
 class SyncUploadThrottle(BaseThrottle):
-    """Per-(project, user) rate limit for ``POST /projects/{pk}/sync/``."""
+    """Per-(project, user) rate limit for ``POST /projects/{pk}/sync/``.
+
+    Fails CLOSED on Redis error (see module docstring), but the global operator
+    kill switch (ADR-0604) still bypasses it entirely — "off means off", including
+    this write-path guard — so the admin-facing "rate limiting disabled" status is
+    literally accurate.
+    """
 
     def allow_request(self, request: Request, view: APIView) -> bool:
         user = getattr(request, "user", None)

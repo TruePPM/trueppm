@@ -2,7 +2,7 @@ import type { ReactNode, ReactElement } from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
-import { SystemHealthCard, TrashCard } from './SystemSummaryCards';
+import { SystemHealthCard, RateLimitCard, TrashCard } from './SystemSummaryCards';
 
 // The cards read SettingsCard from the shell; strip the rest of the chrome.
 vi.mock('../SettingsShell', async () => {
@@ -95,6 +95,46 @@ describe('SystemHealthCard (#2298)', () => {
       'href',
       '/settings/health',
     );
+  });
+});
+
+describe('RateLimitCard (#2316)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('shows an Enabled status when API rate limiting is on', () => {
+    useSystemHealth.mockReturnValue({
+      data: { security: { rate_limiting_enabled: true } },
+      isLoading: false,
+    });
+    renderIn(<RateLimitCard />);
+    expect(screen.getByRole('heading', { name: 'API rate limiting' })).toBeInTheDocument();
+    expect(screen.getByText('Enabled')).toBeInTheDocument();
+    // The env-var note is always present so an admin knows where it is configured.
+    expect(screen.getByText('TRUEPPM_RATE_LIMIT_ENABLED')).toBeInTheDocument();
+  });
+
+  it('shows a critical Disabled status and the abuse-protection warning when off', () => {
+    useSystemHealth.mockReturnValue({
+      data: { security: { rate_limiting_enabled: false } },
+      isLoading: false,
+    });
+    renderIn(<RateLimitCard />);
+    expect(screen.getByText('Disabled')).toBeInTheDocument();
+    expect(screen.getByText(/turned off on this server/i)).toBeInTheDocument();
+  });
+
+  it('holds a skeleton — not a chip — while the shared fetch is loading (no flash)', () => {
+    useSystemHealth.mockReturnValue({ data: undefined, isLoading: true });
+    renderIn(<RateLimitCard />);
+    expect(screen.getByRole('heading', { name: 'API rate limiting' })).toBeInTheDocument();
+    expect(screen.queryByText('Enabled')).toBeNull();
+    expect(screen.queryByText('Disabled')).toBeNull();
+  });
+
+  it('degrades to an unknown status when the payload has no security block', () => {
+    useSystemHealth.mockReturnValue({ data: {}, isLoading: false });
+    renderIn(<RateLimitCard />);
+    expect(screen.getByText('Status unavailable')).toBeInTheDocument();
   });
 });
 

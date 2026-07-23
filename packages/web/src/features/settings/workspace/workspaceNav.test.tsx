@@ -27,6 +27,7 @@ describe('buildWorkspaceNavGroups (#2013 — one source of truth, no drift)', ()
       'email',
       'danger',
       'health',
+      'rate-limit',
       'observability',
       'retention',
       'trash',
@@ -42,6 +43,7 @@ describe('buildWorkspaceNavGroups (#2013 — one source of truth, no drift)', ()
       // The System items dropped `external` — they scroll-anchor like every other
       // group, which is what auto-removes the "Opens a separate page" caption (#2291).
       expect(byId.health.external).toBeUndefined();
+      expect(byId['rate-limit'].external).toBeUndefined();
       expect(byId.observability.external).toBeUndefined();
       expect(byId.retention.external).toBeUndefined();
       expect(byId.trash.external).toBeUndefined();
@@ -59,6 +61,7 @@ describe('buildWorkspaceNavGroups (#2013 — one source of truth, no drift)', ()
     expect(byId.danger.to).toBeUndefined();
     // …and so are the System sections now (#2298).
     expect(byId.health.to).toBeUndefined();
+    expect(byId['rate-limit'].to).toBeUndefined();
     expect(byId.observability.to).toBeUndefined();
     expect(byId.retention.to).toBeUndefined();
     expect(byId.trash.to).toBeUndefined();
@@ -72,6 +75,7 @@ describe('buildWorkspaceNavGroups (#2013 — one source of truth, no drift)', ()
     expect(byId.danger.to).toBe('/settings#danger');
     // System sections deep-link to their consolidated anchors too (#2298).
     expect(byId.health.to).toBe('/settings#health');
+    expect(byId['rate-limit'].to).toBe('/settings#rate-limit');
     expect(byId.observability.to).toBe('/settings#observability');
     expect(byId.retention.to).toBe('/settings#retention');
     expect(byId.trash.to).toBe('/settings#trash');

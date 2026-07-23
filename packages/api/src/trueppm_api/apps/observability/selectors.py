@@ -529,6 +529,22 @@ def _export_health_live(enabled: bool) -> dict[str, Any]:
     )
 
 
+def _security() -> dict[str, Any]:
+    """Read-only security posture for the System Health page (ADR-0604).
+
+    Currently surfaces whether API rate limiting is enabled. ``rate_limiting_enabled``
+    is False only when an operator has both set ``TRUEPPM_RATE_LIMIT_ENABLED=false``
+    and provided the acknowledgment (see :mod:`trueppm_api.core.ratelimit`) — i.e. all
+    DRF throttling is off. Surfaced ONLY on this admin-gated endpoint, never on the
+    public ``/health/`` / ``/readyz`` / ``/edition/`` probes, so a disabled protection
+    is not advertised to anonymous callers. Pure settings read — deploy-time operator
+    config, never writable here.
+    """
+    return {
+        "rate_limiting_enabled": bool(getattr(settings, "RATE_LIMIT_ENABLED", True)),
+    }
+
+
 def get_system_health() -> dict[str, Any]:
     """Aggregate the full System Health overview payload (ADR-0172 §2).
 
@@ -556,4 +572,5 @@ def get_system_health() -> dict[str, Any]:
         "dead_letter": dead_letter_summary,
         "retention": retention_rows,
         "telemetry": _telemetry(),
+        "security": _security(),
     }

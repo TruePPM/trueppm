@@ -1907,6 +1907,13 @@ perf:load:
     # The harness signs in once to mint a token; relax the per-account login
     # throttle so token exchange isn't rate-limited (as api:fuzz, #1717).
     TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE: "1000/min"
+    # Disable ALL API rate limiting so k6 measures raw throughput instead of
+    # tripping the per-account "user" throttle once the VUs (one shared token)
+    # ramp up (#2316, ADR-0604). Safe here: an ephemeral CI container on dev
+    # settings, torn down after the run. The two-key acknowledgment is required
+    # in every environment — see trueppm_api.core.ratelimit.
+    TRUEPPM_RATE_LIMIT_ENABLED: "false"
+    TRUEPPM_RATE_LIMIT_DISABLE_ACK: "i-understand-this-disables-abuse-protection"
     PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
     # Pinned k6 binary (bump deliberately; the harness is version-tolerant).
     K6_VERSION: "0.50.0"

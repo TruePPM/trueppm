@@ -9,6 +9,11 @@ Accepted
 > collides again at merge, renumber the later-merged ADR and repoint references —
 > the standard renumber-at-merge drill.
 
+> **Extended by [ADR-0604](0604-operator-global-rate-limit-disable-switch.md)**
+> (#2316): adds an operator-only global kill switch (`TRUEPPM_RATE_LIMIT_ENABLED`)
+> that disables all throttling for load testing / local debugging, gated behind a
+> two-key acknowledgment, refused-by-default, and surfaced read-only to admins.
+
 ## Context
 
 The DRF backend ships **scoped throttles only** — `login`, `refresh`,

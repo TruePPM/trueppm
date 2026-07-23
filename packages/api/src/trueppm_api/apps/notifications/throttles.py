@@ -14,6 +14,7 @@ import redis
 from django.conf import settings
 from rest_framework.throttling import BaseThrottle
 
+from trueppm_api.core.ratelimit import bypass_when_disabled
 from trueppm_api.core.redis_throttle import incrby_with_ttl
 
 from .services import MENTION_DAILY_LIMIT, MENTION_HOURLY_BURST
@@ -38,6 +39,7 @@ def _client() -> redis.Redis:
     return redis.Redis(connection_pool=_pool)
 
 
+@bypass_when_disabled
 class MentionRateThrottle(BaseThrottle):
     """Two-window throttle: 1000 mentions/day AND 100 mentions/hour per user.
 

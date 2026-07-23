@@ -54,6 +54,7 @@ function health(telemetry: SystemHealthResponse['telemetry']): SystemHealthRespo
     dead_letter: { parked: 0, oldest_age_seconds: null, top_cause: null, by_status: {} },
     retention: [],
     telemetry,
+    security: { rate_limiting_enabled: true },
   };
 }
 

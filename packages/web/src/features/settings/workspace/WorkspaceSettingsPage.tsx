@@ -16,7 +16,7 @@ import { WorkspaceAttachmentsPage } from './WorkspaceAttachmentsPage';
 import { WorkspaceDangerPage } from './WorkspaceDangerPage';
 import { ObservabilitySection } from './WorkspaceObservabilityPage';
 import { RetentionPurgePage } from './systemHealth/RetentionPurgePage';
-import { SystemHealthCard, TrashCard } from './SystemSummaryCards';
+import { SystemHealthCard, RateLimitCard, TrashCard } from './SystemSummaryCards';
 import { buildWorkspaceNavGroups } from './workspaceNav';
 
 // Config sections live inline on the consolidated page (ADR-0146), so the rail is
@@ -74,9 +74,11 @@ export function WorkspaceSettingsPage() {
       {/* System group (#2298) — same scroll surface as the config sections. The
           live monitoring console + trash list stay their own routes (landing
           cards below); Observability + Retention render their full forms inline.
-          DOM order matches the rail's System group order (health → observability
-          → retention → trash) so scroll-spy highlights track top-to-bottom. */}
+          DOM order matches the rail's System group order (health → rate-limit →
+          observability → retention → trash) so scroll-spy highlights track
+          top-to-bottom. */}
       <SettingsSection id="health"><SystemHealthCard /></SettingsSection>
+      <SettingsSection id="rate-limit"><RateLimitCard /></SettingsSection>
       <SettingsSection id="observability"><ObservabilitySection /></SettingsSection>
       <SettingsSection id="retention"><RetentionPurgePage /></SettingsSection>
       <SettingsSection id="trash"><TrashCard /></SettingsSection>

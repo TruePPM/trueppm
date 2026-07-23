@@ -46,6 +46,7 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | General default rate limit for **unauthenticated** requests, per client IP, in DRF `<count>/<period>` form (`period` is `sec`, `min`, `hour`, or `day`). Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_THROTTLE_USER_RATE` | `1000/min` | General default rate limit for an **authenticated** account, in DRF `<count>/<period>` form. Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_NUM_PROXIES` | `1` | Number of trusted reverse proxies in front of the API. Used to extract the real client IP for the **unauthenticated** rate limit from the `X-Forwarded-For` chain. The standard Helm chart runs a single ingress (`1`); set to your actual proxy depth, or `0` if the API is reached directly (uses `REMOTE_ADDR`). An incorrect value lets a client spoof its IP and evade the anon limit, so match it to your deployment. |
+| `TRUEPPM_RATE_LIMIT_ENABLED` | `true` | Global on/off switch for **all** API rate limiting. Leave `true` in production. Setting it `false` requires an explicit acknowledgment env var and disables every throttle instance-wide (DoS/abuse protection off) — intended for load testing only. See [disabling rate limiting entirely](#disabling-rate-limiting-entirely) below. |
 | `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE` | `5/min` | Per-**account** login rate limit, bucketed by hashed username across all source IPs, in DRF `<count>/<period>` form. Stacks with the fixed per-IP `login` throttle to bound distributed credential stuffing. See [login brute-force protection](#login-brute-force-protection) below. |
 | `TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED` | `true` | Org-wide kill switch for [public sharing](/features/board-sharing/) — governs **both** board and schedule links. When `false`, project Admins cannot mint public links (`403`) **and** every existing public link stops resolving (`404`) instance-wide — the operator lever for locked-down environments. No data is exposed until an Admin explicitly creates a link, so the default is on. |
 | `TRUEPPM_THROTTLE_SHARE_ACCESS_RATE` | `60/min` | Rate limit for the **unauthenticated** public board endpoint (`GET /share/board/<token>/`), per client IP, in DRF `<count>/<period>` form. Bounds scraping of a leaked or widely-shared link. |
@@ -118,6 +119,38 @@ A few behaviors are worth knowing:
 
 The throttle count lives in the configured cache (Valkey/Redis in production),
 so the limit is shared across all API replicas rather than per-process.
+
+### Disabling rate limiting entirely
+
+Rate limits *tune* how fast callers may go; the **`TRUEPPM_RATE_LIMIT_ENABLED`**
+switch decides *whether any throttle applies at all*. It exists so a load test — or
+a throwaway benchmarking instance — can measure raw throughput without the
+per-account limit tripping. It is **not** for production use.
+
+Turning it off deliberately takes **two** environment variables, in **every**
+environment:
+
+```bash
+TRUEPPM_RATE_LIMIT_ENABLED=false
+TRUEPPM_RATE_LIMIT_DISABLE_ACK=i-understand-this-disables-abuse-protection
+```
+
+- Setting `TRUEPPM_RATE_LIMIT_ENABLED=false` **alone does nothing.** Without the
+  exact acknowledgment string the request is ignored, rate limiting stays on, and
+  the server logs a `CRITICAL` line at startup. A stray flag can never silently
+  remove protection — and it never crashes the app either; it fails toward the
+  protected state.
+- When both are set, **every** throttle is bypassed: the general anon/user limits,
+  every scoped endpoint limit, and even the fail-closed offline-sync write-path
+  limit. "Off" means off, with no hidden exceptions.
+- It is **deploy-time operator config only** — there is no in-app toggle, so an
+  authenticated user can never switch off this protection through the API. While it
+  is off, workspace admins see a persistent red banner and a card under
+  **Settings → System**, and the `trueppm.ratelimit.enabled` OpenTelemetry gauge
+  reports `0`, so the state is impossible to miss and easy to alert on.
+
+Never set these on a production-facing deployment. Leave `TRUEPPM_RATE_LIMIT_ENABLED`
+at its default `true` to keep abuse protection on.
 
 ## Login brute-force protection
 
