@@ -14,6 +14,7 @@ import { StartExploringCallout } from './StartExploringCallout';
 import { CommandPalette } from './commandPalette/CommandPalette';
 import { useCommandPaletteHotkey } from './commandPalette/useCommandPaletteHotkey';
 import { useSidebarCollapseHotkey } from './useSidebarCollapseHotkey';
+import { SettingsHotkey } from './useSettingsHotkey';
 import { useHelpShortcut } from '@/hooks/useHelpShortcut';
 import { useShortcutsModalStore } from '@/stores/shortcutsModalStore';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
@@ -32,6 +33,9 @@ export function AppShell() {
   useCommandPaletteHotkey();
   // ⌘B / Ctrl+B toggles the sidebar rail (v2 collapse affordance, ADR-0127).
   useSidebarCollapseHotkey();
+  // ⌘, / Ctrl+, opens Settings (role-aware) is mounted as <SettingsHotkey/> INSIDE
+  // the provider below — it reads useCurrentUser (react-query), so it cannot run
+  // in this pre-provider body (#2298).
   // `?` opens the app-wide keyboard-shortcuts modal from anywhere (#2058). It
   // yields to a surface that already binds `?` (Board / Schedule build mode).
   const openShortcutsModal = useShortcutsModalStore((s) => s.openModal);
@@ -87,6 +91,8 @@ export function AppShell() {
       {/* Sync the user's date-format preference into the calendar-date formatter
           default (#1953, ADR-0410). Inside the provider — reads useCurrentUser. */}
       <DisplayFormatSync />
+      {/* ⌘,/Ctrl+, → Settings (role-aware). Inside the provider — reads useCurrentUser (#2298). */}
+      <SettingsHotkey />
       <div className="flex flex-col h-screen overflow-hidden">
         {/* Skip link (WCAG 2.4.1 Bypass Blocks) — first focusable element; lets
             keyboard users jump past the sidebar/topbar straight to content. */}

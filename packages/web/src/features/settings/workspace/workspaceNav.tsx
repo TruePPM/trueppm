@@ -63,15 +63,21 @@ function NavIcon({ children }: { children: ReactNode }) {
 /**
  * Single source of truth for the workspace settings left rail (ADR-0146).
  *
- * The consolidated page (`/settings`) renders every config section inline on one
- * scrolling page and drives the rail by scroll-spy, so its config items carry NO
- * `to` (id-only — an item without a `to` is treated as inline by SettingsShell).
- * The off-route shells (System Health tools, Trash) render the same rail but must
- * navigate, so their config items deep-link to the consolidated page anchor
- * `/settings#<id>`. The System-group tool items (System health, Observability,
- * Retention & purge, Trash) always carry their own route `to` and `external: true`
- * regardless of mode — they open distinct pages, not scroll sections, so they are
- * grouped last (after the inline sections) and rendered with a ↗ affordance (#2252).
+ * The consolidated page (`/settings`) renders every section inline on one
+ * scrolling page and drives the rail by scroll-spy, so its items carry NO `to`
+ * (id-only — an item without a `to` is treated as inline by SettingsShell). The
+ * off-route shells (System Health tools, Trash) render the same rail but must
+ * navigate, so their items deep-link to the consolidated page anchor
+ * `/settings#<id>`.
+ *
+ * The System group is now part of that same scroll surface (#2298): Observability
+ * and Retention & purge render their full config forms inline, while System health
+ * (a live monitoring console) and Trash (a data list) render scroll-reachable
+ * landing cards that link to their full route. So EVERY item is a scroll anchor —
+ * there is no `external` route-departure group any more, and the "Opens a separate
+ * page" caption / divider (#2291) drops out automatically once no item is external.
+ * The System group stays LAST so the scroll order (Organization → Delivery → Danger
+ * → System) reads top-to-bottom.
  *
  * Keeping the three shells fed from this one builder prevents the rail from
  * drifting out of sync — the defect this replaced (#2013): the Trash and System
@@ -117,26 +123,21 @@ export function buildWorkspaceNavGroups({ linked }: { linked: boolean }): Settin
         { id: 'danger', label: 'Archive / Delete', to: anchor('danger'), icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
       ],
     },
-    // System tools are separate routes (`external: true`), NOT inline scroll
-    // sections — so this group sits AFTER the last inline section (Danger), not
-    // between Delivery and Danger (#2252). Otherwise the consolidated page's
-    // scroll flow (Organization → Delivery → Danger) skips past these un-
-    // scroll-to-able rail entries, producing the jarring "Email → Archive/Delete"
-    // jump with a dead zone where System appears to belong. Keeping the route-
-    // departure tools last makes the inline scroll sections contiguous and marks
-    // this group as a distinct "tool pages you open" cluster (reinforced by the
-    // per-item ↗ affordance SettingsShell renders for `external` items).
+    // System is now part of the consolidated scroll surface (#2298), so its items
+    // are scroll anchors like every other group — NOT `external` route departures.
+    // Kept LAST so the scroll order stays Organization → Delivery → Danger → System.
+    // On the consolidated page (linked:false) these anchor-scroll to the inline
+    // Observability/Retention forms and the System-health/Trash landing cards; on
+    // the off-route shells (linked:true) they deep-link back to `/settings#<id>`.
     {
       label: 'System',
       items: [
-        { id: 'health',        label: 'System health',     to: '/settings/health',           external: true, icon: <NavIcon><ActivityNavIcon /></NavIcon> },
-        // Observability (OTLP telemetry export) is its own tool page (#2250) so
-        // OTLP setup is discoverable in the rail instead of buried at the bottom
-        // of the System Health monitoring readout. System Health keeps a one-line
-        // export-status readout that cross-links here.
-        { id: 'observability', label: 'Observability',     to: '/settings/observability',    external: true, icon: <NavIcon><ObservabilityNavIcon /></NavIcon> },
-        { id: 'retention',     label: 'Retention & purge', to: '/settings/health/retention', external: true, icon: <NavIcon><RetentionNavIcon /></NavIcon> },
-        { id: 'trash',         label: 'Trash',             to: '/settings/trash',            external: true, icon: <NavIcon><RetentionNavIcon /></NavIcon> },
+        { id: 'health',        label: 'System health',     to: anchor('health'),        icon: <NavIcon><ActivityNavIcon /></NavIcon> },
+        // Observability (OTLP telemetry export) — a config form, rendered inline
+        // on the consolidated page (#2298); still discoverable in the rail by name.
+        { id: 'observability', label: 'Observability',     to: anchor('observability'), icon: <NavIcon><ObservabilityNavIcon /></NavIcon> },
+        { id: 'retention',     label: 'Retention & purge', to: anchor('retention'),     icon: <NavIcon><RetentionNavIcon /></NavIcon> },
+        { id: 'trash',         label: 'Trash',             to: anchor('trash'),         icon: <NavIcon><RetentionNavIcon /></NavIcon> },
       ],
     },
   ];

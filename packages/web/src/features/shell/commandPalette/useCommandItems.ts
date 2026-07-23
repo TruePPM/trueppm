@@ -13,6 +13,7 @@ import { formatRelative } from '@/lib/formatRelative';
 import { useCurrentSprintTargets } from '@/hooks/useCurrentSprintTargets';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { WORKSPACE_ADMIN_ROLE } from '@/hooks/useIsWorkspaceAdmin';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useShellStore } from '@/stores/shellStore';
 import { useThemeStore, type Theme } from '@/stores/themeStore';
@@ -294,6 +295,38 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
         run: go(`/projects/${project.id}/overview`),
       });
     }
+
+    // ---- Settings (always findable via ⌘K, #2298) ----------------------------
+    // Workspace settings is admin-only, so it is HIDDEN (not shown-disabled) for
+    // members — a palette entry a member can never act on is noise, and hiding it
+    // means no permission-wall dead end. Personal settings + Trash are reachable by
+    // any role. Mirrors the role-aware sidebar gear and ⌘, shortcut.
+    if ((user?.workspace_role ?? -1) >= WORKSPACE_ADMIN_ROLE) {
+      jumps.push({
+        id: 'jump:workspace-settings',
+        label: 'Workspace settings',
+        group: 'jump',
+        tag: 'Settings',
+        keywords: 'settings preferences configuration admin workspace members sso email retention',
+        run: go('/settings'),
+      });
+    }
+    jumps.push({
+      id: 'jump:personal-settings',
+      label: 'Personal settings',
+      group: 'jump',
+      tag: 'Settings',
+      keywords: 'settings preferences profile account me notifications tokens connected',
+      run: go('/me/settings/general'),
+    });
+    jumps.push({
+      id: 'jump:trash',
+      label: 'Trash',
+      group: 'jump',
+      tag: 'Settings',
+      keywords: 'trash deleted restore recover projects',
+      run: go('/settings/trash'),
+    });
 
     // ---- Tier 1: Backlog + Board (global) ------------------------------------
     const backlog: CommandItem[] = [];

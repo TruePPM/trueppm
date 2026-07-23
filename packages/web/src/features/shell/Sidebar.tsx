@@ -8,6 +8,7 @@ import { useLoadSampleProgram } from '@/hooks/useProgramSeedIo';
 import { useMyWork } from '@/hooks/useMyWork';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
 import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 import { useProject } from '@/hooks/useProject';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -196,15 +197,19 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   // `ProgramTabs` left the TopBar (#1920).
   const programId = useProgramId();
 
-  // The gear under the signed-in identity opens the user's *personal* settings
-  // (#1793), which every role can reach. It deliberately does not target the
-  // workspace `/settings` hub: `RequireAdminSettings` redirects non-admins away
-  // from it, so the gear would silently lead nowhere for them. Workspace settings
-  // are reachable via the admin-gated "Workspace settings" row in the UserMenu
-  // (#2033). One deterministic destination for all roles (#1738) — the gear
-  // never branches where it lands.
-  const settingsTo = '/me/settings/general';
-  const settingsLabel = 'Personal settings';
+  // The gear under the signed-in identity is the always-visible Settings entry
+  // in the primary chrome (#2298). It is ROLE-AWARE: a workspace admin lands on
+  // the workspace `/settings` hub they configure daily; everyone else lands on
+  // their *personal* settings (#1793). This keeps the earlier no-dead-end
+  // guarantee (#1738/#2033: a non-admin never gets bounced by
+  // `RequireAdminSettings`) while giving admins a persistent one-click route to
+  // workspace settings instead of hiding it inside the avatar menu. `=== true`
+  // so a loading/absent role signal defaults to the safe personal destination
+  // rather than flashing an admin route a member can't use. The tooltip names the
+  // destination so the icon is never ambiguous about where it goes.
+  const isWorkspaceAdmin = useIsWorkspaceAdmin() === true;
+  const settingsTo = isWorkspaceAdmin ? '/settings' : '/me/settings/general';
+  const settingsLabel = isWorkspaceAdmin ? 'Workspace settings' : 'Personal settings';
 
   const [showNewProject, setShowNewProject] = useState(false);
   const [showNewProgram, setShowNewProgram] = useState(false);
@@ -905,6 +910,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             <NavLink
               to={settingsTo}
               aria-label={settingsLabel}
+              title={settingsLabel}
               onClick={closeDrawer}
               className={({ isActive }) =>
                 [

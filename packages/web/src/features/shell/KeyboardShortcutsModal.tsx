@@ -21,6 +21,7 @@ interface ShortcutGroup {
  * The map of handler → row:
  *   ⌘K command palette         → useCommandPaletteHotkey
  *   ⌘B sidebar toggle          → useSidebarCollapseHotkey
+ *   ⌘, open settings           → useSettingsHotkey (role-aware, #2298)
  *   ? this modal               → useHelpShortcut
  *   command-palette nav        → CommandPalette
  *   ⌘S save                    → SettingsShell + TaskDetailDrawer (rules 115/217)
@@ -42,6 +43,7 @@ function useShortcutGroups(): ShortcutGroup[] {
       shortcuts: [
         { keys: [`${mod}K`], label: 'Open the command palette' },
         { keys: [`${mod}B`], label: 'Show or hide the sidebar' },
+        { keys: [`${mod},`], label: 'Open settings' },
         { keys: ['?'], label: 'Show keyboard shortcuts' },
         { keys: ['Esc'], label: 'Close an open dialog or menu' },
       ],

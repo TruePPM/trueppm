@@ -285,17 +285,29 @@ describe('Sidebar rail — Tier 1 "You"', () => {
 });
 
 describe('Sidebar footer — identity + settings gear', () => {
-  it('routes the gear to personal settings — a real destination for a non-admin (#1793)', () => {
-    // The gear under the identity opens the user's own settings, which every
-    // role can reach. It must NOT target the workspace `/settings` hub, from
-    // which RequireAdminSettings redirects non-admins away (silent dead end).
-    // The destination is the same for all roles (#1738) — it never branches.
+  it('routes the gear to personal settings for a non-admin — never a dead end (#1793/#2298)', () => {
+    // The gear is role-aware (#2298): a non-admin (no workspace_role) lands on
+    // their own settings, which every role can reach — never the workspace
+    // `/settings` hub RequireAdminSettings would bounce them from (#1738/#2033).
     mockUseCurrentUser.mockReturnValue({
       user: { ...DEFAULT_USER.user, can_access_admin_settings: false },
     });
     renderRail();
     const gear = screen.getByRole('link', { name: 'Personal settings' });
     expect(gear).toHaveAttribute('href', '/me/settings/general');
+  });
+
+  it('routes the gear to workspace settings for a workspace admin (#2298)', () => {
+    // A workspace admin (workspace_role >= WORKSPACE_ADMIN_ROLE 300) gets a
+    // persistent one-click route to the workspace hub, and the tooltip/label
+    // names the destination so the icon is unambiguous.
+    mockUseCurrentUser.mockReturnValue({
+      user: { ...DEFAULT_USER.user, workspace_role: 300 },
+    });
+    renderRail();
+    const gear = screen.getByRole('link', { name: 'Workspace settings' });
+    expect(gear).toHaveAttribute('href', '/settings');
+    expect(gear).toHaveAttribute('title', 'Workspace settings');
   });
 
   it('shows identity as a name-only "Signed in" label, not a tappable avatar (#1737)', () => {

@@ -14,6 +14,9 @@ import { WorkspaceEmailPage } from './WorkspaceEmailPage';
 import { WorkspaceSsoPage } from './WorkspaceSsoPage';
 import { WorkspaceAttachmentsPage } from './WorkspaceAttachmentsPage';
 import { WorkspaceDangerPage } from './WorkspaceDangerPage';
+import { ObservabilitySection } from './WorkspaceObservabilityPage';
+import { RetentionPurgePage } from './systemHealth/RetentionPurgePage';
+import { SystemHealthCard, TrashCard } from './SystemSummaryCards';
 import { buildWorkspaceNavGroups } from './workspaceNav';
 
 // Config sections live inline on the consolidated page (ADR-0146), so the rail is
@@ -24,9 +27,12 @@ const NAV_GROUPS = buildWorkspaceNavGroups({ linked: false });
 
 /**
  * Workspace settings — ONE scrolling page (ADR-0146, issue 1248). Lives at /settings;
- * sub-slugs redirect to `#<slug>`. The System Health tools stay as separate
- * routes (their nav items carry a `to`); the form sections are inline anchored
- * `<SettingsSection>` regions and reuse the existing components unchanged.
+ * sub-slugs redirect to `#<slug>`. The System group is part of the same scroll
+ * surface (#2298): Observability and Retention & purge render their full config
+ * forms inline (reusing the routed components unchanged), while System health and
+ * Trash render scroll-reachable landing cards that link to their full route — the
+ * live monitoring console and the trash list stay on their own routes. Every
+ * section is an anchored `<SettingsSection>` region driven by the scroll-spy rail.
  */
 export function WorkspaceSettingsPage() {
   const { data: projects } = useProjects();
@@ -65,6 +71,15 @@ export function WorkspaceSettingsPage() {
       <SettingsSection id="attachments"><WorkspaceAttachmentsPage /></SettingsSection>
       <SettingsSection id="email"><WorkspaceEmailPage /></SettingsSection>
       <SettingsSection id="danger"><WorkspaceDangerPage /></SettingsSection>
+      {/* System group (#2298) — same scroll surface as the config sections. The
+          live monitoring console + trash list stay their own routes (landing
+          cards below); Observability + Retention render their full forms inline.
+          DOM order matches the rail's System group order (health → observability
+          → retention → trash) so scroll-spy highlights track top-to-bottom. */}
+      <SettingsSection id="health"><SystemHealthCard /></SettingsSection>
+      <SettingsSection id="observability"><ObservabilitySection /></SettingsSection>
+      <SettingsSection id="retention"><RetentionPurgePage /></SettingsSection>
+      <SettingsSection id="trash"><TrashCard /></SettingsSection>
     </SettingsShell>
   );
 }

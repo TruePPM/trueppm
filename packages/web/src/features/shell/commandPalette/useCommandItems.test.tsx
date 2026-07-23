@@ -112,10 +112,15 @@ const canManage = vi.fn((pid?: string) => !!pid);
 vi.mock('@/hooks/useMyFacets', () => ({ useCanManageBacklog: (pid?: string) => canManage(pid) }));
 
 // Per-user nav visibility (ADR-0139). Default to nothing hidden; a test mutates
-// `hiddenViews` to assert the "Go to {label}" jumps appear.
+// `hiddenViews` to assert the "Go to {label}" jumps appear. `userWorkspaceRole`
+// gates the admin-only Workspace-settings jump (#2298); default non-admin.
 let hiddenViews: string[] = [];
+let userWorkspaceRole: number | undefined;
 vi.mock('@/hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({ user: { hidden_views: hiddenViews }, isLoading: false }),
+  useCurrentUser: () => ({
+    user: { hidden_views: hiddenViews, workspace_role: userWorkspaceRole },
+    isLoading: false,
+  }),
 }));
 vi.mock('@/hooks/useIterationLabel', () => ({
   useIterationLabel: () => ({ singular: 'Sprint', plural: 'Sprints' }),
@@ -140,6 +145,7 @@ const byId = (items: CommandItem[]) => new Map(items.map((i) => [i.id, i]));
 afterEach(() => {
   currentId = 'p1';
   hiddenViews = [];
+  userWorkspaceRole = undefined;
   peopleResults = [];
   recentResults = [];
   omniResults = [];
@@ -175,6 +181,22 @@ describe('useCommandItems — tier assembly', () => {
     expect(items.get('jump:program:prog1')?.label).toBe('Platform');
     expect(items.get('jump:project:p1')?.label).toBe('Atlas');
     expect(items.get('jump:project:p2')?.label).toBe('Hoover Dam');
+  });
+
+  it('always offers Personal settings + Trash, and hides Workspace settings for non-admins (#2298)', () => {
+    const { result } = renderHook(() => useCommandItems(true));
+    const items = byId(result.current);
+    expect(items.get('jump:personal-settings')?.label).toBe('Personal settings');
+    expect(items.get('jump:trash')?.label).toBe('Trash');
+    // Admin-only entry is HIDDEN (not shown-disabled) for a member — no dead end.
+    expect(items.has('jump:workspace-settings')).toBe(false);
+  });
+
+  it('adds the Workspace settings jump only for a workspace admin (#2298)', () => {
+    userWorkspaceRole = 300;
+    const { result } = renderHook(() => useCommandItems(true));
+    const items = byId(result.current);
+    expect(items.get('jump:workspace-settings')?.label).toBe('Workspace settings');
   });
 
   it('builds a global people tier from the resource search, deep-linking to the catalog (#1940)', () => {

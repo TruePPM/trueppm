@@ -1162,3 +1162,131 @@ test.describe('Workspace Danger page', () => {
     expect(transferBody?.new_owner_user_id).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// System group on the consolidated page (#2298)
+// ---------------------------------------------------------------------------
+
+// 5 components: 3 ok, 1 warn, 1 unknown → "2 of 5 components degraded"; 2 parked.
+const SYS_HEALTH = {
+  generated_at: '2026-05-25T12:00:00Z',
+  components: [
+    { key: 'outbox', label: 'Outbox dispatcher', status: 'ok', state_label: 'Healthy', meta: '' },
+    { key: 'beat', label: 'Celery Beat', status: 'ok', state_label: 'Live', meta: '' },
+    { key: 'dead_letter', label: 'Dead-letter alerting', status: 'warn', state_label: '2 parked', meta: '' },
+    { key: 'notify', label: 'Notification dispatcher', status: 'ok', state_label: 'Draining', meta: '' },
+    { key: 'retention_purge', label: 'Retention purge', status: 'unknown', state_label: 'No telemetry', meta: '' },
+  ],
+  beat: { last_heartbeat: '2026-05-25T11:59:52Z', seconds_since: 8, stale: false, stale_threshold_seconds: 120 },
+  scheduled_tasks: [],
+  dead_letter: { parked: 2, oldest_age_seconds: 8400, top_cause: 'ConnectionError', by_status: { dead: 2 } },
+  retention: [],
+  telemetry: {
+    enabled: true,
+    endpoint: 'otel-collector.internal:4317',
+    endpoint_configured: true,
+    protocol: 'grpc',
+    service_name: 'trueppm-api',
+    service_version: '0.5.0',
+    edition: 'community',
+    traces_enabled: true,
+    metrics_enabled: true,
+    sampler: 'parentbased_always_on',
+    sampler_arg: '',
+  },
+};
+
+const SYS_RETENTION = {
+  policies: [
+    {
+      key: 'HISTORY_RETENTION_DAYS',
+      label: 'Event history',
+      note: 'Event history note',
+      unit: 'days',
+      value: 90,
+      enabled: true,
+      row_count: 1234,
+      bytes: 480_000_000,
+    },
+  ],
+  schedule: { frequency: 'daily', time_of_day_utc: '02:00:00', day_of_week: null, on_failure: 'continue' },
+  runs: [],
+};
+
+const SYS_TRASH = [
+  { id: 't1', name: 'Orion', code: 'ORN', deleted_by_name: 'AK', deleted_at: '2026-05-20T10:00:00Z', days_remaining: 25, can_restore: true },
+  { id: 't2', name: 'Gemini', code: null, deleted_by_name: 'AK', deleted_at: '2026-05-21T10:00:00Z', days_remaining: 26, can_restore: false },
+];
+
+async function setupWithSystem(page: Page) {
+  await setup(page);
+  await page.route('**/api/v1/health/system/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(SYS_HEALTH) }),
+  );
+  await page.route('**/api/v1/health/retention/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(SYS_RETENTION) }),
+  );
+  await page.route('**/api/v1/projects/trash/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(SYS_TRASH) }),
+  );
+}
+
+test.describe('Workspace settings — System group is part of the scroll surface (#2298)', () => {
+  test('System items are scroll-spy sections, not route departures', async ({ page }) => {
+    await setupWithSystem(page);
+    await page.goto('/settings');
+
+    // The rail lists the four System items as scroll-spy BUTTONS (no `to`), not
+    // external route links — and the old "Opens a separate page" caption is gone.
+    const nav = page.getByRole('navigation', { name: 'Settings sections' });
+    for (const name of ['System health', 'Observability', 'Retention & purge', 'Trash']) {
+      await expect(nav.getByRole('button', { name })).toBeVisible();
+    }
+    await expect(page.getByText('Opens a separate page')).toHaveCount(0);
+
+    // The System-health landing card shows a rolled-up status + dead-letter token
+    // and links to the live console (which stays on its own route).
+    await expect(page.getByText('2 of 5 components degraded')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Dead-letters: 2' })).toHaveAttribute(
+      'href',
+      /\/settings\/health\/dead-letters$/,
+    );
+    await expect(page.getByRole('link', { name: /Open console/ })).toHaveAttribute(
+      'href',
+      /\/settings\/health$/,
+    );
+
+    // Observability + Retention render their real forms inline (not cards).
+    await expect(page.getByRole('heading', { name: 'Observability' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Retention & purge' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Retention windows' })).toBeVisible();
+  });
+
+  test('scrolling the content reaches the System sections down to Trash', async ({ page }) => {
+    await setupWithSystem(page);
+    await page.goto('/settings');
+
+    const scroll = page.getByTestId('settings-content-scroll');
+    await expect(scroll).toBeVisible();
+
+    // Trash is now the LAST scroll section — before, the scroll dead-ended at
+    // Archive/Delete and System was unreachable.
+    const trashRail = page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', {
+      name: 'Trash',
+    });
+    await expect(trashRail).not.toHaveAttribute('aria-current', 'true');
+
+    await scroll.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+
+    // The at-bottom guard advances the rail highlight to the final (Trash) item,
+    // and the Trash landing card is on-screen with its "Open trash" jump.
+    await expect(trashRail).toHaveAttribute('aria-current', 'true');
+    await expect(page.getByText('2 deleted projects')).toBeVisible();
+    await expect(page.getByRole('link', { name: /Open trash/ })).toHaveAttribute(
+      'href',
+      /\/settings\/trash$/,
+    );
+  });
+});

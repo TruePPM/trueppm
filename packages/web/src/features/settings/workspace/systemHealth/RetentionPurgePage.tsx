@@ -420,12 +420,21 @@ export function RetentionPurgePage() {
     window.setTimeout(() => setActionMsg(null), 6000);
   };
 
+  // The title strip renders in every branch so the inline `<SettingsSection>`'s
+  // aria-labelledby always resolves (#2298) and the section is legible while it
+  // loads — not only once data arrives.
   if (isLoading) {
     return (
-      <div className="px-6 py-5 space-y-5" aria-busy="true" aria-label="Loading retention settings">
-        <div className="h-[260px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
-        <div className="h-[150px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
-        <div className="h-[180px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
+      <div>
+        <SettingsPageTitle
+          title="Retention & purge"
+          subtitle="Operational data is deleted permanently once older than its window. Times are UTC, no DST."
+        />
+        <div className="px-6 py-5 space-y-5" aria-busy="true" aria-label="Loading retention settings">
+          <div className="h-[260px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
+          <div className="h-[150px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
+          <div className="h-[180px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
+        </div>
       </div>
     );
   }
@@ -433,7 +442,12 @@ export function RetentionPurgePage() {
   if (error && !data) {
     const is403 = axios.isAxiosError(error) && error.response?.status === 403;
     return (
-      <div className="px-6 py-8 flex flex-col gap-3 items-start">
+      <div>
+        <SettingsPageTitle
+          title="Retention & purge"
+          subtitle="Operational data is deleted permanently once older than its window. Times are UTC, no DST."
+        />
+        <div className="px-6 py-8 flex flex-col gap-3 items-start">
         <p className="text-[13px] text-semantic-critical">
           {is403
             ? 'Admin access required. Contact your workspace owner.'
@@ -448,6 +462,7 @@ export function RetentionPurgePage() {
             Retry
           </button>
         )}
+        </div>
       </div>
     );
   }
