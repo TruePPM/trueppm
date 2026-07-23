@@ -202,12 +202,30 @@ unavailable (metrics store unreachable)".
 
 ### 5. Configuration (additive, env / settings, safe defaults)
 
+All knobs are env/settings-configured and mirrored into the Helm chart
+(`observability.otlp.exportHealth.*` + the downward-API pod name) via the
+`trueppm.observabilityEnv` helper, so they render onto all three tiers (api,
+celery-worker, celery-beat) exactly like the existing OTEL vars — and, like them,
+emit nothing when no endpoint is set.
+
 - `TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED` (default `true`) — kill switch for the
   recorder; when off, the wrappers are not installed and `live.available` is
-  `false`.
-- Staleness / record-TTL window 600 s, `HEALTHY_WITHIN` 150 s, rolling count
-  window 60 s — module constants (see the threshold-relationship note in §4). The
-  60 s window is fixed in copy so it is not operator-tunable initially.
+  `false`. Helm: `observability.otlp.exportHealth.enabled`.
+- `TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS` (default `600`),
+  `TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS` (default `150`),
+  `TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS` (default `60`) — the three thresholds
+  from §4, operator-tunable for unusual export cadences. Helm:
+  `observability.otlp.exportHealth.{stalenessSeconds,healthyWithinSeconds,windowSeconds}`
+  (unset ⇒ app default). The **STALENESS > HEALTHY_WITHIN** invariant is not
+  clamped — a violating config is honored but logged as a warning (once/process),
+  degrading an overdue signal to the neutral `never` rather than a false alarm.
+  The module keeps the same values as named constant defaults so tests and the
+  settings accessors share one source of truth. Changing the window re-labels the
+  strip automatically (the FE reads `window_seconds` from the payload).
+- `TRUEPPM_POD_NAME` — per-pod identity for the record; the Helm chart injects it
+  from the Kubernetes downward API (`fieldRef: metadata.name`), so each pod's
+  record carries a stable, human-readable name. Unset, the app falls back to
+  `socket.gethostname():<pid>` (which is already the pod name on K8s).
 
 ## Consequences
 
@@ -255,11 +273,10 @@ unavailable (metrics store unreachable)".
   alarm: `stalled` requires a previously-recorded `last_success_at`, which eviction
   removes, so an evicted key can only degrade to the neutral state — the card stays
   honest rather than raising a false alarm.
-- 🟡 **Pod identity / Helm downward API.** `socket.gethostname()` gives the pod
-  name on K8s today with no config. Should we also inject `TRUEPPM_POD_NAME` via
-  the downward API in the Helm chart for stable, human-readable identity in future
-  per-pod drill-downs? Not blocking — the fallback is sufficient for the cluster
-  aggregate.
+- ✅ **RESOLVED — Pod identity / Helm downward API.** The Helm chart now injects
+  `TRUEPPM_POD_NAME` from the downward API (`fieldRef: metadata.name`) so each pod's
+  record carries a stable, human-readable name for future per-pod drill-downs; the
+  `socket.gethostname():<pid>` fallback remains for non-Helm deployments.
 - 🟡 **`idle` tolerance for traces.** This ADR decides a quiet low-traffic system
   must show traces as neutral `idle`, not red `stalled`, and uses the fixed-cadence
   metrics signal as the true collector heartbeat. Confirm the operator-facing copy

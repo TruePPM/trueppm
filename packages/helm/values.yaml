@@ -427,6 +427,31 @@ observability:
     headersSecret:
       name: ""
       key: "headers"
+    # Live export-health strip (ADR-0601, #2109). When enabled (default), each pod
+    # records per-signal export success/error/counts into Valkey /2 so the System
+    # Health → Telemetry card shows a cross-process live strip ("last export 8s ago ·
+    # 1,204 spans / 60s") aggregated across the worker/beat pods that actually export.
+    # Best-effort and non-fatal — it can never slow or break export. REQUIRES the
+    # Valkey /2 DB to run maxmemory-policy noeviction (the same requirement the
+    # rate-limit counters already impose). Each pod's identity is injected from the
+    # Kubernetes downward API (metadata.name) automatically — no config needed.
+    exportHealth:
+      # Master switch for the recorder. false → the wrappers are not installed and the
+      # card falls back to the config-only posture (export itself is unaffected).
+      enabled: true
+      # Advanced tuning (seconds). Leave unset to use the app defaults, which suit the
+      # standard 60s metric export interval. INVARIANT: stalenessSeconds MUST exceed
+      # healthyWithinSeconds, or the stalled/idle states become unobservable (an
+      # overdue signal is masked as "never"). Set all three, or none.
+      #   stalenessSeconds:      how long a pod counts as live after its last export
+      #                          (default 600). Beyond it a silent pod reads "never".
+      #   healthyWithinSeconds:  a success newer than this ⇒ healthy; older (still
+      #                          live) ⇒ stalled (metrics) / idle (traces) (default 150).
+      #   windowSeconds:         rolling window the exported-item counts cover; the
+      #                          card labels the strip from it ("last 60s") (default 60).
+      stalenessSeconds: ""
+      healthyWithinSeconds: ""
+      windowSeconds: ""
 
 # Starter Grafana dashboard shipped as a labeled ConfigMap (#1905). OFF by default:
 # it is only useful where a Grafana sidecar (kube-prometheus-stack / grafana chart)
