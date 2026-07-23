@@ -202,7 +202,7 @@ export function EntitySelectCombobox({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="ml-1 rounded-control text-[12px] font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        className="ml-1 rounded-control text-[12px] font-medium text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         {value ? triggerLabel.set : triggerLabel.unset}
       </button>

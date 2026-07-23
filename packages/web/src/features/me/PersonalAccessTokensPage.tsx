@@ -73,7 +73,9 @@ export function PersonalAccessTokensPage() {
             onClick={() => setCreating(true)}
             disabled={atCap}
             title={atCap ? 'Revoke a token to free up a slot' : undefined}
-            className="h-8 px-3 shrink-0 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            /* Standalone dialog-trigger button: focus: not focus-visible: — Firefox/Safari
+               omit :focus-visible on pointer focus, so a clicked trigger shows no ring (rule 214). */
+            className="h-8 px-3 shrink-0 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             Create token
           </button>
@@ -107,7 +109,7 @@ export function PersonalAccessTokensPage() {
           <button
             type="button"
             onClick={() => void refetch()}
-            className="h-8 px-3 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="h-8 px-3 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             Retry
           </button>
@@ -172,7 +174,7 @@ function TokenRow({ token, onRevoke }: { token: MyApiToken; onRevoke: () => void
         <button
           type="button"
           onClick={onRevoke}
-          className="h-7 px-2.5 shrink-0 text-[12px] font-medium rounded-control border border-semantic-critical/50 text-semantic-critical hover:bg-semantic-critical/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
+          className="h-7 px-2.5 shrink-0 text-[12px] font-medium rounded-control border border-semantic-critical/50 text-semantic-critical hover:bg-semantic-critical/10 focus:outline-none focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1"
         >
           Revoke
         </button>
@@ -354,14 +356,14 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
                   type="button"
                   onClick={onClose}
                   disabled={create.isPending}
-                  className="h-8 px-3 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  className="h-8 px-3 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={create.isPending}
-                  className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                 >
                   {create.isPending ? 'Creating…' : 'Create token'}
                 </button>
@@ -479,7 +481,7 @@ function TokenReveal({ token, onClose }: { token: string; onClose: () => void })
         <button
           type="button"
           onClick={onClose}
-          className="h-8 px-3 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          className="h-8 px-3 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           Done
         </button>
@@ -546,7 +548,7 @@ function RevokeDialog({
             ref={cancelRef}
             type="button"
             onClick={onCancel}
-            className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             Keep token
           </button>
@@ -554,7 +556,7 @@ function RevokeDialog({
             type="button"
             disabled={pending}
             onClick={onConfirm}
-            className="h-8 px-3 rounded-control border border-semantic-critical/50 text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
+            className="h-8 px-3 rounded-control border border-semantic-critical/50 text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1"
           >
             {pending ? 'Revoking…' : 'Revoke token'}
           </button>
@@ -584,7 +586,7 @@ function CopyButton({ value }: { value: string }) {
       type="button"
       onClick={() => void copy()}
       aria-label="Copy token"
-      className="h-9 px-3 shrink-0 rounded-control bg-brand-primary text-neutral-text-inverse text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      className="h-9 px-3 shrink-0 rounded-control bg-brand-primary text-neutral-text-inverse text-[12px] font-medium hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
     >
       {copied ? 'Copied ✓' : 'Copy'}
     </button>

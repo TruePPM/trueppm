@@ -57,7 +57,9 @@ export function ModeToggle({ mode, onChange }: ModeToggleProps) {
               isActive
                 ? 'bg-brand-primary text-neutral-text-inverse'
                 : 'bg-transparent text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-sunken',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:relative focus-visible:z-10',
+              // Segmented mode-toggle button: focus: (not focus-visible:) so the ring
+              // shows on pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7).
+              'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:relative focus:z-10',
             ].join(' ')}
           >
             {MODE_SHORT[m]}

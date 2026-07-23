@@ -169,6 +169,8 @@ export function OutlineRow({
           <span style={{ width: indent, flexShrink: 0 }} aria-hidden="true" />
 
           {hasChildren ? (
+            // Expand/collapse toggle: focus: (not focus-visible:) so the ring shows on
+            // pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7).
             <button
               type="button"
               onClick={(e) => {
@@ -182,7 +184,7 @@ export function OutlineRow({
                 w-4 h-4 flex items-center justify-center flex-shrink-0
                 text-xs font-bold text-neutral-text-secondary
                 hover:text-neutral-text-primary rounded
-                focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none
+                focus:ring-1 focus:ring-brand-primary focus:outline-none
               "
             >
               {isExpanded ? '−' : '+'}

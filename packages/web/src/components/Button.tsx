@@ -68,8 +68,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         // animates alongside hover colors; the press is motion-safe-gated so
         // reduced-motion users get no movement (rule 70/180). v2 fluidity, ADR-0126.
         'transition duration-fast ease-brand motion-safe:active:translate-y-px',
-        'focus-visible:outline-none focus-visible:ring-2',
-        'focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+        // Standalone-trigger primitive → `focus:` not `focus-visible:`: Firefox &
+        // desktop Safari don't match :focus-visible on pointer focus, so a clicked
+        // button would show no ring (WCAG 2.4.7). Rule 214.
+        'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
         'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary',
         'disabled:border-neutral-border/55 disabled:cursor-not-allowed',
         SIZE[size],

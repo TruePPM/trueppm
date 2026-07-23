@@ -167,8 +167,8 @@ export function ToolbarOverflowMenu({
           h-7 w-7 rounded-control border border-neutral-border
           text-neutral-text-secondary hover:text-neutral-text-primary
           hover:bg-neutral-surface-raised
-          focus-visible:outline-none focus-visible:ring-2
-          focus-visible:ring-brand-primary focus-visible:ring-offset-1
+          focus:outline-none focus:ring-2
+          focus:ring-brand-primary focus:ring-offset-1
         "
       >
         <span aria-hidden="true" className="text-[16px] leading-none">⋯</span>
@@ -196,7 +196,9 @@ export function ToolbarOverflowMenu({
             const baseCls = [
               'flex items-center w-full px-3 py-1.5 gap-2 text-left text-xs',
               'text-neutral-text-primary hover:bg-neutral-surface-raised',
-              'focus-visible:outline-none focus-visible:bg-neutral-surface-raised',
+              // Menu rows are a rule-214 carve-out: `focus:` so the pointer-focused
+              // row shows its highlight in Firefox/Safari (WCAG 2.4.7).
+              'focus:outline-none focus:bg-neutral-surface-raised',
               'disabled:opacity-50 disabled:cursor-not-allowed',
             ].join(' ');
             if (item.kind === 'action') {

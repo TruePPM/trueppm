@@ -559,9 +559,11 @@ describe('<SettingsShell>', () => {
       renderShell();
       const exit = screen.getByRole('button', { name: 'Back to Overview' });
       expect(exit).toBeInTheDocument();
-      // 44px touch target (rule 5) + rule-4 focus ring.
+      // 44px touch target (rule 5) + rule-4/214 focus ring. Standalone trigger
+      // uses focus: (not focus-visible:) so a pointer click still paints a ring
+      // in Firefox/desktop Safari (WCAG 2.4.7).
       expect(exit.className).toContain('min-h-[44px]');
-      expect(exit.className).toContain('focus-visible:ring-brand-primary');
+      expect(exit.className).toContain('focus:ring-brand-primary');
     });
 
     it('clicking the exit button leaves settings for the entity surface', () => {

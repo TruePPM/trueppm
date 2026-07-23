@@ -363,7 +363,12 @@ export function SettingsShell({
                   : item.to === activeRouteTo;
                 const className = [
                   'w-full flex items-center gap-2 px-2.5 py-[7px] rounded-control text-[13px] text-left transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                  // a11y rule 214: standalone shell-chrome controls (rail items,
+                  // save-bar, scope switcher, copy-link) use focus: not focus-visible:
+                  // so a pointer click still paints a ring in Firefox/desktop Safari
+                  // (WCAG 2.4.7). The mobile <select> jump-to-section and the heading
+                  // scroll-target below keep focus-visible: (form field / a11y target).
+                  'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
                   isActive
                     ? 'font-semibold text-neutral-text-primary bg-neutral-surface-sunken -ml-0.5 pl-[9px] border-l-2 border-brand-primary'
                     : 'text-neutral-text-secondary hover:text-neutral-text-primary',
@@ -448,7 +453,7 @@ export function SettingsShell({
           <button
             type="button"
             onClick={() => navGuarded(exitTo)}
-            className="inline-flex items-center gap-1.5 min-h-[44px] -my-1.5 px-1 rounded-control text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="inline-flex items-center gap-1.5 min-h-[44px] -my-1.5 px-1 rounded-control text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" className="shrink-0">
               <path
@@ -574,7 +579,7 @@ export function SettingsShell({
               type="button"
               onClick={triggerDiscard}
               disabled={isSaving}
-              className="text-[13px] text-neutral-text-inverse/85 hover:text-neutral-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+              className="text-[13px] text-neutral-text-inverse/85 hover:text-neutral-text-inverse focus:outline-none focus:ring-2 focus:ring-white disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               Discard
             </button>
@@ -583,7 +588,7 @@ export function SettingsShell({
               onClick={() => void triggerSave()}
               disabled={isSaving}
               aria-keyshortcuts="Meta+S Control+S"
-              className="px-3.5 py-1.5 rounded-control bg-white text-brand-primary-dark text-[13px] font-semibold hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
+              className="px-3.5 py-1.5 rounded-control bg-white text-brand-primary-dark text-[13px] font-semibold hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-white disabled:opacity-60"
             >
               {isSaving ? 'Saving…' : 'Save changes'}
             </button>
@@ -652,7 +657,7 @@ function ScopeSwitcher({
                 }}
                 className={[
                   'py-1.5 px-1 rounded-control text-xs font-medium text-center transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                  'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
                   isActive
                     ? 'bg-neutral-surface text-neutral-text-primary'
                     : isDisabled
@@ -733,7 +738,7 @@ function ContextRow({
         type="button"
         onClick={onCopyLink}
         aria-label="Copy link to settings"
-        className="shrink-0 inline-flex items-center justify-center w-6 h-6 -my-1 rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        className="shrink-0 inline-flex items-center justify-center w-6 h-6 -my-1 rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         {copyConfirmed ? (
           <svg

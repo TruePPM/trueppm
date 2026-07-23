@@ -260,6 +260,10 @@ function CommentRow({
           <label className="sr-only" htmlFor={`comment-edit-${comment.id}`}>
             Edit comment
           </label>
+          {/* a11y rule 214: form fields (textarea/input) KEEP focus-visible: —
+              they focus on keyboard/typing, not stray pointer clicks, so the
+              suppressed-on-click behavior is correct here. The standalone action
+              buttons below use focus: instead (WCAG 2.4.7 pointer-focus ring). */}
           <textarea
             id={`comment-edit-${comment.id}`}
             value={draft}

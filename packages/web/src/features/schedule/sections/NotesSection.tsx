@@ -143,6 +143,9 @@ function NoteRow({
           <label className="sr-only" htmlFor={`note-edit-${note.id}`}>
             Edit note
           </label>
+          {/* a11y rule 214: form fields KEEP focus-visible: (keyboard/typing focus,
+              not stray pointer clicks); the standalone action buttons below use
+              focus: so a pointer click still paints a ring (WCAG 2.4.7). */}
           <textarea
             id={`note-edit-${note.id}`}
             value={draft}

@@ -156,7 +156,9 @@ export function LogTimePopover({ task, onClose }: Props) {
                 aria-pressed={active}
                 className={[
                   'h-11 min-w-[3rem] rounded-control border px-2 text-sm font-medium md:h-8',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                  // Preset chip-as-button: focus: not focus-visible: — Firefox/Safari skip
+                  // :focus-visible on pointer focus (rule 214). The inputs below keep focus-visible:.
+                  'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
                   active
                     ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
                     : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-raised',
@@ -228,8 +230,8 @@ export function LogTimePopover({ task, onClose }: Props) {
             type="button"
             onClick={onClose}
             className="h-11 md:h-9 rounded-control px-3 text-sm text-neutral-text-secondary
-              hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2
-              focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              hover:text-neutral-text-primary focus:outline-none focus:ring-2
+              focus:ring-brand-primary focus:ring-offset-1"
           >
             Cancel
           </button>
@@ -237,8 +239,8 @@ export function LogTimePopover({ task, onClose }: Props) {
             type="submit"
             disabled={!canLog}
             className="h-11 md:h-9 rounded-control bg-brand-primary px-3 text-sm font-medium text-neutral-text-inverse
-              hover:bg-brand-primary/90 focus-visible:outline-none focus-visible:ring-2
-              focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              hover:bg-brand-primary/90 focus:outline-none focus:ring-2
+              focus:ring-brand-primary focus:ring-offset-1
               disabled:opacity-40 disabled:cursor-default"
           >
             {create.isPending ? 'Logging…' : `Log ${hm}`}

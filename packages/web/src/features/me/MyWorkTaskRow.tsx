@@ -73,6 +73,9 @@ function TaskTimerControl({ task }: Props) {
   const isComplete = task.status === 'COMPLETE';
 
   if (running) {
+    // Standalone timer button uses focus: not focus-visible: — Firefox/Safari skip
+    // :focus-visible on pointer focus, leaving no ring after a click (rule 214). The
+    // navigating <Link>s in this row keep focus-visible:.
     return (
       <button
         type="button"
@@ -81,7 +84,7 @@ function TaskTimerControl({ task }: Props) {
         aria-label={`Stop timer on ${task.name} and log time`}
         className="inline-flex h-11 items-center gap-1.5 rounded-control px-2 md:h-7
           border border-semantic-on-track/40 bg-semantic-on-track-bg text-semantic-on-track
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
           disabled:cursor-progress disabled:opacity-60"
       >
         <span className="grid h-3.5 w-3.5 place-items-center rounded-[3px] bg-current" aria-hidden="true">
@@ -103,7 +106,7 @@ function TaskTimerControl({ task }: Props) {
       title="Start timer"
       className="grid h-11 w-11 shrink-0 place-items-center rounded-control text-neutral-text-secondary md:h-7 md:w-7
         hover:text-brand-primary hover:bg-brand-primary/5
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+        focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
         disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent"
     >
       {/* Play triangle. */}
@@ -211,7 +214,7 @@ export function MyWorkTaskRow({ task }: Props) {
           aria-pressed={isComplete}
           aria-label={isComplete ? `${task.name} is complete` : `Mark ${task.name} complete`}
           className="grid h-11 w-11 shrink-0 place-items-center rounded-control md:h-7 md:w-7
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
             disabled:cursor-default"
         >
           <span
@@ -345,7 +348,7 @@ export function MyWorkTaskRow({ task }: Props) {
           title="Log time (L)"
           className="grid h-11 w-11 shrink-0 place-items-center rounded-control text-neutral-text-secondary md:h-7 md:w-7
             hover:text-brand-primary hover:bg-brand-primary/5
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           {/* Clock face with a small plus. */}
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
@@ -370,7 +373,7 @@ export function MyWorkTaskRow({ task }: Props) {
           className={[
             'inline-flex h-7 min-w-[7rem] items-center justify-center gap-1 rounded-control',
             'border px-2 py-0.5 text-xs font-medium',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+            'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
             'disabled:opacity-60 disabled:cursor-progress',
             STATUS_CHIP_CLASSES[task.status],
           ].join(' ')}

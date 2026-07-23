@@ -106,7 +106,7 @@ export function LandingContextHint() {
         aria-label="Dismiss"
         className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-control
           text-neutral-text-secondary hover:text-neutral-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <CloseIcon className="h-3.5 w-3.5" />
       </button>

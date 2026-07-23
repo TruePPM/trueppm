@@ -238,7 +238,9 @@ export function MyWorkPage() {
               }
               className={[
                 'tppm-mono rounded-chip border px-2 py-1 text-xs transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                // Standalone chip-as-button: use focus: not focus-visible: — Firefox/Safari
+                // skip :focus-visible on pointer focus, leaving no ring after a click (rule 214).
+                'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
                 filteringBlocked
                   ? 'border-semantic-critical bg-semantic-critical-bg text-semantic-critical font-medium'
                   : 'border-semantic-critical/40 bg-semantic-critical-bg/60 text-semantic-critical hover:bg-semantic-critical-bg',
@@ -292,8 +294,8 @@ export function MyWorkPage() {
           <button
             type="button"
             onClick={() => void refetch()}
-            className="text-xs font-medium underline focus-visible:outline-none
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control px-1"
+            className="text-xs font-medium underline focus:outline-none
+              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control px-1"
           >
             Retry
           </button>
@@ -361,8 +363,8 @@ export function MyWorkPage() {
                     className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
                       text-neutral-text-primary bg-neutral-surface hover:bg-neutral-surface-raised
                       disabled:opacity-60 disabled:cursor-progress
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                      focus-visible:ring-offset-1"
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary
+                      focus:ring-offset-1"
                   >
                     {isFetchingNextPage ? 'Loading…' : 'Load more'}
                   </button>

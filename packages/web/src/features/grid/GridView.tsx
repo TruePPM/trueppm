@@ -542,7 +542,7 @@ export function GridView() {
             <button
               type="button"
               onClick={toast.onUndo}
-              className="ml-1 font-semibold text-brand-primary underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
+              className="ml-1 font-semibold text-brand-primary underline underline-offset-2 hover:no-underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control"
             >
               Undo
             </button>
@@ -730,8 +730,8 @@ function Toolbar({
             type="button"
             onClick={onDeleteClick}
             className="text-xs text-semantic-critical hover:underline
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-              focus-visible:ring-offset-1"
+              focus:outline-none focus:ring-2 focus:ring-brand-primary
+              focus:ring-offset-1"
           >
             Delete
           </button>
@@ -746,14 +746,17 @@ function Toolbar({
           line and force the actions onto a third row. */}
       <div className="hidden md:block flex-1" />
 
+      {/* Standalone toolbar buttons use focus: (not focus-visible:) so the ring shows
+          on pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7). The
+          search input and select-all checkbox keep focus-visible: as form fields. */}
       {canEdit && (
         <button
           type="button"
           onClick={onAddTask}
           className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
             border border-neutral-border rounded h-7 px-3
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-            focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary
+            focus:ring-offset-1"
         >
           + Task
         </button>
@@ -766,8 +769,8 @@ function Toolbar({
           aria-label="Add child task under selected"
           className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
             border border-neutral-border rounded h-7 px-3
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-            focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary
+            focus:ring-offset-1"
         >
           + Child
         </button>
@@ -781,8 +784,8 @@ function Toolbar({
             aria-label="Expand all"
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
               border border-neutral-border rounded h-7 px-3
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-              focus-visible:ring-offset-1"
+              focus:outline-none focus:ring-2 focus:ring-brand-primary
+              focus:ring-offset-1"
           >
             ⤢
           </button>
@@ -792,8 +795,8 @@ function Toolbar({
             aria-label="Collapse all"
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
               border border-neutral-border rounded h-7 px-3
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-              focus-visible:ring-offset-1"
+              focus:outline-none focus:ring-2 focus:ring-brand-primary
+              focus:ring-offset-1"
           >
             ⤡
           </button>
@@ -809,8 +812,8 @@ function Toolbar({
           text-xs text-neutral-text-secondary border border-neutral-border rounded
           h-7 px-3 hover:text-neutral-text-primary hover:border-neutral-text-secondary
           disabled:opacity-40 disabled:cursor-not-allowed
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1 transition-colors
+          focus:outline-none focus:ring-2 focus:ring-brand-primary
+          focus:ring-offset-1 transition-colors
         "
       >
         CSV

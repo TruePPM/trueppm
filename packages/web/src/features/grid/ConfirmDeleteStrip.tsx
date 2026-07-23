@@ -38,6 +38,8 @@ export function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: C
           </span>
         )}
       </span>
+      {/* Standalone buttons use focus: (not focus-visible:) so the ring shows on
+          pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7). */}
       <button
         ref={confirmRef}
         type="button"
@@ -46,8 +48,8 @@ export function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: C
         className="flex-shrink-0 h-7 px-3 rounded text-xs font-medium
           bg-semantic-critical-bg border border-semantic-critical/50 text-semantic-critical
           disabled:opacity-50
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary
+          focus:ring-offset-1"
       >
         {isDeleting ? 'Deleting…' : 'Confirm delete'}
       </button>
@@ -58,8 +60,8 @@ export function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: C
         className="flex-shrink-0 h-7 px-3 rounded text-xs font-medium
           border border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary
           disabled:opacity-50
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary
+          focus:ring-offset-1"
       >
         Cancel
       </button>

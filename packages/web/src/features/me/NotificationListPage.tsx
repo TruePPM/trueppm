@@ -49,7 +49,7 @@ export function NotificationListPage() {
           disabled={markAllRead.isPending}
           className="ml-auto text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
             text-neutral-text-secondary hover:bg-neutral-surface-raised
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
             disabled:opacity-50"
         >
           Mark all read
@@ -76,7 +76,7 @@ export function NotificationListPage() {
               aria-selected={active}
               onClick={() => setFilter(f.value)}
               className={`text-xs px-3 h-7 font-medium border-b-2 whitespace-nowrap transition-colors
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
                 ${
                   active
                     ? 'border-brand-primary text-brand-primary'
@@ -106,7 +106,7 @@ export function NotificationListPage() {
               aria-checked={active}
               onClick={() => setCategory(c.value)}
               className={`text-xs px-3 h-7 rounded-control font-medium whitespace-nowrap transition-colors
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
                 ${
                   active
                     ? 'bg-brand-primary/10 text-brand-primary'

@@ -175,8 +175,10 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
                       type="button"
                       aria-label={`Remove ${rs.skill.name} skill`}
                       onClick={() => removeSkill.mutate(rs.id)}
+                      /* Standalone chip-remove button: focus: not focus-visible: — Firefox/Safari
+                         skip :focus-visible on pointer focus (rule 214). Inputs above keep focus-visible:. */
                       className="ml-0.5 text-neutral-text-disabled hover:text-semantic-critical
-                        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+                        focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded"
                     >
                       <svg
                         width="10"
@@ -224,7 +226,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
                 type="button"
                 onClick={() => setConfirmDeactivate(false)}
                 className="min-h-11 md:min-h-7 px-3 rounded text-xs border border-neutral-border text-neutral-text-secondary hover:border-brand-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
               >
                 Cancel
               </button>
@@ -234,7 +236,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
                 disabled={deactivateMutation.isPending}
                 className="min-h-11 md:min-h-7 px-3 rounded text-xs bg-semantic-critical text-white hover:bg-semantic-critical/90
                   disabled:opacity-40
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
+                  focus:outline-none focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1"
               >
                 Deactivate
               </button>
@@ -245,7 +247,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
                 type="button"
                 onClick={() => setConfirmDeactivate(true)}
                 className="min-h-11 md:min-h-7 px-3 rounded text-xs text-semantic-at-risk border border-semantic-at-risk/40 hover:bg-semantic-at-risk/5
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1"
+                  focus:outline-none focus:ring-2 focus:ring-semantic-at-risk focus:ring-offset-1"
               >
                 ⚠ Deactivate
               </button>
@@ -255,7 +257,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
                 disabled={isSaving || !hasChanges}
                 className="min-h-11 md:min-h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
                   disabled:opacity-40 disabled:cursor-not-allowed
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
               >
                 {isSaving ? 'Saving…' : 'Save changes'}
               </button>
@@ -272,7 +274,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
             disabled={restoreMutation.isPending}
             className="min-h-11 md:min-h-7 px-3 rounded text-xs border border-neutral-border text-neutral-text-secondary hover:border-brand-primary hover:text-neutral-text-primary
               disabled:opacity-40
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             {restoreMutation.isPending ? 'Restoring…' : 'Restore resource'}
           </button>
@@ -372,7 +374,7 @@ function CreatePanel({ onCreated, onCancel }: Omit<CreateProps, 'mode'>) {
           type="button"
           onClick={onCancel}
           className="min-h-11 md:min-h-7 px-3 rounded text-xs border border-neutral-border text-neutral-text-secondary hover:border-brand-primary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           Cancel
         </button>
@@ -382,7 +384,7 @@ function CreatePanel({ onCreated, onCancel }: Omit<CreateProps, 'mode'>) {
           disabled={!name.trim() || createMutation.isPending}
           className="min-h-11 md:min-h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
             disabled:opacity-40 disabled:cursor-not-allowed
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           {createMutation.isPending ? 'Creating…' : 'Create resource'}
         </button>

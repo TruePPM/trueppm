@@ -206,6 +206,9 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
           </span>
         </div>
       </div>
+      {/* a11y rule 214: these standalone action buttons use focus: not
+          focus-visible: so a pointer click paints a ring in Firefox/desktop
+          Safari, which don't match :focus-visible on click (WCAG 2.4.7). */}
       <div className="flex items-center gap-1 mt-1">
         <button
           type="button"

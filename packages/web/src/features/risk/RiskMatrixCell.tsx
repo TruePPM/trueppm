@@ -69,9 +69,11 @@ export function RiskMatrixCell({
         isSelected
           ? 'border-2 border-brand-primary z-10 relative'
           : 'border border-neutral-border/60',
+        // Standalone matrix-cell button: focus: (not focus-visible:) so the ring
+        // shows on pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7).
         isInteractive
-          ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1'
-          : 'focus-visible:outline-none',
+          ? 'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1'
+          : 'focus:outline-none',
       ].join(' ')}
     >
       {risksInCell.map((r) => (

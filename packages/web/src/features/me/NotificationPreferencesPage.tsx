@@ -106,7 +106,7 @@ function PreferenceToggle({ pref, onChange }: ToggleProps) {
       aria-label={`${channelLabel} notifications for ${eventLabel}`}
       onClick={() => onChange(pref.id, !pref.enabled)}
       className="inline-flex items-center justify-center w-11 h-11
-        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-full"
+        focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded-full"
     >
       <span
         aria-hidden="true"
@@ -314,8 +314,8 @@ export function NotificationPreferencesPage() {
               disabled={applyPreset.isPending}
               className="h-9 px-3 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
                 hover:bg-brand-primary-dark disabled:opacity-60 disabled:cursor-progress
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                focus-visible:ring-offset-1"
+                focus:outline-none focus:ring-2 focus:ring-brand-primary
+                focus:ring-offset-1"
             >
               {applyPreset.isPending ? 'Applying…' : 'Use signal-only'}
             </button>
@@ -324,8 +324,8 @@ export function NotificationPreferencesPage() {
               onClick={() => setShowFullMatrix((v) => !v)}
               aria-expanded={showFullMatrix}
               className="h-9 px-2 rounded-control text-sm font-medium text-brand-primary
-                hover:underline focus-visible:outline-none focus-visible:ring-2
-                focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                hover:underline focus:outline-none focus:ring-2
+                focus:ring-brand-primary focus:ring-offset-1"
             >
               {showFullMatrix ? 'Hide notification types' : 'Show all notification types'}
             </button>

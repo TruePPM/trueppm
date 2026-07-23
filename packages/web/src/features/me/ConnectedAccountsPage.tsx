@@ -233,7 +233,7 @@ function ProviderCard({ credential, onConnect, onRotate, onRevoke }: ProviderCar
           <button
             type="button"
             onClick={onConnect}
-            className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+            className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary focus:outline-none"
           >
             Connect
           </button>
@@ -243,14 +243,14 @@ function ProviderCard({ credential, onConnect, onRotate, onRevoke }: ProviderCar
             <button
               type="button"
               onClick={onRotate}
-              className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+              className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
             >
               Rotate
             </button>
             <button
               type="button"
               onClick={onRevoke}
-              className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none"
+              className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1 focus:outline-none"
             >
               Revoke
             </button>
@@ -385,14 +385,14 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
             <button
               type="button"
               onClick={onDismiss}
-              className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+              className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={upsert.isPending || secret.trim() === ''}
-              className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+              className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary focus:outline-none"
             >
               {upsert.isPending ? 'Saving…' : verb}
             </button>
@@ -456,7 +456,7 @@ function RevokeCredentialDialog({
             ref={cancelRef}
             type="button"
             onClick={onDismiss}
-            className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+            className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary focus:outline-none"
           >
             Keep credential
           </button>
@@ -469,7 +469,7 @@ function RevokeCredentialDialog({
                 { onSuccess: () => onDismiss() },
               );
             }}
-            className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none"
+            className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1 focus:outline-none"
           >
             {revoke.isPending ? 'Revoking…' : 'Revoke'}
           </button>
@@ -688,7 +688,10 @@ function ReconnectBanner({
       <button
         type="button"
         onClick={onReconnect}
-        className="h-7 shrink-0 rounded-control border border-semantic-at-risk/50 bg-transparent px-3 text-[12px] font-medium text-semantic-at-risk hover:bg-semantic-at-risk/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1"
+        /* Standalone action button: focus: not focus-visible: — Firefox/Safari skip
+           :focus-visible on pointer focus, so a clicked control shows no ring (rule 214).
+           Inputs and the external-link <a> in this file keep focus-visible:. */
+        className="h-7 shrink-0 rounded-control border border-semantic-at-risk/50 bg-transparent px-3 text-[12px] font-medium text-semantic-at-risk hover:bg-semantic-at-risk/10 focus:outline-none focus:ring-2 focus:ring-semantic-at-risk focus:ring-offset-1"
       >
         Reconnect
       </button>
@@ -753,7 +756,7 @@ function SourceAction({
         <button
           type="button"
           onClick={onDisconnect}
-          className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none"
+          className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1 focus:outline-none"
         >
           Disconnect
         </button>
@@ -764,7 +767,7 @@ function SourceAction({
     <button
       type="button"
       onClick={onConnect}
-      className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+      className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary focus:outline-none"
     >
       Connect
     </button>
@@ -789,7 +792,7 @@ function SyncNowButton({ source }: { source: ExternalTaskSourceEntry }) {
               ),
           });
         }}
-        className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+        className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
       >
         {sync.isPending ? 'Syncing…' : 'Sync now'}
       </button>
@@ -927,7 +930,7 @@ function DisconnectSourceDialog({
             ref={cancelRef}
             type="button"
             onClick={onDismiss}
-            className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+            className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary focus:outline-none"
           >
             Keep connected
           </button>
@@ -937,7 +940,7 @@ function DisconnectSourceDialog({
             onClick={() => {
               disconnect.mutate(undefined, { onSuccess: () => onDismiss() });
             }}
-            className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none"
+            className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1 focus:outline-none"
           >
             {disconnect.isPending ? 'Disconnecting…' : 'Disconnect'}
           </button>

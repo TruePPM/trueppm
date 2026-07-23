@@ -45,7 +45,9 @@ function ResourceRow({ resource, isSelected, onSelect }: RowProps) {
         onClick={() => onSelect(resource.id)}
         className={[
           'w-full text-left px-3 py-2.5 flex items-start gap-3 transition-colors',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset',
+          // Selectable list-row button: focus: not focus-visible: — Firefox/Safari skip
+          // :focus-visible on pointer focus, so a clicked row shows no ring (rule 214).
+          'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
           isSelected
             ? 'bg-white/10 border-l-2 border-brand-primary'
             : 'border-l-2 border-transparent hover:bg-white/5',
