@@ -54,6 +54,29 @@ const FIXTURE_HEALTH = {
     metrics_enabled: true,
     sampler: 'parentbased_always_on',
     sampler_arg: '',
+    live: {
+      available: true,
+      window_seconds: 60,
+      pods_reporting: 3,
+      traces: {
+        state: 'healthy',
+        last_success_at: '2026-05-25T11:59:52Z',
+        last_success_age_seconds: 8,
+        items_per_window: 1204,
+        last_error: null,
+        last_error_at: null,
+        pods_reporting: 2,
+      },
+      metrics: {
+        state: 'healthy',
+        last_success_at: '2026-05-25T11:59:52Z',
+        last_success_age_seconds: 8,
+        items_per_window: 340,
+        last_error: null,
+        last_error_at: null,
+        pods_reporting: 3,
+      },
+    },
   },
 };
 
@@ -69,6 +92,43 @@ const TELEMETRY_UNCONFIGURED = {
   metrics_enabled: true,
   sampler: 'parentbased_always_on',
   sampler_arg: '',
+  live: { available: false },
+};
+
+// Exporting, but the metrics store is unreachable — the live strip must fall back
+// to a muted note and keep the config posture (#2109, ADR-0601).
+const TELEMETRY_LIVE_UNAVAILABLE = {
+  ...FIXTURE_HEALTH.telemetry,
+  live: { available: false },
+};
+
+// Exporting, but the metrics signal has stalled (collector gone) — the strip must
+// raise a red alert with the recorded error string.
+const TELEMETRY_LIVE_STALLED = {
+  ...FIXTURE_HEALTH.telemetry,
+  live: {
+    available: true,
+    window_seconds: 60,
+    pods_reporting: 3,
+    traces: {
+      state: 'idle',
+      last_success_at: '2026-05-25T05:48:00Z',
+      last_success_age_seconds: 22320,
+      items_per_window: 0,
+      last_error: null,
+      last_error_at: null,
+      pods_reporting: 2,
+    },
+    metrics: {
+      state: 'stalled',
+      last_success_at: '2026-05-25T05:48:00Z',
+      last_success_age_seconds: 22320,
+      items_per_window: 0,
+      last_error: 'connection refused',
+      last_error_at: '2026-05-25T11:59:00Z',
+      pods_reporting: 3,
+    },
+  },
 };
 
 const TELEMETRY_TEST_SUCCESS = {
@@ -411,6 +471,43 @@ test.describe('Workspace Settings → Observability (#2250)', () => {
 
     await page.getByRole('button', { name: 'Test export' }).click();
     await expect(page.getByText('Export could not reach the collector')).toBeVisible();
+  });
+
+  test('shows the live export strip with per-signal counts when healthy (#2109)', async ({ page }) => {
+    // Default fixture is exporting with a healthy live block on both signals.
+    await setup(page);
+    await page.goto('/settings/observability');
+    await expect(page.getByRole('heading', { name: 'Observability' })).toBeVisible();
+
+    await expect(page.getByText(/Live export/)).toBeVisible();
+    await expect(page.getByText(/1,204 spans/)).toBeVisible();
+    await expect(page.getByText(/340 metric points/)).toBeVisible();
+    // Healthy → no alert.
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('raises a stalled alert on the live strip when the collector goes silent (#2109)', async ({
+    page,
+  }) => {
+    await setup(page, { telemetry: TELEMETRY_LIVE_STALLED });
+    await page.goto('/settings/observability');
+    await expect(page.getByRole('heading', { name: 'Observability' })).toBeVisible();
+
+    const alert = page.getByRole('alert');
+    await expect(alert).toContainText(/Export stalled/);
+    await expect(alert).toContainText(/connection refused/);
+  });
+
+  test('falls back to a muted note when the metrics store is unreachable (#2109)', async ({
+    page,
+  }) => {
+    await setup(page, { telemetry: TELEMETRY_LIVE_UNAVAILABLE });
+    await page.goto('/settings/observability');
+    await expect(page.getByRole('heading', { name: 'Observability' })).toBeVisible();
+
+    await expect(page.getByText(/Live export stats are unavailable/)).toBeVisible();
+    // Config posture still renders — the strip failure never blanks the card.
+    await expect(page.getByText('otel-collector.internal:4317')).toBeVisible();
   });
 
   test('hides the program/project scope segments (workspace-only tool) (#2251)', async ({ page }) => {

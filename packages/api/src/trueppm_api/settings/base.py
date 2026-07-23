@@ -761,6 +761,23 @@ OTEL_TRACES_SAMPLER_ARG: str = env("OTEL_TRACES_SAMPLER_ARG", default="")
 TELEMETRY_TEST_EXPORT_TIMEOUT_SECONDS: int = env.int(
     "TRUEPPM_TELEMETRY_TEST_EXPORT_TIMEOUT_SECONDS", default=5
 )
+# Live export-health recording (ADR-0601, #2109). When on (default), each pod that
+# runs an OSS OTLP exporter wraps it in a best-effort recorder that publishes
+# per-signal success/error/count into Valkey /2, so the System Health Telemetry
+# card can show a cluster-wide live strip ("last export 8s ago · 1,204 spans /
+# 60s") aggregated across the worker/beat pods that actually export. Purely
+# additive and non-fatal: a recorder or Valkey failure never affects export. Set
+# false to skip installing the wrappers entirely (the card falls back to the
+# config-only posture). Requires the Valkey /2 DB to run maxmemory-policy
+# noeviction — the same requirement the throttle counters already impose.
+TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED: bool = env.bool(
+    "TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED", default=True
+)
+# Optional stable per-pod identity for the export-health record. On Kubernetes the
+# hostname already IS the pod name, so the default (socket.gethostname():pid) is a
+# no-config stable identity; the Helm chart may inject this via the downward API
+# for a human-readable label in future per-pod drill-downs.
+TRUEPPM_POD_NAME: str = env("TRUEPPM_POD_NAME", default="")
 
 # ---------------------------------------------------------------------------
 # Structured logging + trace correlation (ADR-0223, #1899)

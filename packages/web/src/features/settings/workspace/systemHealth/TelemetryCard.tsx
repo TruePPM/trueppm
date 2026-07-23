@@ -7,9 +7,13 @@
  * self-hosting operator (a) get guided setup when nothing is configured, (b) see
  * the real exporter config, and (c) verify the export path with a Test-export probe.
  *
- * Honest state only: it does NOT show live span/metric counts — the exporters
- * don't record them (tracked in #2109). Card state is derived from config plus the
- * on-demand Test-export result, never fabricated numbers.
+ * When export is on, the card also shows a LIVE strip (ADR-0601, #2109): the
+ * cross-process export health aggregated across the worker/beat pods that actually
+ * export — last-success age, per-signal exported counts over a rolling window, and
+ * a failing/stalled indicator. The numbers are recorded by the export pipeline and
+ * computed server-side; when the metrics store is unreachable the strip reports
+ * itself unavailable and the card falls back to the config posture — never a
+ * fabricated number.
  */
 
 import { useState } from 'react';
@@ -19,6 +23,9 @@ import { docsUrl } from '@/lib/docsUrl';
 import {
   useTelemetryTestExport,
   type SystemHealthTelemetry,
+  type SystemHealthTelemetryLive,
+  type TelemetrySignalHealth,
+  type TelemetrySignalState,
   type TelemetryTestResult,
 } from '@/hooks/useSystemHealth';
 
@@ -306,6 +313,142 @@ function Signals({ telemetry }: { telemetry: SystemHealthTelemetry }) {
 }
 
 // ---------------------------------------------------------------------------
+// Live export-health strip (ADR-0601, #2109)
+// ---------------------------------------------------------------------------
+
+/** Human-friendly "time since" — "8s ago", "3m ago", "6h 12m ago". */
+function formatAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  return rem ? `${hours}h ${rem}m ago` : `${hours}h ago`;
+}
+
+// Full literal class strings per signal state — never build these dynamically, or
+// Tailwind's JIT purges the color classes and the dot/label render unstyled.
+const SIGNAL_STATE_STYLE: Record<TelemetrySignalState, { dot: string; label: string; text: string }> = {
+  healthy: { dot: 'bg-semantic-on-track', label: 'Exporting', text: 'text-semantic-on-track' },
+  idle: {
+    dot: 'border-2 border-neutral-text-secondary',
+    label: 'Idle — no recent data',
+    text: 'text-neutral-text-secondary',
+  },
+  never: {
+    dot: 'border-2 border-neutral-text-secondary',
+    label: 'Waiting for first export',
+    text: 'text-neutral-text-secondary',
+  },
+  failing: { dot: 'bg-semantic-critical', label: 'Failing', text: 'text-semantic-critical' },
+  stalled: { dot: 'bg-semantic-critical', label: 'Stalled', text: 'text-semantic-critical' },
+  disabled: {
+    dot: 'border-2 border-neutral-border',
+    label: 'Disabled',
+    text: 'text-neutral-text-secondary',
+  },
+};
+
+// Severity order (worst first) for deriving the overall strip tone from two signals.
+const STATE_SEVERITY: TelemetrySignalState[] = ['failing', 'stalled', 'never', 'idle', 'healthy', 'disabled'];
+
+function worstState(a: TelemetrySignalState, b: TelemetrySignalState): TelemetrySignalState {
+  return STATE_SEVERITY.indexOf(a) <= STATE_SEVERITY.indexOf(b) ? a : b;
+}
+
+function SignalHealthRow({
+  name,
+  unit,
+  health,
+  first,
+}: {
+  name: string;
+  unit: string;
+  health: TelemetrySignalHealth;
+  first?: boolean;
+}) {
+  const style = SIGNAL_STATE_STYLE[health.state];
+  const showCount = health.state === 'healthy';
+  const age =
+    health.last_success_age_seconds != null ? formatAge(health.last_success_age_seconds) : null;
+  return (
+    <div className={`flex items-center gap-2.5 px-3 py-2.5 ${first ? '' : 'border-t border-neutral-border/55'}`}>
+      <span aria-hidden="true" className={`w-2.5 h-2.5 rounded-full shrink-0 ${style.dot}`} />
+      <span className="text-[13px] font-semibold text-neutral-text-primary min-w-[64px]">{name}</span>
+      <span className={`text-[12px] font-semibold ${style.text}`}>{style.label}</span>
+      <div className="flex-1" />
+      <span className="text-[12px] text-neutral-text-secondary tppm-mono text-right">
+        {showCount ? `${health.items_per_window.toLocaleString()} ${unit}` : null}
+        {showCount && age ? ' · ' : null}
+        {health.state !== 'disabled' && health.state !== 'never' && age ? age : null}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Live cross-process export-health strip. Renders only when export is on. Falls
+ * back to a muted "unavailable" note when the metrics store is unreachable so the
+ * card never shows a fabricated number.
+ */
+function LiveStrip({ live }: { live: SystemHealthTelemetryLive }) {
+  if (!live.available) {
+    return (
+      <div className="px-4 py-3 border-b border-neutral-border/55">
+        <div className="flex items-start gap-2 text-[12px] text-neutral-text-secondary leading-snug">
+          <span aria-hidden="true" className="w-2.5 h-2.5 rounded-full shrink-0 mt-1 border-2 border-neutral-border" />
+          <span>
+            Live export stats are unavailable — the metrics store (Valkey) is unreachable. The
+            configuration below is unaffected.
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const worst = worstState(live.traces.state, live.metrics.state);
+  const alerting = worst === 'failing' || worst === 'stalled';
+  const errorText = live.metrics.last_error ?? live.traces.last_error;
+
+  return (
+    <div className="px-4 py-3 border-b border-neutral-border/55">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <h3 className="text-[11px] uppercase tracking-wide font-semibold text-neutral-text-secondary">
+          Live export · last {live.window_seconds}s
+        </h3>
+        <span className="text-[11px] text-neutral-text-secondary">
+          {live.pods_reporting} pod{live.pods_reporting === 1 ? '' : 's'} reporting
+        </span>
+      </div>
+
+      {alerting ? (
+        <div
+          role="alert"
+          className="mb-2 px-3 py-2.5 rounded-control border border-semantic-critical bg-semantic-critical-bg"
+        >
+          <div className="flex items-center gap-2">
+            <XIcon className="text-semantic-critical" />
+            <span className="text-[13px] font-bold text-semantic-critical">
+              {worst === 'stalled'
+                ? 'Export stalled — no successful export recently; the collector may be unreachable'
+                : 'Export failing — the collector rejected the most recent export'}
+            </span>
+          </div>
+          {errorText ? (
+            <div className="text-[12px] text-neutral-text-secondary mt-1 tppm-mono break-all">{errorText}</div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="rounded-lg border border-neutral-border/55 overflow-hidden">
+        <SignalHealthRow first name="Traces" unit="spans" health={live.traces} />
+        <SignalHealthRow name="Metrics" unit="metric points" health={live.metrics} />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Test export
 // ---------------------------------------------------------------------------
 
@@ -582,6 +725,7 @@ export function TelemetryCard({ telemetry }: { telemetry: SystemHealthTelemetry 
               </p>
             </div>
           ) : null}
+          {status === 'exporting' ? <LiveStrip live={telemetry.live} /> : null}
           <ConfigSummary telemetry={telemetry} />
           <Signals telemetry={telemetry} />
           <TestExport />

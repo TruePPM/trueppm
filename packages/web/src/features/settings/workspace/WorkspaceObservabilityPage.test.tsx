@@ -42,6 +42,7 @@ const TELEMETRY_UNCONFIGURED: SystemHealthResponse['telemetry'] = {
   metrics_enabled: true,
   sampler: 'parentbased_always_on',
   sampler_arg: '',
+  live: { available: false },
 };
 
 function health(telemetry: SystemHealthResponse['telemetry']): SystemHealthResponse {

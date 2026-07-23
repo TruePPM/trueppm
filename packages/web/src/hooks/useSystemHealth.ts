@@ -55,9 +55,49 @@ export interface RetentionEntry {
 }
 
 /**
+ * Per-signal live export-health verdict (ADR-0601, #2109). Computed server-side so
+ * the card, the API, and any MCP/agent consumer agree on "is export healthy?".
+ *
+ * - `healthy`  — a success within the window (the "8 s ago · 1,204 spans" strip)
+ * - `idle`     — traces only: enabled, no recent export, no error (quiet system)
+ * - `failing`  — most recent outcome across live pods is an error
+ * - `stalled`  — enabled, has succeeded before, but no success within the window
+ * - `never`    — enabled, nothing exported yet (also the evicted-record fallback)
+ * - `disabled` — this signal's export is switched off by config
+ */
+export type TelemetrySignalState = 'healthy' | 'idle' | 'failing' | 'stalled' | 'never' | 'disabled';
+
+export interface TelemetrySignalHealth {
+  state: TelemetrySignalState;
+  last_success_at: string | null;
+  /** Age computed server-side against `generated_at` — immune to browser clock skew. */
+  last_success_age_seconds: number | null;
+  items_per_window: number;
+  last_error: string | null;
+  last_error_at: string | null;
+  pods_reporting: number;
+}
+
+/**
+ * Live cluster export-health block. `available: false` means the metrics store was
+ * unreachable or the recorder is disabled — the card then keeps the config posture
+ * and hides the live strip rather than showing a fabricated number.
+ */
+export type SystemHealthTelemetryLive =
+  | { available: false }
+  | {
+      available: true;
+      window_seconds: number;
+      pods_reporting: number;
+      traces: TelemetrySignalHealth;
+      metrics: TelemetrySignalHealth;
+    };
+
+/**
  * Read-only OpenTelemetry exporter posture (#2022). Env/Helm-configured only —
  * never writable from the app. Headers (the export bearer token) are never sent.
  * `enabled` is true only when an endpoint is set and the master switch is on.
+ * `live` (ADR-0601, #2109) carries the cross-process live export-health strip.
  */
 export interface SystemHealthTelemetry {
   enabled: boolean;
@@ -71,6 +111,7 @@ export interface SystemHealthTelemetry {
   metrics_enabled: boolean;
   sampler: string;
   sampler_arg: string;
+  live: SystemHealthTelemetryLive;
 }
 
 /**

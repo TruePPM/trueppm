@@ -383,7 +383,10 @@ def _build_tracer_provider(resource: Resource) -> TracerProvider:
     provider = TracerProvider(resource=resource, sampler=_build_sampler())
     # BatchSpanProcessor exports on its own background thread and is fire-and-forget:
     # export failures are logged and dropped by the SDK and never reach a request.
-    provider.add_span_processor(BatchSpanProcessor(build_span_exporter()))
+    # The recorder wrapper (ADR-0601) sits inside the processor so it observes each
+    # export's result on that same thread without changing the fire-and-forget path.
+    exporter = _wrap_exporter_for_health(build_span_exporter(), signal="traces")
+    provider.add_span_processor(BatchSpanProcessor(exporter))
     return provider
 
 
@@ -408,8 +411,35 @@ def _build_meter_provider(resource: Resource) -> MeterProvider:
 
         exporter = GRPCMetricExporter(endpoint=endpoint, headers=headers)
 
+    exporter = _wrap_exporter_for_health(exporter, signal="metrics")
     reader = PeriodicExportingMetricReader(exporter)
     return MeterProvider(resource=resource, metric_readers=[reader])
+
+
+def _wrap_exporter_for_health(exporter: Any, *, signal: str) -> Any:
+    """Wrap an OTLP exporter in the export-health recorder (ADR-0601, #2109).
+
+    Returns the exporter unchanged when the feature is switched off, or if the
+    recorder can't be constructed — the recorder is a best-effort observability
+    aid, so a failure to install it must degrade to plain export, never crash
+    bootstrap. ``signal`` is ``"traces"`` or ``"metrics"``.
+    """
+    if not getattr(settings, "TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED", True):
+        return exporter
+    try:
+        from .export_health import (
+            ExportHealthRecorder,
+            RecordingMetricExporter,
+            RecordingSpanExporter,
+        )
+
+        recorder = ExportHealthRecorder(signal, settings.OTEL_SERVICE_NAME)
+        if signal == "traces":
+            return RecordingSpanExporter(exporter, recorder)
+        return RecordingMetricExporter(exporter, recorder)
+    except Exception:
+        logger.exception("export-health: recorder install failed; exporting without it")
+        return exporter
 
 
 def reset_for_testing() -> None:

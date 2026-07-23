@@ -58,6 +58,7 @@ const sampleResponse = {
     metrics_enabled: true,
     sampler: 'parentbased_always_on',
     sampler_arg: '',
+    live: { available: false },
   },
 };
 

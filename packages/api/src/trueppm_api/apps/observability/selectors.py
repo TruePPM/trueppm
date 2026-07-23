@@ -502,7 +502,31 @@ def _telemetry() -> dict[str, Any]:
         "metrics_enabled": settings.TRUEPPM_OTEL_METRICS_ENABLED,
         "sampler": settings.OTEL_TRACES_SAMPLER,
         "sampler_arg": settings.OTEL_TRACES_SAMPLER_ARG,
+        # Live cluster export-health strip (ADR-0601, #2109). Additive block that
+        # aggregates the worker/beat pods actually exporting. Skipped (available:
+        # false) when export is off — the card shows the config posture there and
+        # never renders the strip — so an unconfigured deployment pays no Valkey
+        # round-trip on this read.
+        "live": _export_health_live(enabled),
     }
+
+
+def _export_health_live(enabled: bool) -> dict[str, Any]:
+    """Aggregate cross-process OTLP export health for the live Telemetry strip.
+
+    Returns ``{"available": False}`` when export is disabled or the metrics store is
+    unreachable, so ``_telemetry()`` never fabricates a number: the FE keeps the
+    config-only posture in that case. The ``state`` verdict is computed server-side
+    (in :mod:`otel.export_health`) so the card and any API/agent consumer agree.
+    """
+    if not enabled:
+        return {"available": False}
+    from trueppm_api.apps.observability.otel import export_health
+
+    return export_health.read_export_health(
+        traces_enabled=settings.TRUEPPM_OTEL_TRACES_ENABLED,
+        metrics_enabled=settings.TRUEPPM_OTEL_METRICS_ENABLED,
+    )
 
 
 def get_system_health() -> dict[str, Any]:
