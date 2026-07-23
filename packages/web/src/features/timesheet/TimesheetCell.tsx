@@ -46,18 +46,124 @@ interface TimesheetCellProps {
 const CELL_BASE =
   'relative h-9 w-full text-right tabular-nums text-sm outline-none transition-colors';
 
-export function TimesheetCell({
+/** Weekend / today tint shared by every cell variant. */
+function surfaceClass(isWeekend: boolean, isToday: boolean): string {
+  return isWeekend ? 'bg-neutral-surface-sunken' : isToday ? 'bg-brand-primary/5' : '';
+}
+
+/**
+ * A day that hasn't happened yet is not loggable — the server rejects a future
+ * entry_date with 400 (#1926). Rendered inert and non-focusable (future cells never
+ * hold entries) rather than an editable input that would POST a doomed request.
+ */
+function FutureCell({ ariaLabel, surface }: { ariaLabel: string; surface: string }) {
+  return (
+    <div
+      role="gridcell"
+      aria-readonly="true"
+      aria-label={`${ariaLabel} — future date, not loggable`}
+      title="You can't log time for a future date"
+      className={`${CELL_BASE} flex items-center justify-end px-2 text-neutral-text-disabled ${surface}`}
+    >
+      ·
+    </div>
+  );
+}
+
+/**
+ * The whole week is submitted (a week-level marker) — the remedy is *Reopen week*
+ * (top-right), NOT My Work (#2174). Empty submitted cells are rendered inert and
+ * non-focusable (like future cells) so a submitted week doesn't add a tab stop per
+ * blank day; a cell that carries time stays focusable so the reopen guidance is
+ * reachable in a screen reader's focus mode where it actually matters.
+ */
+function SubmittedCell({
   minutes,
-  editable,
+  ariaLabel,
+  surface,
+}: {
+  minutes: number;
+  ariaLabel: string;
+  surface: string;
+}) {
+  const hasValue = minutes > 0;
+  return (
+    <div
+      role="gridcell"
+      aria-readonly="true"
+      tabIndex={hasValue ? 0 : undefined}
+      aria-label={
+        hasValue
+          ? `${ariaLabel}, ${formatMinutesAsHm(minutes)} — week submitted, reopen to edit (Reopen week, top right)`
+          : `${ariaLabel} — week submitted`
+      }
+      title="Week submitted · reopen to edit (Reopen week, top right)"
+      className={`${CELL_BASE} flex items-center justify-end px-2 ${
+        hasValue
+          ? 'text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary'
+          : 'text-neutral-text-disabled'
+      } ${surface}`}
+    >
+      {hasValue ? formatMinutesAsHm(minutes) : '·'}
+    </div>
+  );
+}
+
+/**
+ * Read-only summed cell (≥2 entries) — ADR-0224. Reopening the week would not unlock
+ * this cell (a single number can't split N entries), so the remedy is always My Work.
+ */
+function MultiEntryCell({
+  minutes,
   entryCount,
-  isWeekend,
-  isToday,
-  isFuture = false,
-  lockReason = 'multi-entry',
+  ariaLabel,
+  surface,
+}: {
+  minutes: number;
+  entryCount: number;
+  ariaLabel: string;
+  surface: string;
+}) {
+  const entryNoun = entryCount === 1 ? 'entry' : 'entries';
+  return (
+    <div
+      role="gridcell"
+      aria-readonly="true"
+      // Focusable so the "why can't I edit this" guidance in the aria-label is reachable
+      // in a screen reader's focus mode (the grid navigates by Tab, not roving tabindex),
+      // not only via the mouse-only title tooltip (web-rule).
+      tabIndex={0}
+      aria-label={`${ariaLabel}, ${formatMinutesAsHm(minutes)}, ${entryCount} ${entryNoun} — edit on My Work`}
+      title={`${entryCount} ${entryNoun} · edit on My Work`}
+      className={`${CELL_BASE} flex items-center justify-end gap-1 px-2 text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary ${surface}`}
+    >
+      <span
+        aria-hidden="true"
+        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-text-secondary"
+      />
+      {formatMinutesAsHm(minutes)}
+    </div>
+  );
+}
+
+/**
+ * The editable cell (0 or 1 backing entry): type hours in any shorthand, `Enter`
+ * (or blur) saves, `Esc` reverts. Owns the input draft state so the read-only
+ * variants above stay pure presentational nodes.
+ */
+function EditableCell({
+  minutes,
   ariaLabel,
   errorText,
+  surface,
   onSave,
-}: TimesheetCellProps) {
+}: {
+  minutes: number;
+  ariaLabel: string;
+  errorText?: string;
+  surface: string;
+  onSave: (minutes: number) => void;
+}) {
   const committed = minutes > 0 ? formatMinutesAsHm(minutes) : '';
   const [draft, setDraft] = useState(committed);
   const [focused, setFocused] = useState(false);
@@ -82,79 +188,6 @@ export function TimesheetCell({
       return;
     }
     if (parsed !== minutes) onSave(parsed);
-  }
-
-  const surface = isWeekend ? 'bg-neutral-surface-sunken' : isToday ? 'bg-brand-primary/5' : '';
-
-  if (isFuture) {
-    // A day that hasn't happened yet is not loggable — the server rejects a future
-    // entry_date with 400 (#1926). Render an inert, non-focusable cell (future cells never
-    // hold entries) rather than an editable input that would POST a doomed request.
-    return (
-      <div
-        role="gridcell"
-        aria-readonly="true"
-        aria-label={`${ariaLabel} — future date, not loggable`}
-        title="You can't log time for a future date"
-        className={`${CELL_BASE} flex items-center justify-end px-2 text-neutral-text-disabled ${surface}`}
-      >
-        ·
-      </div>
-    );
-  }
-
-  if (!editable && lockReason === 'submitted') {
-    // The whole week is submitted (a week-level marker) — the remedy is *Reopen week*
-    // (top-right), NOT My Work (#2174). Empty submitted cells are rendered inert and
-    // non-focusable (like future cells) so a submitted week doesn't add a tab stop per
-    // blank day; a cell that carries time stays focusable so the reopen guidance is
-    // reachable in a screen reader's focus mode where it actually matters.
-    const hasValue = minutes > 0;
-    return (
-      <div
-        role="gridcell"
-        aria-readonly="true"
-        tabIndex={hasValue ? 0 : undefined}
-        aria-label={
-          hasValue
-            ? `${ariaLabel}, ${formatMinutesAsHm(minutes)} — week submitted, reopen to edit (Reopen week, top right)`
-            : `${ariaLabel} — week submitted`
-        }
-        title="Week submitted · reopen to edit (Reopen week, top right)"
-        className={`${CELL_BASE} flex items-center justify-end px-2 ${
-          hasValue
-            ? 'text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary'
-            : 'text-neutral-text-disabled'
-        } ${surface}`}
-      >
-        {hasValue ? formatMinutesAsHm(minutes) : '·'}
-      </div>
-    );
-  }
-
-  if (!editable) {
-    // Read-only summed cell (≥2 entries) — ADR-0224. Reopening the week would not unlock
-    // this cell (a single number can't split N entries), so the remedy is always My Work.
-    const entryNoun = entryCount === 1 ? 'entry' : 'entries';
-    return (
-      <div
-        role="gridcell"
-        aria-readonly="true"
-        // Focusable so the "why can't I edit this" guidance in the aria-label is reachable
-        // in a screen reader's focus mode (the grid navigates by Tab, not roving tabindex),
-        // not only via the mouse-only title tooltip (web-rule).
-        tabIndex={0}
-        aria-label={`${ariaLabel}, ${formatMinutesAsHm(minutes)}, ${entryCount} ${entryNoun} — edit on My Work`}
-        title={`${entryCount} ${entryNoun} · edit on My Work`}
-        className={`${CELL_BASE} flex items-center justify-end gap-1 px-2 text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary ${surface}`}
-      >
-        <span
-          aria-hidden="true"
-          className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-text-secondary"
-        />
-        {formatMinutesAsHm(minutes)}
-      </div>
-    );
   }
 
   return (
@@ -211,5 +244,45 @@ export function TimesheetCell({
         </span>
       )}
     </div>
+  );
+}
+
+export function TimesheetCell({
+  minutes,
+  editable,
+  entryCount,
+  isWeekend,
+  isToday,
+  isFuture = false,
+  lockReason = 'multi-entry',
+  ariaLabel,
+  errorText,
+  onSave,
+}: TimesheetCellProps) {
+  const surface = surfaceClass(isWeekend, isToday);
+
+  if (isFuture) return <FutureCell ariaLabel={ariaLabel} surface={surface} />;
+  if (!editable && lockReason === 'submitted') {
+    return <SubmittedCell minutes={minutes} ariaLabel={ariaLabel} surface={surface} />;
+  }
+  if (!editable) {
+    return (
+      <MultiEntryCell
+        minutes={minutes}
+        entryCount={entryCount}
+        ariaLabel={ariaLabel}
+        surface={surface}
+      />
+    );
+  }
+
+  return (
+    <EditableCell
+      minutes={minutes}
+      ariaLabel={ariaLabel}
+      errorText={errorText}
+      surface={surface}
+      onSave={onSave}
+    />
   );
 }

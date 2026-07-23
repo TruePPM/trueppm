@@ -92,9 +92,105 @@ function SelectChip({ option }: { option: CustomFieldOption }) {
 const keyClass = 'text-neutral-text-secondary font-medium shrink-0';
 const valClass = 'text-neutral-text-primary font-medium';
 
+/** MULTI_SELECT: up to `MULTI_INLINE_CAP` option chips plus a "+N" overflow count. */
+function MultiSelectMark({
+  field,
+  label,
+  value,
+}: {
+  field: ProjectCustomField;
+  label: string;
+  value: string[];
+}) {
+  const shown = value.slice(0, MULTI_INLINE_CAP);
+  const extra = value.length - shown.length;
+  const labels = value.map((v) => optionFor(field, v).label).join(', ');
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-xs min-w-0"
+      aria-label={`${label}: ${labels}`}
+    >
+      <span className={keyClass} aria-hidden="true">
+        {label}:
+      </span>
+      {shown.map((v) => (
+        <SelectChip key={v} option={optionFor(field, v)} />
+      ))}
+      {extra > 0 && (
+        <span
+          className="inline-flex items-center h-[18px] px-1 rounded-chip text-xs font-semibold bg-neutral-surface-sunken border border-neutral-border text-neutral-text-secondary"
+          aria-hidden="true"
+        >
+          +{extra}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** USER: an initials chip, optionally trailed by the first name (detailed density). */
+function UserMark({
+  label,
+  value,
+  named,
+}: {
+  label: string;
+  value: CustomFieldPersonValue;
+  named: boolean;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 text-xs" aria-label={`${label}: ${value.name}`}>
+      <span className={keyClass} aria-hidden="true">
+        {label}:
+      </span>
+      <span
+        className="inline-block px-1 py-px rounded-chip text-xs text-brand-primary bg-brand-primary/10 font-bold"
+        aria-hidden="true"
+      >
+        {value.initials}
+      </span>
+      {named && (
+        <span className={valClass} aria-hidden="true">
+          {value.name.split(' ')[0]}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * TEXT (and any unexpected shape) — key: value, truncated with a title fallback.
+ * Coerce without Object's default stringification (never "[object Object]").
+ */
+function TextMark({ label, value }: { label: string; value: CustomFieldValue }) {
+  const text =
+    typeof value === 'string'
+      ? value
+      : typeof value === 'number' || typeof value === 'boolean'
+        ? String(value)
+        : Array.isArray(value)
+          ? value.join(', ')
+          : '';
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-xs min-w-0"
+      aria-label={`${label}: ${text}`}
+    >
+      <span className={keyClass} aria-hidden="true">
+        {label}:
+      </span>
+      <span className={`${valClass} truncate max-w-[16ch]`} title={text} aria-hidden="true">
+        {text}
+      </span>
+    </span>
+  );
+}
+
 /**
  * A single custom-field value, dispatched by field type. `named` shows the person's
  * first name (detailed density + peek); at comfortable density the avatar stands alone.
+ * The branches carrying their own inner conditionals (multi-select overflow, the named
+ * person, the text-coercion fallback) are extracted above so this stays a flat dispatch.
  */
 function FieldMark({
   field,
@@ -123,30 +219,7 @@ function FieldMark({
   }
 
   if (field.fieldType === 'MULTI_SELECT' && Array.isArray(value)) {
-    const shown = value.slice(0, MULTI_INLINE_CAP);
-    const extra = value.length - shown.length;
-    const labels = value.map((v) => optionFor(field, v).label).join(', ');
-    return (
-      <span
-        className="inline-flex items-center gap-1 text-xs min-w-0"
-        aria-label={`${label}: ${labels}`}
-      >
-        <span className={keyClass} aria-hidden="true">
-          {label}:
-        </span>
-        {shown.map((v) => (
-          <SelectChip key={v} option={optionFor(field, v)} />
-        ))}
-        {extra > 0 && (
-          <span
-            className="inline-flex items-center h-[18px] px-1 rounded-chip text-xs font-semibold bg-neutral-surface-sunken border border-neutral-border text-neutral-text-secondary"
-            aria-hidden="true"
-          >
-            +{extra}
-          </span>
-        )}
-      </span>
-    );
+    return <MultiSelectMark field={field} label={label} value={value} />;
   }
 
   if (field.fieldType === 'BOOLEAN') {
@@ -189,52 +262,10 @@ function FieldMark({
   }
 
   if (field.fieldType === 'USER' && isPerson(value)) {
-    return (
-      <span
-        className="inline-flex items-center gap-1 text-xs"
-        aria-label={`${label}: ${value.name}`}
-      >
-        <span className={keyClass} aria-hidden="true">
-          {label}:
-        </span>
-        <span
-          className="inline-block px-1 py-px rounded-chip text-xs text-brand-primary bg-brand-primary/10 font-bold"
-          aria-hidden="true"
-        >
-          {value.initials}
-        </span>
-        {named && (
-          <span className={valClass} aria-hidden="true">
-            {value.name.split(' ')[0]}
-          </span>
-        )}
-      </span>
-    );
+    return <UserMark label={label} value={value} named={named} />;
   }
 
-  // TEXT (and any unexpected shape) — key: value, truncated with a title fallback.
-  // Coerce without Object's default stringification (never "[object Object]").
-  const text =
-    typeof value === 'string'
-      ? value
-      : typeof value === 'number' || typeof value === 'boolean'
-        ? String(value)
-        : Array.isArray(value)
-          ? value.join(', ')
-          : '';
-  return (
-    <span
-      className="inline-flex items-center gap-1 text-xs min-w-0"
-      aria-label={`${label}: ${text}`}
-    >
-      <span className={keyClass} aria-hidden="true">
-        {label}:
-      </span>
-      <span className={`${valClass} truncate max-w-[16ch]`} title={text} aria-hidden="true">
-        {text}
-      </span>
-    </span>
-  );
+  return <TextMark label={label} value={value} />;
 }
 
 function isPerson(value: CustomFieldValue): value is CustomFieldPersonValue {
