@@ -61,6 +61,8 @@ Working-day arithmetic skips weekends and any dates listed in `Calendar.exceptio
 
 :::note
 Scheduling is in **whole working-day units**. `Calendar.hours_per_day` and `Calendar.timezone` round-trip through serialization for API parity but are not consumed by the CPM or Monte Carlo passes — they do not change any computed date. Sub-day scheduling is a future change.
+
+Durations, lags, and estimates are expressed in whole working days for the beta. **This unit is not a stable contract before GA** — a finer canonical unit (minutes) and an effort/duration split are planned, so do not depend on the day granularity as a fixed API guarantee. Import/export adapters that must cross into hours (MS Project, Jira) do so through a single conversion seam, not scattered constants.
 :::
 
 ### Cycle detection
