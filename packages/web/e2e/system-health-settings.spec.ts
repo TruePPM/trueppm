@@ -351,18 +351,23 @@ test.describe('Workspace Settings → System health', () => {
   });
 });
 
-// The OTLP telemetry-export config now lives on its own Observability page (#2250),
-// discoverable in the settings rail instead of buried at the bottom of System Health.
+// The OTLP telemetry-export config is discoverable in the settings rail (#2250) and,
+// since #2298, renders inline on the consolidated page — the rail "Observability"
+// item deep-links to that section (/settings#observability) rather than a separate
+// page. The standalone /settings/observability route still exists for bookmarks.
 test.describe('Workspace Settings → Observability (#2250)', () => {
-  test('has a rail entry that navigates to the Observability page', async ({ page }) => {
+  test('has a rail entry that deep-links to the Observability section', async ({ page }) => {
     await setup(page);
     await page.goto('/settings/health');
     await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
 
-    // The rail's "Observability" tool item (a route departure) opens the page.
-    await page.getByRole('button', { name: 'Observability' }).click();
-    await expect(page).toHaveURL(/\/settings\/observability$/);
-    await expect(page.getByRole('heading', { name: 'Observability' })).toBeVisible();
+    // Observability stays discoverable by name in the rail (#2250). Since #2298 it
+    // is a scroll-anchor rail item (a button that deep-links to /settings#observability
+    // — the target is asserted in workspaceNav.test.tsx) rather than a route departure.
+    // Scope to the rail nav; the overview body also has a "Configure in Observability"
+    // cross-link that would otherwise collide in strict mode.
+    const rail = page.getByRole('navigation', { name: 'Settings sections' });
+    await expect(rail.getByRole('button', { name: 'Observability' })).toBeVisible();
   });
 
   test("System Health's status line cross-links to the Observability page", async ({ page }) => {

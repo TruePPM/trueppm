@@ -24,26 +24,20 @@ import { TelemetryCard } from './systemHealth/TelemetryCard';
 // Fed from the shared builder so the rail cannot drift (#2013).
 const NAV_GROUPS = buildWorkspaceNavGroups({ linked: true });
 
-export function WorkspaceObservabilityPage() {
-  const { data: ws } = useWorkspaceSettings();
-  const { data, isLoading, error, refetch } = useSystemHealth();
+/**
+ * Observability content (title + telemetry card) with NO shell wrapper, so it
+ * renders both as its own routed page and as an inline `<SettingsSection>` on the
+ * consolidated `/settings` page (#2298). Telemetry posture is static env/Helm
+ * config, so this reads `useSystemHealth({ poll: false })` — one fetch, no poll —
+ * and shares that query with the System-health landing card on the same page.
+ */
+export function ObservabilitySection() {
+  const { data, isLoading, error, refetch } = useSystemHealth({ poll: false });
 
   const is403 = error !== null && axios.isAxiosError(error) && error.response?.status === 403;
 
   return (
-    <SettingsShell
-      scope="workspace"
-      scopeLinks={[
-        { scope: 'workspace', label: 'Workspace', to: '/settings' },
-        // Telemetry export is workspace-level — hide the inapplicable scopes (#2251).
-        { scope: 'program', label: 'Program', to: null, hidden: true },
-        { scope: 'project', label: 'Project', to: null, hidden: true },
-      ]}
-      contextName={ws?.name ?? 'Workspace'}
-      navGroups={NAV_GROUPS}
-      exitTo="/"
-      exitLabel="Home"
-    >
+    <>
       <SettingsPageTitle
         title="Observability"
         subtitle="Export TruePPM traces and metrics to your OpenTelemetry backend (OTLP)."
@@ -73,6 +67,28 @@ export function WorkspaceObservabilityPage() {
           <TelemetryCard telemetry={data!.telemetry} />
         )}
       </div>
+    </>
+  );
+}
+
+export function WorkspaceObservabilityPage() {
+  const { data: ws } = useWorkspaceSettings();
+
+  return (
+    <SettingsShell
+      scope="workspace"
+      scopeLinks={[
+        { scope: 'workspace', label: 'Workspace', to: '/settings' },
+        // Telemetry export is workspace-level — hide the inapplicable scopes (#2251).
+        { scope: 'program', label: 'Program', to: null, hidden: true },
+        { scope: 'project', label: 'Project', to: null, hidden: true },
+      ]}
+      contextName={ws?.name ?? 'Workspace'}
+      navGroups={NAV_GROUPS}
+      exitTo="/"
+      exitLabel="Home"
+    >
+      <ObservabilitySection />
     </SettingsShell>
   );
 }

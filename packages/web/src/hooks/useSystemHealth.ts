@@ -120,17 +120,22 @@ export const systemHealthKeys = {
  *
  * Requires admin-level access; the component renders a 403-specific message
  * when the server returns 403 (checked by inspecting `error.response?.status`).
- * Polls every 10 s while the tab is in the foreground so operators can leave
- * this page open as a lightweight status dashboard.
+ *
+ * `poll` (default `true`) drives the 10 s foreground refresh that makes the
+ * System Health *console* a live dashboard. The consolidated `/settings` page
+ * consumes the SAME query with `poll: false` for its System-health landing card
+ * and the inline Observability section — a single cheap fetch, no background
+ * poll wedged into a form-editing page (#2298; the live console keeps its poll
+ * on its own route). The status line stamps freshness from `generated_at`.
  */
-export function useSystemHealth() {
+export function useSystemHealth({ poll = true }: { poll?: boolean } = {}) {
   return useQuery<SystemHealthResponse, Error>({
     queryKey: systemHealthKeys.detail(),
     queryFn: async () => {
       const res = await apiClient.get<SystemHealthResponse>('/health/system/');
       return res.data;
     },
-    refetchInterval: 10_000,
+    refetchInterval: poll ? 10_000 : false,
     refetchIntervalInBackground: false,
     retry: false,
   });
