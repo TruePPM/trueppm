@@ -209,6 +209,24 @@ class TestMonteCarloEndpoint:
         assert r.status_code == 200
         assert r.data["runs"] == 50
 
+    def test_null_body_defaults_to_cap(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+        settings: object,
+    ) -> None:
+        """A JSON `null` body parses to request.data == None; it must fall back
+        to the default n_simulations rather than 500 on None.get(...) (#2310)."""
+        settings.MC_SIMULATION_CAP = 50  # type: ignore[attr-defined]
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            data="null",
+            content_type="application/json",
+        )
+        assert r.status_code == 200
+        assert r.data["runs"] == 50
+
     def test_no_tasks_returns_400(
         self,
         member_client: APIClient,
