@@ -28,6 +28,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     name: 'Stakeholder interviews',
     start: '2026-01-13',
     finish: '2026-01-28',
+    // Committed by default (the normal case) so the #2314 "no committed start"
+    // advisory does not render unless a test opts into the flag with
+    // `plannedStart: null` — keeping the unrelated duration tests single-`status`.
+    plannedStart: '2026-01-13',
     duration: 12,
     progress: 40,
     parentId: null,
@@ -217,6 +221,77 @@ describe('TaskScheduleStrip', () => {
 
       expect(mutate).toHaveBeenCalledTimes(1);
       expect(screen.queryByTestId('recalc-percent-chip')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('no-committed-start advisory (#2314)', () => {
+    beforeEach(() => {
+      mutate.mockReset();
+      policy = 'keep';
+      coarse = false;
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    const editableProps = { projectId: 'p1', canEdit: true };
+    // Flagged: IN_PROGRESS with no PM-committed plannedStart (CPM fills start).
+    const flagged = () => makeTask({ status: 'IN_PROGRESS', plannedStart: null });
+
+    it('renders the advisory with both remediations for an editable flagged task', () => {
+      render(<TaskScheduleStrip task={flagged()} {...editableProps} />);
+      expect(screen.getByText('No committed start')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Set committed start/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Move to To Do' })).toBeInTheDocument();
+    });
+
+    it('"Set committed start" PATCHes planned_start = the computed start', async () => {
+      render(<TaskScheduleStrip task={flagged()} {...editableProps} />);
+      await userEvent.click(screen.getByRole('button', { name: /Set committed start/i }));
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate).toHaveBeenCalledWith(
+        { id: 't1', projectId: 'p1', planned_start: '2026-01-13' },
+        expect.anything(),
+      );
+    });
+
+    it('"Move to To Do" PATCHes status NOT_STARTED', async () => {
+      render(<TaskScheduleStrip task={flagged()} {...editableProps} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Move to To Do' }));
+      expect(mutate).toHaveBeenCalledWith(
+        { id: 't1', projectId: 'p1', status: 'NOT_STARTED' },
+        expect.anything(),
+      );
+    });
+
+    it('does not render the advisory when the task is not flagged', () => {
+      // NOT_STARTED (no flag) and IN_PROGRESS-but-committed both suppress it.
+      const { rerender } = render(
+        <TaskScheduleStrip task={makeTask({ status: 'NOT_STARTED', plannedStart: null })} {...editableProps} />,
+      );
+      expect(screen.queryByText('No committed start')).not.toBeInTheDocument();
+      rerender(
+        <TaskScheduleStrip
+          task={makeTask({ status: 'IN_PROGRESS', plannedStart: '2026-01-13' })}
+          {...editableProps}
+        />,
+      );
+      expect(screen.queryByText('No committed start')).not.toBeInTheDocument();
+    });
+
+    it('marks the Start value as computed (sr-only qualifier) when flagged, in the read-only path too', () => {
+      const { rerender } = render(<TaskScheduleStrip task={flagged()} />);
+      expect(screen.getByText('(computed, not committed)')).toBeInTheDocument();
+      // Committed start → no computed cue.
+      rerender(<TaskScheduleStrip task={makeTask({ plannedStart: '2026-01-13' })} />);
+      expect(screen.queryByText('(computed, not committed)')).not.toBeInTheDocument();
+    });
+
+    it('never marks a milestone Date as computed', () => {
+      render(
+        <TaskScheduleStrip
+          task={makeTask({ isMilestone: true, status: 'IN_PROGRESS', plannedStart: null })}
+        />,
+      );
+      expect(screen.queryByText('(computed, not committed)')).not.toBeInTheDocument();
     });
   });
 });
