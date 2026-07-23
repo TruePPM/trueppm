@@ -30,7 +30,10 @@ import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
-import { LinkIcon, WarningIcon, PencilIcon } from '@/components/Icons';
+import { LinkIcon, PencilIcon } from '@/components/Icons';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { canEditTask } from '@/lib/roles';
+import { MissingCommittedStartChip } from './MissingCommittedStartChip';
 import { LINK_STATUS_TEXT_CLASS } from '@/lib/linkStatus';
 import { localTodayIso } from '@/lib/localDate';
 import type { PhasePlannedBadge } from './plannedByPhase';
@@ -596,6 +599,11 @@ function TaskListRowInner({
   const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
   const isSelected = selectedTaskId === task.id;
   const updateTask = useUpdateTask();
+  const { role: currentRole } = useCurrentUserRole(projectId || undefined);
+  // Same UX gate the drawer sections use — server capability first, role
+  // fallback (`task.canEdit ?? canEditTask(role)`). Gates the remediation
+  // actions in the "no committed start" chip popover (web-rules 156/272).
+  const canEdit = task.canEdit ?? canEditTask(currentRole);
   const toggleComplete = useToggleComplete();
   const duplicateTask = useDuplicateTask();
   const isCoarsePointer = useIsCoarsePointer();
@@ -1104,6 +1112,7 @@ function TaskListRowInner({
           plannedBadge={plannedBadge}
           requestRevealGutterSprint={requestRevealGutterSprint}
           itl={itl}
+          canEdit={canEdit}
           hasMissingDatesWarning={hasMissingDatesWarning}
           recalcPrompt={recalcPrompt}
           setRecalcPrompt={setRecalcPrompt}
@@ -1371,6 +1380,7 @@ interface TaskNameContentProps {
   plannedBadge: Props['plannedBadge'];
   requestRevealGutterSprint: (sprintId: string | null) => void;
   itl: IterationLabel;
+  canEdit: boolean;
   hasMissingDatesWarning: boolean;
   recalcPrompt: RecalcPromptState | null;
   setRecalcPrompt: React.Dispatch<React.SetStateAction<RecalcPromptState | null>>;
@@ -1560,6 +1570,7 @@ function TaskNameBadges(props: TaskNameContentProps) {
     recalcPrompt,
     updateTask,
     projectId,
+    canEdit,
     setRecalcPrompt,
   } = props;
   return (
@@ -1591,15 +1602,7 @@ function TaskNameBadges(props: TaskNameContentProps) {
         </button>
       )}
       {hasMissingDatesWarning && (
-        <span
-          className="inline-flex shrink-0 items-center gap-0.5 px-1 py-px rounded-chip text-xs font-medium text-semantic-at-risk border border-semantic-at-risk/40"
-          title="In progress without a committed start. The dates shown are auto-calculated (CPM), not committed. Set a committed start, or move it back to To Do."
-          aria-label="No committed start date — dates shown are auto-calculated, not committed."
-          data-testid="missing-dates-chip"
-        >
-          <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
-          <span>no committed start</span>
-        </span>
+        <MissingCommittedStartChip task={task} projectId={projectId} canEdit={canEdit} />
       )}
       {recalcPrompt?.taskId === task.id && (
         <RecalcPercentChip

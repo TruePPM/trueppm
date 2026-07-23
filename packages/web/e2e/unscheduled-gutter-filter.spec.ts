@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * E2E for the Unscheduled gutter filter rules — originally introduced in
@@ -72,9 +73,13 @@ const FIXTURE_TASKS = [
   // NOT_STARTED + sprint — sprint is the scheduling commitment; NOT in gutter.
   task({ id: 't-sprint', wbs_path: '4', name: 'Committed To Sprint',
     status: 'NOT_STARTED', sprint: 'sprint-uuid-1' }),
-  // IN_PROGRESS without dates — data integrity warning chip on the row, NOT in gutter.
+  // IN_PROGRESS with CPM-computed dates but NO committed planned_start — renders
+  // the "no committed start" data-integrity chip (#2312/#2313), NOT in gutter.
+  // early_start populates task.start so the chip popover's "Set committed start"
+  // action has a date to commit (#2313).
   task({ id: 't-broken', wbs_path: '5', name: 'In Progress No Dates',
-    status: 'IN_PROGRESS', percent_complete: 25 }),
+    status: 'IN_PROGRESS', percent_complete: 25,
+    early_start: '2026-04-05', early_finish: '2026-04-10' }),
 ];
 
 async function setupRoutes(page: import('@playwright/test').Page) {
@@ -89,6 +94,13 @@ async function setupRoutes(page: import('@playwright/test').Page) {
     );
   });
 
+  // 401-guard: 404 every unmocked /api/v1 endpoint (e.g. /auth/me/,
+  // /projects/:id/ detail) rather than letting it hit the real backend and 401,
+  // which triggers the refresh → expireSession → session-expired modal chain
+  // that then intercepts pointer events (a pre-existing flake this spec's newer
+  // interaction tests exposed). A 404 is tolerated by the queries; 401 is not.
+  // Registered FIRST so every specific route below wins (last-registered wins).
+  await setupCatchAll(page);
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200, contentType: 'application/json',
@@ -136,6 +148,14 @@ async function setupRoutes(page: import('@playwright/test').Page) {
     route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  // useCurrentUserRole reads /projects/:id/members/?self=true; return an editor
+  // (Owner) so the "no committed start" chip popover shows its fix actions (#2313).
+  await page.route('**/api/v1/projects/*/members/**', (route) =>
+    route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify([{ id: 'm-self', role: 400, role_label: 'Owner' }]),
     }),
   );
 }
@@ -211,5 +231,39 @@ test.describe('Unscheduled gutter — data integrity chip (#317)', () => {
     // Locate the row by its task name and assert the chip is absent within it.
     const scheduledRow = page.getByRole('row').filter({ hasText: 'Scheduled Item' });
     await expect(scheduledRow.getByTestId('missing-dates-chip')).toHaveCount(0);
+  });
+});
+
+test.describe('No-committed-start chip — point-of-fix popover (#2313)', () => {
+  test('chip opens a remediation popover and Set committed start PATCHes planned_start', async ({
+    page,
+  }) => {
+    await gotoSchedule(page);
+    const chip = page.getByTestId('missing-dates-chip').first();
+    await expect(chip).toBeVisible();
+    await chip.click();
+
+    const dialog = page.getByRole('dialog', { name: 'No committed start' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /set committed start/i })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Move to To Do' })).toBeVisible();
+
+    const [req] = await Promise.all([
+      page.waitForRequest(
+        (r) => r.method() === 'PATCH' && /\/api\/v1\/tasks\/t-broken\/?$/.test(r.url()),
+      ),
+      dialog.getByRole('button', { name: /set committed start/i }).click(),
+    ]);
+    expect(req.postDataJSON()).toHaveProperty('planned_start');
+  });
+
+  test('Escape closes the popover and returns focus to the chip', async ({ page }) => {
+    await gotoSchedule(page);
+    const chip = page.getByTestId('missing-dates-chip').first();
+    await chip.click();
+    await expect(page.getByRole('dialog', { name: 'No committed start' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'No committed start' })).toBeHidden();
+    await expect(chip).toBeFocused();
   });
 });
