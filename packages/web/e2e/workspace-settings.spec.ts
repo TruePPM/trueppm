@@ -848,6 +848,8 @@ test.describe('Workspace Groups page', () => {
     await expect(page.getByRole('heading', { name: 'Groups & teams' })).toBeVisible();
     await expect(page.getByText('Avionics')).toBeVisible();
     await expect(page.getByText('Flight computer and firmware')).toBeVisible();
+    // #2295: a small group shows member names on the card, not anonymous dots.
+    await expect(page.getByText('Alice Khoury')).toBeVisible();
   });
 
   test('golden path — POST dispatched when create group form is submitted', async ({ page }) => {

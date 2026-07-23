@@ -33,10 +33,14 @@ const GROUPS = [
     id: 'g1',
     name: 'Avionics',
     description: 'Flight systems and navigation',
-    lead: 'SR',
+    lead: 'LE',
     lead_user_id: '3',
-    member_count: 4,
-    members: [],
+    // Few (1–3): rendered as member-name pills (#2295).
+    member_count: 2,
+    members: [
+      { id: 'm1', name: 'Sarah Reed', initials: 'SR', color: '#3E8C6D' },
+      { id: 'm2', name: 'Marco Diaz', initials: 'MD', color: '#C17A10' },
+    ],
     projects: [
       { id: 'p1', name: 'Atlas V', role: 100, role_label: 'Team Member' },
       { id: 'p2', name: 'Falcon Heavy', role: 200, role_label: 'Resource Manager' },
@@ -48,7 +52,25 @@ const GROUPS = [
     description: 'Engine and thrust subsystems',
     lead: null,
     lead_user_id: null,
+    // Many (4+): overlapping stack, capped at 5 avatars + a +N chip (#2295).
     member_count: 7,
+    members: [
+      { id: 'm3', name: 'Ada Ng', initials: 'AN', color: '#0EA5E9' },
+      { id: 'm4', name: 'Ben Cho', initials: 'BC', color: '#DC2626' },
+      { id: 'm5', name: 'Cara Ito', initials: 'CI', color: '#0F766E' },
+      { id: 'm6', name: 'Dev Rao', initials: 'DR', color: '#7C3AED' },
+      { id: 'm7', name: 'Eli Fox', initials: 'EF', color: '#3E8C6D' },
+    ],
+    projects: [],
+  },
+  {
+    id: 'g3',
+    name: 'Reliability',
+    description: 'No one assigned yet',
+    lead: null,
+    lead_user_id: null,
+    // Empty: "No members yet", divider suppressed (#2295).
+    member_count: 0,
     members: [],
     projects: [],
   },
@@ -190,6 +212,49 @@ describe('WorkspaceGroupsPage — create error alert', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/Could not create the group\. Try again\./i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Member roster — names when few, identity stack when many (#2295)
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceGroupsPage — member roster (#2295)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMocks();
+  });
+
+  it('renders member names as text for a small group (1–3 members)', async () => {
+    render(<WorkspaceGroupsPage />, { wrapper: makeWrapper() });
+    await waitFor(() => expect(screen.getByText('Avionics')).toBeInTheDocument());
+
+    // The name is the accessible signal — real, reachable text, not an anonymous dot.
+    expect(screen.getByText('Sarah Reed')).toBeInTheDocument();
+    expect(screen.getByText('Marco Diaz')).toBeInTheDocument();
+  });
+
+  it('collapses a large group (4+) to an identity stack with an authoritative +N chip', async () => {
+    render(<WorkspaceGroupsPage />, { wrapper: makeWrapper() });
+    await waitFor(() => expect(screen.getByText('Propulsion')).toBeInTheDocument());
+
+    // 7 members, cap 5 avatars → "+2" overflow computed from memberCount.
+    expect(screen.getByText('+2')).toBeInTheDocument();
+
+    // Avatars are decorative (rule 6); the names are reachable via the composite
+    // role="img" label naming every known member.
+    const roster = screen.getByRole('img', { name: /Members: Ada Ng.*and 2 more/i });
+    expect(roster).toBeInTheDocument();
+
+    // A large group does not render each member's name as standalone text.
+    expect(screen.queryByText('Ada Ng')).not.toBeInTheDocument();
+  });
+
+  it('shows "No members yet" and suppresses the divider for an empty group', async () => {
+    render(<WorkspaceGroupsPage />, { wrapper: makeWrapper() });
+    await waitFor(() => expect(screen.getByText('Reliability')).toBeInTheDocument());
+
+    expect(screen.getByText('No members yet')).toBeInTheDocument();
   });
 });
 

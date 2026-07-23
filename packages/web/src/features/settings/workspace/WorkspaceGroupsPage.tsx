@@ -4,7 +4,100 @@ import { useWorkspaceGroups, type WorkspaceGroup } from '../hooks/useWorkspaceGr
 import { useCreateGroup, useDeleteGroup } from '../hooks/useWorkspaceGroupMutations';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { GroupManageDrawer } from './GroupManageDrawer';
-import { IDENTITY_SWATCHES } from '@/lib/identityColors';
+
+// Below this member count the card shows member NAMES (who is in the group);
+// at or above it the roster collapses to the overlapping initial stack (an
+// identity glance) with an authoritative +N overflow. 4 is the cutover because
+// a half-width settings card can seat ~3 name pills before it pushes the
+// Lead / "Access to N projects" segment onto a third line.
+const MEMBER_NAMES_THRESHOLD = 4;
+// Cap of avatars drawn in the overlapping stack before the +N chip takes over.
+const MEMBER_STACK_CAP = 5;
+
+/**
+ * The group member roster shown on a card.
+ *
+ * - 0 members → a muted "No members yet" read (the divider is suppressed by the
+ *   caller so nothing dangles beside an empty slot).
+ * - 1–3 members → name pills: an 18px identity avatar (decorative, rule 6) plus
+ *   the member's real name as text — the name is the accessible signal.
+ * - 4+ members → the overlapping 22px initial stack, drawn from real member
+ *   `initials` + identity `color` (rule 208), capped at {@link MEMBER_STACK_CAP}
+ *   with a +N chip. Overflow is computed from the authoritative `memberCount`,
+ *   so a server-truncated `members` array still counts correctly. Avatars are
+ *   decorative, so the names are reachable via a composite `role="img"` label
+ *   (rule 171/172 — `role="img"` because Chromium prunes named groups).
+ */
+function GroupMemberRoster({ group }: { group: WorkspaceGroup }) {
+  if (group.memberCount === 0) {
+    return <span className="text-[11px] text-neutral-text-secondary">No members yet</span>;
+  }
+
+  if (group.memberCount < MEMBER_NAMES_THRESHOLD) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        {group.members.map((m) => (
+          <span key={m.id} className="flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className="w-[18px] h-[18px] rounded-full inline-flex items-center justify-center text-white font-semibold shrink-0"
+              style={{ background: m.color, fontSize: 10 }}
+            >
+              {m.initials}
+            </span>
+            {/* Name is the accessible signal (rule 6); title guards a long name (rule 255). */}
+            <span
+              className="text-[11px] text-neutral-text-primary truncate max-w-[128px]"
+              title={m.name}
+            >
+              {m.name}
+            </span>
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  const shown = group.members.slice(0, MEMBER_STACK_CAP);
+  const overflow = group.memberCount - shown.length;
+  const names = group.members.map((m) => m.name);
+  const unnamed = group.memberCount - names.length;
+  // Name every member the roster knows; fall back to a bare count only if the
+  // server returned no member detail (avoids a "Members:  and N more" grammar).
+  const label = names.length
+    ? `Members: ${names.join(', ')}${unnamed > 0 ? ` and ${unnamed} more` : ''}`
+    : `${group.memberCount} members`;
+
+  return (
+    <div className="flex" role="img" aria-label={label}>
+      {shown.map((m, i) => (
+        <span
+          key={m.id}
+          aria-hidden="true"
+          className="rounded-full border-2 border-neutral-surface-raised inline-flex items-center justify-center text-white font-semibold"
+          style={{
+            width: 22,
+            height: 22,
+            marginLeft: i === 0 ? 0 : -6,
+            background: m.color,
+            fontSize: 10,
+          }}
+        >
+          {m.initials}
+        </span>
+      ))}
+      {overflow > 0 && (
+        <span
+          className="rounded-full border-2 border-neutral-surface-raised bg-neutral-surface-sunken inline-flex items-center justify-center text-neutral-text-secondary font-bold"
+          style={{ width: 22, height: 22, marginLeft: -6, fontSize: 10 }}
+          aria-hidden="true"
+        >
+          +{overflow}
+        </span>
+      )}
+    </div>
+  );
+}
 
 interface GroupCardProps {
   group: WorkspaceGroup;
@@ -97,35 +190,14 @@ function GroupCard({ group, onDelete, onManage, hasError }: GroupCardProps) {
         </p>
       )}
 
-      {/* Member stack */}
-      <div className="mt-3 flex items-center gap-3">
-        <div className="flex">
-          {Array.from({ length: Math.min(6, group.memberCount) }).map((_, i) => (
-            <span
-              key={i}
-              className="rounded-full border-2 border-neutral-surface-raised inline-flex items-center justify-center text-white font-semibold"
-              style={{
-                width: 22,
-                height: 22,
-                marginLeft: i === 0 ? 0 : -6,
-                background: IDENTITY_SWATCHES[i % IDENTITY_SWATCHES.length],
-                fontSize: 10,
-              }}
-              aria-hidden="true"
-            />
-          ))}
-          {group.memberCount > 6 && (
-            <span
-              className="rounded-full border-2 border-neutral-surface-raised bg-neutral-surface-sunken inline-flex items-center justify-center text-neutral-text-secondary font-bold"
-              style={{ width: 22, height: 22, marginLeft: -6, fontSize: 10 }}
-              aria-hidden="true"
-            >
-              +{group.memberCount - 6}
-            </span>
-          )}
-        </div>
+      {/* Member roster — names when few, an identity stack when many (#2295) */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <GroupMemberRoster group={group} />
 
-        <div className="w-px h-4 bg-neutral-border shrink-0" aria-hidden="true" />
+        {/* Suppress the divider for an empty group so nothing dangles (#2295). */}
+        {group.memberCount > 0 && (
+          <div className="w-px h-4 bg-neutral-border shrink-0" aria-hidden="true" />
+        )}
 
         {group.lead && (
           <span className="text-[11px] text-neutral-text-secondary flex items-center gap-1">
