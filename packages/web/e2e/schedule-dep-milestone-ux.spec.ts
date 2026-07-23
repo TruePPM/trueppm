@@ -244,14 +244,18 @@ test.describe('Milestone drawer field suppression (#253)', () => {
 
   test('schedule strip shows "Date" cell (not "Start") for a milestone', async ({ page }) => {
     const drawer = await openDrawer(page, 'Phase Gate');
+    // Scope to the Schedule group — the at-a-glance summary strip (#2315) carries
+    // its own labeled cells above this one, so an unscoped group lookup collides.
+    const schedule = drawer.getByRole('group', { name: 'Schedule', exact: true });
     // "Date" group should be present; "Start" group should not (#962 strip)
-    await expect(drawer.getByRole('group', { name: 'Date' })).toBeVisible();
-    await expect(drawer.getByRole('group', { name: 'Start' })).not.toBeVisible();
+    await expect(schedule.getByRole('group', { name: 'Date' })).toBeVisible();
+    await expect(schedule.getByRole('group', { name: 'Start' })).not.toBeVisible();
   });
 
   test('schedule strip hides "Finish" cell for a milestone', async ({ page }) => {
     const drawer = await openDrawer(page, 'Phase Gate');
-    await expect(drawer.getByRole('group', { name: 'Finish' })).not.toBeVisible();
+    const schedule = drawer.getByRole('group', { name: 'Schedule', exact: true });
+    await expect(schedule.getByRole('group', { name: 'Finish' })).not.toBeVisible();
   });
 
   test('schedule strip suppresses the "Duration" cell for a milestone', async ({ page }) => {
@@ -259,7 +263,8 @@ test.describe('Milestone drawer field suppression (#253)', () => {
     // redesigned strip drops the Duration cell entirely rather than showing a
     // placeholder.
     const drawer = await openDrawer(page, 'Phase Gate');
-    await expect(drawer.getByRole('group', { name: 'Duration' })).not.toBeVisible();
+    const schedule = drawer.getByRole('group', { name: 'Schedule', exact: true });
+    await expect(schedule.getByRole('group', { name: 'Duration' })).not.toBeVisible();
   });
 
   test('Estimates section is absent from the drawer section list for milestones', async ({ page }) => {

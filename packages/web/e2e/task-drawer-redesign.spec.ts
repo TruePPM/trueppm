@@ -478,12 +478,15 @@ test.describe('TaskDetailDrawer redesign — tabs', () => {
 
   test('Details tab shows the schedule strip and (open) Overview assignees', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
-    // Schedule strip cells (group per cell). Duration is the editable cell for a
-    // non-milestone task the user can edit (#2106) — a button, not a group.
+    // Schedule strip cells (group per cell). Scope to the Schedule group — the
+    // at-a-glance summary strip (#2315) has its own "Finish" cell above this one.
+    // Duration is the editable cell for a non-milestone task the user can edit
+    // (#2106) — a button, not a group.
+    const schedule = drawer.getByRole('group', { name: 'Schedule', exact: true });
     for (const label of ['Start', 'Finish', 'Float']) {
-      await expect(drawer.getByRole('group', { name: label })).toBeVisible();
+      await expect(schedule.getByRole('group', { name: label })).toBeVisible();
     }
-    await expect(drawer.getByRole('button', { name: /Duration, 10 days\. Edit\./ })).toBeVisible();
+    await expect(schedule.getByRole('button', { name: /Duration, 10 days\. Edit\./ })).toBeVisible();
     await expect(drawer.getByText('10d', { exact: true })).toBeVisible();
     // Overview is the first Details section → expanded → Assignees visible.
     await expect(drawer.getByRole('region', { name: 'Assignees' })).toBeVisible();
