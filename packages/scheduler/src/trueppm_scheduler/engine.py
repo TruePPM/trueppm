@@ -1483,15 +1483,7 @@ def _velocity_worst_case_days(task: Task, project: Project) -> int:
     return int(max_sprints) * project.sprint_length_days
 
 
-def _validate_project(project: Project) -> None:
-    """Reject degenerate input before any calendar walk runs.
-
-    A pure-Python CPM pass walks the calendar one day at a time, so an empty
-    working-day mask or a century-long duration/lag turns into a multi-million-
-    iteration spin. Validating here keeps a single hostile or fat-fingered
-    project from tying up the caller (notably the synchronous Monte Carlo
-    request path in the TruePPM API).
-    """
+def _validate_unique_task_ids(project: Project) -> None:
     # Unique task IDs: the engine keys task_map, the graph, and every per-task
     # result on Task.id, so a duplicate id silently shadows one task — the loser
     # never gets CPM fields computed and surfaces in the result with all-None
@@ -1505,6 +1497,8 @@ def _validate_project(project: Project) -> None:
             )
         seen_ids.add(t.id)
 
+
+def _validate_project_calendar(project: Project) -> None:
     # working_days reaches a bitwise ``&`` below; a non-int mask (a direct-object
     # caller passing a string/float, not the from_dict path which already validates)
     # would leak a bare TypeError past the documented contract (#1209).
@@ -1554,6 +1548,8 @@ def _validate_project(project: Project) -> None:
     # (#749) so both engines reject identically at the validation layer.
     _next_working_day(project.start_date, project.calendar)
 
+
+def _validate_task_calendars(project: Project) -> None:
     # Per-task calendar registry (ADR-0120 D3): every named calendar a task may opt
     # into is held to the same guards as the project calendar, so a degenerate
     # member-project calendar can't drive the merged program pass into a spin. Each
@@ -1579,6 +1575,8 @@ def _validate_project(project: Project) -> None:
                 )
             _next_working_day(project.start_date, cal)
 
+
+def _validate_agile_inputs(project: Project) -> None:
     # Non-finite agile inputs crash deep inside the velocity sampler (NaN/inf
     # story_points hit ``int(np.ceil(...))``; an inf velocity sample passes the
     # ``> 0`` filter and poisons the bootstrap mean), so reject them eagerly
@@ -1612,6 +1610,8 @@ def _validate_project(project: Project) -> None:
             f"sprint_length_days must be an integer (got {project.sprint_length_days!r})."
         )
 
+
+def _validate_tasks(project: Project) -> None:
     for t in project.tasks:
         # Type guards for the direct-object API (#1209): the from_dict/from_json path
         # already coerces these, but a caller building Task objects by hand can pass
@@ -1744,6 +1744,9 @@ def _validate_project(project: Project) -> None:
                 "after the project start; the schedule cannot be computed within a "
                 "representable date range."
             )
+
+
+def _validate_dependencies(project: Project) -> None:
     # Bound the raw edge count (#1203) before the loop below (and every later O(E)
     # pass — graph build, summary expansion) touches it. Checked from len() so it is
     # O(1) and rejects a multi-million-edge payload before any per-edge work or the
@@ -1787,6 +1790,8 @@ def _validate_project(project: Project) -> None:
                 f"the maximum of ±{MAX_LAG_DAYS} days (got {dep.lag.days})."
             )
 
+
+def _validate_span_bounds(project: Project) -> None:
     # status_date (the data date, ADR-0132) floors all not-yet-finished work, so
     # like a planned_start pin it shifts the schedule directly and is bounded by
     # the same span cap — otherwise a data date in year 9999 drives the Monte
@@ -1870,6 +1875,29 @@ def _validate_project(project: Project) -> None:
             f"maximum representable date for a span of {total_span} working days; the "
             "schedule would overflow the date range. Use an earlier start date."
         )
+
+
+def _validate_project(project: Project) -> None:
+    """Reject degenerate input before any calendar walk runs.
+
+    A pure-Python CPM pass walks the calendar one day at a time, so an empty
+    working-day mask or a century-long duration/lag turns into a multi-million-
+    iteration spin. Validating here keeps a single hostile or fat-fingered
+    project from tying up the caller (notably the synchronous Monte Carlo
+    request path in the TruePPM API).
+    """
+    # Each helper below owns one cohesive family of guards and preserves the exact
+    # order they fired in when this was a single linear body: id uniqueness first,
+    # then the project calendar, per-task calendars, agile inputs, per-task fields,
+    # the dependency edges, and finally the cumulative span / date-range bounds
+    # (which read fields the earlier guards have already type-checked).
+    _validate_unique_task_ids(project)
+    _validate_project_calendar(project)
+    _validate_task_calendars(project)
+    _validate_agile_inputs(project)
+    _validate_tasks(project)
+    _validate_dependencies(project)
+    _validate_span_bounds(project)
 
 
 # ---------------------------------------------------------------------------
@@ -2199,6 +2227,550 @@ def _duration_sensitivity(
     return scored[: max(0, cap)]
 
 
+def _validate_monte_carlo_args(
+    project: Project,
+    runs: int,
+    seed: int | None,
+    max_runs: int | None,
+    max_tasks: int | None,
+) -> None:
+    """Validate ``monte_carlo()``'s own parameters before any network work.
+
+    Covers the run count, the per-task-calendars restriction, the seed, the
+    embedding-layer caps, and the non-empty requirement. The schedule payload
+    itself is validated separately by :func:`_validate_project`.
+    """
+    # ``runs`` is a documented public int param that sizes ``np.empty((runs, ...))``.
+    # A non-int leaked a bare TypeError (a str from ``runs < 1``, a float from
+    # ``np.empty``) past the SchedulerError contract — the same gap the ``seed``
+    # guard below already closes (#1453). bool is an int subclass but never a
+    # meaningful run count, so reject it explicitly (#1825).
+    if isinstance(runs, bool) or not isinstance(runs, int):
+        raise InvalidScheduleInput(f"runs must be a positive integer (got {runs!r}).")
+    if runs < 1:
+        raise InvalidScheduleInput(f"runs must be a positive integer (got {runs}).")
+    if project.calendars:
+        # ADR-0120 D3: schedule() resolves a per-task calendar for every node
+        # (_resolve_task_calendars); this vectorised pass shares one working-day
+        # index and one lag-delta table across all tasks, so it cannot honor them.
+        # Simulating anyway would silently disagree with schedule() on P50/P80/P95
+        # (issue #1566) — reject loudly instead of guessing on the wrong calendar.
+        raise InvalidScheduleInput(
+            "monte_carlo() does not support per-task calendars (Project.calendars "
+            f"declares {len(project.calendars)} calendar(s)). Per-task calendars are "
+            "honored by schedule() only; remove Project.calendars/Task.calendar_id "
+            "to run a Monte Carlo simulation on this project, or simulate the "
+            "sub-project(s) individually on their own calendar."
+        )
+    # seed is passed straight to np.random.default_rng(seed); a negative int raises
+    # a bare numpy ValueError and a float/non-int a bare TypeError, both escaping the
+    # documented SchedulerError contract for a documented public parameter (#1453).
+    # Accept None (non-deterministic) or a non-negative int; bool is an int subclass
+    # but never a meaningful seed, so reject it like the other numeric guards.
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int) or seed < 0):
+        raise InvalidScheduleInput(f"seed must be a non-negative integer or None (got {seed!r}).")
+    if max_tasks is not None and len(project.tasks) > max_tasks:
+        raise SimulationCapExceeded(
+            f"Project task count ({len(project.tasks)}) exceeds the configured "
+            f"maximum (max_tasks={max_tasks}); raise max_tasks (or pass None to "
+            "disable the cap) to simulate larger projects."
+        )
+    if max_runs is not None and runs > max_runs:
+        raise SimulationCapExceeded(
+            f"Requested runs ({runs}) exceeds the configured maximum "
+            f"(max_runs={max_runs}); raise max_runs (or pass None to disable the "
+            "cap) to allow more iterations."
+        )
+    if not project.tasks:
+        raise InvalidScheduleInput("Project must have at least one task.")
+
+
+def _sample_duration_matrix(
+    project: Project,
+    topo_order: list[str],
+    task_map: dict[str, Task],
+    runs: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Sample each task's per-run duration column into a ``(runs, n_tasks)`` matrix.
+
+    Durations are sampled column-by-column in ``topo_order`` from the single seeded
+    ``rng`` so the stream — and therefore seeded P50/P80/P95 — is independent of
+    task insertion order. Each task takes one of three paths in priority order
+    (velocity → three-point PERT → deterministic); a completed task's column is
+    collapsed to its base duration *after* sampling so the RNG stream is unchanged.
+    """
+    dur_matrix = np.empty((runs, len(topo_order)), dtype=np.float64)
+    for col, tid in enumerate(topo_order):
+        t = task_map[tid]
+        base = float(t.duration.days)
+        velocity_durations: np.ndarray | None = None
+        # Agile-aware path (#411): a SCRUM task with committed story points samples
+        # from the team's velocity distribution, not its duration estimate. Takes
+        # precedence over PERT — the delivery mode is an explicit declaration that
+        # uncertainty comes from throughput, not a three-point guess. Falls through
+        # to PERT / deterministic when the project carries no velocity signal.
+        if (
+            t.delivery_mode == DeliveryMode.SCRUM
+            and t.story_points is not None
+            and project.velocity_samples
+            and project.sprint_length_days is not None
+        ):
+            velocity_durations = _sample_velocity_durations(
+                float(t.story_points),
+                project.velocity_samples,
+                project.sprint_length_days,
+                runs,
+                rng,
+            )
+        if velocity_durations is not None:
+            dur_matrix[:, col] = velocity_durations
+        elif (
+            t.optimistic_duration is not None
+            and t.most_likely_duration is not None
+            and t.pessimistic_duration is not None
+        ):
+            opt = float(t.optimistic_duration.days)
+            ml = float(t.most_likely_duration.days)
+            pess = float(t.pessimistic_duration.days)
+            dur_matrix[:, col] = _sample_pert(opt, ml, pess, runs, rng)
+        else:
+            dur_matrix[:, col] = base
+        # A completed task is pinned to a constant offset pair in the forward pass
+        # (its sampled column is never read there), so its sampled duration cannot
+        # move the finish — a varying column would surface in the sensitivity tornado
+        # as pure bootstrap noise, contradicting the documented contract that
+        # completed tasks are omitted (#1827). Collapse the column to a constant so
+        # ``np.ptp == 0`` excludes it from the tornado. Done *after* sampling (not by
+        # skipping it) so the seeded RNG stream — and therefore every other task's
+        # samples and P50/P80/P95 — is byte-for-byte unchanged.
+        if _is_complete(t):
+            dur_matrix[:, col] = base
+    return dur_matrix
+
+
+def _mc_index_size(
+    project: Project, task_map: dict[str, Task], g: nx.DiGraph[str], n_tasks: int
+) -> int:
+    """Bound the working-day index length that covers the longest completion offset.
+
+    The longest possible completion offset is bounded by the sum of the largest
+    per-task durations plus all positive lags, plus whichever of a ``planned_start``
+    pin, the data date, or a recorded actual sits furthest out; pad by the task
+    count and a small buffer. The same index is reused for the offset→date
+    conversion, so it must cover every pinned as well as sampled finish.
+    """
+    dur_upper = 0
+    snet_upper = 0
+    actual_upper = 0
+    for t in task_map.values():
+        d_days = t.duration.days
+        if t.pessimistic_duration is not None:
+            d_days = max(d_days, t.pessimistic_duration.days)
+        # Velocity-sampled scrum durations are bounded by the sampler's
+        # max_sprints clamp, not by duration/pessimistic — without this term a
+        # scrum task's completion offsets ran past the index end and were
+        # silently clamped to its last entry, reporting finish dates months
+        # early (#1067).
+        d_days = max(d_days, _velocity_worst_case_days(t, project))
+        dur_upper += max(0, d_days)
+        # A planned_start pin (SNET, #1068) can push a task past every
+        # duration-derived bound; cover the furthest pin (calendar days are a
+        # safe over-estimate of working-day offsets).
+        if t.planned_start is not None:
+            snet_upper = max(snet_upper, (t.planned_start - project.start_date).days)
+        # Recorded actuals (ADR-0132/0136) pin a completed task's offset pair to a
+        # constant, and an actual far in the *future* (a task that finished long
+        # after its planned duration) is often the project's latest finish. Without
+        # covering it the pin mapped past the index end and was silently clamped to
+        # the last entry, so monte_carlo() reported a finish months before schedule()
+        # on the same completed project (#1821). Cover the furthest future actual
+        # (calendar days over-estimate working-day offsets, as snet/status do). A
+        # pre-start actual is not covered here — the forward index starts at the
+        # project start; _completed_offsets floors those at offset 0 (an anomalous
+        # data state: a task completed before the project began).
+        for actual in (t.actual_start, t.actual_finish):
+            if actual is not None:
+                actual_upper = max(actual_upper, (actual - project.start_date).days)
+    lag_upper = sum(
+        data["dep"].lag.days for _, _, data in g.edges(data=True) if data["dep"].lag.days > 0
+    )
+    # The data date (ADR-0132) floors remaining/not-started work, so a not-started
+    # task can finish as late as status_date + its duration. Cover the status date
+    # like a planned-start pin (calendar days over-estimate working-day offsets).
+    status_upper = 0
+    if project.status_date is not None:
+        status_upper = max(0, (project.status_date - project.start_date).days)
+    return int(dur_upper + lag_upper + snet_upper + status_upper + actual_upper + n_tasks + 30)
+
+
+def _snapped_offsets(
+    wd_ord: np.ndarray, last_off: int, anchor_ords: np.ndarray, shift_days: int
+) -> np.ndarray:
+    """Vectorised ``_offset_after``: offsets of next_working_day(anchor + shift)."""
+    off = np.searchsorted(wd_ord, anchor_ords + shift_days, side="left")
+    return np.clip(off, 0, last_off).astype(np.float64)
+
+
+def _build_lag_delta(
+    dt: DependencyType,
+    lag: timedelta,
+    wd_ord: np.ndarray,
+    k_arange: np.ndarray,
+    index_size: int,
+    last_off: int,
+) -> np.ndarray:
+    """Per-anchor-offset lag delta array for one ``(dep_type, lag)`` key.
+
+    Vectorised equivalent of the former per-cell loop (#1205): for each anchor
+    offset k the delta is the snapped successor offset minus the plain-add
+    baseline. FS/FF anchor on the *previous* working day (wd_index[k-1]), so their
+    k=0 cell stays 0 and the array is filled from index 1; SS/SF anchor on
+    wd_index[k] over the full range. This reproduces the scalar ``_offset_after``
+    arithmetic exactly (asserted byte-for-byte in the tests).
+    """
+    arr = np.zeros(index_size, dtype=np.float64)
+    lag_days = lag.days
+    if dt == DependencyType.FS:
+        # k = exclusive EF offset; EF date = wd_index[k-1]; shift = 1 + lag.
+        off = _snapped_offsets(wd_ord, last_off, wd_ord[:-1], 1 + lag_days)
+        arr[1:] = off - k_arange[1:]
+    elif dt == DependencyType.FF:
+        # Anchor k is the exclusive EF offset (inclusive last day = wd_index[k-1]);
+        # the inclusive→exclusive +1 is folded into the -(k-1) baseline.
+        off = _snapped_offsets(wd_ord, last_off, wd_ord[:-1], lag_days)
+        arr[1:] = off - k_arange[: index_size - 1]
+    elif dt == DependencyType.SS:
+        # Start-anchored ES constraint; both sides are inclusive starts.
+        arr[:] = _snapped_offsets(wd_ord, last_off, wd_ord, lag_days) - k_arange
+    else:  # SF
+        # Start-anchored EF constraint: succ.EF (exclusive) must clear the snapped
+        # predecessor-start+lag day (inclusive), so +1 converts the inclusive
+        # constraint day to the exclusive EF offset. FF gets this +1 for free via
+        # its exclusive-EF anchor; SF does not, and dropping it finished SF
+        # successors one working day early (#824).
+        arr[:] = _snapped_offsets(wd_ord, last_off, wd_ord, lag_days) + 1.0 - k_arange
+    return arr
+
+
+def _build_lag_delta_table(
+    g: nx.DiGraph[str], wd_index: list[date], index_size: int
+) -> dict[tuple[DependencyType, timedelta], np.ndarray | None]:
+    """One shared lag-delta array per *distinct* ``(dep_type, lag)`` key (#1201).
+
+    The array content depends ONLY on ``(dep_type, lag)`` — ``wd_index`` and the
+    calendar are fixed for the whole simulation — so N identical SF/lag-0 edges (or
+    any repeated key) cost a single array, not N. ``None`` means "no adjustment" (a
+    plain offset add) — used for lag-free FS/SS/FF. SF always carries a delta array
+    even at zero lag (its exclusive-EF-on-inclusive-start +1 conversion, issue #824).
+    The remaining cost — distinct keys x ``index_size`` — is capped explicitly
+    because ``MAX_PROJECT_SPAN_DAYS`` bounds Σlag but not this product, and an
+    SF/lag-0 edge contributes 0 to Σlag.
+    """
+    # Working-day ordinals for the whole index, so each per-(dep_type, lag) delta
+    # array is built with a single vectorised searchsorted instead of an
+    # ``index_size``-long pure-Python loop of ``_next_working_day`` snaps (#1205).
+    wd_ord = np.fromiter((d.toordinal() for d in wd_index), dtype=np.int64, count=len(wd_index))
+    last_off = len(wd_index) - 1
+    k_arange = np.arange(index_size, dtype=np.float64)
+
+    delta_by_key: dict[tuple[DependencyType, timedelta], np.ndarray | None] = {}
+    for _u, _v, data in g.edges(data=True):
+        d = data["dep"]
+        key = (d.dep_type, d.lag)
+        if key in delta_by_key:
+            continue
+        if d.lag == timedelta(0) and d.dep_type != DependencyType.SF:
+            delta_by_key[key] = None
+            continue
+        # Reject before materialising the offending array: distinct keys x
+        # index_size cells is the cost the span guard does not bound (#1201).
+        non_null = sum(1 for arr in delta_by_key.values() if arr is not None) + 1
+        if non_null * index_size > MAX_LAG_DELTA_CELLS:
+            raise InvalidScheduleInput(
+                f"Monte Carlo lag-delta table would exceed {MAX_LAG_DELTA_CELLS:,} "
+                "cells (distinct dependency type/lag combinations x schedule span). "
+                "The dependency network has too many distinct lag values for the "
+                "span involved — reduce the variety of lags or split the project."
+            )
+        delta_by_key[key] = _build_lag_delta(
+            d.dep_type, d.lag, wd_ord, k_arange, index_size, last_off
+        )
+    return delta_by_key
+
+
+def _lag_term(delta_arr: np.ndarray, anchor: np.ndarray) -> np.ndarray:
+    """Per-run lag delta gathered at each run's (rounded) anchor offset.
+
+    Lag-free edges (``delta_by_key[key] is None``) never reach here: the constraint
+    loop uses the anchor directly, skipping a runs-sized zeros allocation plus a
+    no-op add per edge (#1860 — adding zeros is exact in float64, so results are
+    unchanged).
+    """
+    idx = np.clip(np.rint(anchor).astype(np.int64), 0, len(delta_arr) - 1)
+    return np.asarray(delta_arr[idx], dtype=np.float64)
+
+
+def _completed_offsets(
+    t: Task, calendar: Calendar, offset_of: dict[date, int], wd_index: list[date]
+) -> tuple[float, float]:
+    """Constant (ES, exclusive-EF) offset pair for a completed task (ADR-0136).
+
+    Mirrors the three completed-task branches of ``_forward_pass`` (issue #1565) so
+    ``schedule()`` and ``monte_carlo()`` agree on every combination of actuals, not
+    only when ``actual_finish`` is set:
+
+    1. ``actual_finish`` recorded: the finish is truth; the start is the recorded
+       ``actual_start`` if present, else a full duration back from the finish. The
+       exclusive-EF offset is snapped to the working-day index (``fin_off + 1`` off
+       the previous working day) so it anchors FS/SS successors exactly as
+       ``_forward_pass`` does — there a weekend ``actual_finish`` pushes an FS
+       successor to ``next_working_day(actual_finish + 1)`` all the same. What the
+       working-day offset cannot carry is a *non-working* ``actual_finish`` itself:
+       ``_forward_pass`` keeps it VERBATIM (``early_finish = actual_finish``,
+       ADR-0136 "actuals are truth"), so the caller records the raw recorded date in
+       ``completed_finish_override`` and ``_offset_to_date`` restores it for the
+       terminal project-completion date — otherwise a Saturday finish would report
+       the project ending the previous Friday (#1929/#1830).
+    2. Only ``actual_start`` recorded (e.g. a REVIEW task — done, awaiting sign-off):
+       the full duration lays forward from the known start.
+    3. No actuals at all (``percent_complete >= 100`` alone): the full duration lays
+       forward from the *un-floored* project start — ``wd_index[0]``/offset 0, the
+       same ``start_base`` anchor ``_forward_pass`` uses for this case. Unlike
+       ``_forward_pass``, this does not additionally fold in
+       predecessor/``planned_start`` constraints: those can vary per Monte Carlo run,
+       which would break the constant-offset pin this fast path relies on, so a
+       completed task chained after an unresolved predecessor is out of scope here
+       (an inherently anomalous data state — a completed task is not expected to
+       depend on incomplete work).
+    """
+    full_days = t.duration.days
+    if t.actual_finish is not None:
+        fin_wd = _prev_working_day(t.actual_finish, calendar)
+        fin_off = offset_of.get(fin_wd)
+        if fin_off is None:
+            ef_off = 0.0 if fin_wd < wd_index[0] else float(len(wd_index) - 1)
+        else:
+            ef_off = float(fin_off + 1)  # exclusive EF: one past the inclusive last day
+        if t.actual_start is not None:
+            st_wd = _next_working_day(t.actual_start, calendar)
+            st_off = offset_of.get(st_wd)
+            es_off = (
+                float(st_off)
+                if st_off is not None
+                else (0.0 if st_wd < wd_index[0] else float(len(wd_index) - 1))
+            )
+            es_off = min(es_off, ef_off)
+        else:
+            es_off = max(0.0, ef_off - 1.0)
+        return es_off, ef_off
+    if t.actual_start is not None:
+        st_wd = _next_working_day(t.actual_start, calendar)
+        st_off = offset_of.get(st_wd)
+        es_off = (
+            float(st_off)
+            if st_off is not None
+            else (0.0 if st_wd < wd_index[0] else float(len(wd_index) - 1))
+        )
+        return es_off, es_off + float(full_days)
+    # No actuals: full duration anchored at the un-floored project start.
+    return 0.0, float(full_days)
+
+
+def _mc_progress_state(
+    project: Project,
+    task_map: dict[str, Task],
+    calendar: Calendar,
+    offset_of: dict[date, int],
+    wd_index: list[date],
+) -> tuple[
+    dict[str, float],
+    float,
+    dict[str, tuple[float, float]],
+    dict[int, date],
+    dict[str, float],
+]:
+    """Precompute the per-run-invariant floors and progress pins (ADR-0132/0136).
+
+    Returns ``(snet_floor, status_floor, completed_offsets, completed_finish_override,
+    elapsed_days)``. Completed tasks are pinned to a constant offset pair (not
+    re-sampled); in-progress tasks record their fixed elapsed portion so only the
+    remaining work carries uncertainty; SNET pins and the data date floor every
+    not-yet-finished task. None of these vary across runs, so they are computed once.
+    """
+    # planned_start (SNET) floors, mirroring the deterministic forward pass (#1068):
+    # a pinned task may not start before its pin regardless of network logic. A pin
+    # at or before project start is the 0 floor every task already has. The index was
+    # sized to cover the furthest pin, so the lookup is total.
+    snet_floor: dict[str, float] = {}
+    for t in task_map.values():
+        if t.planned_start is not None and t.planned_start > project.start_date:
+            snapped = _next_working_day(t.planned_start, calendar)
+            off = offset_of.get(snapped)
+            snet_floor[t.id] = float(off) if off is not None else float(len(wd_index) - 1)
+
+    # The data date floors all not-yet-finished work: nothing remaining can be
+    # sampled before "as of now". Mirrors the deterministic forward pass.
+    status_floor = 0.0
+    if project.status_date is not None and project.status_date > project.start_date:
+        snapped_sd = _next_working_day(project.status_date, calendar)
+        sd_off = offset_of.get(snapped_sd)
+        status_floor = float(sd_off) if sd_off is not None else float(len(wd_index) - 1)
+
+    completed_offsets: dict[str, tuple[float, float]] = {
+        t.id: _completed_offsets(t, calendar, offset_of, wd_index)
+        for t in task_map.values()
+        if _is_complete(t)
+    }
+
+    # WHY: schedule() keeps a completed task's recorded ``actual_finish`` VERBATIM
+    # even on a non-working day (``_forward_pass`` sets ``early_finish =
+    # actual_finish``, ADR-0136 "actuals are truth"). The working-day offset index
+    # cannot represent a weekend, so its exclusive-EF offset resolves back to the
+    # previous working day and monte_carlo() reported the project finishing a day
+    # before schedule() did (#1929/#1830). Record the raw recorded finish keyed by
+    # its (integer) exclusive-EF offset so ``_offset_to_date`` restores the exact
+    # date whenever the controlling completion offset is such a task. Only the
+    # terminal date conversion is affected — the network math (FS/SS anchoring off
+    # the snapped offset) is untouched, so in-progress and not-started tasks are
+    # unchanged. Two completed tasks that share an offset keep the later date, and
+    # a working-day ``actual_finish`` needs no override (the index already lands on
+    # it). Aligning MC to schedule() (not the reverse) upholds the docstring
+    # contract that a fully deterministic completed project simulates to precisely
+    # the CPM finish date.
+    completed_finish_override: dict[int, date] = {}
+    for tid, (_es_off, ef_off) in completed_offsets.items():
+        finish = task_map[tid].actual_finish
+        if finish is not None and not calendar.is_working_day(finish):
+            ef_key = round(ef_off)
+            prev = completed_finish_override.get(ef_key)
+            if prev is None or finish > prev:
+                completed_finish_override[ef_key] = finish
+
+    # In-progress tasks have a fixed elapsed portion subtracted from every sampled
+    # duration, so only the *remaining* work carries uncertainty (a deterministic
+    # in-progress task still simulates to exactly its CPM finish). ``elapsed_days``
+    # uses the same integer rule as _effective_duration_days so the engines agree.
+    elapsed_days: dict[str, float] = {}
+    for t in task_map.values():
+        if not _is_complete(t) and t.percent_complete and t.percent_complete > 0:
+            elapsed_days[t.id] = float(
+                int(t.duration.days * min(t.percent_complete, 100.0) / 100.0)
+            )
+
+    return snet_floor, status_floor, completed_offsets, completed_finish_override, elapsed_days
+
+
+def _mc_forward_pass(
+    topo_order: list[str],
+    runs: int,
+    g: nx.DiGraph[str],
+    task_idx: dict[str, int],
+    edge_lag_delta: dict[tuple[str, str], np.ndarray | None],
+    dur_matrix: np.ndarray,
+    snet_floor: dict[str, float],
+    status_floor: float,
+    completed_offsets: dict[str, tuple[float, float]],
+    elapsed_days: dict[str, float],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Vectorised forward pass — early-start/early-finish working-day offset matrices.
+
+    ES and EF are floating-point working-day offsets (0 = project start); EF = ES +
+    duration on the open interval (exclusive end, so a 5-day task starting at offset
+    0 has EF=5, and its FS successor starts at offset 5). Each column is filled in
+    ``topo_order`` so every predecessor is resolved before its successors. Returns
+    the ``(runs, n_tasks)`` ES and EF matrices.
+    """
+    n_tasks = len(topo_order)
+    es_mat = np.zeros((runs, n_tasks), dtype=np.float64)
+    ef_mat = np.zeros((runs, n_tasks), dtype=np.float64)
+
+    for col, tid in enumerate(topo_order):
+        # Completed: pin both offsets to constants across every run and skip the
+        # network/sampling logic entirely.
+        if tid in completed_offsets:
+            es_off, ef_off = completed_offsets[tid]
+            es_mat[:, col] = es_off
+            ef_mat[:, col] = ef_off
+            continue
+
+        es_constraints = np.full(runs, max(snet_floor.get(tid, 0.0), status_floor))
+        ef_constraints = np.zeros(runs)
+        has_ef_constraint = False
+
+        for pred_id in g.predecessors(tid):
+            dep: Dependency = g[pred_id][tid]["dep"]
+            delta_arr = edge_lag_delta[(pred_id, tid)]
+            p = task_idx[pred_id]
+
+            # Anchor: predecessor finish for FS/FF, predecessor start for SS/SF.
+            if dep.dep_type in (DependencyType.FS, DependencyType.FF):
+                anchor = ef_mat[:, p]
+            else:
+                anchor = es_mat[:, p]
+            # Lag-free edges (the dominant kind) use the anchor directly instead
+            # of allocating a runs-sized zeros vector and adding it — adding
+            # zeros is exact in float64, so results are bit-identical (#1860).
+            # The in-place maximum removes the remaining temporary; it is safe
+            # because es/ef_constraints are freshly allocated owned arrays per
+            # task (never views aliasing the anchor's matrix) and both start
+            # fully initialized (SNET/status floors and zeros respectively).
+            constraint = anchor if delta_arr is None else anchor + _lag_term(delta_arr, anchor)
+            if dep.dep_type in (DependencyType.FS, DependencyType.SS):
+                np.maximum(es_constraints, constraint, out=es_constraints)
+            else:  # FF / SF
+                np.maximum(ef_constraints, constraint, out=ef_constraints)
+                has_ef_constraint = True
+
+        # Effective duration floors at one working day: a task occupies at least
+        # its start day, exactly as _finish_from_start returns the start day for
+        # a zero-duration milestone. With the raw duration, a milestone's
+        # exclusive EF collapsed onto its ES — FS successors started a working
+        # day early, lag anchors indexed the day *before* the milestone, and a
+        # terminal milestone's completion date converted one day early (#1066).
+        # Subtract the fixed elapsed portion of an in-progress task so only its
+        # remaining work is sampled (ADR-0132); the 1.0 floor then applies, so a
+        # fully-burned-down task behaves like a zero-remaining milestone.
+        sampled = dur_matrix[:, col]
+        if tid in elapsed_days:
+            sampled = sampled - elapsed_days[tid]
+        eff_dur = np.maximum(sampled, 1.0)
+        es = es_constraints
+        ef = es + eff_dur
+
+        if has_ef_constraint:
+            ef = np.maximum(ef, ef_constraints)
+            # Where EF was pushed by FF/SF, ES moves back (but not below es_constraints).
+            es = np.maximum(es_constraints, ef - eff_dur)
+            ef = es + eff_dur
+
+        es_mat[:, col] = es
+        ef_mat[:, col] = ef
+
+    return es_mat, ef_mat
+
+
+def _offset_to_date(
+    offset: float, wd_index: list[date], completed_finish_override: dict[int, date]
+) -> date:
+    """Map a working-day completion offset back to a calendar date.
+
+    Clamps to the final index entry, so an offset at the very edge is safe. A
+    completed task whose recorded ``actual_finish`` is a non-working day is kept
+    verbatim by schedule() (ADR-0136), so restore that exact date when the
+    controlling offset is one of those pins — the working-day index can only ever
+    return a working day (#1929/#1830).
+    """
+    key = round(offset)
+    override = completed_finish_override.get(key)
+    if override is not None:
+        return override
+    # EF offsets are exclusive (EF=5 means working days 0..4). Subtract 1 to get the
+    # last working day of the task, matching CPM's inclusive EF.
+    idx = max(0, min(key - 1, len(wd_index) - 1))
+    return wd_index[idx]
+
+
 def monte_carlo(
     project: Project,
     *,
@@ -2293,49 +2865,7 @@ def monte_carlo(
             registry (per-task calendars are not honored by this pass — see
             the note above).
     """
-    # ``runs`` is a documented public int param that sizes ``np.empty((runs, ...))``.
-    # A non-int leaked a bare TypeError (a str from ``runs < 1``, a float from
-    # ``np.empty``) past the SchedulerError contract — the same gap the ``seed``
-    # guard below already closes (#1453). bool is an int subclass but never a
-    # meaningful run count, so reject it explicitly (#1825).
-    if isinstance(runs, bool) or not isinstance(runs, int):
-        raise InvalidScheduleInput(f"runs must be a positive integer (got {runs!r}).")
-    if runs < 1:
-        raise InvalidScheduleInput(f"runs must be a positive integer (got {runs}).")
-    if project.calendars:
-        # ADR-0120 D3: schedule() resolves a per-task calendar for every node
-        # (_resolve_task_calendars); this vectorised pass shares one working-day
-        # index and one lag-delta table across all tasks, so it cannot honor them.
-        # Simulating anyway would silently disagree with schedule() on P50/P80/P95
-        # (issue #1566) — reject loudly instead of guessing on the wrong calendar.
-        raise InvalidScheduleInput(
-            "monte_carlo() does not support per-task calendars (Project.calendars "
-            f"declares {len(project.calendars)} calendar(s)). Per-task calendars are "
-            "honored by schedule() only; remove Project.calendars/Task.calendar_id "
-            "to run a Monte Carlo simulation on this project, or simulate the "
-            "sub-project(s) individually on their own calendar."
-        )
-    # seed is passed straight to np.random.default_rng(seed); a negative int raises
-    # a bare numpy ValueError and a float/non-int a bare TypeError, both escaping the
-    # documented SchedulerError contract for a documented public parameter (#1453).
-    # Accept None (non-deterministic) or a non-negative int; bool is an int subclass
-    # but never a meaningful seed, so reject it like the other numeric guards.
-    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int) or seed < 0):
-        raise InvalidScheduleInput(f"seed must be a non-negative integer or None (got {seed!r}).")
-    if max_tasks is not None and len(project.tasks) > max_tasks:
-        raise SimulationCapExceeded(
-            f"Project task count ({len(project.tasks)}) exceeds the configured "
-            f"maximum (max_tasks={max_tasks}); raise max_tasks (or pass None to "
-            "disable the cap) to simulate larger projects."
-        )
-    if max_runs is not None and runs > max_runs:
-        raise SimulationCapExceeded(
-            f"Requested runs ({runs}) exceeds the configured maximum "
-            f"(max_runs={max_runs}); raise max_runs (or pass None to disable the "
-            "cap) to allow more iterations."
-        )
-    if not project.tasks:
-        raise InvalidScheduleInput("Project must have at least one task.")
+    _validate_monte_carlo_args(project, runs, seed, max_runs, max_tasks)
     _validate_project(project)
 
     g = _build_graph(project)
@@ -2363,439 +2893,66 @@ def monte_carlo(
 
     # --- Sample durations: shape (runs, n_tasks) ---
     task_map = {t.id: t for t in project.tasks}
-    dur_matrix = np.empty((runs, n_tasks), dtype=np.float64)
-
-    for col, tid in enumerate(topo_order):
-        t = task_map[tid]
-        base = float(t.duration.days)
-        velocity_durations: np.ndarray | None = None
-        # Agile-aware path (#411): a SCRUM task with committed story points samples
-        # from the team's velocity distribution, not its duration estimate. Takes
-        # precedence over PERT — the delivery mode is an explicit declaration that
-        # uncertainty comes from throughput, not a three-point guess. Falls through
-        # to PERT / deterministic when the project carries no velocity signal.
-        if (
-            t.delivery_mode == DeliveryMode.SCRUM
-            and t.story_points is not None
-            and project.velocity_samples
-            and project.sprint_length_days is not None
-        ):
-            velocity_durations = _sample_velocity_durations(
-                float(t.story_points),
-                project.velocity_samples,
-                project.sprint_length_days,
-                runs,
-                rng,
-            )
-        if velocity_durations is not None:
-            dur_matrix[:, col] = velocity_durations
-        elif (
-            t.optimistic_duration is not None
-            and t.most_likely_duration is not None
-            and t.pessimistic_duration is not None
-        ):
-            opt = float(t.optimistic_duration.days)
-            ml = float(t.most_likely_duration.days)
-            pess = float(t.pessimistic_duration.days)
-            dur_matrix[:, col] = _sample_pert(opt, ml, pess, runs, rng)
-        else:
-            dur_matrix[:, col] = base
-        # A completed task is pinned to a constant offset pair in the forward pass
-        # (its sampled column is never read there), so its sampled duration cannot
-        # move the finish — a varying column would surface in the sensitivity tornado
-        # as pure bootstrap noise, contradicting the documented contract that
-        # completed tasks are omitted (#1827). Collapse the column to a constant so
-        # ``np.ptp == 0`` excludes it from the tornado. Done *after* sampling (not by
-        # skipping it) so the seeded RNG stream — and therefore every other task's
-        # samples and P50/P80/P95 — is byte-for-byte unchanged.
-        if _is_complete(t):
-            dur_matrix[:, col] = base
-
-    # --- Vectorised forward pass (working-day offsets from project start) ---
-    # ES and EF are floating-point working-day offsets (0 = project start).
-    # EF = ES + duration (open-interval: exclusive end, so a 5-day task starting
-    # on offset 0 has EF=5, and its FS successor starts at offset 5).
-    es_mat = np.zeros((runs, n_tasks), dtype=np.float64)
-    ef_mat = np.zeros((runs, n_tasks), dtype=np.float64)
+    dur_matrix = _sample_duration_matrix(project, topo_order, task_map, runs, rng)
 
     # Pre-compute a working-day index covering the whole simulation so a lag can
     # be converted to working-day offsets against the predecessor's *actual* date
     # in each run — matching deterministic CPM, which snaps ``predecessor date +
     # lag`` to the next working day per task rather than against a single
-    # reference date (issue #824). Sizing: the longest possible completion offset
-    # is bounded by the sum of the largest per-task durations plus all positive
-    # lags; pad by the task count and a small buffer. The same index is reused for
-    # the offset→date conversion below.
-    dur_upper = 0
-    snet_upper = 0
-    actual_upper = 0
-    for t in task_map.values():
-        d_days = t.duration.days
-        if t.pessimistic_duration is not None:
-            d_days = max(d_days, t.pessimistic_duration.days)
-        # Velocity-sampled scrum durations are bounded by the sampler's
-        # max_sprints clamp, not by duration/pessimistic — without this term a
-        # scrum task's completion offsets ran past the index end and were
-        # silently clamped to its last entry, reporting finish dates months
-        # early (#1067).
-        d_days = max(d_days, _velocity_worst_case_days(t, project))
-        dur_upper += max(0, d_days)
-        # A planned_start pin (SNET, #1068) can push a task past every
-        # duration-derived bound; cover the furthest pin (calendar days are a
-        # safe over-estimate of working-day offsets).
-        if t.planned_start is not None:
-            snet_upper = max(snet_upper, (t.planned_start - project.start_date).days)
-        # Recorded actuals (ADR-0132/0136) pin a completed task's offset pair to a
-        # constant, and an actual far in the *future* (a task that finished long
-        # after its planned duration) is often the project's latest finish. Without
-        # covering it the pin mapped past the index end and was silently clamped to
-        # the last entry, so monte_carlo() reported a finish months before schedule()
-        # on the same completed project (#1821). Cover the furthest future actual
-        # (calendar days over-estimate working-day offsets, as snet/status do). A
-        # pre-start actual is not covered here — the forward index starts at the
-        # project start; _completed_offsets floors those at offset 0 (an anomalous
-        # data state: a task completed before the project began).
-        for actual in (t.actual_start, t.actual_finish):
-            if actual is not None:
-                actual_upper = max(actual_upper, (actual - project.start_date).days)
-    lag_upper = sum(
-        data["dep"].lag.days for _, _, data in g.edges(data=True) if data["dep"].lag.days > 0
-    )
-    # The data date (ADR-0132) floors remaining/not-started work, so a not-started
-    # task can finish as late as status_date + its duration. Cover the status date
-    # like a planned-start pin (calendar days over-estimate working-day offsets).
-    status_upper = 0
-    if project.status_date is not None:
-        status_upper = max(0, (project.status_date - project.start_date).days)
-    index_size = dur_upper + lag_upper + snet_upper + status_upper + actual_upper + n_tasks + 30
+    # reference date (issue #824). The same index is reused for the offset→date
+    # conversion below.
+    index_size = _mc_index_size(project, task_map, g, n_tasks)
     wd_index = _build_working_day_index(project.start_date, calendar, index_size)
     offset_of = {d: i for i, d in enumerate(wd_index)}
 
-    # Working-day ordinals for the whole index, so each per-(dep_type, lag) delta
-    # array is built with a single vectorised searchsorted instead of an
-    # ``index_size``-long pure-Python loop of ``_next_working_day`` snaps (#1205).
-    # ``wd_index`` is sorted ascending and holds exactly the working days, so
-    # ``searchsorted(wd_ord, target, "left")`` reproduces ``_next_working_day``'s
-    # snap — the first working-day offset >= target — including the former clamps
-    # (a target before the index floors to 0; one past the end clamps to the last
-    # offset). Ordinal arithmetic also can't hit the ``date.max`` overflow the
-    # scalar path now guards, because the index was already built within range.
-    wd_ord = np.fromiter((d.toordinal() for d in wd_index), dtype=np.int64, count=len(wd_index))
-    last_off = len(wd_index) - 1
-    k_arange = np.arange(index_size, dtype=np.float64)
-
-    def _snapped_offsets(anchor_ords: np.ndarray, shift_days: int) -> np.ndarray:
-        """Vectorised ``_offset_after``: offsets of next_working_day(anchor + shift)."""
-        off = np.searchsorted(wd_ord, anchor_ords + shift_days, side="left")
-        return np.clip(off, 0, last_off).astype(np.float64)
-
-    # Lag delta arrays, indexed by the rounded working-day offset of the
-    # predecessor's anchor (exclusive EF for FS/FF, ES for SS/SF); each holds the
-    # *extra* working-day offset the constraint adds relative to a plain offset add
-    # at that anchor. ``None`` means "no adjustment" (a plain offset add) — used for
-    # lag-free FS/SS/FF, byte-for-byte identical to a plain add. SF is the
-    # exception: it imposes an *exclusive* EF constraint anchored on the
-    # predecessor's *inclusive* start, so it needs a +1 interval conversion even at
-    # zero lag and therefore always carries a delta array (issue #824 — SF
-    # previously dropped that +1 and finished one working day early).
-    #
-    # The array content depends ONLY on ``(dep_type, lag)`` — ``wd_index`` and the
-    # calendar are fixed for the whole simulation — so build one array per *distinct*
-    # ``(dep_type, lag)`` key and share it across every edge carrying that key,
-    # rather than one array per edge (#1201). N identical SF/lag-0 edges (or any
-    # repeated key) now cost a single array, not N. The remaining cost — distinct
-    # keys x ``index_size`` — is capped explicitly: ``MAX_PROJECT_SPAN_DAYS`` bounds
-    # Σlag but not this product, and an SF/lag-0 edge contributes 0 to Σlag, so
-    # without the cap a wide fan-out of such edges slips the span guard entirely.
-    def _build_delta(dt: DependencyType, lag: timedelta) -> np.ndarray:
-        # Vectorised equivalent of the former per-cell loop (#1205): for each anchor
-        # offset k the delta is the snapped successor offset minus the plain-add
-        # baseline. FS/FF anchor on the *previous* working day (wd_index[k-1]), so
-        # their k=0 cell stays 0 and the array is filled from index 1; SS/SF anchor
-        # on wd_index[k] over the full range. This reproduces the scalar
-        # ``_offset_after`` arithmetic exactly (asserted byte-for-byte in the tests).
-        arr = np.zeros(index_size, dtype=np.float64)
-        lag_days = lag.days
-        if dt == DependencyType.FS:
-            # k = exclusive EF offset; EF date = wd_index[k-1]; shift = 1 + lag.
-            off = _snapped_offsets(wd_ord[:-1], 1 + lag_days)
-            arr[1:] = off - k_arange[1:]
-        elif dt == DependencyType.FF:
-            # Anchor k is the exclusive EF offset (inclusive last day = wd_index[k-1]);
-            # the inclusive→exclusive +1 is folded into the -(k-1) baseline.
-            off = _snapped_offsets(wd_ord[:-1], lag_days)
-            arr[1:] = off - k_arange[: index_size - 1]
-        elif dt == DependencyType.SS:
-            # Start-anchored ES constraint; both sides are inclusive starts.
-            arr[:] = _snapped_offsets(wd_ord, lag_days) - k_arange
-        else:  # SF
-            # Start-anchored EF constraint: succ.EF (exclusive) must clear the snapped
-            # predecessor-start+lag day (inclusive), so +1 converts the inclusive
-            # constraint day to the exclusive EF offset. FF gets this +1 for free via
-            # its exclusive-EF anchor; SF does not, and dropping it finished SF
-            # successors one working day early (#824).
-            arr[:] = _snapped_offsets(wd_ord, lag_days) + 1.0 - k_arange
-        return arr
-
-    delta_by_key: dict[tuple[DependencyType, timedelta], np.ndarray | None] = {}
-    for _u, _v, data in g.edges(data=True):
-        d = data["dep"]
-        key = (d.dep_type, d.lag)
-        if key in delta_by_key:
-            continue
-        if d.lag == timedelta(0) and d.dep_type != DependencyType.SF:
-            delta_by_key[key] = None
-            continue
-        # Reject before materialising the offending array: distinct keys x
-        # index_size cells is the cost the span guard does not bound (#1201).
-        non_null = sum(1 for arr in delta_by_key.values() if arr is not None) + 1
-        if non_null * index_size > MAX_LAG_DELTA_CELLS:
-            raise InvalidScheduleInput(
-                f"Monte Carlo lag-delta table would exceed {MAX_LAG_DELTA_CELLS:,} "
-                "cells (distinct dependency type/lag combinations x schedule span). "
-                "The dependency network has too many distinct lag values for the "
-                "span involved — reduce the variety of lags or split the project."
-            )
-        delta_by_key[key] = _build_delta(d.dep_type, d.lag)
-
+    # One shared lag-delta array per distinct (dep_type, lag) key, then a per-edge
+    # lookup mapping each edge to its (possibly shared, possibly None) array.
+    delta_by_key = _build_lag_delta_table(g, wd_index, index_size)
     edge_lag_delta: dict[tuple[str, str], np.ndarray | None] = {
         (u, v): delta_by_key[(data["dep"].dep_type, data["dep"].lag)]
         for u, v, data in g.edges(data=True)
     }
 
-    def _lag_term(delta_arr: np.ndarray, anchor: np.ndarray) -> np.ndarray:
-        """Per-run lag delta gathered at each run's (rounded) anchor offset.
+    # Per-run-invariant floors and progress pins (SNET, data date, completed pins,
+    # in-progress elapsed) — computed once, since none of them vary across runs.
+    (
+        snet_floor,
+        status_floor,
+        completed_offsets,
+        completed_finish_override,
+        elapsed_days,
+    ) = _mc_progress_state(project, task_map, calendar, offset_of, wd_index)
 
-        Lag-free edges (``delta_by_key[key] is None``) never reach here: the
-        constraint loop uses the anchor directly, skipping a runs-sized zeros
-        allocation plus a no-op add per edge (#1860 — adding zeros is exact in
-        float64, so results are unchanged)."""
-        idx = np.clip(np.rint(anchor).astype(np.int64), 0, len(delta_arr) - 1)
-        return np.asarray(delta_arr[idx], dtype=np.float64)
-
-    # planned_start (SNET) floors, mirroring the deterministic forward pass
-    # (#1068): a pinned task may not start before its pin regardless of network
-    # logic. A pin at or before project start is the 0 floor every task already
-    # has. The index was sized to cover the furthest pin, so the lookup is total.
-    snet_floor: dict[str, float] = {}
-    for t in task_map.values():
-        if t.planned_start is not None and t.planned_start > project.start_date:
-            snapped = _next_working_day(t.planned_start, calendar)
-            off = offset_of.get(snapped)
-            snet_floor[t.id] = float(off) if off is not None else float(len(wd_index) - 1)
-
-    # --- Progress-aware inputs (ADR-0132) ---
-    # The data date floors all not-yet-finished work: nothing remaining can be
-    # sampled before "as of now". Mirrors the deterministic forward pass.
-    status_floor = 0.0
-    if project.status_date is not None and project.status_date > project.start_date:
-        snapped_sd = _next_working_day(project.status_date, calendar)
-        sd_off = offset_of.get(snapped_sd)
-        status_floor = float(sd_off) if sd_off is not None else float(len(wd_index) - 1)
-
-    def _completed_offsets(t: Task) -> tuple[float, float]:
-        """Constant (ES, exclusive-EF) offset pair for a completed task (ADR-0136).
-
-        Mirrors the three completed-task branches of ``_forward_pass`` (issue
-        #1565) so ``schedule()`` and ``monte_carlo()`` agree on every combination
-        of actuals, not only when ``actual_finish`` is set:
-
-        1. ``actual_finish`` recorded: the finish is truth; the start is the
-           recorded ``actual_start`` if present, else a full duration back from
-           the finish. The exclusive-EF offset is snapped to the working-day
-           index (``fin_off + 1`` off the previous working day) so it anchors
-           FS/SS successors exactly as ``_forward_pass`` does — there a weekend
-           ``actual_finish`` pushes an FS successor to ``next_working_day(
-           actual_finish + 1)`` all the same. What the working-day offset cannot
-           carry is a *non-working* ``actual_finish`` itself: ``_forward_pass``
-           keeps it VERBATIM (``early_finish = actual_finish``, ADR-0136
-           "actuals are truth"), so the caller records the raw recorded date in
-           ``completed_finish_override`` and ``_offset_to_date`` restores it for
-           the terminal project-completion date — otherwise a Saturday finish
-           would report the project ending the previous Friday (#1929/#1830).
-        2. Only ``actual_start`` recorded (e.g. a REVIEW task — done, awaiting
-           sign-off): the full duration lays forward from the known start.
-        3. No actuals at all (``percent_complete >= 100`` alone): the full
-           duration lays forward from the *un-floored* project start —
-           ``wd_index[0]``/offset 0, the same ``start_base`` anchor
-           ``_forward_pass`` uses for this case. Unlike ``_forward_pass``, this
-           does not additionally fold in predecessor/``planned_start``
-           constraints: those can vary per Monte Carlo run, which would break
-           the constant-offset pin this fast path relies on, so a completed
-           task chained after an unresolved predecessor is out of scope here
-           (an inherently anomalous data state — a completed task is not
-           expected to depend on incomplete work).
-        """
-        full_days = t.duration.days
-        if t.actual_finish is not None:
-            fin_wd = _prev_working_day(t.actual_finish, calendar)
-            fin_off = offset_of.get(fin_wd)
-            if fin_off is None:
-                ef_off = 0.0 if fin_wd < wd_index[0] else float(len(wd_index) - 1)
-            else:
-                ef_off = float(fin_off + 1)  # exclusive EF: one past the inclusive last day
-            if t.actual_start is not None:
-                st_wd = _next_working_day(t.actual_start, calendar)
-                st_off = offset_of.get(st_wd)
-                es_off = (
-                    float(st_off)
-                    if st_off is not None
-                    else (0.0 if st_wd < wd_index[0] else float(len(wd_index) - 1))
-                )
-                es_off = min(es_off, ef_off)
-            else:
-                es_off = max(0.0, ef_off - 1.0)
-            return es_off, ef_off
-        if t.actual_start is not None:
-            st_wd = _next_working_day(t.actual_start, calendar)
-            st_off = offset_of.get(st_wd)
-            es_off = (
-                float(st_off)
-                if st_off is not None
-                else (0.0 if st_wd < wd_index[0] else float(len(wd_index) - 1))
-            )
-            return es_off, es_off + float(full_days)
-        # No actuals: full duration anchored at the un-floored project start.
-        return 0.0, float(full_days)
-
-    # Completed tasks (_is_complete: actual_finish set, or percent_complete >=
-    # 100 even with no actuals recorded) are pinned to a constant offset pair —
-    # not re-sampled. In-progress tasks have a fixed elapsed portion subtracted
-    # from every sampled duration, so only the *remaining* work carries
-    # uncertainty (and a deterministic in-progress task still simulates to
-    # exactly its CPM finish, preserving that invariant). ``elapsed_days`` uses
-    # the same integer rule as _effective_duration_days so the two engines agree.
-    completed_offsets: dict[str, tuple[float, float]] = {
-        t.id: _completed_offsets(t) for t in task_map.values() if _is_complete(t)
-    }
-
-    # WHY: schedule() keeps a completed task's recorded ``actual_finish`` VERBATIM
-    # even on a non-working day (``_forward_pass`` sets ``early_finish =
-    # actual_finish``, ADR-0136 "actuals are truth"). The working-day offset index
-    # cannot represent a weekend, so its exclusive-EF offset resolves back to the
-    # previous working day and monte_carlo() reported the project finishing a day
-    # before schedule() did (#1929/#1830). Record the raw recorded finish keyed by
-    # its (integer) exclusive-EF offset so ``_offset_to_date`` restores the exact
-    # date whenever the controlling completion offset is such a task. Only the
-    # terminal date conversion is affected — the network math (FS/SS anchoring off
-    # the snapped offset) is untouched, so in-progress and not-started tasks are
-    # unchanged. Two completed tasks that share an offset keep the later date, and
-    # a working-day ``actual_finish`` needs no override (the index already lands on
-    # it). Aligning MC to schedule() (not the reverse) upholds the docstring
-    # contract that a fully deterministic completed project simulates to precisely
-    # the CPM finish date.
-    completed_finish_override: dict[int, date] = {}
-    for tid, (_es_off, ef_off) in completed_offsets.items():
-        finish = task_map[tid].actual_finish
-        if finish is not None and not calendar.is_working_day(finish):
-            ef_key = round(ef_off)
-            prev = completed_finish_override.get(ef_key)
-            if prev is None or finish > prev:
-                completed_finish_override[ef_key] = finish
-
-    elapsed_days: dict[str, float] = {}
-    for t in task_map.values():
-        if not _is_complete(t) and t.percent_complete and t.percent_complete > 0:
-            elapsed_days[t.id] = float(
-                int(t.duration.days * min(t.percent_complete, 100.0) / 100.0)
-            )
-
-    for col, tid in enumerate(topo_order):
-        # Completed: pin both offsets to constants across every run and skip the
-        # network/sampling logic entirely.
-        if tid in completed_offsets:
-            es_off, ef_off = completed_offsets[tid]
-            es_mat[:, col] = es_off
-            ef_mat[:, col] = ef_off
-            continue
-
-        es_constraints = np.full(runs, max(snet_floor.get(tid, 0.0), status_floor))
-        ef_constraints = np.zeros(runs)
-        has_ef_constraint = False
-
-        for pred_id in g.predecessors(tid):
-            dep: Dependency = g[pred_id][tid]["dep"]
-            delta_arr = edge_lag_delta[(pred_id, tid)]
-            p = task_idx[pred_id]
-
-            # Anchor: predecessor finish for FS/FF, predecessor start for SS/SF.
-            if dep.dep_type in (DependencyType.FS, DependencyType.FF):
-                anchor = ef_mat[:, p]
-            else:
-                anchor = es_mat[:, p]
-            # Lag-free edges (the dominant kind) use the anchor directly instead
-            # of allocating a runs-sized zeros vector and adding it — adding
-            # zeros is exact in float64, so results are bit-identical (#1860).
-            # The in-place maximum removes the remaining temporary; it is safe
-            # because es/ef_constraints are freshly allocated owned arrays per
-            # task (never views aliasing the anchor's matrix) and both start
-            # fully initialized (SNET/status floors and zeros respectively).
-            constraint = anchor if delta_arr is None else anchor + _lag_term(delta_arr, anchor)
-            if dep.dep_type in (DependencyType.FS, DependencyType.SS):
-                np.maximum(es_constraints, constraint, out=es_constraints)
-            else:  # FF / SF
-                np.maximum(ef_constraints, constraint, out=ef_constraints)
-                has_ef_constraint = True
-
-        # Effective duration floors at one working day: a task occupies at least
-        # its start day, exactly as _finish_from_start returns the start day for
-        # a zero-duration milestone. With the raw duration, a milestone's
-        # exclusive EF collapsed onto its ES — FS successors started a working
-        # day early, lag anchors indexed the day *before* the milestone, and a
-        # terminal milestone's completion date converted one day early (#1066).
-        # Subtract the fixed elapsed portion of an in-progress task so only its
-        # remaining work is sampled (ADR-0132); the 1.0 floor then applies, so a
-        # fully-burned-down task behaves like a zero-remaining milestone.
-        sampled = dur_matrix[:, col]
-        if tid in elapsed_days:
-            sampled = sampled - elapsed_days[tid]
-        eff_dur = np.maximum(sampled, 1.0)
-        es = es_constraints
-        ef = es + eff_dur
-
-        if has_ef_constraint:
-            ef = np.maximum(ef, ef_constraints)
-            # Where EF was pushed by FF/SF, ES moves back (but not below es_constraints).
-            es = np.maximum(es_constraints, ef - eff_dur)
-            ef = es + eff_dur
-
-        es_mat[:, col] = es
-        ef_mat[:, col] = ef
+    _es_mat, ef_mat = _mc_forward_pass(
+        topo_order,
+        runs,
+        g,
+        task_idx,
+        edge_lag_delta,
+        dur_matrix,
+        snet_floor,
+        status_floor,
+        completed_offsets,
+        elapsed_days,
+    )
 
     # --- Project completion offset = max EF across all tasks per run ---
     completion_offsets = ef_mat.max(axis=1)  # shape (runs,)
 
-    # --- Convert offsets back to dates using the working-day index ---
-    # ``wd_index`` was built above (sized to bound the longest completion offset
-    # plus all lags); reuse it rather than rebuilding. ``_offset_to_date`` clamps
-    # to the final index entry, so an offset at the very edge is still safe.
-    def _offset_to_date(offset: float) -> date:
-        # A completed task whose recorded ``actual_finish`` is a non-working day is
-        # kept verbatim by schedule() (ADR-0136); restore that exact date when the
-        # controlling offset is one of those pins, since the working-day index below
-        # can only ever return a working day (#1929/#1830).
-        key = round(offset)
-        override = completed_finish_override.get(key)
-        if override is not None:
-            return override
-        # EF offsets are exclusive (EF=5 means working days 0..4). Subtract 1
-        # to get the last working day of the task, matching CPM's inclusive EF.
-        idx = max(0, min(key - 1, len(wd_index) - 1))
-        return wd_index[idx]
-
-    all_dates = sorted(_offset_to_date(o) for o in completion_offsets.tolist())
-
+    # Convert offsets back to dates via the working-day index (reused from above).
     # Percentile convention (documented for the public surface, #826): use
-    # numpy.percentile — the de-facto Python standard (linear interpolation
-    # between the two nearest ranks) — on the completion-offset distribution,
-    # then map the resulting offset to a working-day date. The previous
-    # lower-median nearest-rank with a -1 offset (all_dates[int(0.50*runs)-1])
-    # was an undocumented in-house convention; numpy.percentile is what PyPI
-    # consumers expect and stays reproducible under the same seed.
+    # numpy.percentile — the de-facto Python standard (linear interpolation between
+    # the two nearest ranks) — on the completion-offset distribution, then map the
+    # resulting offset to a working-day date. numpy.percentile is what PyPI consumers
+    # expect and stays reproducible under the same seed. Percentiles use the FULL
+    # distribution.
+    all_dates = sorted(
+        _offset_to_date(o, wd_index, completed_finish_override) for o in completion_offsets.tolist()
+    )
     pct_offsets = np.percentile(completion_offsets, [50, 80, 95])
-    p50 = _offset_to_date(float(pct_offsets[0]))
-    p80 = _offset_to_date(float(pct_offsets[1]))
-    p95 = _offset_to_date(float(pct_offsets[2]))
+    p50 = _offset_to_date(float(pct_offsets[0]), wd_index, completed_finish_override)
+    p80 = _offset_to_date(float(pct_offsets[1]), wd_index, completed_finish_override)
+    p95 = _offset_to_date(float(pct_offsets[2]), wd_index, completed_finish_override)
 
     # Duration-sensitivity tornado (ADR-0140) — which tasks' sampled durations
     # most move the finish, from the same sampled matrix (no second pass). Computed

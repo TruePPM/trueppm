@@ -190,6 +190,93 @@ def _days_between(a: date, b: date) -> int:
     return (b - a).days
 
 
+def _completed_forward_contribs(task: Task, *, want_finish: bool) -> list[DerivationContribution]:
+    """Provenance for a completed task pinned to its recorded actuals (ADR-0136).
+
+    Completed tasks are taken out of network logic; the honest binding is the
+    recorded actual (or, for a bare 100%-complete task, the full-duration
+    planning position from the un-floored project start), not a predecessor link.
+    The two contributions are emitted finish-first or start-first to mirror which
+    actual the engine treated as authoritative.
+    """
+    contribs: list[DerivationContribution] = []
+    if task.actual_finish is not None:
+        contribs.append(
+            DerivationContribution(
+                kind="actual_finish", imposed_date=task.early_finish, is_binding=want_finish
+            )
+        )
+        contribs.append(
+            DerivationContribution(
+                kind="actual_start", imposed_date=task.early_start, is_binding=not want_finish
+            )
+        )
+    elif task.actual_start is not None:
+        contribs.append(
+            DerivationContribution(
+                kind="actual_start", imposed_date=task.early_start, is_binding=not want_finish
+            )
+        )
+        contribs.append(
+            DerivationContribution(
+                kind="actual_finish", imposed_date=task.early_finish, is_binding=want_finish
+            )
+        )
+    else:
+        # 100%-complete with no recorded actuals: laid out at full duration from
+        # the un-floored project start (engine full-duration planning position).
+        contribs.append(
+            DerivationContribution(
+                kind="project_start", imposed_date=task.early_start, is_binding=not want_finish
+            )
+        )
+        contribs.append(
+            DerivationContribution(
+                kind="early_start", imposed_date=task.early_finish, is_binding=want_finish
+            )
+        )
+    return contribs
+
+
+# Provenance kind + label per dependency type, mirroring ``engine._forward_pass``.
+_FORWARD_PRED_KIND: dict[DependencyType, tuple[str, str]] = {
+    DependencyType.FS: ("predecessor_fs", "FS"),
+    DependencyType.SS: ("predecessor_ss", "SS"),
+    DependencyType.FF: ("predecessor_ff", "FF"),
+    DependencyType.SF: ("predecessor_sf", "SF"),
+}
+
+
+def _pred_forward_contribution(
+    pred: Task, dep_type: DependencyType, lag: timedelta, cal: Calendar
+) -> DerivationContribution:
+    """One predecessor's early-* contribution, snapped to a working day.
+
+    Reproduces the FS/SS/FF/SF anchoring of ``engine._forward_pass``: FS/FF read
+    the predecessor's ``early_finish`` (FS with the extra +1 inclusive→exclusive
+    interval day), SS/SF its ``early_start``, then snap ``anchor + lag`` forward
+    to the next working day.
+    """
+    assert pred.early_start is not None and pred.early_finish is not None
+    if dep_type == DependencyType.FS:
+        raw = _safe_offset(pred.early_finish, timedelta(days=1) + lag)
+    elif dep_type == DependencyType.FF:
+        raw = _safe_offset(pred.early_finish, lag)
+    else:  # SS / SF anchor on the predecessor start
+        raw = _safe_offset(pred.early_start, lag)
+    imposed = _next_working_day(raw, cal)
+    kind, label = _FORWARD_PRED_KIND[dep_type]
+    return DerivationContribution(
+        kind=kind,
+        source_task_id=pred.id,
+        source_task_name=pred.name,
+        dep_type=label,
+        lag_days=lag.days,
+        imposed_date=imposed,
+        calendar_days_added=_days_between(raw, imposed),
+    )
+
+
 def _derive_forward(
     task: Task,
     task_map: dict[str, Task],
@@ -211,41 +298,7 @@ def _derive_forward(
     # logic (engine ADR-0136); the honest binding is the recorded actual, not a
     # predecessor link.
     if _is_complete(task):
-        if task.actual_finish is not None:
-            contribs.append(
-                DerivationContribution(
-                    kind="actual_finish", imposed_date=task.early_finish, is_binding=want_finish
-                )
-            )
-            contribs.append(
-                DerivationContribution(
-                    kind="actual_start", imposed_date=task.early_start, is_binding=not want_finish
-                )
-            )
-        elif task.actual_start is not None:
-            contribs.append(
-                DerivationContribution(
-                    kind="actual_start", imposed_date=task.early_start, is_binding=not want_finish
-                )
-            )
-            contribs.append(
-                DerivationContribution(
-                    kind="actual_finish", imposed_date=task.early_finish, is_binding=want_finish
-                )
-            )
-        else:
-            # 100%-complete with no recorded actuals: laid out at full duration from
-            # the un-floored project start (engine full-duration planning position).
-            contribs.append(
-                DerivationContribution(
-                    kind="project_start", imposed_date=task.early_start, is_binding=not want_finish
-                )
-            )
-            contribs.append(
-                DerivationContribution(
-                    kind="early_start", imposed_date=task.early_finish, is_binding=want_finish
-                )
-            )
+        contribs = _completed_forward_contribs(task, want_finish=want_finish)
         value = task.early_finish if want_finish else task.early_start
         return (value.isoformat() if value else None, contribs)
 
@@ -277,66 +330,15 @@ def _derive_forward(
             )
         )
 
+    # FS/SS impose the early start (appended in-line); FF/SF impose the early finish
+    # and are collected separately so the binding resolution below can flag them.
     ef_terms: list[DerivationContribution] = []
     for pred, dep_type, lag in preds:
-        assert pred.early_start is not None and pred.early_finish is not None
-        lag_days = lag.days
-        if dep_type == DependencyType.FS:
-            raw = _safe_offset(pred.early_finish, timedelta(days=1) + lag)
-            imposed = _next_working_day(raw, cal)
-            contribs.append(
-                DerivationContribution(
-                    kind="predecessor_fs",
-                    source_task_id=pred.id,
-                    source_task_name=pred.name,
-                    dep_type="FS",
-                    lag_days=lag_days,
-                    imposed_date=imposed,
-                    calendar_days_added=_days_between(raw, imposed),
-                )
-            )
-        elif dep_type == DependencyType.SS:
-            raw = _safe_offset(pred.early_start, lag)
-            imposed = _next_working_day(raw, cal)
-            contribs.append(
-                DerivationContribution(
-                    kind="predecessor_ss",
-                    source_task_id=pred.id,
-                    source_task_name=pred.name,
-                    dep_type="SS",
-                    lag_days=lag_days,
-                    imposed_date=imposed,
-                    calendar_days_added=_days_between(raw, imposed),
-                )
-            )
-        elif dep_type == DependencyType.FF:
-            raw = _safe_offset(pred.early_finish, lag)
-            imposed = _next_working_day(raw, cal)
-            ef_terms.append(
-                DerivationContribution(
-                    kind="predecessor_ff",
-                    source_task_id=pred.id,
-                    source_task_name=pred.name,
-                    dep_type="FF",
-                    lag_days=lag_days,
-                    imposed_date=imposed,
-                    calendar_days_added=_days_between(raw, imposed),
-                )
-            )
-        elif dep_type == DependencyType.SF:
-            raw = _safe_offset(pred.early_start, lag)
-            imposed = _next_working_day(raw, cal)
-            ef_terms.append(
-                DerivationContribution(
-                    kind="predecessor_sf",
-                    source_task_id=pred.id,
-                    source_task_name=pred.name,
-                    dep_type="SF",
-                    lag_days=lag_days,
-                    imposed_date=imposed,
-                    calendar_days_added=_days_between(raw, imposed),
-                )
-            )
+        contribution = _pred_forward_contribution(pred, dep_type, lag, cal)
+        if dep_type in (DependencyType.FF, DependencyType.SF):
+            ef_terms.append(contribution)
+        else:
+            contribs.append(contribution)
 
     # The engine's final values are authoritative (taken from the ScheduleResult);
     # flag whichever candidate produced them. Start is bound by the ES term whose
