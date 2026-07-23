@@ -38,6 +38,7 @@ If you are evaluating TruePPM, these six records explain the shape of the whole 
 - **ADR-0012** — [Monte Carlo](/features/monte-carlo/) API endpoint and the OSS-tier simulation cap
 - **ADR-0015** — WASM CPM engine (Rust + wasm-pack) — accepted with deferral: conformance reference today, browser/on-device wiring is future work; the web drag preview runs a TypeScript worker
 - **ADR-0027** — Incremental CPM recompute — subgraph delta strategy
+- **ADR-0599** — The API-first boundary — authoritative schedule is server-side over the API; the interactive drag preview, future offline recompute, and the engine-as-library run outside it, bounded by "the server always has the last word"
 - **ADR-0055** — Server-side cycle detection on dependency create / update
 - **ADR-0065** — Hybrid bridge v1.1 — CPM velocity feedback, "My Work", inbound task sync
 - **ADR-0106** — Agile/waterfall bridge — sprint↔milestone binding and reforecast-on-close

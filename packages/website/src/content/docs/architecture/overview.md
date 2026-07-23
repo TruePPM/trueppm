@@ -53,6 +53,14 @@ to every connected client over its **WebSocket**.
 
 Every feature is a REST or WebSocket endpoint before it is a UI element. Web and mobile clients have no privileged access — they are API consumers identical to any third-party integration. The OpenAPI schema at `/api/schema/` is the authoritative contract.
 
+The **authoritative** value of any persisted fact — including every scheduled date, float, and Monte Carlo forecast — is always computed server-side and reached over the API. Three narrow compute paths deliberately run *outside* the API, each bounded by one invariant: **the server always has the last word.**
+
+1. **The interactive schedule preview.** Dragging a Gantt bar (or rescheduling with the keyboard) recomputes the affected downstream dates in the browser with no API round-trip, because a request per pointer-move could never stay interactive. That preview is a best-effort, lower-fidelity estimate — it is never persisted, and the authoritative server CPM reconciles the real dates on commit.
+2. **On-device / offline recompute.** When there is no network, the API cannot be first, so the client will recompute locally. This is what the Rust/WASM CPM engine is *for*: it is held in conformance with the Python engine in CI so an offline result will match what the server would compute, and the server still reconciles on reconnect. Wiring that engine into the browser and mobile app is future work (#1777) — the shipped preview above runs a TypeScript CPM port until then.
+3. **The engine as a library.** `trueppm-scheduler` and its Rust sibling are usable with no API at all (see [Scheduling as a separate package](#scheduling-as-a-separate-package)).
+
+The rule of thumb: if a value is authoritative — if a persisted fact depends on it — it lives server-side behind the API. If it is a discardable preview or an offline stand-in the server will reconcile, it may run at the edge. See [ADR-0599](/architecture/decisions/) for the full boundary.
+
 ### Computed, not guessed
 
 _The AI-native foundation — see [AI-native by design](/architecture/ai-native/) for

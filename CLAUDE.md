@@ -41,7 +41,7 @@ trueppm-suite/
 | Deploy | Helm 3 on Kubernetes | — |
 
 ### Key Design Principles
-1. **API-First**: Every feature is a REST or WebSocket endpoint first. Web and mobile are API consumers with no privileged access. If it's not in the API, it doesn't exist.
+1. **API-First**: Every feature is a REST or WebSocket endpoint first. Web and mobile are API consumers with no privileged access. If it's not in the API, it doesn't exist. **Boundary (ADR-0599):** this governs *authoritative* state — the real value of any persisted fact, including every scheduled date and forecast, is computed server-side and reached over the API. Three narrow paths run outside the API on purpose: the interactive Gantt drag/keyboard **preview** (recomputes locally for 60fps, never persisted, server reconciles on commit), **offline on-device recompute** (no network → no API; the Rust/WASM engine is kept in CI conformance with the Python engine, future work #1777), and the **engine-as-library** (`trueppm-scheduler`). The invariant that keeps them safe: the server always has the last word — client compute is preview or offline stand-in, never source of truth. Do not read the slogan as forbidding these.
 2. **Mobile-First**: Design from mobile constraints upward. Offline works. Touch is primary. Bandwidth is limited.
 3. **Apache 2.0 boundary is sacred**: The community edition NEVER imports from `trueppm-enterprise`. The dependency is one-way: enterprise → core. Run `grep -r "trueppm_enterprise" packages/` to verify — it must return zero results in OSS code.
 
