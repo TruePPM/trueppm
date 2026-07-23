@@ -34,6 +34,7 @@ import { ReadinessChip } from '../board/ReadinessChip';
 import { CollapsibleSection } from './sections/CollapsibleSection';
 import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
 import { TaskScheduleStrip } from './TaskScheduleStrip';
+import { TaskSummaryStrip } from './TaskSummaryStrip';
 import { TaskDescriptionField } from './TaskDescriptionField';
 import { registerOssDrawerSections } from './sections';
 
@@ -1158,6 +1159,7 @@ function DrawerContent({
             return (
               <div>
                 <div className="px-4 py-4 space-y-5">
+                  <TaskSummaryStrip task={task} />
                   <TaskScheduleStrip task={task} projectId={projectId} canEdit={canEdit} />
                   {OverviewComp && (
                     <SectionErrorBoundary sectionTitle="Overview">
