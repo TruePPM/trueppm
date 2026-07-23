@@ -274,6 +274,18 @@ export const PROVIDERS: ProviderDef[] = [
   },
 ];
 
+/**
+ * Providers in Add-provider picker order: the generic "any OIDC provider"
+ * option pinned first (the sensible fallback), then every named provider
+ * alphabetically so an admin can scan for their IdP (#2296). Distinct from
+ * `PROVIDERS`, whose order mirrors the backend `REGISTRY`; only the picker
+ * `<select>` uses this.
+ */
+export const PICKER_PROVIDERS: ProviderDef[] = [
+  ...PROVIDERS.filter((p) => p.slug === 'generic'),
+  ...PROVIDERS.filter((p) => p.slug !== 'generic').sort((a, b) => a.name.localeCompare(b.name)),
+];
+
 const BY_SLUG: Record<string, ProviderDef> = Object.fromEntries(
   PROVIDERS.map((p) => [p.slug, p]),
 );
