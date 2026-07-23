@@ -137,7 +137,7 @@ test.describe('Project Settings → General lead picker', () => {
     const section = page.locator('[data-settings-section="general"]');
     // Seeded lead renders from lead_detail.
     await expect(section.getByText('anika')).toBeVisible();
-    await section.getByRole('button', { name: 'Change' }).click();
+    await section.getByRole('button', { name: 'Change', exact: true }).click();
     await page.getByRole('option', { name: 'Unassign' }).click();
 
     await page.getByRole('button', { name: /Save changes/i }).click();
