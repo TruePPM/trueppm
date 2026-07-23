@@ -280,3 +280,12 @@ is preserved verbatim. Trigger conditions for executing it:
 - `useKeyboardReschedule` keyboard parity unchanged
 - `packages/wasm-scheduler/` build + conformance CI unchanged
 
+## Amendment — 2026-07-23 (Issue #2311)
+
+The "server always has the last word" framing here is generalized in
+[ADR-0599](0599-api-first-boundary-scheduling-compute.md), which draws the single
+API-first boundary for all scheduling compute: the authoritative schedule runs
+server-side over the API, while the interactive preview (today's TypeScript port),
+future on-device recompute (the WASM engine deferred above, #1777), and the
+engine-as-library run outside it — each bounded by that same invariant.
+
