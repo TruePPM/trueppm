@@ -252,7 +252,7 @@ class TestExportHealthRecorder:
         rec.record_success(7)
 
         pod_key = "otel:exphealth:pod:traces:pod-a"
-        assert fake.hashes[pod_key]["items_60s"] == "7"
+        assert fake.hashes[pod_key]["items_window"] == "7"
         assert fake.hashes[pod_key]["exporting"] == "1"
         assert "last_success_at" in fake.hashes[pod_key]
         # the pod is registered in the live index for its signal
@@ -323,8 +323,12 @@ class TestReadExportHealth:
         fake = _FakeRedis()
         monkeypatch.setattr(export_health, "_client", lambda: fake)
         now = 1000.0
-        self._seed(fake, "traces", "pod-a", score=now - 5, last_success_at=now - 5, items_60s=1000)
-        self._seed(fake, "traces", "pod-b", score=now - 2, last_success_at=now - 2, items_60s=204)
+        self._seed(
+            fake, "traces", "pod-a", score=now - 5, last_success_at=now - 5, items_window=1000
+        )
+        self._seed(
+            fake, "traces", "pod-b", score=now - 2, last_success_at=now - 2, items_window=204
+        )
         live = export_health.read_export_health(
             traces_enabled=True, metrics_enabled=True, now_epoch=now
         )
@@ -348,7 +352,7 @@ class TestReadExportHealth:
             last_success_at=now - 120,
             last_error_at=now - 1,
             last_error="connection refused",
-            items_60s=0,
+            items_window=0,
         )
         live = export_health.read_export_health(
             traces_enabled=True, metrics_enabled=True, now_epoch=now
@@ -368,8 +372,8 @@ class TestReadExportHealth:
         # volume-driven, so a quiet system is neutral → idle (never a red alarm).
         old = now - export_health.HEALTHY_WITHIN_SECONDS - 60
         assert now - old < export_health.STALENESS_SECONDS  # still live, not expired
-        self._seed(fake, "metrics", "pod-a", score=old, last_success_at=old, items_60s=0)
-        self._seed(fake, "traces", "pod-a", score=old, last_success_at=old, items_60s=0)
+        self._seed(fake, "metrics", "pod-a", score=old, last_success_at=old, items_window=0)
+        self._seed(fake, "traces", "pod-a", score=old, last_success_at=old, items_window=0)
         live = export_health.read_export_health(
             traces_enabled=True, metrics_enabled=True, now_epoch=now
         )
@@ -383,8 +387,8 @@ class TestReadExportHealth:
         # A pod whose last update is older than the staleness window is trimmed and
         # does not contribute — a dead pod stops inflating the cluster figure.
         stale = now - export_health.STALENESS_SECONDS - 10
-        self._seed(fake, "traces", "dead", score=stale, last_success_at=stale, items_60s=999)
-        self._seed(fake, "traces", "live", score=now - 3, last_success_at=now - 3, items_60s=5)
+        self._seed(fake, "traces", "dead", score=stale, last_success_at=stale, items_window=999)
+        self._seed(fake, "traces", "live", score=now - 3, last_success_at=now - 3, items_window=5)
         live = export_health.read_export_health(
             traces_enabled=True, metrics_enabled=True, now_epoch=now
         )
@@ -412,3 +416,60 @@ class TestReadExportHealth:
             traces_enabled=True, metrics_enabled=True, now_epoch=1000.0
         )
         assert live == {"available": False}
+
+
+class TestThresholdOverrides:
+    """The three thresholds are operator-tunable via settings/env (ADR-0601 §5)."""
+
+    def _seed(
+        self, fake: _FakeRedis, signal: str, pod: str, *, score: float, **fields: object
+    ) -> None:
+        fake.hashes[f"otel:exphealth:pod:{signal}:{pod}"] = {k: str(v) for k, v in fields.items()}
+        fake.zsets.setdefault(f"otel:exphealth:idx:{signal}", {})[pod] = score
+
+    @override_settings(TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS=120)
+    def test_window_override_flows_to_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = _FakeRedis()
+        monkeypatch.setattr(export_health, "_client", lambda: fake)
+        live = export_health.read_export_health(
+            traces_enabled=True, metrics_enabled=True, now_epoch=1000.0
+        )
+        assert live["window_seconds"] == 120
+
+    @override_settings(TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS=30)
+    def test_healthy_within_override_shrinks_healthy_window(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeRedis()
+        monkeypatch.setattr(export_health, "_client", lambda: fake)
+        now = 1000.0
+        # A metrics success 45s old is healthy under the 150s default, but stalled once
+        # the operator tightens the healthy window to 30s.
+        self._seed(
+            fake, "metrics", "pod-a", score=now - 45, last_success_at=now - 45, items_window=1
+        )
+        live = export_health.read_export_health(
+            traces_enabled=False, metrics_enabled=True, now_epoch=now
+        )
+        assert live["metrics"]["state"] == "stalled"
+
+    @override_settings(
+        TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS=100,
+        TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS=150,
+    )
+    def test_misordered_thresholds_warn_once(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        fake = _FakeRedis()
+        monkeypatch.setattr(export_health, "_client", lambda: fake)
+        monkeypatch.setattr(export_health, "_misorder_warned", False)
+        with caplog.at_level("WARNING"):
+            export_health.read_export_health(
+                traces_enabled=True, metrics_enabled=True, now_epoch=1000.0
+            )
+            export_health.read_export_health(
+                traces_enabled=True, metrics_enabled=True, now_epoch=1000.0
+            )
+        # Warned, but only once across the two reads (one-shot guard).
+        misorder = [r for r in caplog.records if "must exceed" in r.getMessage()]
+        assert len(misorder) == 1

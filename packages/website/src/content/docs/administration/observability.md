@@ -63,6 +63,11 @@ switches for behavior the standard variables do not express.
 | `TRUEPPM_OTEL_METRICS_ENABLED` | `true` | Export metrics (when telemetry is on). |
 | `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | Trace sampler. Set `parentbased_traceidratio` with `OTEL_TRACES_SAMPLER_ARG` to sample a fraction on a busy instance. |
 | `OTEL_TRACES_SAMPLER_ARG` | *(empty)* | Sampler argument, e.g. `0.1` to keep 10% of root traces. |
+| `TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED` | `true` | Records per-pod export health for the live strip on the Telemetry card ([below](#live-export-health)). `false` disables the recorder; export itself is unaffected. |
+| `TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS` | `600` | Advanced. How long a pod counts as live after its last export; beyond it a silent signal reads "never". **Must exceed** the healthy window below. |
+| `TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS` | `150` | Advanced. A success newer than this is *healthy*; older (still live) is *stalled* (metrics) / *idle* (traces). |
+| `TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS` | `60` | Advanced. Rolling window the exported-item counts cover; the card labels the strip from it ("last 60s"). |
+| `TRUEPPM_POD_NAME` | *(hostname)* | Per-pod identity for the export-health record. The Helm chart injects it from the downward API; unset, it falls back to the pod hostname. |
 | `DJANGO_LOG_LEVEL` | *(app default)* | Root Django log level (`DEBUG` \| `INFO` \| `WARNING` \| `ERROR`). One knob for the api, worker, and beat tiers. |
 
 Export is enabled when `TRUEPPM_OTEL_ENABLED` is true **and**
@@ -96,6 +101,16 @@ observability:
     headersSecret:
       name: ""                # e.g. "trueppm-otlp"
       key: "headers"
+    # Live export-health strip on the Telemetry card (see below). The pod name is
+    # injected from the downward API automatically — no config needed.
+    exportHealth:
+      enabled: true
+      # Advanced tuning (seconds). Leave empty to use the app defaults. The
+      # staleness window MUST exceed the healthy window or the stalled/idle
+      # states become unobservable.
+      stalenessSeconds: ""      # default 600
+      healthyWithinSeconds: ""  # default 150
+      windowSeconds: ""         # default 60
 ```
 
 The root log level is a separate top-level value, threaded into the api, worker,
@@ -159,22 +174,31 @@ When export is not configured at all, the card switches to a guided-setup view:
 pick your backend (Grafana Tempo, Jaeger, or a generic OTLP collector) and copy
 ready-to-paste environment-variable or Helm-values snippets.
 
-**Live export health.** When export is on, the card will also show a live strip
-(ships in 0.4) with the cross-process export health aggregated across the pods that
-actually export — the Celery worker and beat pods carry almost all the span and
-metric volume, not the web pod that serves this page. Per signal (traces, metrics)
-it reports the state — exporting, idle, failing, or stalled — the last successful
-export ("8s ago"), and the exported item count over the trailing 60 seconds
-("1,204 spans", "340 metric points"). A **stalled** metrics signal (the fixed
-export cadence has gone silent) or a **failing** signal (the collector is rejecting
-exports, with the error string) raises a red indicator. The numbers are recorded by
-the export pipeline and computed server-side; the recorder is strictly best-effort
-and can never slow or break export. If the shared metrics store is unreachable the
-strip reports itself unavailable and the card falls back to the configuration
-posture — it never shows a fabricated number.
+### Live export health
 
-Set `TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED=false` to switch the recorder off entirely
-(the strip then reports unavailable and the pipeline exports exactly as before).
+When export is on, the card will also show a live strip (ships in 0.4) with the
+cross-process export health aggregated across the pods that actually export — the
+Celery worker and beat pods carry almost all the span and metric volume, not the
+web pod that serves this page. Per signal (traces, metrics) it reports the state —
+exporting, idle, failing, or stalled — the last successful export ("8s ago"), and
+the exported item count over the trailing 60 seconds ("1,204 spans", "340 metric
+points"). A **stalled** metrics signal (the fixed export cadence has gone silent)
+or a **failing** signal (the collector is rejecting exports, with the error string)
+raises a red indicator. The numbers are recorded by the export pipeline and computed
+server-side; the recorder is strictly best-effort and can never slow or break
+export. If the shared metrics store is unreachable the strip reports itself
+unavailable and the card falls back to the configuration posture — it never shows a
+fabricated number.
+
+Set `TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED=false` (Helm:
+`observability.otlp.exportHealth.enabled`) to switch the recorder off entirely (the
+strip then reports unavailable and the pipeline exports exactly as before). Three
+advanced thresholds tune the state machine for unusual export cadences —
+`TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS` (600), `…_HEALTHY_WITHIN_SECONDS`
+(150), and `…_WINDOW_SECONDS` (60), mirrored at
+`observability.otlp.exportHealth.{stalenessSeconds,healthyWithinSeconds,windowSeconds}`.
+The staleness window must exceed the healthy window, or an overdue signal is masked
+as "never" (the app logs a warning if you invert them).
 
 :::note[Deployment requirement — Valkey eviction policy]
 The live strip stores each pod's export health in the same Valkey/Redis logical DB

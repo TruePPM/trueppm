@@ -795,9 +795,29 @@ TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED: bool = env.bool(
 )
 # Optional stable per-pod identity for the export-health record. On Kubernetes the
 # hostname already IS the pod name, so the default (socket.gethostname():pid) is a
-# no-config stable identity; the Helm chart may inject this via the downward API
-# for a human-readable label in future per-pod drill-downs.
+# no-config stable identity; the Helm chart injects this via the downward API
+# (metadata.name) for a stable, human-readable label.
 TRUEPPM_POD_NAME: str = env("TRUEPPM_POD_NAME", default="")
+# Live export-health thresholds, in seconds. Defaults suit the standard 60s metric
+# export interval; tune only for unusual cadences. INVARIANT: STALENESS must exceed
+# HEALTHY_WITHIN — a record must stay live long enough to be seen as idle/stalled
+# before it expires, or an overdue signal is masked as a premature `never` (the app
+# logs a warning if this ordering is violated; it does not clamp).
+#   STALENESS: per-pod record TTL / how long a pod counts as live after its last
+#     export attempt. Beyond it (no export at all) the signal reads `never`.
+#   HEALTHY_WITHIN: a success within this window ⇒ healthy; beyond it (still live) ⇒
+#     stalled (metrics) / idle (traces).
+#   WINDOW: the rolling window the exported-item counts cover; the card labels the
+#     strip from this value ("last 60s"), so changing it re-labels the UI.
+TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS: int = env.int(
+    "TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS", default=600
+)
+TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS: int = env.int(
+    "TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS", default=150
+)
+TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS: int = env.int(
+    "TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS", default=60
+)
 
 # ---------------------------------------------------------------------------
 # Structured logging + trace correlation (ADR-0223, #1899)

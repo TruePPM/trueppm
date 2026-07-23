@@ -57,21 +57,26 @@ logger = logging.getLogger(__name__)
 # Valkey key prefix; ``/2`` is the throttle/cache logical DB (see module docstring).
 _KEY_PREFIX = "otel:exphealth:"
 
-# A pod's record is considered live for this long after its last export attempt
-# (success OR failure — both refresh the record); a pod that stops exporting
+# --- Threshold DEFAULTS (seconds) ------------------------------------------------
+# Each is operator-overridable via a settings/env knob (see the accessors below);
+# the constant is the default the accessor falls back to. Kept as named module
+# constants so tests and the accessors share one source of truth.
+#
+# A pod's record is considered live for STALENESS_SECONDS after its last export
+# attempt (success OR failure — both refresh the record); a pod that stops exporting
 # entirely expires out of the aggregate after this and the signal reads `never`.
-# Deliberately wider than HEALTHY_WITHIN_SECONDS so a signal that has gone quiet or
+# STALENESS must stay wider than HEALTHY_WITHIN so a signal that has gone quiet or
 # overdue is still *observed* (as idle / stalled) before it expires — a shorter TTL
-# would mask a stalled signal as a premature `never`.
+# would mask a stalled signal as a premature `never` (enforced by _warn_if_misordered).
 STALENESS_SECONDS = 600
-# A success within this window ⇒ healthy. Beyond it (but still a live record) ⇒
-# stalled for metrics (fixed-cadence, so overdue is authoritative) or idle for
-# traces (volume-driven, so quiet is legitimate — never a red alarm). Sized a few
-# multiples of the default 60s metric export interval so normal cadence jitter
-# never flaps the state.
+# A success within HEALTHY_WITHIN_SECONDS ⇒ healthy. Beyond it (but still a live
+# record) ⇒ stalled for metrics (fixed-cadence, so overdue is authoritative) or idle
+# for traces (volume-driven, so quiet is legitimate — never a red alarm). Sized a few
+# multiples of the default 60s metric export interval so cadence jitter never flaps.
 HEALTHY_WITHIN_SECONDS = 150
-# The rolling window the exported-item counts cover ("N spans / 60s"). Reported to
-# the FE as ``window_seconds`` so the denominator is never hard-coded in the UI.
+# The rolling window the exported-item counts cover ("N spans / <window>s"). Reported
+# to the FE as ``window_seconds`` so the denominator is never hard-coded in the UI —
+# changing it re-labels the strip automatically ("last 120s").
 WINDOW_SECONDS = 60
 
 # Signal identifiers used in keys and payloads.
@@ -79,6 +84,49 @@ SIGNAL_TRACES = "traces"
 SIGNAL_METRICS = "metrics"
 
 _pool: redis.ConnectionPool | None = None
+# One-shot guard so the misordered-threshold warning is logged at most once/process.
+_misorder_warned = False
+
+
+def _staleness_seconds() -> int:
+    """Per-pod record TTL / live window (``TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS``)."""
+    return int(getattr(settings, "TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS", STALENESS_SECONDS))
+
+
+def _healthy_within_seconds() -> int:
+    """Healthy-success window (``TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS``)."""
+    return int(
+        getattr(
+            settings, "TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS", HEALTHY_WITHIN_SECONDS
+        )
+    )
+
+
+def _window_seconds() -> int:
+    """Rolling item-count window (``TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS``)."""
+    return int(getattr(settings, "TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS", WINDOW_SECONDS))
+
+
+def _warn_if_misordered() -> None:
+    """Warn once if the operator configured STALENESS <= HEALTHY_WITHIN.
+
+    That ordering is a correctness invariant: a record must stay live long enough to
+    be *seen* as stalled/idle before it expires, or an overdue signal is masked as a
+    premature `never`. We do not clamp (the operator owns their config) — we surface
+    the misconfiguration and degrade honestly to the neutral state.
+    """
+    global _misorder_warned
+    if _misorder_warned:
+        return
+    if _staleness_seconds() <= _healthy_within_seconds():
+        _misorder_warned = True
+        logger.warning(
+            "TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS (%s) must exceed "
+            "TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS (%s); with this ordering an "
+            "overdue traces/metrics signal will read as 'never' instead of idle/stalled.",
+            _staleness_seconds(),
+            _healthy_within_seconds(),
+        )
 
 
 def _client() -> redis.Redis:
@@ -146,12 +194,12 @@ class ExportHealthRecorder:
         self._service = service_name
         self._pod = _pod_id()
         # epoch-second -> items exported in that second, pruned to the trailing
-        # WINDOW_SECONDS. Sums to the pod's own "items in the last 60s".
+        # window. Sums to the pod's own "items in the last <window>s".
         self._buckets: dict[int, int] = {}
 
     def _items_in_window(self, now: int) -> int:
-        """Sum exported items over the trailing ``WINDOW_SECONDS``, pruning old slots."""
-        cutoff = now - WINDOW_SECONDS
+        """Sum exported items over the trailing window, pruning old slots."""
+        cutoff = now - _window_seconds()
         for sec in [s for s in self._buckets if s <= cutoff]:
             del self._buckets[sec]
         return sum(self._buckets.values())
@@ -164,7 +212,7 @@ class ExportHealthRecorder:
             self._write(
                 {
                     "last_success_at": now,
-                    "items_60s": self._items_in_window(now),
+                    "items_window": self._items_in_window(now),
                     "service": self._service,
                     "exporting": "1",
                 },
@@ -196,13 +244,14 @@ class ExportHealthRecorder:
         client = _client()
         pod_key = f"{_KEY_PREFIX}pod:{self._signal}:{self._pod}"
         idx_key = f"{_KEY_PREFIX}idx:{self._signal}"
+        staleness = _staleness_seconds()
         pipe = client.pipeline()
         pipe.hset(pod_key, mapping=fields)
-        pipe.expire(pod_key, STALENESS_SECONDS)
+        pipe.expire(pod_key, staleness)
         pipe.zadd(idx_key, {self._pod: now})
         # The index outlives a single staleness window so a burst of dead members
         # is trimmed lazily by the reader rather than expiring the whole index.
-        pipe.expire(idx_key, STALENESS_SECONDS * 4)
+        pipe.expire(idx_key, staleness * 4)
         pipe.execute()
 
 
@@ -344,6 +393,7 @@ def read_export_health(
     """
     if not getattr(settings, "TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED", True):
         return {"available": False}
+    _warn_if_misordered()
     now = now_epoch if now_epoch is not None else time.time()
     try:
         client = _client()
@@ -356,7 +406,7 @@ def read_export_health(
         return {"available": False}
     return {
         "available": True,
-        "window_seconds": WINDOW_SECONDS,
+        "window_seconds": _window_seconds(),
         "pods_reporting": len(trace_pods | metric_pods),
         "traces": traces,
         "metrics": metrics,
@@ -368,7 +418,7 @@ def _read_signal(
 ) -> tuple[dict[str, Any], set[str]]:
     """Read + aggregate one signal's live pods. Returns (block, live-pod set)."""
     idx_key = f"{_KEY_PREFIX}idx:{signal}"
-    cutoff = now - STALENESS_SECONDS
+    cutoff = now - _staleness_seconds()
     # Trim members that have gone stale, then read only the live ones by score —
     # bounded by live-pod count, never a KEYS/SCAN over the keyspace.
     client.zremrangebyscore(idx_key, "-inf", f"({cutoff}")
@@ -396,7 +446,7 @@ def _read_signal(
         if error_at is not None and (last_error_at is None or error_at > last_error_at):
             last_error_at = error_at
             last_error = h.get("last_error")
-        items += _as_int(h.get("items_60s"))
+        items += _as_int(h.get("items_window"))
 
     state = _state(
         signal, enabled=enabled, last_success=last_success, last_error_at=last_error_at, now=now
@@ -436,7 +486,7 @@ def _state(
         return "failing"
     if last_success is None:
         return "never"  # enabled but nothing exported yet (or record expired/evicted)
-    if now - last_success <= HEALTHY_WITHIN_SECONDS:
+    if now - last_success <= _healthy_within_seconds():
         return "healthy"
     # A live record whose last success is beyond the healthy window. Metrics export
     # on a fixed cadence, so an overdue success is authoritative evidence the

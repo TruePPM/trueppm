@@ -121,6 +121,30 @@ the rendered manifest.
 - name: OTEL_EXPORTER_OTLP_HEADERS
   value: {{ .headers | quote }}
 {{- end }}
+{{/* Live export-health strip (ADR-0601, #2109). The pod name comes from the
+     downward API so each pod's record carries a stable, human-readable identity
+     (the app falls back to gethostname():pid without it). The three tuning knobs
+     render only when explicitly set, so an unset value keeps the app default. */}}
+- name: TRUEPPM_POD_NAME
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.name
+- name: TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED
+  value: {{ dig "exportHealth" "enabled" true . | quote }}
+{{- with .exportHealth }}
+{{- if .stalenessSeconds }}
+- name: TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS
+  value: {{ .stalenessSeconds | quote }}
+{{- end }}
+{{- if .healthyWithinSeconds }}
+- name: TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS
+  value: {{ .healthyWithinSeconds | quote }}
+{{- end }}
+{{- if .windowSeconds }}
+- name: TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS
+  value: {{ .windowSeconds | quote }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}
