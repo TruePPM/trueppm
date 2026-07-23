@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from pathlib import Path
 
 import environ
+
+from trueppm_api.core.ratelimit import apply_rate_limit_disable, resolve_rate_limit_enabled
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -215,6 +218,23 @@ ATTACHMENT_STORAGE_SIGNS_URLS = env.bool("TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS"
 # when TLS to the database is enforced at the network layer). Consumed by the
 # unencrypted-DB boot guard in settings/prod.py.
 ALLOW_UNENCRYPTED_DB = env.bool("TRUEPPM_ALLOW_UNENCRYPTED_DB", default=False)
+
+# Global rate-limiting kill switch (ADR-0604, extends ADR-0208). Operator-only
+# escape hatch to disable ALL DRF throttling — used by the k6 perf:load job to
+# measure raw throughput, and by an operator load-testing / debugging a real
+# deployment. Disabling requires BOTH TRUEPPM_RATE_LIMIT_ENABLED=false AND the
+# acknowledgment sentinel, in every environment; an unacknowledged disable is
+# refused (limits stay ON) and logged at CRITICAL, so a stray env var can never
+# silently open a DoS path. See trueppm_api.core.ratelimit for the full rationale.
+# The effective throttle neutralization runs after REST_FRAMEWORK is defined
+# (search "apply_rate_limit_disable" below). Surfaced read-only to admins via
+# /health/system/ and a banner; never a UI/API toggle (ADR-0497).
+RATE_LIMIT_ENABLED, _rate_limit_switch_message = resolve_rate_limit_enabled(
+    requested_enabled=env.bool("TRUEPPM_RATE_LIMIT_ENABLED", default=True),
+    ack=env("TRUEPPM_RATE_LIMIT_DISABLE_ACK", default=""),
+)
+if _rate_limit_switch_message:
+    logging.getLogger("trueppm.settings").critical(_rate_limit_switch_message)
 
 # Origins trusted for cross-origin POST / CSRF — required when the web app is
 # served from a different origin than the API (split dev setup or subdomain
@@ -1186,6 +1206,17 @@ REST_FRAMEWORK = {
         "telemetry_test": env("TRUEPPM_THROTTLE_TELEMETRY_TEST_RATE", default=_STRICT_ABUSE_RATE),
     },
 }
+
+# Global rate-limiting kill switch (ADR-0604): when an operator has disabled rate
+# limiting (with acknowledgment — see RATE_LIMIT_ENABLED above), neutralize every
+# DRF SimpleRateThrottle-family throttle in one place — drop the default throttle
+# classes and set every named scope's rate to None (DRF treats rate=None as "do not
+# throttle"). This covers all present and future scopes (anon, user, login,
+# monte_carlo, mcp_read, share_*, …) with no per-class edits. The custom Redis
+# BaseThrottle classes don't read these rates, so they bypass at request time via
+# the bypass_when_disabled decorator instead.
+if not RATE_LIMIT_ENABLED:
+    apply_rate_limit_disable(REST_FRAMEWORK)
 
 # MCP administration controls (#2021, ADR-0497).
 #

@@ -18,6 +18,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.throttling import BaseThrottle
 
+from trueppm_api.core.ratelimit import bypass_when_disabled
 from trueppm_api.core.redis_throttle import incr_with_ttl
 
 if TYPE_CHECKING:
@@ -66,6 +67,7 @@ def _task_sync_limit(token_created_at: datetime, now: datetime) -> int:
     return int(getattr(settings, "TRUEPPM_TASK_SYNC_STEADY_STATE_LIMIT", STEADY_STATE_LIMIT))
 
 
+@bypass_when_disabled
 class TaskSyncThrottle(BaseThrottle):
     """Per-project rate limit for the inbound task-sync endpoint.
 
@@ -109,6 +111,7 @@ class TaskSyncThrottle(BaseThrottle):
         return getattr(self, "wait_seconds", None)
 
 
+@bypass_when_disabled
 class AcceptanceResultThrottle(BaseThrottle):
     """Per-token rate limit for the inbound CI acceptance-result endpoint (ADR-0148).
 
@@ -174,6 +177,7 @@ def claim_visit_window(user_pk: object, project_pk: object, ttl: int = 60) -> bo
     return bool(claimed)
 
 
+@bypass_when_disabled
 class TokenIssuanceThrottle(BaseThrottle):
     """5 req/min per user on the token-issuance endpoint.
 
@@ -217,6 +221,7 @@ class TokenIssuanceThrottle(BaseThrottle):
         return getattr(self, "wait_seconds", None)
 
 
+@bypass_when_disabled
 class TaskAttachmentUploadThrottle(BaseThrottle):
     """60 req/min per user on the task-attachment create action (#574, security
     review !306 LOW-3).

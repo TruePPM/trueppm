@@ -109,6 +109,7 @@ BROKER_QUEUE_DEPTH = "trueppm.broker.queue.depth"
 WS_CONNECTIONS_ACTIVE = "trueppm.ws.connections.active"
 WS_BROADCAST_COUNT = "trueppm.ws.broadcast.count"
 TASK_DURATION_SECONDS = "trueppm.task.duration_seconds"
+RATELIMIT_ENABLED = "trueppm.ratelimit.enabled"
 
 # Server-side statement timeout for the pg_stat_activity probe, so a slow or
 # contended database can never stall the exporter's collection thread. It is set
@@ -185,6 +186,14 @@ def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None
         unit="{message}",
         description="Celery messages waiting in the broker (Valkey/Redis) LLEN, by queue.",
     )
+    meter.create_observable_gauge(
+        RATELIMIT_ENABLED,
+        callbacks=[_observe_ratelimit_enabled],
+        unit="{status}",
+        description=(
+            "1 when API rate limiting is enabled, 0 when an operator has disabled it (ADR-0604)."
+        ),
+    )
     # UpDownCounter (not a gauge): active WS connections is a running total mutated
     # by discrete +1/-1 events at the consumer, with no shared state to poll.
     _ws_connections = meter.create_up_down_counter(
@@ -208,7 +217,7 @@ def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None
         ),
     )
     _installed = True
-    logger.info("OpenTelemetry native metrics registered (7 instruments)")
+    logger.info("OpenTelemetry native metrics registered (8 instruments)")
 
 
 def _resolve_meter(meter_provider: Any) -> Meter:
@@ -271,6 +280,18 @@ def _observe_broker_queue_depth(options: CallbackOptions) -> Iterable[Observatio
         logger.debug("broker queue depth probe skipped (broker error)", exc_info=True)
         return []
     return [Observation(depth, {attributes.BROKER_QUEUE: name}) for name, depth in rows]
+
+
+def _observe_ratelimit_enabled(options: CallbackOptions) -> Iterable[Observation]:
+    """1 when API rate limiting is enabled, 0 when an operator has disabled it (ADR-0604).
+
+    A static config flag, not a probe — no DB/Redis access — so operators can alert
+    on ``trueppm.ratelimit.enabled == 0`` (all DRF throttling off).
+    """
+    from django.conf import settings
+
+    enabled = getattr(settings, "RATE_LIMIT_ENABLED", True)
+    return [Observation(1 if enabled else 0, {})]
 
 
 # --- Synchronous histogram: task duration (#1917) --------------------------

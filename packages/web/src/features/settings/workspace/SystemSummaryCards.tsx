@@ -126,6 +126,58 @@ export function SystemHealthCard() {
 }
 
 /**
+ * API rate-limiting posture card (#2316, ADR-0604). Read-only status mirrored from
+ * GET /health/system/ `security.rate_limiting_enabled` — configured only by the
+ * operator via the TRUEPPM_RATE_LIMIT_ENABLED env var / Helm value, never editable
+ * from the app. `rate_limiting_enabled === false` means an operator switched OFF all
+ * API throttling, so abuse/DoS protection is down; that reads as a CRITICAL status
+ * here (the same red HealthChip recipe as a critical component). `undefined` while
+ * the shared un-polled fetch is in flight, so the chip stays a skeleton, never a
+ * flash of the wrong state. Shares the one `useSystemHealth({ poll: false })` query
+ * with the sibling System cards on the consolidated page.
+ */
+export function RateLimitCard() {
+  const { data, isLoading } = useSystemHealth({ poll: false });
+  const enabled = data?.security?.rate_limiting_enabled;
+
+  return (
+    <>
+      <SettingsPageTitle
+        title="API rate limiting"
+        subtitle="Server-wide request throttling that protects the API from abuse and denial-of-service floods."
+      />
+      <div className="max-w-[720px] px-4 pb-8 pt-4 sm:px-6">
+        <SettingsCard>
+          <div className="flex flex-col gap-3 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {isLoading ? (
+                <span className="inline-block h-[22px] w-32 animate-pulse rounded-chip bg-neutral-surface-sunken" />
+              ) : enabled === false ? (
+                <HealthChip level="crit" label="Disabled" />
+              ) : enabled === true ? (
+                <HealthChip level="ok" label="Enabled" />
+              ) : (
+                <HealthChip level="unknown" label="Status unavailable" />
+              )}
+            </div>
+            <p className="text-[12px] text-neutral-text-secondary">
+              {enabled === false
+                ? 'API rate limiting is turned off on this server, so abuse and denial-of-service protection is not active.'
+                : 'API requests are throttled to protect the server from abuse and denial-of-service floods.'}
+            </p>
+            <p className="text-[12px] text-neutral-text-secondary">
+              Configured by the operator via the{' '}
+              <code className="font-mono text-neutral-text-primary">TRUEPPM_RATE_LIMIT_ENABLED</code>{' '}
+              environment variable — it is not editable here.
+            </p>
+          </div>
+        </SettingsCard>
+      </div>
+    </>
+  );
+}
+
+/**
  * Trash landing card. The recoverable-deletes list, with its per-row
  * Owner-gated Restore, stays at `/settings/trash`; this shows the count and
  * jumps in (#2298).

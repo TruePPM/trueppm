@@ -1217,6 +1217,8 @@ const SYS_HEALTH = {
       },
     },
   },
+  // #2316: read-only rate-limiting posture — enabled in the baseline fixture.
+  security: { rate_limiting_enabled: true },
 };
 
 const SYS_RETENTION = {
@@ -1262,10 +1264,22 @@ test.describe('Workspace settings — System group is part of the scroll surface
     // The rail lists the four System items as scroll-spy BUTTONS (no `to`), not
     // external route links — and the old "Opens a separate page" caption is gone.
     const nav = page.getByRole('navigation', { name: 'Settings sections' });
-    for (const name of ['System health', 'Observability', 'Retention & purge', 'Trash']) {
+    for (const name of [
+      'System health',
+      'API rate limiting',
+      'Observability',
+      'Retention & purge',
+      'Trash',
+    ]) {
       await expect(nav.getByRole('button', { name })).toBeVisible();
     }
     await expect(page.getByText('Opens a separate page')).toHaveCount(0);
+
+    // The API rate-limiting card shows the enabled status from the baseline fixture.
+    const rateLimitCard = page.locator('[data-settings-section="rate-limit"]');
+    await expect(rateLimitCard.getByRole('heading', { name: 'API rate limiting' })).toBeVisible();
+    // `exact` so the status chip doesn't collide with "…_ENABLED" in the env-var note.
+    await expect(rateLimitCard.getByText('Enabled', { exact: true })).toBeVisible();
 
     // The System-health landing card shows a rolled-up status + dead-letter token
     // and links to the live console (which stays on its own route).
@@ -1311,5 +1325,36 @@ test.describe('Workspace settings — System group is part of the scroll surface
       'href',
       /\/settings\/trash$/,
     );
+  });
+
+  test('surfaces the admin banner and a critical card when API rate limiting is off (#2316)', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Same System-group setup, but the operator has switched off all throttling.
+    await page.route('**/api/v1/health/system/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...SYS_HEALTH, security: { rate_limiting_enabled: false } }),
+      }),
+    );
+    await page.route('**/api/v1/health/retention/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(SYS_RETENTION) }),
+    );
+    await page.route('**/api/v1/projects/trash/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(SYS_TRASH) }),
+    );
+
+    await page.goto('/settings');
+
+    // Global always-mounted admin banner announces the disabled posture.
+    await expect(page.getByText(/API rate limiting is disabled on this server/i)).toBeVisible();
+
+    // The System-group card shows the critical "Disabled" status + env-var note.
+    const rateLimitCard = page.locator('[data-settings-section="rate-limit"]');
+    await expect(rateLimitCard.getByRole('heading', { name: 'API rate limiting' })).toBeVisible();
+    await expect(rateLimitCard.getByText('Disabled')).toBeVisible();
+    await expect(rateLimitCard.getByText('TRUEPPM_RATE_LIMIT_ENABLED')).toBeVisible();
   });
 });

@@ -214,3 +214,18 @@ class TestTelemetryStatus:
         blob = json.dumps(_admin_client().get(URL).data["telemetry"])
         assert "super-secret-token" not in blob
         assert "authorization" not in blob.lower()
+
+
+@pytest.mark.django_db
+class TestSecurityStatus:
+    """The read-only security posture block (ADR-0604, #2316)."""
+
+    def test_security_block_present_and_enabled_by_default(self) -> None:
+        security = _admin_client().get(URL).data["security"]
+        assert "rate_limiting_enabled" in security
+        assert security["rate_limiting_enabled"] is True
+
+    @override_settings(RATE_LIMIT_ENABLED=False)
+    def test_reflects_disabled_flag(self) -> None:
+        security = _admin_client().get(URL).data["security"]
+        assert security["rate_limiting_enabled"] is False

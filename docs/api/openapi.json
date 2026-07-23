@@ -52643,6 +52643,10 @@
                     "telemetry": {
                         "type": "object",
                         "additionalProperties": {}
+                    },
+                    "security": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 },
                 "required": [
@@ -52652,6 +52656,7 @@
                     "generated_at",
                     "retention",
                     "scheduled_tasks",
+                    "security",
                     "telemetry"
                 ]
             },

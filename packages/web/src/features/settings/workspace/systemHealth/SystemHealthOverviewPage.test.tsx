@@ -83,6 +83,7 @@ function makeHealth(over: Partial<SystemHealthResponse> = {}): SystemHealthRespo
       sampler_arg: '',
       live: { available: false },
     },
+    security: { rate_limiting_enabled: true },
     ...over,
   };
 }

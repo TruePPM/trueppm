@@ -23,6 +23,7 @@ from rest_framework.throttling import BaseThrottle
 # Reuse the single shared connection pool + client factory from the projects
 # throttles module rather than opening a second pool.
 from trueppm_api.apps.projects.throttles import _client
+from trueppm_api.core.ratelimit import bypass_when_disabled
 from trueppm_api.core.redis_throttle import incr_with_ttl
 
 if TYPE_CHECKING:
@@ -44,6 +45,7 @@ _WEBHOOK_LIMIT_PER_MIN = 120
 _REFRESH_LIMIT_PER_MIN = 30
 
 
+@bypass_when_disabled
 class GitWebhookThrottle(BaseThrottle):
     """Per-project rate limit for the inbound Git-event receiver.
 
@@ -74,6 +76,7 @@ class GitWebhookThrottle(BaseThrottle):
         return getattr(self, "wait_seconds", None)
 
 
+@bypass_when_disabled
 class TaskLinkRefreshThrottle(BaseThrottle):
     """Per-user rate limit for the task-link refresh action (#571, ADR-0163).
 

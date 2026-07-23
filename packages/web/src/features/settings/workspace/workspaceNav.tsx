@@ -46,6 +46,15 @@ function ObservabilityNavIcon() {
   );
 }
 
+/** Inline shield icon for the API rate limiting nav item — abuse/DoS protection. */
+function ShieldNavIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5l8-3z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /** Inline lock icon for the Single sign-on nav item. */
 function LockNavIcon() {
   return (
@@ -133,6 +142,9 @@ export function buildWorkspaceNavGroups({ linked }: { linked: boolean }): Settin
       label: 'System',
       items: [
         { id: 'health',        label: 'System health',     to: anchor('health'),        icon: <NavIcon><ActivityNavIcon /></NavIcon> },
+        // API rate limiting (#2316) — read-only operator posture from the health
+        // endpoint; grouped next to System health as the other health-backed status.
+        { id: 'rate-limit',    label: 'API rate limiting', to: anchor('rate-limit'),    icon: <NavIcon><ShieldNavIcon /></NavIcon> },
         // Observability (OTLP telemetry export) — a config form, rendered inline
         // on the consolidated page (#2298); still discoverable in the rail by name.
         { id: 'observability', label: 'Observability',     to: anchor('observability'), icon: <NavIcon><ObservabilityNavIcon /></NavIcon> },

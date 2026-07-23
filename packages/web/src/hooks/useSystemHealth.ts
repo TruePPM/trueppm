@@ -133,6 +133,16 @@ export interface TelemetryTestResult {
   checked_at: string;
 }
 
+/**
+ * Read-only global API rate-limiting posture (#2316, ADR-0604). Env/Helm-configured
+ * only (TRUEPPM_RATE_LIMIT_ENABLED) — never writable from the app. `rate_limiting_enabled`
+ * is `false` only when an operator has switched OFF all API throttling, which drops the
+ * API's abuse/DoS protection; admins then see a persistent critical banner + status card.
+ */
+export interface SystemHealthSecurity {
+  rate_limiting_enabled: boolean;
+}
+
 export interface SystemHealthResponse {
   generated_at: string;
   components: SystemHealthComponent[];
@@ -141,6 +151,7 @@ export interface SystemHealthResponse {
   dead_letter: SystemHealthDeadLetter;
   retention: RetentionEntry[];
   telemetry: SystemHealthTelemetry;
+  security: SystemHealthSecurity;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,14 +179,23 @@ export const systemHealthKeys = {
  * and the inline Observability section — a single cheap fetch, no background
  * poll wedged into a form-editing page (#2298; the live console keeps its poll
  * on its own route). The status line stamps freshness from `generated_at`.
+ *
+ * `enabled` (default `true`) lets a caller skip the fetch entirely. The endpoint
+ * 403s for non-admins, so the always-mounted rate-limiting banner passes
+ * `enabled: isAdmin` to avoid a guaranteed-403 request for anonymous / non-admin
+ * users (#2316).
  */
-export function useSystemHealth({ poll = true }: { poll?: boolean } = {}) {
+export function useSystemHealth({
+  poll = true,
+  enabled = true,
+}: { poll?: boolean; enabled?: boolean } = {}) {
   return useQuery<SystemHealthResponse, Error>({
     queryKey: systemHealthKeys.detail(),
     queryFn: async () => {
       const res = await apiClient.get<SystemHealthResponse>('/health/system/');
       return res.data;
     },
+    enabled,
     refetchInterval: poll ? 10_000 : false,
     refetchIntervalInBackground: false,
     retry: false,

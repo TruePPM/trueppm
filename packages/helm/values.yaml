@@ -301,6 +301,16 @@ env:
   # proxy depth (0 = direct, use REMOTE_ADDR). A wrong value lets clients spoof
   # X-Forwarded-For and evade the anon limit.
   TRUEPPM_NUM_PROXIES: "1"
+  # Global API rate-limiting kill switch (#2316, ADR-0604). "true" (default) keeps
+  # ALL throttling on. Setting "false" alone does nothing — disabling also requires
+  # TRUEPPM_RATE_LIMIT_DISABLE_ACK set to the exact sentinel
+  # "i-understand-this-disables-abuse-protection" (add it yourself; it is not a
+  # pre-populated key, on purpose). An unacknowledged "false" is refused (limits
+  # stay on) and logged at CRITICAL. Disabling removes DoS/abuse protection for the
+  # WHOLE instance — only ever use it on a throwaway load-test box, never in
+  # production. Live state shows read-only to workspace admins (Settings → System)
+  # and via the trueppm.ratelimit.enabled OTel gauge.
+  TRUEPPM_RATE_LIMIT_ENABLED: "true"
   # Public read-only board sharing (#283, ADR-0245). The org-wide kill switch for
   # the unauthenticated /share/board/<token> endpoint. "true" (default) lets project
   # Admins mint public board links; NO data is exposed until one is explicitly

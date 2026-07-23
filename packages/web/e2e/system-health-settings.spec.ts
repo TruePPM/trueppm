@@ -78,6 +78,8 @@ const FIXTURE_HEALTH = {
       },
     },
   },
+  // #2316: read-only rate-limiting posture sibling on the same payload.
+  security: { rate_limiting_enabled: true },
 };
 
 const TELEMETRY_UNCONFIGURED = {
