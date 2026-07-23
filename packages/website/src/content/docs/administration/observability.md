@@ -159,9 +159,32 @@ When export is not configured at all, the card switches to a guided-setup view:
 pick your backend (Grafana Tempo, Jaeger, or a generic OTLP collector) and copy
 ready-to-paste environment-variable or Helm-values snippets.
 
-> **Note:** the card does not yet show live throughput counts (spans/metrics per
-> minute) — the export pipeline does not record them. It reports export *health*,
-> not *volume*.
+**Live export health.** When export is on, the card will also show a live strip
+(ships in 0.4) with the cross-process export health aggregated across the pods that
+actually export — the Celery worker and beat pods carry almost all the span and
+metric volume, not the web pod that serves this page. Per signal (traces, metrics)
+it reports the state — exporting, idle, failing, or stalled — the last successful
+export ("8s ago"), and the exported item count over the trailing 60 seconds
+("1,204 spans", "340 metric points"). A **stalled** metrics signal (the fixed
+export cadence has gone silent) or a **failing** signal (the collector is rejecting
+exports, with the error string) raises a red indicator. The numbers are recorded by
+the export pipeline and computed server-side; the recorder is strictly best-effort
+and can never slow or break export. If the shared metrics store is unreachable the
+strip reports itself unavailable and the card falls back to the configuration
+posture — it never shows a fabricated number.
+
+Set `TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED=false` to switch the recorder off entirely
+(the strip then reports unavailable and the pipeline exports exactly as before).
+
+:::note[Deployment requirement — Valkey eviction policy]
+The live strip stores each pod's export health in the same Valkey/Redis logical DB
+(`/2`) as the rate-limit counters, under short TTLs. Run that instance with
+`maxmemory-policy noeviction` (the default) — the same requirement the rate-limit
+counters already impose. Under an eviction policy that discards TTL'd keys
+(`allkeys-lru`, etc.) a health record could be dropped while export is healthy; the
+strip degrades safely to "waiting for first export" rather than a false alarm, but
+the counts will be understated. This does not affect trace/metric export itself.
+:::
 
 ## What TruePPM reports
 

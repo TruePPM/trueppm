@@ -1193,6 +1193,29 @@ const SYS_HEALTH = {
     metrics_enabled: true,
     sampler: 'parentbased_always_on',
     sampler_arg: '',
+    live: {
+      available: true,
+      window_seconds: 60,
+      pods_reporting: 3,
+      traces: {
+        state: 'healthy',
+        last_success_at: '2026-05-25T11:59:52Z',
+        last_success_age_seconds: 8,
+        items_per_window: 1204,
+        last_error: null,
+        last_error_at: null,
+        pods_reporting: 2,
+      },
+      metrics: {
+        state: 'healthy',
+        last_success_at: '2026-05-25T11:59:52Z',
+        last_success_age_seconds: 8,
+        items_per_window: 340,
+        last_error: null,
+        last_error_at: null,
+        pods_reporting: 3,
+      },
+    },
   },
 };
 

@@ -81,6 +81,7 @@ function makeHealth(over: Partial<SystemHealthResponse> = {}): SystemHealthRespo
       metrics_enabled: true,
       sampler: 'parentbased_always_on',
       sampler_arg: '',
+      live: { available: false },
     },
     ...over,
   };
@@ -225,6 +226,7 @@ describe('SystemHealthOverviewPage', () => {
         metrics_enabled: false,
         sampler: 'parentbased_traceidratio',
         sampler_arg: '0.1',
+        live: { available: false },
       },
     });
     useSystemHealth.mockReturnValue(mockResult({ data: health }));

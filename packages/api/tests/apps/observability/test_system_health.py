@@ -176,6 +176,13 @@ class TestTelemetryStatus:
         assert telemetry["enabled"] is False
         assert telemetry["endpoint"] == ""
 
+    @override_settings(OTEL_EXPORTER_OTLP_ENDPOINT="")
+    def test_live_block_unavailable_when_export_off(self) -> None:
+        # The live export strip (ADR-0601, #2109) is skipped entirely when export is
+        # off — no Valkey round-trip, and the card keeps the config-only posture.
+        telemetry = _admin_client().get(URL).data["telemetry"]
+        assert telemetry["live"] == {"available": False}
+
     @override_settings(
         OTEL_EXPORTER_OTLP_ENDPOINT="otel-collector.internal:4317",
         TRUEPPM_OTEL_ENABLED=True,

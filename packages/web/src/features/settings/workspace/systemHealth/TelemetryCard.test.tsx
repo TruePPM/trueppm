@@ -10,7 +10,12 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TelemetryCard } from './TelemetryCard';
-import type { SystemHealthTelemetry, TelemetryTestResult } from '@/hooks/useSystemHealth';
+import type {
+  SystemHealthTelemetry,
+  SystemHealthTelemetryLive,
+  TelemetrySignalHealth,
+  TelemetryTestResult,
+} from '@/hooks/useSystemHealth';
 
 interface MockMutation {
   mutate: ReturnType<typeof vi.fn>;
@@ -42,7 +47,38 @@ function makeTelemetry(over: Partial<SystemHealthTelemetry> = {}): SystemHealthT
     metrics_enabled: true,
     sampler: 'parentbased_traceidratio',
     sampler_arg: '0.1',
+    // Default to store-unavailable so the shared fixture never injects a second
+    // "Exporting" label (the healthy signal label) that would collide with the
+    // StatusPill in the base-state assertions. Live-strip tests pass an explicit
+    // `live` via makeLive().
+    live: { available: false },
     ...over,
+  };
+}
+
+function makeSignal(over: Partial<TelemetrySignalHealth> = {}): TelemetrySignalHealth {
+  return {
+    state: 'healthy',
+    last_success_at: '2026-07-23T12:00:00Z',
+    last_success_age_seconds: 8,
+    items_per_window: 0,
+    last_error: null,
+    last_error_at: null,
+    pods_reporting: 1,
+    ...over,
+  };
+}
+
+function makeLive(
+  traces: Partial<TelemetrySignalHealth>,
+  metrics: Partial<TelemetrySignalHealth>,
+): SystemHealthTelemetryLive {
+  return {
+    available: true,
+    window_seconds: 60,
+    pods_reporting: 3,
+    traces: makeSignal(traces),
+    metrics: makeSignal(metrics),
   };
 }
 
@@ -100,6 +136,54 @@ describe('TelemetryCard — states', () => {
     expect(screen.getByText(/Export switched off — this is a config choice/i)).toBeInTheDocument();
     // Test export still available (probes reachability).
     expect(screen.getByRole('button', { name: /Test export/i })).toBeInTheDocument();
+  });
+});
+
+describe('TelemetryCard — live export strip (#2109)', () => {
+  it('shows per-signal counts and last-success age when healthy', () => {
+    const live = makeLive({ items_per_window: 1204 }, { items_per_window: 340 });
+    render(<TelemetryCard telemetry={makeTelemetry({ live })} />);
+    expect(screen.getByText(/Live export/)).toBeInTheDocument();
+    expect(screen.getByText(/1,204 spans/)).toBeInTheDocument();
+    expect(screen.getByText(/340 metric points/)).toBeInTheDocument();
+    // age is server-computed; both healthy rows render "· 8s ago".
+    expect(screen.getAllByText(/8s ago/).length).toBeGreaterThanOrEqual(1);
+    // No alert when everything is healthy.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('raises an assertive alert with the error string when export is failing', () => {
+    const live = makeLive(
+      { state: 'healthy', items_per_window: 12 },
+      { state: 'failing', last_error: 'connection refused', last_error_at: '2026-07-23T11:00:00Z' },
+    );
+    render(<TelemetryCard telemetry={makeTelemetry({ live })} />);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/Export failing/);
+    expect(alert).toHaveTextContent(/connection refused/);
+  });
+
+  it('shows a stalled alert when the metrics heartbeat has gone silent', () => {
+    const live = makeLive(
+      { state: 'idle' },
+      { state: 'stalled', last_success_age_seconds: 22320, last_error: null },
+    );
+    render(<TelemetryCard telemetry={makeTelemetry({ live })} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/Export stalled/);
+  });
+
+  it('renders a quiet idle signal without an alarm', () => {
+    const live = makeLive({ state: 'idle' }, { state: 'healthy', items_per_window: 340 });
+    render(<TelemetryCard telemetry={makeTelemetry({ live })} />);
+    expect(screen.getByText(/Idle — no recent data/)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('falls back to a muted note when the metrics store is unreachable', () => {
+    render(<TelemetryCard telemetry={makeTelemetry({ live: { available: false } })} />);
+    expect(screen.getByText(/Live export stats are unavailable/)).toBeInTheDocument();
+    // The config posture is still shown.
+    expect(screen.getByText('otel-collector.internal:4317')).toBeInTheDocument();
   });
 });
 
