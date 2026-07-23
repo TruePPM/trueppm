@@ -151,7 +151,10 @@ describe('DepPopover', () => {
       />,
     );
     expect(screen.getByText('Successors (1)')).toBeInTheDocument();
-    expect(screen.getByText('Succ Task')).toBeInTheDocument();
+    const row = screen.getByText('Succ Task').closest('button') as HTMLElement;
+    // A non-blocking dependency row shows the SVG LinkIcon, not the 🔗 emoji (#1749).
+    expect(row.querySelector('svg')).toBeInTheDocument();
+    expect(row.textContent).not.toContain('🔗');
   });
 
   it('calls onJumpTo when a known predecessor row is clicked', () => {

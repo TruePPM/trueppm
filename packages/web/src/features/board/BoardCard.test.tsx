@@ -523,8 +523,12 @@ describe('BoardCard', () => {
     // IN_PROGRESS SLA is 10d — 14d > 10d → aging chip appears.
     const enteredAt = new Date('2026-01-01T12:00:00Z').toISOString();
     renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' } });
-    expect(screen.getByLabelText(/14 days in this column/)).toBeInTheDocument();
+    const chip = screen.getByLabelText(/14 days in this column/);
+    expect(chip).toBeInTheDocument();
     expect(screen.getByText('14d')).toBeInTheDocument();
+    // The aging affordance is the SVG ClockIcon, not the ⏱ emoji (#1749).
+    expect(chip.querySelector('svg')).toBeInTheDocument();
+    expect(chip.textContent).not.toContain('⏱');
   });
 
   it('does not show aging chip when dwell is within SLA (issue #192)', () => {

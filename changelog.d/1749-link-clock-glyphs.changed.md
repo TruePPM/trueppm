@@ -1,0 +1,1 @@
+Replaced three remaining functional emoji glyphs with house SVG icons: the 🔗 link glyph on the dependency popover and the external-links empty state now render the `LinkIcon`, and the board card column-aging chip renders the `ClockIcon` instead of ⏱. Continues the functional-glyph → SVG sweep (#1739) so status/affordance icons render consistently across platforms and themes.
