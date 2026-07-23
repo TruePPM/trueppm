@@ -24,8 +24,8 @@ cloud** mode.
 :::note[The writable Email & SMTP page lands in 0.4]
 The in-app SMTP configuration surface described in the next section **ships in
 0.4** (TruePPM's first beta). Before 0.4, transport is set only through the
-`EMAIL_*` environment settings below; those settings stay valid afterward as the
-default "TruePPM cloud" mode's fallback.
+`EMAIL_*` environment settings below; those settings stay valid afterward — they
+are what the built-in **Server default** transport falls back to.
 :::
 
 ## Configuring email in-app
@@ -34,8 +34,8 @@ The **Workspace → Settings → Email & SMTP** page lets the install **operator
 configure the outbound transport without editing settings or redeploying. Once a
 transport is configured here, it governs **all** outbound mail — notifications,
 invites, and password-reset messages alike — overriding the `EMAIL_*`
-environment defaults. Left on the default **TruePPM cloud** mode, behavior is
-unchanged: mail flows through whatever the `EMAIL_*` settings configure, exactly
+environment defaults. Left on the built-in **Server default** transport, behavior
+is unchanged: mail flows through whatever the `EMAIL_*` settings configure, exactly
 as it did before this page existed.
 
 ### Who can configure it
@@ -58,7 +58,7 @@ Fastmail wants.
 
 | Provider | What it does |
 |---|---|
-| **TruePPM cloud** | The default. Falls back to the `EMAIL_*` environment settings — today's behavior. No SMTP credentials are stored on the row. |
+| **Server default (built-in)** | The default. Falls back to the `EMAIL_*` environment settings your operator configured at deploy time. No SMTP credentials are stored on the row. |
 | **Gmail** | Pre-fills `smtp.gmail.com` · `587` · STARTTLS. Requires a Google **App Password** — see [Gmail App Passwords](#gmail-app-password) below. |
 | **Microsoft 365 / Outlook** | Pre-fills `smtp.office365.com` · `587` · STARTTLS. |
 | **Fastmail** | Pre-fills `smtp.fastmail.com` · `465` · SSL/TLS. Use a Fastmail app password. |
@@ -161,7 +161,7 @@ DNS egress, so both are throttled to keep the surface from being abused.
 
 ## Environment configuration (`EMAIL_*`)
 
-In the default **TruePPM cloud** transport mode — and on any install before the
+In the built-in **Server default** transport mode — and on any install before the
 in-app page ships — TruePPM uses Django's standard `EMAIL_*` settings. The
 Beat-driven drain runs on the `api`, `celery`, and `celery-beat` workloads, so
 all three need the same transport configuration.
@@ -254,6 +254,6 @@ still sends, just without them.
 
 ## Disabling email
 
-Leave the transport on **TruePPM cloud** with no `EMAIL_HOST` configured to run
+Leave the transport on **Server default (built-in)** with no `EMAIL_HOST` configured to run
 without outbound email — in-app notifications keep working and the Email & SMTP
 page reports the transport as not configured.

@@ -2,7 +2,7 @@
  * Workspace → Settings → Email & SMTP — writable transport config (#712, ADR-0213).
  *
  * Upgrades the #639 read-only status page to the writable admin surface: pick a
- * provider (TruePPM cloud / Gmail / Microsoft 365 / Fastmail / SendGrid / SES /
+ * provider (Server default / Gmail / Microsoft 365 / Fastmail / SendGrid / SES /
  * custom SMTP), enter credentials (password write-only), From identity, DKIM,
  * delivery limits, and a bounce webhook. Guided provider setup (#2115) adds
  * first-class presets on top of the ADR-0213 backend contract: a preset is a
@@ -90,10 +90,13 @@ interface ProviderDef {
   credentialLabel: string;
 }
 
+// Order: the server-default fallback leads (it is the unconfigured default), then
+// Custom generic SMTP, then the branded presets alphabetically by label (Amazon SES
+// · Fastmail · Gmail · Microsoft 365 · SendGrid).
 const PROVIDERS: ProviderDef[] = [
   {
     id: 'cloud',
-    label: 'TruePPM cloud',
+    label: 'Server default (built-in)',
     transportMode: 'cloud',
     defaultHost: '',
     defaultPort: 587,
@@ -101,6 +104,39 @@ const PROVIDERS: ProviderDef[] = [
     showAdvanced: false,
     gmailHelp: false,
     credentialLabel: 'Password',
+  },
+  {
+    id: 'custom',
+    label: 'Custom (generic) SMTP',
+    transportMode: 'smtp',
+    defaultHost: '',
+    defaultPort: 587,
+    defaultSecurity: 'tls',
+    showAdvanced: false,
+    gmailHelp: false,
+    credentialLabel: 'Password',
+  },
+  {
+    id: 'ses',
+    label: 'Amazon SES',
+    transportMode: 'ses',
+    defaultHost: '',
+    defaultPort: 587,
+    defaultSecurity: 'tls',
+    showAdvanced: false,
+    gmailHelp: false,
+    credentialLabel: 'API key / SMTP password',
+  },
+  {
+    id: 'fastmail',
+    label: 'Fastmail',
+    transportMode: 'smtp',
+    defaultHost: 'smtp.fastmail.com',
+    defaultPort: 465,
+    defaultSecurity: 'ssl',
+    showAdvanced: true,
+    gmailHelp: false,
+    credentialLabel: 'App password',
   },
   {
     id: 'gmail',
@@ -125,17 +161,6 @@ const PROVIDERS: ProviderDef[] = [
     credentialLabel: 'Password',
   },
   {
-    id: 'fastmail',
-    label: 'Fastmail',
-    transportMode: 'smtp',
-    defaultHost: 'smtp.fastmail.com',
-    defaultPort: 465,
-    defaultSecurity: 'ssl',
-    showAdvanced: true,
-    gmailHelp: false,
-    credentialLabel: 'App password',
-  },
-  {
     id: 'sendgrid',
     label: 'SendGrid',
     transportMode: 'sendgrid',
@@ -145,28 +170,6 @@ const PROVIDERS: ProviderDef[] = [
     showAdvanced: false,
     gmailHelp: false,
     credentialLabel: 'API key / SMTP password',
-  },
-  {
-    id: 'ses',
-    label: 'Amazon SES',
-    transportMode: 'ses',
-    defaultHost: '',
-    defaultPort: 587,
-    defaultSecurity: 'tls',
-    showAdvanced: false,
-    gmailHelp: false,
-    credentialLabel: 'API key / SMTP password',
-  },
-  {
-    id: 'custom',
-    label: 'Custom (generic) SMTP',
-    transportMode: 'smtp',
-    defaultHost: '',
-    defaultPort: 587,
-    defaultSecurity: 'tls',
-    showAdvanced: false,
-    gmailHelp: false,
-    credentialLabel: 'Password',
   },
 ];
 
@@ -803,9 +806,9 @@ export function WorkspaceEmailPage() {
           <SettingsCard className="my-3 bg-neutral-surface-sunken">
             <div className="px-4 py-3">
               <p className="text-[13px] text-neutral-text-secondary">
-                Mail sends through TruePPM&apos;s built-in relay (the server{' '}
-                <span className="tppm-mono">EMAIL_*</span> settings). No credentials needed. Choose
-                another provider above to use your own.
+                Mail sends through the server&apos;s built-in relay (the{' '}
+                <span className="tppm-mono">EMAIL_*</span> settings your operator configured at
+                deploy time). No credentials needed. Choose another provider above to use your own.
               </p>
             </div>
           </SettingsCard>
