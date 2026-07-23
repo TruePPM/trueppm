@@ -566,7 +566,12 @@ describe('TaskListRow', () => {
           />,
         );
         expect(screen.getByTestId('missing-dates-chip')).toBeInTheDocument();
-        expect(screen.getByLabelText('Missing schedule dates')).toBeInTheDocument();
+        expect(
+          screen.getByLabelText(
+            'No committed start date — dates shown are auto-calculated, not committed.',
+          ),
+        ).toBeInTheDocument();
+        expect(screen.getByText('no committed start')).toBeInTheDocument();
       },
     );
 

@@ -1593,12 +1593,12 @@ function TaskNameBadges(props: TaskNameContentProps) {
       {hasMissingDatesWarning && (
         <span
           className="inline-flex shrink-0 items-center gap-0.5 px-1 py-px rounded-chip text-xs font-medium text-semantic-at-risk border border-semantic-at-risk/40"
-          title="This task is in progress but has no schedule dates. Set a start date or move it to To Do."
-          aria-label="Missing schedule dates"
+          title="In progress without a committed start. The dates shown are auto-calculated (CPM), not committed. Set a committed start, or move it back to To Do."
+          aria-label="No committed start date — dates shown are auto-calculated, not committed."
           data-testid="missing-dates-chip"
         >
           <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
-          <span>missing dates</span>
+          <span>no committed start</span>
         </span>
       )}
       {recalcPrompt?.taskId === task.id && (
