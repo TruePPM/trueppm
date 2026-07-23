@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import {
@@ -31,7 +31,11 @@ const NAV_GROUPS: SettingsNavGroup[] = [
   },
   {
     label: 'System',
-    items: [{ id: 'health', label: 'System health', to: '/settings/health', icon: <span /> }],
+    items: [
+      // Real System tool items are `external` — route departures, not scroll
+      // anchors — which drives the "Opens a separate page" rail treatment (#2291).
+      { id: 'health', label: 'System health', to: '/settings/health', external: true, icon: <span /> },
+    ],
   },
 ];
 
@@ -144,6 +148,32 @@ describe('<SettingsShell>', () => {
     const nav = screen.getByRole('navigation', { name: 'Settings sections' });
     expect(nav.className).toContain('min-h-0');
     expect(nav.className).toContain('overflow-y-auto');
+  });
+
+  it('sets off a route-departure tool group with a divider + "Opens a separate page" caption (#2291)', () => {
+    // The System group's items are `external` (they navigate away), so the rail
+    // must read as a distinct "tool pages you open" cluster — a top divider plus
+    // a caption — so users don't mistake it for another scroll-spy section and try
+    // (and fail) to scroll to it.
+    renderShell();
+    const caption = screen.getByText('Opens a separate page');
+    // Caption sits inside the System group container, which carries the divider.
+    const systemGroup = caption.closest('div');
+    expect(systemGroup?.className).toContain('border-t');
+    // The tool button is described by the caption, so AT announces the
+    // route-departure context on direct focus (not only linear reading).
+    expect(caption.id).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'System health' })).toHaveAttribute(
+      'aria-describedby',
+      caption.id,
+    );
+    // A scroll-spy config button carries no such description.
+    expect(screen.getByRole('button', { name: 'General' })).not.toHaveAttribute('aria-describedby');
+    // The scroll-spy config group ('Setup') gets neither the caption nor a divider.
+    const setupHeading = screen.getByRole('heading', { name: 'Setup' });
+    const setupGroup = setupHeading.closest('div');
+    expect(setupGroup?.className).not.toContain('border-t');
+    expect(within(setupGroup as HTMLElement).queryByText('Opens a separate page')).toBeNull();
   });
 
   it('renders inline sections as scroll-spy buttons, not links', () => {

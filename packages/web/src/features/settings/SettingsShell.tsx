@@ -154,6 +154,10 @@ export function SettingsShell({
 
   const [pendingNav, setPendingNav] = useState<string | null>(null);
   const [copyConfirmed, setCopyConfirmed] = useState(false);
+  // Base id for the per-tool-group "Opens a separate page" caption, so each tool
+  // button can `aria-describedby` it (route-departure context reaches AT on direct
+  // focus, not only on linear reading of the rail) (#2291).
+  const railCaptionIdBase = useId();
 
   // Inline (scroll-spy) section ids in document order — the items WITHOUT a `to`.
   const inlineIds = navGroups.flatMap((g) => g.items.filter((i) => !i.to).map((i) => i.id));
@@ -347,11 +351,41 @@ export function SettingsShell({
           className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] px-2 py-1"
           aria-label="Settings sections"
         >
-          {navGroups.map((group) => (
-            <div key={group.label} className="mb-2">
-              <h2 className="px-2 py-1.5 text-xs font-semibold tracking-[.08em] uppercase text-neutral-text-secondary">
+          {navGroups.map((group, groupIdx) => {
+            // A group whose every item is a route-departure tool page (System
+            // health, Observability, Retention & purge, Trash — `external: true`)
+            // is NOT part of the consolidated page's scroll-spy flow: clicking one
+            // navigates away. Styled like the config groups above it, the rail
+            // reads top-to-bottom as one scroll flow, so users try to scroll down
+            // to it, never reach it (the last inline section is Danger), then
+            // resort to clicking — which breaks the single-page feel (#2291). Set
+            // it off with a top divider + an "Opens a separate page" caption so it
+            // reads as a distinct "tool pages you open" cluster, reinforcing the
+            // route-departure intent of ADR-0146/#2252 (which this does NOT
+            // reverse). Inferred from `external` (not `to`): on the off-route tool
+            // shells the config items also carry a `/settings#slug` `to`, but they
+            // are scroll anchors, not departures — only `external` marks a tool.
+            const isToolGroup = group.items.length > 0 && group.items.every((i) => i.external);
+            const captionId = isToolGroup ? `${railCaptionIdBase}-${groupIdx}` : undefined;
+            return (
+            <div
+              key={group.label}
+              className={isToolGroup ? 'mb-2 mt-2 pt-2 border-t border-neutral-border' : 'mb-2'}
+            >
+              <h2
+                className={`px-2 pt-1.5 ${isToolGroup ? 'pb-0' : 'pb-1.5'} text-xs font-semibold tracking-[.08em] uppercase text-neutral-text-secondary`}
+              >
                 {group.label}
               </h2>
+              {isToolGroup && (
+                // Settings density (rule 118) permits text-[11px]; text-secondary
+                // clears WCAG 1.4.3 on the raised rail surface. This visible caption
+                // carries the "these navigate away" context that the per-item ↗ (an
+                // aria-hidden decoration) does not expose to screen readers.
+                <p id={captionId} className="px-2 pb-1.5 text-[11px] font-normal text-neutral-text-secondary">
+                  Opens a separate page
+                </p>
+              )}
               {group.items.map((item) => {
                 const isInline = !item.to;
                 // Inline sections track the scroll-spy; route links track the URL.
@@ -378,6 +412,10 @@ export function SettingsShell({
                     key={item.id}
                     type="button"
                     aria-current={isActive ? (isInline ? 'true' : 'page') : undefined}
+                    // Tool-page buttons point at the group's "Opens a separate page"
+                    // caption so AT announces the route-departure context on direct
+                    // focus, not only when reading the rail top-to-bottom (#2291).
+                    aria-describedby={captionId}
                     onClick={() => {
                       if (item.to) {
                         if (guardedNavigate(item.to)) return;
@@ -425,7 +463,8 @@ export function SettingsShell({
                 );
               })}
             </div>
-          ))}
+            );
+          })}
         </nav>
       </aside>
       )}
