@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
@@ -149,12 +150,19 @@ export function WorkspaceMethodologyPage() {
       <div className="px-6 pb-8 max-w-[960px] space-y-6">
         {/* Method cards */}
         <section aria-labelledby="method-heading">
-          <h2
-            id="method-heading"
-            className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary mb-3"
-          >
-            Default methodology
-          </h2>
+          <div className="flex items-center gap-1.5 mb-3">
+            <h2
+              id="method-heading"
+              className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
+            >
+              Default methodology
+            </h2>
+            <FieldHelp
+              label="Default methodology"
+              body="The default planning model new programs and projects start from — Waterfall (phases, gates, baselines, and CPM), Agile (sprints, story points, and velocity), or Hybrid (phase gates at the top with sprints inside delivery). Lower scopes may pick their own unless you require a single method below."
+              docHref="features/methodology-preset/#methodology-inheritance"
+            />
+          </div>
           <div className="grid grid-cols-3 gap-3.5" role="radiogroup" aria-labelledby="method-heading">
             {METHODS.map((m) => {
               const isSelected = methodology === m.id;
@@ -232,12 +240,19 @@ export function WorkspaceMethodologyPage() {
         {/* Estimation scale (ADR-0510, #2027). The workspace is the non-null root; no
             override policy — programs and projects override it freely. */}
         <section aria-labelledby="estimation-scale-heading">
-          <h2
-            id="estimation-scale-heading"
-            className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary mb-3"
-          >
-            Default estimation scale
-          </h2>
+          <div className="flex items-center gap-1.5 mb-3">
+            <h2
+              id="estimation-scale-heading"
+              className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
+            >
+              Default estimation scale
+            </h2>
+            <FieldHelp
+              label="Default estimation scale"
+              body="The scale programs and projects use to size work — story points (Fibonacci), hours, or T-shirt sizes. This is the starting default; every program and project can freely pick its own."
+              docHref="features/methodology-preset/"
+            />
+          </div>
           <div className="relative inline-block w-[280px]">
             <label htmlFor="workspace-estimation-scale" className="sr-only">
               Default estimation scale
@@ -276,9 +291,16 @@ export function WorkspaceMethodologyPage() {
           className="rounded-card border border-neutral-border bg-neutral-surface-raised overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-neutral-border/55">
-            <h2 id="policy-heading" className="text-[13px] font-semibold text-neutral-text-primary">
-              Program &amp; project override policy
-            </h2>
+            <div className="flex items-center gap-1.5">
+              <h2 id="policy-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+                Program &amp; project override policy
+              </h2>
+              <FieldHelp
+                label="Override policy"
+                body="Controls whether programs and projects may deviate from the workspace methodology. Suggest pre-fills the default but lets each scope change it; Inherit makes the default win everywhere and per-scope pickers read-only; Enforce is a hard lock available in TruePPM Enterprise."
+                docHref="features/methodology-preset/#methodology-inheritance"
+              />
+            </div>
             <p className="text-[12px] text-neutral-text-secondary mt-0.5">
               Controls how programs and projects deviate from the workspace default.
             </p>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { Toggle } from '../components/Toggle';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { AttachmentTypesChecklist } from '../components/AttachmentTypesChecklist';
@@ -98,6 +99,13 @@ export function WorkspaceAttachmentsPage() {
         <FieldRow
           label="File attachments"
           hint="Allow uploading files to tasks. Turning this off keeps existing files but hides the upload controls."
+          help={
+            <FieldHelp
+              label="File attachments"
+              body="Whether contributors may upload files to tasks across the workspace. Turning it off keeps existing files but hides the upload controls everywhere. External links are always allowed. Programs and projects inherit this unless they override it."
+              docHref="administration/attachment-policy/"
+            />
+          }
         >
           <Toggle
             on={attachmentsEnabled}
@@ -111,6 +119,13 @@ export function WorkspaceAttachmentsPage() {
         <FieldRow
           label="Allowed file types"
           hint="The file types contributors may upload. A few are permanently disallowed for security."
+          help={
+            <FieldHelp
+              label="Allowed file types"
+              body="The file types contributors may upload. A short list of executable and script types is permanently blocked for security and can't be enabled. Programs and projects inherit this allowlist unless they narrow it."
+              docHref="administration/attachment-policy/"
+            />
+          }
         >
           <div className="flex flex-col gap-3">
             <AttachmentTypesChecklist
@@ -134,6 +149,13 @@ export function WorkspaceAttachmentsPage() {
         <FieldRow
           label="Programs &amp; projects"
           hint="Whether programs and projects may override this attachment policy."
+          help={
+            <FieldHelp
+              label="Attachment overrides"
+              body="Whether programs and projects may narrow or widen this attachment policy, or must follow the workspace setting. Enforcing it workspace-wide requires TruePPM Enterprise."
+              docHref="administration/attachment-policy/"
+            />
+          }
         >
           {/* Cascade policy (ADR-0153, #976 / #2014). Mirrors the sibling
               TermOverridePolicy controls (methodology, forecast history): OSS

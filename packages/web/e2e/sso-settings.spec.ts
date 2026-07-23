@@ -107,10 +107,10 @@ test.describe('Workspace Single sign-on — admin (multi-provider)', () => {
 
     await page.getByRole('button', { name: 'Add provider' }).click();
     // The panel opens on Keycloak (a derived, two-field provider).
-    await expect(page.getByLabel('Provider type')).toBeVisible();
+    await expect(page.getByLabel('Provider type', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Base URL')).toBeVisible();
     await expect(page.getByLabel('Realm')).toBeVisible();
-    await expect(page.getByLabel('Client ID')).toBeVisible();
+    await expect(page.getByLabel('Client ID', { exact: true })).toBeVisible();
   });
 
   test('configured: live status and a provider row', async ({ page }) => {

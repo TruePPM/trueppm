@@ -81,6 +81,13 @@ describe('ProjectSharingPage (#283 / #1486)', () => {
     expect(screen.getByText(/No share links yet/i)).toBeInTheDocument();
   });
 
+  it('renders contextual help for creating a public link (#2266)', () => {
+    render(<ProjectSharingPage />);
+    expect(
+      screen.getByRole('button', { name: /About the Public links options/i }),
+    ).toBeInTheDocument();
+  });
+
   it('groups active links by kind with a count and expiry clause', () => {
     sharedLinksResult = {
       data: [

@@ -71,4 +71,14 @@ describe('WorkspaceAttachmentsPage — override policy (#2014)', () => {
     expect(hintId).toBeTruthy();
     expect(document.getElementById(hintId as string)?.textContent).toMatch(/Enterprise/i);
   });
+
+  it('renders FieldHelp ⓘ triggers on the attachment fields (web-rule 263 / #2266)', () => {
+    render(<WorkspaceAttachmentsPage />);
+    expect(
+      screen.getByRole('button', { name: 'About the File attachments options' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'About the Allowed file types options' }),
+    ).toBeInTheDocument();
+  });
 });

@@ -25,7 +25,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { SettingsPageTitle } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { Toggle } from '../components/Toggle';
-import { FieldHelp } from '@/components/FieldHelp';
+import { FieldHelp, type FieldHelpOption } from '@/components/FieldHelp';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { BUILT_IN_FIELDS } from './builtInFields';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -84,6 +84,19 @@ const CUSTOM_FIELD_TYPE_OPTIONS: Array<{ value: CustomFieldType; label: string }
 function isSelectType(t: CustomFieldType): boolean {
   return t === 'SINGLE_SELECT' || t === 'MULTI_SELECT';
 }
+
+// Plain-language gloss of each custom-field type for the "Field type" FieldHelp
+// popover (web-rule 263). Mirrors CUSTOM_FIELD_TYPE_OPTIONS so the ⓘ never
+// invents a type the create modal doesn't offer.
+const CUSTOM_FIELD_TYPE_HELP: FieldHelpOption[] = [
+  { label: 'Text', desc: 'Free-form single-line text.' },
+  { label: 'Number', desc: 'A numeric value.' },
+  { label: 'Date', desc: 'A calendar date.' },
+  { label: 'Single-select', desc: 'One choice from a fixed list of options you define.' },
+  { label: 'Multi-select', desc: 'Any number of choices from a fixed list of options.' },
+  { label: 'Person', desc: 'A project member.' },
+  { label: 'Boolean', desc: 'A yes / no checkbox.' },
+];
 
 /** Project > Workflow & fields settings page (#521). */
 export function ProjectWorkflowPage() {
@@ -183,6 +196,11 @@ function CadenceSection({
         <h2 id="cadence-heading" className="text-[13px] font-semibold text-neutral-text-primary">
           Board cadence
         </h2>
+        <FieldHelp
+          label="Board cadence"
+          body="Cadence is how this board paces work. Sprint-based plans work in time-boxed sprints with a burndown; continuous flow (Kanban) drops the sprint cadence and tracks work as it moves through columns, surfacing flow analytics instead. Switching to continuous flow hides sprint tracking but preserves the sprint data."
+          docHref="features/board/#board-cadence"
+        />
         <span className="text-[12px] text-neutral-text-secondary">
           · Sprint cadence or continuous Kanban flow
         </span>
@@ -631,6 +649,11 @@ function StatusesSection({
         <h2 id="statuses-heading" className="text-[13px] font-semibold text-neutral-text-primary">
           Statuses
         </h2>
+        <FieldHelp
+          label="Statuses"
+          body="Each status is a column on the board and the status pill on task cards. The five canonical statuses are fixed — rename, recolor, reorder, or hide a column here. The per-column age limit flags cards that have sat in that column longer than the set number of days with an aging indicator; leave it blank to use the default. Hiding a column keeps its tasks but removes the column from the board."
+          docHref="administration/project-settings/#workflow--fields"
+        />
         <span className="text-[12px] text-neutral-text-secondary">
           · Columns on the board · Status pill on cards
         </span>
@@ -930,8 +953,23 @@ function FieldsSection({
         style={{ gridTemplateColumns: '1.2fr 1fr 100px 100px 96px 48px' }}
       >
         <span>Field</span>
-        <span>Type</span>
-        <span>Required</span>
+        <span className="inline-flex items-center gap-1 normal-case tracking-normal">
+          Type
+          <FieldHelp
+            label="Field type"
+            intro="The kind of value this field holds. Type is fixed once the field is created."
+            options={CUSTOM_FIELD_TYPE_HELP}
+            docHref="administration/project-settings/#workflow--fields"
+          />
+        </span>
+        <span className="inline-flex items-center gap-1 normal-case tracking-normal">
+          Required
+          <FieldHelp
+            label="Required"
+            body="A required field must have a value on every task before the task can be saved. Built-in fields marked Required are enforced by the scheduler and can't be turned off; custom fields are optional unless you mark them required."
+            docHref="administration/project-settings/#workflow--fields"
+          />
+        </span>
         <span>Source</span>
         <span className="inline-flex items-center gap-1 normal-case tracking-normal">
           On card

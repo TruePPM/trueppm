@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AxiosError, type AxiosResponse } from 'axios';
@@ -449,5 +449,17 @@ describe('SsoProviderPanel — Edit mode', () => {
   it('hides the Test-connection section in Add mode (nothing saved to probe)', () => {
     renderPanel();
     expect(screen.queryByText('Test connection')).not.toBeInTheDocument();
+  });
+
+  it('exposes a FieldHelp ⓘ on the Provider type field deep-linking to the SSO docs (#2266)', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    const trigger = screen.getByRole('button', { name: /About the Provider type options/i });
+    await user.click(trigger);
+
+    const dialog = screen.getByRole('dialog', { name: /Provider type/i });
+    const learnMore = within(dialog).getByRole('link', { name: /Learn more/i });
+    expect(learnMore).toHaveAttribute('href', expect.stringContaining('single-sign-on'));
   });
 });

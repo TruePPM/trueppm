@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
+import { docsUrl } from '@/lib/docsUrl';
 import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
 import { toast } from '@/components/Toast';
@@ -20,6 +21,28 @@ import {
 import { SettingsPageTitle } from '../SettingsShell';
 import { TransferOwnershipDialog } from '../components/TransferOwnershipDialog';
 
+/**
+ * A "Learn more →" docs deep-link for a lifecycle card (web-rule 263). Rendered
+ * as an `<a>` (not a button) so destructive/lifecycle cards get a per-card docs
+ * link rather than a per-input ⓘ popover, per the #2266 rule for these actions.
+ *
+ * `href` is a docs-site slug (+#anchor), passed through {@link docsUrl}.
+ */
+function LearnMoreLink({ href, label = 'Learn more' }: { href: string; label?: string }) {
+  return (
+    <a
+      href={docsUrl(href)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-3 inline-flex items-center gap-1 rounded text-[11px] font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+    >
+      {label}
+      <span aria-hidden="true">→</span>
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
+  );
+}
+
 interface LifecycleCardProps {
   title: string;
   tone: 'neutral' | 'warning';
@@ -30,6 +53,8 @@ interface LifecycleCardProps {
   /** When the card is a not-yet-wired placeholder, the reason shown on hover
    *  (and as the accessible title) — should link the tracking issue, e.g. "… — tracked in #967". */
   disabledReason?: string;
+  /** Docs-site slug (+#anchor) for this card's "Learn more →" link (web-rule 263). */
+  docHref?: string;
   onClick?: () => void;
   busy?: boolean;
   error?: string | null;
@@ -43,6 +68,7 @@ function LifecycleCard({
   notes,
   disabled,
   disabledReason,
+  docHref,
   onClick,
   busy,
   error,
@@ -87,6 +113,11 @@ function LifecycleCard({
         <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
           {error}
         </p>
+      ) : null}
+      {docHref ? (
+        <div>
+          <LearnMoreLink href={docHref} />
+        </div>
       ) : null}
     </div>
   );
@@ -191,6 +222,9 @@ function ExportBundleCard({
               : startError)}
         </p>
       ) : null}
+      <div>
+        <LearnMoreLink href="administration/data-export/#export-a-project-bundle-async" />
+      </div>
     </div>
   );
 }
@@ -325,6 +359,7 @@ export function ProjectArchivePage() {
                   'Reversible by any Owner.',
                 ]
           }
+          docHref="administration/project-settings/#lifecycle"
           onClick={onToggleArchive}
           busy={archive.isPending || unarchive.isPending}
           error={archiveError}
@@ -339,6 +374,7 @@ export function ProjectArchivePage() {
             'New owner must already be a project member.',
             'You are demoted to Admin when the transfer completes.',
           ]}
+          docHref="administration/rbac"
           onClick={() => setTransferOpen(true)}
           busy={transfer.isPending}
           error={transferError}
@@ -353,6 +389,7 @@ export function ProjectArchivePage() {
             'Portable canonical JSON — re-imports via Programs → Import.',
             'For a client-ready document, use the board PDF export instead.',
           ]}
+          docHref="administration/data-export/#export-a-project"
           onClick={() => exportSeed.mutate({ projectId, code: project?.code })}
           busy={exportSeed.isPending}
           error={exportError}
@@ -369,6 +406,7 @@ export function ProjectArchivePage() {
             'Reversible — restore any time before the window closes (Workspace → Trash).',
             'Cross-project dependencies are re-linked on restore.',
           ]}
+          docHref="administration/retention"
           onClick={onMoveToTrash}
           busy={remove.isPending}
         />
@@ -430,6 +468,9 @@ export function ProjectArchivePage() {
               {deleteError}
             </p>
           ) : null}
+          <div>
+            <LearnMoreLink href="administration/project-settings/#lifecycle" />
+          </div>
         </div>
       </div>
 

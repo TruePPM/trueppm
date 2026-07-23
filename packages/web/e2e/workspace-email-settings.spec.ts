@@ -123,7 +123,7 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await expect(page.getByText(/emailed links are broken/i)).toHaveCount(0);
 
     // Pick the Custom provider to reveal the SMTP fields, fill the transport.
-    await page.getByLabel('Provider').selectOption('custom');
+    await page.getByLabel('Provider', { exact: true }).selectOption('custom');
     await page.getByLabel('SMTP host').fill('mail.truescope.io');
     await page.getByLabel('SMTP username').fill('postmaster');
     await page.getByLabel('Password', { exact: true }).fill('s3cret');
@@ -156,7 +156,7 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await page.goto('/settings/email');
     await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
 
-    await page.getByLabel('Provider').selectOption('custom');
+    await page.getByLabel('Provider', { exact: true }).selectOption('custom');
     await page.getByLabel('SMTP host').fill('bad.host.example');
     await page.getByLabel('SMTP username').fill('u');
     await page.getByLabel('Password', { exact: true }).fill('s3cret');
@@ -187,7 +187,7 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await page.goto('/settings/email');
     await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
 
-    await page.getByLabel('Provider').selectOption('custom');
+    await page.getByLabel('Provider', { exact: true }).selectOption('custom');
     await page.getByLabel('SMTP host').fill('bad.host.example');
     await page.getByLabel('SMTP username').fill('u');
     await page.getByLabel('Password', { exact: true }).fill('s3cret');
@@ -216,7 +216,7 @@ test.describe('Workspace Email & SMTP — writable', () => {
     const email = page.locator('[data-settings-section="email"]');
 
     // Pick Gmail → App-Password credential + guided callout, host pre-filled behind Advanced.
-    await page.getByLabel('Provider').selectOption('gmail');
+    await page.getByLabel('Provider', { exact: true }).selectOption('gmail');
     await expect(email.getByRole('textbox', { name: 'App password' })).toBeVisible();
     await expect(email.getByText('smtp.gmail.com · 587 · STARTTLS')).toBeVisible();
 
@@ -235,7 +235,7 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await expect(page.getByLabel('SMTP host')).toHaveValue('smtp.gmail.com');
 
     // Switch to Custom, set Security to None → the plaintext warning appears.
-    await page.getByLabel('Provider').selectOption('custom');
+    await page.getByLabel('Provider', { exact: true }).selectOption('custom');
     await page.getByLabel('Security', { exact: true }).selectOption('none');
     await expect(email.getByText('Unencrypted connection')).toBeVisible();
   });

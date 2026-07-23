@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { Toggle } from '../components/Toggle';
 import { useFeatureFlag, setFeatureFlag } from '@/lib/featureFlags';
 import { BuildModeCheatsheet } from '@/features/schedule/buildMode';
@@ -34,6 +35,13 @@ export function WorkspaceSchedulePage() {
         <FieldRow
           label="Build mode"
           hint="Keyboard-first plan entry on the Schedule list — type, Tab to indent, Enter to open a task. Desktop-only. Applies to this browser."
+          help={
+            <FieldHelp
+              label="Build mode"
+              body="Build mode is a keyboard-first way to enter a plan on the Schedule list — type a task name, Tab to indent it under its parent, and Enter to open it. It's desktop-only and a per-browser preference, so turning it on here affects only this browser."
+              docHref="features/schedule-build-mode/#enabling-build-mode"
+            />
+          }
         >
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2">

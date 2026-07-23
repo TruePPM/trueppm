@@ -7,7 +7,9 @@
  * Connected Accounts and are surfaced via the teaser below.
  */
 
+import type { ReactNode } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
+import { docsUrl } from '@/lib/docsUrl';
 import type { IntegrationScope } from '@/hooks/useWebhooks';
 import { SettingsPageTitle, SettingsCard } from '../SettingsShell';
 import { registry } from '@/lib/widget-registry';
@@ -31,6 +33,22 @@ export function ProjectIntegrationsPage() {
       />
 
       <div className="px-6 pb-8 space-y-6">
+        {/* Section-level help lives here at the page level rather than as a ⓘ inside
+            each manager's header: WebhooksManager and ApiTokensManager are shared
+            across the Workspace, Program, and Project Integrations pages, so editing
+            their headers would change all three scopes. A page-owned reference row
+            is the collision-safe equivalent (#2266). */}
+        {/* Link text deliberately avoids the exact manager-header phrases
+            "Outbound webhooks" / "Inbound API tokens": the project-integrations
+            e2e locates those headers with a case-insensitive substring
+            getByText, so reusing them here would trip a strict-mode collision. */}
+        <p className="text-[12px] text-neutral-text-secondary leading-relaxed">
+          New to integrations? See the docs on{' '}
+          <DocLink href="features/webhooks">webhooks</DocLink>,{' '}
+          <DocLink href="features/personal-access-tokens">API tokens</DocLink>, and{' '}
+          <DocLink href="administration/git-event-automation">Git-event automation</DocLink>.
+        </p>
+
         <div className="grid gap-4 lg:grid-cols-2">
           <WebhooksManager scope={scope} />
           <ApiTokensManager scope={scope} />
@@ -54,6 +72,20 @@ export function ProjectIntegrationsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+/** A docs-site deep link with the shared rule-4 focus ring; opens in a new tab. */
+function DocLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={docsUrl(href)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="rounded text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+    >
+      {children}
+    </a>
   );
 }
 

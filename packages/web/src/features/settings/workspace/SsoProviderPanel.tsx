@@ -24,6 +24,7 @@ import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
 import { FieldRow } from '../SettingsShell';
 import { Toggle } from '../components/Toggle';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
+import { FieldHelp } from '@/components/FieldHelp';
 import {
   PICKER_PROVIDERS,
   providerDef,
@@ -112,6 +113,13 @@ function ClientSecretField({
         secretSet
           ? 'Encrypted at rest. Leave blank to keep the current secret.'
           : 'Encrypted at rest.'
+      }
+      help={
+        <FieldHelp
+          label="Client secret"
+          body="The confidential key paired with the Client ID, issued by your identity provider when you register the TruePPM application. It is stored encrypted; when editing, leave the field blank to keep the current secret."
+          docHref="administration/single-sign-on"
+        />
       }
       error={error}
       errorId={errorId}
@@ -203,6 +211,18 @@ function IssuerFields({
 }) {
   const serverUrlErrId = useId();
   const githubOrgErrId = useId();
+  // One shared FieldHelp for the issuer (web-rule 263): "issuer URL" is OIDC
+  // jargon, so explain it once and attach it to whichever issuer row this
+  // provider kind renders — the single free/raw field, or the derived
+  // resolved-issuer strip (#2266). `fixed` (auto) and `oauth` (no issuer) rows
+  // are self-evident and get none.
+  const issuerHelp = (
+    <FieldHelp
+      label="Issuer URL"
+      body="The base URL of your identity provider's OpenID Connect configuration. TruePPM appends /.well-known/openid-configuration to it to discover the sign-in, token, and signing-key endpoints. Copy it from your provider's admin console — for realm-based products like Keycloak it includes the realm path."
+      docHref="administration/single-sign-on"
+    />
+  );
   // Composition inputs all contribute to `server_url`; when it is rejected,
   // mark each aria-invalid and point them at the one inline message (rendered
   // on the resolved-issuer strip for derived, or the single field otherwise).
@@ -240,6 +260,10 @@ function IssuerFields({
             key={f.id}
             label={f.label}
             hint={f.hint}
+            // Help rides the single `free` issuer field; `derived` composition
+            // fields defer to the resolved-issuer strip below to avoid repeating
+            // the same ⓘ on every part.
+            help={def.kind === 'free' && i === 0 ? issuerHelp : undefined}
             // `free` has a single field and no resolved-issuer strip, so the
             // `server_url` message lands on that row; `derived` shows it on the
             // strip below instead (avoid duplicating it on every field).
@@ -263,6 +287,7 @@ function IssuerFields({
         <FieldRow
           label="Issuer URL"
           hint="Stored issuer (could not be split into fields) — edit directly."
+          help={issuerHelp}
           error={serverUrlError}
           errorId={serverUrlErrId}
         >
@@ -283,6 +308,7 @@ function IssuerFields({
         <FieldRow
           label="Resolved issuer"
           hint="Composed from the fields above."
+          help={issuerHelp}
           error={serverUrlError}
           errorId={serverUrlErrId}
         >
@@ -545,6 +571,23 @@ export function SsoProviderPanel({
         <FieldRow
           label="Provider type"
           hint="Sets the endpoints and issuer format."
+          help={
+            <FieldHelp
+              label="Provider type"
+              intro="The protocol TruePPM uses to talk to your identity provider. It's set by the product you pick and is fixed once the provider is added."
+              options={[
+                {
+                  label: 'OIDC (Keycloak, Authentik, Authelia, Zitadel, Google, GitLab)',
+                  desc: 'OpenID Connect. TruePPM discovers the endpoints from an issuer URL you provide.',
+                },
+                {
+                  label: 'OAuth 2.0 (GitHub)',
+                  desc: 'Fixed endpoints, so there is no issuer URL. Identity comes from the GitHub user API.',
+                },
+              ]}
+              docHref="administration/single-sign-on"
+            />
+          }
           error={fieldErrors.slug}
           errorId={`${typeId}-err`}
         >
@@ -609,7 +652,18 @@ export function SsoProviderPanel({
             placeholder={`${def.name} sign-in`}
           />
         </FieldRow>
-        <FieldRow label="Client ID" error={fieldErrors.client_id} errorId={`${clientIdId}-err`}>
+        <FieldRow
+          label="Client ID"
+          help={
+            <FieldHelp
+              label="Client ID"
+              body="The public identifier your identity provider assigns to the TruePPM application when you register it there. Paste the value from your provider's app or client registration."
+              docHref="administration/single-sign-on"
+            />
+          }
+          error={fieldErrors.client_id}
+          errorId={`${clientIdId}-err`}
+        >
           <label htmlFor={clientIdId} className="sr-only">
             Client ID
           </label>
@@ -634,7 +688,17 @@ export function SsoProviderPanel({
             clearError('client_secret');
           }}
         />
-        <FieldRow label="Redirect URI" hint="Add this to your IdP's allowed redirect list.">
+        <FieldRow
+          label="Redirect URI"
+          hint="Add this to your IdP's allowed redirect list."
+          help={
+            <FieldHelp
+              label="Redirect URI"
+              body="The callback address your identity provider must send users back to after they sign in. TruePPM fixes this value — copy it into your provider's list of allowed redirect (callback) URLs, or sign-in will be rejected."
+              docHref="administration/single-sign-on"
+            />
+          }
+        >
           {redirectUri ? (
             <div className="flex items-center gap-2 max-w-[520px]">
               <input
@@ -735,6 +799,13 @@ export function SsoProviderPanel({
         <FieldRow
           label="Enable this provider"
           hint="Requires a complete configuration above."
+          help={
+            <FieldHelp
+              label="Enable this provider"
+              body="When on, this provider's button appears on the sign-in screen and allowed users can log in with it. When off, the configuration is kept but hidden from sign-in. A provider must be fully configured before it can be enabled."
+              docHref="administration/single-sign-on"
+            />
+          }
           error={fieldErrors.enabled}
           errorId={`${typeId}-enabled-err`}
         >

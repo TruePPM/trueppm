@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import { toast } from '@/components/Toast';
+import { FieldHelp } from '@/components/FieldHelp';
 import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useRevokeShareLink, useShareLinks, type ShareLink } from '../hooks/useShareLinks';
@@ -145,7 +146,14 @@ export function ProjectSharingPage() {
         <div className="mb-4 rounded-card border border-neutral-border bg-neutral-surface-raised p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-[13px] font-semibold text-neutral-text-primary">Public links</h2>
+              <div className="flex items-center gap-1.5">
+                <h2 className="text-[13px] font-semibold text-neutral-text-primary">Public links</h2>
+                <FieldHelp
+                  label="Public links"
+                  body="Create link opens a chooser: pick what to share — the project schedule or its board — set an expiry (a 30-day nudge is prefilled, or choose Never), and decide whether assignee names are shown (hidden by default). The link is public and read-only: anyone with it can view without signing in, and comments, notes, and attachments are never included. You can revoke any link here at any time."
+                  docHref="administration/sharing-and-access"
+                />
+              </div>
               <p className="mt-0.5 text-[11px] text-neutral-text-secondary">
                 Comments, notes, and attachments are never shown. Assignee names are hidden by
                 default.

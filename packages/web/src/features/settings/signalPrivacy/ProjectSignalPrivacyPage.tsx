@@ -9,6 +9,7 @@
 import { useMemo, useState } from 'react';
 import type { AxiosError } from 'axios';
 import { SettingsPageTitle } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { SignalLadder } from './SignalLadder';
@@ -77,6 +78,13 @@ export function ProjectSignalPrivacyPage() {
       <SettingsPageTitle
         title="Signal privacy"
         subtitle="Control how far each team signal can travel. Your team owns the ceiling; the Scrum Master moves the dial below it."
+        action={
+          <FieldHelp
+            label="Signal privacy"
+            body="Each team signal sits on an audience ladder that controls how far it can travel — from team-only up to program-shared. The team owns the ceiling (the furthest a signal may go, raised only by a team decision), and the Scrum Master sets the current audience anywhere below it. 'Make everything team-only' is a one-click ratchet that pulls every signal back to the most private setting."
+            docHref="features/settings/signal-privacy/#the-ladder-and-the-ceiling"
+          />
+        }
       />
 
       <div className="max-w-2xl px-6 pb-8">

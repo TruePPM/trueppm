@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { canManageLabels, canCreateLabel } from '@/lib/roles';
@@ -73,6 +74,13 @@ export function ProjectLabelsPage() {
       <SettingsPageTitle
         title="Labels"
         subtitle="Colored labels categorize tasks across the board and schedule, independent of status, sprint, or WBS."
+        action={
+          <FieldHelp
+            label="Labels"
+            body="Labels are colored tags you attach to tasks to categorize them across the board and schedule — independent of status, sprint, or WBS. Admins curate the catalog (rename, recolor, reorder, delete) and members can add new labels; a change applies everywhere the label is already used."
+            docHref="features/labels"
+          />
+        }
       />
 
       {/* Padded body wrapper (px-6) matching every other settings section — without

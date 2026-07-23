@@ -7,6 +7,7 @@ import {
   useProjectNotificationPreferences,
 } from '@/hooks/useProjectNotificationPreferences';
 import { SettingsPageTitle } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 
 const QUIET_FROM_OPTIONS = ['18:00', '19:00', '20:00', '21:00', '22:00'];
 const QUIET_UNTIL_OPTIONS = ['06:00', '07:00', '08:00', '09:00'];
@@ -111,7 +112,14 @@ export function ProjectNotificationsPage() {
             className="grid px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55 text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             style={{ gridTemplateColumns: `2fr repeat(${PROJECT_NOTIFICATION_CHANNELS.length}, 110px)` }}
           >
-            <span>Event</span>
+            <span className="flex items-center gap-1.5">
+              Event
+              <FieldHelp
+                label="Notification routing"
+                body="Each row is an event that can happen on this project; each column is a delivery channel. Turn a cell on to have that event delivered through that channel, off to silence it. These are your personal routing rules for this project — other members set their own, and you can override them in your account-wide notification preferences."
+                docHref="features/settings/project-notifications/#the-default-matrix"
+              />
+            </span>
             {PROJECT_NOTIFICATION_CHANNELS.map((c) => (
               <span key={c.channel} className="text-center">
                 {c.label}
@@ -175,7 +183,14 @@ export function ProjectNotificationsPage() {
           </div>
 
           <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4">
-            <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-3">Quiet hours</h2>
+            <div className="flex items-center gap-1.5 mb-3">
+              <h2 className="text-[13px] font-semibold text-neutral-text-primary">Quiet hours</h2>
+              <FieldHelp
+                label="Quiet hours"
+                body="During the window you set, non-critical notifications are held back so you aren't pinged overnight. Critical-path slips and risk escalations always notify immediately, regardless of quiet hours. The window may wrap past midnight (e.g. 20:00 to 07:00)."
+                docHref="features/settings/project-notifications/#quiet-hours"
+              />
+            </div>
             <div className="flex items-center gap-2.5">
               <Toggle
                 on={preferences.quietHoursEnabled}

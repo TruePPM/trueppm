@@ -96,6 +96,16 @@ describe('WorkspaceMethodologyPage', () => {
     });
   });
 
+  it('renders FieldHelp ⓘ triggers on the methodology sections (web-rule 263 / #2266)', () => {
+    renderPage();
+    expect(
+      screen.getByRole('button', { name: 'About the Default methodology options' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'About the Override policy options' }),
+    ).toBeInTheDocument();
+  });
+
   it('disables the Enterprise-only Enforce policy and never selects it', async () => {
     const user = userEvent.setup();
     renderPage();

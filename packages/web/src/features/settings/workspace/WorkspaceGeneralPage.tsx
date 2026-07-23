@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { DangerZoneLink } from '../components/DangerZoneLink';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
 import { useDirtyForm } from '../hooks/useDirtyForm';
@@ -355,6 +356,13 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Default timezone"
           hint="Used for due dates and Gantt rendering when a project doesn't override."
+          help={
+            <FieldHelp
+              label="Default timezone"
+              body="The time zone the workspace uses for due dates and Gantt rendering. A project can set its own; this applies wherever a project doesn't override it. It affects how dates display only — it never shifts a scheduled date to another day."
+              docHref="features/timezone-and-date-format/#timezone"
+            />
+          }
         >
           <label htmlFor={timezoneId} className="sr-only">
             Default timezone
@@ -377,6 +385,13 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Fiscal year starts"
           hint="Controls how quarters are labeled across the workspace, including the Schedule timeline."
+          help={
+            <FieldHelp
+              label="Fiscal year starts"
+              body="The month and day your fiscal year begins, so quarters (Q1–Q4) label correctly everywhere they appear, including the Schedule timeline. Set it to match your organization's finance calendar."
+              docHref="administration/workspace-settings/#fiscal-year-start"
+            />
+          }
         >
           <FiscalYearStartField
             month={fiscalMonth}
@@ -388,7 +403,17 @@ export function WorkspaceGeneralPage() {
           />
         </FieldRow>
 
-        <FieldRow label="Work week" hint="Non-working days are skipped by the scheduler.">
+        <FieldRow
+          label="Work week"
+          hint="Non-working days are skipped by the scheduler."
+          help={
+            <FieldHelp
+              label="Work week"
+              body="The days the scheduler treats as working days. Non-working days are skipped when it lays out task dates and durations, so a 5-day task starting Friday finishes the following Thursday when the weekend is off."
+              docHref="administration/working-calendars/"
+            />
+          }
+        >
           <div className="flex gap-1" role="group" aria-label="Work week days">
             {DAYS.map((d, i) => (
               <button
@@ -414,6 +439,13 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Default project view"
           hint="Where members land when they open a project for the first time."
+          help={
+            <FieldHelp
+              label="Default project view"
+              body="The view a member lands on the first time they open a project — Overview, Board, Schedule, WBS, Table, or Calendar. Each member can still switch views afterward, and their choice is remembered per project."
+              docHref="administration/workspace-settings/"
+            />
+          }
         >
           <label htmlFor={defaultViewId} className="sr-only">
             Default project view
@@ -436,6 +468,13 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Iteration terminology"
           hint="The word every project uses for its time-boxed iteration container. Programs and projects inherit this unless they set their own."
+          help={
+            <FieldHelp
+              label="Iteration terminology"
+              body="The word every project uses for its time-boxed iteration container — Sprint, Iteration, or Cycle. Programs and projects inherit this default unless they set their own."
+              docHref="features/methodology-preset/#iteration-terminology"
+            />
+          }
         >
           <div className="flex flex-col gap-3">
             <IterationLabelField value={iterationLabel} onChange={setIterationLabel} />
@@ -502,6 +541,13 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Allow guests"
           hint="Guests are external collaborators (vendors, auditors). Limited to projects they're invited to."
+          help={
+            <FieldHelp
+              label="Allow guests"
+              body="Guests are external collaborators — vendors, auditors — limited to just what they're invited to. Programs and projects inherit this setting unless they override it."
+              docHref="administration/sharing-and-access/"
+            />
+          }
         >
           <Toggle on={allowGuests} onChange={setAllowGuests} ariaLabel="Allow guest access" />
         </FieldRow>
@@ -509,6 +555,13 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Public sharing"
           hint="Anyone with a link can view selected schedules and boards — no sign-in required. Off turns off all public links across every project."
+          help={
+            <FieldHelp
+              label="Public sharing"
+              body="Lets anyone with the link view selected schedules and boards without signing in. Turning it off disables every public link across the workspace. Programs and projects may narrow this, but cannot widen it."
+              docHref="administration/sharing-and-access/"
+            />
+          }
         >
           <Toggle
             on={publicSharing}
@@ -586,7 +639,17 @@ export function WorkspaceGeneralPage() {
           Forecast history
         </h3>
 
-        <FieldRow label="Keep Monte Carlo run history" hint={MC_HISTORY_HINT}>
+        <FieldRow
+          label="Keep Monte Carlo run history"
+          hint={MC_HISTORY_HINT}
+          help={
+            <FieldHelp
+              label="Keep Monte Carlo run history"
+              body="Whether the workspace keeps past Monte Carlo forecast runs, so you can compare how a project's forecast moved over time. Programs and projects inherit this unless they override it."
+              docHref="features/monte-carlo/#forecast-history"
+            />
+          }
+        >
           <Toggle
             on={mcHistoryEnabled}
             onChange={setMcHistoryEnabled}
@@ -599,6 +662,13 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Run history limit"
           hint="The most recent runs kept per project. Older runs are pruned. Maximum 500."
+          help={
+            <FieldHelp
+              label="Run history limit"
+              body="The most recent forecast runs kept per project. Once the limit is reached, the oldest runs are pruned automatically to make room for new ones."
+              docHref="features/monte-carlo/#forecast-history"
+            />
+          }
         >
           <div className="flex flex-col gap-1">
             <input
@@ -616,7 +686,17 @@ export function WorkspaceGeneralPage() {
           </div>
         </FieldRow>
 
-        <FieldRow label="Run attribution visible to" hint={MC_ATTRIBUTION_HINT}>
+        <FieldRow
+          label="Run attribution visible to"
+          hint={MC_ATTRIBUTION_HINT}
+          help={
+            <FieldHelp
+              label="Run attribution visible to"
+              body="Controls who can see which member ran each Monte Carlo forecast. Programs and projects inherit this unless they override it."
+              docHref="features/monte-carlo/#forecast-history"
+            />
+          }
+        >
           <label htmlFor={`${defaultViewId}-mc-attr`} className="sr-only">
             Run attribution visible to
           </label>
@@ -640,6 +720,13 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Duration change &rarr; percent complete"
           hint={DURATION_CHANGE_POLICY_HINT}
+          help={
+            <FieldHelp
+              label="Duration change to percent complete"
+              body="Whether editing a task's duration re-derives its percent complete, and how that recalculation is applied. Programs and projects inherit this unless they override it."
+              docHref="administration/workspace-settings/"
+            />
+          }
         >
           <label htmlFor={`${defaultViewId}-duration-change`} className="sr-only">
             Duration change to percent complete
@@ -664,6 +751,13 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Program &amp; project overrides"
           hint="Whether programs and projects may choose their own duration-change policy."
+          help={
+            <FieldHelp
+              label="Program & project overrides"
+              body="Whether programs and projects may choose their own duration-change policy, or must follow the workspace setting. Forcing a single policy workspace-wide requires TruePPM Enterprise."
+              docHref="administration/workspace-settings/"
+            />
+          }
         >
           <fieldset className="flex flex-col gap-1.5 border-0 p-0 m-0">
             <legend className="sr-only">Duration-change override policy</legend>
@@ -708,6 +802,13 @@ export function WorkspaceGeneralPage() {
         <FieldRow
           label="Programs &amp; projects"
           hint="Whether programs and projects may override these forecast-history settings."
+          help={
+            <FieldHelp
+              label="Forecast-history overrides"
+              body="Whether programs and projects may override these forecast-history settings, or must follow the workspace values. Locking them workspace-wide requires TruePPM Enterprise."
+              docHref="administration/retention/#forecast-snapshots"
+            />
+          }
         >
           <fieldset className="flex flex-col gap-1.5 border-0 p-0 m-0">
             <legend className="sr-only">Forecast-history override policy</legend>

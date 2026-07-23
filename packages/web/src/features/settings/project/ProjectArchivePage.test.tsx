@@ -364,6 +364,27 @@ describe('ProjectArchivePage move to Trash', () => {
 });
 
 // ===========================================================================
+// Per-card docs links (#2266)
+// ===========================================================================
+
+describe('ProjectArchivePage docs links (#2266)', () => {
+  it('renders a per-card "Learn more" docs link on each lifecycle card', () => {
+    renderPage();
+    const hrefs = screen
+      .getAllByRole('link', { name: /Learn more/i })
+      .map((l) => l.getAttribute('href') ?? '');
+    expect(hrefs).toHaveLength(6);
+    expect(hrefs.some((h) => h.includes('administration/project-settings/#lifecycle'))).toBe(true);
+    expect(hrefs.some((h) => h.includes('administration/rbac'))).toBe(true);
+    expect(hrefs.some((h) => h.includes('administration/data-export/#export-a-project'))).toBe(true);
+    expect(
+      hrefs.some((h) => h.includes('administration/data-export/#export-a-project-bundle-async')),
+    ).toBe(true);
+    expect(hrefs.some((h) => h.includes('administration/retention'))).toBe(true);
+  });
+});
+
+// ===========================================================================
 // Async Export bundle card (ADR-0219)
 // ===========================================================================
 

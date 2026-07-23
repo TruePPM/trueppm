@@ -64,6 +64,13 @@ describe('WorkspaceSchedulePage — Build mode toggle', () => {
     expect(toggle).toHaveAttribute('aria-checked', 'false');
   });
 
+  it('renders a FieldHelp ⓘ trigger for the Build mode field (web-rule 263 / #2266)', () => {
+    render(<WorkspaceSchedulePage />);
+    expect(
+      screen.getByRole('button', { name: 'About the Build mode options' }),
+    ).toBeInTheDocument();
+  });
+
   it('opens the keyboard cheatsheet when the link is clicked (flag on)', () => {
     localStorage.setItem('trueppm.featureFlags', JSON.stringify({ [FLAG]: true }));
     render(<WorkspaceSchedulePage />);

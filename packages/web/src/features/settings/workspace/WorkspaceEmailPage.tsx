@@ -781,7 +781,26 @@ export function WorkspaceEmailPage() {
 
         {/* Provider picker (#2115) — a native <select> over the client-side
             registry; the form below renders conditionally on the choice. */}
-        <FieldRow label="Provider" hint="The service that delivers this workspace's mail.">
+        <FieldRow
+          label="Provider"
+          hint="The service that delivers this workspace's mail."
+          help={
+            <FieldHelp
+              label="Provider"
+              body={
+                <p>
+                  The service that actually delivers this workspace&apos;s mail. Gmail, Microsoft
+                  365, and Fastmail are presets that fill in the SMTP host, port, and security for
+                  you. SendGrid and Amazon SES send through their own relays. Custom points at any
+                  SMTP server you run. &ldquo;TruePPM cloud&rdquo; uses the server&apos;s built-in
+                  relay with no credentials.
+                </p>
+              }
+              docHref="administration/email/#choosing-a-provider"
+              docLabel="Choosing a provider"
+            />
+          }
+        >
           <label htmlFor={providerSelectId} className="sr-only">
             Provider
           </label>
@@ -859,6 +878,21 @@ export function WorkspaceEmailPage() {
               hint="The SES SMTP endpoint is derived from the region."
               error={fieldErrors.host}
               errorId={errId('host')}
+              help={
+                <FieldHelp
+                  label="SES region"
+                  body={
+                    <p>
+                      Amazon SES runs a separate SMTP endpoint in each AWS region. Pick the region
+                      your SES account and verified sending identities live in — TruePPM derives the
+                      relay host (<span className="tppm-mono">email-smtp.&lt;region&gt;.amazonaws.com</span>
+                      ) from your choice.
+                    </p>
+                  }
+                  docHref="administration/email"
+                  docLabel="Amazon SES setup"
+                />
+              }
             >
               <label htmlFor={regionId} className="sr-only">
                 SES region
@@ -1000,7 +1034,25 @@ export function WorkspaceEmailPage() {
             {...invalidProps('from_email')}
           />
         </FieldRow>
-        <FieldRow label="Reply-to" error={fieldErrors.reply_to} errorId={errId('reply_to')}>
+        <FieldRow
+          label="Reply-to"
+          error={fieldErrors.reply_to}
+          errorId={errId('reply_to')}
+          help={
+            <FieldHelp
+              label="Reply-to address"
+              body={
+                <p>
+                  Where a recipient&apos;s reply is delivered when they hit Reply — useful when the
+                  From address is an unmonitored no-reply mailbox. Leave blank to send replies back
+                  to the From address.
+                </p>
+              }
+              docHref="administration/email/#from-identity-limits-and-bounce-webhook"
+              docLabel="From identity & limits"
+            />
+          }
+        >
           <input
             type="email"
             value={form.replyTo}
@@ -1015,6 +1067,22 @@ export function WorkspaceEmailPage() {
           label="DKIM selector"
           error={fieldErrors.dkim_selector}
           errorId={errId('dkim_selector')}
+          help={
+            <FieldHelp
+              label="DKIM selector"
+              body={
+                <p>
+                  The selector names which public key a receiving server uses to verify TruePPM&apos;s
+                  DKIM signature — it points at the{' '}
+                  <span className="tppm-mono">selector._domainkey.yourdomain</span> DNS record. Set it
+                  to match the selector you published in DNS. Leave blank if your provider signs
+                  outbound mail on your behalf.
+                </p>
+              }
+              docHref="administration/email/#spf-dkim-and-dmarc-alignment"
+              docLabel="SPF, DKIM & DMARC"
+            />
+          }
         >
           <input
             type="text"
@@ -1036,6 +1104,20 @@ export function WorkspaceEmailPage() {
           hint="Per single message."
           error={fieldErrors.max_recipients}
           errorId={errId('max_recipients')}
+          help={
+            <FieldHelp
+              label="Max recipients"
+              body={
+                <p>
+                  The most To, Cc, and Bcc addresses TruePPM will put on one outbound message.
+                  Providers reject messages that exceed their own per-message cap, so keep this at or
+                  below your provider&apos;s limit.
+                </p>
+              }
+              docHref="administration/email/#rate-limits"
+              docLabel="Rate limits"
+            />
+          }
         >
           <input
             type="number"
@@ -1053,6 +1135,20 @@ export function WorkspaceEmailPage() {
           hint="0 disables throttling."
           error={fieldErrors.throttle_per_min}
           errorId={errId('throttle_per_min')}
+          help={
+            <FieldHelp
+              label="Throttle"
+              body={
+                <p>
+                  The most messages TruePPM sends per minute. Smoothing bursts keeps your provider
+                  from rate-limiting or temporarily blocking the workspace when a large notification
+                  or invite batch goes out. Set 0 to disable throttling entirely.
+                </p>
+              }
+              docHref="administration/email/#rate-limits"
+              docLabel="Rate limits"
+            />
+          }
         >
           <input
             type="number"
@@ -1070,6 +1166,20 @@ export function WorkspaceEmailPage() {
           hint="POSTed when a message bounces."
           error={fieldErrors.bounce_webhook_url}
           errorId={errId('bounce_webhook_url')}
+          help={
+            <FieldHelp
+              label="Bounce webhook"
+              body={
+                <p>
+                  A URL TruePPM POSTs to whenever a message bounces — a hard delivery failure such as
+                  an unknown mailbox — so you can log or react to undeliverable addresses. Leave blank
+                  if you don&apos;t process bounces.
+                </p>
+              }
+              docHref="administration/email/#from-identity-limits-and-bounce-webhook"
+              docLabel="Delivery & bounces"
+            />
+          }
         >
           <input
             type="url"

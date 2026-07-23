@@ -15,6 +15,7 @@ import {
   type CalendarRole,
 } from '@/hooks/useProjectCalendars';
 import { SettingsPageTitle } from '../SettingsShell';
+import { FieldHelp } from '@/components/FieldHelp';
 import { EnterpriseBadge } from '@/features/settings/components/EnterpriseBadge';
 import {
   CalendarIcon,
@@ -422,6 +423,13 @@ function BaseCalendarRow({
         <span className="shrink-0 rounded border border-neutral-border/55 bg-neutral-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
           Base
         </span>
+        {/* This page has no StubFieldset, so the ⓘ renders unconditionally — it stays
+            clickable and is not a disabled-fieldset dead affordance (web-rule 122). */}
+        <FieldHelp
+          label="Base calendar"
+          body="The base working calendar sets which days scheduling treats as working time before any holiday overlays are added. Choose Inherit from workspace to follow the program or workspace calendar, or override it with a calendar from the org library. Changing it reschedules dated work automatically."
+          docHref="administration/working-calendars/"
+        />
       </div>
       <div className="flex items-center gap-2">
         <button

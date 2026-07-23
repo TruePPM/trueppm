@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
+import { docsUrl } from '@/lib/docsUrl';
 import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
 
 const ROLES = ['Viewer', 'Member', 'Scheduler', 'Admin', 'Owner'] as const;
@@ -207,6 +208,19 @@ export function WorkspaceRolesPage() {
           Enterprise.
           <EnterpriseBadge />
         </p>
+        {/* Section-level docs deep-link (web-rule 263): this is a read-only
+            reference matrix with no editable fields, so a single inline
+            "Learn more →" is the right affordance — not a per-row ⓘ (#2266). */}
+        <a
+          href={docsUrl('administration/rbac')}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1.5 inline-flex items-center gap-1 rounded text-[13px] font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          Learn more about roles and permissions
+          <span className="sr-only"> (opens in a new tab)</span>
+          <span aria-hidden="true">→</span>
+        </a>
       </div>
 
       <div>
