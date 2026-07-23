@@ -30,6 +30,7 @@ from trueppm_api.apps.msproject.dataclasses import (
     TaskData,
 )
 from trueppm_api.apps.projects.models import TaskStatus
+from trueppm_api.apps.scheduling.units import SECONDS_PER_WORKING_DAY
 
 # Jira status *name* (lower-cased) → TaskStatus value (#1768). The reliable
 # signal is Jira's status *category* (To Do / In Progress / Done), but the basic
@@ -69,9 +70,11 @@ def _map_status(item: Element) -> str | None:
     return _STATUS_MAP.get(raw)
 
 
-# Jira stores the original estimate in seconds; convert on an 8-hour working
-# day (v1 fixes this — a per-instance working-day length is a later concern).
-_SECONDS_PER_DAY = 8 * 60 * 60
+# Jira stores the original estimate in seconds; convert on the nominal
+# working-day length from the unit seam (#2290) rather than a bare ``8 * 60 * 60``
+# so a 0.5 canonical-unit change re-homes in one place. A per-instance
+# working-day length remains a later concern.
+_SECONDS_PER_DAY = SECONDS_PER_WORKING_DAY
 
 # The Jira issue-link type whose direction encodes a schedule dependency. The
 # outward direction ("blocks") makes this issue the predecessor; the inward

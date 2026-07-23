@@ -15,6 +15,10 @@ from trueppm_api.apps.msproject.extended_attributes import (
     PERT_EXPECTED_FORMULA,
     PERT_FIELD_NAMES,
 )
+from trueppm_api.apps.scheduling.units import (
+    HOURS_PER_WORKING_DAY,
+    MSPDI_LAG_TENTHS_PER_WORKING_DAY,
+)
 
 # MS Project XML namespace.
 _NS = "http://schemas.microsoft.com/project"
@@ -195,7 +199,9 @@ def export_project_xml(project_id: str) -> bytes:
                 "Type",
                 _DEP_TYPE_TO_LINK_TYPE.get(dep_type, "1"),
             )
-            _sub_text(pred_el, "LinkLag", str(lag * 4800))
+            # LinkLag is tenths of a minute; one working day of lag is
+            # MSPDI_LAG_TENTHS_PER_WORKING_DAY (#2290 unit seam).
+            _sub_text(pred_el, "LinkLag", str(lag * MSPDI_LAG_TENTHS_PER_WORKING_DAY))
             _sub_text(pred_el, "LagFormat", "7")
 
     # --- Resources ---
@@ -243,8 +249,12 @@ def _format_date(d: date) -> str:
 
 
 def _days_to_duration(days: int) -> str:
-    """Convert working days to MS Project ISO 8601 duration."""
-    hours = days * 8
+    """Convert working days to MS Project ISO 8601 duration.
+
+    Uses the nominal working-day length from the unit seam (#2290) rather than a
+    bare ``* 8`` so a 0.5 canonical-unit change re-homes in one place.
+    """
+    hours = days * HOURS_PER_WORKING_DAY
     return f"PT{hours}H0M0S"
 
 

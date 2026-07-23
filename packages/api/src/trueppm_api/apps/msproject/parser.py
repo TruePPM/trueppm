@@ -31,6 +31,10 @@ from trueppm_api.apps.msproject.extended_attributes import (
     PERT_ALIAS_TOKENS,
     PERT_ROLE_BY_FIELD_ID,
 )
+from trueppm_api.apps.scheduling.units import (
+    HOURS_PER_WORKING_DAY,
+    MSPDI_LAG_TENTHS_PER_WORKING_DAY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -150,14 +154,15 @@ def _parse_duration_to_days(duration_str: str) -> int:
             with contextlib.suppress(ValueError):
                 hours = int(time_part[:h_idx])
 
-    total_days = days + (hours // 8)
+    total_days = days + (hours // HOURS_PER_WORKING_DAY)
     return max(0, min(total_days, _MAX_DURATION_DAYS))
 
 
 def _parse_lag_to_days(lag_tenths_of_minutes: str) -> int:
     """Convert MS Project LinkLag (tenths of minutes) to working days.
 
-    MS Project stores lag in tenths of minutes. 4800 = 480 min = 8h = 1 day.
+    MS Project stores lag in tenths of minutes, so one working day is
+    ``MSPDI_LAG_TENTHS_PER_WORKING_DAY`` (4800 = 480 min = 8h; #2290 unit seam).
     """
     if not lag_tenths_of_minutes:
         return 0
@@ -165,7 +170,7 @@ def _parse_lag_to_days(lag_tenths_of_minutes: str) -> int:
         tenths = int(lag_tenths_of_minutes)
     except ValueError:
         return 0
-    return tenths // 4800
+    return tenths // MSPDI_LAG_TENTHS_PER_WORKING_DAY
 
 
 def _positive_int_or_none(raw: str) -> int | None:
