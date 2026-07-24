@@ -11,7 +11,18 @@
 #   - FAIL (exit 1)  → HIGH / CRITICAL: CVSS base score >= 7.0, or — when no
 #                      CVSS score is published — the GitHub advisory label
 #                      (database_specific.severity) is HIGH or CRITICAL.
-#   - WARN (exit 0)  → MEDIUM / LOW / unscored: printed but non-blocking.
+#   - WARN (exit 2)  → MEDIUM / LOW / unscored: printed, non-blocking. The CI job
+#                      maps exit 2 to `allow_failure` so the pipeline shows a
+#                      yellow warning (surfacing dependency debt) instead of a
+#                      silent green pass (#2358).
+#
+# Exit-code contract (the whole pipeline's OSV verdict):
+#   0 → clean, no advisories survived suppression (green).
+#   1 → HIGH/CRITICAL present, OR fail-safe (missing/empty/unparseable results):
+#       the scan verdict is bad or the scan itself did not complete — block.
+#   2 → only MEDIUM/LOW/unscored advisories — non-blocking warning (allow_failure).
+#   3 → usage error (bad invocation). A hard block, kept distinct from 2 so a
+#       misconfigured gate can never be mistaken for a benign warning.
 #
 # Accepted risks are still suppressed the same way as before, via per-directory
 # osv-scanner.toml `IgnoredVulns`: OSV-Scanner drops those before writing the
@@ -27,7 +38,9 @@ set -eu
 RESULTS="${1:-}"
 if [ -z "$RESULTS" ]; then
   echo "osv-severity-gate: usage: sh scripts/osv-severity-gate.sh <osv-results.json>" >&2
-  exit 2
+  # exit 3 (not 2): a usage error must hard-block. Exit 2 is reserved for the
+  # non-blocking MEDIUM/LOW warning the CI job allows to fail.
+  exit 3
 fi
 if [ ! -s "$RESULTS" ]; then
   echo "osv-severity-gate: results file '$RESULTS' is missing or empty — treating as scan failure." >&2
@@ -97,5 +110,7 @@ if [ "$FAILS" -gt 0 ]; then
   exit 1
 fi
 
-echo "osv-severity-gate: PASS — only MEDIUM/LOW advisories present (non-blocking)."
-exit 0
+echo "osv-severity-gate: WARN — only MEDIUM/LOW advisories present (non-blocking)." >&2
+# exit 2: the CI job maps this to allow_failure, so the pipeline shows a yellow
+# warning rather than a green pass — the debt is visible but does not block.
+exit 2

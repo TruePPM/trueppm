@@ -57,13 +57,13 @@ JSON
 # --- LOW (real dompurify shape): CVSS 2.1 → WARN, exit 0 -------------------
 one_group "2.1" "LOW" "dompurify" > "$TMP/low.json"
 run_gate "$TMP/low.json"
-check "LOW advisory passes (exit 0)" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
+check "LOW advisory warns non-blocking (exit 2)" "$([ "$RC" -eq 2 ] && echo 0 || echo 1)"
 check "LOW advisory is bucketed WARN" "$(echo "$OUT" | grep -q "WARN" && echo 0 || echo 1)"
 
-# --- MEDIUM: CVSS 5.3 → WARN, exit 0 --------------------------------------
+# --- MEDIUM: CVSS 5.3 → WARN, exit 2 --------------------------------------
 one_group "5.3" "MODERATE" "some-pkg" > "$TMP/med.json"
 run_gate "$TMP/med.json"
-check "MEDIUM advisory passes (exit 0)" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
+check "MEDIUM advisory warns non-blocking (exit 2)" "$([ "$RC" -eq 2 ] && echo 0 || echo 1)"
 
 # --- HIGH: CVSS 7.5 → FAIL, exit 1 ----------------------------------------
 one_group "7.5" "HIGH" "bad-pkg" > "$TMP/high.json"
@@ -84,7 +84,7 @@ check "CVSS exactly 7.0 blocks (exit 1)" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)
 # --- Boundary: 6.9 → WARN (still MEDIUM) ----------------------------------
 one_group "6.9" "MODERATE" "just-below.json" > "$TMP/below.json"
 run_gate "$TMP/below.json"
-check "CVSS 6.9 passes (exit 0)" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
+check "CVSS 6.9 warns non-blocking (exit 2)" "$([ "$RC" -eq 2 ] && echo 0 || echo 1)"
 
 # --- Unscored HIGH: no CVSS but label HIGH → FAIL via fallback -------------
 one_group "" "HIGH" "unscored-pkg" > "$TMP/unscored.json"
@@ -94,7 +94,7 @@ check "unscored advisory with HIGH label blocks (exit 1)" "$([ "$RC" -eq 1 ] && 
 # --- Unscored LOW: no CVSS, label LOW → WARN ------------------------------
 one_group "" "LOW" "unscored-low" > "$TMP/unscored-low.json"
 run_gate "$TMP/unscored-low.json"
-check "unscored advisory with LOW label passes (exit 0)" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
+check "unscored advisory with LOW label warns non-blocking (exit 2)" "$([ "$RC" -eq 2 ] && echo 0 || echo 1)"
 
 # --- Alias fallback: label lives on a vuln matched to the group by alias --
 cat > "$TMP/alias.json" <<'JSON'
@@ -123,10 +123,12 @@ check "mixed HIGH+LOW blocks (exit 1)" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
 check "mixed run reports the LOW package too" "$(echo "$OUT" | grep -q "lowpkg" && echo 0 || echo 1)"
 check "mixed run reports the HIGH package" "$(echo "$OUT" | grep -q "highpkg" && echo 0 || echo 1)"
 
-# --- Clean: empty results → exit 0 ----------------------------------------
+# --- Clean: empty results → exit 0 (distinct from the exit-2 WARN band) ----
+# A clean scan must stay green (0), NOT the yellow warning (2) that MEDIUM/LOW
+# now emits — otherwise every green pipeline would show a spurious warning.
 echo '{"results":[]}' > "$TMP/clean.json"
 run_gate "$TMP/clean.json"
-check "clean scan passes (exit 0)" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
+check "clean scan passes green (exit 0)" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
 
 # --- Fail-safe: missing file → exit 1 -------------------------------------
 run_gate "$TMP/does-not-exist.json"
@@ -142,12 +144,14 @@ echo 'not json {{{' > "$TMP/garbage.json"
 run_gate "$TMP/garbage.json"
 check "malformed JSON fails safe (exit 1)" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
 
-# --- No-arg usage → exit 2 ------------------------------------------------
+# --- No-arg usage → exit 3 (hard block, NOT the exit-2 warning band) -------
+# A usage error must never be mistaken for the non-blocking MEDIUM/LOW warning
+# the CI job allows to fail — so it exits 3, outside the allow_failure list.
 set +e
 sh "$GATE" >/dev/null 2>&1
 NOARG_RC=$?
 set -e
-check "no-arg invocation exits 2 (usage)" "$([ "$NOARG_RC" -eq 2 ] && echo 0 || echo 1)"
+check "no-arg invocation exits 3 (usage, hard block)" "$([ "$NOARG_RC" -eq 3 ] && echo 0 || echo 1)"
 
 echo ""
 if [[ "$fail" -eq 0 ]]; then
