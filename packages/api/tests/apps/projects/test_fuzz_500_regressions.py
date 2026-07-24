@@ -24,9 +24,10 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
+    Program,
     Project,
     Sprint,
     SprintState,
@@ -61,6 +62,13 @@ def owner_client(owner: object) -> APIClient:
     c = APIClient()
     c.force_authenticate(user=owner)
     return c
+
+
+@pytest.fixture
+def program(owner: object) -> Program:
+    p = Program.objects.create(name="Fuzz program")
+    ProgramMembership.objects.create(program=p, user=owner, role=Role.OWNER)
+    return p
 
 
 @pytest.fixture
@@ -144,6 +152,36 @@ def test_reparent_non_object_body_400(owner_client: APIClient, project: Project)
         f"/api/v1/projects/{project.pk}/tasks/{task.pk}/reparent/",
         data=["garbage"],
         format="json",
+    )
+    assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.parametrize("body", [["not", "an", "object"], "scalar", 42])
+def test_project_transfer_non_object_body_400(
+    owner_client: APIClient, project: Project, body: object
+) -> None:
+    """transfer read new_owner_user_id off request.data — a fuzzed list body
+    raised AttributeError (job 15511740650). Now the required-field guard 400s."""
+    resp = owner_client.post(f"/api/v1/projects/{project.pk}/transfer/", data=body, format="json")
+    assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.parametrize("body", [["not", "an", "object"], "scalar", 42])
+def test_program_transfer_sponsorship_non_object_body_400(
+    owner_client: APIClient, program: Program, body: object
+) -> None:
+    resp = owner_client.post(
+        f"/api/v1/programs/{program.pk}/transfer-sponsorship/", data=body, format="json"
+    )
+    assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.parametrize("body", [["not", "an", "object"], "scalar", 42])
+def test_phases_reorder_non_object_body_400(
+    owner_client: APIClient, project: Project, body: object
+) -> None:
+    resp = owner_client.patch(
+        f"/api/v1/projects/{project.pk}/phases/reorder/", data=body, format="json"
     )
     assert resp.status_code == status.HTTP_400_BAD_REQUEST
 

@@ -1796,7 +1796,10 @@ class ProjectViewSet(
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project = self.get_object()
-        new_owner_id = request.data.get("new_owner_user_id")
+        # A non-object JSON body (list, string) has no ``.get`` — treat it as
+        # empty so the required-field branch returns 400, not a 500.
+        body = request.data if isinstance(request.data, dict) else {}
+        new_owner_id = body.get("new_owner_user_id")
         if not new_owner_id:
             return Response(
                 {"detail": "new_owner_user_id is required."},
@@ -9950,7 +9953,10 @@ class PhaseReorderView(IdempotencyMixin, APIView):
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
-        phases_data = request.data.get("phases")
+        # A non-object JSON body (list, string) has no ``.get`` — treat it as
+        # empty so the non-empty-list branch returns 400, not a 500.
+        body = request.data if isinstance(request.data, dict) else {}
+        phases_data = body.get("phases")
         if not isinstance(phases_data, list) or not phases_data:
             return Response(
                 {"phases": [_NON_EMPTY_LIST_REQUIRED]},
