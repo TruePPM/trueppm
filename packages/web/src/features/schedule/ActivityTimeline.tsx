@@ -7,6 +7,7 @@ import { ListIcon } from '@/components/Icons';
 import { formatRelative } from '@/lib/formatRelative';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
+import { fieldLabel, summaryVerb, isEmptyChange } from './activityFormat';
 
 /**
  * Unified task Activity timeline (issue 869, ADR-0096 Part 2; extended #1883).
@@ -139,49 +140,6 @@ const FIELD_TO_GROUP: Record<string, Group> = {
 // Field labels + value formatting
 // ---------------------------------------------------------------------------
 
-const FIELD_LABEL: Record<string, string> = {
-  name: 'Name',
-  duration: 'Duration',
-  status: 'Status',
-  percent_complete: 'Progress',
-  planned_start: 'Start date',
-  actual_start: 'Actual start',
-  actual_finish: 'Actual finish',
-  assignee: 'Assignee',
-  sprint: 'Sprint',
-  parent_epic: 'Epic',
-  notes: 'Notes',
-  color: 'Color',
-  wbs_path: 'Outline position',
-  is_milestone: 'Milestone',
-  is_subtask: 'Subtask',
-  is_recurring: 'Recurring',
-  type: 'Type',
-  dor: 'Definition of Ready',
-  blocker_type: 'Blocker',
-  blocked_by: 'Blocked by',
-  blocking_task: 'Waiting on',
-  story_points: 'Story points',
-  remaining_points: 'Remaining points',
-  optimistic_duration: 'Optimistic (O)',
-  most_likely_duration: 'Most likely (M)',
-  pessimistic_duration: 'Pessimistic (P)',
-  estimate_status: 'Estimate status',
-  priority_rank: 'Priority',
-  governance_class: 'Governance',
-  delivery_mode: 'Delivery mode',
-  business_value: 'Business value',
-  time_criticality: 'Time criticality',
-  risk_reduction: 'Risk reduction',
-  job_size: 'Job size',
-  reach: 'Reach',
-  impact: 'Impact',
-  confidence: 'Confidence',
-  value: 'Value',
-  effort: 'Effort',
-  effort_estimate: 'Effort estimate',
-};
-
 const STATUS_LABELS: Record<string, string> = {
   BACKLOG: 'Backlog',
   NOT_STARTED: 'Not started',
@@ -192,10 +150,6 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const DATE_FIELDS = new Set(['planned_start', 'actual_start', 'actual_finish']);
-
-function fieldLabel(field: string): string {
-  return FIELD_LABEL[field] ?? field;
-}
 
 function fmtValue(field: string, val: string | null): string {
   if (val == null) return '—';
@@ -270,12 +224,6 @@ function groupsFor(entry: TaskActivityEntry): Set<Group> {
   return g ? new Set<Group>([g]) : new Set<Group>();
 }
 
-/** A change record that conveys nothing the user can read — an empty `~` diff —
- *  is the bare "Updated" pill (issue 874). Guarded here regardless of backend version. */
-function isEmptyChange(entry: TaskActivityEntry): boolean {
-  return entry.event_type === 'fields_changed' && (entry.diff?.length ?? 0) === 0;
-}
-
 // A per-entry-type stable id inside the detail payload, so React keys don't
 // collide when two events share a timestamp (e.g. add + edit of one comment).
 const DETAIL_ID_KEYS = [
@@ -324,44 +272,6 @@ function fmtMinutes(min: number): string {
   if (h && m) return `${h}h ${m}m`;
   if (h) return `${h}h`;
   return `${m}m`;
-}
-
-/** The summary verb rendered after the actor name. Field-diff verbs live in
- *  `changeVerb`; everything else is a fixed phrase (a couple vary on detail). */
-function summaryVerb(entry: TaskActivityEntry): string {
-  const { event_type: et, detail } = entry;
-  switch (et) {
-    case 'task_created':
-      return 'created this task';
-    case 'task_deleted':
-      return 'deleted this task';
-    case 'fields_changed':
-      return changeVerb(entry);
-    case 'comment_added':
-      return 'commented';
-    case 'comment_edited':
-      return 'edited a comment';
-    case 'comment_deleted':
-      return 'deleted a comment';
-    case 'time_logged':
-      return 'logged time';
-    case 'time_deleted':
-      return 'deleted a time entry';
-    case 'attachment_uploaded':
-      return detail.kind === 'url' ? 'attached a link' : 'attached a file';
-    case 'attachment_deleted':
-      return 'deleted an attachment';
-    case 'cpm_recalculated':
-      return 'recalculated the schedule';
-    case 'baseline_drift_detected':
-      return 'detected baseline drift';
-    case 'risk_linked':
-      return 'linked a risk';
-    case 'risk_unlinked':
-      return 'unlinked a risk';
-    default:
-      return et.replace(/_/g, ' ');
-  }
 }
 
 /** Optional muted secondary line under the summary (preview, label, delta). */
@@ -565,14 +475,6 @@ function DiffRows({ entry }: { entry: TaskActivityEntry }) {
 // ---------------------------------------------------------------------------
 // Single timeline row
 // ---------------------------------------------------------------------------
-
-function changeVerb(entry: TaskActivityEntry): string {
-  if (entry.event_type === 'task_created') return 'created this task';
-  if (entry.event_type === 'task_deleted') return 'deleted this task';
-  const diff = entry.diff ?? [];
-  if (diff.length === 1) return `changed ${fieldLabel(diff[0].field).toLowerCase()}`;
-  return `updated ${diff.length} fields`;
-}
 
 function ActivityRow({
   event,

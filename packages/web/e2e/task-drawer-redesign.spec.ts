@@ -507,6 +507,24 @@ test.describe('TaskDetailDrawer redesign — tabs', () => {
     await expect(schedule.getByText('(computed, not committed)')).toBeAttached();
   });
 
+  test('Details tab surfaces an inline "Recent changes" audit trail (#2315 slice 3)', async ({
+    page,
+  }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    const recent = drawer.getByRole('region', { name: 'Recent changes' });
+    await expect(recent).toBeVisible();
+    // Last 3 entries, newest first (the 4th history row is dropped).
+    await expect(recent.getByRole('listitem')).toHaveCount(3);
+    await expect(recent).toContainText('edited a comment');
+    await expect(recent).toContainText('recalculated the schedule');
+    // "View all activity" jumps to the full Activity tab.
+    await recent.getByRole('button', { name: 'View all activity' }).click();
+    await expect(drawer.getByRole('tab', { name: 'Activity' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
   test('critical task shows the CP marker in the schedule strip', async ({ page }) => {
     const drawer = await openDrawer(page, 'Backend Implementation');
     await expect(drawer.getByText('CP', { exact: true }).first()).toBeVisible();
