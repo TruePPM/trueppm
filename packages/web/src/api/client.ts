@@ -110,7 +110,7 @@ apiClient.interceptors.response.use(
   async (error: unknown) => {
     if (!axios.isAxiosError(error) || error.response?.status !== 401) {
       const err = error instanceof Error ? error : new Error(String(error));
-      return Promise.reject(err);
+      throw err;
     }
 
     const originalRequest = error.config as AxiosRequestConfig & { _retried?: boolean };
@@ -118,7 +118,7 @@ apiClient.interceptors.response.use(
     // Prevent infinite retry loops
     if (originalRequest._retried) {
       expireSession();
-      return Promise.reject(new Error('Session expired'));
+      throw new Error('Session expired');
     }
 
     originalRequest._retried = true;
@@ -143,7 +143,7 @@ apiClient.interceptors.response.use(
       return await apiClient(originalRequest);
     } catch {
       expireSession();
-      return Promise.reject(new Error('Session expired'));
+      throw new Error('Session expired');
     }
   },
 );

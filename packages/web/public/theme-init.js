@@ -7,7 +7,7 @@
 // before first paint.
 (function () {
   try {
-    var t = localStorage.getItem('trueppm.theme');
+    const t = localStorage.getItem('trueppm.theme');
     if (
       t === 'dark' ||
       (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
