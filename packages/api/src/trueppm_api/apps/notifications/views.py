@@ -96,6 +96,47 @@ def _resolve_snooze_preset(preset: str, now: datetime.datetime) -> datetime.date
     return None
 
 
+def _resolve_snooze_until(
+    data: Any, now: datetime.datetime
+) -> tuple[datetime.datetime | None, Response | None]:
+    """Resolve the target ``snoozed_until`` from a snooze request body.
+
+    Returns ``(until, None)`` on success — ``until`` is ``None`` for an explicit
+    un-snooze — or ``(None, error_response)`` with a ready-to-return 400 when the
+    body is malformed. Extracted from :meth:`NotificationViewSet.snooze` so the
+    action body stays a flat resolve-then-persist sequence; the preset/until/error
+    branching lives here.
+    """
+    preset = data.get("preset")
+    if preset:
+        until = _resolve_snooze_preset(preset, now)
+        if until is None:
+            return None, Response(
+                {"detail": f"preset must be one of {list(SNOOZE_PRESETS)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return until, None
+    if "until" in data:
+        raw = data.get("until")
+        if raw in (None, ""):
+            return None, None  # explicit un-snooze
+        parsed = parse_datetime(raw) if isinstance(raw, str) else None
+        if parsed is None:
+            return None, Response(
+                {"detail": "until must be an ISO 8601 datetime or null."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Anchor a naive timestamp to the current timezone rather than letting
+        # Django emit a naive-datetime warning / compare wrong.
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+        return parsed, None
+    return None, Response(
+        {"detail": "Provide a 'preset' or an 'until' datetime (null to un-snooze)."},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -272,35 +313,9 @@ class NotificationViewSet(
         notification = get_object_or_404(Notification, pk=pk, recipient=user)
         now = timezone.now()
 
-        preset = request.data.get("preset")
-        if preset:
-            until = _resolve_snooze_preset(preset, now)
-            if until is None:
-                return Response(
-                    {"detail": f"preset must be one of {list(SNOOZE_PRESETS)}."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        elif "until" in request.data:
-            raw = request.data.get("until")
-            if raw in (None, ""):
-                until = None  # explicit un-snooze
-            else:
-                parsed = parse_datetime(raw) if isinstance(raw, str) else None
-                if parsed is None:
-                    return Response(
-                        {"detail": "until must be an ISO 8601 datetime or null."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                # Anchor a naive timestamp to the current timezone rather than
-                # letting Django emit a naive-datetime warning / compare wrong.
-                if timezone.is_naive(parsed):
-                    parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
-                until = parsed
-        else:
-            return Response(
-                {"detail": "Provide a 'preset' or an 'until' datetime (null to un-snooze)."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        until, error = _resolve_snooze_until(request.data, now)
+        if error is not None:
+            return error
 
         notification.snoozed_until = until
         notification.save(update_fields=["snoozed_until"])

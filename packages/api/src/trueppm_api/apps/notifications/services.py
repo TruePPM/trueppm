@@ -1116,6 +1116,66 @@ def _stale_pref_allows(
     return defaults.get((event, channel), False)
 
 
+def _build_stale_notification_rows(
+    *,
+    candidates: list[tuple[Any, str, Any]],
+    already_notified: set[tuple[Any, Any]],
+    stored: dict[Any, dict[str, bool]],
+    defaults: dict[tuple[str, str], bool],
+    event: str,
+    dnd_user_ids: set[Any],
+    threshold: int,
+    project_id: Any,
+) -> list[Notification]:
+    """Build the unsaved stale-task Notification rows for one project.
+
+    Extracted from :func:`create_stale_task_notifications` so the per-project driver
+    loop stays flat; this owns the per-candidate skip/allow filtering and message
+    construction. Skips any ``(assignee, task)`` already carrying an unread nudge and
+    any assignee whose in-app preference is off — identical semantics to the inline
+    loop it replaces.
+    """
+    rows: list[Notification] = []
+    for task_id, name, assignee_id in candidates:
+        if (assignee_id, task_id) in already_notified:
+            continue
+        if not _stale_pref_allows(
+            stored, defaults, event, assignee_id, NotificationChannel.IN_APP.value
+        ):
+            continue
+        # Task.name is CharField(max_length=512) but Notification.subject is
+        # max_length=255. bulk_create bypasses field validation, so an over-long
+        # name would raise a Postgres DataError and abort the whole nightly scan
+        # (this project and every later one). Truncate the name used in the
+        # subject well under the limit, mirroring _sanitize_snippet's bounding.
+        display_name = name if len(name) <= 200 else name[:200].rstrip() + "…"
+        subject = f'"{display_name}" has gone stale'
+        body = (
+            f'Your task "{display_name}" has sat in the same status for more than '
+            f"{threshold} days. If it is still active, move it forward; "
+            f"otherwise update its status so the board reflects reality."
+        )
+        rows.append(
+            Notification(
+                recipient_id=assignee_id,
+                event_type=event,
+                subject=subject,
+                body=body,
+                project_id=project_id,
+                task_id=task_id,
+                email_pending=_stale_pref_allows(
+                    stored, defaults, event, assignee_id, NotificationChannel.EMAIL.value
+                )
+                and not _dnd_silences(
+                    event,
+                    NotificationChannel.EMAIL.value,
+                    dnd_enabled=assignee_id in dnd_user_ids,
+                ),
+            )
+        )
+    return rows
+
+
 def create_stale_task_notifications(
     *,
     now: datetime.datetime | None = None,
@@ -1191,44 +1251,16 @@ def create_stale_task_notifications(
         # suppresses its email nudge while the durable in-app row still lands.
         dnd_user_ids = load_dnd_user_ids(assignee_ids)
 
-        rows: list[Notification] = []
-        for task_id, name, assignee_id in candidates:
-            if (assignee_id, task_id) in already_notified:
-                continue
-            if not _stale_pref_allows(
-                stored, defaults, event, assignee_id, NotificationChannel.IN_APP.value
-            ):
-                continue
-            # Task.name is CharField(max_length=512) but Notification.subject is
-            # max_length=255. bulk_create bypasses field validation, so an over-long
-            # name would raise a Postgres DataError and abort the whole nightly scan
-            # (this project and every later one). Truncate the name used in the
-            # subject well under the limit, mirroring _sanitize_snippet's bounding.
-            display_name = name if len(name) <= 200 else name[:200].rstrip() + "…"
-            subject = f'"{display_name}" has gone stale'
-            body = (
-                f'Your task "{display_name}" has sat in the same status for more than '
-                f"{threshold} days. If it is still active, move it forward; "
-                f"otherwise update its status so the board reflects reality."
-            )
-            rows.append(
-                Notification(
-                    recipient_id=assignee_id,
-                    event_type=event,
-                    subject=subject,
-                    body=body,
-                    project_id=project.id,
-                    task_id=task_id,
-                    email_pending=_stale_pref_allows(
-                        stored, defaults, event, assignee_id, NotificationChannel.EMAIL.value
-                    )
-                    and not _dnd_silences(
-                        event,
-                        NotificationChannel.EMAIL.value,
-                        dnd_enabled=assignee_id in dnd_user_ids,
-                    ),
-                )
-            )
+        rows = _build_stale_notification_rows(
+            candidates=candidates,
+            already_notified=already_notified,
+            stored=stored,
+            defaults=defaults,
+            event=event,
+            dnd_user_ids=dnd_user_ids,
+            threshold=threshold,
+            project_id=project.id,
+        )
         if rows:
             # batch_size caps the INSERT statement size so a pathologically large
             # single-project backlog is chunked rather than one unbounded statement.
