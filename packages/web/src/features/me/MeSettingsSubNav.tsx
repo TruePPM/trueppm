@@ -8,11 +8,17 @@ import { NavLink } from 'react-router';
  * render on ALL four — previously each page listed a different subset (or none),
  * stranding the user with no way back or across (#2023).
  */
-const ME_SETTINGS_LINKS: Array<{ to: string; label: string }> = [
-  { to: '/me/settings/general', label: 'General' },
-  { to: '/me/settings/notifications', label: 'Notifications' },
-  { to: '/me/settings/connected-accounts', label: 'Connected accounts' },
-  { to: '/me/settings/api-tokens', label: 'API tokens' },
+/**
+ * The four personal-settings pages, in nav order. Exported so the ⌘K palette can
+ * index them as findable sections (#2319) from this one source — a link added here
+ * appears in the subnav and the palette without a second edit. `keywords` folds
+ * synonyms into the palette match (not rendered in the subnav).
+ */
+export const ME_SETTINGS_LINKS: Array<{ to: string; label: string; keywords?: string }> = [
+  { to: '/me/settings/general', label: 'General', keywords: 'profile name display language theme locale' },
+  { to: '/me/settings/notifications', label: 'Notifications', keywords: 'email alerts digest mentions preferences' },
+  { to: '/me/settings/connected-accounts', label: 'Connected accounts', keywords: 'oauth link social jira github google external' },
+  { to: '/me/settings/api-tokens', label: 'API tokens', keywords: 'pat personal access token api key secret' },
 ];
 
 export function MeSettingsSubNav() {

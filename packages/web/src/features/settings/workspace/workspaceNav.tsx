@@ -105,22 +105,22 @@ export function buildWorkspaceNavGroups({ linked }: { linked: boolean }): Settin
     {
       label: 'Organization',
       items: [
-        { id: 'general', label: 'General',              to: anchor('general'), icon: <NavIcon><OverviewIcon aria-hidden="true" /></NavIcon> },
-        { id: 'members', label: 'Members',              to: anchor('members'), icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> },
-        { id: 'groups',  label: 'Groups & teams',       to: anchor('groups'),  icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
-        { id: 'roles',   label: 'Roles & permissions',  to: anchor('roles'),   icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
-        { id: 'sso',     label: 'Single sign-on',       to: anchor('sso'),     icon: <NavIcon><LockNavIcon /></NavIcon> },
+        { id: 'general', label: 'General',              to: anchor('general'), keywords: 'name workspace organization default view', icon: <NavIcon><OverviewIcon aria-hidden="true" /></NavIcon> },
+        { id: 'members', label: 'Members',              to: anchor('members'), keywords: 'people users invite seats access', icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> },
+        { id: 'groups',  label: 'Groups & teams',       to: anchor('groups'),  keywords: 'team squad membership roster', icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'roles',   label: 'Roles & permissions',  to: anchor('roles'),   keywords: 'rbac access control owner admin scheduler viewer permission', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'sso',     label: 'Single sign-on',       to: anchor('sso'),     keywords: 'sso oidc oauth saml login identity provider keycloak authentik google github idp', icon: <NavIcon><LockNavIcon /></NavIcon> },
       ],
     },
     {
       label: 'Delivery',
       items: [
-        { id: 'methodology', label: 'Methodology defaults', to: anchor('methodology'), icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
-        { id: 'schedule',    label: 'Schedule',             to: anchor('schedule'),    icon: <NavIcon><GanttIcon aria-hidden="true" /></NavIcon> },
-        { id: 'calendar',    label: 'Working calendar',     to: anchor('calendar'),    icon: <NavIcon><GanttIcon aria-hidden="true" /></NavIcon> },
-        { id: 'programs',    label: 'Programs',             to: anchor('programs'),    icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
-        { id: 'attachments', label: 'Attachments',          to: anchor('attachments'), icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
-        { id: 'email',       label: 'Email & SMTP',         to: anchor('email'),       icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'methodology', label: 'Methodology defaults', to: anchor('methodology'), keywords: 'agile scrum kanban waterfall hybrid sprint iteration', icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
+        { id: 'schedule',    label: 'Schedule',             to: anchor('schedule'),    keywords: 'cpm critical path dependency lag baseline gantt', icon: <NavIcon><GanttIcon aria-hidden="true" /></NavIcon> },
+        { id: 'calendar',    label: 'Working calendar',     to: anchor('calendar'),    keywords: 'holidays working days hours timezone non-working', icon: <NavIcon><GanttIcon aria-hidden="true" /></NavIcon> },
+        { id: 'programs',    label: 'Programs',             to: anchor('programs'),    keywords: 'program defaults grouping', icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'attachments', label: 'Attachments',          to: anchor('attachments'), keywords: 'files uploads storage size limit', icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
+        { id: 'email',       label: 'Email & SMTP',         to: anchor('email'),       keywords: 'smtp mail sender notifications ses sendgrid outbound', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
       ],
     },
     // The "Connections" nav group (Integrations + Webhooks & API) is removed from
@@ -129,7 +129,7 @@ export function buildWorkspaceNavGroups({ linked }: { linked: boolean }): Settin
     {
       label: 'Danger',
       items: [
-        { id: 'danger', label: 'Archive / Delete', to: anchor('danger'), icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
+        { id: 'danger', label: 'Archive / Delete', to: anchor('danger'), keywords: 'delete remove archive destroy danger zone', icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
       ],
     },
     // System is now part of the consolidated scroll surface (#2298), so its items
@@ -141,15 +141,15 @@ export function buildWorkspaceNavGroups({ linked }: { linked: boolean }): Settin
     {
       label: 'System',
       items: [
-        { id: 'health',        label: 'System health',     to: anchor('health'),        icon: <NavIcon><ActivityNavIcon /></NavIcon> },
+        { id: 'health',        label: 'System health',     to: anchor('health'),        keywords: 'status monitoring uptime components diagnostics', icon: <NavIcon><ActivityNavIcon /></NavIcon> },
         // API rate limiting (#2316) — read-only operator posture from the health
         // endpoint; grouped next to System health as the other health-backed status.
-        { id: 'rate-limit',    label: 'API rate limiting', to: anchor('rate-limit'),    icon: <NavIcon><ShieldNavIcon /></NavIcon> },
+        { id: 'rate-limit',    label: 'API rate limiting', to: anchor('rate-limit'),    keywords: 'throttle limit requests quota abuse 429', icon: <NavIcon><ShieldNavIcon /></NavIcon> },
         // Observability (OTLP telemetry export) — a config form, rendered inline
         // on the consolidated page (#2298); still discoverable in the rail by name.
-        { id: 'observability', label: 'Observability',     to: anchor('observability'), icon: <NavIcon><ObservabilityNavIcon /></NavIcon> },
-        { id: 'retention',     label: 'Retention & purge', to: anchor('retention'),     icon: <NavIcon><RetentionNavIcon /></NavIcon> },
-        { id: 'trash',         label: 'Trash',             to: anchor('trash'),         icon: <NavIcon><RetentionNavIcon /></NavIcon> },
+        { id: 'observability', label: 'Observability',     to: anchor('observability'), keywords: 'otlp telemetry traces metrics opentelemetry export collector', icon: <NavIcon><ObservabilityNavIcon /></NavIcon> },
+        { id: 'retention',     label: 'Retention & purge', to: anchor('retention'),     keywords: 'gdpr purge data retention compliance delete audit', icon: <NavIcon><RetentionNavIcon /></NavIcon> },
+        { id: 'trash',         label: 'Trash',             to: anchor('trash'),         keywords: 'deleted restore recover recycle bin', icon: <NavIcon><RetentionNavIcon /></NavIcon> },
       ],
     },
   ];

@@ -17,6 +17,15 @@ export interface SettingsNavItem {
   label: string;
   icon: ReactNode;
   /**
+   * Extra synonyms folded into the rail filter (#2320) and the ⌘K settings-section
+   * group (#2319) so a search for "smtp" finds "Email & SMTP" and "oidc" finds
+   * "Single sign-on". Not rendered — the `label` is the accessible name. Optional:
+   * an item with no keywords still matches on its label. Shared source of truth with
+   * the palette (workspace entries derive from `buildWorkspaceNavGroups`), so a
+   * keyword authored here is reused by both surfaces (ADR-0606).
+   */
+  keywords?: string;
+  /**
    * When set, the item is a route link (System Health tools, redirect shims):
    * clicking navigates (through the dirty guard) instead of scroll-spying to an
    * in-page section. Inline sections omit this.
@@ -154,6 +163,14 @@ export function SettingsShell({
 
   const [pendingNav, setPendingNav] = useState<string | null>(null);
   const [copyConfirmed, setCopyConfirmed] = useState(false);
+  // Desktop rail filter (#2320). Narrows the visible rail sections by label +
+  // keywords; the sections themselves stay mounted in the content panel, so this
+  // is a pure view concern — scroll-spy (`inlineIds`, `activeId`) still runs over
+  // the full `navGroups`. Reset when the scope changes (workspace→project) so a
+  // stale query never hides the new scope's rail.
+  const [railFilter, setRailFilter] = useState('');
+  const railFilterInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => setRailFilter(''), [scope]);
   // Base id for the per-tool-group "Opens a separate page" caption, so each tool
   // button can `aria-describedby` it (route-departure context reaches AT on direct
   // focus, not only on linear reading of the rail) (#2291).
@@ -318,6 +335,52 @@ export function SettingsShell({
     [navGroups, navGuarded, handleSectionNav],
   );
 
+  // Activate a rail item the way a click would: route links go through the dirty
+  // guard, inline sections scroll-spy. Shared by the rail buttons and the filter's
+  // Enter shortcut so both branch identically (#2320).
+  const activateItem = useCallback(
+    (item: SettingsNavItem) => {
+      if (item.to) {
+        if (guardedNavigate(item.to)) return;
+        void navigate(item.to);
+      } else {
+        handleSectionNav(item.id);
+      }
+    },
+    [guardedNavigate, navigate, handleSectionNav],
+  );
+
+  // Rail filter (#2320): case-insensitive substring over label + keywords. Groups
+  // with no surviving item are dropped whole (their heading too). An empty query
+  // returns every group unchanged.
+  const trimmedRailFilter = railFilter.trim().toLowerCase();
+  const filteredNavGroups = useMemo(() => {
+    if (!trimmedRailFilter) return navGroups;
+    return navGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          `${item.label} ${item.keywords ?? ''}`.toLowerCase().includes(trimmedRailFilter),
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [navGroups, trimmedRailFilter]);
+
+  const railFilterHasMatches = filteredNavGroups.length > 0;
+
+  // Enter in the filter jumps to the first match. Inline sections scroll and the
+  // filter clears (rail restored for the next hop); a route-departure just
+  // navigates. No match → no-op.
+  const handleRailFilterEnter = useCallback(() => {
+    const first = filteredNavGroups[0]?.items[0];
+    if (!first) return;
+    activateItem(first);
+    if (!first.to) {
+      setRailFilter('');
+      railFilterInputRef.current?.focus();
+    }
+  }, [filteredNavGroups, activateItem]);
+
   return (
     <div className="flex h-full min-h-0">
       {/* ── Left rail (md+) — collapses to the mobile header below md: (issue 539) ── */}
@@ -341,6 +404,72 @@ export function SettingsShell({
           />
         </div>
 
+        {/* Rail filter (#2320). A form field, so it keeps focus-visible: (rule 214
+            carves out shell-chrome buttons, not inputs). Narrows the list below by
+            label + keywords; Enter jumps to the first match. */}
+        <div className="px-3.5 pb-2 shrink-0">
+          <div className="relative">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              aria-hidden="true"
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-text-disabled"
+            >
+              <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <input
+              ref={railFilterInputRef}
+              type="text"
+              role="searchbox"
+              value={railFilter}
+              onChange={(e) => setRailFilter(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleRailFilterEnter();
+                } else if (e.key === 'Escape' && railFilter) {
+                  // Clear on Escape while there is a query; stop it reaching any
+                  // global handler so the shell stays put. An empty field lets
+                  // Escape bubble (nothing to clear here).
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setRailFilter('');
+                }
+              }}
+              aria-label="Filter settings sections"
+              aria-controls="settings-section-list"
+              placeholder="Filter settings…"
+              className="w-full h-8 pl-8 pr-7 rounded-control text-[13px] bg-neutral-surface-sunken border border-neutral-border text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            />
+            {railFilter && (
+              <button
+                type="button"
+                aria-label="Clear filter"
+                onClick={() => {
+                  setRailFilter('');
+                  railFilterInputRef.current?.focus();
+                }}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-5 w-5 place-items-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary"
+              >
+                <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Polite count so a filter keystroke is announced without moving focus. */}
+        <div className="sr-only" role="status" aria-live="polite">
+          {trimmedRailFilter
+            ? railFilterHasMatches
+              ? `${filteredNavGroups.reduce((n, g) => n + g.items.length, 0)} settings sections`
+              : 'No settings sections'
+            : ''}
+        </div>
+
         {/* Scroll-spy nav. Inline items scroll to their section; `to` items navigate.
             min-h-0 is load-bearing (same reason as the content panel below, #2252):
             a flex-1 child defaults to min-height:auto (its content height), so
@@ -348,10 +477,18 @@ export function SettingsShell({
             bounded height, and the aside's overflow-hidden clips the bottom group
             (SYSTEM) with no scrollbar — the rail can't reach System health/Trash. */}
         <nav
+          id="settings-section-list"
           className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] px-2 py-1"
           aria-label="Settings sections"
         >
-          {navGroups.map((group, groupIdx) => {
+          {!railFilterHasMatches && (
+            // Not role="status" — the sr-only live region above already announces
+            // the empty state; a second polite region would double-announce it.
+            <p className="px-3.5 py-3 text-[13px] text-neutral-text-secondary">
+              No settings match “{railFilter.trim()}”
+            </p>
+          )}
+          {filteredNavGroups.map((group, groupIdx) => {
             // A group whose every item is a route-departure tool page (System
             // health, Observability, Retention & purge, Trash — `external: true`)
             // is NOT part of the consolidated page's scroll-spy flow: clicking one

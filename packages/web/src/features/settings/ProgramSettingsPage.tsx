@@ -91,6 +91,7 @@ export function ProgramSettingsPage() {
         {
           id: 'general',
           label: 'General',
+          keywords: 'name description code program',
           icon: (
             <NavIcon>
               <OverviewIcon aria-hidden="true" />
@@ -100,6 +101,7 @@ export function ProgramSettingsPage() {
         {
           id: 'projects',
           label: 'Projects',
+          keywords: 'member projects add remove grouping',
           icon: (
             <NavIcon>
               <WbsIcon aria-hidden="true" />
@@ -109,6 +111,7 @@ export function ProgramSettingsPage() {
         {
           id: 'access',
           label: 'Access',
+          keywords: 'members permissions roles visibility rbac',
           icon: (
             <NavIcon>
               <ResourcesIcon aria-hidden="true" />
@@ -118,6 +121,7 @@ export function ProgramSettingsPage() {
         {
           id: 'stakeholders',
           label: 'External stakeholders',
+          keywords: 'sponsors contacts external people governance',
           icon: (
             <NavIcon>
               <ExternalLinkIcon aria-hidden="true" />
@@ -127,6 +131,7 @@ export function ProgramSettingsPage() {
         {
           id: 'rollup',
           label: 'Rollup KPIs',
+          keywords: 'metrics kpi aggregate health dashboard indicators',
           icon: (
             <NavIcon>
               <BarChartIcon aria-hidden="true" />
@@ -136,6 +141,7 @@ export function ProgramSettingsPage() {
         {
           id: 'cadence',
           label: 'Cadence',
+          keywords: 'rhythm sync meetings frequency schedule reporting',
           icon: (
             <NavIcon>
               <SprintIcon aria-hidden="true" />
@@ -145,6 +151,7 @@ export function ProgramSettingsPage() {
         {
           id: 'calendar',
           label: 'Working calendar',
+          keywords: 'holidays working days hours timezone',
           icon: (
             <NavIcon>
               <GanttIcon aria-hidden="true" />
@@ -154,6 +161,7 @@ export function ProgramSettingsPage() {
         {
           id: 'risk',
           label: 'Risk policy',
+          keywords: 'raid threshold monte carlo confidence appetite',
           icon: (
             <NavIcon>
               <RiskIcon aria-hidden="true" />
@@ -168,6 +176,7 @@ export function ProgramSettingsPage() {
         {
           id: 'attachments',
           label: 'Attachments',
+          keywords: 'files uploads storage size limit',
           icon: (
             <NavIcon>
               <ExternalLinkIcon aria-hidden="true" />
@@ -177,6 +186,7 @@ export function ProgramSettingsPage() {
         {
           id: 'integrations',
           label: 'Integrations',
+          keywords: 'jira gitlab connect external source',
           icon: (
             <NavIcon>
               <SettingsIcon aria-hidden="true" />
@@ -191,6 +201,7 @@ export function ProgramSettingsPage() {
         {
           id: 'lifecycle',
           label: 'Archive / Close',
+          keywords: 'archive close delete complete status',
           icon: (
             <NavIcon>
               <WarningIcon aria-hidden="true" />
