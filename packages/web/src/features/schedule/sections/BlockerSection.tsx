@@ -21,6 +21,7 @@ import {
   useBlockerSyncedSignal,
 } from '@/features/blocker/offline/blockerOutboxStore';
 import { BlockerPendingBadge } from '@/features/blocker/BlockerPendingBadge';
+import { useDrawerSectionStore } from '@/stores/drawerSectionStore';
 
 const LABEL_CLASS =
   'text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2';
@@ -103,6 +104,16 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
     setBlocking(null);
   }
 
+  // A queued offline write renders its "will sync when you reconnect" badge inside
+  // THIS section. Keep the section revealed so ADR-0605 progressive disclosure
+  // (which folds an `isPopulated === false` section behind "Add detail") does not
+  // fold it — and the badge — away when the optimistic patch flips the populated
+  // signal. An offline *unblock* clears `blockedAgeSeconds`, so without this the
+  // whole section (and its "Unblock queued" badge) vanishes the moment it queues.
+  function keepBlockerRevealed() {
+    useDrawerSectionStore.getState().reveal(taskId, 'blocker');
+  }
+
   function flag() {
     if (!reasonDraft.trim()) return; // reason is the flag of record
     if (!online) {
@@ -115,6 +126,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
         blockerType: typeDraft,
         blockingTask: blockingDraft || null,
       });
+      keepBlockerRevealed();
       setAnnouncement('Blocker flagged. Queued — it will sync when you reconnect.');
       setFormOpen(false);
       resetDrafts();
@@ -144,6 +156,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
         blockerType: typeDraft,
         blockingTask: blockingDraft || null,
       });
+      keepBlockerRevealed();
       setAnnouncement('Blocker changes queued — they will sync when you reconnect.');
       resetDrafts();
       return;
@@ -170,6 +183,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
         blockerType: '',
         blockingTask: null,
       });
+      keepBlockerRevealed();
       setAnnouncement('Unblock queued — it will sync when you reconnect.');
       resetDrafts();
       return;

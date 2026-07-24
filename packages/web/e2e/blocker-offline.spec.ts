@@ -132,10 +132,19 @@ test.describe('Offline blocker flag (ADR-0247)', () => {
     await expect(section.getByText('Blocked', { exact: true })).toBeVisible();
 
     await context.setOffline(true);
+    // Gate on the component observing offline (the `!online` helper) before
+    // clicking — `setOffline` resolves before the `offline` event re-renders
+    // React, so an un-gated click races the online→offline transition and takes
+    // the live-PATCH path, never queuing the unblock (the #2348 flake).
+    await expect(section.getByText(/saved and synced when you reconnect/i)).toBeVisible();
     await section.getByRole('button', { name: 'Unblock' }).click();
 
-    // Optimistically cleared, queued unblock shown on the flag affordance.
-    await expect(section.getByRole('status', { name: /Unblock queued/i })).toBeVisible();
+    // Optimistically cleared, queued unblock shown on the flag affordance. Target
+    // the persistent badge ("…save when you reconnect") specifically — the
+    // sr-only live region also carries "Unblock queued" but says "…sync…".
+    await expect(
+      section.getByRole('status', { name: /Unblock queued.*save when you reconnect/i }),
+    ).toBeVisible();
     expect(captured.body).toBeNull();
 
     await context.setOffline(false);
