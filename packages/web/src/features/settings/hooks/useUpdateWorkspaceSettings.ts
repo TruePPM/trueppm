@@ -49,46 +49,50 @@ interface WorkspaceSettingsPatchRaw {
   calendar_override_policy?: CalendarOverridePolicy;
 }
 
+/**
+ * Each accepted camelCase patch key paired with its snake_case API field. Every
+ * field is a plain passthrough — there is nothing per-field to branch on — so a
+ * data table keeps {@link toRaw} a single flat copy loop instead of ~25 `if`
+ * statements (issue #2356 cognitive-complexity pass). Add new PATCH-able fields
+ * here, not as another `if`.
+ */
+const FIELD_MAP: ReadonlyArray<[keyof WorkspaceSettingsPatch, keyof WorkspaceSettingsPatchRaw]> = [
+  ['name', 'name'],
+  ['timezone', 'timezone'],
+  ['fiscalYearStartMonth', 'fiscal_year_start_month'],
+  ['fiscalYearStartDay', 'fiscal_year_start_day'],
+  ['workWeek', 'work_week'],
+  ['defaultProjectView', 'default_project_view'],
+  ['allowGuests', 'allow_guests'],
+  ['publicSharing', 'public_sharing'],
+  ['publicSharingOverridePolicy', 'public_sharing_override_policy'],
+  ['iterationLabel', 'iteration_label'],
+  ['iterationLabelOverridePolicy', 'iteration_label_override_policy'],
+  ['mcHistoryEnabled', 'mc_history_enabled'],
+  ['mcHistoryRetentionCap', 'mc_history_retention_cap'],
+  ['mcHistoryAttributionAudience', 'mc_history_attribution_audience'],
+  ['mcHistoryOverridePolicy', 'mc_history_override_policy'],
+  ['taskDurationChangePercentPolicy', 'task_duration_change_percent_policy'],
+  ['taskDurationChangePercentOverridePolicy', 'task_duration_change_percent_override_policy'],
+  ['estimationScale', 'estimation_scale'],
+  ['methodology', 'methodology'],
+  ['methodologyOverridePolicy', 'methodology_override_policy'],
+  ['attachmentsEnabled', 'attachments_enabled'],
+  ['allowedAttachmentTypes', 'allowed_attachment_types'],
+  ['attachmentsOverridePolicy', 'attachments_override_policy'],
+  ['calendar', 'calendar'],
+  ['calendarOverridePolicy', 'calendar_override_policy'],
+];
+
 function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
   const raw: WorkspaceSettingsPatchRaw = {};
-  if (patch.name !== undefined) raw.name = patch.name;
-  if (patch.timezone !== undefined) raw.timezone = patch.timezone;
-  if (patch.fiscalYearStartMonth !== undefined)
-    raw.fiscal_year_start_month = patch.fiscalYearStartMonth;
-  if (patch.fiscalYearStartDay !== undefined) raw.fiscal_year_start_day = patch.fiscalYearStartDay;
-  if (patch.workWeek !== undefined) raw.work_week = patch.workWeek;
-  if (patch.defaultProjectView !== undefined) raw.default_project_view = patch.defaultProjectView;
-  if (patch.allowGuests !== undefined) raw.allow_guests = patch.allowGuests;
-  if (patch.publicSharing !== undefined) raw.public_sharing = patch.publicSharing;
-  if (patch.publicSharingOverridePolicy !== undefined)
-    raw.public_sharing_override_policy = patch.publicSharingOverridePolicy;
-  if (patch.iterationLabel !== undefined) raw.iteration_label = patch.iterationLabel;
-  if (patch.iterationLabelOverridePolicy !== undefined)
-    raw.iteration_label_override_policy = patch.iterationLabelOverridePolicy;
-  if (patch.mcHistoryEnabled !== undefined) raw.mc_history_enabled = patch.mcHistoryEnabled;
-  if (patch.mcHistoryRetentionCap !== undefined)
-    raw.mc_history_retention_cap = patch.mcHistoryRetentionCap;
-  if (patch.mcHistoryAttributionAudience !== undefined)
-    raw.mc_history_attribution_audience = patch.mcHistoryAttributionAudience;
-  if (patch.mcHistoryOverridePolicy !== undefined)
-    raw.mc_history_override_policy = patch.mcHistoryOverridePolicy;
-  if (patch.taskDurationChangePercentPolicy !== undefined)
-    raw.task_duration_change_percent_policy = patch.taskDurationChangePercentPolicy;
-  if (patch.taskDurationChangePercentOverridePolicy !== undefined)
-    raw.task_duration_change_percent_override_policy = patch.taskDurationChangePercentOverridePolicy;
-  if (patch.estimationScale !== undefined) raw.estimation_scale = patch.estimationScale;
-  if (patch.methodology !== undefined) raw.methodology = patch.methodology;
-  if (patch.methodologyOverridePolicy !== undefined)
-    raw.methodology_override_policy = patch.methodologyOverridePolicy;
-  if (patch.attachmentsEnabled !== undefined)
-    raw.attachments_enabled = patch.attachmentsEnabled;
-  if (patch.allowedAttachmentTypes !== undefined)
-    raw.allowed_attachment_types = patch.allowedAttachmentTypes;
-  if (patch.attachmentsOverridePolicy !== undefined)
-    raw.attachments_override_policy = patch.attachmentsOverridePolicy;
-  if (patch.calendar !== undefined) raw.calendar = patch.calendar;
-  if (patch.calendarOverridePolicy !== undefined)
-    raw.calendar_override_policy = patch.calendarOverridePolicy;
+  const out = raw as Record<string, unknown>;
+  for (const [camelKey, snakeKey] of FIELD_MAP) {
+    const value = patch[camelKey];
+    // `undefined` means "field not being patched" (vs `null`, which clears the
+    // override for nullable fields like `calendar`) — only skip the former.
+    if (value !== undefined) out[snakeKey] = value;
+  }
   return raw;
 }
 

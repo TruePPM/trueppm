@@ -12,6 +12,11 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { TransferOwnershipDialog } from '../components/TransferOwnershipDialog';
 import { SplitProgramDialog } from '../components/SplitProgramDialog';
 
+/** A React-Query/Axios error's message, or null for non-Error rejections. */
+function errorMessage(err: unknown): string | null {
+  return err instanceof Error ? err.message : null;
+}
+
 interface LifecycleCardProps {
   title: string;
   tone: 'neutral' | 'warning';
@@ -84,6 +89,86 @@ function LifecycleCard({
   );
 }
 
+/**
+ * Permanent-delete critical zone: type-to-confirm the program code (or name) then
+ * delete. Split out of {@link ProgramArchivePage} to keep the page's cognitive
+ * complexity in budget (issue #2356) — no rendered change.
+ */
+function DeleteProgramCard({
+  usesCode,
+  confirmTarget,
+  confirmText,
+  onConfirmTextChange,
+  confirmed,
+  busy,
+  onDelete,
+  deleteError,
+}: {
+  usesCode: boolean;
+  confirmTarget: string;
+  confirmText: string;
+  onConfirmTextChange: (value: string) => void;
+  confirmed: boolean;
+  busy: boolean;
+  onDelete: () => void;
+  deleteError: string | null;
+}) {
+  return (
+    <div className="rounded-card border border-semantic-critical bg-semantic-critical-bg p-4">
+      <h2 className="text-[13px] font-bold text-semantic-critical mb-1">
+        Delete program — permanent
+      </h2>
+      <p className="text-[12px] text-neutral-text-secondary mb-3 leading-relaxed">
+        Removes this program record. Member projects are{' '}
+        <strong className="text-neutral-text-primary">not</strong> deleted — they revert to
+        unaffiliated projects. Program-level baselines, rollup KPIs, and audit entries are
+        deleted.
+      </p>
+      <div className="rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
+        <div className="text-[12px] text-neutral-text-secondary mb-2">
+          To confirm, type the program {usesCode ? 'code' : 'name'}:
+        </div>
+        <div className="flex items-center gap-2">
+          <code className="px-2 py-0.5 rounded-chip bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
+            {confirmTarget || '…'}
+          </code>
+          <input
+            type="text"
+            value={confirmText}
+            onChange={(e) => onConfirmTextChange(e.target.value)}
+            placeholder={confirmTarget ? `Type ${confirmTarget} to confirm` : 'Loading…'}
+            aria-label="Confirm delete by typing the program code or name"
+            disabled={!confirmTarget}
+            className={[
+              'w-[240px] h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
+              'placeholder:text-neutral-text-secondary',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical',
+              confirmText && !confirmed ? 'border-semantic-critical' : 'border-neutral-border',
+            ].join(' ')}
+          />
+        </div>
+      </div>
+      <button
+        type="button"
+        disabled={!confirmed || busy}
+        onClick={onDelete}
+        className={[
+          'px-4 py-2 rounded-control text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
+          confirmed && !busy ? 'opacity-100 hover:opacity-90' : 'opacity-40 cursor-not-allowed',
+        ].join(' ')}
+      >
+        {busy ? 'Deleting…' : 'Delete program permanently'}
+      </button>
+      {deleteError ? (
+        <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
+          {deleteError}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /** Program > Archive / Transfer / Close settings page. */
 export function ProgramArchivePage() {
   const { programId } = useParams<{ programId: string }>();
@@ -105,19 +190,16 @@ export function ProgramArchivePage() {
   const split = useSplitProgram();
 
   const [transferOpen, setTransferOpen] = useState(false);
-  const transferError = transfer.error instanceof Error ? transfer.error.message : null;
+  const transferError = errorMessage(transfer.error);
 
   const [splitOpen, setSplitOpen] = useState(false);
-  const splitError = split.error instanceof Error ? split.error.message : null;
+  const splitError = errorMessage(split.error);
 
   const isClosed = Boolean(program?.is_closed);
   const closeActionLabel = isClosed ? 'Reopen program…' : 'Close program…';
 
-  const closeError =
-    (isClosed ? reopen.error : close.error) instanceof Error
-      ? (isClosed ? reopen.error : close.error)!.message
-      : null;
-  const deleteError = remove.error instanceof Error ? remove.error.message : null;
+  const closeError = errorMessage(isClosed ? reopen.error : close.error);
+  const deleteError = errorMessage(remove.error);
 
   const onToggleClose = () => {
     if (!programId) return;
@@ -196,60 +278,16 @@ export function ProgramArchivePage() {
         />
 
         {/* Delete — critical zone */}
-        <div className="rounded-card border border-semantic-critical bg-semantic-critical-bg p-4">
-          <h2 className="text-[13px] font-bold text-semantic-critical mb-1">
-            Delete program — permanent
-          </h2>
-          <p className="text-[12px] text-neutral-text-secondary mb-3 leading-relaxed">
-            Removes this program record. Member projects are{' '}
-            <strong className="text-neutral-text-primary">not</strong> deleted — they revert to
-            unaffiliated projects. Program-level baselines, rollup KPIs, and audit entries are
-            deleted.
-          </p>
-          <div className="rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
-            <div className="text-[12px] text-neutral-text-secondary mb-2">
-              To confirm, type the program {program?.code ? 'code' : 'name'}:
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="px-2 py-0.5 rounded-chip bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
-                {confirmTarget || '…'}
-              </code>
-              <input
-                type="text"
-                value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
-                placeholder={confirmTarget ? `Type ${confirmTarget} to confirm` : 'Loading…'}
-                aria-label="Confirm delete by typing the program code or name"
-                disabled={!confirmTarget}
-                className={[
-                  'w-[240px] h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
-                  'placeholder:text-neutral-text-secondary',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical',
-                  confirmText && !confirmed ? 'border-semantic-critical' : 'border-neutral-border',
-                ].join(' ')}
-              />
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled={!confirmed || remove.isPending}
-            onClick={onDelete}
-            className={[
-              'px-4 py-2 rounded-control text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
-              confirmed && !remove.isPending
-                ? 'opacity-100 hover:opacity-90'
-                : 'opacity-40 cursor-not-allowed',
-            ].join(' ')}
-          >
-            {remove.isPending ? 'Deleting…' : 'Delete program permanently'}
-          </button>
-          {deleteError ? (
-            <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
-              {deleteError}
-            </p>
-          ) : null}
-        </div>
+        <DeleteProgramCard
+          usesCode={Boolean(program?.code)}
+          confirmTarget={confirmTarget}
+          confirmText={confirmText}
+          onConfirmTextChange={setConfirmText}
+          confirmed={confirmed}
+          busy={remove.isPending}
+          onDelete={onDelete}
+          deleteError={deleteError}
+        />
       </div>
 
       {transferOpen && programId ? (

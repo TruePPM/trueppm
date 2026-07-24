@@ -14,6 +14,7 @@ import { InheritableToggleField } from '../components/InheritableToggleField';
 import { InheritableNumberField } from '../components/InheritableNumberField';
 import { InheritableSelectField } from '../components/InheritableSelectField';
 import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
+import { bundleButtonLabel, exportErrorText, exportStatusLabel } from '../exportJobDisplay';
 import { DURATION_CHANGE_POLICY_OPTIONS, DURATION_CHANGE_POLICY_HINT } from '../durationChangePolicy';
 import { ESTIMATION_SCALE_OPTIONS, ESTIMATION_SCALE_HINT } from '../estimationScale';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
@@ -80,13 +81,13 @@ function ExportProgramBundle({ programId, code }: { programId: string; code?: st
   const failed = job?.status === 'failed';
   const busy = start.isPending || building;
 
-  const statusLabel = start.isPending
-    ? 'Queuing…'
-    : job?.status === 'pending'
-      ? 'Queued…'
-      : job?.status === 'running'
-        ? 'Building bundle…'
-        : null;
+  const statusLabel = exportStatusLabel(start.isPending, job?.status);
+  const errorText = exportErrorText({
+    downloadError,
+    failed,
+    errorDetail: job?.errorDetail,
+    startError,
+  });
 
   const onStart = () => {
     setDownloadError(null);
@@ -113,7 +114,7 @@ function ExportProgramBundle({ programId, code }: { programId: string; code?: st
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
           disabled:opacity-60"
         >
-          {busy ? 'Working…' : ready ? 'Download bundle' : 'Export program bundle…'}
+          {bundleButtonLabel(busy, ready, 'Export program bundle…')}
         </button>
         {statusLabel ? (
           <span className="text-[12px] text-neutral-text-secondary" role="status">
@@ -130,12 +131,9 @@ function ExportProgramBundle({ programId, code }: { programId: string; code?: st
           </button>
         ) : null}
       </div>
-      {startError || failed || downloadError ? (
+      {errorText ? (
         <p className="mt-2 text-[12px] text-semantic-critical" role="alert">
-          {downloadError ??
-            (failed
-              ? `Export failed${job?.errorDetail ? `: ${job.errorDetail}` : ''}. Try again.`
-              : startError)}
+          {errorText}
         </p>
       ) : null}
     </div>

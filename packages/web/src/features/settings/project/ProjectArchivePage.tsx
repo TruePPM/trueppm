@@ -20,6 +20,37 @@ import {
 } from '../hooks/useProjectExport';
 import { SettingsPageTitle } from '../SettingsShell';
 import { TransferOwnershipDialog } from '../components/TransferOwnershipDialog';
+import { bundleButtonLabel, exportErrorText, exportStatusLabel } from '../exportJobDisplay';
+
+/** A React-Query/Axios error's message, or null for non-Error rejections. */
+function errorMessage(err: unknown): string | null {
+  return err instanceof Error ? err.message : null;
+}
+
+/**
+ * Restore a soft-deleted (trashed) project from the "Undo" toast fired by Move to
+ * Trash. Lives at module scope — the Archive page unmounts on navigate, so the Undo
+ * closure must reach the stable query/api clients directly rather than a
+ * component-scoped mutation observer (issue 1113).
+ */
+function restoreProject(
+  id: string | undefined,
+  name: string,
+  navigate: ReturnType<typeof useNavigate>,
+): void {
+  apiClient
+    .post(`/projects/${id}/restore/`)
+    .then(() => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      void queryClient.invalidateQueries({ queryKey: ['projects-trash'] });
+      void queryClient.invalidateQueries({ queryKey: ['project', id] });
+      toast.success(`"${name}" restored`);
+      void navigate(`/projects/${id}`);
+    })
+    .catch(() => {
+      toast.error('Could not restore — open Trash to try again');
+    });
+}
 
 /**
  * A "Learn more →" docs deep-link for a lifecycle card (web-rule 263). Rendered
@@ -142,19 +173,19 @@ function ExportBundleCard({
   const start = useStartProjectExport(projectId);
   const { data: job } = useProjectExportJob(projectId, jobId);
 
-  const startError = start.error instanceof Error ? start.error.message : null;
+  const startError = errorMessage(start.error);
   const building = job?.status === 'pending' || job?.status === 'running';
   const ready = job?.status === 'success' && job.downloadUrl != null;
   const failed = job?.status === 'failed';
   const busy = start.isPending || building;
 
-  const statusLabel = start.isPending
-    ? 'Queuing…'
-    : job?.status === 'pending'
-      ? 'Queued…'
-      : job?.status === 'running'
-        ? 'Building bundle…'
-        : null;
+  const statusLabel = exportStatusLabel(start.isPending, job?.status);
+  const errorText = exportErrorText({
+    downloadError,
+    failed,
+    errorDetail: job?.errorDetail,
+    startError,
+  });
 
   const onStart = () => {
     setDownloadError(null);
@@ -197,7 +228,7 @@ function ExportBundleCard({
             'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
           ].join(' ')}
         >
-          {busy ? 'Working…' : ready ? 'Download bundle' : 'Export bundle…'}
+          {bundleButtonLabel(busy, ready, 'Export bundle…')}
         </button>
         {statusLabel ? (
           <span className="text-[11px] text-neutral-text-secondary" role="status">
@@ -214,16 +245,98 @@ function ExportBundleCard({
           </button>
         ) : null}
       </div>
-      {startError || failed || downloadError ? (
+      {errorText ? (
         <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
-          {downloadError ??
-            (failed
-              ? `Export failed${job?.errorDetail ? `: ${job.errorDetail}` : ''}. Try again.`
-              : startError)}
+          {errorText}
         </p>
       ) : null}
       <div>
         <LearnMoreLink href="administration/data-export/#export-a-project-bundle-async" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Permanent-delete critical zone: type-to-confirm the project code (or name) then
+ * delete. `busy` folds the archive-then-delete pending states the parent tracks so
+ * this card only needs one flag. Split out of {@link ProjectArchivePage} to keep
+ * the page's cognitive complexity in budget (issue #2356) — no rendered change.
+ */
+function DeleteProjectCard({
+  usesCode,
+  confirmTarget,
+  confirmText,
+  onConfirmTextChange,
+  confirmed,
+  busy,
+  onDelete,
+  deleteError,
+}: {
+  usesCode: boolean;
+  confirmTarget: string;
+  confirmText: string;
+  onConfirmTextChange: (value: string) => void;
+  confirmed: boolean;
+  busy: boolean;
+  onDelete: () => void;
+  deleteError: string | null;
+}) {
+  return (
+    <div className="rounded-card border border-semantic-critical bg-semantic-critical-bg p-4">
+      <h2 className="text-[13px] font-bold text-semantic-critical mb-1">
+        Delete project — permanent
+      </h2>
+      <p className="text-[12px] text-neutral-text-secondary mb-3 leading-relaxed">
+        Removes this project and everything in it: tasks, baselines, time entries, attachments. Audit-log
+        entries are retained for 365 days for compliance, then purged.{' '}
+        <strong className="text-neutral-text-primary">
+          Cross-project dependencies in linked projects will fail.
+        </strong>
+      </p>
+      <div className="rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
+        <div className="text-[12px] text-neutral-text-secondary mb-2">
+          To confirm, type the project {usesCode ? 'code' : 'name'}:
+        </div>
+        <div className="flex items-center gap-2">
+          <code className="px-2 py-0.5 rounded-chip bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
+            {confirmTarget || '…'}
+          </code>
+          <input
+            type="text"
+            value={confirmText}
+            onChange={(e) => onConfirmTextChange(e.target.value)}
+            placeholder={confirmTarget ? `Type ${confirmTarget} to confirm` : 'Loading…'}
+            aria-label="Confirm delete by typing the project code or name"
+            disabled={!confirmTarget}
+            className={[
+              'w-[240px] h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
+              'placeholder:text-neutral-text-secondary',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical',
+              confirmText && !confirmed ? 'border-semantic-critical' : 'border-neutral-border',
+            ].join(' ')}
+          />
+        </div>
+      </div>
+      <button
+        type="button"
+        disabled={!confirmed || busy}
+        onClick={onDelete}
+        className={[
+          'px-4 py-2 rounded-control text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
+          confirmed && !busy ? 'opacity-100 hover:opacity-90' : 'opacity-40 cursor-not-allowed',
+        ].join(' ')}
+      >
+        {busy ? 'Deleting…' : 'Delete project permanently'}
+      </button>
+      {deleteError ? (
+        <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
+          {deleteError}
+        </p>
+      ) : null}
+      <div>
+        <LearnMoreLink href="administration/project-settings/#lifecycle" />
       </div>
     </div>
   );
@@ -250,21 +363,18 @@ export function ProjectArchivePage() {
   const transfer = useTransferProject(projectId);
 
   const [transferOpen, setTransferOpen] = useState(false);
-  const transferError = transfer.error instanceof Error ? transfer.error.message : null;
+  const transferError = errorMessage(transfer.error);
 
   const exportSeed = useExportProjectSeed();
-  const exportError = exportSeed.error instanceof Error ? exportSeed.error.message : null;
+  const exportError = errorMessage(exportSeed.error);
 
   const isArchived = Boolean(project?.is_archived);
   const archiveLabel = isArchived
     ? `Unarchive ${project?.name ?? 'project'}…`
     : `Archive ${project?.name ?? 'project'}…`;
 
-  const archiveError =
-    (isArchived ? unarchive.error : archive.error) instanceof Error
-      ? (isArchived ? unarchive.error : archive.error)!.message
-      : null;
-  const deleteError = remove.error instanceof Error ? remove.error.message : null;
+  const archiveError = errorMessage(isArchived ? unarchive.error : archive.error);
+  const deleteError = errorMessage(remove.error);
 
   const onToggleArchive = () => {
     if (isArchived) {
@@ -307,27 +417,11 @@ export function ProjectArchivePage() {
       { force: false },
       {
         onSuccess: () => {
-          toast.action(
-            `"${name}" moved to Trash`,
-            {
-              label: 'Undo',
-              ariaLabel: `Undo — restore ${name}`,
-              onClick: () => {
-                apiClient
-                  .post(`/projects/${id}/restore/`)
-                  .then(() => {
-                    void queryClient.invalidateQueries({ queryKey: ['projects'] });
-                    void queryClient.invalidateQueries({ queryKey: ['projects-trash'] });
-                    void queryClient.invalidateQueries({ queryKey: ['project', id] });
-                    toast.success(`"${name}" restored`);
-                    void navigate(`/projects/${id}`);
-                  })
-                  .catch(() => {
-                    toast.error('Could not restore — open Trash to try again');
-                  });
-              },
-            },
-          );
+          toast.action(`"${name}" moved to Trash`, {
+            label: 'Undo',
+            ariaLabel: `Undo — restore ${name}`,
+            onClick: () => restoreProject(id, name, navigate),
+          });
           void navigate('/', { replace: true });
         },
       },
@@ -412,66 +506,16 @@ export function ProjectArchivePage() {
         />
 
         {/* Delete — critical zone */}
-        <div className="rounded-card border border-semantic-critical bg-semantic-critical-bg p-4">
-          <h2 className="text-[13px] font-bold text-semantic-critical mb-1">
-            Delete project — permanent
-          </h2>
-          <p className="text-[12px] text-neutral-text-secondary mb-3 leading-relaxed">
-            Removes this project and everything in it: tasks, baselines, time entries, attachments. Audit-log
-            entries are retained for 365 days for compliance, then purged.{' '}
-            <strong className="text-neutral-text-primary">
-              Cross-project dependencies in linked projects will fail.
-            </strong>
-          </p>
-          <div className="rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
-            <div className="text-[12px] text-neutral-text-secondary mb-2">
-              To confirm, type the project {project?.code ? 'code' : 'name'}:
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="px-2 py-0.5 rounded-chip bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
-                {confirmTarget || '…'}
-              </code>
-              <input
-                type="text"
-                value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
-                placeholder={confirmTarget ? `Type ${confirmTarget} to confirm` : 'Loading…'}
-                aria-label="Confirm delete by typing the project code or name"
-                disabled={!confirmTarget}
-                className={[
-                  'w-[240px] h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
-                  'placeholder:text-neutral-text-secondary',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical',
-                  confirmText && !confirmed ? 'border-semantic-critical' : 'border-neutral-border',
-                ].join(' ')}
-              />
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled={!confirmed || remove.isPending || archive.isPending}
-            onClick={onDelete}
-            className={[
-              'px-4 py-2 rounded-control text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
-              confirmed && !remove.isPending && !archive.isPending
-                ? 'opacity-100 hover:opacity-90'
-                : 'opacity-40 cursor-not-allowed',
-            ].join(' ')}
-          >
-            {remove.isPending || archive.isPending
-              ? 'Deleting…'
-              : 'Delete project permanently'}
-          </button>
-          {deleteError ? (
-            <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
-              {deleteError}
-            </p>
-          ) : null}
-          <div>
-            <LearnMoreLink href="administration/project-settings/#lifecycle" />
-          </div>
-        </div>
+        <DeleteProjectCard
+          usesCode={Boolean(project?.code)}
+          confirmTarget={confirmTarget}
+          confirmText={confirmText}
+          onConfirmTextChange={setConfirmText}
+          confirmed={confirmed}
+          busy={remove.isPending || archive.isPending}
+          onDelete={onDelete}
+          deleteError={deleteError}
+        />
       </div>
 
       {transferOpen ? (

@@ -323,6 +323,262 @@ function CadenceSection({
 }
 
 // ---------------------------------------------------------------------------
+// Shared row primitives (phase + status rows)
+//
+// Phase and status rows are the same interaction: a drag handle, a color swatch,
+// an inline-rename cell, and a swatch picker, differing only in nouns and the
+// swatch shape. Extracting them keeps both rows flat (issue #2356 cognitive-
+// complexity pass) and guarantees the two rows can't visually drift apart.
+// ---------------------------------------------------------------------------
+
+type SortableHandleProps = Pick<ReturnType<typeof useSortable>, 'attributes' | 'listeners'>;
+
+function ReorderHandle({
+  canEdit,
+  ariaLabel,
+  attributes,
+  listeners,
+}: { canEdit: boolean; ariaLabel: string } & SortableHandleProps) {
+  if (canEdit) {
+    return (
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        {...attributes}
+        {...listeners}
+        className="text-neutral-text-disabled select-none text-[16px] leading-none cursor-grab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
+      >
+        ⠿
+      </button>
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="text-neutral-text-disabled select-none text-[16px] leading-none"
+    >
+      ⠿
+    </span>
+  );
+}
+
+function ColorSwatchToggle({
+  canEdit,
+  ariaLabel,
+  color,
+  shape,
+  onClick,
+}: {
+  canEdit: boolean;
+  ariaLabel: string;
+  color: string | null;
+  shape: 'rounded-control' | 'rounded-full';
+  onClick: () => void;
+}) {
+  const background = color ?? '#94A3B8';
+  if (canEdit) {
+    return (
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        onClick={onClick}
+        className={`w-[18px] h-[18px] ${shape} border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary`}
+        style={{ background }}
+      />
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className={`w-[18px] h-[18px] ${shape} border border-neutral-border/55`}
+      style={{ background }}
+    />
+  );
+}
+
+function InlineRenameCell({
+  canEdit,
+  editing,
+  draft,
+  committed,
+  renameAriaLabel,
+  onDraftChange,
+  onStartEdit,
+  onSubmit,
+  onCancel,
+}: {
+  canEdit: boolean;
+  editing: boolean;
+  draft: string;
+  committed: string;
+  renameAriaLabel: string;
+  onDraftChange: (value: string) => void;
+  onStartEdit: () => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  if (canEdit && editing) {
+    return (
+      <input
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- inline rename: focus follows user click into edit mode
+        autoFocus
+        aria-label={renameAriaLabel}
+        value={draft}
+        onChange={(e) => onDraftChange(e.target.value)}
+        onBlur={onSubmit}
+        onKeyDown={(e: ReactKeyboardEvent<HTMLInputElement>) => {
+          if (e.key === 'Enter') onSubmit();
+          else if (e.key === 'Escape') onCancel();
+        }}
+        className="text-[13px] font-medium text-neutral-text-primary bg-neutral-surface-sunken border border-neutral-border rounded-control px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+      />
+    );
+  }
+  if (canEdit) {
+    return (
+      <button
+        type="button"
+        onClick={onStartEdit}
+        className="text-left text-[13px] font-medium text-neutral-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
+      >
+        {committed}
+      </button>
+    );
+  }
+  return <span className="text-[13px] font-medium text-neutral-text-primary">{committed}</span>;
+}
+
+function SwatchPicker({
+  noun,
+  shape,
+  onPick,
+  onClear,
+}: {
+  noun: 'phase' | 'status';
+  shape: 'rounded-control' | 'rounded-full';
+  onPick: (color: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="mt-2 flex items-center gap-1.5 pl-[56px]">
+      {COLOR_SWATCHES.map((c) => (
+        <button
+          key={c}
+          type="button"
+          aria-label={`Set ${noun} color to ${COLOR_SWATCH_NAMES[c]}`}
+          onClick={() => onPick(c)}
+          className={`w-5 h-5 ${shape} border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary`}
+          style={{ background: c }}
+        />
+      ))}
+      <button
+        type="button"
+        onClick={onClear}
+        className="px-1.5 py-0.5 text-[11px] text-neutral-text-secondary border border-neutral-border/55 rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+      >
+        Clear
+      </button>
+    </div>
+  );
+}
+
+/** Inline-rename commit shared by phase + status rows: commit a non-empty change,
+ *  otherwise revert the draft to the committed value; either way exit edit mode. */
+function commitInlineRename(
+  draft: string,
+  committed: string,
+  onRename: (value: string) => void,
+  revertDraft: (value: string) => void,
+  exitEdit: () => void,
+): void {
+  const trimmed = draft.trim();
+  if (trimmed && trimmed !== committed) onRename(trimmed);
+  else revertDraft(committed);
+  exitEdit();
+}
+
+/** Draft text for a per-column age threshold (empty string = inherit the default). */
+function ageDraftString(days: number | null): string {
+  return days != null ? String(days) : '';
+}
+
+/**
+ * Commit a per-column aging-threshold draft (issue 410): blank clears the override,
+ * a valid positive integer sets it, anything else reverts the draft to the last
+ * saved value rather than persisting garbage. No-ops when the value is unchanged.
+ */
+function commitAgeThreshold(
+  draft: string,
+  current: number | null,
+  setThreshold: (days: number | null) => void,
+  revertDraft: (text: string) => void,
+): void {
+  const trimmed = draft.trim();
+  if (trimmed === '') {
+    if (current !== null) setThreshold(null);
+    return;
+  }
+  const next = Number(trimmed);
+  if (!Number.isInteger(next) || next < 1) {
+    revertDraft(ageDraftString(current));
+    return;
+  }
+  if (next !== current) setThreshold(next);
+}
+
+/** Status-row aging-threshold cell: editable number input, or a read-out of the
+ *  effective threshold (override → per-status default → off) when read-only. */
+function AgeThresholdCell({
+  canEdit,
+  label,
+  draft,
+  defaultThreshold,
+  current,
+  onDraftChange,
+  onCommit,
+  onEscape,
+}: {
+  canEdit: boolean;
+  label: string;
+  draft: string;
+  defaultThreshold: number | undefined;
+  current: number | null;
+  onDraftChange: (value: string) => void;
+  onCommit: () => void;
+  onEscape: () => void;
+}) {
+  if (canEdit) {
+    return (
+      <input
+        type="number"
+        min={1}
+        inputMode="numeric"
+        aria-label={`Age limit in days for ${label}`}
+        title="Cards in this column longer than this many days show an aging indicator. Leave blank to use the default."
+        value={draft}
+        placeholder={defaultThreshold != null ? String(defaultThreshold) : 'off'}
+        onChange={(e) => onDraftChange(e.target.value)}
+        onBlur={onCommit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onCommit();
+          else if (e.key === 'Escape') onEscape();
+        }}
+        className="w-full text-[12px] bg-neutral-surface-sunken border border-neutral-border rounded-control px-2 py-1 tppm-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+      />
+    );
+  }
+  return (
+    <span className="tppm-mono text-[11px] text-neutral-text-secondary">
+      {current != null
+        ? `${current}d`
+        : defaultThreshold != null
+          ? `${defaultThreshold}d`
+          : 'off'}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Phases section
 // ---------------------------------------------------------------------------
 
@@ -463,12 +719,8 @@ function PhaseRow({
   const [name, setName] = useState(phase.name);
   const [showColorPicker, setShowColorPicker] = useState(false);
 
-  const handleSubmit = () => {
-    const trimmed = name.trim();
-    if (trimmed && trimmed !== phase.name) onRename(trimmed);
-    else setName(phase.name);
-    setEditing(false);
-  };
+  const handleSubmit = () =>
+    commitInlineRename(name, phase.name, onRename, setName, () => setEditing(false));
 
   return (
     <li
@@ -483,67 +735,33 @@ function PhaseRow({
         className="grid items-center gap-2.5"
         style={{ gridTemplateColumns: '28px 28px 1fr 90px 90px 48px' }}
       >
-        {canEdit ? (
-          <button
-            type="button"
-            aria-label={`Reorder phase ${phase.name}`}
-            {...attributes}
-            {...listeners}
-            className="text-neutral-text-disabled select-none text-[16px] leading-none cursor-grab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
-          >
-            ⠿
-          </button>
-        ) : (
-          <span
-            aria-hidden="true"
-            className="text-neutral-text-disabled select-none text-[16px] leading-none"
-          >
-            ⠿
-          </span>
-        )}
-        {canEdit ? (
-          <button
-            type="button"
-            aria-label={`Change color for ${phase.name}`}
-            onClick={() => setShowColorPicker((v) => !v)}
-            className="w-[18px] h-[18px] rounded-control border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            style={{ background: phase.color ?? '#94A3B8' }}
-          />
-        ) : (
-          <span
-            aria-hidden="true"
-            className="w-[18px] h-[18px] rounded-control border border-neutral-border/55"
-            style={{ background: phase.color ?? '#94A3B8' }}
-          />
-        )}
-        {canEdit && editing ? (
-          <input
-            // eslint-disable-next-line jsx-a11y/no-autofocus -- inline rename: focus follows user click into edit mode
-            autoFocus
-            aria-label={`Rename ${phase.name}`}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={handleSubmit}
-            onKeyDown={(e: ReactKeyboardEvent<HTMLInputElement>) => {
-              if (e.key === 'Enter') handleSubmit();
-              else if (e.key === 'Escape') {
-                setName(phase.name);
-                setEditing(false);
-              }
-            }}
-            className="text-[13px] font-medium text-neutral-text-primary bg-neutral-surface-sunken border border-neutral-border rounded-control px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          />
-        ) : canEdit ? (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="text-left text-[13px] font-medium text-neutral-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
-          >
-            {phase.name}
-          </button>
-        ) : (
-          <span className="text-[13px] font-medium text-neutral-text-primary">{phase.name}</span>
-        )}
+        <ReorderHandle
+          canEdit={canEdit}
+          ariaLabel={`Reorder phase ${phase.name}`}
+          attributes={attributes}
+          listeners={listeners}
+        />
+        <ColorSwatchToggle
+          canEdit={canEdit}
+          ariaLabel={`Change color for ${phase.name}`}
+          color={phase.color}
+          shape="rounded-control"
+          onClick={() => setShowColorPicker((v) => !v)}
+        />
+        <InlineRenameCell
+          canEdit={canEdit}
+          editing={editing}
+          draft={name}
+          committed={phase.name}
+          renameAriaLabel={`Rename ${phase.name}`}
+          onDraftChange={setName}
+          onStartEdit={() => setEditing(true)}
+          onSubmit={handleSubmit}
+          onCancel={() => {
+            setName(phase.name);
+            setEditing(false);
+          }}
+        />
         <span className="tppm-mono text-[11px] text-neutral-text-secondary">Phase {index + 1}</span>
         <span className="tppm-mono text-[11px] text-neutral-text-secondary">
           {phase.taskCount} {phase.taskCount === 1 ? 'task' : 'tasks'}
@@ -563,31 +781,18 @@ function PhaseRow({
       </div>
 
       {showColorPicker && (
-        <div className="mt-2 flex items-center gap-1.5 pl-[56px]">
-          {COLOR_SWATCHES.map((c) => (
-            <button
-              key={c}
-              type="button"
-              aria-label={`Set phase color to ${COLOR_SWATCH_NAMES[c]}`}
-              onClick={() => {
-                onRecolor(c);
-                setShowColorPicker(false);
-              }}
-              className="w-5 h-5 rounded-control border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-              style={{ background: c }}
-            />
-          ))}
-          <button
-            type="button"
-            onClick={() => {
-              onRecolor(null);
-              setShowColorPicker(false);
-            }}
-            className="px-1.5 py-0.5 text-[11px] text-neutral-text-secondary border border-neutral-border/55 rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          >
-            Clear
-          </button>
-        </div>
+        <SwatchPicker
+          noun="phase"
+          shape="rounded-control"
+          onPick={(c) => {
+            onRecolor(c);
+            setShowColorPicker(false);
+          }}
+          onClear={() => {
+            onRecolor(null);
+            setShowColorPicker(false);
+          }}
+        />
       )}
 
       {deleteError && (
@@ -728,32 +933,13 @@ function StatusRow({
   const [showColorPicker, setShowColorPicker] = useState(false);
   // Per-column aging threshold override (issue 410). Empty input = inherit the per-status
   // default; committed on blur/Enter (one PUT per commit, mirroring the inline rename).
-  const [ageDraft, setAgeDraft] = useState(
-    column.ageThresholdDays != null ? String(column.ageThresholdDays) : '',
-  );
+  const [ageDraft, setAgeDraft] = useState(ageDraftString(column.ageThresholdDays));
   const defaultThreshold = COLUMN_SLA_DEFAULTS[column.status];
 
-  const commitAge = () => {
-    const trimmed = ageDraft.trim();
-    if (trimmed === '') {
-      if (column.ageThresholdDays !== null) onSetAgeThreshold(null);
-      return;
-    }
-    const next = Number(trimmed);
-    if (!Number.isInteger(next) || next < 1) {
-      // Revert an invalid entry to the last saved value rather than persist garbage.
-      setAgeDraft(column.ageThresholdDays != null ? String(column.ageThresholdDays) : '');
-      return;
-    }
-    if (next !== column.ageThresholdDays) onSetAgeThreshold(next);
-  };
-
-  const handleSubmit = () => {
-    const trimmed = label.trim();
-    if (trimmed && trimmed !== column.label) onRename(trimmed);
-    else setLabel(column.label);
-    setEditing(false);
-  };
+  const commitAge = () =>
+    commitAgeThreshold(ageDraft, column.ageThresholdDays, onSetAgeThreshold, setAgeDraft);
+  const handleSubmit = () =>
+    commitInlineRename(label, column.label, onRename, setLabel, () => setEditing(false));
 
   return (
     <li
@@ -768,96 +954,44 @@ function StatusRow({
         className="grid items-center gap-2.5"
         style={{ gridTemplateColumns: '28px 28px 1fr 84px 96px 104px' }}
       >
-        {canEdit ? (
-          <button
-            type="button"
-            aria-label={`Reorder status ${column.label}`}
-            {...attributes}
-            {...listeners}
-            className="text-neutral-text-disabled select-none text-[16px] leading-none cursor-grab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
-          >
-            ⠿
-          </button>
-        ) : (
-          <span
-            aria-hidden="true"
-            className="text-neutral-text-disabled select-none text-[16px] leading-none"
-          >
-            ⠿
-          </span>
-        )}
-        {canEdit ? (
-          <button
-            type="button"
-            aria-label={`Change color for ${column.label}`}
-            onClick={() => setShowColorPicker((v) => !v)}
-            className="w-[18px] h-[18px] rounded-full border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            style={{ background: column.color ?? '#94A3B8' }}
-          />
-        ) : (
-          <span
-            aria-hidden="true"
-            className="w-[18px] h-[18px] rounded-full border border-neutral-border/55"
-            style={{ background: column.color ?? '#94A3B8' }}
-          />
-        )}
-        {canEdit && editing ? (
-          <input
-            // eslint-disable-next-line jsx-a11y/no-autofocus -- inline rename: focus follows user click into edit mode
-            autoFocus
-            aria-label={`Rename ${column.label}`}
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            onBlur={handleSubmit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSubmit();
-              else if (e.key === 'Escape') {
-                setLabel(column.label);
-                setEditing(false);
-              }
-            }}
-            className="text-[13px] font-medium text-neutral-text-primary bg-neutral-surface-sunken border border-neutral-border rounded-control px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          />
-        ) : canEdit ? (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="text-left text-[13px] font-medium text-neutral-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
-          >
-            {column.label}
-          </button>
-        ) : (
-          <span className="text-[13px] font-medium text-neutral-text-primary">{column.label}</span>
-        )}
+        <ReorderHandle
+          canEdit={canEdit}
+          ariaLabel={`Reorder status ${column.label}`}
+          attributes={attributes}
+          listeners={listeners}
+        />
+        <ColorSwatchToggle
+          canEdit={canEdit}
+          ariaLabel={`Change color for ${column.label}`}
+          color={column.color}
+          shape="rounded-full"
+          onClick={() => setShowColorPicker((v) => !v)}
+        />
+        <InlineRenameCell
+          canEdit={canEdit}
+          editing={editing}
+          draft={label}
+          committed={column.label}
+          renameAriaLabel={`Rename ${column.label}`}
+          onDraftChange={setLabel}
+          onStartEdit={() => setEditing(true)}
+          onSubmit={handleSubmit}
+          onCancel={() => {
+            setLabel(column.label);
+            setEditing(false);
+          }}
+        />
         <span className="tppm-mono text-[11px] text-neutral-text-secondary">{column.status}</span>
-        {canEdit ? (
-          <input
-            type="number"
-            min={1}
-            inputMode="numeric"
-            aria-label={`Age limit in days for ${column.label}`}
-            title="Cards in this column longer than this many days show an aging indicator. Leave blank to use the default."
-            value={ageDraft}
-            placeholder={defaultThreshold != null ? String(defaultThreshold) : 'off'}
-            onChange={(e) => setAgeDraft(e.target.value)}
-            onBlur={commitAge}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitAge();
-              else if (e.key === 'Escape') {
-                setAgeDraft(column.ageThresholdDays != null ? String(column.ageThresholdDays) : '');
-              }
-            }}
-            className="w-full text-[12px] bg-neutral-surface-sunken border border-neutral-border rounded-control px-2 py-1 tppm-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          />
-        ) : (
-          <span className="tppm-mono text-[11px] text-neutral-text-secondary">
-            {column.ageThresholdDays != null
-              ? `${column.ageThresholdDays}d`
-              : defaultThreshold != null
-                ? `${defaultThreshold}d`
-                : 'off'}
-          </span>
-        )}
+        <AgeThresholdCell
+          canEdit={canEdit}
+          label={column.label}
+          draft={ageDraft}
+          defaultThreshold={defaultThreshold}
+          current={column.ageThresholdDays}
+          onDraftChange={setAgeDraft}
+          onCommit={commitAge}
+          onEscape={() => setAgeDraft(ageDraftString(column.ageThresholdDays))}
+        />
         {canEdit ? (
           <button
             type="button"
@@ -875,31 +1009,18 @@ function StatusRow({
       </div>
 
       {showColorPicker && (
-        <div className="mt-2 flex items-center gap-1.5 pl-[56px]">
-          {COLOR_SWATCHES.map((c) => (
-            <button
-              key={c}
-              type="button"
-              aria-label={`Set status color to ${COLOR_SWATCH_NAMES[c]}`}
-              onClick={() => {
-                onRecolor(c);
-                setShowColorPicker(false);
-              }}
-              className="w-5 h-5 rounded-full border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-              style={{ background: c }}
-            />
-          ))}
-          <button
-            type="button"
-            onClick={() => {
-              onRecolor(null);
-              setShowColorPicker(false);
-            }}
-            className="px-1.5 py-0.5 text-[11px] text-neutral-text-secondary border border-neutral-border/55 rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          >
-            Clear
-          </button>
-        </div>
+        <SwatchPicker
+          noun="status"
+          shape="rounded-full"
+          onPick={(c) => {
+            onRecolor(c);
+            setShowColorPicker(false);
+          }}
+          onClear={() => {
+            onRecolor(null);
+            setShowColorPicker(false);
+          }}
+        />
       )}
     </li>
   );
@@ -1370,24 +1491,25 @@ function OptionsEditor({
 // Error extraction (DRF returns either {detail: "..."} or per-field maps)
 // ---------------------------------------------------------------------------
 
+/** First per-field DRF validation error in a `{field: "msg" | ["msg", …]}` map. */
+function firstFieldError(obj: Record<string, unknown>): string | null {
+  for (const value of Object.values(obj)) {
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'string') {
+      return value[0];
+    }
+  }
+  return null;
+}
+
 function extractErrorDetail(err: unknown): string | null {
   if (!err) return null;
   type AxiosLike = { response?: { data?: unknown } };
   const data = (err as AxiosLike).response?.data;
-  if (!data) {
-    return err instanceof Error ? err.message : null;
-  }
+  if (!data) return err instanceof Error ? err.message : null;
   if (typeof data === 'string') return data;
-  if (typeof data === 'object') {
-    const obj = data as Record<string, unknown>;
-    if (typeof obj.detail === 'string') return obj.detail;
-    // Pick the first per-field error.
-    for (const value of Object.values(obj)) {
-      if (typeof value === 'string') return value;
-      if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'string') {
-        return value[0];
-      }
-    }
-  }
-  return null;
+  if (typeof data !== 'object') return null;
+  const obj = data as Record<string, unknown>;
+  if (typeof obj.detail === 'string') return obj.detail;
+  return firstFieldError(obj);
 }
