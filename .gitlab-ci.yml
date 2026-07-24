@@ -3044,17 +3044,25 @@ security:osv:
   stage: security
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   needs: []
+  # Run on EVERY MR and branch pipeline, not just when a lockfile changes (#2358).
+  # OSV advisories are database-driven: a HIGH can be freshly published against a
+  # version we already ship (#2357 — react-router@7.16.0 GHSA-chx6-hx7r-mcp5), with
+  # no lockfile diff to trip a `changes:` gate. A changes-scoped MR rule therefore
+  # never sees such an advisory on the branch — it first red-walls `main` after
+  # merge. Running unconditionally (the job is ~5 s + a static-binary download)
+  # catches it on the MR, before it can pollute the protected branch.
+  #
+  # allow_failure exit_codes 2: the severity gate exits 2 for a MEDIUM/LOW-only
+  # result, which GitLab renders as a non-blocking yellow warning (surfacing
+  # dependency debt) rather than a silent green pass. HIGH/CRITICAL (exit 1),
+  # scan/parse failure (exit 1), and usage error (exit 3) are NOT allowed — they
+  # hard-block. See scripts/osv-severity-gate.sh for the full exit-code contract.
+  allow_failure:
+    exit_codes:
+      - 2
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      changes:
-        - packages/web/package-lock.json
-        - packages/website/package-lock.json
-        - packages/wasm-scheduler/Cargo.lock
-        - packages/api/uv.lock
-        - packages/scheduler/uv.lock
-        - "**/osv-scanner.toml"
-        - .gitlab-ci.yml
+    - if: '$CI_COMMIT_BRANCH'
   before_script:
     # jq: the severity gate classifies OSV's JSON output by CVSS band.
     - apk add --no-cache wget jq
