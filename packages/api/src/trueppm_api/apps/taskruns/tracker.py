@@ -174,29 +174,11 @@ class TaskRunTracker:
             return
 
         # Check for cancellation signal first.
-        if self._redis is not None:
-            cancel_key = _CANCEL_KEY.format(task_run_id=self._task_run_id)
-            try:
-                if self._redis.exists(cancel_key):
-                    raise TaskCancelled()
-            except TaskCancelled:
-                raise
-            except Exception:
-                pass  # Redis unavailable — continue without cancel check
+        self._check_cancelled()
 
         # Debounce: skip if updated less than 1s ago.
-        if self._redis is not None:
-            debounce_key = _DEBOUNCE_KEY.format(task_run_id=self._task_run_id)
-            try:
-                now_ts = time.monotonic()
-                last_ts_bytes = self._redis.get(debounce_key)
-                if last_ts_bytes is not None:
-                    last_ts = float(last_ts_bytes)
-                    if now_ts - last_ts < 1.0:
-                        return
-                self._redis.set(debounce_key, now_ts, ex=_DEBOUNCE_TTL)
-            except Exception:
-                pass  # Redis unavailable — proceed without debounce
+        if self._debounced():
+            return
 
         from trueppm_api.apps.taskruns.models import TaskRun
 
@@ -234,6 +216,40 @@ class TaskRunTracker:
             return redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
         except Exception:
             return None
+
+    def _check_cancelled(self) -> None:
+        """Raise ``TaskCancelled`` if a cancel signal is set; no-op if Redis is down."""
+        if self._redis is None:
+            return
+        cancel_key = _CANCEL_KEY.format(task_run_id=self._task_run_id)
+        try:
+            if self._redis.exists(cancel_key):
+                raise TaskCancelled()
+        except TaskCancelled:
+            raise
+        except Exception:
+            pass  # Redis unavailable — continue without cancel check
+
+    def _debounced(self) -> bool:
+        """Return ``True`` when the last write was <1s ago (skip this update).
+
+        Records the current timestamp when the update is allowed to proceed. If
+        Redis is unavailable the update is never debounced.
+        """
+        if self._redis is None:
+            return False
+        debounce_key = _DEBOUNCE_KEY.format(task_run_id=self._task_run_id)
+        try:
+            now_ts = time.monotonic()
+            last_ts_bytes = self._redis.get(debounce_key)
+            if last_ts_bytes is not None:
+                last_ts = float(last_ts_bytes)
+                if now_ts - last_ts < 1.0:
+                    return True
+            self._redis.set(debounce_key, now_ts, ex=_DEBOUNCE_TTL)
+        except Exception:
+            pass  # Redis unavailable — proceed without debounce
+        return False
 
     def _cleanup_redis(self) -> None:
         if self._redis is None or self._task_run_id is None:

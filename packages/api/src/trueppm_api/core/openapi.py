@@ -257,26 +257,41 @@ def _derive_summary(path: str, method: str, collection_paths: frozenset[str]) ->
         return _sentence_case(method)
 
     last = segments[-1]
-    is_param = last.startswith("{") and last.endswith("}")
 
     # Detail-by-id: the resource is the collection immediately above the id.
-    if is_param:
-        parent = segments[-2] if len(segments) > 1 else last
-        resource = _singularize(_humanize(parent))
-        return f"{_DETAIL_VERB.get(method, 'Retrieve')} {resource}"
+    if last.startswith("{") and last.endswith("}"):
+        return _detail_summary(segments, method)
 
     # Trailing literal that owns a ``.../{id}/`` route -> a collection.
     normalized = path if path.endswith("/") else path + "/"
     if normalized in collection_paths:
-        human = _humanize(last)
-        if method == "get":
-            return f"List {human}"
-        if method == "post":
-            return f"Create {_singularize(human)}"
-        return f"{_DETAIL_VERB.get(method, 'Update')} {_singularize(human)}"
+        return _collection_summary(last, method)
 
     # Trailing literal with no child id route: a custom action (POST) or a
     # singleton sub-resource (safe/idempotent methods).
+    return _action_summary(segments, method)
+
+
+def _detail_summary(segments: list[str], method: str) -> str:
+    """Summary for a detail-by-id path: ``<verb> <singular resource>``."""
+    parent = segments[-2] if len(segments) > 1 else segments[-1]
+    resource = _singularize(_humanize(parent))
+    return f"{_DETAIL_VERB.get(method, 'Retrieve')} {resource}"
+
+
+def _collection_summary(last: str, method: str) -> str:
+    """Summary for a collection path: ``List``/``Create``/``<verb>`` the resource."""
+    human = _humanize(last)
+    if method == "get":
+        return f"List {human}"
+    if method == "post":
+        return f"Create {_singularize(human)}"
+    return f"{_DETAIL_VERB.get(method, 'Update')} {_singularize(human)}"
+
+
+def _action_summary(segments: list[str], method: str) -> str:
+    """Summary for a custom action (POST) or singleton sub-resource (safe methods)."""
+    last = segments[-1]
     preceding_literals = [p for p in segments[:-1] if not (p.startswith("{") and p.endswith("}"))]
     owner_segment = preceding_literals[-1] if preceding_literals else last
     has_parent_id = any(p.startswith("{") and p.endswith("}") for p in segments[:-1])
@@ -330,20 +345,34 @@ def postprocess_openapi(
         for method, operation in operations.items():
             if method not in _HTTP_METHODS or not isinstance(operation, dict):
                 continue
-
-            if not operation.get("summary"):
-                operation["summary"] = _derive_summary(path, method, collection_paths)
-
-            tags = operation.get("tags")
-            if not tags or tags == ["v1"]:
-                operation["tags"] = [_derive_tag(path)]
-
-            if is_public:
-                operation["security"] = []
+            _annotate_operation(operation, path, method, collection_paths, is_public)
 
     # Document-level default so a client knows the baseline auth scheme.
     result["security"] = list(GLOBAL_SECURITY)
     return result
+
+
+def _annotate_operation(
+    operation: dict[str, Any],
+    path: str,
+    method: str,
+    collection_paths: frozenset[str],
+    is_public: bool,
+) -> None:
+    """Fill a single operation's ``summary``/``tags``/``security`` in place.
+
+    Explicit ``@extend_schema`` values are preserved: an existing summary and a
+    non-default tag are left untouched.
+    """
+    if not operation.get("summary"):
+        operation["summary"] = _derive_summary(path, method, collection_paths)
+
+    tags = operation.get("tags")
+    if not tags or tags == ["v1"]:
+        operation["tags"] = [_derive_tag(path)]
+
+    if is_public:
+        operation["security"] = []
 
 
 # ---------------------------------------------------------------------------
