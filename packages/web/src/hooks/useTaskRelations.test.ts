@@ -11,8 +11,10 @@ import {
 } from './useTaskRelations';
 
 // ---------------------------------------------------------------------------
-// API client mock — the /api/v1/task-relations/ backend is a separate MR, so it
-// is fully mocked here (this UI is a pure consumer, #2068).
+// API client mock — this UI is a pure consumer of GET /api/v1/task-relations/
+// (#2068). The endpoint returns a BARE ARRAY, not a paginated envelope; the
+// bare-array contract is asserted below (#2321) and enforced server-side by
+// TaskRelationViewSet.pagination_class = None.
 // ---------------------------------------------------------------------------
 
 const { getMock, postMock, patchMock, deleteMock } = vi.hoisted(() => ({
@@ -145,6 +147,22 @@ describe('useTaskRelations', () => {
     const { result } = renderHook(() => useTaskRelations(TASK), { wrapper: makeWrapper(qc) });
     await waitFor(() => expect(result.current.error).not.toBeNull());
     expect(result.current.error?.message).toBe('Boom');
+  });
+
+  it('surfaces an error (not silent bad data) when the response is a paginated envelope', async () => {
+    // Regression for #2321: the drawer showed "Couldn't load related tasks"
+    // because TaskRelationViewSet leaked the project-wide PageNumberPagination,
+    // returning `{count, next, previous, results}` instead of a bare array. The
+    // hook reads `res.data.map(...)`, so an envelope throws — this test locks
+    // the bare-array contract: if the backend ever re-paginates this endpoint,
+    // the hook errors loudly rather than rendering wrong/empty data silently.
+    getMock.mockResolvedValueOnce({
+      data: { count: 1, next: null, previous: null, results: [apiRelation()] },
+    });
+    const { result } = renderHook(() => useTaskRelations(TASK), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.outgoing).toEqual([]);
+    expect(result.current.incoming).toEqual([]);
   });
 });
 

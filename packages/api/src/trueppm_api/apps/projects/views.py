@@ -5755,6 +5755,14 @@ class TaskRelationViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskRelati
     ordering_fields = ["relation_type", "created_at"]
     # Deterministic default so pagination over an unordered queryset can't drift.
     ordering = ["created_at"]
+    # Return a bare array, not the project-wide paginated envelope. A task's
+    # relations are inherently bounded (a handful per task) and the client
+    # (`useTaskRelations`) reads `res.data` as an array and splits it into
+    # incoming/outgoing with no pagination UI. Leaving the global
+    # PageNumberPagination in place returns `{count, results, ...}`, which the
+    # client `.map()`s and throws on — the "Couldn't load related tasks" bug
+    # (#2321). The serializer/e2e/hook contract all specify a bare array.
+    pagination_class = None
     queryset = TaskRelation.objects.select_related(
         "source", "source__project", "target", "target__project"
     ).filter(is_deleted=False)

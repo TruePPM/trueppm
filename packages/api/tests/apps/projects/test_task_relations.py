@@ -239,6 +239,38 @@ class TestHappyPath:
         assert from_target.status_code == 200
         assert rel_id in {row["id"] for row in _results(from_target.data)}
 
+    def test_list_returns_bare_array_not_paginated_envelope(
+        self,
+        member_client: APIClient,
+        member_task: Task,
+        other_task: Task,
+        memberships: None,
+    ) -> None:
+        # Regression for #2321: the client (`useTaskRelations`) reads the list
+        # response as a bare array (`res.data.map(...)`). If the project-wide
+        # PageNumberPagination leaks onto this viewset the body becomes
+        # `{count, next, previous, results}`, the client `.map()`s it and throws,
+        # and the drawer shows "Couldn't load related tasks". Assert the raw
+        # shape directly — the `_results()` helper above deliberately accepts
+        # either shape, so it cannot catch this. `pagination_class = None`.
+        with _no_broadcast():
+            created = member_client.post(
+                LIST_URL,
+                {
+                    "source": str(member_task.pk),
+                    "target": str(other_task.pk),
+                    "relation_type": "relates_to",
+                },
+                format="json",
+            )
+        assert created.status_code == 201, created.data
+
+        listed = member_client.get(LIST_URL, {"task": str(member_task.pk)})
+        assert listed.status_code == 200
+        # A bare list, never a paginated envelope.
+        assert isinstance(listed.data, list), listed.data
+        assert created.data["id"] in {row["id"] for row in listed.data}
+
 
 # ---------------------------------------------------------------------------
 # 2. Permissions — Viewer / Member-no-edit denied; PM / Owner allowed
