@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import { createMemoryRouter, RouterProvider } from 'react-router';
+import { createMemoryRouter } from 'react-router';
+import { RouterProvider } from 'react-router/dom';
 import { describe, it, expect, vi } from 'vitest';
 
 import type { SprintRetroActionItem } from '@/hooks/useSprints';

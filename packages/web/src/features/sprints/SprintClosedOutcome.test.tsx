@@ -2,7 +2,8 @@ import type { ReactElement } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, render as rtlRender } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createMemoryRouter, RouterProvider } from 'react-router';
+import { createMemoryRouter } from 'react-router';
+import { RouterProvider } from 'react-router/dom';
 // SprintClosedOutcome's ShippedRow reads useParams() (issue 1617 — "+ Add
 // criteria" now routes to the task drawer instead of a dead hash link), so
 // this suite needs a Router context, not just QueryClientProvider. Uses the

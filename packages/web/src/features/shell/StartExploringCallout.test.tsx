@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { createMemoryRouter, RouterProvider, type InitialEntry } from 'react-router';
+import { createMemoryRouter, type InitialEntry } from 'react-router';
+import { RouterProvider } from 'react-router/dom';
 import { describe, it, expect } from 'vitest';
 import { StartExploringCallout } from './StartExploringCallout';
 
