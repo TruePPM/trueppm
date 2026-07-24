@@ -34,6 +34,7 @@ import { LinkIcon, PencilIcon } from '@/components/Icons';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { canEditTask } from '@/lib/roles';
 import { MissingCommittedStartChip } from './MissingCommittedStartChip';
+import { isMissingCommittedStart } from './missingCommittedStart';
 import { LINK_STATUS_TEXT_CLASS } from '@/lib/linkStatus';
 import { localTodayIso } from '@/lib/localDate';
 import type { PhasePlannedBadge } from './plannedByPhase';
@@ -889,12 +890,9 @@ function TaskListRowInner({
 
   // Data-integrity warning (issue #317): a task that has reached IN_PROGRESS /
   // REVIEW / COMPLETE without a PM-committed `planned_start` is a data error,
-  // not "needs scheduling". We check `plannedStart`, not `start`, because CPM
-  // auto-fills `early_start` for every task — using `start` would never fire.
-  const hasMissingDatesWarning =
-    !task.plannedStart &&
-    !task.isSummary &&
-    (task.status === 'IN_PROGRESS' || task.status === 'REVIEW' || task.status === 'COMPLETE');
+  // not "needs scheduling". Shared predicate so the row chip and the drawer
+  // advisory (#2314) flag the identical condition (ADR-0603).
+  const hasMissingDatesWarning = isMissingCommittedStart(task);
 
   // Width available for task name content: full task column minus indent, chevron, and base left padding.
   // (paddingLeft = (level-1)*WBS_INDENT + 8; chevron = 18px; base = 8px)

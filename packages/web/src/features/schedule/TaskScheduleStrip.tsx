@@ -3,10 +3,14 @@ import type { Task } from '@/types';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useEffectiveDurationPolicy } from '@/hooks/useProject';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
-import { PencilIcon } from '@/components/Icons';
+import { PencilIcon, WarningIcon } from '@/components/Icons';
+import { Button } from '@/components/Button';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { parseDurationInput } from './buildMode/EditableCell';
 import { RecalcPercentChip } from './RecalcPercentChip';
 import { buildRecalcPrompt, type RecalcPromptState } from './recalcPercentPrompt';
+import { useCommitStartOrTodo } from './useCommitStartOrTodo';
+import { isMissingCommittedStart } from './missingCommittedStart';
 
 /**
  * Format an ISO date (YYYY-MM-DD) as "Mon D", omitting the year when it is the
@@ -273,10 +277,17 @@ function StripFrame({
   task,
   durationCell,
   belowGrid,
+  startComputed = false,
 }: {
   task: Task;
   durationCell: ReactNode | null;
   belowGrid?: ReactNode;
+  /**
+   * The Start value is CPM-computed, not a committed date (#2314) — render it
+   * with the computed cue so this cell stops silently contradicting the
+   * "no committed start" advisory below it.
+   */
+  startComputed?: boolean;
 }) {
   const hasSchedule = Boolean(task.start);
   const float = task.totalFloat;
@@ -286,7 +297,25 @@ function StripFrame({
     <div className="rounded-card border border-neutral-border overflow-hidden">
       <div className={['grid', task.isMilestone ? 'grid-cols-2' : 'grid-cols-4'].join(' ')}>
         <Cell label={task.isMilestone ? 'Date' : 'Start'}>
-          {hasSchedule ? formatDate(task.start) : dash}
+          {hasSchedule ? (
+            startComputed ? (
+              // Dotted (not dashed — dashed reads "editable" like DurationCell)
+              // underline + a `title` and an sr-only qualifier, so mouse and
+              // screen-reader users both learn the date is auto-calculated, not
+              // committed (web-rule 275). The advisory below carries the full fix.
+              <span
+                className="border-b border-dotted border-neutral-text-disabled"
+                title="Auto-calculated by the scheduler (CPM) — not a committed start."
+              >
+                {formatDate(task.start)}
+                <span className="sr-only"> (computed, not committed)</span>
+              </span>
+            ) : (
+              formatDate(task.start)
+            )
+          ) : (
+            dash
+          )}
         </Cell>
 
         {!task.isMilestone && (
@@ -319,6 +348,57 @@ function StripFrame({
           <span>On the critical path — zero float. Slipping this moves the project finish.</span>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The "no committed start" advisory (#2314, ADR-0603) — the drawer's secondary
+ * home for the same flag the Schedule row chip carries (the chip is the primary
+ * point-of-fix, #2313). Rendered in the editable strip's `belowGrid` when the
+ * task is flagged, so a user already inspecting the task isn't left at a dead end.
+ *
+ * `role="status"` (advisory tone, web-rule 138 — not `alert`) with the amber
+ * rule-8b token set. It reuses the shared {@link useCommitStartOrTodo} handlers,
+ * so the two remediations — Set committed start / Move to To Do — commit
+ * instantly (web-rule 217 carve-out) and are offline-guarded (rule 29) exactly
+ * as the chip does; the write path is never duplicated. Only mounted inside
+ * `EditableStrip`, so the caller is already an editor (no `canEdit` re-gate).
+ */
+function NoCommittedStartAdvisory({ task, projectId }: { task: Task; projectId: string }) {
+  const { commitStart, moveToTodo, error } = useCommitStartOrTodo(task, projectId);
+  const startLabel = task.start
+    ? `Set committed start (${fmtUtcShort(task.start)})`
+    : 'Set committed start';
+
+  return (
+    <div
+      role="status"
+      className="px-3.5 py-2.5 border-t border-semantic-at-risk/80 bg-semantic-at-risk-bg text-xs text-semantic-at-risk"
+    >
+      <div className="flex items-start gap-2">
+        <WarningIcon className="h-4 w-4 shrink-0 mt-px" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">No committed start</p>
+          <p className="mt-0.5 leading-relaxed text-neutral-text-primary">
+            Start and Finish here are auto-calculated by the scheduler (CPM). This task has no
+            committed start, so these dates will shift whenever a predecessor moves.
+          </p>
+          {error && (
+            <p role="alert" className="mt-1 font-medium text-semantic-critical">
+              {error}
+            </p>
+          )}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button variant="primary" size="sm" onClick={commitStart}>
+              {startLabel}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={moveToTodo}>
+              Move to To Do
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -379,6 +459,10 @@ function EditableStrip({ task, projectId }: { task: Task; projectId: string }) {
 
   const belowGrid = (
     <>
+      {isMissingCommittedStart(task) && (
+        <NoCommittedStartAdvisory task={task} projectId={projectId} />
+      )}
+
       {error && (
         <div
           role="alert"
@@ -407,6 +491,7 @@ function EditableStrip({ task, projectId }: { task: Task; projectId: string }) {
     <div aria-label="Schedule" role="group">
       <StripFrame
         task={task}
+        startComputed={isMissingCommittedStart(task)}
         durationCell={
           <DurationCell
             days={task.duration}
@@ -457,6 +542,10 @@ export function TaskScheduleStrip({
     <div aria-label="Schedule" role="group">
       <StripFrame
         task={task}
+        // The computed-Start cue is a drawer treatment scoped to non-milestones
+        // (#2314); a milestone's "Date" is a single committed point, not a
+        // CPM-computed span endpoint. The editable path is already non-milestone.
+        startComputed={isMissingCommittedStart(task) && !task.isMilestone}
         durationCell={task.isMilestone ? null : <Cell label="Duration">{task.duration}d</Cell>}
       />
     </div>

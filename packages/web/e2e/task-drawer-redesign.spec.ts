@@ -492,6 +492,21 @@ test.describe('TaskDetailDrawer redesign — tabs', () => {
     await expect(drawer.getByRole('region', { name: 'Assignees' })).toBeVisible();
   });
 
+  test('a flagged task surfaces the "no committed start" advisory + computed Start (#2314)', async ({
+    page,
+  }) => {
+    // t1 (Discovery & Design) is IN_PROGRESS with no committed planned_start, so
+    // the schedule strip carries the advisory (role=status) and marks Start computed.
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    const schedule = drawer.getByRole('group', { name: 'Schedule', exact: true });
+    const advisory = schedule.getByRole('status').filter({ hasText: 'No committed start' });
+    await expect(advisory).toBeVisible();
+    await expect(advisory.getByRole('button', { name: /Set committed start/i })).toBeVisible();
+    await expect(advisory.getByRole('button', { name: 'Move to To Do' })).toBeVisible();
+    // The Start cell no longer silently contradicts the advisory above it.
+    await expect(schedule.getByText('(computed, not committed)')).toBeAttached();
+  });
+
   test('critical task shows the CP marker in the schedule strip', async ({ page }) => {
     const drawer = await openDrawer(page, 'Backend Implementation');
     await expect(drawer.getByText('CP', { exact: true }).first()).toBeVisible();
