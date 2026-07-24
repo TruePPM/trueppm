@@ -153,7 +153,23 @@ def _event_errors(payload: dict[str, Any]) -> list[str]:
     """
     errors: list[str] = []
     account_slugs = {a.get("slug", "") for a in payload.get("accounts", [])}
+    project_slugs, task_index, sprint_index, risk_slugs = _event_indexes(payload)
 
+    for i, event in enumerate(payload.get("events", [])):
+        base = f"$.events[{i}]"
+        _check_ref(event.get("actor"), account_slugs, f"{base}.actor", "account", errors)
+        _check_ref(event.get("assignee"), account_slugs, f"{base}.assignee", "account", errors)
+        _check_event_target_ref(
+            event, base, project_slugs, task_index, sprint_index, risk_slugs, errors
+        )
+
+    return errors
+
+
+def _event_indexes(
+    payload: dict[str, Any],
+) -> tuple[set[str], dict[str, set[str]], dict[str, set[str]], set[str]]:
+    """Index project slugs, task/sprint paths, and risk slugs for event refs."""
     project_slugs: set[str] = set()
     task_index: dict[str, set[str]] = {}
     sprint_index: dict[str, set[str]] = {}
@@ -164,43 +180,40 @@ def _event_errors(payload: dict[str, Any]) -> list[str]:
         task_index[slug] = {t.get("wbs_path") for t in project.get("tasks", [])}
         sprint_index[slug] = {s.get("slug") for s in project.get("sprints", [])}
         risk_slugs |= {r.get("slug", "") for r in project.get("risks", [])}
+    return project_slugs, task_index, sprint_index, risk_slugs
 
-    for i, event in enumerate(payload.get("events", [])):
-        base = f"$.events[{i}]"
-        action = event.get("action", "")
-        _check_ref(event.get("actor"), account_slugs, f"{base}.actor", "account", errors)
-        assignee = event.get("assignee")
-        _check_ref(assignee, account_slugs, f"{base}.assignee", "account", errors)
 
-        kind = _EVENT_TARGET_KIND.get(action)
-        target = event.get("target")
-        if kind is None:
-            continue  # unknown action (schema enum should have rejected it)
-        if target is None:
-            errors.append(f"{base}.target: action {action!r} requires a target")
-            continue
-        prefix, _, ref = target.partition(":")
-        if prefix != kind:
-            errors.append(
-                f"{base}.target: action {action!r} expects a {kind!r} target, got {target!r}"
-            )
-            continue
-        _check_event_target(
-            kind, ref, base, project_slugs, task_index, sprint_index, risk_slugs, errors
-        )
-        # A task.estimate event re-points a triple mid-timeline; it must stay
-        # ordered, or replay persists a triple the DB CheckConstraint rejects (#2005).
-        if action == "task.estimate":
-            est = event.get("estimate")
-            if isinstance(est, dict):
-                o, m, p = est.get("optimistic"), est.get("most_likely"), est.get("pessimistic")
-                if o is not None and m is not None and p is not None and not (o <= m <= p):
-                    errors.append(
-                        f"{base}.estimate: three-point estimate must satisfy "
-                        f"optimistic <= most_likely <= pessimistic (got {o} <= {m} <= {p})"
-                    )
-
-    return errors
+def _check_event_target_ref(
+    event: dict[str, Any],
+    base: str,
+    project_slugs: set[str],
+    task_index: dict[str, set[str]],
+    sprint_index: dict[str, set[str]],
+    risk_slugs: set[str],
+    errors: list[str],
+) -> None:
+    """Validate one event's ``target`` (kind/prefix/resolution) and estimate order."""
+    action = event.get("action", "")
+    kind = _EVENT_TARGET_KIND.get(action)
+    target = event.get("target")
+    if kind is None:
+        return  # unknown action (schema enum should have rejected it)
+    if target is None:
+        errors.append(f"{base}.target: action {action!r} requires a target")
+        return
+    prefix, _, ref = target.partition(":")
+    if prefix != kind:
+        errors.append(f"{base}.target: action {action!r} expects a {kind!r} target, got {target!r}")
+        return
+    _check_event_target(
+        kind, ref, base, project_slugs, task_index, sprint_index, risk_slugs, errors
+    )
+    # A task.estimate event re-points a triple mid-timeline; it must stay ordered,
+    # or replay persists a triple the DB CheckConstraint rejects (#2005). Only a
+    # target that passed the checks above reaches this point, matching the original
+    # sequential flow (a bad target short-circuits before the estimate check).
+    if action == "task.estimate":
+        _check_estimate_order(event, base, errors)
 
 
 def _check_event_target(
