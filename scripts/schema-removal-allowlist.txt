@@ -71,3 +71,10 @@ schema:PaginatedBoardCardSearchResultList
 schema:PaginatedCredentialSummaryList
 schema:PaginatedTrashProjectListList
 schema:SourceEnum
+
+# #2321 — task-relations de-pagination: TaskRelationViewSet set pagination_class
+# = None so GET /api/v1/task-relations/?task=<id> returns a bare TaskRelation[]
+# array (the documented contract the drawer's useTaskRelations hook reads). The
+# now-unused PaginatedTaskRelationList envelope schema is dropped. The
+# /api/v1/task-relations/ path is unchanged; only the phantom component is removed.
+schema:PaginatedTaskRelationList
