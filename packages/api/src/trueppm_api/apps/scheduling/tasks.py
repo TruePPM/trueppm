@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Iterable
 from datetime import date, timedelta
 from typing import Any
 
@@ -431,6 +432,33 @@ def prune_forecast_snapshots(self: object) -> None:
     _do_prune_forecast_snapshots()
 
 
+def _snapshot_ids_to_keep(rows: Any, daily_cutoff: Any, weekly_cutoff: Any) -> set[uuid.UUID]:
+    """Pick the representative snapshot id to retain in each retention bucket.
+
+    ``rows`` are ``(id, captured_at)`` pairs ordered newest-first, so the first
+    row seen in each ISO-week / calendar-month bucket is the freshest and wins.
+    Every row inside the recent (daily) tier is kept.
+    """
+    keep: set[uuid.UUID] = set()
+    seen_weeks: set[tuple[int, int]] = set()
+    seen_months: set[tuple[int, int]] = set()
+    for row_id, captured_at in rows:
+        if captured_at >= daily_cutoff:
+            keep.add(row_id)  # Recent tier: keep every row.
+        elif captured_at >= weekly_cutoff:
+            iso = captured_at.isocalendar()
+            key = (iso[0], iso[1])
+            if key not in seen_weeks:
+                seen_weeks.add(key)
+                keep.add(row_id)  # Newest row in this ISO week.
+        else:
+            key = (captured_at.year, captured_at.month)
+            if key not in seen_months:
+                seen_months.add(key)
+                keep.add(row_id)  # Newest row in this calendar month.
+    return keep
+
+
 def _do_prune_forecast_snapshots() -> int:
     """Business logic for prune_forecast_snapshots — extracted for testability.
 
@@ -460,23 +488,7 @@ def _do_prune_forecast_snapshots() -> int:
             .order_by("-captured_at")
             .values_list("id", "captured_at")
         )
-        keep: set[uuid.UUID] = set()
-        seen_weeks: set[tuple[int, int]] = set()
-        seen_months: set[tuple[int, int]] = set()
-        for row_id, captured_at in rows:
-            if captured_at >= daily_cutoff:
-                keep.add(row_id)  # Recent tier: keep every row.
-            elif captured_at >= weekly_cutoff:
-                iso = captured_at.isocalendar()
-                key = (iso[0], iso[1])
-                if key not in seen_weeks:
-                    seen_weeks.add(key)
-                    keep.add(row_id)  # Newest row in this ISO week.
-            else:
-                key = (captured_at.year, captured_at.month)
-                if key not in seen_months:
-                    seen_months.add(key)
-                    keep.add(row_id)  # Newest row in this calendar month.
+        keep = _snapshot_ids_to_keep(rows, daily_cutoff, weekly_cutoff)
 
         deleted, _ = (
             ProjectForecastSnapshot.objects.filter(project_id=project_id)
@@ -557,6 +569,120 @@ def _active_baseline_finishes(project_ids: list[Any]) -> dict[str, tuple[str, da
     return finishes
 
 
+def _iso_or_none(value: Any) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def _cpm_dates_changed(old: tuple[Any, Any, Any, Any], t: Any) -> bool:
+    """True when any of a task's four CPM dates differ from its pre-writeback snapshot."""
+    old_es, old_ef, old_ls, old_lf = old
+    return bool(
+        old_es != t.early_start
+        or old_ef != t.early_finish
+        or old_ls != t.late_start
+        or old_lf != t.late_finish
+    )
+
+
+def _recalc_project_aggregates(
+    tasks_to_update: list[Any],
+    old_dates: dict[str, tuple[Any, Any, Any, Any]],
+) -> tuple[dict[Any, int], dict[Any, date], dict[Any, date]]:
+    """Per-project recalc summary denormalized onto every ``cpm_recalculated`` row (#1948).
+
+    Returns ``(moved_by_project, new_finish_by_project, prior_finish_by_project)``.
+    WHY grouped strictly per ``project_id`` and not globally: this feeds a helper
+    shared by the program-scoped writeback, where ``tasks_to_update`` spans several
+    member projects in one call. A single program-wide count stamped onto every row
+    would leak one project's schedule scope onto another project's activity row and
+    violate the OSS project-isolation boundary (enterprise-check constraint #1) — so
+    each row carries only *its own* project's aggregate.
+    """
+    moved_by_project: dict[Any, int] = {}
+    new_finish_by_project: dict[Any, date] = {}
+    prior_finish_by_project: dict[Any, date] = {}
+    for t in tasks_to_update:
+        pid = t.project_id
+        # New finish: latest early_finish across every task in this project,
+        # moved or not (an unmoved late task still defines where finish sits).
+        cur_new = new_finish_by_project.get(pid)
+        if t.early_finish is not None and (cur_new is None or t.early_finish > cur_new):
+            new_finish_by_project[pid] = t.early_finish
+        old = old_dates.get(str(t.id))
+        if old is None:
+            continue
+        old_ef = old[1]
+        cur_prior = prior_finish_by_project.get(pid)
+        if old_ef is not None and (cur_prior is None or old_ef > cur_prior):
+            prior_finish_by_project[pid] = old_ef
+        if _cpm_dates_changed(old, t):
+            moved_by_project[pid] = moved_by_project.get(pid, 0) + 1
+    return moved_by_project, new_finish_by_project, prior_finish_by_project
+
+
+def _cpm_recalculated_event(
+    t: Any,
+    old: tuple[Any, Any, Any, Any],
+    moved_by_project: dict[Any, int],
+    new_finish_by_project: dict[Any, date],
+    prior_finish_by_project: dict[Any, date],
+) -> Any:
+    """Build a ``cpm_recalculated`` activity row for a task whose CPM dates moved."""
+    from trueppm_api.apps.projects.models import TaskActivityEvent
+
+    old_es, old_ef, old_ls, old_lf = old
+    new_f = new_finish_by_project.get(t.project_id)
+    prior_f = prior_finish_by_project.get(t.project_id)
+    # Signed day delta of the project finish (+ = slip later, - = pulled in).
+    # None when either side is missing — most importantly the first-ever recalc,
+    # where no prior early_finish exists for any task.
+    delta = (new_f - prior_f).days if new_f is not None and prior_f is not None else None
+    return TaskActivityEvent(
+        task_id=t.id,
+        actor=None,
+        event_type="cpm_recalculated",
+        detail={
+            "early_start": {"from": _iso_or_none(old_es), "to": _iso_or_none(t.early_start)},
+            "early_finish": {"from": _iso_or_none(old_ef), "to": _iso_or_none(t.early_finish)},
+            "late_start": {"from": _iso_or_none(old_ls), "to": _iso_or_none(t.late_start)},
+            "late_finish": {"from": _iso_or_none(old_lf), "to": _iso_or_none(t.late_finish)},
+            "total_float": t.total_float,
+            "is_critical": t.is_critical,
+            # Per-project recalc summary (#1948) — see _recalc_project_aggregates.
+            "recalc_moved_count": moved_by_project.get(t.project_id, 0),
+            "recalc_finish": _iso_or_none(new_f),
+            "recalc_finish_delta_days": delta,
+        },
+    )
+
+
+def _baseline_drift_event(t: Any, old_ef: Any, baseline: tuple[str, date]) -> Any | None:
+    """Build a ``baseline_drift_detected`` row, but only on the transition *into* drift.
+
+    Emitted only when a task was within its baseline finish and is now past it, so a
+    persistently-drifted task does not re-fire every recalc. Returns ``None`` otherwise.
+    """
+    baseline_id, baseline_finish = baseline
+    was_drifted = old_ef is not None and old_ef > baseline_finish
+    is_drifted = t.early_finish is not None and t.early_finish > baseline_finish
+    if not (is_drifted and not was_drifted):
+        return None
+
+    from trueppm_api.apps.projects.models import TaskActivityEvent
+
+    return TaskActivityEvent(
+        task_id=t.id,
+        actor=None,
+        event_type="baseline_drift_detected",
+        detail={
+            "baseline_id": baseline_id,
+            "baseline_finish": baseline_finish.isoformat(),
+            "early_finish": t.early_finish.isoformat(),
+            "drift_days": (t.early_finish - baseline_finish).days,
+        },
+    )
+
+
 def _build_schedule_shift_events(
     tasks_to_update: list[Any],
     old_dates: dict[str, tuple[Any, Any, Any, Any]],
@@ -578,115 +704,32 @@ def _build_schedule_shift_events(
     ``recalc_finish_delta_days`` (signed slip/pull-in of that finish). These are
     grouped strictly per ``project_id`` because the helper is shared by the
     program-scoped writeback, where a program-wide count would leak cross-project
-    scope (see the aggregate block below).
+    scope (see :func:`_recalc_project_aggregates`).
     """
-    from trueppm_api.apps.projects.models import TaskActivityEvent
-
-    def _iso(value: Any) -> str | None:
-        return value.isoformat() if value is not None else None
-
-    # Per-project aggregates that denormalize a recalc-wide summary onto every
-    # moved task's ``cpm_recalculated`` row (#1948): how many tasks moved and
-    # where the project's finish landed. WHY grouped per ``project_id`` and not
-    # globally: this helper is shared by the program-scoped writeback
-    # (``schedule_program_and_writeback`` ~L1240) where ``tasks_to_update`` spans
-    # several member projects in one call. A single program-wide count stamped
-    # onto every row would leak one project's schedule scope onto another
-    # project's activity row and violate the OSS project-isolation boundary
-    # (enterprise-check constraint #1) — so each row carries only *its own*
-    # project's aggregate. The per-task drawer reads a single task's events, so
-    # this recalc-wide count cannot be reconstructed client-side; it must be
-    # denormalized here at emit time.
-    moved_by_project: dict[Any, int] = {}
-    new_finish_by_project: dict[Any, date] = {}
-    prior_finish_by_project: dict[Any, date] = {}
-    for t in tasks_to_update:
-        pid = t.project_id
-        # New finish: latest early_finish across every task in this project,
-        # moved or not (an unmoved late task still defines where finish sits).
-        if t.early_finish is not None:
-            cur_new = new_finish_by_project.get(pid)
-            if cur_new is None or t.early_finish > cur_new:
-                new_finish_by_project[pid] = t.early_finish
-        old = old_dates.get(str(t.id))
-        if old is None:
-            continue
-        old_es, old_ef, old_ls, old_lf = old
-        if old_ef is not None:
-            cur_prior = prior_finish_by_project.get(pid)
-            if cur_prior is None or old_ef > cur_prior:
-                prior_finish_by_project[pid] = old_ef
-        if (
-            old_es != t.early_start
-            or old_ef != t.early_finish
-            or old_ls != t.late_start
-            or old_lf != t.late_finish
-        ):
-            moved_by_project[pid] = moved_by_project.get(pid, 0) + 1
-
-    def _finish_delta(pid: Any) -> int | None:
-        """Signed day delta of the project finish (+ = slip later, - = pulled in).
-
-        ``None`` when either side is missing — most importantly the first-ever
-        recalc, where no prior early_finish exists for any task.
-        """
-        new_f = new_finish_by_project.get(pid)
-        prior_f = prior_finish_by_project.get(pid)
-        if new_f is None or prior_f is None:
-            return None
-        return (new_f - prior_f).days
+    moved_by_project, new_finish_by_project, prior_finish_by_project = _recalc_project_aggregates(
+        tasks_to_update, old_dates
+    )
 
     events: list[Any] = []
     for t in tasks_to_update:
-        tid = str(t.id)
-        old = old_dates.get(tid)
+        old = old_dates.get(str(t.id))
         if old is None:
             continue
-        old_es, old_ef, old_ls, old_lf = old
-        if (
-            old_es != t.early_start
-            or old_ef != t.early_finish
-            or old_ls != t.late_start
-            or old_lf != t.late_finish
-        ):
+        if _cpm_dates_changed(old, t):
             events.append(
-                TaskActivityEvent(
-                    task_id=t.id,
-                    actor=None,
-                    event_type="cpm_recalculated",
-                    detail={
-                        "early_start": {"from": _iso(old_es), "to": _iso(t.early_start)},
-                        "early_finish": {"from": _iso(old_ef), "to": _iso(t.early_finish)},
-                        "late_start": {"from": _iso(old_ls), "to": _iso(t.late_start)},
-                        "late_finish": {"from": _iso(old_lf), "to": _iso(t.late_finish)},
-                        "total_float": t.total_float,
-                        "is_critical": t.is_critical,
-                        # Per-project recalc summary (#1948) — see aggregate block above.
-                        "recalc_moved_count": moved_by_project.get(t.project_id, 0),
-                        "recalc_finish": _iso(new_finish_by_project.get(t.project_id)),
-                        "recalc_finish_delta_days": _finish_delta(t.project_id),
-                    },
+                _cpm_recalculated_event(
+                    t,
+                    old,
+                    moved_by_project,
+                    new_finish_by_project,
+                    prior_finish_by_project,
                 )
             )
-        baseline = baseline_finishes.get(tid)
+        baseline = baseline_finishes.get(str(t.id))
         if baseline is not None:
-            baseline_id, baseline_finish = baseline
-            was_drifted = old_ef is not None and old_ef > baseline_finish
-            is_drifted = t.early_finish is not None and t.early_finish > baseline_finish
-            if is_drifted and not was_drifted:
-                events.append(
-                    TaskActivityEvent(
-                        task_id=t.id,
-                        actor=None,
-                        event_type="baseline_drift_detected",
-                        detail={
-                            "baseline_id": baseline_id,
-                            "baseline_finish": baseline_finish.isoformat(),
-                            "early_finish": t.early_finish.isoformat(),
-                            "drift_days": (t.early_finish - baseline_finish).days,
-                        },
-                    )
-                )
+            drift = _baseline_drift_event(t, old[1], baseline)
+            if drift is not None:
+                events.append(drift)
     return events
 
 
@@ -721,6 +764,80 @@ def _build_children_map(db_tasks: list[Any]) -> dict[str, list[str]]:
         if parent_id is not None:
             children_map.setdefault(parent_id, []).append(str(t.id))
     return children_map
+
+
+def _apply_cpm_results(
+    db_tasks: Iterable[Any],
+    result_map: dict[str, Any],
+    summary_ids: set[str],
+) -> tuple[list[Any], dict[str, tuple[Any, Any, Any, Any]]]:
+    """Write engine CPM results onto Task rows in memory.
+
+    Returns ``(tasks_to_update, old_cpm_dates)`` where ``old_cpm_dates`` snapshots
+    each task's four CPM dates *before* they are overwritten, so
+    :func:`_build_schedule_shift_events` can tell which tasks actually moved
+    (ADR-0207). Shared verbatim by the single-project and program-scoped
+    write-backs so the two never drift.
+
+    INTENTIONAL DESIGN: the caller persists these via ``bulk_update``, which
+    bypasses ``VersionedModel.save()`` so ``server_version`` is NOT incremented —
+    CPM fields (early_start, is_critical, etc.) are read-only computed values the
+    mobile client derives locally, and bumping server_version here would flood
+    every connected client with sync deltas on every recalc. Do NOT change the
+    call sites to ``save()`` without understanding that consequence.
+    """
+    tasks_to_update: list[Any] = []
+    old_cpm_dates: dict[str, tuple[Any, Any, Any, Any]] = {}
+    for db_task in db_tasks:
+        sched = result_map.get(str(db_task.id))
+        if sched is None:
+            continue
+        old_cpm_dates[str(db_task.id)] = (
+            db_task.early_start,
+            db_task.early_finish,
+            db_task.late_start,
+            db_task.late_finish,
+        )
+        db_task.early_start = sched.early_start
+        db_task.early_finish = sched.early_finish
+        db_task.late_start = sched.late_start
+        db_task.late_finish = sched.late_finish
+        db_task.total_float = sched.total_float.days if sched.total_float else None
+        db_task.free_float = sched.free_float.days if sched.free_float else None
+        db_task.is_critical = sched.is_critical
+        # Belt-and-suspenders: milestones are single-point gates. Even if the
+        # boundary normalisation is bypassed, a milestone's finish must equal its
+        # start so client-facing rows never render a date range.
+        if db_task.is_milestone:
+            db_task.early_finish = db_task.early_start
+            db_task.late_finish = db_task.late_start
+        # For summary tasks, overwrite duration with the calendar-day span so the
+        # API returns a meaningful Gantt duration. The CPM engine never reads
+        # duration on summary tasks (excluded from the leaf pass), so this has no
+        # effect on schedule correctness.
+        if str(db_task.id) in summary_ids and db_task.early_start and db_task.early_finish:
+            db_task.duration = max(1, (db_task.early_finish - db_task.early_start).days)
+        tasks_to_update.append(db_task)
+    return tasks_to_update, old_cpm_dates
+
+
+def _apply_driving_flags(deps: list[Any], driving_edges: Iterable[Any]) -> None:
+    """Set ``is_driving`` on each stored Dependency whose edge has zero relationship
+    free float (#2095).
+
+    Keyed by ``(predecessor_id, successor_id, dep_type)`` on leaf task ids exactly
+    as the engine reports; summary-level edges (expanded before CPM) carry no
+    driving fact and stay non-driving (the visual default). bulk_update at the call
+    site bypasses ``VersionedModel.save`` — is_driving is a derived CPM output, not
+    a user edit, and must not trigger a mobile-sync pull.
+    """
+    driving_edge_keys = {(e.predecessor_id, e.successor_id, e.dep_type) for e in driving_edges}
+    for dep in deps:
+        dep.is_driving = (
+            str(dep.predecessor_id),
+            str(dep.successor_id),
+            dep.dep_type,
+        ) in driving_edge_keys
 
 
 def _run_schedule(
@@ -927,65 +1044,15 @@ def _run_schedule(
     # program-scoped write-back derive summary dates through identical code.
     apply_summary_rollups(result_map, summary_ids, children_map, db_task_by_id)
 
-    # Driving-link flags (#2095): the engine reports which edges have zero
-    # relationship free float, keyed by (leaf) task ids. Leaf-to-leaf stored edges
-    # match directly; summary-level edges were expanded before CPM, so they carry no
-    # driving fact and stay non-driving (the visual default). Set in memory here and
-    # persisted via bulk_update below (like Task CPM fields — no server_version bump).
-    driving_edge_keys = {
-        (e.predecessor_id, e.successor_id, e.dep_type) for e in result.driving_edges
-    }
-    for dep in db_deps:
-        dep.is_driving = (
-            str(dep.predecessor_id),
-            str(dep.successor_id),
-            dep.dep_type,
-        ) in driving_edge_keys
+    # Driving-link flags (#2095): set in memory here and persisted via bulk_update
+    # below (like Task CPM fields — no server_version bump).
+    _apply_driving_flags(db_deps, result.driving_edges)
 
-    # Write CPM results back for every task the engine returned.
-    #
-    # INTENTIONAL DESIGN: bulk_update bypasses VersionedModel.save(), so
-    # server_version is NOT incremented for CPM field writes. This is correct:
-    # CPM fields (early_start, is_critical, etc.) are read-only computed values
-    # that the mobile client derives locally from the same scheduler. Bumping
-    # server_version here would flood every connected mobile client with sync
-    # deltas on every schedule recalc — including ones triggered by their own
-    # edits. Do NOT change this to save() without understanding that consequence.
-    tasks_to_update: list[Task] = []
-    # Snapshot each task's CPM dates before the writeback overwrites them, so
-    # _build_schedule_shift_events can tell which tasks actually moved (ADR-0207).
-    old_cpm_dates: dict[str, tuple[Any, Any, Any, Any]] = {}
-    for db_task in db_tasks:
-        sched = result_map.get(str(db_task.id))
-        if sched is None:
-            continue
-        old_cpm_dates[str(db_task.id)] = (
-            db_task.early_start,
-            db_task.early_finish,
-            db_task.late_start,
-            db_task.late_finish,
-        )
-        db_task.early_start = sched.early_start
-        db_task.early_finish = sched.early_finish
-        db_task.late_start = sched.late_start
-        db_task.late_finish = sched.late_finish
-        db_task.total_float = sched.total_float.days if sched.total_float else None
-        db_task.free_float = sched.free_float.days if sched.free_float else None
-        db_task.is_critical = sched.is_critical
-        # Belt-and-suspenders: milestones are single-point gates. Even if the
-        # boundary normalisation above is bypassed (e.g. future direct CPM calls),
-        # a milestone's finish must equal its start so client-facing rows never
-        # render a date range.
-        if db_task.is_milestone:
-            db_task.early_finish = db_task.early_start
-            db_task.late_finish = db_task.late_start
-        # For summary tasks, overwrite duration with the calendar-day span so the
-        # API returns a meaningful value for the Gantt duration column. The CPM
-        # engine never reads duration on summary tasks (they are excluded from the
-        # leaf pass), so updating this field has no effect on schedule correctness.
-        if str(db_task.id) in summary_ids and db_task.early_start and db_task.early_finish:
-            db_task.duration = max(1, (db_task.early_finish - db_task.early_start).days)
-        tasks_to_update.append(db_task)
+    # Write CPM results back for every task the engine returned (server_version is
+    # intentionally NOT bumped — see _apply_cpm_results). old_cpm_dates snapshots
+    # each task's dates before the overwrite so the shift-events helper can tell
+    # which tasks actually moved (ADR-0207).
+    tasks_to_update, old_cpm_dates = _apply_cpm_results(db_tasks, result_map, summary_ids)
 
     from django.db import transaction
 
@@ -1006,28 +1073,9 @@ def _run_schedule(
     # optimization layer over the sync protocol, not a replacement for it. server_version
     # is intentionally NOT in the payload: clients splice these as optimistic CPM updates,
     # they are not a sync anchor (bulk_update bypasses VersionedModel.save(), ADR-0091).
-    if len(tasks_to_update) <= CPM_DELTA_BROADCAST_CAP:
-        delta_payload: dict[str, object] = {
-            "count": len(tasks_to_update),
-            "tasks": [
-                {
-                    "id": str(t.id),
-                    "early_start": t.early_start.isoformat() if t.early_start else None,
-                    "early_finish": t.early_finish.isoformat() if t.early_finish else None,
-                    "late_start": t.late_start.isoformat() if t.late_start else None,
-                    "late_finish": t.late_finish.isoformat() if t.late_finish else None,
-                    "total_float": t.total_float,
-                    "free_float": t.free_float,
-                    "is_critical": t.is_critical,
-                    "planned_start": t.planned_start.isoformat() if t.planned_start else None,
-                    "duration": t.duration,
-                }
-                for t in tasks_to_update
-            ],
-        }
-    else:
-        # Too many moved tasks to ship economically — tell the client to re-fetch.
-        delta_payload = {"count": len(tasks_to_update), "truncated": True}
+    # Built via the shared helper so the single-project and program-pass deltas (and
+    # their >CPM_DELTA_BROADCAST_CAP truncation) can never drift.
+    delta_payload = _member_cpm_delta(tasks_to_update)
 
     # Persist results and mark the outbox row done in a single transaction, and
     # defer the board broadcasts to on_commit (#896). Previously the bulk_update
@@ -1250,6 +1298,63 @@ _PROGRAM_WRITE_FIELDS = [
 ]
 
 
+def _register_program_broadcasts(
+    graph: Any,
+    by_project: dict[object, list[Any]],
+    crit_order: list[str],
+) -> None:
+    """Register each member project's post-commit broadcasts for a program pass.
+
+    Ships a ``cpm_complete`` (full program-true critical path restricted to the
+    project) and ``task_dates_updated`` delta per project, plus a forecast-capture,
+    all deferred to commit (#896) so clients only ever see dates that persisted; a
+    rollback broadcasts nothing. MUST be called from inside the writeback's
+    ``transaction.atomic()`` block. Default-arg binding pins each project's payload
+    against late mutation.
+    """
+    from django.db import transaction
+
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    for p in graph.member_projects:
+        pid = str(p.id)
+        project_tasks = by_project.get(p.id, [])
+        # The project's full program-true critical path — every critical task in this
+        # project, NOT just the ones whose dates moved this pass (a client that
+        # replaces its critical-path state on cpm_complete must get the whole set,
+        # matching the single-project _run_schedule which ships the full path).
+        project_crit = [
+            tid
+            for tid in crit_order
+            if tid in graph.db_task_by_id and graph.db_task_by_id[tid].project_id == p.id
+        ]
+        project_finish = max(
+            (t.early_finish for t in project_tasks if t.early_finish is not None),
+            default=None,
+        )
+        cpm_payload: dict[str, object] = {
+            "project_finish": project_finish.isoformat() if project_finish else None,
+            "critical_path": project_crit,
+        }
+        delta_payload = _member_cpm_delta(project_tasks)
+
+        def _cpm_complete(pid: str = pid, pay: dict[str, object] = cpm_payload) -> None:
+            broadcast_board_event(project_id=pid, event_type="cpm_complete", payload=pay)
+
+        def _dates(pid: str = pid, pay: dict[str, object] = delta_payload) -> None:
+            broadcast_board_event(project_id=pid, event_type="task_dates_updated", payload=pay)
+
+        def _capture(pid: str = pid) -> None:
+            from trueppm_api.apps.scheduling.models import ForecastSnapshotTrigger
+            from trueppm_api.apps.scheduling.services import safe_capture_forecast_snapshot
+
+            safe_capture_forecast_snapshot(pid, ForecastSnapshotTrigger.RECOMPUTE)
+
+        transaction.on_commit(_cpm_complete)
+        transaction.on_commit(_dates)
+        transaction.on_commit(_capture)
+
+
 def _run_program_schedule(program_id: str) -> None:
     """Gather, run, and persist the program-true schedule for ``program_id``.
 
@@ -1270,7 +1375,6 @@ def _run_program_schedule(program_id: str) -> None:
     from trueppm_api.apps.projects.slip_conflict import detect_and_upsert_slip_conflicts
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
     from trueppm_api.apps.scheduling.services import apply_summary_rollups
-    from trueppm_api.apps.sync.broadcast import broadcast_board_event
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
     try:
@@ -1311,46 +1415,17 @@ def _run_program_schedule(program_id: str) -> None:
         summary_ids = graph.summary_ids
         apply_summary_rollups(result_map, summary_ids, graph.children_map, graph.db_task_by_id)
         # Full write-back across every member project (the program pass is coarse;
-        # incremental subgraph writes are a later optimization). Field assignment
-        # mirrors _run_schedule exactly, including the milestone single-point
-        # normalisation and the summary calendar-day duration.
-        for db_task in graph.db_task_by_id.values():
-            sched = result_map.get(str(db_task.id))
-            if sched is None:
-                continue
-            old_cpm_dates[str(db_task.id)] = (
-                db_task.early_start,
-                db_task.early_finish,
-                db_task.late_start,
-                db_task.late_finish,
-            )
-            db_task.early_start = sched.early_start
-            db_task.early_finish = sched.early_finish
-            db_task.late_start = sched.late_start
-            db_task.late_finish = sched.late_finish
-            db_task.total_float = sched.total_float.days if sched.total_float else None
-            db_task.free_float = sched.free_float.days if sched.free_float else None
-            db_task.is_critical = sched.is_critical
-            if db_task.is_milestone:
-                db_task.early_finish = db_task.early_start
-                db_task.late_finish = db_task.late_start
-            if str(db_task.id) in summary_ids and db_task.early_start and db_task.early_finish:
-                db_task.duration = max(1, (db_task.early_finish - db_task.early_start).days)
-            tasks_to_update.append(db_task)
+        # incremental subgraph writes are a later optimization). Shared helper with
+        # _run_schedule, so field assignment — milestone single-point normalisation
+        # and summary calendar-day duration included — can never drift.
+        tasks_to_update, old_cpm_dates = _apply_cpm_results(
+            graph.db_task_by_id.values(), result_map, summary_ids
+        )
 
-        # Driving-link flags across the program (#2095): mark each stored edge whose
-        # relationship free float is zero. Keyed by (leaf) task ids exactly as the
+        # Driving-link flags across the program (#2095), same shared helper as the
         # single-project path; summary-level edges stay non-driving.
-        driving_edge_keys = {
-            (e.predecessor_id, e.successor_id, e.dep_type) for e in graph.result.driving_edges
-        }
         program_db_deps = list(Dependency.objects.filter(predecessor__project_id__in=member_ids))
-        for dep in program_db_deps:
-            dep.is_driving = (
-                str(dep.predecessor_id),
-                str(dep.successor_id),
-                dep.dep_type,
-            ) in driving_edge_keys
+        _apply_driving_flags(program_db_deps, graph.result.driving_edges)
 
     # Group moved tasks by project for the per-project broadcasts.
     by_project: dict[object, list[Task]] = {}
@@ -1402,45 +1477,9 @@ def _run_program_schedule(program_id: str) -> None:
             detect_and_upsert_slip_conflicts(graph)
 
         # Per-project broadcasts + forecast capture, deferred to commit (#896) so
-        # clients only ever see dates that persisted. Default-arg binding pins each
-        # project's payload against late mutation.
-        for p in graph.member_projects:
-            pid = str(p.id)
-            project_tasks = by_project.get(p.id, [])
-            # The project's full program-true critical path — every critical task in
-            # this project, NOT just the ones whose dates moved this pass (a client
-            # that replaces its critical-path state on cpm_complete must get the whole
-            # set, matching the single-project _run_schedule which ships the full path).
-            project_crit = [
-                tid
-                for tid in crit_order
-                if tid in graph.db_task_by_id and graph.db_task_by_id[tid].project_id == p.id
-            ]
-            project_finish = max(
-                (t.early_finish for t in project_tasks if t.early_finish is not None),
-                default=None,
-            )
-            cpm_payload: dict[str, object] = {
-                "project_finish": project_finish.isoformat() if project_finish else None,
-                "critical_path": project_crit,
-            }
-            delta_payload = _member_cpm_delta(project_tasks)
-
-            def _cpm_complete(pid: str = pid, pay: dict[str, object] = cpm_payload) -> None:
-                broadcast_board_event(project_id=pid, event_type="cpm_complete", payload=pay)
-
-            def _dates(pid: str = pid, pay: dict[str, object] = delta_payload) -> None:
-                broadcast_board_event(project_id=pid, event_type="task_dates_updated", payload=pay)
-
-            def _capture(pid: str = pid) -> None:
-                from trueppm_api.apps.scheduling.models import ForecastSnapshotTrigger
-                from trueppm_api.apps.scheduling.services import safe_capture_forecast_snapshot
-
-                safe_capture_forecast_snapshot(pid, ForecastSnapshotTrigger.RECOMPUTE)
-
-            transaction.on_commit(_cpm_complete)
-            transaction.on_commit(_dates)
-            transaction.on_commit(_capture)
+        # clients only ever see dates that persisted. Registered from inside this
+        # atomic block so the on_commit callbacks are tied to this transaction.
+        _register_program_broadcasts(graph, by_project, crit_order)
 
     logger.info(
         "recalculate_program_schedule: program %s — %d member project(s), %d task(s) updated",
