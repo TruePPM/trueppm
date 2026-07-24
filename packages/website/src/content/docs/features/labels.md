@@ -37,7 +37,7 @@ Labels sync to the offline store like the rest of the schedule: the label catalo
 
 ## For integrations and agents
 
-Labels are first-class API objects. A read-only MCP client (or any API consumer) can read a task's labels and filter by them today. Writing labels from an agent — attaching or detaching them — arrives with the MCP write surface in a later release.
+Labels are first-class API objects. A read-only MCP client (or any API consumer) can read a task's labels, and filter the task list by them with `GET /api/v1/tasks/?labels=<id>[,<id>…]` — a comma-separated list of label UUIDs returns tasks carrying **any** of them (OR), the same semantics as the board's label facet. Labels are project-scoped, so results stay within the projects you can already see. Writing labels from an agent — attaching or detaching them — arrives with the MCP write surface in a later release.
 
 ## Not in the first release
 

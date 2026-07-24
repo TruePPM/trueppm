@@ -483,3 +483,122 @@ class TestLabelReadSurfaces:
         task_rows = changes["tasks"]["created"] + changes["tasks"].get("updated", [])
         target = next(row for row in task_rows if row["id"] == str(member_task.pk))
         assert str(label.pk) in target["label_ids"]
+
+
+# ---------------------------------------------------------------------------
+# ?labels= filter on the task list endpoint (#2331)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestTaskLabelFilter:
+    """The ``?labels=<id>[,<id>…]`` filter on ``GET /api/v1/tasks/`` (#2331).
+
+    OR semantics (any of the given labels), de-duplicated, project-scoped by
+    construction, and a clean 400 on a malformed UUID.
+    """
+
+    @staticmethod
+    def _ids(res: Any) -> set[str]:
+        return {str(row["id"]) for row in res.data["results"]}
+
+    @pytest.fixture
+    def scenario(self, project: Project, owner_user: object, memberships: None) -> dict[str, Any]:
+        label_a = Label.objects.create(
+            project=project, name="alpha", color=LabelColor.TEAL, created_by=owner_user
+        )
+        label_b = Label.objects.create(
+            project=project, name="beta", color=LabelColor.SLATE, created_by=owner_user
+        )
+        t_a = Task.objects.create(project=project, name="A task", duration=1)
+        t_b = Task.objects.create(project=project, name="B task", duration=1)
+        t_ab = Task.objects.create(project=project, name="AB task", duration=1)
+        t_none = Task.objects.create(project=project, name="Unlabeled", duration=1)
+        TaskLabel.objects.create(task=t_a, label=label_a)
+        TaskLabel.objects.create(task=t_b, label=label_b)
+        TaskLabel.objects.create(task=t_ab, label=label_a)
+        TaskLabel.objects.create(task=t_ab, label=label_b)
+        return {
+            "label_a": label_a,
+            "label_b": label_b,
+            "t_a": t_a,
+            "t_b": t_b,
+            "t_ab": t_ab,
+            "t_none": t_none,
+        }
+
+    def test_single_label_returns_only_its_tasks(
+        self, member_client: APIClient, project: Project, scenario: dict[str, Any]
+    ) -> None:
+        res = member_client.get(
+            f"/api/v1/tasks/?project={project.pk}&labels={scenario['label_a'].pk}"
+        )
+        assert res.status_code == 200, res.data
+        assert self._ids(res) == {str(scenario["t_a"].pk), str(scenario["t_ab"].pk)}
+
+    def test_multiple_labels_are_or_and_deduplicated(
+        self, member_client: APIClient, project: Project, scenario: dict[str, Any]
+    ) -> None:
+        res = member_client.get(
+            f"/api/v1/tasks/?project={project.pk}"
+            f"&labels={scenario['label_a'].pk},{scenario['label_b'].pk}"
+        )
+        assert res.status_code == 200, res.data
+        ids = [str(row["id"]) for row in res.data["results"]]
+        # OR across labels…
+        assert set(ids) == {
+            str(scenario["t_a"].pk),
+            str(scenario["t_b"].pk),
+            str(scenario["t_ab"].pk),
+        }
+        # …and the two-label task appears exactly once (distinct collapses the join).
+        assert ids.count(str(scenario["t_ab"].pk)) == 1
+
+    def test_unlabeled_task_is_excluded(
+        self, member_client: APIClient, project: Project, scenario: dict[str, Any]
+    ) -> None:
+        res = member_client.get(
+            f"/api/v1/tasks/?project={project.pk}&labels={scenario['label_a'].pk}"
+        )
+        assert str(scenario["t_none"].pk) not in self._ids(res)
+
+    def test_malformed_uuid_returns_400(
+        self, member_client: APIClient, project: Project, memberships: None
+    ) -> None:
+        res = member_client.get(f"/api/v1/tasks/?project={project.pk}&labels=not-a-uuid")
+        assert res.status_code == 400, res.data
+        assert "labels" in res.data
+
+    def test_no_labels_param_returns_all_tasks(
+        self, member_client: APIClient, project: Project, scenario: dict[str, Any]
+    ) -> None:
+        res = member_client.get(f"/api/v1/tasks/?project={project.pk}")
+        assert res.status_code == 200
+        # All four scenario tasks present when the filter is absent.
+        assert self._ids(res) >= {
+            str(scenario["t_a"].pk),
+            str(scenario["t_b"].pk),
+            str(scenario["t_ab"].pk),
+            str(scenario["t_none"].pk),
+        }
+
+    def test_foreign_label_id_leaks_nothing(
+        self,
+        member_client: APIClient,
+        project: Project,
+        calendar: Calendar,
+        owner_user: object,
+        scenario: dict[str, Any],
+    ) -> None:
+        # A label on a DIFFERENT project the member is not part of. Filtering by
+        # its id returns nothing — no cross-project leak (labels are project-scoped
+        # and the queryset is already membership-bounded).
+        other = Project.objects.create(name="Other", start_date=date(2026, 4, 1), calendar=calendar)
+        foreign_label = Label.objects.create(
+            project=other, name="secret", color=LabelColor.TEAL, created_by=owner_user
+        )
+        foreign_task = Task.objects.create(project=other, name="Hidden", duration=1)
+        TaskLabel.objects.create(task=foreign_task, label=foreign_label)
+        res = member_client.get(f"/api/v1/tasks/?labels={foreign_label.pk}")
+        assert res.status_code == 200, res.data
+        assert str(foreign_task.pk) not in self._ids(res)
