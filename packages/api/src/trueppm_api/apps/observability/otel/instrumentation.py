@@ -27,7 +27,7 @@ provider) and is robust if the global is ever set by another component.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 
@@ -214,19 +214,33 @@ def _redact_query_bearing_attrs(span: Any, scrub: Any, *, drop_query_from_url: b
     for key, value in list((span.attributes or {}).items()):
         if not isinstance(value, str):
             continue
-        lkey = key.lower()
-        if lkey.endswith("query"):
-            new = scrub(value)
-            if new != value:
-                span.set_attribute(key, new)
-        elif lkey.endswith(("target", "url", "full")) and "?" in value:
-            path, _, query = value.partition("?")
-            if drop_query_from_url:
-                span.set_attribute(key, path)
-            else:
-                new_query = scrub(query)
-                if new_query != query:
-                    span.set_attribute(key, f"{path}?{new_query}")
+        new = _redacted_attr_value(
+            key.lower(), value, scrub, drop_query_from_url=drop_query_from_url
+        )
+        if new is not None and new != value:
+            span.set_attribute(key, new)
+
+
+def _redacted_attr_value(
+    lkey: str, value: str, scrub: Any, *, drop_query_from_url: bool
+) -> str | None:
+    """Return the redacted replacement for one span attribute, or ``None``.
+
+    ``None`` means the attribute is not query-bearing (or a URL attribute carries no
+    ``?``) and must be left untouched. For a bare ``*query`` attribute the whole value
+    is passed through *scrub*. For a path/URL attribute the query substring after the
+    first ``?`` is dropped (``drop_query_from_url``) or scrubbed and re-attached. The
+    caller only writes back when the result actually differs, so a no-op scrub leaves
+    the attribute byte-for-byte unchanged.
+    """
+    if lkey.endswith("query"):
+        return cast("str", scrub(value))
+    if lkey.endswith(("target", "url", "full")) and "?" in value:
+        path, _, query = value.partition("?")
+        if drop_query_from_url:
+            return path
+        return f"{path}?{scrub(query)}"
+    return None
 
 
 def _redact_ws_credential_span(span: Any, scope: dict[str, Any]) -> None:
