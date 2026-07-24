@@ -152,6 +152,18 @@ def _delta_vs_cpm_days(percentile: _date | None, cpm_finish: _date | None) -> in
     return (percentile - cpm_finish).days
 
 
+def _date_delta_days(later: _date | None, earlier: _date | None) -> int | None:
+    """Signed calendar-day delta ``later - earlier``, or ``None`` if either is missing.
+
+    Positive means ``later`` lands after ``earlier`` (the forecast slipped). Shared
+    by the what-if and history endpoints so a run-to-run / current-to-whatif delta is
+    computed one way.
+    """
+    if later is None or earlier is None:
+        return None
+    return (later - earlier).days
+
+
 def _confidence_curve(histogram: list[dict[str, object]], total: int) -> list[dict[str, object]]:
     """Cumulative P(finish ≤ date) S-curve derived from the histogram buckets.
 
@@ -210,6 +222,117 @@ def _distribution_for_persist(payload: dict[str, Any]) -> dict[str, Any]:
         }
         stride += 1
     return dist
+
+
+def _build_sched_deps(project_pk: str, included_ids: set[str]) -> list[Any]:
+    """Convert a project's DB dependencies to scheduler ``Dependency`` inputs.
+
+    Drops any edge whose predecessor or successor is absent from ``included_ids``:
+    cross-project dependencies and edges to non-committed (BACKLOG) tasks both dangle
+    and would make the engine reject the network as referencing an unknown task.
+    Mirrors the CPM guard in scheduling.tasks (ADR-0090) — a single-project run
+    simulates only this project's committed tasks.
+    """
+    from trueppm_scheduler.models import Dependency as SchedDependency
+    from trueppm_scheduler.models import DependencyType
+
+    db_deps = list(
+        Dependency.objects.filter(predecessor__project_id=project_pk).select_related(
+            "predecessor", "successor"
+        )
+    )
+    return [
+        SchedDependency(
+            predecessor_id=str(d.predecessor_id),
+            successor_id=str(d.successor_id),
+            dep_type=DependencyType(d.dep_type),
+            lag=timedelta(days=d.lag),
+        )
+        for d in db_deps
+        if str(d.predecessor_id) in included_ids and str(d.successor_id) in included_ids
+    ]
+
+
+def _mc_histogram(dist: list[_date]) -> list[dict[str, object]]:
+    """Bin a Monte Carlo finish-date distribution into ≤30 ascending ``{date, count}``
+    buckets.
+
+    ``dist`` is the engine's sorted finish-date sample (earliest first). Returns an
+    empty list for an empty distribution. The midpoint date of each bucket is used as
+    its label so the histogram is symmetric around the sampled span.
+    """
+    if not dist:
+        return []
+    min_ord = dist[0].toordinal()
+    max_ord = dist[-1].toordinal()
+    span = max(max_ord - min_ord, 1)
+    n_buckets = min(30, len(dist))
+    bucket_size = span / n_buckets
+    bucket_counts: dict[int, int] = {}
+    for d in dist:
+        idx = min(int((d.toordinal() - min_ord) / bucket_size), n_buckets - 1)
+        bucket_counts[idx] = bucket_counts.get(idx, 0) + 1
+    return [
+        {
+            "date": _date.fromordinal(min_ord + int((i + 0.5) * bucket_size)).isoformat(),
+            "count": bucket_counts.get(i, 0),
+        }
+        for i in range(n_buckets)
+    ]
+
+
+def _persist_mc_run_if_authorized(
+    request: Request,
+    project: Project,
+    *,
+    mc_result: Any,
+    n_simulations: int,
+    cpm_finish: _date | None,
+    task_count: int,
+    result_dict: dict[str, Any],
+) -> None:
+    """Persist an author-attributed ``MonteCarloRun`` drift row for Scheduler+ callers.
+
+    The forecast *read* is intentionally open to any project member (a Viewer may pull
+    the band), but the persisted run is a different act: it attributes drift to its
+    author and grows the retained-run set (#1502). Gating the read at Member and the
+    write at Scheduler stops a Viewer/Member from spamming ``run_monte_carlo`` to
+    inflate history and pollute drift attribution over a schedule they cannot own. The
+    ``mc_latest`` cache is a per-project read cache, not per-user history, so it stays
+    refreshed for every caller — only the attributed row is gated here.
+
+    Best-effort: a write failure inside the service is logged and swallowed by
+    ``record_monte_carlo_run``; ``result_dict`` gains ``run_id`` only when persistence
+    succeeded. Mutates ``result_dict`` in place.
+    """
+    from trueppm_api.apps.access.models import Role
+    from trueppm_api.apps.access.permissions import _membership_role
+
+    # Pass project.pk (canonical UUID), not the raw URL string, so this reuses the
+    # per-request role cache the earlier object-permission check already warmed under
+    # the same key — no second membership query.
+    role = _membership_role(request, project.pk)
+    if role is None or role < Role.SCHEDULER:
+        return
+
+    # Persist the same distribution slice the cache holds, but bounded to
+    # MC_DISTRIBUTION_MAX_BYTES via down-sampling (#1231) — the cache copy is
+    # full-resolution and untouched. Stored so the histogram + tornado survive cache
+    # expiry and a past run stays viewable.
+    distribution = _distribution_for_persist(result_dict)
+    run = record_monte_carlo_run(
+        str(project.pk),
+        p50=mc_result.p50,
+        p80=mc_result.p80,
+        p95=mc_result.p95,
+        n_simulations=n_simulations,
+        cpm_finish=cpm_finish,
+        task_count=task_count,
+        user=request.user,
+        distribution=distribution,
+    )
+    if run is not None:
+        result_dict["run_id"] = str(run.id)
 
 
 class MonteCarloRunThrottle(ScopedRateThrottle):
@@ -323,8 +446,6 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     read access.
     """
     from trueppm_scheduler.engine import CyclicDependencyError, SimulationCapExceeded, monte_carlo
-    from trueppm_scheduler.models import Dependency as SchedDependency
-    from trueppm_scheduler.models import DependencyType
     from trueppm_scheduler.models import Project as SchedProject
 
     try:
@@ -388,27 +509,8 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     suggest_approve = project.estimation_mode == EstimationMode.SUGGEST_APPROVE
     sched_tasks = build_sched_tasks(db_tasks, suggest_approve=suggest_approve)
 
-    # Drop any edge whose endpoint is absent from sched_tasks: cross-project
-    # dependencies (successor lives in another project) and edges to non-committed
-    # (BACKLOG) tasks both dangle here and would make the engine reject the network
-    # as referencing an unknown task. Mirrors the CPM guard in scheduling.tasks
-    # (ADR-0090) — a single-project Monte Carlo simulates only this project's tasks.
     included_ids = {str(t.id) for t in db_tasks}
-    db_deps = list(
-        Dependency.objects.filter(predecessor__project_id=pk).select_related(
-            "predecessor", "successor"
-        )
-    )
-    sched_deps = [
-        SchedDependency(
-            predecessor_id=str(d.predecessor_id),
-            successor_id=str(d.successor_id),
-            dep_type=DependencyType(d.dep_type),
-            lag=timedelta(days=d.lag),
-        )
-        for d in db_deps
-        if str(d.predecessor_id) in included_ids and str(d.successor_id) in included_ids
-    ]
+    sched_deps = _build_sched_deps(pk, included_ids)
 
     # Agile-aware Monte Carlo (#411, ADR-0065/0106): feed the team's completed-sprint
     # throughput to the engine so SCRUM/story-point tasks sample sprints-to-completion
@@ -471,25 +573,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         )
 
     dist = mc_result.distribution
-    if dist:
-        min_ord = dist[0].toordinal()
-        max_ord = dist[-1].toordinal()
-        span = max(max_ord - min_ord, 1)
-        n_buckets = min(30, len(dist))
-        bucket_size = span / n_buckets
-        bucket_counts: dict[int, int] = {}
-        for d in dist:
-            idx = min(int((d.toordinal() - min_ord) / bucket_size), n_buckets - 1)
-            bucket_counts[idx] = bucket_counts.get(idx, 0) + 1
-        histogram: list[dict[str, object]] = [
-            {
-                "date": _date.fromordinal(min_ord + int((i + 0.5) * bucket_size)).isoformat(),
-                "count": bucket_counts.get(i, 0),
-            }
-            for i in range(n_buckets)
-        ]
-    else:
-        histogram = []
+    histogram = _mc_histogram(dist)
 
     # The deterministic CPM spine is the max early_finish of the committed tasks
     # already loaded above — no extra query. It anchors delta_vs_cpm (the risk
@@ -530,43 +614,17 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     }
     cache.set(f"mc_latest:{pk}", result_dict, timeout=86400)
 
-    # Persist a forecast-drift history row (ADR-0175, #961) only for callers with
-    # schedule authority (Scheduler+). The forecast *read* is intentionally open to
-    # any project member — a Viewer may pull the band — but the persisted run is a
-    # different act: it attributes drift to its author (`user=request.user`) and
-    # grows the retained-run set. Gating the read at Member and the write at
-    # Scheduler stops a Viewer/Member from spamming run_monte_carlo to inflate
-    # history and pollute drift attribution over a schedule they cannot own (#1502).
-    # The mc_latest cache above is a per-project read cache, not per-user history,
-    # so it stays refreshed for every caller — only the attributed row is gated.
-    from trueppm_api.apps.access.models import Role
-    from trueppm_api.apps.access.permissions import _membership_role
-
-    # Pass project.pk (canonical UUID), not the raw `pk` URL string, so this reuses
-    # the per-request role cache the earlier object-permission check already warmed
-    # under the same key — no second membership query.
-    role = _membership_role(request, project.pk)
-    if role is not None and role >= Role.SCHEDULER:
-        # Best-effort: a write failure inside the service is logged and swallowed so
-        # the simulation result is still returned; the response carries the run id
-        # only when persistence succeeded. Persist the same distribution slice the
-        # cache holds, but bounded to MC_DISTRIBUTION_MAX_BYTES via down-sampling
-        # (#1231) — the cache copy above is full-resolution and untouched. Stored so
-        # the histogram + tornado survive cache expiry and a past run stays viewable.
-        distribution = _distribution_for_persist(result_dict)
-        run = record_monte_carlo_run(
-            str(project.pk),
-            p50=mc_result.p50,
-            p80=mc_result.p80,
-            p95=mc_result.p95,
-            n_simulations=n_simulations,
-            cpm_finish=cpm_finish,
-            task_count=len(db_tasks),
-            user=request.user,
-            distribution=distribution,
-        )
-        if run is not None:
-            result_dict["run_id"] = str(run.id)
+    # Persist a forecast-drift history row (ADR-0175, #961) only for Scheduler+
+    # callers; the read is Member-level but the attributed write is not (#1502).
+    _persist_mc_run_if_authorized(
+        request,
+        project,
+        mc_result=mc_result,
+        n_simulations=n_simulations,
+        cpm_finish=cpm_finish,
+        task_count=len(db_tasks),
+        result_dict=result_dict,
+    )
     return Response(result_dict)
 
 
@@ -677,6 +735,32 @@ def _shift_duration(td: timedelta | None, delta_days: int) -> timedelta | None:
     return shifted if shifted > timedelta(0) else timedelta(0)
 
 
+def _perturb_task_durations(
+    baseline_tasks: list[Any], target_id: str, delta_days: int
+) -> list[Any]:
+    """Return a copy of the scheduler task list with only the target's durations shifted.
+
+    The target's deterministic ``duration`` and, when it carries a three-point
+    estimate, each PERT leg are shifted by ``delta_days``. Shifting the PERT triple
+    too matters because Monte Carlo samples a PERT task from its triple, not its
+    deterministic duration — perturbing only ``duration`` would leave the
+    probabilistic bands unmoved for an estimated task, defeating the what-if. Every
+    other task passes through unchanged.
+    """
+    perturbed = []
+    for st in baseline_tasks:
+        if st.id == target_id:
+            st = dataclasses.replace(
+                st,
+                duration=_shift_duration(st.duration, delta_days),
+                optimistic_duration=_shift_duration(st.optimistic_duration, delta_days),
+                most_likely_duration=_shift_duration(st.most_likely_duration, delta_days),
+                pessimistic_duration=_shift_duration(st.pessimistic_duration, delta_days),
+            )
+        perturbed.append(st)
+    return perturbed
+
+
 class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
     """Non-mutating Monte Carlo what-if: perturb one task's duration, recompute (#993).
 
@@ -780,8 +864,6 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             monte_carlo,
             schedule,
         )
-        from trueppm_scheduler.models import Dependency as SchedDependency
-        from trueppm_scheduler.models import DependencyType
         from trueppm_scheduler.models import Project as SchedProject
 
         from trueppm_api.apps.projects.services import scheduler_velocity_inputs
@@ -853,40 +935,10 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
 
         suggest_approve = project.estimation_mode == EstimationMode.SUGGEST_APPROVE
         baseline_tasks = build_sched_tasks(db_tasks, suggest_approve=suggest_approve)
-
-        # Perturbed task list: a copy with only the target's duration (and, when it
-        # carries a three-point estimate, each PERT leg) shifted. Shifting the PERT
-        # triple too matters because Monte Carlo samples a PERT task from its triple,
-        # not its deterministic duration — perturbing only `duration` would leave the
-        # probabilistic bands unmoved for an estimated task, defeating the what-if.
-        perturbed_tasks = []
-        for st in baseline_tasks:
-            if st.id == task_id:
-                st = dataclasses.replace(
-                    st,
-                    duration=_shift_duration(st.duration, delta_days),
-                    optimistic_duration=_shift_duration(st.optimistic_duration, delta_days),
-                    most_likely_duration=_shift_duration(st.most_likely_duration, delta_days),
-                    pessimistic_duration=_shift_duration(st.pessimistic_duration, delta_days),
-                )
-            perturbed_tasks.append(st)
+        perturbed_tasks = _perturb_task_durations(baseline_tasks, task_id, delta_days)
 
         included_ids = {str(t.id) for t in db_tasks}
-        db_deps = list(
-            Dependency.objects.filter(predecessor__project_id=pk).select_related(
-                "predecessor", "successor"
-            )
-        )
-        sched_deps = [
-            SchedDependency(
-                predecessor_id=str(d.predecessor_id),
-                successor_id=str(d.successor_id),
-                dep_type=DependencyType(d.dep_type),
-                lag=timedelta(days=d.lag),
-            )
-            for d in db_deps
-            if str(d.predecessor_id) in included_ids and str(d.successor_id) in included_ids
-        ]
+        sched_deps = _build_sched_deps(pk, included_ids)
 
         velocity_samples, sprint_length_days = scheduler_velocity_inputs(
             project.pk, sched_calendar.working_days
@@ -956,11 +1008,6 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
         # path does not read as a change.
         critical_path_changed = set(baseline_cpm.critical_path) != set(perturbed_cpm.critical_path)
 
-        def _days(later: _date | None, earlier: _date | None) -> int | None:
-            if later is None or earlier is None:
-                return None
-            return (later - earlier).days
-
         current = {
             "p50": baseline_mc.p50.isoformat(),
             "p80": baseline_mc.p80.isoformat(),
@@ -987,10 +1034,12 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 "whatif": whatif,
                 "critical_path_changed": critical_path_changed,
                 "delta_vs_current": {
-                    "p50": _days(perturbed_mc.p50, baseline_mc.p50),
-                    "p80": _days(perturbed_mc.p80, baseline_mc.p80),
-                    "p95": _days(perturbed_mc.p95, baseline_mc.p95),
-                    "cpm_finish": _days(perturbed_cpm.project_finish, baseline_cpm.project_finish),
+                    "p50": _date_delta_days(perturbed_mc.p50, baseline_mc.p50),
+                    "p80": _date_delta_days(perturbed_mc.p80, baseline_mc.p80),
+                    "p95": _date_delta_days(perturbed_mc.p95, baseline_mc.p95),
+                    "cpm_finish": _date_delta_days(
+                        perturbed_cpm.project_finish, baseline_cpm.project_finish
+                    ),
                 },
                 "runs": n_simulations,
                 "seed": WHATIF_MC_SEED,
@@ -1003,6 +1052,49 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
 # ceiling only bites the Enterprise unlimited-retention case so the endpoint can
 # never stream an unbounded payload (ADR-0175).
 MC_HISTORY_RESPONSE_MAX = 500
+
+
+def _annotate_run_deltas(runs: list[MonteCarloRun]) -> None:
+    """Attach a computed-on-read ``_delta`` to each run vs the next-older run (ADR-0108).
+
+    ``runs`` is newest-first; positive days = the forecast slipped later (worse). The
+    oldest row has no predecessor, so its ``_delta`` stays ``None`` (baseline). Mutates
+    each run in place for the serializer to read.
+    """
+    for i, run in enumerate(runs):
+        older = runs[i + 1] if i + 1 < len(runs) else None
+        if older is None:
+            run._delta = None  # type: ignore[attr-defined]
+        else:
+            run._delta = {  # type: ignore[attr-defined]
+                "p50": _date_delta_days(run.p50, older.p50),
+                "p80": _date_delta_days(run.p80, older.p80),
+                "p95": _date_delta_days(run.p95, older.p95),
+            }
+
+
+def _mc_attribution_visible(request: Request, project: Project, pk: str) -> bool:
+    """Whether the caller may see run-author attribution, per the effective audience.
+
+    Resolved per-workspace (ADR-0144): ADMIN_OWNER → role ≥ ADMIN; SCHEDULER_PLUS →
+    role ≥ SCHEDULER; NONE → never. Default ADMIN_OWNER reproduces the prior hardcoded
+    gate exactly. Drift must not become a named-individual signal below the configured
+    audience (VoC Morgan).
+    """
+    from trueppm_api.apps.access.models import Role
+    from trueppm_api.apps.access.permissions import _membership_role
+    from trueppm_api.apps.scheduling.forecast_history_settings import (
+        resolve_effective_mc_history,
+    )
+    from trueppm_api.apps.scheduling.models import MCAttributionAudience
+
+    role = _membership_role(request, pk)
+    audience = resolve_effective_mc_history(project, "mc_history_attribution_audience")
+    if audience == MCAttributionAudience.NONE:
+        return False
+    if audience == MCAttributionAudience.SCHEDULER_PLUS:
+        return role is not None and role >= Role.SCHEDULER
+    return role is not None and role >= Role.ADMIN  # ADMIN_OWNER (default)
 
 
 @extend_schema(
@@ -1054,12 +1146,9 @@ class MonteCarloHistoryView(APIView):
 
     def get(self, request: Request, pk: str) -> Response:
         """Return the capped, newest-first run history with per-run deltas."""
-        from trueppm_api.apps.access.models import Role
-        from trueppm_api.apps.access.permissions import _membership_role
         from trueppm_api.apps.scheduling.forecast_history_settings import (
             resolve_effective_mc_history,
         )
-        from trueppm_api.apps.scheduling.models import MCAttributionAudience
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
@@ -1093,39 +1182,8 @@ class MonteCarloHistoryView(APIView):
         if not expand_distribution:
             qs = qs.defer("distribution")
         runs = list(qs[:limit])
-
-        # Computed-on-read delta (ADR-0108): each run vs the next-older run.
-        # Positive days = the forecast slipped later (worse). The oldest row in
-        # the list has no predecessor → _delta stays None (baseline).
-        def _diff(newer: _date | None, older: _date | None) -> int | None:
-            if newer is None or older is None:
-                return None
-            return (newer - older).days
-
-        for i, run in enumerate(runs):
-            older = runs[i + 1] if i + 1 < len(runs) else None
-            if older is None:
-                run._delta = None  # type: ignore[attr-defined]
-            else:
-                run._delta = {  # type: ignore[attr-defined]
-                    "p50": _diff(run.p50, older.p50),
-                    "p80": _diff(run.p80, older.p80),
-                    "p95": _diff(run.p95, older.p95),
-                }
-
-        # Attribution audience is now resolved per-workspace (ADR-0144) instead of a
-        # hardcoded Admin/Owner gate: ADMIN_OWNER → role ≥ ADMIN; SCHEDULER_PLUS →
-        # role ≥ SCHEDULER; NONE → never. Default ADMIN_OWNER reproduces the prior
-        # behavior exactly. Drift must not become a named-individual signal below
-        # the configured audience (VoC Morgan).
-        role = _membership_role(request, pk)
-        audience = resolve_effective_mc_history(project, "mc_history_attribution_audience")
-        if audience == MCAttributionAudience.NONE:
-            can_see_attribution = False
-        elif audience == MCAttributionAudience.SCHEDULER_PLUS:
-            can_see_attribution = role is not None and role >= Role.SCHEDULER
-        else:  # ADMIN_OWNER (default)
-            can_see_attribution = role is not None and role >= Role.ADMIN
+        _annotate_run_deltas(runs)
+        can_see_attribution = _mc_attribution_visible(request, project, pk)
 
         data = MonteCarloRunSerializer(
             runs,
