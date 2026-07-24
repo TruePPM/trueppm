@@ -34488,6 +34488,14 @@
                     },
                     {
                         "in": "query",
+                        "name": "labels",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Comma-separated label UUIDs. Returns tasks carrying ANY of the given labels (OR), mirroring the board's label facet. Labels are project-scoped, so matches stay within projects you can see. A malformed UUID returns 400."
+                    },
+                    {
+                        "in": "query",
                         "name": "mine",
                         "schema": {
                             "type": "boolean"

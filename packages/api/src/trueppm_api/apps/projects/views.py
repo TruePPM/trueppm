@@ -3572,6 +3572,18 @@ class ScheduleFetchPagination(pagination.PageNumberPagination):
                 description="Filter by the is_subtask flag (true/1 or false/0).",
             ),
             OpenApiParameter(
+                name="labels",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated label UUIDs. Returns tasks carrying ANY of the "
+                    "given labels (OR), mirroring the board's label facet. Labels are "
+                    "project-scoped, so matches stay within projects you can see. A "
+                    "malformed UUID returns 400."
+                ),
+            ),
+            OpenApiParameter(
                 name="start__gte",
                 type=OpenApiTypes.DATE,
                 location=OpenApiParameter.QUERY,
@@ -3728,6 +3740,31 @@ class TaskViewSet(
         is_subtask_filter = self.request.query_params.get("is_subtask")
         if is_subtask_filter is not None:
             qs = qs.filter(is_subtask=is_subtask_filter.lower() in ("true", "1"))
+
+        # Label filter (#2331): ?labels=<id>[,<id>…] — tasks carrying ANY of the
+        # given label ids (OR semantics, mirroring the Board's ?fl= facet). Labels
+        # are project-scoped, so a caller only ever matches labels on projects they
+        # can already see; no extra scoping needed. `.distinct()` collapses the M2M
+        # join so a task with two matching labels isn't returned twice. Each id is
+        # validated as a UUID first — an unvalidated string passed into a UUID
+        # `__in` lookup raises at query time and surfaces as a 500 that the
+        # UUID-only exception handler doesn't map (#2213 class), so a malformed id
+        # returns a clean 400 instead.
+        labels_param = self.request.query_params.get("labels")
+        if labels_param:
+            label_ids: list[uuid.UUID] = []
+            for chunk in labels_param.split(","):
+                raw = chunk.strip()
+                if not raw:
+                    continue
+                try:
+                    label_ids.append(uuid.UUID(raw))
+                except ValueError:
+                    raise DRFValidationError(
+                        {"labels": "Each label must be a valid UUID."}
+                    ) from None
+            if label_ids:
+                qs = qs.filter(labels__id__in=label_ids).distinct()
 
         # Date-range filter for calendar / resource views.
         # ?start__gte=YYYY-MM-DD  — tasks whose early_finish >= this date (still active)
