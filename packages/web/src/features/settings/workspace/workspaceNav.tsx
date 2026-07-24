@@ -120,7 +120,7 @@ export function buildWorkspaceNavGroups({ linked }: { linked: boolean }): Settin
         { id: 'calendar',    label: 'Working calendar',     to: anchor('calendar'),    keywords: 'holidays working days hours timezone non-working', icon: <NavIcon><GanttIcon aria-hidden="true" /></NavIcon> },
         { id: 'programs',    label: 'Programs',             to: anchor('programs'),    keywords: 'program defaults grouping', icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
         { id: 'attachments', label: 'Attachments',          to: anchor('attachments'), keywords: 'files uploads storage size limit', icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
-        { id: 'email',       label: 'Email & SMTP',         to: anchor('email'),       keywords: 'smtp mail sender notifications ses sendgrid outbound', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'email',       label: 'Email & SMTP',         to: anchor('email'),       keywords: 'smtp mail sender notifications ses sendgrid outbound relay mx starttls tls host port fastmail gmail microsoft 365', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
       ],
     },
     // The "Connections" nav group (Integrations + Webhooks & API) is removed from
@@ -141,14 +141,14 @@ export function buildWorkspaceNavGroups({ linked }: { linked: boolean }): Settin
     {
       label: 'System',
       items: [
-        { id: 'health',        label: 'System health',     to: anchor('health'),        keywords: 'status monitoring uptime components diagnostics', icon: <NavIcon><ActivityNavIcon /></NavIcon> },
+        { id: 'health',        label: 'System health',     to: anchor('health'),        keywords: 'status monitoring uptime components diagnostics probe readyz healthz liveness readiness heartbeat', icon: <NavIcon><ActivityNavIcon /></NavIcon> },
         // API rate limiting (#2316) — read-only operator posture from the health
         // endpoint; grouped next to System health as the other health-backed status.
-        { id: 'rate-limit',    label: 'API rate limiting', to: anchor('rate-limit'),    keywords: 'throttle limit requests quota abuse 429', icon: <NavIcon><ShieldNavIcon /></NavIcon> },
+        { id: 'rate-limit',    label: 'API rate limiting', to: anchor('rate-limit'),    keywords: 'throttle limit requests quota abuse 429 ratelimit rps dos', icon: <NavIcon><ShieldNavIcon /></NavIcon> },
         // Observability (OTLP telemetry export) — a config form, rendered inline
         // on the consolidated page (#2298); still discoverable in the rail by name.
-        { id: 'observability', label: 'Observability',     to: anchor('observability'), keywords: 'otlp telemetry traces metrics opentelemetry export collector', icon: <NavIcon><ObservabilityNavIcon /></NavIcon> },
-        { id: 'retention',     label: 'Retention & purge', to: anchor('retention'),     keywords: 'gdpr purge data retention compliance delete audit', icon: <NavIcon><RetentionNavIcon /></NavIcon> },
+        { id: 'observability', label: 'Observability',     to: anchor('observability'), keywords: 'otlp telemetry traces metrics opentelemetry otel export exporter endpoint collector grafana prometheus logs spans monitoring', icon: <NavIcon><ObservabilityNavIcon /></NavIcon> },
+        { id: 'retention',     label: 'Retention & purge', to: anchor('retention'),     keywords: 'gdpr purge data retention compliance delete audit residency privacy erasure ccpa dsar', icon: <NavIcon><RetentionNavIcon /></NavIcon> },
         { id: 'trash',         label: 'Trash',             to: anchor('trash'),         keywords: 'deleted restore recover recycle bin', icon: <NavIcon><RetentionNavIcon /></NavIcon> },
       ],
     },

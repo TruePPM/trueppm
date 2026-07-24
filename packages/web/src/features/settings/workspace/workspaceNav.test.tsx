@@ -52,6 +52,26 @@ describe('buildWorkspaceNavGroups (#2013 — one source of truth, no drift)', ()
     }
   });
 
+  it('carries real operator/compliance vocabulary in keywords so mid-incident searches hit (#2323)', () => {
+    // The rail filter and the ⌘K settings group both match label + keywords
+    // (ADR-0605). These are the terms Omar (operator) and Marcus (PMO) type by
+    // reflex — they must not dead-end. Locked here so a keyword edit can't silently
+    // drop them.
+    const byId = Object.fromEntries(
+      buildWorkspaceNavGroups({ linked: true })
+        .flatMap((g) => g.items)
+        .map((i) => [i.id, i.keywords ?? '']),
+    );
+    for (const term of ['exporter', 'grafana', 'prometheus', 'otel']) {
+      expect(byId.observability).toContain(term);
+    }
+    for (const term of ['readyz', 'healthz', 'liveness', 'probe']) {
+      expect(byId.health).toContain(term);
+    }
+    expect(byId.retention).toContain('residency');
+    expect(byId.email).toContain('relay');
+  });
+
   it('inline mode (consolidated page) omits `to` on EVERY item — System included — so they scroll-spy', () => {
     const groups = buildWorkspaceNavGroups({ linked: false });
     const byId = Object.fromEntries(groups.flatMap((g) => g.items).map((i) => [i.id, i]));
