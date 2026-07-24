@@ -921,8 +921,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         program = self.get_object()
-        new_owner_id = request.data.get("new_owner_user_id")
-        new_lead_id = request.data.get("new_lead_user_id")
+        # A non-object JSON body (list, string) has no ``.get`` — treat it as
+        # empty so the ``new_owner_user_id is required`` branch returns 400
+        # rather than raising AttributeError (500).
+        body = request.data if isinstance(request.data, dict) else {}
+        new_owner_id = body.get("new_owner_user_id")
+        new_lead_id = body.get("new_lead_user_id")
 
         if not new_owner_id:
             return Response(
