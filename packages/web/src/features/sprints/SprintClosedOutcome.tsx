@@ -330,11 +330,6 @@ function ShippedRow({
   const criteriaIncomplete = a.total > 0 && a.met < a.total;
   const criteriaNotSet = a.total === 0;
   const [open, setOpen] = useState(false);
-  // "+ Add criteria" opens the task detail rather than a dead hash link — the
-  // task drawer is where acceptance criteria are edited. Read via useParams
-  // rather than prop-drilling projectId through SprintReviewSection and
-  // DemoSortableList.
-  const { projectId } = useParams<{ projectId: string }>();
 
   // Sortable hooks are always called (rules of hooks); the handle is only wired
   // when this row is draggable.
@@ -370,153 +365,286 @@ function ShippedRow({
         <span className="flex-1 min-w-0 truncate text-neutral-text-primary">
           {story.task_title}
         </span>
-        {/* Acceptance badge — text label, never color alone (WCAG 1.4.1). */}
-        {a.total > 0 ? (
-          <button
-            type="button"
-            onClick={() => criteriaIncomplete && setOpen((o) => !o)}
-            aria-expanded={criteriaIncomplete ? open : undefined}
-            disabled={!criteriaIncomplete}
-            className={`text-xs shrink-0 ${fullyAccepted ? 'text-semantic-on-track' : 'text-semantic-at-risk'} ${
-              criteriaIncomplete
-                ? 'underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded'
-                : 'cursor-default'
-            }`}
-            aria-label={`${a.met} of ${a.total} acceptance criteria met${fullyAccepted ? ' — accepted' : ''}${criteriaIncomplete ? ' — show incomplete criteria' : ''}`}
-          >
-            <span aria-hidden="true">{fullyAccepted ? '✓ ' : ''}</span>
-            {a.met}/{a.total} criteria
-          </button>
-        ) : (
-          <span
-            className="text-xs text-neutral-text-disabled shrink-0"
-            data-testid="criteria-not-set"
-          >
-            criteria not set
-          </span>
-        )}
+        <AcceptanceBadge
+          story={story}
+          fullyAccepted={fullyAccepted}
+          criteriaIncomplete={criteriaIncomplete}
+          open={open}
+          onToggle={() => setOpen((o) => !o)}
+        />
         {story.story_points != null && (
           <span className="tppm-mono text-xs text-neutral-text-secondary shrink-0">
             {story.story_points} pts
           </span>
         )}
-        {/* Demo toggle (Member+) — or a static marker for read-only viewers. */}
-        {canCurate && story.outcome_id ? (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={story.demo_ready}
-            aria-label={`${story.demo_ready ? 'Remove from' : 'Add to'} demo list: ${story.task_title}`}
-            disabled={pending}
-            onClick={() => onToggle(!story.demo_ready)}
-            className={`shrink-0 h-7 px-2 rounded text-xs font-medium border whitespace-nowrap
-              disabled:opacity-50 disabled:cursor-not-allowed
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-              ${
-                story.demo_ready
-                  ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
-                  : 'border-neutral-border text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary'
-              }`}
-          >
-            <span aria-hidden="true">{story.demo_ready ? '★' : '☆'} </span>Demo
-          </button>
-        ) : story.demo_ready ? (
-          <span className="shrink-0 text-xs text-brand-primary" aria-label="In the demo list">
-            <span aria-hidden="true">★ </span>Demo
-          </span>
-        ) : null}
+        <DemoToggle story={story} canCurate={canCurate} pending={pending} onToggle={onToggle} />
       </div>
 
-      {/* #1130: per-demo presenter input (curator only, demo-flagged). */}
-      {canCurate && story.demo_ready && story.outcome_id && (
-        <div className="mt-1 flex items-center gap-2 pl-16">
-          <label className="text-xs text-neutral-text-secondary" htmlFor={`presenter-${story.outcome_id}`}>
-            Presenter
-          </label>
-          <input
-            id={`presenter-${story.outcome_id}`}
-            type="text"
-            defaultValue={story.presenter}
-            maxLength={120}
-            placeholder="Who's demoing this?"
-            onBlur={(e) => {
-              const next = e.target.value.trim();
-              if (next !== story.presenter) onPresenter(next);
-            }}
-            className="flex-1 rounded border border-neutral-border bg-transparent px-2 py-1 text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          />
-        </div>
-      )}
-      {/* Read-only presenter display for non-curators. */}
-      {!canCurate && story.demo_ready && story.presenter && (
-        <p className="mt-1 pl-16 text-xs text-neutral-text-secondary">
-          Presenter: <span className="text-neutral-text-primary">{story.presenter}</span>
-        </p>
-      )}
+      <PresenterField story={story} canCurate={canCurate} onPresenter={onPresenter} />
 
-      {/* #1131: disclosure of the specific unmet criteria. */}
-      {criteriaIncomplete && open && story.unmet_criteria.length > 0 && (
-        <ul className="mt-1 pl-16 text-xs text-neutral-text-secondary" data-testid="unmet-criteria">
-          {story.unmet_criteria.map((c) => (
-            <li key={c.id} className="flex items-start gap-1">
-              <span aria-hidden="true" className="text-semantic-at-risk">
-                ✗
-              </span>
-              <span>{c.text}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      <UnmetCriteriaList story={story} criteriaIncomplete={criteriaIncomplete} open={open} />
 
-      {/* #1131/#1132: contributor note + add-criteria + flag-for-backlog on a
-          criteria-incomplete / criteria-not-set story. All optional (Member+). */}
-      {(criteriaIncomplete || criteriaNotSet) && canCurate && story.outcome_id && (
-        <div className="mt-2 flex flex-col gap-2 pl-16">
-          <label className="sr-only" htmlFor={`note-${story.outcome_id}`}>
-            Note for reviewers
-          </label>
-          <textarea
-            id={`note-${story.outcome_id}`}
-            defaultValue={story.review_note}
-            maxLength={200}
-            rows={2}
-            placeholder="Optional note for reviewers…"
-            onBlur={(e) => {
-              const next = e.target.value.slice(0, 200);
-              if (next !== story.review_note) onNote(next);
-            }}
-            className="rounded border border-neutral-border bg-transparent px-2 py-1 text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            {criteriaNotSet && story.task_id && projectId && (
-              <Link
-                to={`/projects/${projectId}/tasks/${story.task_id}`}
-                className="text-xs text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
-              >
-                + Add criteria
-              </Link>
-            )}
-            {story.flagged_to_backlog ? (
-              <span className="text-xs text-semantic-on-track" data-testid="flagged-state">
-                <span aria-hidden="true">✓ </span>Flagged for backlog
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => onFlagForBacklog()}
-                className="h-7 rounded border border-neutral-border px-2 text-xs font-medium text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-              >
-                Flag for backlog
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-      {/* Read-only note for non-curators. */}
-      {(criteriaIncomplete || criteriaNotSet) && !canCurate && story.review_note && (
-        <p className="mt-1 pl-16 text-xs text-neutral-text-secondary">{story.review_note}</p>
-      )}
+      <CriteriaFollowup
+        story={story}
+        canCurate={canCurate}
+        criteriaIncomplete={criteriaIncomplete}
+        criteriaNotSet={criteriaNotSet}
+        onNote={onNote}
+        onFlagForBacklog={onFlagForBacklog}
+      />
+
+      <ReadOnlyNote
+        story={story}
+        canCurate={canCurate}
+        criteriaIncomplete={criteriaIncomplete}
+        criteriaNotSet={criteriaNotSet}
+      />
     </li>
+  );
+}
+
+/** Acceptance badge — text label, never color alone (WCAG 1.4.1). A criteria-set
+ *  story shows a met/total button (toggles the unmet-criteria disclosure when
+ *  incomplete); a criteria-not-set story shows a static marker. */
+function AcceptanceBadge({
+  story,
+  fullyAccepted,
+  criteriaIncomplete,
+  open,
+  onToggle,
+}: {
+  story: ReviewShippedStory;
+  fullyAccepted: boolean;
+  criteriaIncomplete: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const { acceptance: a } = story;
+  if (a.total === 0) {
+    return (
+      <span
+        className="text-xs text-neutral-text-disabled shrink-0"
+        data-testid="criteria-not-set"
+      >
+        criteria not set
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => criteriaIncomplete && onToggle()}
+      aria-expanded={criteriaIncomplete ? open : undefined}
+      disabled={!criteriaIncomplete}
+      className={`text-xs shrink-0 ${fullyAccepted ? 'text-semantic-on-track' : 'text-semantic-at-risk'} ${
+        criteriaIncomplete
+          ? 'underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded'
+          : 'cursor-default'
+      }`}
+      aria-label={`${a.met} of ${a.total} acceptance criteria met${fullyAccepted ? ' — accepted' : ''}${criteriaIncomplete ? ' — show incomplete criteria' : ''}`}
+    >
+      <span aria-hidden="true">{fullyAccepted ? '✓ ' : ''}</span>
+      {a.met}/{a.total} criteria
+    </button>
+  );
+}
+
+/** Demo toggle (Member+) — or a static marker for read-only viewers. */
+function DemoToggle({
+  story,
+  canCurate,
+  pending,
+  onToggle,
+}: {
+  story: ReviewShippedStory;
+  canCurate: boolean;
+  pending: boolean;
+  onToggle: (demoReady: boolean) => void;
+}) {
+  if (canCurate && story.outcome_id) {
+    return (
+      <button
+        type="button"
+        role="switch"
+        aria-checked={story.demo_ready}
+        aria-label={`${story.demo_ready ? 'Remove from' : 'Add to'} demo list: ${story.task_title}`}
+        disabled={pending}
+        onClick={() => onToggle(!story.demo_ready)}
+        className={`shrink-0 h-7 px-2 rounded text-xs font-medium border whitespace-nowrap
+          disabled:opacity-50 disabled:cursor-not-allowed
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+          ${
+            story.demo_ready
+              ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+              : 'border-neutral-border text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary'
+          }`}
+      >
+        <span aria-hidden="true">{story.demo_ready ? '★' : '☆'} </span>Demo
+      </button>
+    );
+  }
+  if (story.demo_ready) {
+    return (
+      <span className="shrink-0 text-xs text-brand-primary" aria-label="In the demo list">
+        <span aria-hidden="true">★ </span>Demo
+      </span>
+    );
+  }
+  return null;
+}
+
+/** #1130 — per-demo presenter input (curator only, demo-flagged), or the read-only
+ *  presenter line for non-curators. */
+function PresenterField({
+  story,
+  canCurate,
+  onPresenter,
+}: {
+  story: ReviewShippedStory;
+  canCurate: boolean;
+  onPresenter: (presenter: string) => void;
+}) {
+  if (canCurate && story.demo_ready && story.outcome_id) {
+    return (
+      <div className="mt-1 flex items-center gap-2 pl-16">
+        <label
+          className="text-xs text-neutral-text-secondary"
+          htmlFor={`presenter-${story.outcome_id}`}
+        >
+          Presenter
+        </label>
+        <input
+          id={`presenter-${story.outcome_id}`}
+          type="text"
+          defaultValue={story.presenter}
+          maxLength={120}
+          placeholder="Who's demoing this?"
+          onBlur={(e) => {
+            const next = e.target.value.trim();
+            if (next !== story.presenter) onPresenter(next);
+          }}
+          className="flex-1 rounded border border-neutral-border bg-transparent px-2 py-1 text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+        />
+      </div>
+    );
+  }
+  if (!canCurate && story.demo_ready && story.presenter) {
+    return (
+      <p className="mt-1 pl-16 text-xs text-neutral-text-secondary">
+        Presenter: <span className="text-neutral-text-primary">{story.presenter}</span>
+      </p>
+    );
+  }
+  return null;
+}
+
+/** #1131 — disclosure of the specific unmet acceptance criteria. */
+function UnmetCriteriaList({
+  story,
+  criteriaIncomplete,
+  open,
+}: {
+  story: ReviewShippedStory;
+  criteriaIncomplete: boolean;
+  open: boolean;
+}) {
+  if (!(criteriaIncomplete && open && story.unmet_criteria.length > 0)) return null;
+  return (
+    <ul className="mt-1 pl-16 text-xs text-neutral-text-secondary" data-testid="unmet-criteria">
+      {story.unmet_criteria.map((c) => (
+        <li key={c.id} className="flex items-start gap-1">
+          <span aria-hidden="true" className="text-semantic-at-risk">
+            ✗
+          </span>
+          <span>{c.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** #1131/#1132 — contributor note + add-criteria + flag-for-backlog on a
+ *  criteria-incomplete / criteria-not-set story. All optional (Member+). */
+function CriteriaFollowup({
+  story,
+  canCurate,
+  criteriaIncomplete,
+  criteriaNotSet,
+  onNote,
+  onFlagForBacklog,
+}: {
+  story: ReviewShippedStory;
+  canCurate: boolean;
+  criteriaIncomplete: boolean;
+  criteriaNotSet: boolean;
+  onNote: (note: string) => void;
+  onFlagForBacklog: () => void;
+}) {
+  // "+ Add criteria" opens the task detail rather than a dead hash link — the
+  // task drawer is where acceptance criteria are edited. Read via useParams
+  // rather than prop-drilling projectId through SprintReviewSection and
+  // DemoSortableList.
+  const { projectId } = useParams<{ projectId: string }>();
+  if (!((criteriaIncomplete || criteriaNotSet) && canCurate && story.outcome_id)) return null;
+  return (
+    <div className="mt-2 flex flex-col gap-2 pl-16">
+      <label className="sr-only" htmlFor={`note-${story.outcome_id}`}>
+        Note for reviewers
+      </label>
+      <textarea
+        id={`note-${story.outcome_id}`}
+        defaultValue={story.review_note}
+        maxLength={200}
+        rows={2}
+        placeholder="Optional note for reviewers…"
+        onBlur={(e) => {
+          const next = e.target.value.slice(0, 200);
+          if (next !== story.review_note) onNote(next);
+        }}
+        className="rounded border border-neutral-border bg-transparent px-2 py-1 text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        {criteriaNotSet && story.task_id && projectId && (
+          <Link
+            to={`/projects/${projectId}/tasks/${story.task_id}`}
+            className="text-xs text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+          >
+            + Add criteria
+          </Link>
+        )}
+        {story.flagged_to_backlog ? (
+          <span className="text-xs text-semantic-on-track" data-testid="flagged-state">
+            <span aria-hidden="true">✓ </span>Flagged for backlog
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onFlagForBacklog()}
+            className="h-7 rounded border border-neutral-border px-2 text-xs font-medium text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          >
+            Flag for backlog
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Read-only reviewer note for non-curators on a criteria-incomplete / -not-set story. */
+function ReadOnlyNote({
+  story,
+  canCurate,
+  criteriaIncomplete,
+  criteriaNotSet,
+}: {
+  story: ReviewShippedStory;
+  canCurate: boolean;
+  criteriaIncomplete: boolean;
+  criteriaNotSet: boolean;
+}) {
+  if (!((criteriaIncomplete || criteriaNotSet) && !canCurate && story.review_note)) return null;
+  return (
+    <p className="mt-1 pl-16 text-xs text-neutral-text-secondary">{story.review_note}</p>
   );
 }
 

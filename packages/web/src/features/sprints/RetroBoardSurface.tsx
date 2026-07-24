@@ -45,6 +45,15 @@ function nextTempId(): string {
   return `temp-${Date.now()}-${tempCounter}`;
 }
 
+// Pending-list state updaters, hoisted to module scope so the mutation callbacks
+// below stay flat (they call these rather than nesting a `setPending((cur) => …)`
+// arrow inside each onSuccess/onError).
+const dropPending = (tempId: string) => (cur: PendingSticky[]) =>
+  cur.filter((p) => p.tempId !== tempId);
+const setPendingFailed =
+  (tempId: string, failed: boolean) => (cur: PendingSticky[]) =>
+    cur.map((p) => (p.tempId === tempId ? { ...p, failed } : p));
+
 /** A one-time amber toast shown when a peer's edit superseded a local in-flight edit. */
 interface ReconcileToast {
   id: string;
@@ -142,51 +151,43 @@ export function RetroBoardSurface({
   }, [toast]);
 
   // --- Sticky handlers ---
-  const handleAdd = useCallback(
-    (column: RetroBoardColumnKey, text: string) => {
-      const tempId = nextTempId();
-      setPending((cur) => [...cur, { tempId, column, text, failed: false }]);
+  // Shared create path for both the initial add and the retry-after-failure: fires
+  // the mutation and reconciles the pending entry on success/error. The pending
+  // entry itself is seeded by handleAdd (new) or reset by handleRetry (clear failed)
+  // before this runs.
+  const runCreate = useCallback(
+    (column: RetroBoardColumnKey, text: string, tempId: string) => {
       createItem.mutate(
         { column, text, tempId },
         {
           onSuccess: (created) => {
             localCreatedIdsRef.current.add(created.id);
-            setPending((cur) => cur.filter((p) => p.tempId !== tempId));
+            setPending(dropPending(tempId));
           },
-          onError: () => {
-            setPending((cur) =>
-              cur.map((p) => (p.tempId === tempId ? { ...p, failed: true } : p)),
-            );
-          },
+          onError: () => setPending(setPendingFailed(tempId, true)),
         },
       );
     },
     [createItem],
   );
 
+  const handleAdd = useCallback(
+    (column: RetroBoardColumnKey, text: string) => {
+      const tempId = nextTempId();
+      setPending((cur) => [...cur, { tempId, column, text, failed: false }]);
+      runCreate(column, text, tempId);
+    },
+    [runCreate],
+  );
+
   const handleRetry = useCallback(
     (tempId: string) => {
       const failed = pending.find((p) => p.tempId === tempId);
       if (!failed) return;
-      setPending((cur) =>
-        cur.map((p) => (p.tempId === tempId ? { ...p, failed: false } : p)),
-      );
-      createItem.mutate(
-        { column: failed.column, text: failed.text, tempId },
-        {
-          onSuccess: (created) => {
-            localCreatedIdsRef.current.add(created.id);
-            setPending((cur) => cur.filter((p) => p.tempId !== tempId));
-          },
-          onError: () => {
-            setPending((cur) =>
-              cur.map((p) => (p.tempId === tempId ? { ...p, failed: true } : p)),
-            );
-          },
-        },
-      );
+      setPending(setPendingFailed(tempId, false));
+      runCreate(failed.column, failed.text, tempId);
     },
-    [pending, createItem],
+    [pending, runCreate],
   );
 
   const handleDiscard = useCallback((tempId: string) => {
