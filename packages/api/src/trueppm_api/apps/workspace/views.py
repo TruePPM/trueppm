@@ -403,6 +403,112 @@ class WorkspaceMemberListView(APIView):
         return paginator.get_paginated_response(data)
 
 
+def _enforce_member_mutation_guard(
+    *,
+    membership: WorkspaceMembership,
+    actor_role: int | None,
+    actor_pk: Any,
+    target: Any,
+    new_role: Any,
+    new_status: Any,
+) -> None:
+    """Peer/higher-role guard for a member PATCH.
+
+    An actor may only change the role or the active status of a member whose
+    CURRENT role is strictly below their own (mirrors
+    access.views.ProjectMembershipViewSet.destroy). Without this an Admin could
+    deactivate a peer Admin, or — with two Owners — an Owner could be deactivated
+    by an Admin. REACTIVATION (status→ACTIVE) is gated too (#901): otherwise a
+    lower-role Admin could flip a deactivated Owner/peer-Admin back to ACTIVE,
+    restoring their login. Self-edits are exempt so an actor can still change
+    their own row (e.g. step down).
+    """
+    mutating = new_role is not None or new_status in (
+        MemberStatus.DEACTIVATED,
+        MemberStatus.ACTIVE,
+    )
+    if (
+        mutating
+        and target.pk != actor_pk
+        and actor_role is not None
+        and membership.role >= actor_role
+    ):
+        raise PermissionDenied("You can only modify members with a role lower than your own.")
+
+
+def _apply_member_role_change(
+    *, membership: WorkspaceMembership, new_role: Any, actor_role: int | None, target: Any
+) -> int | None:
+    """Apply a role change with grant + strand guards; return the prior role if changed.
+
+    An actor may only grant a role STRICTLY BELOW their own (#1728). ``>`` let an
+    Admin mint a peer Admin (equal role); combined with the peer-guard (an actor
+    can't modify a member at or above their own role) that peer was then
+    unmanageable by either Admin. ``>=`` matches the project analog
+    (access.views.ProjectMembershipViewSet.create). Demoting an owner must not
+    strand the workspace.
+    """
+    if actor_role is not None and new_role >= actor_role:
+        raise PermissionDenied("You cannot assign a role equal to or higher than your own.")
+    if (
+        membership.role == WorkspaceRole.OWNER
+        and new_role < WorkspaceRole.OWNER
+        and services.would_strand_workspace(target.pk)
+    ):
+        raise ValidationError({"detail": "Cannot demote the last Owner of the workspace."})
+    if new_role == membership.role:
+        return None
+    role_changed_from = membership.role
+    membership.role = new_role
+    membership.role_changed_at = timezone.now()
+    return role_changed_from
+
+
+def _apply_member_status_change(
+    *, membership: WorkspaceMembership, new_status: Any, target: Any
+) -> None:
+    """Apply a status change, guarding the last Owner and syncing the login flag."""
+    if (
+        new_status == MemberStatus.DEACTIVATED
+        and membership.role == WorkspaceRole.OWNER
+        and services.would_strand_workspace(target.pk)
+    ):
+        raise ValidationError({"detail": "Cannot deactivate the last Owner of the workspace."})
+    membership.status = new_status
+    # Sync the Django account active flag so a deactivated member cannot
+    # authenticate, and reactivation restores login.
+    target.is_active = new_status != MemberStatus.DEACTIVATED
+    target.save(update_fields=["is_active"])
+
+
+def _apply_member_availability(*, membership: WorkspaceMembership, data: dict[str, Any]) -> None:
+    """Merge resource-availability baseline fields (#542) and validate the bounds.
+
+    Benign capacity metadata — it neither escalates a role nor gates login — so it
+    is deliberately NOT subject to the peer/higher-role guard: a resource manager
+    (Admin) declares availability for everyone, peers included. Presence of the key
+    (not its truthiness) drives the write so 0% and an explicit-null date clear are
+    honored, not skipped. The from<=to guard runs after the partial merge so a PATCH
+    that sets only one bound is still validated against the stored other.
+    """
+    if "availability_percent" in data:
+        membership.availability_percent = data["availability_percent"]
+    if "availability_effective_from" in data:
+        membership.availability_effective_from = data["availability_effective_from"]
+    if "availability_effective_to" in data:
+        membership.availability_effective_to = data["availability_effective_to"]
+    if "availability_notes" in data:
+        membership.availability_notes = data["availability_notes"]
+    if (
+        membership.availability_effective_from is not None
+        and membership.availability_effective_to is not None
+        and membership.availability_effective_from > membership.availability_effective_to
+    ):
+        raise ValidationError(
+            {"availability_effective_to": ("Must be on or after availability_effective_from.")}
+        )
+
+
 class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
     """PATCH/DELETE /api/v1/workspace/members/{user_id}/ (#518). Admin only."""
 
@@ -434,98 +540,30 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
                 },
             )
 
-            # Peer/higher-role guard: an actor may only change the role or change
-            # the active status of a member whose CURRENT role is strictly below
-            # their own (mirrors access.views.ProjectMembershipViewSet.destroy).
-            # Without this an Admin could deactivate a peer Admin, or — with two
-            # Owners — an Owner could be deactivated by an Admin. REACTIVATION
-            # (status→ACTIVE) is gated too (#901): otherwise a lower-role Admin
-            # could flip a deactivated Owner/peer-Admin back to ACTIVE, restoring
-            # their login. Self-edits are exempt so an actor can still change their
-            # own row (e.g. step down).
-            mutating = new_role is not None or new_status in (
-                MemberStatus.DEACTIVATED,
-                MemberStatus.ACTIVE,
+            _enforce_member_mutation_guard(
+                membership=membership,
+                actor_role=actor_role,
+                actor_pk=request.user.pk,
+                target=target,
+                new_role=new_role,
+                new_status=new_status,
             )
-            if (
-                mutating
-                and target.pk != request.user.pk
-                and actor_role is not None
-                and membership.role >= actor_role
-            ):
-                raise PermissionDenied(
-                    "You can only modify members with a role lower than your own."
-                )
 
             role_changed_from: int | None = None
             if new_role is not None:
-                # An actor may only grant a role STRICTLY BELOW their own (#1728).
-                # ``>`` let an Admin mint a peer Admin (equal role); combined with
-                # the peer-guard above (an actor can't modify a member at or above
-                # their own role) that peer was then unmanageable by either Admin.
-                # ``>=`` matches the project analog
-                # (access.views.ProjectMembershipViewSet.create).
-                if actor_role is not None and new_role >= actor_role:
-                    raise PermissionDenied(
-                        "You cannot assign a role equal to or higher than your own."
-                    )
-                # Demoting an owner must not strand the workspace.
-                if (
-                    membership.role == WorkspaceRole.OWNER
-                    and new_role < WorkspaceRole.OWNER
-                    and services.would_strand_workspace(target.pk)
-                ):
-                    raise ValidationError(
-                        {"detail": "Cannot demote the last Owner of the workspace."}
-                    )
-                if new_role != membership.role:
-                    role_changed_from = membership.role
-                    membership.role = new_role
-                    membership.role_changed_at = timezone.now()
+                role_changed_from = _apply_member_role_change(
+                    membership=membership,
+                    new_role=new_role,
+                    actor_role=actor_role,
+                    target=target,
+                )
 
             if new_status is not None:
-                if (
-                    new_status == MemberStatus.DEACTIVATED
-                    and membership.role == WorkspaceRole.OWNER
-                    and services.would_strand_workspace(target.pk)
-                ):
-                    raise ValidationError(
-                        {"detail": "Cannot deactivate the last Owner of the workspace."}
-                    )
-                membership.status = new_status
-                # Sync the Django account active flag so a deactivated member
-                # cannot authenticate, and reactivation restores login.
-                target.is_active = new_status != MemberStatus.DEACTIVATED
-                target.save(update_fields=["is_active"])
-
-            # Resource-availability baseline (#542). Benign capacity metadata —
-            # it neither escalates a role nor gates login — so it is deliberately
-            # NOT subject to the peer/higher-role guard above: a resource manager
-            # (Admin) declares availability for everyone, peers included. Presence
-            # of the key (not its truthiness) drives the write so 0% and an
-            # explicit-null date clear are honored, not skipped.
-            if "availability_percent" in data:
-                membership.availability_percent = data["availability_percent"]
-            if "availability_effective_from" in data:
-                membership.availability_effective_from = data["availability_effective_from"]
-            if "availability_effective_to" in data:
-                membership.availability_effective_to = data["availability_effective_to"]
-            if "availability_notes" in data:
-                membership.availability_notes = data["availability_notes"]
-            # Authoritative from<=to guard after the partial merge: a PATCH that
-            # sets only one bound must still be validated against the stored other.
-            if (
-                membership.availability_effective_from is not None
-                and membership.availability_effective_to is not None
-                and membership.availability_effective_from > membership.availability_effective_to
-            ):
-                raise ValidationError(
-                    {
-                        "availability_effective_to": (
-                            "Must be on or after availability_effective_from."
-                        )
-                    }
+                _apply_member_status_change(
+                    membership=membership, new_status=new_status, target=target
                 )
+
+            _apply_member_availability(membership=membership, data=data)
 
             membership.save()
 
