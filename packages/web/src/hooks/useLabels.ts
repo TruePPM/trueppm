@@ -117,6 +117,37 @@ interface AttachContext {
   previous?: Task[];
 }
 
+/**
+ * Optimistic cache edit: add `label` to `taskId`'s pills (de-duped by id), leaving
+ * every other task untouched. Extracted from the mutation `onMutate` so the
+ * `setQueryData` updater stays a flat one-liner (avoids >4-deep callback nesting).
+ */
+function addLabelToTasks(
+  tasks: Task[] | undefined,
+  taskId: string,
+  label: TaskLabel,
+): Task[] | undefined {
+  return tasks?.map((t) =>
+    t.id === taskId
+      ? { ...t, labels: [...(t.labels ?? []).filter((l) => l.id !== label.id), label] }
+      : t,
+  );
+}
+
+/**
+ * Optimistic cache edit: remove the label `labelId` from `taskId`'s pills, leaving
+ * every other task untouched. Companion to {@link addLabelToTasks}.
+ */
+function removeLabelFromTasks(
+  tasks: Task[] | undefined,
+  taskId: string,
+  labelId: string,
+): Task[] | undefined {
+  return tasks?.map((t) =>
+    t.id === taskId ? { ...t, labels: (t.labels ?? []).filter((l) => l.id !== labelId) } : t,
+  );
+}
+
 /** Optimistically add `label` to `taskId`'s pills, then attach server-side. */
 export function useAttachLabel(projectId: string | undefined) {
   const qc = useQueryClient();
@@ -129,13 +160,7 @@ export function useAttachLabel(projectId: string | undefined) {
     onMutate: async ({ taskId, label }) => {
       await qc.cancelQueries({ queryKey: tasksKey(projectId) });
       const previous = qc.getQueryData<Task[]>(tasksKey(projectId));
-      qc.setQueryData<Task[]>(tasksKey(projectId), (old) =>
-        old?.map((t) =>
-          t.id === taskId
-            ? { ...t, labels: [...(t.labels ?? []).filter((l) => l.id !== label.id), label] }
-            : t,
-        ),
-      );
+      qc.setQueryData<Task[]>(tasksKey(projectId), (old) => addLabelToTasks(old, taskId, label));
       return { previous };
     },
     onError: (_err, _vars, ctx) => {
@@ -156,11 +181,7 @@ export function useDetachLabel(projectId: string | undefined) {
       await qc.cancelQueries({ queryKey: tasksKey(projectId) });
       const previous = qc.getQueryData<Task[]>(tasksKey(projectId));
       qc.setQueryData<Task[]>(tasksKey(projectId), (old) =>
-        old?.map((t) =>
-          t.id === taskId
-            ? { ...t, labels: (t.labels ?? []).filter((l) => l.id !== labelId) }
-            : t,
-        ),
+        removeLabelFromTasks(old, taskId, labelId),
       );
       return { previous };
     },

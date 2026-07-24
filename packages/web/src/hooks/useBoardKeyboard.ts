@@ -25,6 +25,71 @@ export interface BoardKeyboardHandlers {
 }
 
 /**
+ * One board key binding: how to resolve its action from the current handler set,
+ * and whether it is an arrow key that must yield to native page scroll unless the
+ * board's virtual focus is engaged (#2205).
+ */
+interface BoardKeyBinding {
+  /**
+   * Resolve the handler to run for this key, or `undefined` when the caller wired
+   * none. Returning `undefined` means the key is not claimed (no `preventDefault`),
+   * preserving the original per-case `if (handler) { … }` behavior exactly.
+   */
+  resolve: (h: BoardKeyboardHandlers) => (() => void) | undefined;
+  /**
+   * When true (the four Arrow keys), the binding is claimed ONLY while
+   * `boardFocusActive` is true — otherwise the arrow falls through to native
+   * scroll. j/k/l/h omit this flag and are always claimed.
+   */
+  requiresFocus?: boolean;
+}
+
+/** Bind an optional card-focus mover to a fixed direction (undefined when unwired). */
+function moveCard(
+  h: BoardKeyboardHandlers,
+  direction: 'up' | 'down',
+): (() => void) | undefined {
+  const fn = h.onMoveCardFocus;
+  return fn ? () => fn(direction) : undefined;
+}
+
+/** Bind an optional column-focus mover to a fixed direction (undefined when unwired). */
+function moveColumn(
+  h: BoardKeyboardHandlers,
+  direction: 'left' | 'right',
+): (() => void) | undefined {
+  const fn = h.onMoveColumnFocus;
+  return fn ? () => fn(direction) : undefined;
+}
+
+/**
+ * Static key → binding table for the board. Each entry preserves the exact key,
+ * handler, and (for arrows) the focus-gated claim of the original switch. Escape
+ * is handled ahead of this table because it has bespoke "close overlay" semantics.
+ */
+const BOARD_KEY_BINDINGS: Record<string, BoardKeyBinding> = {
+  j: { resolve: (h) => moveCard(h, 'down') },
+  ArrowDown: { resolve: (h) => moveCard(h, 'down'), requiresFocus: true },
+  k: { resolve: (h) => moveCard(h, 'up') },
+  ArrowUp: { resolve: (h) => moveCard(h, 'up'), requiresFocus: true },
+  l: { resolve: (h) => moveColumn(h, 'right') },
+  ArrowRight: { resolve: (h) => moveColumn(h, 'right'), requiresFocus: true },
+  h: { resolve: (h) => moveColumn(h, 'left') },
+  ArrowLeft: { resolve: (h) => moveColumn(h, 'left'), requiresFocus: true },
+  Enter: { resolve: (h) => h.onOpenCard },
+  e: { resolve: (h) => h.onEditCard },
+  d: { resolve: (h) => h.onShowDeps },
+  c: { resolve: (h) => h.onShowComments },
+  '?': { resolve: (h) => h.onShowCheatsheet },
+  // Focus the card search box (issue 323). isTypingInInput already exempts fields,
+  // so `/` typed inside a form never steals focus to search.
+  '/': { resolve: (h) => h.onFocusSearch },
+  // Open/toggle the board filter panel (issue 1091). isTypingInInput already
+  // exempts fields, so `f` typed in the search box or a form never opens it.
+  f: { resolve: (h) => h.onOpenFilter },
+};
+
+/**
  * Central keyboard registry for the board view (issue #195).
  *
  * Why a single hook: dep popover (`d`, issue #182) and the board nav system
@@ -58,106 +123,18 @@ export function useBoardKeyboard(handlers: BoardKeyboardHandlers, enabled = true
         return;
       }
 
+      const binding = BOARD_KEY_BINDINGS[e.key];
+      if (!binding) return;
+
       // Arrow keys are claimed only while the board's virtual focus is engaged,
       // so an idle board never swallows native page scroll (#2205). j/k/l/h are
       // always claimed — they are not scroll keys and bootstrap focus.
-      const arrowsClaimed = handlers.boardFocusActive === true;
-      switch (e.key) {
-        case 'j':
-          if (handlers.onMoveCardFocus) {
-            handlers.onMoveCardFocus('down');
-            e.preventDefault();
-          }
-          break;
-        case 'ArrowDown':
-          if (arrowsClaimed && handlers.onMoveCardFocus) {
-            handlers.onMoveCardFocus('down');
-            e.preventDefault();
-          }
-          break;
-        case 'k':
-          if (handlers.onMoveCardFocus) {
-            handlers.onMoveCardFocus('up');
-            e.preventDefault();
-          }
-          break;
-        case 'ArrowUp':
-          if (arrowsClaimed && handlers.onMoveCardFocus) {
-            handlers.onMoveCardFocus('up');
-            e.preventDefault();
-          }
-          break;
-        case 'l':
-          if (handlers.onMoveColumnFocus) {
-            handlers.onMoveColumnFocus('right');
-            e.preventDefault();
-          }
-          break;
-        case 'ArrowRight':
-          if (arrowsClaimed && handlers.onMoveColumnFocus) {
-            handlers.onMoveColumnFocus('right');
-            e.preventDefault();
-          }
-          break;
-        case 'h':
-          if (handlers.onMoveColumnFocus) {
-            handlers.onMoveColumnFocus('left');
-            e.preventDefault();
-          }
-          break;
-        case 'ArrowLeft':
-          if (arrowsClaimed && handlers.onMoveColumnFocus) {
-            handlers.onMoveColumnFocus('left');
-            e.preventDefault();
-          }
-          break;
-        case 'Enter':
-          if (handlers.onOpenCard) {
-            handlers.onOpenCard();
-            e.preventDefault();
-          }
-          break;
-        case 'e':
-          if (handlers.onEditCard) {
-            handlers.onEditCard();
-            e.preventDefault();
-          }
-          break;
-        case 'd':
-          if (handlers.onShowDeps) {
-            handlers.onShowDeps();
-            e.preventDefault();
-          }
-          break;
-        case 'c':
-          if (handlers.onShowComments) {
-            handlers.onShowComments();
-            e.preventDefault();
-          }
-          break;
-        case '?':
-          if (handlers.onShowCheatsheet) {
-            handlers.onShowCheatsheet();
-            e.preventDefault();
-          }
-          break;
-        case '/':
-          // Focus the card search box (issue 323). isTypingInInput already exempts
-          // fields, so `/` typed inside a form never steals focus to search.
-          if (handlers.onFocusSearch) {
-            handlers.onFocusSearch();
-            e.preventDefault();
-          }
-          break;
-        case 'f':
-          // Open/toggle the board filter panel (issue 1091). isTypingInInput
-          // already exempts fields, so `f` typed in the search box or an
-          // add/edit form never opens the panel.
-          if (handlers.onOpenFilter) {
-            handlers.onOpenFilter();
-            e.preventDefault();
-          }
-          break;
+      if (binding.requiresFocus && handlers.boardFocusActive !== true) return;
+
+      const handler = binding.resolve(handlers);
+      if (handler) {
+        handler();
+        e.preventDefault();
       }
     },
     [enabled, handlers],
