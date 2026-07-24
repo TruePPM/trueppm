@@ -1,6 +1,105 @@
 import { useEffect, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import type { Task } from '@/types';
-import { StatusPill, OwnerAvatar, fmtDate } from './ui';
+import { StatusPill, OwnerAvatar, fmtDate, progressBarColor } from './ui';
+
+/**
+ * Left-border + background class for a flat/grouped row: critical tasks read
+ * red, selected rows read brand-tinted, everything else gets a transparent
+ * border and zebra striping. Identical output to the inline expression it
+ * replaced.
+ */
+function taskRowBgClass(task: Task, isSelected: boolean, rowIndex: number): string {
+  const altBg = rowIndex % 2 === 0 ? '' : 'bg-neutral-surface-raised';
+  if (task.isCritical) return 'bg-semantic-critical-bg border-l-2 border-semantic-critical';
+  if (isSelected) return 'bg-brand-primary/10 border-l-2 border-brand-primary';
+  return `border-l-2 border-transparent ${altBg}`;
+}
+
+/**
+ * Name gridcell: either the inline rename input or the task name with its
+ * critical-path badge and phase suffix. Owns the rename input's focus/select
+ * effect and its key/blur handling so the ref stays local.
+ */
+function TaskRowName({
+  task,
+  phase,
+  isRenaming,
+  onRename,
+  onCancelRename,
+}: {
+  task: Task;
+  phase: string;
+  isRenaming: boolean;
+  onRename: (name: string) => void;
+  onCancelRename: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isRenaming) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [isRenaming]);
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') onRename(e.currentTarget.value);
+    else if (e.key === 'Escape') onCancelRename();
+  };
+
+  const handleBlur = (e: FocusEvent<HTMLInputElement>) => {
+    const related = e.relatedTarget as Element | null;
+    if (related && e.currentTarget.closest('[role="row"]')?.contains(related)) return;
+    onRename(e.target.value);
+  };
+
+  return (
+    <span role="gridcell" className="flex-1 min-w-0 md:pr-2">
+      {isRenaming ? (
+        <input
+          ref={inputRef}
+          type="text"
+          defaultValue={task.name}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          aria-label="Rename task"
+          className="
+                w-full bg-transparent border-b border-brand-primary
+                text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              "
+        />
+      ) : (
+        <span className="flex items-baseline gap-1.5 min-w-0">
+          {task.isCritical && (
+            <span
+              aria-label="Critical path"
+              title="This task is on the critical path — a delay here delays the project end date"
+              className="flex-shrink-0 tppm-mono text-xs font-bold
+                    text-semantic-critical border border-semantic-critical/50 rounded px-0.5 leading-4"
+            >
+              CP
+            </span>
+          )}
+          <span
+            className={`text-sm truncate ${task.isSummary ? 'font-semibold' : ''} text-neutral-text-primary`}
+            aria-label={`${task.name}${phase !== '—' ? `, ${phase}` : ''}`}
+          >
+            {task.name}
+          </span>
+          {phase !== '—' && (
+            <span
+              className="text-xs text-neutral-text-disabled flex-shrink-0 hidden md:inline"
+              aria-hidden="true"
+            >
+              · {phase}
+            </span>
+          )}
+        </span>
+      )}
+    </span>
+  );
+}
 
 interface TaskRowProps {
   task: Task;
@@ -44,18 +143,10 @@ export function TaskRow({
   onOpenDetail,
   selectable = true,
 }: TaskRowProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
   // Single-click opens detail; double-click renames. A pending-open timer lets a
   // double-click cancel the open so the two gestures don't both fire (the drawer
   // would otherwise flash open on the first click of every rename).
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (isRenaming) {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
-  }, [isRenaming]);
 
   useEffect(
     () => () => {
@@ -82,17 +173,6 @@ export function TaskRow({
     if (!task.isSummary) onStartRename();
   };
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') onRename(e.currentTarget.value);
-    else if (e.key === 'Escape') onCancelRename();
-  };
-
-  const handleBlur = (e: FocusEvent<HTMLInputElement>) => {
-    const related = e.relatedTarget as Element | null;
-    if (related && e.currentTarget.closest('[role="row"]')?.contains(related)) return;
-    onRename(e.target.value);
-  };
-
   const handleRowKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'F2') {
       e.preventDefault();
@@ -105,13 +185,7 @@ export function TaskRow({
     }
   };
 
-  const altBg = rowIndex % 2 === 0 ? '' : 'bg-neutral-surface-raised';
-
-  const rowBg = task.isCritical
-    ? 'bg-semantic-critical-bg border-l-2 border-semantic-critical'
-    : isSelected
-      ? 'bg-brand-primary/10 border-l-2 border-brand-primary'
-      : `border-l-2 border-transparent ${altBg}`;
+  const rowBg = taskRowBgClass(task, isSelected, rowIndex);
 
   const firstAssignee = task.assignees[0];
 
@@ -200,50 +274,13 @@ export function TaskRow({
           {task.wbs}
         </span>
 
-        <span role="gridcell" className="flex-1 min-w-0 md:pr-2">
-          {isRenaming ? (
-            <input
-              ref={inputRef}
-              type="text"
-              defaultValue={task.name}
-              onBlur={handleBlur}
-              onKeyDown={handleKeyDown}
-              aria-label="Rename task"
-              className="
-                w-full bg-transparent border-b border-brand-primary
-                text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-              "
-            />
-          ) : (
-            <span className="flex items-baseline gap-1.5 min-w-0">
-              {task.isCritical && (
-                <span
-                  aria-label="Critical path"
-                  title="This task is on the critical path — a delay here delays the project end date"
-                  className="flex-shrink-0 tppm-mono text-xs font-bold
-                    text-semantic-critical border border-semantic-critical/50 rounded px-0.5 leading-4"
-                >
-                  CP
-                </span>
-              )}
-              <span
-                className={`text-sm truncate ${task.isSummary ? 'font-semibold' : ''} text-neutral-text-primary`}
-                aria-label={`${task.name}${phase !== '—' ? `, ${phase}` : ''}`}
-              >
-                {task.name}
-              </span>
-              {phase !== '—' && (
-                <span
-                  className="text-xs text-neutral-text-disabled flex-shrink-0 hidden md:inline"
-                  aria-hidden="true"
-                >
-                  · {phase}
-                </span>
-              )}
-            </span>
-          )}
-        </span>
+        <TaskRowName
+          task={task}
+          phase={phase}
+          isRenaming={isRenaming}
+          onRename={onRename}
+          onCancelRename={onCancelRename}
+        />
 
         <span role="gridcell" className="flex-shrink-0 flex items-center justify-center md:w-10">
           {firstAssignee ? <OwnerAvatar name={firstAssignee.name} /> : null}
@@ -285,7 +322,7 @@ export function TaskRow({
             aria-hidden="true"
           >
             <span
-              className={`block h-full rounded-full ${task.isCritical ? 'bg-semantic-critical' : task.isComplete ? 'bg-semantic-on-track' : 'bg-brand-primary'}`}
+              className={`block h-full rounded-full ${progressBarColor(task)}`}
               style={{ width: `${task.progress}%` }}
             />
           </span>

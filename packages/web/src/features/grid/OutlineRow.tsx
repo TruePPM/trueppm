@@ -1,8 +1,197 @@
 import { useRef, useEffect, type KeyboardEvent } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
+import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { WbsNode } from './buildWbsTree';
-import { fmtDate, initials } from './ui';
+import type { Task } from '@/types';
+import { fmtDate, initials, progressBarColor } from './ui';
+
+/**
+ * Full container className for an outline row. Extracted so the row component
+ * itself stays readable; the string is byte-for-byte identical to the inline
+ * template it replaced (project/summary/critical/selected/drag/reparent states).
+ */
+function outlineRowClassName(
+  task: Task,
+  state: { isProject: boolean; isSelected: boolean; isDragging: boolean; isReparentTarget: boolean },
+): string {
+  const { isProject, isSelected, isDragging, isReparentTarget } = state;
+  const rowHeight = isProject ? 'md:h-11' : 'md:h-9';
+  const rowBgBase = isProject
+    ? 'bg-neutral-surface-sunken'
+    : task.isSummary
+      ? 'bg-neutral-surface-raised'
+      : '';
+  const rowBg = task.isCritical
+    ? 'bg-semantic-critical-bg border-l-2 border-semantic-critical'
+    : 'border-l-2 border-transparent';
+  return `
+        flex flex-col justify-center gap-0.5 min-h-[3.25rem] px-2 py-1
+        md:flex-row md:items-center md:min-h-0 md:py-0 md:gap-1 ${rowHeight}
+        border-b border-neutral-border
+        hover:bg-neutral-text-primary/5 group
+        focus-within:bg-neutral-text-primary/5
+        ${isSelected ? 'bg-brand-primary/10 !border-l-2 !border-l-brand-primary' : ''}
+        ${rowBgBase} ${rowBg}
+        ${isDragging ? 'opacity-50' : ''}
+        ${isReparentTarget ? 'bg-brand-primary/5 !border-l-2 !border-l-brand-primary' : ''}
+      `;
+}
+
+/** Roving-tabindex value: the selected row (or the first row when nothing is
+ * selected) is the single tab stop; every other row is skipped (#2204). */
+function rowTabIndex(isSelected: boolean, isFirst: boolean, hasSelection: boolean): 0 | -1 {
+  return isSelected || (isFirst && !hasSelection) ? 0 : -1;
+}
+
+/**
+ * Leading "controls" gridcell: drag handle, depth indent spacer, and the
+ * expand/collapse toggle (or milestone/leaf marker). A grid row may only own
+ * cells, so these interactive controls live inside one `role="gridcell"` rather
+ * than floating as bare children of the row. It stays a plain flex box (not
+ * `md:contents`) because `display:contents` would drop the gridcell role from
+ * the a11y tree, re-orphaning the controls (#2204).
+ */
+function OutlineRowControls({
+  task,
+  indent,
+  hasChildren,
+  isExpanded,
+  attributes,
+  listeners,
+  onToggle,
+}: {
+  task: Task;
+  indent: number;
+  hasChildren: boolean;
+  isExpanded: boolean;
+  attributes: DraggableAttributes;
+  listeners: DraggableSyntheticListeners;
+  onToggle: () => void;
+}) {
+  return (
+    <span role="gridcell" className="flex items-center gap-1 flex-shrink-0">
+      <span
+        {...attributes}
+        {...listeners}
+        aria-label={`Reorder ${task.name}`}
+        className={`
+              relative w-4 h-4 flex items-center justify-center flex-shrink-0
+              cursor-grab active:cursor-grabbing text-neutral-text-secondary
+              opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100 transition-opacity
+              max-md:before:absolute max-md:before:content-[''] max-md:before:-inset-[14px]
+              ${task.isSummary ? 'invisible' : ''}
+            `}
+      >
+        ⠿
+      </span>
+
+      <span style={{ width: indent, flexShrink: 0 }} aria-hidden="true" />
+
+      {hasChildren ? (
+        // Expand/collapse toggle: focus: (not focus-visible:) so the ring shows on
+        // pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7).
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          aria-expanded={isExpanded}
+          aria-controls={`grid-subtree-${task.id}`}
+          aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
+          className="
+                w-4 h-4 flex items-center justify-center flex-shrink-0
+                text-xs font-bold text-neutral-text-secondary
+                hover:text-neutral-text-primary rounded
+                focus:ring-1 focus:ring-brand-primary focus:outline-none
+              "
+        >
+          {isExpanded ? '−' : '+'}
+        </button>
+      ) : (
+        <span
+          aria-hidden="true"
+          className="w-4 h-4 flex items-center justify-center flex-shrink-0
+                text-xs text-neutral-text-disabled"
+        >
+          {task.isMilestone ? <span className="text-brand-accent">◆</span> : '□'}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Name gridcell: critical-path badge plus either the inline rename input or the
+ * task name. Owns the rename input's focus/select effect so the ref stays local.
+ */
+function OutlineRowName({
+  task,
+  isProject,
+  isRenaming,
+  onRename,
+  onCancelRename,
+}: {
+  task: Task;
+  isProject: boolean;
+  isRenaming: boolean;
+  onRename: (name: string) => void;
+  onCancelRename: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isRenaming) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [isRenaming]);
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') onRename(e.currentTarget.value);
+    else if (e.key === 'Escape') onCancelRename();
+  };
+
+  const nameWeight = isProject || task.isSummary ? 'font-semibold' : 'font-normal';
+
+  return (
+    <span role="gridcell" className="flex-1 min-w-0 pr-2 flex items-center gap-1.5">
+      {task.isCritical && (
+        <span
+          aria-label="Critical path"
+          title="This task is on the critical path — a delay here delays the project end date"
+          className="flex-shrink-0 tppm-mono text-xs font-bold
+              text-semantic-critical border border-semantic-critical/50
+              rounded px-0.5 leading-4"
+        >
+          CP
+        </span>
+      )}
+      {isRenaming ? (
+        <input
+          ref={inputRef}
+          type="text"
+          defaultValue={task.name}
+          onBlur={(e) => onRename(e.target.value)}
+          onKeyDown={handleKeyDown}
+          aria-label="Rename task"
+          className="
+              flex-1 bg-transparent border-b border-brand-primary
+              text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0
+            "
+        />
+      ) : (
+        <span
+          className={`text-sm truncate block ${nameWeight} text-neutral-text-primary`}
+          title={task.isSummary ? undefined : 'Double-click to rename'}
+        >
+          {task.name}
+        </span>
+      )}
+    </span>
+  );
+}
 
 interface OutlineRowProps {
   node: WbsNode;
@@ -51,7 +240,6 @@ export function OutlineRow({
 }: OutlineRowProps) {
   const { task, depth, children } = node;
   const hasChildren = children.length > 0;
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -61,18 +249,6 @@ export function OutlineRow({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-  };
-
-  useEffect(() => {
-    if (isRenaming) {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
-  }, [isRenaming]);
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') onRename(e.currentTarget.value);
-    else if (e.key === 'Escape') onCancelRename();
   };
 
   const handleRowKeyDown = (e: KeyboardEvent) => {
@@ -92,20 +268,6 @@ export function OutlineRow({
   };
 
   const isProject = task.isSummary && !task.parentId;
-  // Desktop keeps the fixed single-line height; mobile lets the two-line card
-  // size to content (`min-h` on the container below).
-  const rowHeight = isProject ? 'md:h-11' : 'md:h-9';
-
-  const rowBgBase = isProject
-    ? 'bg-neutral-surface-sunken'
-    : task.isSummary
-      ? 'bg-neutral-surface-raised'
-      : '';
-  const rowBg = task.isCritical
-    ? 'bg-semantic-critical-bg border-l-2 border-semantic-critical'
-    : 'border-l-2 border-transparent';
-
-  const nameWeight = isProject || task.isSummary ? 'font-semibold' : 'font-normal';
   const indent = depth * 16;
 
   const firstAssignee = task.assignees[0];
@@ -124,81 +286,25 @@ export function OutlineRow({
       // wrapper, so at `md`+ the wrappers collapse and the cells lay out as the
       // original single-line outline table, unchanged. Outline mode is not
       // virtualised, so the mobile card can grow to content (`min-h`).
-      className={`
-        flex flex-col justify-center gap-0.5 min-h-[3.25rem] px-2 py-1
-        md:flex-row md:items-center md:min-h-0 md:py-0 md:gap-1 ${rowHeight}
-        border-b border-neutral-border
-        hover:bg-neutral-text-primary/5 group
-        focus-within:bg-neutral-text-primary/5
-        ${isSelected ? 'bg-brand-primary/10 !border-l-2 !border-l-brand-primary' : ''}
-        ${rowBgBase} ${rowBg}
-        ${isDragging ? 'opacity-50' : ''}
-        ${isReparentTarget ? 'bg-brand-primary/5 !border-l-2 !border-l-brand-primary' : ''}
-      `}
+      className={outlineRowClassName(task, { isProject, isSelected, isDragging, isReparentTarget })}
       onClick={onSelect}
       onDoubleClick={task.isSummary ? undefined : onStartRename}
       onKeyDown={handleRowKeyDown}
       // Roving tabindex: the selected row is the single tab stop. When nothing is
       // selected yet, the first visible row is the entry point so the tree is
       // reachable by keyboard without a prior mouse click (#2204).
-      tabIndex={isSelected || (isFirst && !hasSelection) ? 0 : -1}
+      tabIndex={rowTabIndex(isSelected, isFirst, hasSelection)}
     >
       <div role="presentation" className="flex items-center gap-1 min-w-0 md:contents">
-        {/* Drag handle, depth indent, and expand/collapse toggle form the row's
-            leading "controls" cell. A grid row may only own cells, so these
-            interactive controls live inside one `role="gridcell"` rather than
-            floating as bare children of the row. It stays a plain flex box (not
-            `md:contents`) because `display:contents` would drop the gridcell role
-            from the a11y tree, re-orphaning the controls (#2204). */}
-        <span role="gridcell" className="flex items-center gap-1 flex-shrink-0">
-          <span
-            {...attributes}
-            {...listeners}
-            aria-label={`Reorder ${task.name}`}
-            className={`
-              relative w-4 h-4 flex items-center justify-center flex-shrink-0
-              cursor-grab active:cursor-grabbing text-neutral-text-secondary
-              opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100 transition-opacity
-              max-md:before:absolute max-md:before:content-[''] max-md:before:-inset-[14px]
-              ${task.isSummary ? 'invisible' : ''}
-            `}
-          >
-            ⠿
-          </span>
-
-          <span style={{ width: indent, flexShrink: 0 }} aria-hidden="true" />
-
-          {hasChildren ? (
-            // Expand/collapse toggle: focus: (not focus-visible:) so the ring shows on
-            // pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7).
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggle();
-              }}
-              aria-expanded={isExpanded}
-              aria-controls={`grid-subtree-${task.id}`}
-              aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
-              className="
-                w-4 h-4 flex items-center justify-center flex-shrink-0
-                text-xs font-bold text-neutral-text-secondary
-                hover:text-neutral-text-primary rounded
-                focus:ring-1 focus:ring-brand-primary focus:outline-none
-              "
-            >
-              {isExpanded ? '−' : '+'}
-            </button>
-          ) : (
-            <span
-              aria-hidden="true"
-              className="w-4 h-4 flex items-center justify-center flex-shrink-0
-                text-xs text-neutral-text-disabled"
-            >
-              {task.isMilestone ? <span className="text-brand-accent">◆</span> : '□'}
-            </span>
-          )}
-        </span>
+        <OutlineRowControls
+          task={task}
+          indent={indent}
+          hasChildren={hasChildren}
+          isExpanded={isExpanded}
+          attributes={attributes}
+          listeners={listeners}
+          onToggle={onToggle}
+        />
 
         <span
           role="gridcell"
@@ -207,40 +313,13 @@ export function OutlineRow({
           {task.wbs}
         </span>
 
-        <span role="gridcell" className="flex-1 min-w-0 pr-2 flex items-center gap-1.5">
-          {task.isCritical && (
-            <span
-              aria-label="Critical path"
-              title="This task is on the critical path — a delay here delays the project end date"
-              className="flex-shrink-0 tppm-mono text-xs font-bold
-              text-semantic-critical border border-semantic-critical/50
-              rounded px-0.5 leading-4"
-            >
-              CP
-            </span>
-          )}
-          {isRenaming ? (
-            <input
-              ref={inputRef}
-              type="text"
-              defaultValue={task.name}
-              onBlur={(e) => onRename(e.target.value)}
-              onKeyDown={handleKeyDown}
-              aria-label="Rename task"
-              className="
-              flex-1 bg-transparent border-b border-brand-primary
-              text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0
-            "
-            />
-          ) : (
-            <span
-              className={`text-sm truncate block ${nameWeight} text-neutral-text-primary`}
-              title={task.isSummary ? undefined : 'Double-click to rename'}
-            >
-              {task.name}
-            </span>
-          )}
-        </span>
+        <OutlineRowName
+          task={task}
+          isProject={isProject}
+          isRenaming={isRenaming}
+          onRename={onRename}
+          onCancelRename={onCancelRename}
+        />
 
         <span role="gridcell" className="flex-shrink-0 flex items-center justify-center md:w-12">
           {firstAssignee ? (
@@ -268,7 +347,7 @@ export function OutlineRow({
             aria-hidden="true"
           >
             <span
-              className={`block h-full rounded-full ${task.isCritical ? 'bg-semantic-critical' : task.isComplete ? 'bg-semantic-on-track' : 'bg-brand-primary'}`}
+              className={`block h-full rounded-full ${progressBarColor(task)}`}
               style={{ width: `${task.progress}%` }}
             />
           </span>
