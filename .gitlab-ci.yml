@@ -307,7 +307,8 @@ workflow:
     - pip install -e "packages/api[dev]" --quiet
 
 .web:
-  image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+  # node:22 — react-router 8 requires Node >=22.22 (dropped Node 20 support, #2362).
+  image: node:22-alpine@sha256:ab07539e0988b63558ff621f5fbe1077054c39d9809112974fb79993949d41cd
   # Cache npm's content cache (NPM_CONFIG_CACHE), not node_modules: `npm ci`
   # deletes node_modules and reinstalls every run, so a node_modules cache buys
   # nothing — but a warm content cache lets `npm ci --prefer-offline` rebuild it
@@ -3278,7 +3279,7 @@ license:check:py:
 
 license:check:web:
   # Verify no copyleft-licensed npm dependency has been introduced.
-  # node:20-alpine already ships node, so there is no apt install to pay.
+  # node:22-alpine already ships node, so there is no apt install to pay.
   # See license:check:py above for why this was split out.
   stage: security
   # needs:[] so this starts immediately instead of waiting for the whole test
@@ -3286,7 +3287,8 @@ license:check:web:
   # gating only made it the last job to finish (its six sibling security jobs
   # already use needs:[]).
   needs: []
-  image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+  # node:22 — react-router 8 requires Node >=22.22 (#2362).
+  image: node:22-alpine@sha256:ab07539e0988b63558ff621f5fbe1077054c39d9809112974fb79993949d41cd
   cache:
     <<: *web-cache
     policy: pull
@@ -3792,7 +3794,8 @@ web:publish:npm:
   # dist/ (package.json `files` restricts the tarball to the built output).
   # Distinct from web:publish, which ships the Docker image.
   stage: publish
-  image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+  # node:22 — react-router 8 requires Node >=22.22 (#2362).
+  image: node:22-alpine@sha256:ab07539e0988b63558ff621f5fbe1077054c39d9809112974fb79993949d41cd
   <<: *rules-release-tag
   cache:
     <<: *web-cache

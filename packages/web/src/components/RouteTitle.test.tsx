@@ -1,5 +1,6 @@
 import { act, render } from '@testing-library/react';
-import { createMemoryRouter, Outlet, RouterProvider, type UIMatch } from 'react-router';
+import { createMemoryRouter, Outlet, type UIMatch } from 'react-router';
+import { RouterProvider } from 'react-router/dom';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { RouteTitle, resolveRouteTitle } from './RouteTitle';
 import type { RouteHandle } from '@/router/routeHandle';
@@ -14,7 +15,6 @@ function mockMatch(handle?: RouteHandle): UIMatch {
     id: 'test',
     pathname: '/test',
     params: {},
-    data: undefined,
     loaderData: undefined,
     handle,
   };

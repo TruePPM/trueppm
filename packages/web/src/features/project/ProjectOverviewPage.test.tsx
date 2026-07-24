@@ -2,7 +2,8 @@ import { screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router';
+import { createMemoryRouter, MemoryRouter } from 'react-router';
+import { RouterProvider } from 'react-router/dom';
 import { ProjectOverviewPage, CriticalPathPanel } from './ProjectOverviewPage';
 
 // ---------------------------------------------------------------------------
