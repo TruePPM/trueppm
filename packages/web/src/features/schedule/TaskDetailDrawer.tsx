@@ -31,7 +31,7 @@ import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { canEditTask } from '@/lib/roles';
 import { Button } from '@/components/Button';
-import { ReadinessChip } from '../board/ReadinessChip';
+import { HeaderEstimateChip } from './HeaderEstimateChip';
 import { CollapsibleSection } from './sections/CollapsibleSection';
 import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
 import { TaskScheduleStrip } from './TaskScheduleStrip';
@@ -988,7 +988,7 @@ function DrawerContent({
               {task.wbs}
             </span>
           )}
-          {task.readiness && <ReadinessChip readiness={task.readiness} />}
+          <HeaderEstimateChip task={task} projectId={projectId} />
           {task.isCritical && (
             <span
               className="text-xs font-semibold text-white bg-semantic-critical px-1.5 py-0.5 rounded-chip"
