@@ -57,6 +57,9 @@ vi.mock('@/hooks/useIterationLabel', () => ({
 vi.mock('./sections', () => ({ registerOssDrawerSections: () => {} }));
 vi.mock('./TaskScheduleStrip', () => ({ TaskScheduleStrip: () => <div /> }));
 vi.mock('./TaskDescriptionField', () => ({ TaskDescriptionField: () => <div /> }));
+// The header chip calls useProject (a real useQuery); this suite mocks data
+// hooks rather than providing a QueryClient, so stub the chip like the strip.
+vi.mock('./HeaderEstimateChip', () => ({ HeaderEstimateChip: () => <div /> }));
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
