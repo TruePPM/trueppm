@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from typing import Any
 
 from celery import shared_task
 from django.db import transaction
@@ -105,32 +106,11 @@ def close_sprint(self: object, request_id: str) -> None:
         with transaction.atomic():
             # Lock the sprint row: prevents two concurrent close attempts from
             # double-snapshotting completed_* or applying carry-over twice.
-            from trueppm_api.apps.projects.models import Sprint, Task
+            from trueppm_api.apps.projects.models import Sprint
 
             sprint = Sprint.objects.select_for_update().get(pk=req.sprint_id)
 
-            if sprint.state == SprintState.COMPLETED:
-                # Already closed by an earlier dispatch; mark request done.
-                SprintCloseRequest.objects.filter(pk=req.pk).update(
-                    status=SprintCloseRequestStatus.COMPLETED,
-                    completed_at=timezone.now(),
-                )
-                return
-
-            if sprint.state == SprintState.CANCELLED:
-                SprintCloseRequest.objects.filter(pk=req.pk).update(
-                    status=SprintCloseRequestStatus.FAILED,
-                    completed_at=timezone.now(),
-                    error_message="Sprint was cancelled before close could complete.",
-                )
-                return
-
-            if sprint.state != SprintState.ACTIVE:
-                SprintCloseRequest.objects.filter(pk=req.pk).update(
-                    status=SprintCloseRequestStatus.FAILED,
-                    completed_at=timezone.now(),
-                    error_message=f"Sprint state {sprint.state} is not closable.",
-                )
+            if _finalize_non_closable_sprint(req, sprint):
                 return
 
             snapshot_completed_metrics(sprint)
@@ -154,17 +134,7 @@ def close_sprint(self: object, request_id: str) -> None:
             # and the drain retries.
             snapshot_sprint_task_outcomes(sprint, carry_over_to=req.carry_over_to)
 
-            # #365 (ADR-0105 §5): clear the within-sprint execution order on close. A task
-            # returns to the product backlog ordered by ``priority_rank``; its closed-sprint
-            # ``sprint_rank`` stays queryable on the HistoricalTask rows (the pre-clear value
-            # on the create-time row, the null on the row the save() below writes). Runs
-            # BEFORE apply_carry_over so a carried task re-enters its next sprint un-ranked
-            # (re-seeded from priority_rank on that sprint's activate), never inheriting a
-            # stale rank. save() (not bulk_update) so server_version bumps + history is written.
-            for _task in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False):
-                if _task.sprint_rank is not None:
-                    _task.sprint_rank = None
-                    _task.save(update_fields=["sprint_rank", "server_version"])
+            _clear_sprint_ranks(sprint)
 
             carried_task_ids = apply_carry_over(sprint, req.carry_over_to)
 
@@ -192,43 +162,7 @@ def close_sprint(self: object, request_id: str) -> None:
                     sprint.pk,
                 )
 
-            # ADR-0074: recompute the milestone rollup with the final
-            # completed_* snapshot. Runs here (inside the drain transaction,
-            # after carry-over) so the milestone reflects the closed sprint's
-            # final contribution before the sprint_closed broadcast goes out.
-            if sprint.target_milestone_id is not None:
-                from trueppm_api.apps.projects.services import recompute_milestone_rollup
-
-                recompute_milestone_rollup(sprint.target_milestone_id)
-
-                # ADR-0106 §3 (#860) — the bridge WOW: reforecast the bound
-                # milestone's finish as a range from the just-closed sprint's
-                # velocity. The snapshot write is synchronous (durable with the
-                # close, mirroring recompute_milestone_rollup); the
-                # milestone_forecast_updated broadcast + Enterprise-seam signal
-                # defer to on_commit inside the service. Wrapped non-blocking like
-                # the velocity calibration below: a reforecast bug must never
-                # strand or revert a sprint close (ADR-0106 §Durable 8).
-                try:
-                    from trueppm_api.apps.projects.services import (
-                        notify_milestone_forecast_shift,
-                        reforecast_bound_milestone,
-                    )
-
-                    forecast = reforecast_bound_milestone(sprint.target_milestone_id)
-                    # #861 — push the PM cohort the milestone-confidence shift so
-                    # the bridge reforecast isn't silent when the team closes the
-                    # sprint outside the PM's session. Non-blocking with the
-                    # reforecast itself: a digest failure must never strand close.
-                    if forecast is not None:
-                        notify_milestone_forecast_shift(
-                            forecast, sprint, actor_id=req.requested_by_id
-                        )
-                except Exception:
-                    logger.exception(
-                        "close_sprint: reforecast failed for milestone %s — continuing close",
-                        sprint.target_milestone_id,
-                    )
+            _recompute_and_reforecast_milestone(sprint, req)
 
             SprintCloseRequest.objects.filter(pk=req.pk).update(
                 status=SprintCloseRequestStatus.COMPLETED,
@@ -244,20 +178,7 @@ def close_sprint(self: object, request_id: str) -> None:
                 reason=ScheduleRequestReason.SPRINT_CLOSED,
             )
 
-            # Compute velocity-calibration suggestions (ADR-0065). Non-blocking
-            # on failure: any error logs and is swallowed so a calibration bug
-            # cannot strand a sprint close.
-            try:
-                from trueppm_api.apps.scheduling.services import (
-                    compute_velocity_suggestions,
-                )
-
-                compute_velocity_suggestions(sprint.pk)
-            except Exception:
-                logger.exception(
-                    "close_sprint: velocity calibration failed for sprint %s — continuing close",
-                    sprint.pk,
-                )
+            _compute_velocity_suggestions_safe(sprint)
 
             sprint_id_str = str(sprint.pk)
             project_id_str = str(project_id)
@@ -301,6 +222,122 @@ def close_sprint(self: object, request_id: str) -> None:
             status=SprintCloseRequestStatus.FAILED,
             completed_at=timezone.now(),
             error_message=str(exc)[:1000],
+        )
+
+
+def _finalize_non_closable_sprint(req: Any, sprint: Any) -> bool:
+    """Finalize the close request if the locked sprint can't be closed; return handled.
+
+    Returns True (and updates the ``SprintCloseRequest``) when the sprint is already
+    COMPLETED (mark the request COMPLETED — an earlier dispatch closed it), CANCELLED,
+    or otherwise not ACTIVE (mark the request FAILED). Returns False when the sprint is
+    ACTIVE and the close should proceed.
+    """
+    from trueppm_api.apps.projects.models import (
+        SprintCloseRequest,
+        SprintCloseRequestStatus,
+        SprintState,
+    )
+
+    if sprint.state == SprintState.COMPLETED:
+        # Already closed by an earlier dispatch; mark request done.
+        SprintCloseRequest.objects.filter(pk=req.pk).update(
+            status=SprintCloseRequestStatus.COMPLETED,
+            completed_at=timezone.now(),
+        )
+        return True
+
+    if sprint.state == SprintState.CANCELLED:
+        SprintCloseRequest.objects.filter(pk=req.pk).update(
+            status=SprintCloseRequestStatus.FAILED,
+            completed_at=timezone.now(),
+            error_message="Sprint was cancelled before close could complete.",
+        )
+        return True
+
+    if sprint.state != SprintState.ACTIVE:
+        SprintCloseRequest.objects.filter(pk=req.pk).update(
+            status=SprintCloseRequestStatus.FAILED,
+            completed_at=timezone.now(),
+            error_message=f"Sprint state {sprint.state} is not closable.",
+        )
+        return True
+
+    return False
+
+
+def _clear_sprint_ranks(sprint: Any) -> None:
+    """Clear the within-sprint execution order on close (#365, ADR-0105 §5).
+
+    A task returns to the product backlog ordered by ``priority_rank``; its
+    closed-sprint ``sprint_rank`` stays queryable on the HistoricalTask rows (the
+    pre-clear value on the create-time row, the null on the row the save() below
+    writes). Runs BEFORE apply_carry_over so a carried task re-enters its next sprint
+    un-ranked (re-seeded from priority_rank on that sprint's activate), never
+    inheriting a stale rank. save() (not bulk_update) so server_version bumps +
+    history is written.
+    """
+    from trueppm_api.apps.projects.models import Task
+
+    for task in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False):
+        if task.sprint_rank is not None:
+            task.sprint_rank = None
+            task.save(update_fields=["sprint_rank", "server_version"])
+
+
+def _recompute_and_reforecast_milestone(sprint: Any, req: Any) -> None:
+    """Recompute the bound milestone rollup and reforecast its finish (ADR-0074/0106).
+
+    ADR-0074: recompute the milestone rollup with the final ``completed_*`` snapshot.
+    Runs inside the drain transaction, after carry-over, so the milestone reflects the
+    closed sprint's final contribution before the sprint_closed broadcast goes out.
+
+    ADR-0106 §3 (#860) — the bridge WOW: reforecast the bound milestone's finish as a
+    range from the just-closed sprint's velocity. The snapshot write is synchronous
+    (durable with the close); the milestone_forecast_updated broadcast + Enterprise-seam
+    signal defer to on_commit inside the service. Wrapped non-blocking: a reforecast bug
+    must never strand or revert a sprint close (ADR-0106 §Durable 8).
+    """
+    if sprint.target_milestone_id is None:
+        return
+
+    from trueppm_api.apps.projects.services import recompute_milestone_rollup
+
+    recompute_milestone_rollup(sprint.target_milestone_id)
+
+    try:
+        from trueppm_api.apps.projects.services import (
+            notify_milestone_forecast_shift,
+            reforecast_bound_milestone,
+        )
+
+        forecast = reforecast_bound_milestone(sprint.target_milestone_id)
+        # #861 — push the PM cohort the milestone-confidence shift so the bridge
+        # reforecast isn't silent when the team closes the sprint outside the PM's
+        # session. Non-blocking with the reforecast itself: a digest failure must
+        # never strand close.
+        if forecast is not None:
+            notify_milestone_forecast_shift(forecast, sprint, actor_id=req.requested_by_id)
+    except Exception:
+        logger.exception(
+            "close_sprint: reforecast failed for milestone %s — continuing close",
+            sprint.target_milestone_id,
+        )
+
+
+def _compute_velocity_suggestions_safe(sprint: Any) -> None:
+    """Compute velocity-calibration suggestions (ADR-0065), non-blocking on failure.
+
+    Any error logs and is swallowed so a calibration bug cannot strand a sprint close.
+    """
+    try:
+        from trueppm_api.apps.scheduling.services import compute_velocity_suggestions
+
+        compute_velocity_suggestions(sprint.pk)
+    except Exception:
+        logger.exception(
+            "close_sprint: velocity calibration failed for sprint %s — continuing close",
+            sprint.pk,
         )
 
 

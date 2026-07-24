@@ -102,12 +102,6 @@ def detect_and_upsert_slip_conflicts(graph: ProgramScheduleGraph) -> list[Any]:
     """
     from django.utils import timezone
 
-    from trueppm_api.apps.projects.models import (
-        CrossProjectSlipConflict,
-        SlipConflictResolution,
-        SprintState,
-    )
-
     now = timezone.now()
     result_map = graph.result_map
     db_task_by_id = graph.db_task_by_id
@@ -127,21 +121,10 @@ def detect_and_upsert_slip_conflicts(graph: ProgramScheduleGraph) -> list[Any]:
         db_task = db_task_by_id.get(task_id)
         if db_task is None:
             continue
-        # Only committed members of an ACTIVE sprint can experience a boundary slip.
-        # sprint_pending tasks are mid-sprint injections the team hasn't committed to
-        # yet, so excluding them avoids firing a conflict for uncommitted work.
-        if db_task.sprint_id is None or db_task.sprint_pending:
+        slip = _boundary_slip(task_id, db_task, result_map)
+        if slip is None:
             continue
-        sprint = db_task.sprint  # prefetched via tasks__sprint in the gather
-        if sprint is None or sprint.state != SprintState.ACTIVE:
-            continue
-
-        sched = result_map.get(task_id)
-        early_finish = getattr(sched, "early_finish", None) if sched is not None else None
-        # Strict greater-than: finish_date is the inclusive last day of the sprint, so
-        # a task finishing *on* the boundary is on time, not a slip.
-        if early_finish is None or not (early_finish > sprint.finish_date):
-            continue
+        sprint, early_finish = slip
 
         detected.add((sprint.pk, db_task.pk))
         affected_project_ids.add(db_task.project_id)
@@ -149,26 +132,7 @@ def detect_and_upsert_slip_conflicts(graph: ProgramScheduleGraph) -> list[Any]:
         if row.is_open:
             open_rows.append(row)
 
-    # Auto-resolve any previously-open conflict in a member project that is no longer
-    # in the detected set — the slip went away between passes. Kept for audit; off
-    # the open-conflict badge. select_related("task") so each stale row's project id
-    # is available for the broadcast fan-out without an extra query per row.
-    stale = [
-        c
-        for c in CrossProjectSlipConflict.objects.filter(
-            resolution=SlipConflictResolution.UNRESOLVED,
-            task__project_id__in=member_ids,
-        )
-        .select_related("task")
-        .only("id", "sprint_id", "task_id", "task__project_id")
-        if (c.sprint_id, c.task_id) not in detected
-    ]
-    if stale:
-        CrossProjectSlipConflict.objects.filter(pk__in=[c.pk for c in stale]).update(
-            resolution=SlipConflictResolution.AUTO_RESOLVED,
-            resolved_at=now,
-        )
-        affected_project_ids.update(c.task.project_id for c in stale)
+    affected_project_ids.update(_auto_resolve_stale(detected, member_ids, now))
 
     # Fan a slip_conflicts_updated broadcast out to every project whose conflict
     # set changed this pass so a mounted conflict badge/view refetches live
@@ -189,6 +153,68 @@ def detect_and_upsert_slip_conflicts(graph: ProgramScheduleGraph) -> list[Any]:
         transaction.on_commit(_on_commit)
 
     return open_rows
+
+
+def _boundary_slip(
+    task_id: str, db_task: Any, result_map: dict[str, Any]
+) -> tuple[Any, date] | None:
+    """Return ``(sprint, early_finish)`` if ``db_task`` slips past its sprint boundary.
+
+    A boundary slip requires the task to be (1) a committed member of an ACTIVE
+    sprint — ``sprint_pending`` tasks are mid-sprint injections the team hasn't
+    committed to, so they're excluded to avoid firing on uncommitted work — and
+    (2) have a program-true ``early_finish`` strictly past the sprint's inclusive
+    ``finish_date`` (a task finishing *on* the boundary is on time, not a slip).
+    Returns ``None`` when any condition fails.
+    """
+    from trueppm_api.apps.projects.models import SprintState
+
+    if db_task.sprint_id is None or db_task.sprint_pending:
+        return None
+    sprint = db_task.sprint  # prefetched via tasks__sprint in the gather
+    if sprint is None or sprint.state != SprintState.ACTIVE:
+        return None
+
+    sched = result_map.get(task_id)
+    early_finish = getattr(sched, "early_finish", None) if sched is not None else None
+    if early_finish is None or not (early_finish > sprint.finish_date):
+        return None
+    return sprint, early_finish
+
+
+def _auto_resolve_stale(
+    detected: set[tuple[Any, Any]], member_ids: list[Any], now: Any
+) -> set[Any]:
+    """Auto-resolve previously-open conflicts no longer in ``detected``; return their projects.
+
+    A previously-open conflict in a member project that is no longer detected means
+    the slip went away between passes (task moved out, sprint extended/closed, edge
+    rejected, float absorbed). Kept for audit; off the open-conflict badge.
+    ``select_related("task")`` so each stale row's project id is available for the
+    broadcast fan-out without an extra query per row.
+    """
+    from trueppm_api.apps.projects.models import (
+        CrossProjectSlipConflict,
+        SlipConflictResolution,
+    )
+
+    stale = [
+        c
+        for c in CrossProjectSlipConflict.objects.filter(
+            resolution=SlipConflictResolution.UNRESOLVED,
+            task__project_id__in=member_ids,
+        )
+        .select_related("task")
+        .only("id", "sprint_id", "task_id", "task__project_id")
+        if (c.sprint_id, c.task_id) not in detected
+    ]
+    if not stale:
+        return set()
+    CrossProjectSlipConflict.objects.filter(pk__in=[c.pk for c in stale]).update(
+        resolution=SlipConflictResolution.AUTO_RESOLVED,
+        resolved_at=now,
+    )
+    return {c.task.project_id for c in stale}
 
 
 def _upsert_conflict(sprint: Any, task: Any, dependency: Any, pushed_to: date, now: Any) -> Any:
