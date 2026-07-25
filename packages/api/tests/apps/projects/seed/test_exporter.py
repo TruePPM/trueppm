@@ -243,3 +243,44 @@ def test_long_risk_title_slug_is_capped_at_40(owner: Any) -> None:
     # Slugs must stay unique and kebab-case-valid even after truncation.
     assert len(set(slugs)) == len(slugs)
     assert all(not s.startswith("-") and not s.endswith("-") for s in slugs)
+
+
+def test_risk_blocks_export_is_not_n_plus_1(owner: Any, django_assert_num_queries: Any) -> None:
+    """Risk export must not fire a per-risk query for owners or task links (#2351).
+
+    Regression lock: the loop resolves each risk's ``owner`` slug and its M2M task
+    links. Before the fix these fired a query *per risk* (owner FK + through-table
+    lookup); the queryset now ``select_related("owner").prefetch_related("tasks")``
+    so the whole loop is a constant two queries (risks + task prefetch) regardless
+    of risk count.
+    """
+    from trueppm_api.apps.projects.models import Risk, Task
+    from trueppm_api.apps.projects.seed.exporter import _Exporter
+
+    program = import_seed(_seed(), owner=owner, create_users=True)
+    project = program.projects.get(name="Platform Core")
+    linked_tasks = list(Task.objects.filter(project=project, wbs_path__isnull=False)[:2])
+    for n in range(4):
+        risk = Risk.objects.create(
+            project=project,
+            title=f"N+1 probe risk {n}",
+            status="OPEN",
+            probability=3,
+            impact=3,
+            owner=owner,
+        )
+        risk.tasks.add(*linked_tasks)
+
+    exporter = _Exporter(program=program, projects=[project])
+    exporter.project_slugs[project.pk] = "platform-core"
+    exporter._project_tasks = {}
+    exporter._project_sprints = {}
+    exporter._index_project(project)  # populate task_ref (queries run outside the assert)
+
+    # Two queries total: the risks fetch (owner joined in) + the tasks prefetch.
+    with django_assert_num_queries(2):
+        blocks = exporter._risk_blocks(project, "platform-core")
+
+    probe_blocks = [b for b in blocks if b["title"].startswith("N+1 probe risk")]
+    assert len(probe_blocks) == 4
+    assert all(b.get("tasks") for b in probe_blocks)

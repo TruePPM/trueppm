@@ -293,16 +293,19 @@ class _Exporter:
         # project export (#967) has no parent program, so the roster is empty and
         # only the users the project actually references (task assignees, resource
         # accounts, risk owners) are emitted — without program-level roles.
-        roles: dict[Any, int] = {}
+        roles, users = self._collect_account_users()
+        accounts = [self._account_entry(uid, user, roles) for uid, user in users.items()]
+        return sorted(accounts, key=lambda a: a["slug"])
+
+    def _collect_account_users(self) -> tuple[dict[Any, int], dict[Any, Any]]:
+        """Gather every user referenced by the export, in a stable order.
+
+        Insertion order (program roster, then task assignees, risk owners,
+        resource accounts) fixes slug-allocation order, so the roster must be
+        walked in exactly this sequence for the round-trip to stay byte-stable.
+        """
         users: dict[Any, Any] = {}
-        if self.program is not None:
-            roles = {
-                m.user_id: m.role for m in ProgramMembership.objects.filter(program=self.program)
-            }
-            if self.program.lead_id is not None:
-                users[self.program.lead_id] = self.program.lead
-            for m in ProgramMembership.objects.filter(program=self.program).select_related("user"):
-                users[m.user_id] = m.user
+        roles = self._program_roster(users)
         for task in self._all_tasks():
             if task.assignee_id is not None:
                 users[task.assignee_id] = task.assignee
@@ -312,18 +315,31 @@ class _Exporter:
         for res in self._all_resources():
             if res.user_id is not None:
                 users[res.user_id] = res.user
+        return roles, users
 
-        accounts = []
-        for uid, user in users.items():
-            slug = self._user_slug(user)
-            block: dict[str, Any] = {"slug": slug, "username": user.get_username()}
-            _put(block, "email", getattr(user, "email", ""))
-            display = f"{user.first_name} {user.last_name}".strip()
-            _put(block, "display_name", display)
-            if uid in roles:
-                block["role"] = _ROLE_NAME[roles[uid]]
-            accounts.append(block)
-        return sorted(accounts, key=lambda a: a["slug"])
+    def _program_roster(self, users: dict[Any, Any]) -> dict[Any, int]:
+        """Seed ``users`` with the program lead + members; return their roles.
+
+        A single-project export (#967) has no parent program, so the roster is
+        empty and no program-level roles apply.
+        """
+        if self.program is None:
+            return {}
+        roles = {m.user_id: m.role for m in ProgramMembership.objects.filter(program=self.program)}
+        if self.program.lead_id is not None:
+            users[self.program.lead_id] = self.program.lead
+        for m in ProgramMembership.objects.filter(program=self.program).select_related("user"):
+            users[m.user_id] = m.user
+        return roles
+
+    def _account_entry(self, uid: Any, user: Any, roles: dict[Any, int]) -> dict[str, Any]:
+        block: dict[str, Any] = {"slug": self._user_slug(user), "username": user.get_username()}
+        _put(block, "email", getattr(user, "email", ""))
+        display = f"{user.first_name} {user.last_name}".strip()
+        _put(block, "display_name", display)
+        if uid in roles:
+            block["role"] = _ROLE_NAME[roles[uid]]
+        return block
 
     def _calendars_block(self) -> list[dict[str, Any]]:
         calendars: dict[Any, Any] = {}
@@ -482,6 +498,15 @@ class _Exporter:
 
     def _task_block(self, task: Task) -> dict[str, Any]:
         block: dict[str, Any] = {"wbs_path": str(task.wbs_path), "name": task.name}
+        self._put_task_core(block, task)
+        self._put_task_agile(block, task)
+        self._put_task_estimate(block, task)
+        self._put_task_assignments(block, task)
+        self._put_task_labels_and_links(block, task)
+        return block
+
+    def _put_task_core(self, block: dict[str, Any], task: Task) -> None:
+        """Scalar schedule/status fields, each emitted only when non-default."""
         if task.type and task.type != "task":
             block["type"] = task.type
         if task.status and task.status != "NOT_STARTED":
@@ -497,6 +522,9 @@ class _Exporter:
         _put(block, "notes", task.notes)
         _put(block, "story_points", task.story_points)
         _put(block, "remaining_points", task.remaining_points)
+
+    def _put_task_agile(self, block: dict[str, Any], task: Task) -> None:
+        """Assignee, sprint linkage, and agile/governance classification fields."""
         if task.assignee_id is not None:
             block["assignee"] = self._user_slug(task.assignee)
         if task.sprint_id is not None:
@@ -509,12 +537,16 @@ class _Exporter:
         if task.delivery_mode and task.delivery_mode != "waterfall":
             block["delivery_mode"] = task.delivery_mode
         _put(block, "color", task.color)
+
+    def _put_task_estimate(self, block: dict[str, Any], task: Task) -> None:
         if task.optimistic_duration is not None:
             block["estimate"] = {
                 "optimistic": task.optimistic_duration,
                 "most_likely": task.most_likely_duration,
                 "pessimistic": task.pessimistic_duration,
             }
+
+    def _put_task_assignments(self, block: dict[str, Any], task: Task) -> None:
         assignments = [
             {"resource": self._resource_slug(tr.resource), "units": float(tr.units)}
             for tr in TaskResource.objects.filter(task=task)
@@ -523,13 +555,14 @@ class _Exporter:
         ]
         if assignments:
             block["assignments"] = assignments
+
+    def _put_task_labels_and_links(self, block: dict[str, Any], task: Task) -> None:
         label_slugs = self.task_label_slugs.get(task.pk)
         if label_slugs:
             block["labels"] = label_slugs
         links = self._task_relation_blocks(task)
         if links:
             block["links"] = links
-        return block
 
     def _task_relation_blocks(self, task: Task) -> list[dict[str, Any]]:
         """Emit this task's outgoing informational relations (ADR-0455).
@@ -624,7 +657,15 @@ class _Exporter:
 
     def _risk_blocks(self, project: Project, pslug: str) -> list[dict[str, Any]]:
         blocks = []
-        risks = Risk.objects.filter(project=project, is_deleted=False).order_by("title", "pk")
+        # select_related("owner") + prefetch_related("tasks") keep the per-risk
+        # owner-slug and task-linkage lookups from firing a query inside the loop
+        # (the M2M through rows are batched into a single prefetch query, #2351).
+        risks = (
+            Risk.objects.filter(project=project, is_deleted=False)
+            .select_related("owner")
+            .order_by("title", "pk")
+            .prefetch_related("tasks")
+        )
         slug_alloc = _SlugAllocator()
         for risk in risks:
             block: dict[str, Any] = {
@@ -645,8 +686,8 @@ class _Exporter:
             if risk.owner_id is not None:
                 block["owner"] = self._user_slug(risk.owner)
             refs = []
-            for rt in risk.tasks.through.objects.filter(risk=risk).select_related("task"):
-                ref = self.task_ref.get(rt.task_id)
+            for linked in risk.tasks.all():
+                ref = self.task_ref.get(linked.pk)
                 if ref is None:
                     continue
                 refs.append(ref[1] if ref[0] == pslug else f"{ref[0]}:{ref[1]}")
