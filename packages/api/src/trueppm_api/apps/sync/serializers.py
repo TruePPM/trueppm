@@ -9,6 +9,7 @@ not the REST API consumer.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 from rest_framework import serializers
@@ -41,6 +42,22 @@ def _is_uuid(value: object) -> bool:
     except (ValueError, TypeError, AttributeError):
         return False
     return True
+
+
+def _iter_upload_row_ids(attrs: dict[str, Any]) -> Iterator[object]:
+    """Yield every row id in an upload envelope: the ``id`` of each created/updated
+    row and each bare ``deleted`` id.
+
+    Rows are free-form ``DictField``s, so the id lives inside the row for
+    created/updated and is a bare string for deleted. Non-dict created/updated rows
+    carry no id and are skipped (they were surfaced as a ``None`` candidate before,
+    which the empty/absent-id filter dropped anyway — behavior is unchanged).
+    """
+    for bucket in ("created", "updated"):
+        for row in attrs.get(bucket, []) or []:
+            if isinstance(row, dict):
+                yield row.get("id")
+    yield from attrs.get("deleted", []) or []
 
 
 class SyncCalendarSerializer(serializers.ModelSerializer[Calendar]):
@@ -516,19 +533,12 @@ class SyncUploadCollectionSerializer(serializers.Serializer):  # type: ignore[ty
         # #1730: every row id here reaches a ``Task.objects.filter(pk__in=...)``
         # in ``sync.upload``. A malformed (non-UUID) id would raise a django-core
         # ValidationError/ValueError at query build that DRF does not catch → 500.
-        # Validate the ids up front so a bad one is a clean 400. Rows are free-form
-        # DictFields, so the id lives inside the row for created/updated and is a
-        # bare string for deleted. Empty/absent ids are left to ``sync.upload``'s
-        # existing "each row requires an 'id'" guard so its message is unchanged.
-        bad: list[str] = []
-        for bucket in ("created", "updated"):
-            for row in attrs.get(bucket, []) or []:
-                row_id = row.get("id") if isinstance(row, dict) else None
-                if row_id and not _is_uuid(row_id):
-                    bad.append(str(row_id))
-        for del_id in attrs.get("deleted", []) or []:
-            if del_id and not _is_uuid(del_id):
-                bad.append(str(del_id))
+        # Validate the ids up front so a bad one is a clean 400. Empty/absent ids are
+        # left to ``sync.upload``'s existing "each row requires an 'id'" guard so its
+        # message is unchanged.
+        bad = [
+            str(row_id) for row_id in _iter_upload_row_ids(attrs) if row_id and not _is_uuid(row_id)
+        ]
         if bad:
             raise serializers.ValidationError(
                 {"id": f"Row ids must be valid UUIDs; got: {', '.join(bad[:5])}."}
