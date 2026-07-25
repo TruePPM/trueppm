@@ -541,6 +541,68 @@ FORECAST_NO_VELOCITY_HISTORY = "no_velocity_history"
 FORECAST_NO_ESTIMATES = "no_estimates"
 
 
+def _forecast_task_signal(
+    t: Any, *, suggest_approve: bool, has_velocity_signal: bool
+) -> tuple[bool, bool, bool, bool]:
+    """Classify one committed task for :func:`forecast_diagnostic`.
+
+    Returns ``(is_incomplete, has_variance, is_pending_approval,
+    is_agile_without_velocity)`` — mirroring the exact sampling gate the engine
+    applies (``build_sched_tasks._pert`` plus the velocity condition) so the
+    diagnostic explains what the forecast actually did.
+    """
+    from trueppm_api.apps.projects.models import DeliveryMode, EstimateStatus
+
+    # Completion mirrors trueppm_scheduler.engine._is_complete (ADR-0136): a
+    # finished task is laid out at fixed duration and contributes no variance.
+    is_complete = t.actual_finish is not None or (t.percent_complete or 0) >= 100
+
+    has_triple = (
+        t.optimistic_duration is not None
+        and t.most_likely_duration is not None
+        and t.pessimistic_duration is not None
+    )
+    # Mirror build_sched_tasks._pert: SUGGEST_APPROVE withholds a triple from the
+    # engine until it is ACCEPTED — a withheld triple is "pending", not variance.
+    withheld = suggest_approve and t.estimate_status != EstimateStatus.ACCEPTED
+    # A real spread needs opt != pess; a degenerate triple samples to a constant.
+    pert_variance = has_triple and not withheld and t.optimistic_duration != t.pessimistic_duration
+    is_scrum_pointed = t.delivery_mode == DeliveryMode.SCRUM and t.story_points is not None
+    velocity_variance = is_scrum_pointed and has_velocity_signal
+
+    return (
+        not is_complete,
+        bool(pert_variance or velocity_variance),
+        bool(has_triple and withheld),
+        bool(is_scrum_pointed and not has_velocity_signal),
+    )
+
+
+def _forecast_reason(
+    *,
+    total: int,
+    incomplete: int,
+    with_variance: int,
+    pending_approval: int,
+    agile_without_velocity: int,
+) -> str:
+    """Derive the single most-actionable flat-forecast reason code, in precedence order."""
+    if total == 0:
+        return FORECAST_NO_COMMITTED_TASKS
+    if incomplete == 0:
+        return FORECAST_ALL_COMPLETE
+    if with_variance > 0:
+        # Variance exists but never reaches the project finish: the estimated work
+        # sits off the critical path (the sensitivity tornado's own empty case).
+        # Surfacing this stops the UI telling a user with estimates to add some.
+        return FORECAST_ESTIMATES_OFF_CRITICAL_PATH
+    if pending_approval > 0:
+        return FORECAST_ESTIMATES_PENDING_APPROVAL
+    if agile_without_velocity > 0:
+        return FORECAST_NO_VELOCITY_HISTORY
+    return FORECAST_NO_ESTIMATES
+
+
 def forecast_diagnostic(
     db_tasks: list[Any],
     *,
@@ -578,8 +640,6 @@ def forecast_diagnostic(
         ``agile_tasks_without_velocity``). ``reason`` is one of the ``FORECAST_*``
         codes above.
     """
-    from trueppm_api.apps.projects.models import DeliveryMode, EstimateStatus
-
     total = len(db_tasks)
     incomplete = 0
     with_variance = 0
@@ -587,51 +647,23 @@ def forecast_diagnostic(
     agile_without_velocity = 0
 
     for t in db_tasks:
-        # Completion mirrors trueppm_scheduler.engine._is_complete (ADR-0136): a
-        # finished task is laid out at fixed duration and contributes no variance.
-        is_complete = t.actual_finish is not None or (t.percent_complete or 0) >= 100
-        if not is_complete:
-            incomplete += 1
-
-        has_triple = (
-            t.optimistic_duration is not None
-            and t.most_likely_duration is not None
-            and t.pessimistic_duration is not None
+        t_incomplete, t_variance, t_pending, t_agile = _forecast_task_signal(
+            t, suggest_approve=suggest_approve, has_velocity_signal=has_velocity_signal
         )
-        # Mirror build_sched_tasks._pert: SUGGEST_APPROVE withholds a triple from the
-        # engine until it is ACCEPTED — a withheld triple is "pending", not variance.
-        withheld = suggest_approve and t.estimate_status != EstimateStatus.ACCEPTED
-        # A real spread needs opt != pess; a degenerate triple samples to a constant.
-        pert_variance = (
-            has_triple and not withheld and t.optimistic_duration != t.pessimistic_duration
-        )
-        is_scrum_pointed = t.delivery_mode == DeliveryMode.SCRUM and t.story_points is not None
-        velocity_variance = is_scrum_pointed and has_velocity_signal
-
-        if pert_variance or velocity_variance:
-            with_variance += 1
-        if has_triple and withheld:
-            pending_approval += 1
-        if is_scrum_pointed and not has_velocity_signal:
-            agile_without_velocity += 1
+        incomplete += t_incomplete
+        with_variance += t_variance
+        pending_approval += t_pending
+        agile_without_velocity += t_agile
 
     reason: str | None = None
     if deterministic:
-        if total == 0:
-            reason = FORECAST_NO_COMMITTED_TASKS
-        elif incomplete == 0:
-            reason = FORECAST_ALL_COMPLETE
-        elif with_variance > 0:
-            # Variance exists but never reaches the project finish: the estimated work
-            # sits off the critical path (the sensitivity tornado's own empty case).
-            # Surfacing this stops the UI telling a user with estimates to add some.
-            reason = FORECAST_ESTIMATES_OFF_CRITICAL_PATH
-        elif pending_approval > 0:
-            reason = FORECAST_ESTIMATES_PENDING_APPROVAL
-        elif agile_without_velocity > 0:
-            reason = FORECAST_NO_VELOCITY_HISTORY
-        else:
-            reason = FORECAST_NO_ESTIMATES
+        reason = _forecast_reason(
+            total=total,
+            incomplete=incomplete,
+            with_variance=with_variance,
+            pending_approval=pending_approval,
+            agile_without_velocity=agile_without_velocity,
+        )
 
     return {
         "deterministic": deterministic,
