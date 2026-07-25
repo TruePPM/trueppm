@@ -15,7 +15,7 @@ The authoritative text is the [`LICENSE`](https://gitlab.com/trueppm/trueppm/-/b
 
 ## What "Community Edition" includes
 
-Everything a project manager and their team need to run a program is in the Apache 2.0 Community Edition: the scheduling engine (CPM, Monte Carlo), the schedule view, Kanban boards and sprints, real-time collaboration, offline sync, 5-role RBAC, baseline comparison, MS Project import/export, the REST and WebSocket API, and the Helm chart. Two more Community-Edition capabilities are on the way but not yet shipped: basic single sign-on (OIDC/OAuth login against your own identity provider) lands in 0.4, and time tracking in 0.5 — both in the open core, not behind the enterprise boundary.
+Everything a project manager and their team need to run a program is in the Apache 2.0 Community Edition: the scheduling engine (CPM, Monte Carlo), the schedule view, Kanban boards and sprints, real-time collaboration, offline sync, 5-role RBAC, baseline comparison, MS Project import/export, the REST and WebSocket API, and the Helm chart. Three more Community-Edition capabilities are on the way but not yet shipped, all landing in 0.4: basic single sign-on (OIDC/OAuth login against your own identity provider), time tracking with a weekly timesheet, and in-app baseline capture. Every one of them is in the open core, not behind the enterprise boundary.
 
 ## The enterprise boundary
 
