@@ -1,0 +1,26 @@
+{
+  // The root tsconfig's `include` is `["src"]`, which left the Playwright tree,
+  // the Playwright configs, and the build scripts type-unchecked entirely — a
+  // stale fixture shape or a helper whose signature changed only surfaced at
+  // `web:e2e` runtime, minutes into CI. This project puts them under the same
+  // strict options so `npm run typecheck` (and therefore `make pre-push` and
+  // the `web:type-check` CI job) fails in seconds instead.
+  //
+  // Type-checking cannot catch a wrong locator role or a strict-mode text
+  // collision — those still need the spec run. It does catch the whole class
+  // of drift that a spec shares with application code.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // The Playwright configs and packages/web/scripts/*.mjs use Node globals
+    // (process, __dirname); the app tsconfig deliberately ships DOM libs only.
+    "types": ["node"]
+  },
+  "include": [
+    "e2e",
+    "scripts",
+    "playwright.config.ts",
+    "playwright.integration.config.ts",
+    "playwright.marketing.config.ts",
+    "playwright.merge.config.ts"
+  ]
+}

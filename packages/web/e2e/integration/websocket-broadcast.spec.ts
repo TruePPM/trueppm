@@ -44,7 +44,7 @@ async function loginAndGetToken(page: import('@playwright/test').Page): Promise<
 }
 
 async function getProjectId(page: import('@playwright/test').Page, token: string): Promise<string> {
-  return page.evaluate<string>(
+  return page.evaluate(
     async ([tk, name]) => {
       const res = await fetch('/api/v1/projects/', {
         headers: { Authorization: `Bearer ${tk}` },
@@ -82,7 +82,7 @@ test.describe('Integration — WebSocket broadcast', () => {
 
     const broadcastTaskName = `ws-broadcast-${Date.now()}`;
 
-    await mutator.evaluate<void>(
+    await mutator.evaluate(
       async ([tk, pid, tname]) => {
         await fetch(`/api/v1/tasks/`, {
           method: 'POST',

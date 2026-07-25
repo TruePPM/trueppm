@@ -20,7 +20,26 @@ import { setupApiMocks, setupCatchAll } from './fixtures/api-mocks';
 
 const PROJECT_ID = 'e2e-cal-00000000-0000-0000-0000-000000000001';
 
-const BASE_CAL = {
+interface CalendarException {
+  id: string;
+  exc_start: string;
+  exc_end: string;
+  description: string;
+}
+
+// Annotated rather than inferred: `BASE_CAL.exceptions` is empty, so inference
+// would type it `never[]` and reject every calendar that actually has one.
+interface CalendarFixture {
+  id: string;
+  server_version: number;
+  name: string;
+  working_days: number;
+  hours_per_day: number;
+  timezone: string;
+  exceptions: CalendarException[];
+}
+
+const BASE_CAL: CalendarFixture = {
   id: 'base-cal',
   server_version: 1,
   name: 'Project calendar',
@@ -30,7 +49,7 @@ const BASE_CAL = {
   exceptions: [],
 };
 
-const LIB_UK = {
+const LIB_UK: CalendarFixture = {
   id: 'lib-uk',
   server_version: 1,
   name: 'UK Bank Holidays 2026',
@@ -44,7 +63,7 @@ const LIB_UK = {
 // shows it by name (not the "Current override" fallback).
 const LIBRARY = [BASE_CAL, LIB_UK];
 
-const CAL_LOOKUP: Record<string, typeof BASE_CAL> = {
+const CAL_LOOKUP: Record<string, CalendarFixture> = {
   'base-cal': BASE_CAL,
   'lib-uk': LIB_UK,
 };
@@ -57,7 +76,7 @@ interface AppliedOverlay {
   layer_id: string;
   role: 'holidays' | 'workspace';
   sort_order: number;
-  calendar: typeof BASE_CAL;
+  calendar: CalendarFixture;
 }
 
 /** Build the GET /calendars/ object shape from the current base + overlay state.

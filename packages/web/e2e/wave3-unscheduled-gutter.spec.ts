@@ -140,7 +140,7 @@ const FIXTURE_API_TASKS_ALL_SCHEDULED = [
   },
 ];
 
-async function setupRoutes(page: import('@playwright/test').Page, tasks = FIXTURE_API_TASKS) {
+async function setupRoutes(page: import('@playwright/test').Page, tasks: Record<string, unknown>[] = FIXTURE_API_TASKS) {
   await page.addInitScript(() => {
     // Clear any persisted collapsed state so tests start with gutter expanded
     localStorage.removeItem('trueppm.gantt.unscheduledGutter.collapsed');
@@ -228,7 +228,7 @@ async function setupRoutes(page: import('@playwright/test').Page, tasks = FIXTUR
   );
 }
 
-async function gotoSchedule(page: import('@playwright/test').Page, tasks = FIXTURE_API_TASKS) {
+async function gotoSchedule(page: import('@playwright/test').Page, tasks: Record<string, unknown>[] = FIXTURE_API_TASKS) {
   await setupRoutes(page, tasks);
   await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
   await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });

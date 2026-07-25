@@ -518,11 +518,13 @@ test.describe('Board view', () => {
   });
 
   test('settings panel edits label and saves (issue #170)', async ({ page }) => {
-    let savedColumns: unknown[] | null = null;
+    // Holder object rather than a `let`: TypeScript narrows a closure-assigned
+    // `let x: T | null = null` back to `null` at any read outside the closure.
+    const captures: { columns?: unknown[] } = {};
     await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-config/`, async (route) => {
       if (route.request().method() === 'PUT') {
         const body = route.request().postDataJSON() as { columns: unknown[] };
-        savedColumns = body.columns;
+        captures.columns = body.columns;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -545,7 +547,7 @@ test.describe('Board view', () => {
     await expect(panel).not.toBeVisible({ timeout: 5_000 });
 
     // Verify PUT body had the updated label
-    const cols = savedColumns as Array<{ status: string; label: string }>;
+    const cols = captures.columns as Array<{ status: string; label: string }> | undefined;
     expect(cols?.find((c) => c.status === 'BACKLOG')?.label).toBe('Ideas');
   });
 

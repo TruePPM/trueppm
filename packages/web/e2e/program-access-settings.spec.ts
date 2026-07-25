@@ -65,8 +65,12 @@ const MEMBER_MEMBERSHIP = {
 
 type Page = import('@playwright/test').Page;
 
+// A holder object rather than a bare `let`: TypeScript narrows a closure-assigned
+// `let x: T | null = null` back to `null` at any read outside the closure, so the
+// captured body reads as `never` in the assertions.
 interface Captures {
   deleted?: string;
+  post?: { user?: string; role?: number };
 }
 
 async function setup(page: Page, captures: Captures, opts: { myRole?: number } = {}) {
@@ -188,21 +192,20 @@ test.describe('Program Settings → Access', () => {
       initials: 'MK',
     };
     const members: Array<Record<string, unknown>> = [OWNER_MEMBERSHIP, MEMBER_MEMBERSHIP];
-    let postBody: { user?: string; role?: number } | null = null;
 
     await page.route('**/api/v1/users/search/**', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([NEW_USER]) }),
     );
     await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/`, async (route) => {
       if (route.request().method() === 'POST') {
-        postBody = route.request().postDataJSON() as { user?: string; role?: number };
+        captures.post = route.request().postDataJSON() as { user?: string; role?: number };
         members.push({
           id: 'mem-3',
           server_version: 1,
           program: PROGRAM_ID,
           user: NEW_USER.id,
           user_detail: { id: NEW_USER.id, username: NEW_USER.username, email: 'mira@example.com' },
-          role: postBody.role ?? 100,
+          role: captures.post.role ?? 100,
           role_label: 'Team Member',
         });
         await route.fulfill({
@@ -231,8 +234,8 @@ test.describe('Program Settings → Access', () => {
       .click();
 
     // The POST carried the selected user id and a concrete role…
-    await expect.poll(() => postBody?.user).toBe(NEW_USER.id);
-    expect(typeof postBody?.role).toBe('number');
+    await expect.poll(() => captures.post?.user).toBe(NEW_USER.id);
+    expect(typeof captures.post?.role).toBe('number');
     // …and the refetched list renders the new member as a row.
     await expect(page.getByText(/mira\.k/)).toBeVisible();
     await expect(page.getByText(/3 members/)).toBeVisible();

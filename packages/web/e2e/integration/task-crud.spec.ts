@@ -44,7 +44,7 @@ async function loginAndGetToken(page: import('@playwright/test').Page): Promise<
 
 /** Return the ID of the CI integration project via the real API. */
 async function getProjectId(page: import('@playwright/test').Page, token: string): Promise<string> {
-  const id = await page.evaluate<string>(
+  const id = await page.evaluate(
     async ([tk, name]) => {
       const res = await fetch('/api/v1/projects/', {
         headers: { Authorization: `Bearer ${tk}` },
@@ -68,7 +68,7 @@ test.describe('Integration — Task CRUD', () => {
     // `expect` is unavailable. Return status with the data and assert outside.
     // Tasks are a flat endpoint (`/api/v1/tasks/`) with `project` in the body —
     // not nested under projects/.
-    const created = await page.evaluate<{ ok: boolean; status: number; id: string }>(
+    const created = await page.evaluate(
       async ([tk, pid, tname]) => {
         const res = await fetch(`/api/v1/tasks/`, {
           method: 'POST',
@@ -94,7 +94,7 @@ test.describe('Integration — Task CRUD', () => {
     await expect(page.getByText(TASK_NAME).first()).toBeVisible({ timeout: 10_000 });
 
     // --- UPDATE ---
-    const patchResult = await page.evaluate<{ ok: boolean; status: number }>(
+    const patchResult = await page.evaluate(
       async ([tk, tid, updatedName]) => {
         const res = await fetch(`/api/v1/tasks/${tid}/`, {
           method: 'PATCH',
@@ -117,7 +117,7 @@ test.describe('Integration — Task CRUD', () => {
     await expect(page.getByText(TASK_NAME, { exact: true })).toHaveCount(0);
 
     // --- DELETE ---
-    const deleteResult = await page.evaluate<number>(
+    const deleteResult = await page.evaluate(
       async ([tk, tid]) => {
         const res = await fetch(`/api/v1/tasks/${tid}/`, {
           method: 'DELETE',

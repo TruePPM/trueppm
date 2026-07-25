@@ -59,7 +59,7 @@ test.describe('Integration — Keycloak OIDC', { tag: '@sso' }, () => {
     await expect(page.getByTestId('sso-error-code')).toHaveCount(0);
   });
 
-  test('admin test-connection succeeds against the live realm', async ({ playwright }) => {
+  test('admin test-connection succeeds against the live realm', async () => {
     const ctx = await playwrightRequest.newContext({ baseURL: API_ORIGIN });
     try {
       // Password-login as the seeded workspace admin to obtain an access token.

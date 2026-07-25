@@ -10,8 +10,11 @@
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
-// Emulate Windows High Contrast for every test in this file.
-test.use({ forcedColors: 'active' });
+// Emulate Windows High Contrast for every test in this file. `forcedColors` is
+// not a top-level `use` fixture — it only reaches the browser context through
+// `contextOptions`, so the flat form was silently dropped and these tests were
+// passing without forced-colors ever being enabled. (#2382)
+test.use({ contextOptions: { forcedColors: 'active' } });
 
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000001742';
 

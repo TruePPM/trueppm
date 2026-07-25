@@ -56,7 +56,10 @@ type Page = import('@playwright/test').Page;
 async function setup(
   page: Page,
   captures: { patch?: Record<string, unknown> },
-  project = FIXTURE_PROJECT,
+  // Serialized into the route body only. Callers widen fields the base fixture
+  // pins to null (`lead`, `lead_detail`) to seed an assigned lead, so
+  // `typeof FIXTURE_PROJECT` would reject them.
+  project: Record<string, unknown> = FIXTURE_PROJECT,
 ) {
   await page.addInitScript(() => {
     localStorage.setItem(
