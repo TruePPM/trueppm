@@ -561,6 +561,160 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
   ];
 }
 
+/**
+ * Roving-tabindex value for the row (#2204): a row being edited drops out of the
+ * tab order entirely (its inputs own focus); otherwise only the grid's single
+ * active row is Tab-reachable.
+ */
+function rowTabIndex(editing: boolean, isActiveRow: boolean): number {
+  if (editing) return -1;
+  return isActiveRow ? 0 : -1;
+}
+
+/**
+ * Compose the row container's className. Extracted from TaskListRowInner (#2081)
+ * — every token and the selection/hover/dim/pending precedence is verbatim.
+ */
+function getRowClassName(s: {
+  isEditing: boolean;
+  anyCellInEdit: boolean;
+  buildMode: BuildMode | null;
+  isBuildSelected: boolean;
+  isSelected: boolean;
+  isHovered: boolean;
+  dimmed: boolean;
+  isStructuralPending: boolean;
+}): string {
+  const editingCell = s.isEditing || s.anyCellInEdit;
+  const selected = s.buildMode ? s.isBuildSelected : s.isSelected;
+  const selectionClass =
+    selected && !editingCell
+      ? 'bg-brand-primary/10 border-l-2 border-brand-primary'
+      : // Shared hover wash (#2096) — the `--chrome-row-hover` DS token, which
+        // the canvas rowHover band mirrors pixel-for-pixel, so the table row
+        // and its bar read as one unit; falls back to CSS :hover otherwise.
+        s.isHovered
+        ? 'bg-chrome-row-hover'
+        : 'hover:bg-chrome-row-hover';
+  return [
+    'relative group flex items-stretch text-xs border-b border-neutral-border/20',
+    // motion-safe transition so the hover-chain dim/un-dim (#475) doesn't
+    // snap when the cursor sweeps across many rows — without this the rapid
+    // chain recomputes show as flicker.
+    'motion-safe:transition-opacity motion-safe:duration-150 motion-safe:ease-out',
+    editingCell ? 'cursor-text' : 'cursor-pointer',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
+    selectionClass,
+    s.dimmed ? 'opacity-[0.22] pointer-events-none' : '',
+    s.isStructuralPending ? 'opacity-70 cursor-progress' : '',
+  ].join(' ');
+}
+
+interface TaskDataCellsProps {
+  isEditing: boolean;
+  visible: ColumnWidths['visible'];
+  widths: ColumnWidths['widths'];
+  buildMode: BuildMode | null;
+  task: Task;
+  editingColumnDuration: boolean;
+  editingColumnProgress: boolean;
+  projectId: string;
+  updateTask: UpdateTaskMutation;
+  setRecalcPrompt: React.Dispatch<React.SetStateAction<RecalcPromptState | null>>;
+  effectiveDurationPolicy: ReturnType<typeof useEffectiveDurationPolicy>;
+  isCoarsePointer: boolean;
+  showMilestonePicker: boolean;
+  setShowMilestonePicker: React.Dispatch<React.SetStateAction<boolean>>;
+  milestoneParents?: { name: string; finish?: string }[];
+  setScheduleError: (message: string | null) => void;
+  itl: IterationLabel;
+}
+
+/**
+ * The Dur / Start / Finish / Progress / Owner columns. Each is suppressed while
+ * the row's name is being inline-edited and gated by its column-visibility flag
+ * (#248). Split out of TaskListRowInner (#2081) — guards and props are verbatim.
+ */
+function TaskDataCells({
+  isEditing,
+  visible,
+  widths,
+  buildMode,
+  task,
+  editingColumnDuration,
+  editingColumnProgress,
+  projectId,
+  updateTask,
+  setRecalcPrompt,
+  effectiveDurationPolicy,
+  isCoarsePointer,
+  showMilestonePicker,
+  setShowMilestonePicker,
+  milestoneParents,
+  setScheduleError,
+  itl,
+}: TaskDataCellsProps) {
+  return (
+    <>
+      {/* ── Dur column ──────────────────────────────────────────────────────── */}
+      {!isEditing && visible.dur && (
+        <TaskDurationCell
+          buildMode={buildMode}
+          task={task}
+          widthPx={widths.dur}
+          editingColumnDuration={editingColumnDuration}
+          projectId={projectId}
+          updateTask={updateTask}
+          setRecalcPrompt={setRecalcPrompt}
+          effectiveDurationPolicy={effectiveDurationPolicy}
+          isCoarsePointer={isCoarsePointer}
+        />
+      )}
+
+      {/* ── Start column ────────────────────────────────────────────────────── */}
+      {!isEditing && visible.start && (
+        <TaskStartCell
+          buildMode={buildMode}
+          task={task}
+          widthPx={widths.start}
+          showMilestonePicker={showMilestonePicker}
+          setShowMilestonePicker={setShowMilestonePicker}
+          milestoneParents={milestoneParents}
+          projectId={projectId}
+          updateTask={updateTask}
+        />
+      )}
+
+      {/* ── Finish column ───────────────────────────────────────────────────── */}
+      {!isEditing && visible.finish && <TaskFinishCell task={task} widthPx={widths.finish} />}
+
+      {/* ── % complete column ───────────────────────────────────────────────── */}
+      {/*
+       * Milestone tasks with a sprint rollup (ADR-0074) render the rolled-up
+       * percent as read-only — manual edits are server-rejected with a
+       * structured 400. The cell also surfaces a lock affordance and a
+       * compact variance pill when the sprint is anchored to the milestone.
+       */}
+      {!isEditing && visible.progress && (
+        <TaskProgressCell
+          buildMode={buildMode}
+          task={task}
+          widthPx={widths.progress}
+          editingColumnProgress={editingColumnProgress}
+          projectId={projectId}
+          updateTask={updateTask}
+          setScheduleError={setScheduleError}
+          itl={itl}
+        />
+      )}
+
+      {/* ── Owner column (#248) ─────────────────────────────────────────────── */}
+      {/* Summary tasks: empty cell (assignees roll up implicitly, not authored). */}
+      {!isEditing && visible.owner && <TaskOwnerCell task={task} widthPx={widths.owner} />}
+    </>
+  );
+}
+
 function TaskListRowInner({
   task,
   level,
@@ -916,7 +1070,7 @@ function TaskListRowInner({
   // its per-row controls (chevron, properties) ride the same flag so an inactive
   // row contributes zero tab stops, while the active row's controls stay reachable
   // by Tab. A row being edited drops out entirely (its inputs own focus).
-  const rovingRowTabIndex = isEditing || anyCellInEdit ? -1 : isActiveRow ? 0 : -1;
+  const rovingRowTabIndex = rowTabIndex(isEditing || anyCellInEdit, isActiveRow);
   const rovingChildTabIndex = isActiveRow ? 0 : -1;
 
   return (
@@ -927,25 +1081,16 @@ function TaskListRowInner({
       aria-selected={buildMode ? isBuildSelected : isSelected}
       tabIndex={rovingRowTabIndex}
       style={{ height: ROW_HEIGHT }}
-      className={[
-        'relative group flex items-stretch text-xs border-b border-neutral-border/20',
-        // motion-safe transition so the hover-chain dim/un-dim (#475) doesn't
-        // snap when the cursor sweeps across many rows — without this the rapid
-        // chain recomputes show as flicker.
-        'motion-safe:transition-opacity motion-safe:duration-150 motion-safe:ease-out',
-        isEditing || anyCellInEdit ? 'cursor-text' : 'cursor-pointer',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
-        (buildMode ? isBuildSelected : isSelected) && !(isEditing || anyCellInEdit)
-          ? 'bg-brand-primary/10 border-l-2 border-brand-primary'
-          : // Shared hover wash (#2096) — the `--chrome-row-hover` DS token, which
-            // the canvas rowHover band mirrors pixel-for-pixel, so the table row
-            // and its bar read as one unit; falls back to CSS :hover otherwise.
-            isHovered
-            ? 'bg-chrome-row-hover'
-            : 'hover:bg-chrome-row-hover',
-        dimmed ? 'opacity-[0.22] pointer-events-none' : '',
-        isStructuralPending ? 'opacity-70 cursor-progress' : '',
-      ].join(' ')}
+      className={getRowClassName({
+        isEditing,
+        anyCellInEdit,
+        buildMode,
+        isBuildSelected,
+        isSelected,
+        isHovered,
+        dimmed,
+        isStructuralPending,
+      })}
       onClick={() => {
         if (isEditing || anyCellInEdit) return;
         if (buildMode) {
@@ -1150,61 +1295,25 @@ function TaskListRowInner({
         </button>
       </div>
 
-      {/* ── Dur column ──────────────────────────────────────────────────────── */}
-      {!isEditing && visible.dur && (
-        <TaskDurationCell
-          buildMode={buildMode}
-          task={task}
-          widthPx={widths.dur}
-          editingColumnDuration={editingColumnDuration}
-          projectId={projectId}
-          updateTask={updateTask}
-          setRecalcPrompt={setRecalcPrompt}
-          effectiveDurationPolicy={effectiveDurationPolicy}
-          isCoarsePointer={isCoarsePointer}
-        />
-      )}
-
-      {/* ── Start column ────────────────────────────────────────────────────── */}
-      {!isEditing && visible.start && (
-        <TaskStartCell
-          buildMode={buildMode}
-          task={task}
-          widthPx={widths.start}
-          showMilestonePicker={showMilestonePicker}
-          setShowMilestonePicker={setShowMilestonePicker}
-          milestoneParents={milestoneParents}
-          projectId={projectId}
-          updateTask={updateTask}
-        />
-      )}
-
-      {/* ── Finish column ───────────────────────────────────────────────────── */}
-      {!isEditing && visible.finish && <TaskFinishCell task={task} widthPx={widths.finish} />}
-
-      {/* ── % complete column ───────────────────────────────────────────────── */}
-      {/*
-       * Milestone tasks with a sprint rollup (ADR-0074) render the rolled-up
-       * percent as read-only — manual edits are server-rejected with a
-       * structured 400. The cell also surfaces a lock affordance and a
-       * compact variance pill when the sprint is anchored to the milestone.
-       */}
-      {!isEditing && visible.progress && (
-        <TaskProgressCell
-          buildMode={buildMode}
-          task={task}
-          widthPx={widths.progress}
-          editingColumnProgress={editingColumnProgress}
-          projectId={projectId}
-          updateTask={updateTask}
-          setScheduleError={setScheduleError}
-          itl={itl}
-        />
-      )}
-
-      {/* ── Owner column (#248) ─────────────────────────────────────────────── */}
-      {/* Summary tasks: empty cell (assignees roll up implicitly, not authored). */}
-      {!isEditing && visible.owner && <TaskOwnerCell task={task} widthPx={widths.owner} />}
+      <TaskDataCells
+        isEditing={isEditing}
+        visible={visible}
+        widths={widths}
+        buildMode={buildMode}
+        task={task}
+        editingColumnDuration={editingColumnDuration}
+        editingColumnProgress={editingColumnProgress}
+        projectId={projectId}
+        updateTask={updateTask}
+        setRecalcPrompt={setRecalcPrompt}
+        effectiveDurationPolicy={effectiveDurationPolicy}
+        isCoarsePointer={isCoarsePointer}
+        showMilestonePicker={showMilestonePicker}
+        setShowMilestonePicker={setShowMilestonePicker}
+        milestoneParents={milestoneParents}
+        setScheduleError={setScheduleError}
+        itl={itl}
+      />
       {/* Sprint assignment prompt after name commit in agile mode (#346).
           When the commit trips a Tier-1 warn or an Owner-escalated Tier-2 block
           (ADR-0101), the prompt is replaced by the corresponding outcome panel
@@ -1260,71 +1369,108 @@ export const TaskListRow = memo(TaskListRowInner);
  * Milestone tasks: render the rolled-up percent when present (with lock icon
  * + variance pill), otherwise leave the cell empty (today's behaviour).
  */
-function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number }) {
+type MilestoneRollup = NonNullable<Task['milestoneRollup']>;
+
+interface MilestoneRollupDisplay {
+  pct: number;
+  varianceLabel: string | null;
+  varianceClass: string;
+  ariaLabel: string;
+}
+
+/** Signed day label for a milestone variance ("-2d" / "0d" / "+3d"), or null. */
+function formatVarianceDays(variance: number | null): string | null {
+  if (variance == null) return null;
+  if (variance < 0) return `${variance}d`;
+  if (variance === 0) return '0d';
+  return `+${variance}d`;
+}
+
+/**
+ * Derive the milestone-rollup cell's percent, variance pill label/color, and the
+ * composed aria-label. CPM annotation (issue 551) folds float/critical-path from
+ * task.isCritical / task.totalFloat (already on TaskSerializer — no new API).
+ */
+function deriveMilestoneRollupDisplay(
+  rollup: MilestoneRollup,
+  task: Task,
+  itl: IterationLabel,
+): MilestoneRollupDisplay {
+  const pct = Math.round(rollup.percent_complete!);
+  const variance = rollup.variance_days;
+  const { tone, annotation, ariaAnnotation } = milestoneVarianceAnnotation({
+    varianceDays: variance,
+    totalFloatDays: task.totalFloat,
+    onCriticalPath: task.isCritical,
+  });
+  const baseVarianceLabel = formatVarianceDays(variance);
+  const varianceLabel =
+    baseVarianceLabel && annotation ? `${baseVarianceLabel} · ${annotation}` : baseVarianceLabel;
+  const varianceClass =
+    variance == null || variance === 0 ? 'text-neutral-text-secondary' : varianceToneTextClass(tone);
+  const ariaLabelParts = [`Progress ${pct}% (${itl.lower} rollup, locked)`];
+  if (variance != null && variance !== 0) {
+    const slipPhrase =
+      variance < 0
+        ? `${itl.singular} plan ${Math.abs(variance)} days ahead`
+        : `${itl.singular} plan ${variance} days slip`;
+    ariaLabelParts.push(ariaAnnotation ? `${slipPhrase}, ${ariaAnnotation}.` : `${slipPhrase}.`);
+  }
+  if (rollup.sprint_scope_changed) {
+    ariaLabelParts.push(`${itl.singular} scope changed since activation.`);
+  }
+  return { pct, varianceLabel, varianceClass, ariaLabel: ariaLabelParts.join(' ') };
+}
+
+/** Read-only milestone-rollup progress cell (ADR-0074) — percent + lock + variance pill. */
+function MilestoneRollupCell({
+  task,
+  widthPx,
+  rollup,
+}: {
+  task: Task;
+  widthPx: number;
+  rollup: MilestoneRollup;
+}) {
   const itl = useIterationLabel();
+  const { pct, varianceLabel, varianceClass, ariaLabel } = deriveMilestoneRollupDisplay(
+    rollup,
+    task,
+    itl,
+  );
+  return (
+    <div
+      className="flex items-center justify-end shrink-0 gap-1
+          text-right text-neutral-text-primary tabular-nums pr-2 border-r border-neutral-border/20"
+      style={{ width: widthPx }}
+      role="gridcell"
+      aria-label={ariaLabel}
+      aria-readonly="true"
+      title={ariaLabel}
+    >
+      <span className="tppm-mono">{pct}%</span>
+      <span aria-hidden="true" className="text-neutral-text-secondary">
+        🔒
+      </span>
+      {varianceLabel && (
+        <span className={`tppm-mono text-xs ${varianceClass}`} aria-hidden="true">
+          {varianceLabel}
+        </span>
+      )}
+      {rollup.sprint_scope_changed && rollup.scope_change_sprint_id && (
+        <ScopeChangedChip sprintId={rollup.scope_change_sprint_id} iconOnly />
+      )}
+    </div>
+  );
+}
+
+function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number }) {
   const rollup = task.milestoneRollup ?? null;
   const hasRollup =
     task.isMilestone && rollup && rollup.rollup_basis !== 'none' && rollup.percent_complete != null;
 
   if (task.isMilestone && hasRollup && rollup) {
-    const pct = Math.round(rollup.percent_complete!);
-    const variance = rollup.variance_days;
-    // CPM annotation (issue 551): color band + float/critical-path suffix from
-    // task.isCritical / task.totalFloat (already on TaskSerializer — no new API).
-    const { tone, annotation, ariaAnnotation } = milestoneVarianceAnnotation({
-      varianceDays: variance,
-      totalFloatDays: task.totalFloat,
-      onCriticalPath: task.isCritical,
-    });
-    const baseVarianceLabel =
-      variance == null
-        ? null
-        : variance < 0
-          ? `${variance}d`
-          : variance === 0
-            ? '0d'
-            : `+${variance}d`;
-    const varianceLabel =
-      baseVarianceLabel && annotation ? `${baseVarianceLabel} · ${annotation}` : baseVarianceLabel;
-    const varianceClass =
-      variance == null || variance === 0
-        ? 'text-neutral-text-secondary'
-        : varianceToneTextClass(tone);
-    const ariaLabelParts = [`Progress ${pct}% (${itl.lower} rollup, locked)`];
-    if (variance != null && variance !== 0) {
-      const slipPhrase =
-        variance < 0
-          ? `${itl.singular} plan ${Math.abs(variance)} days ahead`
-          : `${itl.singular} plan ${variance} days slip`;
-      ariaLabelParts.push(ariaAnnotation ? `${slipPhrase}, ${ariaAnnotation}.` : `${slipPhrase}.`);
-    }
-    if (rollup.sprint_scope_changed) {
-      ariaLabelParts.push(`${itl.singular} scope changed since activation.`);
-    }
-    return (
-      <div
-        className="flex items-center justify-end shrink-0 gap-1
-          text-right text-neutral-text-primary tabular-nums pr-2 border-r border-neutral-border/20"
-        style={{ width: widthPx }}
-        role="gridcell"
-        aria-label={ariaLabelParts.join(' ')}
-        aria-readonly="true"
-        title={ariaLabelParts.join(' ')}
-      >
-        <span className="tppm-mono">{pct}%</span>
-        <span aria-hidden="true" className="text-neutral-text-secondary">
-          🔒
-        </span>
-        {varianceLabel && (
-          <span className={`tppm-mono text-xs ${varianceClass}`} aria-hidden="true">
-            {varianceLabel}
-          </span>
-        )}
-        {rollup.sprint_scope_changed && rollup.scope_change_sprint_id && (
-          <ScopeChangedChip sprintId={rollup.scope_change_sprint_id} iconOnly />
-        )}
-      </div>
-    );
+    return <MilestoneRollupCell task={task} widthPx={widthPx} rollup={rollup} />;
   }
 
   // Summary/parent rows carry a duration-weighted rollup of child progress, which

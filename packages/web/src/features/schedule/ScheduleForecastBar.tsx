@@ -43,6 +43,147 @@ const BTN_CLS =
   'hover:bg-neutral-surface-raised disabled:opacity-50 disabled:cursor-not-allowed ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
 
+/** Persist the expanded/collapsed choice; private-mode failures fall back to session memory. */
+function persistExpanded(next: boolean): void {
+  try {
+    localStorage.setItem(EXPANDED_KEY, String(next));
+  } catch {
+    // Private mode / SSR — the in-memory value still drives the session.
+  }
+}
+
+type MonteCarloResult = NonNullable<ReturnType<typeof useMonteCarloResult>['data']>;
+
+/**
+ * Tracks the "stale — rerun for updated forecast" machinery: marks stale when a
+ * task mutation fires, and clears it when a fresh simulation result arrives.
+ * Extracted from ScheduleForecastBar (#2081) — behavior verbatim.
+ */
+function useForecastStaleness(
+  mutationVersion: number,
+  result: MonteCarloResult | undefined,
+  runMcPending: boolean,
+): boolean {
+  const [isStale, setIsStale] = useState(false);
+  const seenLastRunAt = useRef<string | undefined>(undefined);
+  const seenMutationVersion = useRef(mutationVersion);
+
+  useEffect(() => {
+    if (mutationVersion !== seenMutationVersion.current) {
+      seenMutationVersion.current = mutationVersion;
+      if (result) setIsStale(true);
+    }
+  }, [mutationVersion, result]);
+
+  useEffect(() => {
+    if (result?.lastRunAt && result.lastRunAt !== seenLastRunAt.current) {
+      seenLastRunAt.current = result.lastRunAt;
+      setIsStale(false);
+    }
+  }, [result?.lastRunAt]);
+
+  return runMcPending || isStale;
+}
+
+interface ForecastEmptyStateProps {
+  isLoading: boolean;
+  loadFailed: boolean;
+  runMcIsError: boolean;
+  runMcIsPending: boolean;
+  onRun: () => void;
+  onRetry: () => void;
+}
+
+/**
+ * No-result state — the ONLY "Run a simulation" prompt on the Schedule view now
+ * (the old MonteCarloRow + ScheduleInsightsBar double-claim is gone). A genuine
+ * load failure (a 404 "never run" is mapped to no-error by the hook) is kept
+ * distinct from the cold-start prompt so it doesn't read as "never run" (#1938) —
+ * and it offers a cheap Retry (refetch) rather than forcing a recompute.
+ */
+function ForecastEmptyState({
+  isLoading,
+  loadFailed,
+  runMcIsError,
+  runMcIsPending,
+  onRun,
+  onRetry,
+}: ForecastEmptyStateProps) {
+  return (
+    <section
+      className="hidden md:flex flex-row items-center gap-3 flex-shrink-0 border-t border-neutral-border bg-neutral-surface px-5 py-2.5"
+      aria-label={
+        loadFailed
+          ? 'Schedule forecast — could not load'
+          : 'Schedule forecast — no simulation run yet'
+      }
+    >
+      <span className="text-xs font-semibold text-neutral-text-primary">Forecast</span>
+      <span
+        className={`text-xs ${loadFailed ? 'text-semantic-critical' : 'text-neutral-text-secondary'}`}
+        {...(loadFailed ? { role: 'alert' } : {})}
+      >
+        {isLoading
+          ? 'Loading forecast…'
+          : loadFailed
+            ? "Couldn't load the forecast."
+            : runMcIsError
+              ? 'Could not run simulation. Try again.'
+              : 'Run a simulation to see P50/P80/P95 finish-date probabilities.'}
+      </span>
+      {loadFailed ? (
+        <button type="button" onClick={onRetry} className={`ml-auto ${BTN_CLS}`}>
+          Retry
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onRun}
+          disabled={runMcIsPending || isLoading}
+          className={`ml-auto ${BTN_CLS}`}
+        >
+          {runMcIsPending ? 'Running…' : 'Run Monte Carlo'}
+        </button>
+      )}
+    </section>
+  );
+}
+
+interface ForecastChip {
+  label: string;
+  iso: string;
+  border: string;
+  text: string;
+  suffix: string;
+}
+
+/** P50/P80/P95 chip descriptors; P80 carries the server-owned (+Nd) risk suffix. */
+function buildForecastChips(result: MonteCarloResult, showDelta: boolean): ForecastChip[] {
+  return [
+    {
+      label: 'P50',
+      iso: result.p50,
+      border: 'border-semantic-on-track/40',
+      text: 'text-semantic-on-track',
+      suffix: '',
+    },
+    {
+      label: 'P80',
+      iso: result.p80,
+      border: 'border-semantic-at-risk/40',
+      text: 'text-semantic-at-risk',
+      suffix: showDelta ? ` (+${result.deltaVsCpm.p80}d)` : '',
+    },
+    {
+      label: 'P95',
+      iso: result.p95,
+      border: 'border-semantic-critical/40',
+      text: 'text-semantic-critical',
+      suffix: '',
+    },
+  ];
+}
+
 /**
  * The single, consolidated Monte Carlo forecast surface for the Schedule view
  * (ADR-0144, web rule 189). Replaces the former two-surface split — the top
@@ -68,93 +209,35 @@ export function ScheduleForecastBar({
   const runMc = useRunMonteCarlo(projectId);
   const [expanded, setExpanded] = useState(readExpanded);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [isStale, setIsStale] = useState(false);
-  const seenLastRunAt = useRef<string | undefined>(undefined);
-  const seenMutationVersion = useRef(mutationVersion);
-
-  // Mark stale when a task mutation fires (machinery moved from MonteCarloRow).
-  useEffect(() => {
-    if (mutationVersion !== seenMutationVersion.current) {
-      seenMutationVersion.current = mutationVersion;
-      if (result) setIsStale(true);
-    }
-  }, [mutationVersion, result]);
-
-  // Clear stale when a new simulation result arrives.
-  useEffect(() => {
-    if (result?.lastRunAt && result.lastRunAt !== seenLastRunAt.current) {
-      seenLastRunAt.current = result.lastRunAt;
-      setIsStale(false);
-    }
-  }, [result?.lastRunAt]);
-
-  const isRecomputing = runMc.isPending || isStale;
+  const isRecomputing = useForecastStaleness(mutationVersion, result, runMc.isPending);
 
   function toggle() {
     setExpanded((prev) => {
       const next = !prev;
-      try {
-        localStorage.setItem(EXPANDED_KEY, String(next));
-      } catch {
-        // Private mode / SSR — the in-memory value still drives the session.
-      }
+      persistExpanded(next);
       return next;
     });
   }
 
-  // No-result state — the ONLY "Run a simulation" prompt on the Schedule view now
-  // (the old MonteCarloRow + ScheduleInsightsBar double-claim is gone). A genuine
-  // load failure (`error`; a 404 "never run" is mapped to no-error by the hook) is
-  // kept distinct from the cold-start prompt so it doesn't read as "never run"
-  // (#1938) — and it offers a cheap Retry (refetch) rather than forcing a recompute.
   if (!result) {
     if (!projectId) return null;
-    const loadFailed = Boolean(error);
     return (
-      <section
-        className="hidden md:flex flex-row items-center gap-3 flex-shrink-0 border-t border-neutral-border bg-neutral-surface px-5 py-2.5"
-        aria-label={
-          loadFailed
-            ? 'Schedule forecast — could not load'
-            : 'Schedule forecast — no simulation run yet'
-        }
-      >
-        <span className="text-xs font-semibold text-neutral-text-primary">Forecast</span>
-        <span
-          className={`text-xs ${loadFailed ? 'text-semantic-critical' : 'text-neutral-text-secondary'}`}
-          {...(loadFailed ? { role: 'alert' } : {})}
-        >
-          {isLoading
-            ? 'Loading forecast…'
-            : loadFailed
-              ? "Couldn't load the forecast."
-              : runMc.isError
-                ? 'Could not run simulation. Try again.'
-                : 'Run a simulation to see P50/P80/P95 finish-date probabilities.'}
-        </span>
-        {loadFailed ? (
-          <button type="button" onClick={() => refetch?.()} className={`ml-auto ${BTN_CLS}`}>
-            Retry
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => runMc.mutate({})}
-            disabled={runMc.isPending || isLoading}
-            className={`ml-auto ${BTN_CLS}`}
-          >
-            {runMc.isPending ? 'Running…' : 'Run Monte Carlo'}
-          </button>
-        )}
-      </section>
+      <ForecastEmptyState
+        isLoading={isLoading}
+        loadFailed={Boolean(error)}
+        runMcIsError={runMc.isError}
+        runMcIsPending={runMc.isPending}
+        onRun={() => runMc.mutate({})}
+        onRetry={() => refetch?.()}
+      />
     );
   }
 
   // Server-computed P80 risk premium vs the CPM finish (issue 987). Gated on a known
   // CPM finish so the chip's "(+Nd)" suffix only appears when the deterministic
   // spine exists; the value itself is read from the server, not recomputed.
-  const showDelta = Boolean(cpmFinish) && typeof result.deltaVsCpm.p80 === 'number' && result.deltaVsCpm.p80 > 0;
-  const p80Delta = result.deltaVsCpm.p80;
+  const showDelta =
+    Boolean(cpmFinish) && typeof result.deltaVsCpm.p80 === 'number' && result.deltaVsCpm.p80 > 0;
 
   const topDriver = result.sensitivity
     .map((s) => tasks.find((t) => t.id === s.taskId)?.name)
@@ -162,17 +245,7 @@ export function ScheduleForecastBar({
 
   const panelId = 'schedule-forecast-panel';
 
-  const chips = [
-    { label: 'P50', iso: result.p50, border: 'border-semantic-on-track/40', text: 'text-semantic-on-track', suffix: '' },
-    {
-      label: 'P80',
-      iso: result.p80,
-      border: 'border-semantic-at-risk/40',
-      text: 'text-semantic-at-risk',
-      suffix: showDelta ? ` (+${p80Delta}d)` : '',
-    },
-    { label: 'P95', iso: result.p95, border: 'border-semantic-critical/40', text: 'text-semantic-critical', suffix: '' },
-  ] as const;
+  const chips = buildForecastChips(result, showDelta);
 
   return (
     <>

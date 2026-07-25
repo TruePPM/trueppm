@@ -275,6 +275,47 @@ function fmtMinutes(min: number): string {
 }
 
 /** Optional muted secondary line under the summary (preview, label, delta). */
+/** Detail line for a time_logged / time_deleted row ("2h 30m on Apr 9"). */
+function timeDetailLine(detail: Record<string, unknown>): string | null {
+  const min = num(detail, 'minutes');
+  if (min == null) return null;
+  const on = str(detail, 'entry_date');
+  return on ? `${fmtMinutes(min)} on ${fmtUtcShort(on)}` : fmtMinutes(min);
+}
+
+/**
+ * Detail line for a cpm_recalculated row.
+ *
+ * #1948: newer rows carry a per-project recalc summary (how many tasks moved +
+ * where finish landed). Legacy pre-#1948 rows lack `recalc_moved_count`, so we
+ * keep the original single-task Finish line for them.
+ */
+function cpmRecalcDetailLine(detail: Record<string, unknown>): string | null {
+  const moved = num(detail, 'recalc_moved_count');
+  if (moved == null) {
+    const finish = nestedTo(detail, 'early_finish');
+    const parts = [];
+    if (finish) parts.push(`Finish ${fmtUtcShort(finish)}`);
+    if (detail.is_critical === true) parts.push('on the critical path');
+    return parts.length ? parts.join(' · ') : null;
+  }
+  const parts = [`${moved} ${moved === 1 ? 'task' : 'tasks'} moved`];
+  const delta = num(detail, 'recalc_finish_delta_days');
+  if (delta != null) {
+    // ASCII sign per web-rule 120 (no Unicode +/− glyphs in copy).
+    if (delta === 0) parts.push('finish unchanged');
+    else parts.push(`finish ${delta > 0 ? '+' : '-'}${Math.abs(delta)}d`);
+  }
+  return parts.join(' · ');
+}
+
+/** Detail line for a risk_linked / risk_unlinked row ("R-12 · Vendor delay"). */
+function riskDetailLine(detail: Record<string, unknown>): string | null {
+  const shortId = str(detail, 'risk_short_id');
+  const title = str(detail, 'risk_title');
+  return [shortId, title].filter(Boolean).join(' · ') || null;
+}
+
 function detailLine(entry: TaskActivityEntry): string | null {
   const { event_type: et, detail } = entry;
   switch (et) {
@@ -282,46 +323,20 @@ function detailLine(entry: TaskActivityEntry): string | null {
     case 'comment_edited':
       return str(detail, 'preview');
     case 'time_logged':
-    case 'time_deleted': {
-      const min = num(detail, 'minutes');
-      const on = str(detail, 'entry_date');
-      if (min == null) return null;
-      return on ? `${fmtMinutes(min)} on ${fmtUtcShort(on)}` : fmtMinutes(min);
-    }
+    case 'time_deleted':
+      return timeDetailLine(detail);
     case 'attachment_uploaded':
     case 'attachment_deleted':
       return str(detail, 'label');
-    case 'cpm_recalculated': {
-      // #1948: newer rows carry a per-project recalc summary (how many tasks
-      // moved + where finish landed). Legacy pre-#1948 rows lack
-      // `recalc_moved_count` → keep the original single-task Finish line.
-      const moved = num(detail, 'recalc_moved_count');
-      if (moved == null) {
-        const finish = nestedTo(detail, 'early_finish');
-        const parts = [];
-        if (finish) parts.push(`Finish ${fmtUtcShort(finish)}`);
-        if (detail.is_critical === true) parts.push('on the critical path');
-        return parts.length ? parts.join(' · ') : null;
-      }
-      const parts = [`${moved} ${moved === 1 ? 'task' : 'tasks'} moved`];
-      const delta = num(detail, 'recalc_finish_delta_days');
-      if (delta != null) {
-        // ASCII sign per web-rule 120 (no Unicode +/− glyphs in copy).
-        if (delta === 0) parts.push('finish unchanged');
-        else parts.push(`finish ${delta > 0 ? '+' : '-'}${Math.abs(delta)}d`);
-      }
-      return parts.join(' · ');
-    }
+    case 'cpm_recalculated':
+      return cpmRecalcDetailLine(detail);
     case 'baseline_drift_detected': {
       const drift = num(detail, 'drift_days');
       return drift != null ? `${drift}d behind baseline` : null;
     }
     case 'risk_linked':
-    case 'risk_unlinked': {
-      const shortId = str(detail, 'risk_short_id');
-      const title = str(detail, 'risk_title');
-      return [shortId, title].filter(Boolean).join(' · ') || null;
-    }
+    case 'risk_unlinked':
+      return riskDetailLine(detail);
     default:
       return null;
   }
