@@ -1,0 +1,55 @@
+# OSV-Scanner suppressions for the web app's locked dependency set
+# (packages/web/package-lock.json), auto-discovered by the security:osv CI job.
+#
+# Same accepted-risk contract as packages/api/osv-scanner.toml and
+# packages/scheduler/osv-scanner.toml: every entry carries a `reason` and an
+# expiry, so a suppression stays documented and rots on its own instead of
+# silently masking a future advisory.
+#
+# These are `[[PackageOverrides]]` rather than `[[IgnoredVulns]]` on purpose.
+# An `IgnoredVulns` entry suppresses an advisory ID across *every* version of
+# every package, which here would also mask the `brace-expansion` 5.x line that
+# we do keep patched. Pinning `name` + `version` keeps the suppression scoped to
+# the exact unfixable resolutions, so a future advisory against the version we
+# actually upgrade still blocks the pipeline.
+
+# GHSA-mh99-v99m-4gvg — brace-expansion DoS via unbounded expansion length
+# (HIGH, CVSS 7.5, availability-only). `expand()` caps the *number* of results
+# but not their length, so chained brace groups exhaust memory and kill the Node
+# process with a fatal, uncatchable OOM.
+#
+# Fixed in 5.0.8 only; the 1.x and 2.x maintenance lines have no patched
+# release. We take 5.0.8 on the one path that can reach it (minimatch@10, via
+# @typescript-eslint/parser) and suppress the two that cannot:
+#
+#   1.1.16 <- minimatch@3.1.5 <- eslint, @eslint/config-array, @eslint/eslintrc,
+#             eslint-plugin-jsx-a11y, eslint-plugin-react
+#   2.1.2  <- minimatch@5.1.9 <- @redocly/openapi-core <- openapi-typescript
+#
+# Both are devDependencies only — the lint toolchain and the OpenAPI codegen.
+# Neither is in `dependencies`; neither is bundled into the shipped SPA. The
+# brace patterns reaching `expand()` come from our own eslint and redocly config
+# files, never from user or network input, so the DoS has no reachable trigger:
+# the only processes at risk run locally and in CI.
+#
+# There is no upstream fix to wait on: eslint-plugin-jsx-a11y@6.10.2 and
+# eslint-plugin-react@7.37.5 are both already latest and still pin
+# minimatch@^3.1.2. Re-evaluate when those plugins move off minimatch@3, or when
+# openapi-typescript moves to @redocly/openapi-core@2.x (which drops minimatch
+# entirely). Tracked in #2363.
+
+[[PackageOverrides]]
+name = "brace-expansion"
+version = "1.1.16"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2026-12-31
+reason = "GHSA-mh99-v99m-4gvg: no patched 1.x release exists. Dev-only, via minimatch@3 under eslint and its plugins (eslint-plugin-jsx-a11y and eslint-plugin-react are both at latest and still pin minimatch@^3.1.2). Not bundled into the shipped app; brace patterns come from our own eslint config, not from user input."
+
+[[PackageOverrides]]
+name = "brace-expansion"
+version = "2.1.2"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2026-12-31
+reason = "GHSA-mh99-v99m-4gvg: no patched 2.x release exists. Dev-only, via minimatch@5 under @redocly/openapi-core <- openapi-typescript (codegen). Not bundled into the shipped app; brace patterns come from our own redocly config, not from user input. Clears when openapi-typescript moves to @redocly/openapi-core@2.x, which drops minimatch."
