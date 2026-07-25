@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApiSprint, SprintState } from '@/types';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { CheckIcon } from '@/components/Icons';
 
 interface BoardSprintSwitcherProps {
   sprints: ApiSprint[];
@@ -138,7 +139,7 @@ export function BoardSprintSwitcher({
               focus:ring-2 focus:ring-inset focus:ring-brand-primary"
           >
             <span className="font-medium text-neutral-text-primary">All tasks (project)</span>
-            {!selectedSprintId && <span aria-hidden="true">✓</span>}
+            {!selectedSprintId && <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />}
           </button>
 
           {visibleSprints.length > 0 && <div className="my-1 border-t border-neutral-border" />}
@@ -182,7 +183,7 @@ export function BoardSprintSwitcher({
                     {dateRange(s)}
                   </span>
                 </span>
-                {isSel && <span aria-hidden="true">✓</span>}
+                {isSel && <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />}
               </button>
             );
           })}

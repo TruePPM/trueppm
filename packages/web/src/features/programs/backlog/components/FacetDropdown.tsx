@@ -10,6 +10,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { FilterChip } from './FilterChip';
 import { FOCUS_RING } from './styles';
+import { CheckIcon } from '@/components/Icons';
 
 export interface FacetOption {
   value: string;
@@ -125,7 +126,7 @@ export function FacetDropdown({
                           : 'border-neutral-border bg-neutral-surface'
                       }`}
                     >
-                      {checked ? '✓' : ''}
+                      {checked && <CheckIcon className="h-2.5 w-2.5" />}
                     </span>
                     {option.label}
                   </button>

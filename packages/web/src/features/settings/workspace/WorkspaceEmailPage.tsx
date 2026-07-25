@@ -312,7 +312,14 @@ function CopyButton({ value }: { value: string }) {
       }}
       className="h-8 px-2.5 text-[12px] font-medium border border-neutral-border rounded-control text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 shrink-0"
     >
-      {copied ? 'Copied ✓' : 'Copy'}
+      {copied ? (
+        <>
+          Copied
+          <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] ml-1" aria-hidden="true" />
+        </>
+      ) : (
+        'Copy'
+      )}
     </button>
   );
 }

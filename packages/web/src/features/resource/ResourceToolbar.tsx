@@ -10,6 +10,7 @@
  */
 import { formatWeekHeader } from './resourceUtils';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { CheckIcon } from '@/components/Icons';
 import {
   ToolbarOverflowMenu,
   type ToolbarOverflowItem,
@@ -228,7 +229,10 @@ export function ResourceToolbar({
                 : '',
             ].join(' ')}
           >
-            {myAllocationActive ? '✓ My allocation' : 'My allocation'}
+            {myAllocationActive && (
+              <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
+            )}
+            My allocation
           </button>
         )}
 

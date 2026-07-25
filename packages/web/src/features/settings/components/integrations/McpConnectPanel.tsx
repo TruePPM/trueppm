@@ -18,6 +18,7 @@
 
 import { useState } from 'react';
 import { MCP_EXAMPLE_PROMPTS } from '@/lib/mcpExamplePrompts';
+import { CheckIcon } from '@/components/Icons';
 
 /**
  * Instance base URL the MCP server points at, derived from the browser origin.
@@ -187,7 +188,14 @@ export function CopyButton({
       aria-label={accessibleName}
       className="h-8 px-3 shrink-0 rounded bg-brand-primary text-neutral-text-inverse text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
     >
-      {copied ? 'Copied ✓' : label}
+      {copied ? (
+        <>
+          Copied
+          <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] ml-1" aria-hidden="true" />
+        </>
+      ) : (
+        label
+      )}
     </button>
   );
 }

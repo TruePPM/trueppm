@@ -34,6 +34,7 @@ import {
 } from '@/hooks/useExternalConnection';
 import type { ExternalTaskSourceEntry } from '@/features/integrations/registry';
 import { SourceMark } from '@/features/integrations/SourceMark';
+import { CheckIcon } from '@/components/Icons';
 
 type Step = 'credentials' | 'configure' | 'connecting';
 type Deployment = 'cloud' | 'server';
@@ -284,7 +285,7 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
               <ul className="flex flex-col gap-1">
                 {READ_ONLY_SCOPES.map((scope) => (
                   <li key={scope} className="flex items-center gap-2 text-[12px] text-neutral-text-primary">
-                    <span aria-hidden="true" className="text-semantic-on-track">✓</span>
+                    <CheckIcon className="text-semantic-on-track inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
                     {scope}
                   </li>
                 ))}

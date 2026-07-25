@@ -4,6 +4,7 @@ import { useSprintMutations } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { Button } from '@/components/Button';
 import { formatDateRange, sprintDayOf } from './sprintMath';
+import { CheckIcon } from '@/components/Icons';
 
 interface Props {
   sprint: ApiSprint;
@@ -253,13 +254,13 @@ function GoalHint({ on, label }: { on: boolean; label: string }) {
       <span
         aria-hidden
         className={[
-          'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded text-xs font-bold',
-          on
-            ? 'bg-semantic-on-track text-navy-900'
-            : 'border border-neutral-border text-transparent',
+          'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded',
+          on ? 'bg-semantic-on-track text-navy-900' : 'border border-neutral-border',
         ].join(' ')}
       >
-        ✓
+        {/* Hollow box is the "not yet" state — the box holds the layout, so the
+            mark is omitted rather than hidden. */}
+        {on && <CheckIcon className="h-2.5 w-2.5" />}
       </span>
       <span
         className={

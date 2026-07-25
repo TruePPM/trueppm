@@ -7,6 +7,7 @@
  */
 import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import { useBoardSavedViews, type BoardSavedView, type BoardViewConfig } from '@/hooks/useBoardSavedViews';
+import { CheckIcon } from '@/components/Icons';
 
 // ---------------------------------------------------------------------------
 // Built-in views
@@ -238,7 +239,7 @@ export function BoardViewDropdown({
               ].join(' ')}
             >
               <span>{bv.label}</span>
-              {activeViewId === bv.id && <span aria-hidden="true" className="text-brand-primary">✓</span>}
+              {activeViewId === bv.id && <CheckIcon className="text-brand-primary inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />}
             </button>
           ))}
 
@@ -266,7 +267,7 @@ export function BoardViewDropdown({
                   >
                     <span className="truncate">{sv.name}</span>
                     {activeViewId === sv.id && (
-                      <span aria-hidden="true" className="text-brand-primary ml-auto">✓</span>
+                      <CheckIcon className="text-brand-primary ml-auto inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
                     )}
                   </button>
                   {/* Delete — shown on hover; always visible for creator */}

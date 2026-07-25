@@ -8,6 +8,7 @@ import { useEffect, useId, useState } from 'react';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import type { FacetOption } from '../FacetDropdown';
 import { BTN_PRIMARY, FOCUS_RING } from '../styles';
+import { CheckIcon } from '@/components/Icons';
 
 interface MobileFilterSheetProps {
   open: boolean;
@@ -68,7 +69,7 @@ export function MobileFilterSheet({
                         : 'border-neutral-border'
                     }`}
                   >
-                    {checked ? '✓' : ''}
+                    {checked && <CheckIcon className="h-2.5 w-2.5" />}
                   </span>
                   {option.label}
                 </button>

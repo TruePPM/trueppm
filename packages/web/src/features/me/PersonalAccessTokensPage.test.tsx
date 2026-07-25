@@ -446,7 +446,9 @@ describe('PersonalAccessTokensPage', () => {
     await waitFor(() => expect(screen.getByLabelText('Copy token')).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText('Copy token'));
     expect(writeText).toHaveBeenCalledWith('tppm_copy_me');
-    await waitFor(() => expect(screen.getByText(/Copied ✓/)).toBeInTheDocument());
+    // The confirmation check is a house CheckIcon SVG, not a "✓" glyph (issue 1749),
+    // so assert the button's text flip rather than the old glyph-bearing string.
+    await waitFor(() => expect(screen.getByLabelText('Copy token')).toHaveTextContent('Copied'));
   });
 
   it('revoke dialog: Keep token cancels without firing the mutation', () => {

@@ -7,6 +7,7 @@ import {
 } from '@/hooks/useMsProjectImportExport';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { ImportDropzone } from './ImportDropzone';
+import { CheckIcon } from '@/components/Icons';
 
 interface Props {
   /** Active project; the modal is gated on a non-null id by the caller. */
@@ -115,7 +116,7 @@ export function ImportModal({ projectId, onClose }: Props) {
             <div role="status" className="flex flex-col gap-3 max-md:min-h-0 max-md:flex-1">
               <div className="flex flex-col gap-3 max-md:min-h-0 max-md:flex-1 max-md:overflow-y-auto">
                 <p className="text-sm text-neutral-text-primary">
-                  <span aria-hidden="true">✓ </span>
+                  <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
                   Import started. Your tasks will appear in the schedule shortly.
                 </p>
                 <p className="text-xs text-neutral-text-secondary">

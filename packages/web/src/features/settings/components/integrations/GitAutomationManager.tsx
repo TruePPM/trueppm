@@ -24,6 +24,7 @@ import {
   type GitAutomationConfig,
 } from '@/hooks/useGitAutomation';
 import { Toggle } from '../Toggle';
+import { CheckIcon } from '@/components/Icons';
 
 export interface GitAutomationManagerProps {
   projectId: string;
@@ -169,7 +170,14 @@ function WebhookUrlField({ url }: { url: string }) {
           onClick={() => void copy()}
           className="h-8 px-3 rounded border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
-          {copied ? 'Copied ✓' : 'Copy'}
+          {copied ? (
+            <>
+              Copied
+              <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] ml-1" aria-hidden="true" />
+            </>
+          ) : (
+            'Copy'
+          )}
         </button>
       </div>
     </div>
@@ -313,7 +321,17 @@ function RotateSecretModal({
                 onClick={() => void copy()}
                 className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
-                {copied ? 'Copied ✓' : 'Copy'}
+                {copied ? (
+                  <>
+                    Copied
+                    <CheckIcon
+                      className="inline-block h-3 w-3 align-[-0.125em] ml-1"
+                      aria-hidden="true"
+                    />
+                  </>
+                ) : (
+                  'Copy'
+                )}
               </button>
             </div>
             <div className="flex justify-end">

@@ -12,7 +12,7 @@
 import { useEffect } from 'react';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { Button } from '@/components/Button';
-import { FilePdfIcon, PrinterIcon } from '@/components/Icons';
+import { CheckIcon, FilePdfIcon, PrinterIcon } from '@/components/Icons';
 import { Toggle } from '@/features/settings/components/Toggle';
 import { ExportSegmentedField, type SegmentOption } from './ExportSegmentedField';
 import {
@@ -325,9 +325,7 @@ export function ScheduleExportDialog({
         {phase === 'success' && result && (
           <div className="flex flex-col gap-4">
             <h2 className="text-[15px] font-semibold text-neutral-text-primary">
-              <span aria-hidden="true" className="text-semantic-on-track">
-                ✓
-              </span>{' '}
+              <CheckIcon className="text-semantic-on-track inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />{' '}
               {result.destination === 'print'
                 ? 'Print dialog opened'
                 : 'PDF ready · download started'}

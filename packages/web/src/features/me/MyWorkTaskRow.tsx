@@ -10,7 +10,7 @@
  *   - story-point / remaining-point display
  *   - due date with `due_source` suffix (e.g. "Due May 30 (planned)")
  */
-import { WarningIcon } from '@/components/Icons';
+import { CheckIcon, WarningIcon } from '@/components/Icons';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { TaskStatus } from '@/types';
@@ -227,7 +227,7 @@ export function MyWorkTaskRow({ task }: Props) {
               justCompleted ? 'motion-safe:animate-checkpop' : '',
             ].join(' ')}
           >
-            <span aria-hidden="true">✓</span>
+            <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
           </span>
         </button>
         {task.is_critical && (

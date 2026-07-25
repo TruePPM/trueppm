@@ -8,13 +8,7 @@ import { toast } from '@/components/Toast';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
-import {
-  CalendarIcon,
-  ChevronRightIcon,
-  GanttIcon,
-  PlusIcon,
-  WarningIcon,
-} from '@/components/Icons';
+import { CalendarIcon, CheckIcon, ChevronRightIcon, GanttIcon, PlusIcon, WarningIcon } from '@/components/Icons';
 import {
   barGeometry,
   compareWbs,
@@ -298,7 +292,7 @@ function MobileScheduleRow({ task, window, onOpen, onComplete, completeDisabled 
                   justCompleted ? 'motion-safe:animate-checkpop' : '',
                 ].join(' ')}
               >
-                <span aria-hidden="true">✓</span>
+                <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
               </span>
             </button>
           ) : (

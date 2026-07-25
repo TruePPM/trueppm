@@ -380,8 +380,9 @@ describe('WorkspaceMembersPage — Resend invite (issue 969)', () => {
     await waitFor(() =>
       expect(postMock).toHaveBeenCalledWith('/workspace/invites/inv1/resend/'),
     );
-    // Fire-and-forget 202 → the row swaps to a reassuring "Sent ✓" cue.
-    expect(await screen.findByText('Sent ✓')).toBeInTheDocument();
+    // Fire-and-forget 202 → the row swaps to a reassuring "Sent" cue. The check is a
+    // house CheckIcon SVG rather than a "✓" glyph (issue 1749), so anchor on the cue.
+    expect(await screen.findByTestId('invite-resent-cue')).toHaveTextContent('Sent');
     // The adjacent Revoke action stays live.
     expect(
       screen.getByRole('button', { name: /Revoke invite for pending@truescope.io/i }),

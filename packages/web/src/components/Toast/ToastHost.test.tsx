@@ -61,12 +61,13 @@ describe('ToastHost', () => {
     act(() => {
       toast.success('Done');
     });
-    expect(screen.getByText('✓')).toBeInTheDocument();
+    // The sage check is a house CheckIcon SVG, not a "✓" glyph (issue 1749).
+    expect(screen.getByTestId('toast-success-check')).toBeInTheDocument();
     act(() => {
       useToastStore.getState().clear();
       toast.error('Failed to save');
     });
-    expect(screen.queryByText('✓')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('toast-success-check')).not.toBeInTheDocument();
     expect(screen.getByText('Failed to save')).toBeInTheDocument();
   });
 

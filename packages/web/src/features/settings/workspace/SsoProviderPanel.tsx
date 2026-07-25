@@ -78,7 +78,7 @@ function CopyButton({ value }: { value: string }) {
     >
       {copied ? (
         <>
-          Copied <span aria-hidden="true">✓</span>
+          Copied <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
         </>
       ) : (
         'Copy'

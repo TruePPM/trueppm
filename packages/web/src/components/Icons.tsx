@@ -1124,3 +1124,50 @@ export function XMarkIcon({ className, ...rest }: IconProps) {
     </svg>
   );
 }
+
+/**
+ * Half-filled circle — the "partially met" middle band of a three-state outcome,
+ * between CheckIcon (met) and XMarkIcon (missed). Replaces the `◐` glyph (issue 1749).
+ *
+ * The outline is stroked and the left half filled, so the mark reads as partial at
+ * chip size where a shaded fill would just look like a lighter dot.
+ */
+export function HalfCircleIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      className={className}
+      {...rest}
+    >
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/**
+ * Small filled dot — marks the selected row of a **radio** group in a menu, where
+ * CheckIcon marks a checkbox row. Replaces the `●` glyph (issue 1749).
+ *
+ * Distinct from CriticalDotIcon: that one is a semantic critical-count badge at a
+ * fixed 8px, this one scales with the surrounding text like the other row marks.
+ */
+export function RadioDotIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      {...rest}
+    >
+      <circle cx="8" cy="8" r="3.5" />
+    </svg>
+  );
+}

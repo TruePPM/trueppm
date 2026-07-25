@@ -1,4 +1,5 @@
 import type { Task } from '@/types';
+import { CheckIcon } from '@/components/Icons';
 import type { BoardCardScopeActions } from './types';
 
 interface CardAcceptIconProps {
@@ -36,7 +37,7 @@ export function CardAcceptIcon({
           focus:opacity-100 focus:ring-2 focus:ring-brand-primary
           focus:ring-offset-1 focus:outline-none"
     >
-      <span aria-hidden="true">✓</span>
+      <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
     </button>
   );
 }

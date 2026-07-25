@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { AuthShell } from './passwordReset/AuthShell';
 import { bootstrapAccessToken } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
+import { CheckIcon } from '@/components/Icons';
 
 /**
  * SSO completion landing — the SPA route the OIDC callback 302s to (issue 1392,
@@ -75,12 +76,14 @@ function copyFor(code: string | null): ErrorCopy {
   return ERROR_COPY[code] ?? { ...GENERIC_ERROR, code: `SSO_${code.toUpperCase()}` };
 }
 
-const CheckIcon = (
+// Named SuccessBadge, not CheckIcon: this is the 44px circular badge *container*,
+// distinct from the CheckIcon SVG it now holds (issue 1749).
+const SuccessBadge = (
   <span
     aria-hidden="true"
-    className="flex h-11 w-11 items-center justify-center rounded-full bg-semantic-on-track-bg text-semantic-on-track text-xl"
+    className="flex h-11 w-11 items-center justify-center rounded-full bg-semantic-on-track-bg text-semantic-on-track"
   >
-    ✓
+    <CheckIcon className="h-6 w-6" />
   </span>
 );
 
@@ -137,7 +140,7 @@ export function SsoCompletePage() {
   // session. This view is brief before the redirect into the app.
   return (
     <AuthShell
-      icon={CheckIcon}
+      icon={SuccessBadge}
       title="Identity verified"
       subtitle="Completing sign-in and loading your workspace…"
       backToSignIn={false}

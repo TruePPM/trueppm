@@ -10,7 +10,7 @@
  * Width and left offset are computed by the parent from the window geometry.
  * Labels are hidden when widthPx < 48; tooltip always present.
  */
-import { WarningIcon } from '@/components/Icons';
+import { CheckIcon, WarningIcon } from '@/components/Icons';
 import { useRef } from 'react';
 import type { AllocationTask } from './resourceUtils';
 import { partialAllocationStripeStyle } from './resourceUtils';
@@ -63,6 +63,7 @@ export function AllocationSpan({
       ? `${task.early_start} – ${task.early_finish}`
       : 'unscheduled',
     variant === 'over' ? '⚠ overallocated' : '',
+    variant === 'complete' ? 'complete' : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -74,6 +75,10 @@ export function AllocationSpan({
       ? `${task.early_start} to ${task.early_finish}`
       : 'unscheduled',
     variant === 'over' ? 'overallocated' : '',
+    // The completion cue is otherwise the check mark plus opacity-60 — both
+    // visual-only, and the button's aria-label overrides its content, so without
+    // this the state never reaches a screen reader (rule 6 / WCAG 1.4.1).
+    variant === 'complete' ? 'complete' : '',
   ]
     .filter(Boolean)
     .join(', ');
@@ -109,7 +114,9 @@ export function AllocationSpan({
           <span className="truncate flex-1 min-w-0">
             {variant === 'over' && <WarningIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />}
             {task.name}
-            {task.status === 'COMPLETE' && ' ✓'}
+            {task.status === 'COMPLETE' && (
+              <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] ml-1" aria-hidden="true" />
+            )}
           </span>
           <span className="ml-1 opacity-80 flex-shrink-0">{unitsDisplay}</span>
         </>

@@ -1,5 +1,6 @@
 import { useIncomingCarryover } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { CheckIcon } from '@/components/Icons';
 
 interface Props {
   /** The PLANNED sprint whose incoming carryover we preview. */
@@ -64,13 +65,15 @@ export function IncomingCarryoverCard({ sprintId, currentSprintShortId }: Props)
                   ? `Rolled into this ${itl.lower}`
                   : `Not rolled into this ${itl.lower}`
               }
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-xs font-bold ${
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
                 t.pulled_in_to_current
                   ? 'border-brand-primary bg-brand-primary text-neutral-text-inverse'
-                  : 'border-neutral-border text-transparent'
+                  : 'border-neutral-border'
               }`}
             >
-              ✓
+              {/* The empty box is the "not rolled in" state — the box itself carries
+                  the layout, so the mark is omitted rather than hidden. */}
+              {t.pulled_in_to_current && <CheckIcon className="h-2.5 w-2.5" />}
             </span>
             <span className="tppm-mono text-xs text-neutral-text-secondary shrink-0">
               {t.short_id}

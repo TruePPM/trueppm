@@ -32,6 +32,7 @@ import {
 } from './persistence';
 import { methodologyDefaultMode } from './methodologyDefaults';
 import { matchesFilters, type GridFilterState } from './filters';
+import { CheckIcon } from '@/components/Icons';
 
 type DeletePhase = 'idle' | 'confirming' | 'deleting';
 
@@ -533,9 +534,7 @@ export function GridView() {
             text-xs text-neutral-text-primary whitespace-nowrap"
         >
           {!toast.isError && (
-            <span aria-hidden="true" className="text-semantic-on-track">
-              ✓
-            </span>
+            <CheckIcon className="text-semantic-on-track inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
           )}
           {toast.text}
           {toast.onUndo && (

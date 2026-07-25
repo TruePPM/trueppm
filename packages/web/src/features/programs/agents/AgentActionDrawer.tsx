@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AgentAction } from '@/api/types';
 import { VERDICT_DISPLAY } from './agentDisplay';
+import { CheckIcon } from '@/components/Icons';
 
 interface AgentActionDrawerProps {
   action: AgentAction | null;
@@ -188,7 +189,15 @@ function HashRow({ label, value }: { label: string; value: string }) {
             aria-label={`Copy ${label}`}
             className="shrink-0 rounded-control border border-neutral-border px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
-            {copied ? '✓' : 'copy'}
+            {copied ? (
+              <CheckIcon
+                className="inline-block h-3 w-3 align-[-0.125em]"
+                aria-hidden="true"
+                data-testid="copied-check"
+              />
+            ) : (
+              'copy'
+            )}
           </button>
         )}
       </dd>

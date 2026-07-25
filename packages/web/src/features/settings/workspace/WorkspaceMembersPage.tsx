@@ -15,6 +15,7 @@ import { toast } from '@/components/Toast';
 import { FieldHelp } from '@/components/FieldHelp';
 import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
 import { filterMembers } from './filterMembers';
+import { CheckIcon } from '@/components/Icons';
 
 const ROLE_PALETTE: Record<string, { bg: string; text: string; style?: CSSProperties }> = {
   // Admin is a distinct identity hue, not a status — the single-sourced violet
@@ -659,8 +660,15 @@ export function WorkspaceMembersPage() {
                         // A resend re-issues the token, so any earlier link the
                         // recipient holds stops working — the cue is intentionally
                         // reassuring ("Sent ✓") rather than warning about that.
-                        <span className="text-[11px] text-semantic-on-track font-semibold">
-                          Sent ✓
+                        <span
+                          className="text-[11px] text-semantic-on-track font-semibold"
+                          data-testid="invite-resent-cue"
+                        >
+                          Sent
+                          <CheckIcon
+                            className="inline-block h-3 w-3 align-[-0.125em] ml-1"
+                            aria-hidden="true"
+                          />
                         </span>
                       ) : (
                         <button

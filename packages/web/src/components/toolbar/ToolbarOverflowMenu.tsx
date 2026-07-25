@@ -26,6 +26,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { CheckIcon } from '@/components/Icons';
 
 export type ToolbarOverflowItem =
   | {
@@ -232,8 +233,11 @@ export function ToolbarOverflowMenu({
               >
                 {item.icon && <span aria-hidden="true" className="text-neutral-text-secondary">{item.icon}</span>}
                 <span className="flex-1">{item.label}</span>
-                <span aria-hidden="true" className="text-brand-primary w-3 text-right">
-                  {item.checked ? '✓' : ''}
+                <span
+                  aria-hidden="true"
+                  className="flex w-3 shrink-0 justify-end text-brand-primary"
+                >
+                  {item.checked && <CheckIcon className="h-3 w-3" />}
                 </span>
               </button>
             );
