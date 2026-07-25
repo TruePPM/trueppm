@@ -305,41 +305,18 @@ def aggregate_utilization_weekly(
     # Reuse the daily engine — it handles calendar logic and prefetch contracts.
     daily = _compute_utilization_internal(project, weeks_start, window_end)
 
-    resources_out = []
-    for row in daily:
-        hrs = row["hours_per_day"]
-        max_units = float(row["max_units"])
-        mask = row["_mask"]
-        exc_ranges = row["_exc_ranges"]
-
-        util_by_week: list[int] = []
-        for wstart, wend in week_dates:
-            # Sum load hours for this resource in this ISO week
-            weekly_hours = 0.0
-            d = wstart
-            while d <= wend:
-                iso = d.isoformat()
-                if iso in row["_days"]:
-                    weekly_hours += row["_days"][iso]["hours"]
-                d += datetime.timedelta(days=1)
-
-            # Capacity = hours_per_day × max_units × working_days_in_week
-            working_days = _count_working_days_in_range(mask, exc_ranges, wstart, wend)
-            weekly_capacity = hrs * max_units * working_days
-            util_pct = round(100 * weekly_hours / weekly_capacity) if weekly_capacity > 0 else 0
-            util_by_week.append(util_pct)
-
-        resources_out.append(
-            {
-                "id": row["resource_id"],
-                "name": row["resource_name"],
-                "initials": _initials(row["resource_name"]),
-                "job_role": row["job_role"],
-                "color": _resource_color(row["resource_id"]),
-                "calendar_differs_from_project": row["calendar_differs_from_project"],
-                "util": util_by_week,
-            }
-        )
+    resources_out = [
+        {
+            "id": row["resource_id"],
+            "name": row["resource_name"],
+            "initials": _initials(row["resource_name"]),
+            "job_role": row["job_role"],
+            "color": _resource_color(row["resource_id"]),
+            "calendar_differs_from_project": row["calendar_differs_from_project"],
+            "util": _weekly_util_for_resource(row, week_dates),
+        }
+        for row in daily
+    ]
 
     # Client-side re-sort: server provides canonical order but supports group_by
     # as a sort hint so the client can resort without a round-trip.
@@ -353,6 +330,41 @@ def aggregate_utilization_weekly(
     return {"weeks": week_labels, "resources": resources_out}
 
 
+def _sum_week_hours(days: dict[str, Any], wstart: datetime.date, wend: datetime.date) -> float:
+    """Sum a resource's daily load hours across an inclusive ``[wstart, wend]`` week."""
+    total = 0.0
+    d = wstart
+    while d <= wend:
+        iso = d.isoformat()
+        if iso in days:
+            total += days[iso]["hours"]
+        d += datetime.timedelta(days=1)
+    return total
+
+
+def _weekly_util_for_resource(
+    row: dict[str, Any], week_dates: list[tuple[datetime.date, datetime.date]]
+) -> list[int]:
+    """Integer percent utilization per ISO week for one daily-engine resource row.
+
+    Util percent = (weekly_hours / weekly_capacity) × 100, where weekly_capacity is
+    hours_per_day × max_units × working_days_in_that_week (calendar-aware).
+    """
+    hrs = row["hours_per_day"]
+    max_units = float(row["max_units"])
+    mask = row["_mask"]
+    exc_ranges = row["_exc_ranges"]
+
+    util_by_week: list[int] = []
+    for wstart, wend in week_dates:
+        weekly_hours = _sum_week_hours(row["_days"], wstart, wend)
+        working_days = _count_working_days_in_range(mask, exc_ranges, wstart, wend)
+        weekly_capacity = hrs * max_units * working_days
+        util_pct = round(100 * weekly_hours / weekly_capacity) if weekly_capacity > 0 else 0
+        util_by_week.append(util_pct)
+    return util_by_week
+
+
 def _compute_utilization_internal(
     project: Any,
     window_start: datetime.date,
@@ -364,15 +376,7 @@ def _compute_utilization_internal(
     needed by ``aggregate_utilization_weekly``.  Not part of the public API.
     """
     project_cal = project.calendar
-
-    if project_cal is not None:
-        proj_mask = project_cal.working_days
-        proj_exceptions = _exception_ranges(project_cal.exceptions)
-        proj_cal_id = project_cal.pk
-    else:
-        proj_mask = _DEFAULT_WORKING_DAYS
-        proj_exceptions = []
-        proj_cal_id = None
+    proj_mask, proj_exceptions, proj_cal_id = _resolve_project_calendar(project_cal)
 
     tasks = project.tasks.filter(
         is_deleted=False,
@@ -394,47 +398,127 @@ def _compute_utilization_internal(
         task_end = min(task.early_finish, window_end)
 
         for assignment in assignments:
-            resource = assignment.resource
-            rid = str(resource.pk)
-
-            res_cal = resource.calendar
-            if res_cal is not None:
-                mask = res_cal.working_days
-                hrs = float(res_cal.hours_per_day)
-                exc_ranges = _exception_ranges(res_cal.exceptions)
-                cal_differs = res_cal.pk != proj_cal_id
-            else:
-                mask = proj_mask
-                hrs = float(project_cal.hours_per_day) if project_cal else _DEFAULT_HOURS_PER_DAY
-                exc_ranges = proj_exceptions
-                cal_differs = False
-
-            if rid not in resource_rows:
-                resource_rows[rid] = {
-                    "resource_id": rid,
-                    "resource_name": resource.name,
-                    "job_role": resource.job_role or "",
-                    "max_units": str(resource.max_units),
-                    "hours_per_day": hrs,
-                    "calendar_id": str(resource.calendar_id) if resource.calendar_id else None,
-                    "calendar_differs_from_project": cal_differs,
-                    # Internal fields used by aggregate_utilization_weekly
-                    "_mask": mask,
-                    "_exc_ranges": exc_ranges,
-                    "_days": defaultdict(lambda: {"hours": 0.0, "tasks": []}),
-                }
-
-            units = float(assignment.units)
-            daily_hours = hrs * units
-
-            d = task_start
-            while d <= task_end:
-                if _is_working_day(mask, exc_ranges, d):
-                    key = d.isoformat()
-                    resource_rows[rid]["_days"][key]["hours"] = round(
-                        resource_rows[rid]["_days"][key]["hours"] + daily_hours, 4
-                    )
-                    resource_rows[rid]["_days"][key]["tasks"].append(str(task.pk))
-                d += datetime.timedelta(days=1)
+            _accumulate_assignment(
+                resource_rows,
+                assignment,
+                task,
+                task_start,
+                task_end,
+                project_cal,
+                proj_mask,
+                proj_exceptions,
+                proj_cal_id,
+            )
 
     return sorted(resource_rows.values(), key=lambda r: r["resource_name"])
+
+
+def _resolve_project_calendar(
+    project_cal: Any,
+) -> tuple[int, list[tuple[datetime.date, datetime.date]], Any]:
+    """Resolve ``(mask, exception_ranges, calendar_id)`` for the project calendar.
+
+    Falls back to the Mon–Fri default (no calendar configured).
+    """
+    if project_cal is not None:
+        return project_cal.working_days, _exception_ranges(project_cal.exceptions), project_cal.pk
+    return _DEFAULT_WORKING_DAYS, [], None
+
+
+def _resolve_resource_calendar(
+    resource: Any,
+    project_cal: Any,
+    proj_mask: int,
+    proj_exceptions: list[tuple[datetime.date, datetime.date]],
+    proj_cal_id: Any,
+) -> tuple[int, float, list[tuple[datetime.date, datetime.date]], bool]:
+    """Resolve ``(mask, hours_per_day, exception_ranges, calendar_differs)`` for a resource.
+
+    "Resource calendar wins": a resource with its own calendar governs its working
+    days and hours; otherwise it inherits the project calendar (and never differs).
+    """
+    res_cal = resource.calendar
+    if res_cal is not None:
+        return (
+            res_cal.working_days,
+            float(res_cal.hours_per_day),
+            _exception_ranges(res_cal.exceptions),
+            res_cal.pk != proj_cal_id,
+        )
+    hrs = float(project_cal.hours_per_day) if project_cal else _DEFAULT_HOURS_PER_DAY
+    return proj_mask, hrs, proj_exceptions, False
+
+
+def _init_resource_row(
+    rid: str,
+    resource: Any,
+    hrs: float,
+    cal_differs: bool,
+    mask: int,
+    exc_ranges: list[tuple[datetime.date, datetime.date]],
+) -> dict[str, Any]:
+    """Build a fresh accumulator row for a resource (including internal `_` fields)."""
+    return {
+        "resource_id": rid,
+        "resource_name": resource.name,
+        "job_role": resource.job_role or "",
+        "max_units": str(resource.max_units),
+        "hours_per_day": hrs,
+        "calendar_id": str(resource.calendar_id) if resource.calendar_id else None,
+        "calendar_differs_from_project": cal_differs,
+        # Internal fields used by aggregate_utilization_weekly
+        "_mask": mask,
+        "_exc_ranges": exc_ranges,
+        "_days": defaultdict(lambda: {"hours": 0.0, "tasks": []}),
+    }
+
+
+def _accumulate_days(
+    days: dict[str, Any],
+    task_start: datetime.date,
+    task_end: datetime.date,
+    mask: int,
+    exc_ranges: list[tuple[datetime.date, datetime.date]],
+    daily_hours: float,
+    task_pk: str,
+) -> None:
+    """Add ``daily_hours`` (and the task id) to every working day in the task window."""
+    d = task_start
+    while d <= task_end:
+        if _is_working_day(mask, exc_ranges, d):
+            key = d.isoformat()
+            days[key]["hours"] = round(days[key]["hours"] + daily_hours, 4)
+            days[key]["tasks"].append(task_pk)
+        d += datetime.timedelta(days=1)
+
+
+def _accumulate_assignment(
+    resource_rows: dict[str, dict[str, Any]],
+    assignment: Any,
+    task: Any,
+    task_start: datetime.date,
+    task_end: datetime.date,
+    project_cal: Any,
+    proj_mask: int,
+    proj_exceptions: list[tuple[datetime.date, datetime.date]],
+    proj_cal_id: Any,
+) -> None:
+    """Fold one TaskResource assignment's daily load into ``resource_rows``."""
+    resource = assignment.resource
+    rid = str(resource.pk)
+    mask, hrs, exc_ranges, cal_differs = _resolve_resource_calendar(
+        resource, project_cal, proj_mask, proj_exceptions, proj_cal_id
+    )
+    if rid not in resource_rows:
+        resource_rows[rid] = _init_resource_row(rid, resource, hrs, cal_differs, mask, exc_ranges)
+
+    daily_hours = hrs * float(assignment.units)
+    _accumulate_days(
+        resource_rows[rid]["_days"],
+        task_start,
+        task_end,
+        mask,
+        exc_ranges,
+        daily_hours,
+        str(task.pk),
+    )

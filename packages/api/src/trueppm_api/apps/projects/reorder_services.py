@@ -54,11 +54,7 @@ def reorder_by_anchor(
     Raises :class:`ReorderError` on a bad anchor selector or an id that is not a
     member of the sibling group.
     """
-    anchors = [a for a in (before_id, after_id) if a is not None]
-    if to_end:
-        anchors.append("__end__")
-    if len(anchors) != 1:
-        raise ReorderError("Provide exactly one of before_id, after_id, or to_end.")
+    _validate_anchor_selector(before_id, after_id, to_end)
 
     # Lock the sibling group and read it in rank order. The list is the source of
     # truth for every subsequent index/neighbor computation.
@@ -69,16 +65,47 @@ def reorder_by_anchor(
     if item is None:
         raise ReorderError("item_id is not a member of the reorderable group.")
 
-    anchor_id = before_id or after_id
-    if anchor_id is not None:
-        if anchor_id == item_id:
-            raise ReorderError("Cannot anchor an item to itself.")
-        if anchor_id not in by_id:
-            raise ReorderError("anchor id is not a member of the reorderable group.")
+    _check_anchor_membership(before_id or after_id, item_id, by_id)
 
-    # Build the target ordering as a list of ids, then assign dense ranks. Working
-    # on the ordered id list (not the raw floats) keeps the result deterministic and
-    # collapse-proof: we always rewrite affected rows to clean RANK_STEP multiples.
+    ordered_ids = _build_ordered_ids(siblings, item_id, before_id, after_id, to_end=to_end)
+    moved_rank, renormalized = _assign_dense_ranks(ordered_ids, by_id, rank_field, item_id)
+
+    return {"id": item_id, "priority_rank": moved_rank, "renormalized": renormalized}
+
+
+def _validate_anchor_selector(before_id: str | None, after_id: str | None, to_end: bool) -> None:
+    """Assert exactly one of ``before_id``, ``after_id``, or ``to_end`` was given."""
+    anchors = [a for a in (before_id, after_id) if a is not None]
+    if to_end:
+        anchors.append("__end__")
+    if len(anchors) != 1:
+        raise ReorderError("Provide exactly one of before_id, after_id, or to_end.")
+
+
+def _check_anchor_membership(anchor_id: str | None, item_id: str, by_id: dict[str, Any]) -> None:
+    """Reject an anchor that is the item itself or not a member of the group."""
+    if anchor_id is None:
+        return
+    if anchor_id == item_id:
+        raise ReorderError("Cannot anchor an item to itself.")
+    if anchor_id not in by_id:
+        raise ReorderError("anchor id is not a member of the reorderable group.")
+
+
+def _build_ordered_ids(
+    siblings: list[Any],
+    item_id: str,
+    before_id: str | None,
+    after_id: str | None,
+    *,
+    to_end: bool,
+) -> list[str]:
+    """Compute the target id ordering with ``item_id`` moved to the anchor position.
+
+    Working on the ordered id list (not the raw floats) keeps the result
+    deterministic and collapse-proof: the caller always rewrites affected rows to
+    clean RANK_STEP multiples.
+    """
     ordered_ids = [str(s.pk) for s in siblings if str(s.pk) != item_id]
     if to_end:
         ordered_ids.append(item_id)
@@ -87,9 +114,22 @@ def reorder_by_anchor(
     else:  # after_id — non-None here: exactly one anchor, and it is neither to_end nor before_id
         assert after_id is not None
         ordered_ids.insert(ordered_ids.index(after_id) + 1, item_id)
+    return ordered_ids
 
-    # Assign dense ranks; only persist rows whose rank actually changes so the write
-    # (and the server_version bump / history row it creates) stays minimal.
+
+def _assign_dense_ranks(
+    ordered_ids: list[str],
+    by_id: dict[str, Any],
+    rank_field: str,
+    item_id: str,
+) -> tuple[int | None, list[dict[str, Any]]]:
+    """Write dense ``RANK_STEP`` multiples to ``ordered_ids``; return the moved rank.
+
+    Only persists rows whose rank actually changes so the write (and the
+    server_version bump / history row it creates) stays minimal. Returns
+    ``(moved_rank, renormalized)`` where ``renormalized`` lists every *other* row
+    whose rank changed.
+    """
     renormalized: list[dict[str, Any]] = []
     moved_rank: int | None = None
     for position, sid in enumerate(ordered_ids):
@@ -102,5 +142,4 @@ def reorder_by_anchor(
                 renormalized.append({"id": sid, "priority_rank": new_rank})
         if sid == item_id:
             moved_rank = new_rank
-
-    return {"id": item_id, "priority_rank": moved_rank, "renormalized": renormalized}
+    return moved_rank, renormalized

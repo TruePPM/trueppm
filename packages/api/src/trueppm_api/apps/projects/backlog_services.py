@@ -230,38 +230,57 @@ def _apply_tags_as_labels(
         # Label.name is capped at 50 chars; BacklogItem tags are unbounded, so clamp
         # to keep an over-long tag from raising instead of degrading gracefully.
         name = tag[:50]
-        label = Label.objects.filter(project=project, name__iexact=name, is_deleted=False).first()
+        existing = Label.objects.filter(
+            project=project, name__iexact=name, is_deleted=False
+        ).first()
+        if existing is not None:
+            TaskLabel.objects.get_or_create(task=task, label=existing)
+            continue
+        if label_count >= cap:
+            # At the curation ceiling — skip coining a new label but keep going;
+            # a pull must not fail because the project's label catalog is full.
+            continue
+        label, created = _coin_label(project, name, next_position, creator)
         if label is None:
-            if label_count >= cap:
-                # At the curation ceiling — skip coining a new label but keep going;
-                # a pull must not fail because the project's label catalog is full.
-                continue
-            try:
-                # Savepoint the create so a concurrent pull that coined the same tag
-                # first raises only a local IntegrityError (on uniq_label_name_per_project)
-                # instead of poisoning the whole pull transaction. Without the nested
-                # atomic the outer pull would roll back to a transient 500.
-                with transaction.atomic():
-                    label = Label.objects.create(
-                        project=project,
-                        name=name,
-                        color=LabelColor.SLATE,
-                        position=next_position,
-                        created_by=creator,
-                    )
-            except IntegrityError:
-                # Lost the race — the other transaction's label is now committed and
-                # visible; reuse it (exact-name match, since the unique constraint is
-                # on exact (project, name)). Fall through to attach it.
-                label = Label.objects.filter(project=project, name=name, is_deleted=False).first()
-                if label is None:
-                    continue
-            else:
-                next_position += 1
-                label_count += 1
-                created_ids.append(str(label.pk))
+            continue
+        if created:
+            next_position += 1
+            label_count += 1
+            created_ids.append(str(label.pk))
         TaskLabel.objects.get_or_create(task=task, label=label)
     return created_ids
+
+
+def _coin_label(
+    project: Project,
+    name: str,
+    position: int,
+    creator: Any,
+) -> tuple[Any, bool]:
+    """Create a new project label at ``position``, or reuse the race winner.
+
+    Returns ``(label, created)`` where ``created`` is True only when this call
+    coined the label (so the caller can bump the position/count and broadcast).
+
+    Savepoint the create so a concurrent pull that coined the same tag first raises
+    only a local IntegrityError (on uniq_label_name_per_project) instead of poisoning
+    the whole pull transaction. Without the nested atomic the outer pull would roll
+    back to a transient 500. On a lost race the other transaction's label is now
+    committed and visible; reuse it (exact-name match, since the unique constraint is
+    on exact (project, name)).
+    """
+    try:
+        with transaction.atomic():
+            label = Label.objects.create(
+                project=project,
+                name=name,
+                color=LabelColor.SLATE,
+                position=position,
+                created_by=creator,
+            )
+    except IntegrityError:
+        return Label.objects.filter(project=project, name=name, is_deleted=False).first(), False
+    return label, True
 
 
 def reset_pulled_item_on_task_delete(task_id: str) -> None:

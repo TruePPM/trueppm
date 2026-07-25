@@ -276,6 +276,45 @@ def _link_item(row: Any) -> dict[str, Any]:
     }
 
 
+def _source_entries(
+    source: str,
+    project_ids: list[Any],
+    *,
+    q: str | None,
+    label: str | None,
+    provider: str | None,
+    assignee_id: Any | None,
+    cursor: AssetCursor | None,
+    page_size: int,
+) -> list[tuple[tuple[datetime, int, uuid.UUID], dict[str, Any]]]:
+    """Load one bounded, keyset-filtered page slice for a single source.
+
+    Returns ``(sort_key, item)`` tuples where ``sort_key = (created_at, rank,
+    id_uuid)``. ``label``/``provider`` are link-only concepts — a file can never
+    carry either, so a filter on them excludes the file source entirely (skip the
+    query rather than run one that returns nothing).
+    """
+    if source == KIND_FILE and (label or provider):
+        return []
+
+    if source == KIND_FILE:
+        qs = _file_queryset(project_ids, q=q, assignee_id=assignee_id)
+        rank = _RANK_FILE
+        to_item = _file_item
+    else:
+        qs = _link_queryset(
+            project_ids, q=q, label=label, provider=provider, assignee_id=assignee_id
+        )
+        rank = _RANK_LINK
+        to_item = _link_item
+
+    if cursor is not None:
+        qs = qs.filter(_cursor_filter(rank, cursor))
+
+    rows = list(qs.order_by("-created_at", "-id")[: page_size + 1])
+    return [((row.created_at, rank, row.id), to_item(row)) for row in rows]
+
+
 def build_asset_feed(
     project_ids: Iterable[Any],
     *,
@@ -321,29 +360,18 @@ def build_asset_feed(
     # (sort_key, rank, item) where sort_key = (created_at, rank, id_uuid).
     entries: list[tuple[tuple[datetime, int, uuid.UUID], dict[str, Any]]] = []
     for source in _sources_for_kind(kind):
-        # ``label`` and ``provider`` are link-only concepts — a file can never
-        # carry either, so a filter on them excludes the file source entirely
-        # (skip the query rather than run one that returns nothing).
-        if source == KIND_FILE and (label or provider):
-            continue
-
-        if source == KIND_FILE:
-            qs = _file_queryset(project_ids, q=q, assignee_id=assignee_id)
-            rank = _RANK_FILE
-            to_item = _file_item
-        else:
-            qs = _link_queryset(
-                project_ids, q=q, label=label, provider=provider, assignee_id=assignee_id
+        entries.extend(
+            _source_entries(
+                source,
+                project_ids,
+                q=q,
+                label=label,
+                provider=provider,
+                assignee_id=assignee_id,
+                cursor=cursor,
+                page_size=page_size,
             )
-            rank = _RANK_LINK
-            to_item = _link_item
-
-        if cursor is not None:
-            qs = qs.filter(_cursor_filter(rank, cursor))
-
-        rows = list(qs.order_by("-created_at", "-id")[: page_size + 1])
-        for row in rows:
-            entries.append(((row.created_at, rank, row.id), to_item(row)))
+        )
 
     # Newest-first total order: created_at DESC, rank ASC, id DESC. ``-rank`` and
     # ``id.int`` compose into a single tuple sorted descending.
