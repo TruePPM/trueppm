@@ -7,8 +7,10 @@ Covers (#1114, ADR-0173):
   - A NULL deleted_at (legacy row, pre-column) is never auto-purged — the safety
     default that keeps age-unknown projects out of the hard-delete path
   - dry_run counts eligible rows without deleting
-  - The hard-delete CASCADES to child rows (tasks) and first removes the
-    PROTECT-constrained ProjectMembership rows (the ?force=true parity)
+  - The hard-delete CASCADES to child rows (tasks) and first removes every
+    PROTECT-constrained child — ProjectMembership and UserDefinedMentionGroup —
+    via hard_delete_projects (the ?force=true parity)
+  - A PROTECT-ed project does not abort the rest of its batch (#2372)
   - Idempotency: a second run is a no-op
   - A custom / disabled (None) window is respected; override_value forces a window
   - purge_soft_deleted_projects has the expected idempotent_task configuration
@@ -149,6 +151,36 @@ class TestProjectPurge:
         assert _purge() == 1
         assert not Project.objects.filter(pk=p.pk).exists()
         assert not ProjectMembership.objects.filter(pk=m.pk).exists()
+
+    def test_removes_protected_mention_group_rows(self) -> None:
+        from trueppm_api.apps.access.models import UserDefinedMentionGroup
+        from trueppm_api.apps.projects.models import Project
+
+        # UserDefinedMentionGroup.project is also on_delete=PROTECT. The purge used
+        # to pre-delete only ProjectMembership, asserting it was the *one* blocking
+        # FK, so a project that had ever carried a mention group raised
+        # ProtectedError (#2372). hard_delete_projects resolves PROTECT-ing children
+        # from _meta, so this needs no per-model maintenance.
+        p = _make_project(age_days=40)
+        g = UserDefinedMentionGroup.objects.create(project=p, name="subcontractors")
+        assert _purge() == 1
+        assert not Project.objects.filter(pk=p.pk).exists()
+        assert not UserDefinedMentionGroup.objects.filter(pk=g.pk).exists()
+
+    def test_protected_project_does_not_abort_rest_of_batch(self) -> None:
+        from trueppm_api.apps.access.models import UserDefinedMentionGroup
+        from trueppm_api.apps.projects.models import Project
+
+        # The regression that made #2372 a silent data-retention failure rather than
+        # a one-project bug: the batch deletes inside a single transaction, so a
+        # ProtectedError on ONE project rolled back the whole batch — including the
+        # projects that had no blocker. Retention then stalled indefinitely with no
+        # user-facing signal. Both projects must be purged in one pass.
+        blocked = _make_project(name="has-mention-group", age_days=40)
+        clean = _make_project(name="no-blocker", age_days=40)
+        UserDefinedMentionGroup.objects.create(project=blocked, name="inspectors")
+        assert _purge() == 2
+        assert not Project.objects.filter(pk__in=[blocked.pk, clean.pk]).exists()
 
     def test_idempotent_second_run_is_noop(self) -> None:
         from trueppm_api.apps.projects.models import Project

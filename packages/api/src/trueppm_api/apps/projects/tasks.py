@@ -509,13 +509,18 @@ def _do_project_purge(*, dry_run: bool = False, override_value: int | None = Non
     hard-deleted — the safe default is to retain it (an operator can still remove it
     via ``?force=true``).
 
-    ``ProjectMembership.project`` is ``on_delete=PROTECT`` — the one FK to Project
-    that blocks a bare ``Project.delete()`` (every other reachable FK is CASCADE) —
-    so its rows are removed first, exactly as the ``?force=true`` hard-delete path
-    does. HistoricalProject rows are intentionally not touched here; they age out via
-    the separate history retention purge.
+    Several FKs to Project are ``on_delete=PROTECT`` and would block a bare
+    ``Project.delete()``, so the delete is delegated to ``hard_delete_projects``,
+    which resolves those children reflectively from ``_meta`` and purges them first —
+    the same helper the ``?force=true`` hard-delete path uses. This used to be a
+    hand-written ``ProjectMembership`` pre-delete asserting it was the *only* PROTECT
+    FK; that enumeration went stale when mention groups landed and a single project
+    that had ever carried one aborted the whole batch (#2372).
+
+    HistoricalProject rows are intentionally not touched here; they age out via the
+    separate history retention purge.
     """
-    from trueppm_api.apps.access.models import ProjectMembership
+    from trueppm_api.apps.access.services import hard_delete_projects
     from trueppm_api.apps.observability.retention import resolve_retention
     from trueppm_api.apps.projects.models import Project
 
@@ -540,10 +545,10 @@ def _do_project_purge(*, dry_run: bool = False, override_value: int | None = Non
     deleted_projects = 0
     for start in range(0, len(project_ids), _PROJECT_PURGE_BATCH_SIZE):
         batch = project_ids[start : start + _PROJECT_PURGE_BATCH_SIZE]
-        with transaction.atomic():
-            ProjectMembership.objects.filter(project_id__in=batch).delete()
-            _, by_model = Project.objects.filter(pk__in=batch).delete()
-        deleted_projects += by_model.get(Project._meta.label, 0)
+        # hard_delete_projects is itself @transaction.atomic, so each batch remains a
+        # single transaction — the batching still caps collector memory and lock-hold
+        # time without one failure rolling back previously purged batches.
+        deleted_projects += hard_delete_projects(batch)
     if deleted_projects:
         logger.info(
             "purge_soft_deleted_projects: hard-deleted %d soft-deleted project(s)",
