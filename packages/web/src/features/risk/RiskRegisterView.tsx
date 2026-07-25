@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import type { Risk } from '@/api/types';
 import { useRisks } from '@/hooks/useRisks';
@@ -90,6 +90,219 @@ function readHiddenSeverities(): Set<SeverityBand> {
   }
 }
 
+/**
+ * One risk row in the register table. Extracted so the register component stays
+ * flat — the per-row overdue/unmitigated/owner branching is the table's deepest
+ * nesting and belongs with the row it renders. Renders identical markup to the
+ * inline row it replaced (DOM, ARIA, and handlers unchanged).
+ */
+function RiskTableRow({
+  risk,
+  todayIso,
+  onOpen,
+  onEdit,
+}: {
+  risk: Risk;
+  todayIso: string;
+  onOpen: (risk: Risk) => void;
+  onEdit: (risk: Risk) => void;
+}) {
+  const isOverdue =
+    risk.status === 'MITIGATING' &&
+    !!risk.mitigation_due_date &&
+    risk.mitigation_due_date < todayIso;
+  // Always-on signal for live threats. Overdue is a strict subset of
+  // unmitigated, so an overdue row layers the louder bg fill over this left
+  // accent border.
+  const unmitigated = isUnmitigated(risk);
+
+  return (
+    <tr
+      onClick={() => onOpen(risk)}
+      className={[
+        'group h-14 border-b border-neutral-border last:border-b-0 cursor-pointer',
+        unmitigated ? 'border-l-2 border-l-semantic-at-risk/40' : '',
+        isOverdue
+          ? 'bg-semantic-at-risk-bg hover:bg-semantic-at-risk/10'
+          : 'hover:bg-neutral-surface-raised',
+        // Row acts as a button: focus: (not focus-visible:) so the
+        // ring shows on pointer-initiated focus in Firefox/Safari
+        // (rule 214, WCAG 2.4.7). ring-inset — row lives in a scroll area.
+        'focus:outline-none focus:ring-2 focus:ring-brand-primary',
+        'focus:ring-inset',
+      ].join(' ')}
+      tabIndex={0}
+      role="button"
+      aria-label={`Open risk: ${risk.title}${isOverdue ? ' (overdue mitigation)' : ''}`}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen(risk);
+        }
+      }}
+    >
+      {/* ID — server-formatted (#929); the client no longer
+        derives it from the raw short_id. */}
+      <td className="px-4 text-xs text-neutral-text-secondary tppm-mono">
+        {risk.short_id_display}
+      </td>
+
+      {/* Risk — title + status sub-label + overdue badge */}
+      <td className="px-4">
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span className="text-sm font-medium text-neutral-text-primary leading-snug truncate">
+            {risk.title}
+          </span>
+          <span className="flex items-center gap-1.5 text-xs text-neutral-text-secondary leading-none">
+            {STATUS_LABELS[risk.status]}
+            {isOverdue && (
+              <span
+                className="inline-flex items-center rounded-chip px-1.5 py-0.5 text-xs font-medium
+                                bg-semantic-at-risk-bg text-semantic-at-risk border border-semantic-at-risk/30"
+              >
+                Overdue
+              </span>
+            )}
+          </span>
+        </div>
+      </td>
+
+      {/* P */}
+      <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
+        {risk.probability}
+      </td>
+
+      {/* I */}
+      <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
+        {risk.impact}
+      </td>
+
+      {/* Severity chip */}
+      <td className="px-4">
+        <RiskChip severity={risk.severity} showScore />
+      </td>
+
+      {/* Owner — initials avatar + display name (design conformance) */}
+      <td className="px-4">
+        {risk.owner ? (
+          <span className="flex items-center gap-2 min-w-0">
+            <span
+              className="inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0
+                                bg-neutral-surface-sunken border border-neutral-border
+                                text-xs font-semibold text-neutral-text-primary tppm-mono"
+              aria-hidden="true"
+            >
+              {risk.owner_initials ?? '?'}
+            </span>
+            <span className="text-xs text-neutral-text-secondary truncate">
+              {risk.owner_name ?? 'Assigned'}
+            </span>
+          </span>
+        ) : (
+          <span className="text-xs text-neutral-text-disabled" aria-label="Unassigned">
+            —
+          </span>
+        )}
+      </td>
+
+      {/* Quick-edit affordance — visible on hover/focus-within (ADR-0044) on
+          desktop; always visible and a 44px target below `md` (touch has no
+          hover — rule 247). */}
+      <td className="px-2 text-center">
+        <button
+          type="button"
+          aria-label={`Edit risk: ${risk.title}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit(risk);
+          }}
+          className="opacity-0 max-md:opacity-100 group-hover:opacity-100 focus:opacity-100
+                            h-11 w-11 md:h-8 md:w-8 flex items-center justify-center rounded-control
+                            text-neutral-text-secondary hover:text-neutral-text-primary
+                            focus:outline-none focus:ring-2
+                            focus:ring-brand-primary focus:ring-offset-1"
+        >
+          ✎
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * `?risk=<id>` deep-link ⇄ open-drawer round-trip (issue #2046). On mount, opens
+ * the drawer on the risk named by the initial `?risk=` param once the register
+ * loads; thereafter mirrors the open risk's id back into the URL so a refresh or
+ * link-copy round-trips. Extracted from the register component to keep the
+ * consume/mirror effects (and their branching) out of its body — behavior is
+ * unchanged.
+ */
+function useRiskDeepLink(
+  risks: Risk[],
+  selectedRisk: Risk | null | undefined,
+  setSelectedRisk: (risk: Risk) => void,
+) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialRiskParamRef = useRef(searchParams.get('risk'));
+  const riskParamConsumedRef = useRef(false);
+
+  useEffect(() => {
+    if (riskParamConsumedRef.current) return;
+    const id = initialRiskParamRef.current;
+    if (!id) {
+      riskParamConsumedRef.current = true;
+      return;
+    }
+    if (risks.length === 0) return; // register not loaded yet — retry next render
+    const match = risks.find((r) => r.id === id);
+    riskParamConsumedRef.current = true;
+    if (match) setSelectedRisk(match);
+  }, [risks, setSelectedRisk]);
+
+  const selectedRiskId = selectedRisk ? selectedRisk.id : null;
+  useEffect(() => {
+    if (!riskParamConsumedRef.current) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (selectedRiskId) next.set('risk', selectedRiskId);
+        else next.delete('risk');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [selectedRiskId, setSearchParams]);
+}
+
+/**
+ * Closes an open menu on an outside pointer-down or Escape. Extracted from the
+ * register so its listener wiring lives in one focused hook; behavior is
+ * unchanged (mousedown + keydown listeners attached only while `open`).
+ */
+function useDismissOnOutside<T extends HTMLElement>(
+  open: boolean,
+  ref: RefObject<T | null>,
+  onDismiss: () => void,
+) {
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onDismiss();
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onDismiss();
+    }
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, ref, onDismiss]);
+}
+
 export function RiskRegisterView() {
   const projectId = useProjectId() ?? '';
   const { risks, isLoading, error } = useRisks(projectId || null);
@@ -110,43 +323,15 @@ export function RiskRegisterView() {
   // client-side over the loaded list. Composed with the matrix-cell
   // facet below via AND. Seeded once from `?severity=high` so the Overview
   // "Open risks" card drills straight into the High segment (#1691).
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const [filter, setFilter] = useState<RiskFilter>(
     searchParams.get('severity') === 'high' ? 'high' : 'all',
   );
-  // `?risk=<id>` deep-link ⇄ open-drawer round-trip (issue #2046). Activity rows
-  // for a risk change and the register's own drill-in navigate to
-  // `/projects/:id/risk?risk=<id>`; on mount we open the drawer on that risk once
-  // the register loads, and mirror the open risk back into the URL so a refresh
-  // or link-copy round-trips. Create mode (`selectedRisk === undefined`) carries
-  // no id, so the param is stripped.
-  const initialRiskParamRef = useRef(searchParams.get('risk'));
-  const riskParamConsumedRef = useRef(false);
-  useEffect(() => {
-    if (riskParamConsumedRef.current) return;
-    const id = initialRiskParamRef.current;
-    if (!id) {
-      riskParamConsumedRef.current = true;
-      return;
-    }
-    if (risks.length === 0) return; // register not loaded yet — retry next render
-    const match = risks.find((r) => r.id === id);
-    riskParamConsumedRef.current = true;
-    if (match) setSelectedRisk(match);
-  }, [risks]);
-  const selectedRiskId = selectedRisk ? selectedRisk.id : null;
-  useEffect(() => {
-    if (!riskParamConsumedRef.current) return;
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (selectedRiskId) next.set('risk', selectedRiskId);
-        else next.delete('risk');
-        return next;
-      },
-      { replace: true },
-    );
-  }, [selectedRiskId, setSearchParams]);
+  // `?risk=<id>` deep-link ⇄ open-drawer round-trip (issue #2046): open the
+  // drawer on the initial `?risk=` param once the register loads, then mirror the
+  // open risk's id back into the URL. Create mode (`selectedRisk === undefined`)
+  // carries no id, so the param is stripped. See useRiskDeepLink.
+  useRiskDeepLink(risks, selectedRisk, setSelectedRisk);
   const [severitySort, setSeveritySort] = useState<SeveritySort>('none');
   // "Newest" sort (issue 1230) — created_at descending. Mutually exclusive with
   // the severity column sort: turning one on resets the other, so the table is
@@ -174,23 +359,8 @@ export function RiskRegisterView() {
   // Mobile overflow menu (… button) — exposes Export CSV on viewports < md (ADR-0043)
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!isOverflowOpen) return;
-    function onDocClick(e: MouseEvent) {
-      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
-        setIsOverflowOpen(false);
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setIsOverflowOpen(false);
-    }
-    document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [isOverflowOpen]);
+  const closeOverflow = useCallback(() => setIsOverflowOpen(false), []);
+  useDismissOnOutside(isOverflowOpen, overflowRef, closeOverflow);
 
   const projectName = projects?.find((p) => p.id === projectId)?.name ?? null;
 
@@ -738,132 +908,15 @@ export function RiskRegisterView() {
                       </tr>
                     </thead>
                     <tbody>
-                      {displayRisks.map((risk) => {
-                        const isOverdue =
-                          risk.status === 'MITIGATING' &&
-                          !!risk.mitigation_due_date &&
-                          risk.mitigation_due_date < todayIso;
-                        // Always-on signal for live threats. Overdue is a strict
-                        // subset of unmitigated, so an overdue row layers the
-                        // louder bg fill over this left accent border.
-                        const unmitigated = isUnmitigated(risk);
-
-                        return (
-                          <tr
-                            key={risk.id}
-                            onClick={() => openRisk(risk)}
-                            className={[
-                              'group h-14 border-b border-neutral-border last:border-b-0 cursor-pointer',
-                              unmitigated ? 'border-l-2 border-l-semantic-at-risk/40' : '',
-                              isOverdue
-                                ? 'bg-semantic-at-risk-bg hover:bg-semantic-at-risk/10'
-                                : 'hover:bg-neutral-surface-raised',
-                              // Row acts as a button: focus: (not focus-visible:) so the
-                              // ring shows on pointer-initiated focus in Firefox/Safari
-                              // (rule 214, WCAG 2.4.7). ring-inset — row lives in a scroll area.
-                              'focus:outline-none focus:ring-2 focus:ring-brand-primary',
-                              'focus:ring-inset',
-                            ].join(' ')}
-                            tabIndex={0}
-                            role="button"
-                            aria-label={`Open risk: ${risk.title}${isOverdue ? ' (overdue mitigation)' : ''}`}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                openRisk(risk);
-                              }
-                            }}
-                          >
-                            {/* ID — server-formatted (#929); the client no longer
-                              derives it from the raw short_id. */}
-                            <td className="px-4 text-xs text-neutral-text-secondary tppm-mono">
-                              {risk.short_id_display}
-                            </td>
-
-                            {/* Risk — title + status sub-label + overdue badge */}
-                            <td className="px-4">
-                              <div className="flex flex-col gap-0.5 min-w-0">
-                                <span className="text-sm font-medium text-neutral-text-primary leading-snug truncate">
-                                  {risk.title}
-                                </span>
-                                <span className="flex items-center gap-1.5 text-xs text-neutral-text-secondary leading-none">
-                                  {STATUS_LABELS[risk.status]}
-                                  {isOverdue && (
-                                    <span
-                                      className="inline-flex items-center rounded-chip px-1.5 py-0.5 text-xs font-medium
-                                bg-semantic-at-risk-bg text-semantic-at-risk border border-semantic-at-risk/30"
-                                    >
-                                      Overdue
-                                    </span>
-                                  )}
-                                </span>
-                              </div>
-                            </td>
-
-                            {/* P */}
-                            <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
-                              {risk.probability}
-                            </td>
-
-                            {/* I */}
-                            <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
-                              {risk.impact}
-                            </td>
-
-                            {/* Severity chip */}
-                            <td className="px-4">
-                              <RiskChip severity={risk.severity} showScore />
-                            </td>
-
-                            {/* Owner — initials avatar + display name (design conformance) */}
-                            <td className="px-4">
-                              {risk.owner ? (
-                                <span className="flex items-center gap-2 min-w-0">
-                                  <span
-                                    className="inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0
-                                bg-neutral-surface-sunken border border-neutral-border
-                                text-xs font-semibold text-neutral-text-primary tppm-mono"
-                                    aria-hidden="true"
-                                  >
-                                    {risk.owner_initials ?? '?'}
-                                  </span>
-                                  <span className="text-xs text-neutral-text-secondary truncate">
-                                    {risk.owner_name ?? 'Assigned'}
-                                  </span>
-                                </span>
-                              ) : (
-                                <span
-                                  className="text-xs text-neutral-text-disabled"
-                                  aria-label="Unassigned"
-                                >
-                                  —
-                                </span>
-                              )}
-                            </td>
-
-                            {/* Quick-edit affordance — visible on hover/focus-within (ADR-0044) on
-                                desktop; always visible and a 44px target below `md` (touch has no
-                                hover — rule 247). */}
-                            <td className="px-2 text-center">
-                              <button
-                                type="button"
-                                aria-label={`Edit risk: ${risk.title}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openRiskEdit(risk);
-                                }}
-                                className="opacity-0 max-md:opacity-100 group-hover:opacity-100 focus:opacity-100
-                            h-11 w-11 md:h-8 md:w-8 flex items-center justify-center rounded-control
-                            text-neutral-text-secondary hover:text-neutral-text-primary
-                            focus:outline-none focus:ring-2
-                            focus:ring-brand-primary focus:ring-offset-1"
-                              >
-                                ✎
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {displayRisks.map((risk) => (
+                        <RiskTableRow
+                          key={risk.id}
+                          risk={risk}
+                          todayIso={todayIso}
+                          onOpen={openRisk}
+                          onEdit={openRiskEdit}
+                        />
+                      ))}
                     </tbody>
                   </table>
                 </div>
