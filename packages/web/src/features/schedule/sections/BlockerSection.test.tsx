@@ -6,6 +6,7 @@ import type { Task } from '@/types';
 import { BlockerSection } from './BlockerSection';
 import { useBlockerOutboxStore } from '@/features/blocker/offline/blockerOutboxStore';
 import type { QueuedBlockerOp } from '@/features/blocker/offline/blockerQueue';
+import { useDrawerSectionStore, revealKey } from '@/stores/drawerSectionStore';
 
 const mutate = vi.fn();
 
@@ -50,6 +51,7 @@ afterEach(() => {
   TASKS = [];
   onlineState.value = true;
   useBlockerOutboxStore.setState({ opsByTask: {}, hydrated: false, lastSynced: null });
+  useDrawerSectionStore.setState({ overrides: {}, revealed: {} });
 });
 
 function renderSection(canEdit = false) {
@@ -214,6 +216,10 @@ describe('BlockerSection — offline (ADR-0247)', () => {
     expect(mutate).not.toHaveBeenCalled();
     expect(useBlockerOutboxStore.getState().opsByTask['task-1']?.kind).toBe('unblock');
     expect(screen.getByText(/Unblock queued/i)).toBeInTheDocument();
+    // The queued unblock clears the flag, so ADR-0605 progressive disclosure would
+    // fold this section (and its pending badge) behind "Add detail". Reveal it so
+    // the badge stays visible until the write syncs (#2348).
+    expect(useDrawerSectionStore.getState().revealed[revealKey('task-1', 'blocker')]).toBe(true);
   });
 
   it('shows a "queued" label + pending badge for a fresh offline flag', () => {
