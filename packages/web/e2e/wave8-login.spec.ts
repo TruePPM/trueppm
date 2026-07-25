@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Wave 8 — Login screen redesign (#215).
@@ -82,6 +83,11 @@ test.describe('Wave 8 — Login screen', () => {
   test('a sign-in button per enabled provider + open-source chip (basic SSO is OSS, #2108)', async ({
     page,
   }) => {
+    // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+    // falling through and 401ing, which trips the token-refresh session
+    // teardown and races the page render (#2366). Routes below win.
+    await setupCatchAll(page);
+
     await page.route('**/api/v1/auth/oidc/discover/**', (route) =>
       route.fulfill({
         status: 200,

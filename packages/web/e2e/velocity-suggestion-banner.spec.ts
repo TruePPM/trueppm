@@ -1,4 +1,5 @@
 import { test, expect, type Page } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * E2E coverage for the velocity-calibration suggestion banner (ADR-0065, issue #498).
@@ -81,6 +82,11 @@ async function setupScheduleWithPendingSuggestion(
       }),
     );
   });
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   // 401-guard safety net (#1518): registered FIRST so every specific route below
   // wins (Playwright LIFO). Any endpoint the drawer/shell reads that isn't mocked

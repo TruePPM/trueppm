@@ -1,4 +1,5 @@
 import { test, expect, type Page } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * E2E coverage for the role-based app front door (ADR-0129, issue #1181).
@@ -52,6 +53,11 @@ async function setupAuth(page: Page): Promise<void> {
 }
 
 async function mockShell(page: Page, me: MeOptions, projects: unknown[]): Promise<void> {
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
+
   await page.route('**/api/v1/auth/me/', (route) =>
     route.fulfill({
       status: 200,

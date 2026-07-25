@@ -9,6 +9,7 @@
  * payload differs so each test exercises a single state.
  */
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-332-00000000-0000-0000-0000-000000000332';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;
@@ -68,6 +69,11 @@ async function setup(page: import('@playwright/test').Page, plannedStart: string
   });
 
   const tasks = buildTasks(plannedStart);
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({

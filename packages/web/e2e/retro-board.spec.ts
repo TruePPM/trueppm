@@ -7,6 +7,7 @@
  * the "kept private" wall — never a count, poll, or teaser.
  */
 import { test, expect, type Page } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-retro-board-0000-0000-0000-000000000851';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;
@@ -40,6 +41,11 @@ async function setup(page: Page, opts: Options) {
   const json = (body: unknown, status = 200) => ({
     status, contentType: 'application/json', body: JSON.stringify(body),
   });
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill(json({ count: 1, next: null, previous: null, results: [

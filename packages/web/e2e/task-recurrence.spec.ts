@@ -1,4 +1,5 @@
 import { test, expect, type Page } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * E2E coverage for the recurrence drawer section (#738 / ADR-0090).
@@ -77,6 +78,11 @@ async function setup(page: Page, { role, rule }: SetupOptions) {
   });
   const page200 = (results: unknown[]) =>
     json({ count: results.length, next: null, previous: null, results });
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (r) => r.fulfill(page200(FIXTURE_API_PROJECTS)));
   await page.route('**/api/v1/projects/*/presence/', (r) => r.fulfill(json([])));

@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * E2E tests for wave 5 views — Calendar (#206) plus the unified Grid view
@@ -89,6 +90,11 @@ async function setup(page: import('@playwright/test').Page) {
 
   const pj = (results: unknown[]) =>
     JSON.stringify({ count: results.length, next: null, previous: null, results });
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROJECTS) }),

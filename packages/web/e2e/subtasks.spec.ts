@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Locator } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * E2E coverage for the Subtasks drawer section (ADR-0060 #308).
@@ -116,6 +117,11 @@ async function setupRoutes(page: Page, tasks: object[]) {
       }),
     );
   });
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   // Catch-all: any /api/v1/ request not matched below returns 404 instead of
   // hitting the real Docker backend (which would 401, triggering session expiry).

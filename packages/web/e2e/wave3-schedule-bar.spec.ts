@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * E2E tests for wave 3 schedule bar rendering (#212):
@@ -72,6 +73,11 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
       }),
     );
   });
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({

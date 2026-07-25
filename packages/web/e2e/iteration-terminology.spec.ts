@@ -11,6 +11,7 @@
  * so this spec only exercises the non-default path.
  */
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-itl-00000000-0000-0000-0000-000000000862';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;
@@ -80,6 +81,11 @@ async function setup(page: import('@playwright/test').Page) {
     contentType: 'application/json',
     body: JSON.stringify(body),
   });
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill(json({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS })),

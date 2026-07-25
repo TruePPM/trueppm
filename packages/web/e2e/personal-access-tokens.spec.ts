@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * /me/settings/api-tokens — Personal Access Tokens (#648, ADR-0214).
@@ -69,6 +70,11 @@ async function setup(page: Page, initial: TokenRow[] = []) {
   });
 
   const state: TokenRow[] = JSON.parse(JSON.stringify(initial));
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   // Catch-all FIRST (Playwright matches in reverse registration order) — a 401
   // guard so no unmocked request trips the session-expired modal. Returns a bare

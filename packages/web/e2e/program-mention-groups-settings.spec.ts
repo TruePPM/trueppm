@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Program Settings → Access → Mention groups E2E (ADR-0248, #516).
@@ -94,6 +95,11 @@ async function setup(
 
   const pj = (data: unknown) => JSON.stringify(data);
   const program = { ...FIXTURE_PROGRAM, my_role: opts.myRole ?? 400 };
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/**', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),

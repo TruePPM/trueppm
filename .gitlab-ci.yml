@@ -555,6 +555,25 @@ lint:design-system-v2:
   script:
     - bash scripts/check-design-system-v2.sh
 
+lint:e2e-catchall:
+  extends: .fast-job
+  # Playwright catch-all gate (#2366). A spec that mocks the API but omits
+  # `setupCatchAll` lets any forgotten endpoint escape the browser-level mocks —
+  # in CI it hits the preview server, and on a dev box with `make up` running it
+  # reaches the real API and 401s, driving the client's token-refresh and
+  # session-teardown path in a race with the page render. That machine-dependent
+  # difference is how wave6-heatmap.spec.ts spent months triaged as an
+  # "environmental flake". ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash grep
+  script:
+    - bash scripts/check-e2e-catchall.sh
+
 lint:adr-collisions:
   extends: .fast-job
   # ADR number-collision gate (#918). Fails if any two files under docs/adr/

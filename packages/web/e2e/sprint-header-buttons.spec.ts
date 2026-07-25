@@ -7,6 +7,7 @@
  *   3. Timeline "Activate →" on the last planned card → POST /activate/.
  */
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-sprint-buttons-00000000-0000-0000-0000-00000071';
 const ROUTE = `/projects/${PROJECT_ID}/sprints`;
@@ -137,6 +138,11 @@ async function setupCommon(page: import('@playwright/test').Page) {
   const json = (body: unknown, status = 200) => ({
     status, contentType: 'application/json', body: JSON.stringify(body),
   });
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   // Catch-all FIRST so any specific route below wins (Playwright matches
   // routes in reverse-registration order). Returning a plain empty array is

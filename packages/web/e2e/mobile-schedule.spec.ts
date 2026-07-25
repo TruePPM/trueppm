@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 import type { Page } from '@playwright/test';
 
 /**
@@ -91,6 +92,11 @@ async function gotoMobileSchedule(
     body: JSON.stringify(body),
   });
   const page0 = { count: 0, next: null, previous: null, results: [] };
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill(

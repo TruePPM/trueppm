@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Public read-only schedule share viewer E2E (#1486, ADR-0265).
@@ -69,6 +70,11 @@ const SCHEDULE = {
 
 test.describe('Public schedule share viewer', () => {
   test('golden path: renders the read-only schedule', async ({ page }) => {
+    // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+    // falling through and 401ing, which trips the token-refresh session
+    // teardown and races the page render (#2366). Routes below win.
+    await setupCatchAll(page);
+
     await page.route(SHARE_URL, (route) =>
       route.fulfill({
         status: 200,

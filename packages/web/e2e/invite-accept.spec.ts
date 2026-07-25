@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Public invite-accept E2E (#2035).
@@ -18,6 +19,11 @@ const STRONG_PASSWORD = 'Str0ng-Passw0rd!';
 
 test.describe('Invite acceptance', () => {
   test('golden path: creating an account redirects to a pre-filled sign-in', async ({ page }) => {
+    // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+    // falling through and 401ing, which trips the token-refresh session
+    // teardown and races the page render (#2366). Routes below win.
+    await setupCatchAll(page);
+
     await page.route(ACCEPT_URL, (route) =>
       route.fulfill({
         status: 200,
