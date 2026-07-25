@@ -47,6 +47,44 @@ def _max_day(month: int) -> int:
     return 31
 
 
+def _parse_numeric_fiscal(text: str) -> tuple[int | None, int]:
+    """Parse a numeric ``"M/D"`` / ``"M-D"`` (or bare ``"M"``) anchor.
+
+    Returns ``(month, day)`` with ``month`` ``None`` when the leading separator's
+    first field is not a valid 1-12 month; ``day`` defaults to 1. The first of
+    ``/`` or ``-`` present in the string wins, matching the original scan order.
+    """
+    sep = next((s for s in ("/", "-") if s in text), None)
+    if sep is None:
+        return (None, 1)
+    parts = [p.strip() for p in text.split(sep) if p.strip()]
+    if not parts or not parts[0].isdigit():
+        return (None, 1)
+    month = int(parts[0])
+    if not 1 <= month <= 12:
+        return (None, 1)
+    day = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+    return (month, day)
+
+
+def _parse_word_fiscal(text: str) -> tuple[int | None, int]:
+    """Parse a word-form ``"<monthname> [day]"`` anchor.
+
+    Returns ``(month, day)`` where ``month`` is ``None`` for an unrecognized
+    leading token; ``day`` is the first trailing digit token, else 1.
+    """
+    tokens = text.replace(",", " ").split()
+    if not tokens:
+        return (None, 1)
+    month = _MONTH_LOOKUP.get(tokens[0])
+    day = 1
+    for tok in tokens[1:]:
+        if tok.isdigit():
+            day = int(tok)
+            break
+    return (month, day)
+
+
 def _parse_fiscal_text(raw: str) -> tuple[int, int]:
     """Best-effort parse of a free-text fiscal anchor into ``(month, day)``.
 
@@ -57,30 +95,9 @@ def _parse_fiscal_text(raw: str) -> tuple[int, int]:
         return (1, 1)
     text = raw.strip().lower()
 
-    month: int | None = None
-    day = 1
-
-    # Numeric "M/D" or "M-D" (also bare "M").
-    for sep in ("/", "-"):
-        if sep in text:
-            parts = [p.strip() for p in text.split(sep) if p.strip()]
-            if parts and parts[0].isdigit():
-                m = int(parts[0])
-                if 1 <= m <= 12:
-                    month = m
-                    if len(parts) > 1 and parts[1].isdigit():
-                        day = int(parts[1])
-            break
-
-    # Word form: "<monthname> [day]".
+    month, day = _parse_numeric_fiscal(text)
     if month is None:
-        tokens = text.replace(",", " ").split()
-        if tokens:
-            month = _MONTH_LOOKUP.get(tokens[0])
-            for tok in tokens[1:]:
-                if tok.isdigit():
-                    day = int(tok)
-                    break
+        month, day = _parse_word_fiscal(text)
 
     if month is None:
         logger.warning(

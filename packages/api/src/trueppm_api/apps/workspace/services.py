@@ -65,6 +65,12 @@ class InviteError(Exception):
     """
 
 
+# Deliberately generic so an invalid/expired/consumed token never reveals whether
+# a given token exists (enumeration). Shared by every failure path in the accept
+# flow so the three sites cannot drift apart (S1192).
+_INVALID_INVITE_MESSAGE = "This invitation link is invalid or has expired."
+
+
 # ---------------------------------------------------------------------------
 # Owner counting / last-owner guard
 # ---------------------------------------------------------------------------
@@ -363,6 +369,47 @@ def _build_confer_map(
     return confer
 
 
+def _sync_existing_membership(
+    existing: ProjectMembership,
+    confer_role: int,
+    src_group_id: Any,
+    now: Any,
+    user_id: Any,
+    project_id: Any,
+    events: list[tuple[Any, str, dict[str, Any]]],
+) -> None:
+    """Role-sync an existing *active* group-derived row to the conferred role.
+
+    Only broadcasts ``member_role_changed`` when the role actually moved — a pure
+    source_group reattribution (e.g. one of two overlapping groups removed, role
+    unchanged) is invisible to board consumers.
+    """
+    changed: list[str] = []
+    role_changed = existing.role != confer_role
+    if role_changed:
+        existing.role = confer_role
+        existing.role_changed_at = now
+        changed += ["role", "role_changed_at"]
+    if existing.source_group_id != src_group_id:
+        existing.source_group_id = src_group_id
+        changed.append("source_group")
+    if not changed:
+        return
+    existing.save(update_fields=changed)
+    if role_changed:
+        events.append(
+            (
+                project_id,
+                "member_role_changed",
+                {
+                    "membership_id": str(existing.pk),
+                    "user_id": str(user_id),
+                    "role": existing.role,
+                },
+            )
+        )
+
+
 def _reconcile_pair(
     user_id: Any,
     project_id: Any,
@@ -430,32 +477,9 @@ def _reconcile_pair(
             )
         )
     else:
-        changed: list[str] = []
-        role_changed = existing.role != confer_role
-        if role_changed:
-            existing.role = confer_role
-            existing.role_changed_at = now
-            changed += ["role", "role_changed_at"]
-        if existing.source_group_id != src_group_id:
-            existing.source_group_id = src_group_id
-            changed.append("source_group")
-        if changed:
-            existing.save(update_fields=changed)
-            # Only broadcast member_role_changed when the role actually moved — a
-            # pure source_group reattribution (e.g. one of two overlapping groups
-            # removed, role unchanged) is invisible to board consumers.
-            if role_changed:
-                events.append(
-                    (
-                        project_id,
-                        "member_role_changed",
-                        {
-                            "membership_id": str(existing.pk),
-                            "user_id": str(user_id),
-                            "role": existing.role,
-                        },
-                    )
-                )
+        _sync_existing_membership(
+            existing, confer_role, src_group_id, now, user_id, project_id, events
+        )
 
 
 @transaction.atomic
@@ -722,6 +746,81 @@ def clear_workspace_logo() -> Workspace:
     return ws
 
 
+def _load_pending_invite(token: str) -> WorkspaceInvite:
+    """Resolve a token to a pending, unexpired invite; raise ``InviteError`` otherwise.
+
+    A lapsed (still-PENDING but expired) invite is marked ``EXPIRED`` via a
+    standalone autocommit ``update`` — not inside a provisioning ``atomic`` block —
+    so the state change survives the ``InviteError`` raise instead of being rolled
+    back and leaving the invite pending.
+    """
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    try:
+        invite = WorkspaceInvite.objects.get(token_hash=token_hash)
+    except WorkspaceInvite.DoesNotExist as exc:
+        raise InviteError(_INVALID_INVITE_MESSAGE) from exc
+
+    if invite.status != InviteStatus.PENDING or invite.is_expired:
+        if invite.status == InviteStatus.PENDING and invite.is_expired:
+            WorkspaceInvite.objects.filter(pk=invite.pk).update(
+                status=InviteStatus.EXPIRED, email_pending=False, email_token=""
+            )
+        raise InviteError(_INVALID_INVITE_MESSAGE)
+    return invite
+
+
+def _create_invited_user(*, username: str, email: str, password: str) -> Any:
+    """Mint a new account for an invitee, enforcing the configured password policy.
+
+    ``create_user`` hashes but does NOT run ``AUTH_PASSWORD_VALIDATORS``, and the
+    serializer accepts any non-empty string — so the policy is enforced here before
+    minting the account. Without this an unauthenticated invitee could set a
+    trivially-guessable password.
+    """
+    User = get_user_model()
+    try:
+        validate_password(password)
+    except ValidationError as exc:
+        raise InviteError(" ".join(exc.messages)) from exc
+    try:
+        return User.objects.create_user(username=username, email=email, password=password)
+    except IntegrityError as exc:
+        raise InviteError("That username is already taken.") from exc
+
+
+def _link_existing_membership(
+    membership: WorkspaceMembership, invite: WorkspaceInvite, user: Any, now: Any
+) -> None:
+    """Elevate (never reactivate) an existing membership when replaying an invite.
+
+    A deactivated member must NOT be silently reactivated (or re-elevated) by
+    replaying a pending invite — that would let an admin's deactivation be undone
+    without admin consent. Reactivation is an explicit admin action; refuse the
+    invite instead. Otherwise the role is raised (never lowered) to the invite's.
+    """
+    if membership.status == MemberStatus.DEACTIVATED:
+        raise InviteError(
+            "Membership is deactivated; an admin must reactivate it before this invite can be used."
+        )
+    if invite.role <= membership.role:
+        return
+    old_role = membership.role
+    membership.role = invite.role
+    membership.role_changed_at = now
+    membership.save()
+    record_audit_event(
+        event_type=AuditEventType.MEMBER_ROLE_CHANGED,
+        actor=user,
+        target_type="member",
+        target_label=_actor_label(user),
+        metadata={
+            "old_role": WorkspaceRole(old_role).label,
+            "new_role": WorkspaceRole(membership.role).label,
+            "source": "invite",
+        },
+    )
+
+
 def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
     """Provision (or link) a user and create their workspace membership.
 
@@ -730,25 +829,10 @@ def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
     a new account from ``username``/``password``. Idempotent under a double-submit:
     the status flips ``pending → accepted`` under a row lock.
 
-    The expiry-marking write is done as a standalone autocommit ``update`` (not
-    inside the provisioning ``atomic`` block) so it survives the ``InviteError``
-    raise — otherwise the rollback would revert it and leave the invite pending.
-
     Raises:
         InviteError: invalid/expired token, or account-creation conflict.
     """
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    try:
-        invite = WorkspaceInvite.objects.get(token_hash=token_hash)
-    except WorkspaceInvite.DoesNotExist as exc:
-        raise InviteError("This invitation link is invalid or has expired.") from exc
-
-    if invite.status != InviteStatus.PENDING or invite.is_expired:
-        if invite.status == InviteStatus.PENDING and invite.is_expired:
-            WorkspaceInvite.objects.filter(pk=invite.pk).update(
-                status=InviteStatus.EXPIRED, email_pending=False, email_token=""
-            )
-        raise InviteError("This invitation link is invalid or has expired.")
+    invite = _load_pending_invite(token)
 
     User = get_user_model()
     user = User.objects.filter(email__iexact=invite.email).first()
@@ -760,23 +844,12 @@ def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
         # membership (the second caller sees status != PENDING and bails).
         invite = WorkspaceInvite.objects.select_for_update().get(pk=invite.pk)
         if invite.status != InviteStatus.PENDING:
-            raise InviteError("This invitation link is invalid or has expired.")
+            raise InviteError(_INVALID_INVITE_MESSAGE)
 
         if user is None:
-            # create_user hashes but does NOT run AUTH_PASSWORD_VALIDATORS, and the
-            # serializer accepts any non-empty string — so enforce the configured
-            # password policy here before minting the account. Without this an
-            # unauthenticated invitee could set a trivially-guessable password.
-            try:
-                validate_password(password)
-            except ValidationError as exc:
-                raise InviteError(" ".join(exc.messages)) from exc
-            try:
-                user = User.objects.create_user(
-                    username=username, email=invite.email.lower(), password=password
-                )
-            except IntegrityError as exc:
-                raise InviteError("That username is already taken.") from exc
+            user = _create_invited_user(
+                username=username, email=invite.email.lower(), password=password
+            )
 
         now = timezone.now()
         membership, created = WorkspaceMembership.objects.get_or_create(
@@ -799,34 +872,7 @@ def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
                 },
             )
         else:
-            # A deactivated member must NOT be silently reactivated (or re-elevated)
-            # by replaying a pending invite — that would let an admin's deactivation
-            # be undone without admin consent. Reactivation is an explicit admin
-            # action; refuse the invite instead.
-            if membership.status == MemberStatus.DEACTIVATED:
-                raise InviteError(
-                    "Membership is deactivated; an admin must reactivate it "
-                    "before this invite can be used."
-                )
-            changed = False
-            old_role = membership.role
-            if invite.role > membership.role:
-                membership.role = invite.role
-                membership.role_changed_at = now
-                changed = True
-            if changed:
-                membership.save()
-                record_audit_event(
-                    event_type=AuditEventType.MEMBER_ROLE_CHANGED,
-                    actor=user,
-                    target_type="member",
-                    target_label=_actor_label(user),
-                    metadata={
-                        "old_role": WorkspaceRole(old_role).label,
-                        "new_role": WorkspaceRole(membership.role).label,
-                        "source": "invite",
-                    },
-                )
+            _link_existing_membership(membership, invite, user, now)
 
         invite.status = InviteStatus.ACCEPTED
         invite.accepted_at = now
