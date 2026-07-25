@@ -123,23 +123,22 @@ Matching is a case-insensitive substring (searching `foundation` finds *"Foundat
 
 ## Filters
 
-The **⚑ Filters** button opens a facet panel that narrows the board to the cards you care about. Press <kbd>f</kbd> anywhere on the board to open it (typing in a form never opens the panel). It offers three facet groups:
+The **⚑ Filters** button opens a facet panel that narrows the board to the cards you care about. Press <kbd>f</kbd> anywhere on the board to open it (typing in a form never opens the panel). It offers four facet groups:
 
 - **Assignee** — pick one or more people, plus an explicit **Unassigned** option for cards nobody owns yet.
 - **Priority** — **High**, **Medium**, **Low**, or **Unranked**, bucketed from each card's priority rank.
 - **Due** — **Overdue** or **This week**, derived from the card's finish date. Only *scheduled* cards (a committed start date, or a card pulled into a sprint) are eligible — an uncommitted backlog idea never counts as "due".
+- **Label** — pick one or more of the project's [labels](/features/labels/). The facet lists the labels actually present on this board's cards, so it never offers a label that would match nothing.
 
 Facets combine as you would expect: a card must match **every** group you have narrowed, and **any** of the values you picked within a group. Selecting *Alice* and *Bob* under Assignee plus *High* under Priority shows Alice's and Bob's high-priority cards.
 
 - Cards that don't match dim to the background and drop out of keyboard and screen-reader navigation, so faceting never strands focus on a hidden card — the board never reflows.
 - The **Filters** button shows a badge with the number of active facet values, and an **active-filter bar** below the toolbar lists each one as a removable chip so the lens is always visible. Remove a chip, or press **Clear all**, to widen the board again.
 - If nothing matches, a **No cards match these filters** banner replaces the board with a one-click **Clear filters** action.
-- The active facets are reflected in the URL (`?fa=…&fp=…&fd=…`), so a filtered board is a **shareable link**, and your selection is also remembered per project in this browser.
-- Saving the current board as a named view captures the active facets along with sort and display settings; loading that view restores them, so a saved view carries its filter state rather than leaving it stranded in the URL or this browser's storage.
+- The active facets are reflected in the URL (`?fa=…&fp=…&fd=…&fl=…`), so a filtered board is a **shareable link**, and your selection is also remembered per project in this browser.
+- Saving the current board as a named view captures the active facets — including the **Label** facet — along with sort and display settings; loading that view restores them, so a saved view carries its filter state rather than leaving it stranded in the URL or this browser's storage.
 
 Filters compose with the **My tasks** and **At-risk** quiet toggles — those remain independent one-tap lenses alongside the facet panel.
-
-The **Label** facet arrives once project-scoped task labels ship.
 
 ## Zoom
 

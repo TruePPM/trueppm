@@ -5639,10 +5639,10 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
         """Upgrade the stored config to the current shape on read.
 
         The stored payload's version is the model's ``schema_version`` column
-        (rows predating the convention carry the migration default of 1 and are
-        already at the current 6-key shape, so the chain is a no-op for them).
-        Passing it explicitly keeps the column as the single source of truth for
-        "which shape is this" rather than sniffing the payload.
+        (rows predating the convention carry the migration default of 1 and run
+        the v1->v2->v3 chain to pick up the four ``filter_*`` keys). Passing it
+        explicitly keeps the column as the single source of truth for "which
+        shape is this" rather than sniffing the payload.
         """
         data = super().to_representation(instance)
         config = data.get("config")
@@ -5664,13 +5664,14 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
     ) -> list[str]:
         """Validate and normalize one ``filter_*`` facet key (#1918).
 
-        ``filter_assignees`` carries opaque resource ids (plus the client's
-        "unassigned" sentinel) with no fixed enum — ``valid_values=None`` skips
-        the membership check and only enforces "list of strings". The priority
-        and due-window facets *do* have a closed vocabulary (mirrors the web
-        ``PriorityBand`` / ``DueWindow`` unions in ``boardFacets.ts``), so those
-        reject unknown tokens rather than silently dropping them: a typo'd or
-        stale token should surface as a 400, not vanish.
+        ``filter_assignees`` and ``filter_labels`` carry opaque resource ids
+        (assignees additionally carry the client's "unassigned" sentinel) with no
+        fixed enum — ``valid_values=None`` skips the membership check and only
+        enforces "list of strings". The priority and due-window facets *do* have
+        a closed vocabulary (mirrors the web ``PriorityBand`` / ``DueWindow``
+        unions in ``boardFacets.ts``), so those reject unknown tokens rather than
+        silently dropping them: a typo'd or stale token should surface as a 400,
+        not vanish.
         """
         raw = value.get(key, [])
         if not isinstance(raw, list) or not all(isinstance(v, str) for v in raw):
@@ -5706,6 +5707,12 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
         filter_assignees = self._validate_facet_list(value, "filter_assignees", None)
         filter_priority = self._validate_facet_list(value, "filter_priority", _VALID_PRIORITY_BANDS)
         filter_due = self._validate_facet_list(value, "filter_due", _VALID_DUE_WINDOWS)
+        # Label ids are deliberately *not* checked for existence here (#2385).
+        # A label deleted after the view was saved must survive in the stored
+        # config so the client can render the deleted-label tombstone and offer
+        # repair; validating here would silently rewrite the user's saved view
+        # on the next save, which is the same fail-open data loss this fixes.
+        filter_labels = self._validate_facet_list(value, "filter_labels", None)
         return {
             "sort": sort,
             "show_wip": bool(value.get("show_wip", True)),
@@ -5716,6 +5723,7 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
             "filter_assignees": filter_assignees,
             "filter_priority": filter_priority,
             "filter_due": filter_due,
+            "filter_labels": filter_labels,
         }
 
     class Meta:

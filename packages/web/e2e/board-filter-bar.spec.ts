@@ -278,3 +278,117 @@ test.describe('Saved board views persist filter facets (issue #1918)', () => {
     await expect(card(page, 'Bob Low')).toHaveCount(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Saved-view label facet persistence (issue #2385)
+//
+// Before the fix a saved label filter was discarded at every layer — the wire
+// type, both client mappers, the serializer whitelist, and the migration
+// defaults all omitted it — so a user saved a label filter and reopened the
+// view to find it silently gone. The golden path here is "reopen restores it";
+// the second test covers a view saved before the fix existed.
+// ---------------------------------------------------------------------------
+
+// Label options are derived from the labels carried on the tasks themselves
+// (collectLabelOptions), so a labeled fixture task is all the facet needs.
+const LABELED_TASKS = FIXTURE_TASKS.map((t) =>
+  t.id === 'fb-2'
+    ? { ...t, labels: [{ id: 'lbl-review', name: 'Needs review', color: 'amber', position: 0 }] }
+    : t,
+);
+
+test.describe('Saved board views persist the label facet (issue #2385)', () => {
+  test('applying a saved view restores its stored label facet', async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: LABELED_TASKS,
+      boardViews: [
+        {
+          id: 'sv-labeled',
+          name: 'Needs review only',
+          config: {
+            sort: 'priority',
+            show_wip: true,
+            show_col_tints: true,
+            evm_mode: 'off',
+            show_cost: false,
+            risk_linked_only: false,
+            filter_assignees: [],
+            filter_priority: [],
+            filter_due: [],
+            filter_labels: ['lbl-review'],
+          },
+          schema_version: 3,
+          created_by: 'e2e-user',
+          server_version: 1,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+    await page.goto(ROUTE);
+
+    // Board rendered signal before touching the toolbar.
+    await expect(card(page, 'Alice High')).toBeVisible({ timeout: 10_000 });
+    await expect(card(page, 'Bob Low')).toBeVisible();
+    await expect(page.getByTestId('board-filter-chips')).toHaveCount(0);
+
+    await page.getByRole('button', { name: /board view/i }).click();
+    await page.getByText('Needs review only').click();
+
+    // The stored label filter is applied: only the labeled card survives.
+    await expect(page.getByTestId('board-filter-count')).toHaveText('1');
+    await expect(page.getByTestId('board-filter-chips')).toBeVisible();
+    await expect(card(page, 'Alice High')).toBeVisible();
+    await expect(card(page, 'Bob Low')).toHaveCount(0);
+  });
+
+  test('a view saved before #2385 loads with no label filter applied', async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: LABELED_TASKS,
+      boardViews: [
+        {
+          id: 'sv-legacy',
+          name: 'Pre-2385 view',
+          // No filter_labels key at all — the v2 shape the bug shipped with.
+          config: {
+            sort: 'priority',
+            show_wip: true,
+            show_col_tints: true,
+            evm_mode: 'off',
+            show_cost: false,
+            risk_linked_only: false,
+            filter_assignees: [],
+            filter_priority: [],
+            filter_due: [],
+          },
+          schema_version: 2,
+          created_by: 'e2e-user',
+          server_version: 1,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+    await page.goto(ROUTE);
+
+    await expect(card(page, 'Alice High')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: /board view/i }).click();
+    await page.getByText('Pre-2385 view').click();
+
+    // Loads cleanly with an empty label selection — every card still shows and
+    // no facet is active. The failure mode this guards is `undefined` reaching
+    // the facet and throwing rather than defaulting to "no constraint".
+    await expect(card(page, 'Alice High')).toBeVisible();
+    await expect(card(page, 'Bob Low')).toBeVisible();
+    await expect(page.getByTestId('board-filter-chips')).toHaveCount(0);
+  });
+});

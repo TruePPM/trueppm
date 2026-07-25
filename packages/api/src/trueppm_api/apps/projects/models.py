@@ -3436,7 +3436,7 @@ class BoardSavedView(models.Model):
     quickly restore it. Views are project-scoped and visible to all members.
     Only the creator or a Scheduler-role member may rename or delete a view.
 
-    config JSON schema (v2, #1918):
+    config JSON schema (v3, #2385):
         sort:             "priority" | "start_date" | "percent_complete"
         show_wip:         bool
         show_col_tints:   bool
@@ -3446,14 +3446,18 @@ class BoardSavedView(models.Model):
         filter_assignees: list[str]   -- resource ids, or the client's "unassigned" sentinel
         filter_priority:  list["high" | "medium" | "low" | "unranked"]
         filter_due:       list["overdue" | "this_week"]
+        filter_labels:    list[str]   -- label ids (#2385)
 
-    The three ``filter_*`` keys (#1918) mirror the board filter-bar facets
-    (issue 1091, ADR-0199) so a saved view carries its filter state instead of
-    leaving it stranded in the URL/localStorage. They are opaque filter
-    *criteria*, not access grants: an assignee id that is not a current
-    project member is a harmless no-op match, never a permission escalation,
-    so ``validate_config`` checks shape/membership-in-enum only and does not
-    cross-reference project membership.
+    The four ``filter_*`` keys (#1918, #2385) mirror the board filter-bar facets
+    (issue 1091, ADR-0199, ADR-0400) so a saved view carries its filter state
+    instead of leaving it stranded in the URL/localStorage. They are opaque
+    filter *criteria*, not access grants: an assignee or label id that is not a
+    current project member/label is a harmless no-op match, never a permission
+    escalation, so ``validate_config`` checks shape/membership-in-enum only and
+    does not cross-reference project membership or the label catalog. Keeping a
+    dangling label id is deliberate — it is what lets the client tell "this view
+    filtered on a label that was deleted" apart from "this view had no label
+    filter", instead of the config being silently rewritten (#2385).
 
     schema_version tracks the shape of ``config`` (ADR-0086 / ADR-0204). On read,
     ``BoardSavedViewSerializer`` runs the payload through the forward-migration

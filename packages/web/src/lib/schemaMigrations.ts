@@ -151,6 +151,29 @@ function boardViewV1ToV2(payload: Record<string, unknown>): Record<string, unkno
   return upgraded;
 }
 
-registerSurface(SURFACE_BOARD_SAVED_VIEW, 2);
+/**
+ * The label-facet key added in v3 (issue 2385) — mirror of the API-side
+ * `_BOARD_VIEW_LABEL_DEFAULTS`. Split from the v2 defaults rather than appended
+ * to them: the v1→v2 transform is frozen history and a payload already stored at
+ * v2 is never re-run through it, so widening v2 in place would leave every
+ * existing saved view without the key.
+ */
+const BOARD_VIEW_LABEL_DEFAULTS: Record<string, unknown> = {
+  filter_labels: [],
+};
+
+/** Backfill the label-facet key onto a pre-#2385 (v2) board view payload. */
+function boardViewV2ToV3(payload: Record<string, unknown>): Record<string, unknown> {
+  const upgraded = { ...payload };
+  for (const [key, value] of Object.entries(BOARD_VIEW_LABEL_DEFAULTS)) {
+    if (upgraded[key] === undefined) {
+      upgraded[key] = value;
+    }
+  }
+  return upgraded;
+}
+
+registerSurface(SURFACE_BOARD_SAVED_VIEW, 3);
 registerMigration(SURFACE_BOARD_SAVED_VIEW, 0, boardViewV0ToV1);
 registerMigration(SURFACE_BOARD_SAVED_VIEW, 1, boardViewV1ToV2);
+registerMigration(SURFACE_BOARD_SAVED_VIEW, 2, boardViewV2ToV3);

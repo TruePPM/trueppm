@@ -71,6 +71,5 @@ Labels are first-class API objects. A read-only MCP client (or any API consumer)
 
 - Labels do not yet appear in the **schedule PDF export** or color the **Gantt bars** — that is planned as a follow-up.
 - The **schedule / Gantt** view does not yet carry the Label facet. When it lands it will **dim** non-matching rows rather than hide them, because a filtered-out task still drives the dates of the ones that remain.
-- **Saved board views** do not yet persist a label filter.
 - A **cross-project** "tasks with label X" view does not exist. Labels are project-scoped, so filtering is always within one project.
 - Label colors are chosen from the fixed palette; free hex colors are not supported.

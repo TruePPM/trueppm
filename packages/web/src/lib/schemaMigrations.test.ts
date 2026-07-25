@@ -10,7 +10,7 @@ import {
 
 describe('schemaMigrations registry', () => {
   it('reports the current version for a registered surface', () => {
-    expect(currentVersion(SURFACE_BOARD_SAVED_VIEW)).toBe(2);
+    expect(currentVersion(SURFACE_BOARD_SAVED_VIEW)).toBe(3);
   });
 
   it('defaults an unregistered surface to version 1', () => {
@@ -28,9 +28,9 @@ describe('schemaMigrations registry', () => {
       const { payload, version } = migratePayload(SURFACE_BOARD_SAVED_VIEW, {
         sort: 'start_date',
       });
-      expect(version).toBe(2);
+      expect(version).toBe(3);
       expect(payload).toEqual({
-        schema_version: 2,
+        schema_version: 3,
         sort: 'start_date', // existing value preserved
         show_wip: true,
         show_col_tints: true,
@@ -40,6 +40,7 @@ describe('schemaMigrations registry', () => {
         filter_assignees: [],
         filter_priority: [],
         filter_due: [],
+        filter_labels: [],
       });
     });
 
@@ -54,19 +55,46 @@ describe('schemaMigrations registry', () => {
         risk_linked_only: true,
       };
       const { payload, version } = migratePayload(SURFACE_BOARD_SAVED_VIEW, v1);
-      expect(version).toBe(2);
+      expect(version).toBe(3);
       expect(payload).toEqual({
         ...v1,
-        schema_version: 2,
+        schema_version: 3,
         filter_assignees: [],
         filter_priority: [],
         filter_due: [],
+        filter_labels: [],
       });
     });
 
-    it('leaves an already-current (v2) payload untouched except stamping the version', () => {
-      const current = {
+    it('backfills an empty label facet on a v2 payload (pre-#2385)', () => {
+      const v2 = {
         schema_version: 2,
+        sort: 'priority',
+        show_wip: true,
+        show_col_tints: true,
+        evm_mode: 'off',
+        show_cost: false,
+        risk_linked_only: false,
+        filter_assignees: ['res-1'],
+        filter_priority: ['high'],
+        filter_due: ['overdue'],
+      };
+      const { payload, version } = migratePayload(SURFACE_BOARD_SAVED_VIEW, v2);
+      expect(version).toBe(3);
+      expect(payload).toEqual({ ...v2, schema_version: 3, filter_labels: [] });
+    });
+
+    it('does not overwrite a label selection that is already present', () => {
+      const { payload } = migratePayload(SURFACE_BOARD_SAVED_VIEW, {
+        schema_version: 2,
+        filter_labels: ['lbl-7'],
+      });
+      expect(payload.filter_labels).toEqual(['lbl-7']);
+    });
+
+    it('leaves an already-current (v3) payload untouched except stamping the version', () => {
+      const current = {
+        schema_version: 3,
         sort: 'priority',
         show_wip: false,
         show_col_tints: false,
@@ -76,9 +104,10 @@ describe('schemaMigrations registry', () => {
         filter_assignees: ['res-1'],
         filter_priority: ['high'],
         filter_due: ['overdue'],
+        filter_labels: ['lbl-1'],
       };
       const { payload, version } = migratePayload(SURFACE_BOARD_SAVED_VIEW, current);
-      expect(version).toBe(2);
+      expect(version).toBe(3);
       expect(payload).toEqual(current);
     });
   });

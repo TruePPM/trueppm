@@ -198,6 +198,31 @@ def _board_view_v1_to_v2(payload: Mapping[str, Any]) -> dict[str, Any]:
     return upgraded
 
 
-register_surface(SURFACE_BOARD_SAVED_VIEW, current_version=2)
+# The label-facet key added in v3 (#2385). Split from the v2 facet defaults
+# rather than appended to them: the v1→v2 transform is frozen history, and a
+# payload already stored at v2 would never be re-run through it, so widening v2
+# in place would leave every existing saved view without the key.
+_BOARD_VIEW_LABEL_DEFAULTS: dict[str, Any] = {
+    "filter_labels": [],
+}
+
+
+def _board_view_v2_to_v3(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Backfill the label-facet key onto a pre-#2385 board view.
+
+    A v2 payload predates label filters being persisted into saved views: the
+    client believed it could save a label selection, but every layer dropped it
+    silently. Fill the absent key with its empty-list default ("no constraint")
+    — a view saved before this fix never carried a label opinion that could be
+    recovered.
+    """
+    upgraded = dict(payload)
+    for key, default in _BOARD_VIEW_LABEL_DEFAULTS.items():
+        upgraded.setdefault(key, default)
+    return upgraded
+
+
+register_surface(SURFACE_BOARD_SAVED_VIEW, current_version=3)
 register_migration(SURFACE_BOARD_SAVED_VIEW, 0, _board_view_v0_to_v1)
 register_migration(SURFACE_BOARD_SAVED_VIEW, 1, _board_view_v1_to_v2)
+register_migration(SURFACE_BOARD_SAVED_VIEW, 2, _board_view_v2_to_v3)

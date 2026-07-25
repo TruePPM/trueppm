@@ -145,6 +145,7 @@ describe('useBoardSavedViews — filter facet round trip (#1918)', () => {
         filter_assignees: ['r2'],
         filter_priority: [],
         filter_due: ['this_week'],
+        filter_labels: [],
       },
     });
   });
@@ -180,7 +181,160 @@ describe('useBoardSavedViews — filter facet round trip (#1918)', () => {
 
     expect(postMock).toHaveBeenCalledWith('/projects/proj-1/board-views/', {
       name: 'No filters',
-      config: { ...BASE_API_CONFIG, filter_assignees: [], filter_priority: [], filter_due: [] },
+      config: {
+        ...BASE_API_CONFIG,
+        filter_assignees: [],
+        filter_priority: [],
+        filter_due: [],
+        filter_labels: [],
+      },
     });
+  });
+});
+
+describe('useBoardSavedViews — label facet round trip (#2385)', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    vi.clearAllMocks();
+  });
+
+  it('reads filter_labels off the wire into config.filters.labels', async () => {
+    getMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'sv-1',
+          name: 'Needs review',
+          config: {
+            ...BASE_API_CONFIG,
+            filter_assignees: [],
+            filter_priority: [],
+            filter_due: [],
+            filter_labels: ['lbl-a', 'lbl-b'],
+          },
+          schema_version: 3,
+          created_by: 'user-1',
+          server_version: 1,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useBoardSavedViews('proj-1'), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.views[0].config.filters?.labels).toEqual(['lbl-a', 'lbl-b']);
+  });
+
+  it('loads a pre-#2385 (v2) view with no filter_labels as an empty selection', async () => {
+    // The regression guard for the original bug's blast radius: a view saved
+    // before the fix must load cleanly with no labels selected, never
+    // `undefined` reaching the facet.
+    getMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'sv-legacy',
+          name: 'Pre-#2385 view',
+          config: {
+            ...BASE_API_CONFIG,
+            filter_assignees: ['r1'],
+            filter_priority: [],
+            filter_due: [],
+          },
+          schema_version: 2,
+          created_by: null,
+          server_version: 1,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useBoardSavedViews('proj-1'), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.views[0].config.filters?.labels).toEqual([]);
+    // The other facets are untouched by the upgrade.
+    expect(result.current.views[0].config.filters?.assignees).toEqual(['r1']);
+  });
+
+  it('POSTs the selected labels as filter_labels when creating a view', async () => {
+    postMock.mockResolvedValueOnce({
+      data: {
+        id: 'sv-new',
+        name: 'Labeled',
+        config: {
+          ...BASE_API_CONFIG,
+          filter_assignees: [],
+          filter_priority: [],
+          filter_due: [],
+          filter_labels: ['lbl-a'],
+        },
+        schema_version: 3,
+        created_by: 'user-1',
+        server_version: 1,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    });
+
+    const { result } = renderHook(() => useBoardSavedViews('proj-1'), { wrapper: makeWrapper(qc) });
+
+    const config: BoardViewConfig = {
+      sort: 'priority',
+      showWip: true,
+      showColTints: true,
+      evmMode: 'off',
+      showCost: false,
+      riskLinkedOnly: false,
+      filters: { assignees: [], priority: [], due: [], labels: ['lbl-a'] },
+    };
+    result.current.create.mutate({ name: 'Labeled', config });
+
+    await waitFor(() => expect(result.current.create.isSuccess).toBe(true));
+
+    expect(postMock).toHaveBeenCalledWith('/projects/proj-1/board-views/', {
+      name: 'Labeled',
+      config: {
+        ...BASE_API_CONFIG,
+        filter_assignees: [],
+        filter_priority: [],
+        filter_due: [],
+        filter_labels: ['lbl-a'],
+      },
+    });
+  });
+
+  it('keeps a label id the project no longer has, so the client can offer repair', async () => {
+    // A deleted label must survive the read path rather than being scrubbed —
+    // the dangling id is what lets the UI show a tombstone instead of silently
+    // dropping the filter.
+    getMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'sv-ghost',
+          name: 'Rework',
+          config: {
+            ...BASE_API_CONFIG,
+            filter_assignees: [],
+            filter_priority: [],
+            filter_due: [],
+            filter_labels: ['lbl-deleted'],
+          },
+          schema_version: 3,
+          created_by: null,
+          server_version: 1,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useBoardSavedViews('proj-1'), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.views[0].config.filters?.labels).toEqual(['lbl-deleted']);
   });
 });
