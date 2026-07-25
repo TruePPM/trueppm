@@ -503,7 +503,9 @@ test.describe('TaskDetailDrawer redesign — tabs', () => {
     await expect(advisory).toBeVisible();
     await expect(advisory.getByRole('button', { name: /Set committed start/i })).toBeVisible();
     await expect(advisory.getByRole('button', { name: 'Move to To Do' })).toBeVisible();
-    // The Start cell no longer silently contradicts the advisory above it.
+    // The Start cell no longer silently contradicts the advisory above it: a
+    // visible "computed" qualifier chip (#2379) plus the sr-only phrasing.
+    await expect(schedule.getByText('computed', { exact: true })).toBeVisible();
     await expect(schedule.getByText('(computed, not committed)')).toBeAttached();
   });
 

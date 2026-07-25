@@ -285,6 +285,19 @@ describe('TaskScheduleStrip', () => {
       expect(screen.queryByText('(computed, not committed)')).not.toBeInTheDocument();
     });
 
+    it('renders the visible "computed" qualifier chip beside a flagged Start date', () => {
+      // #2379 — the design's visible qualifier. The chip is aria-hidden so the
+      // sr-only "(computed, not committed)" stays the single accessible channel
+      // (web-rule 216); assert the visible text and the hidden-from-AT state.
+      const { rerender } = render(<TaskScheduleStrip task={flagged()} />);
+      const chip = screen.getByText('computed');
+      expect(chip).toBeInTheDocument();
+      expect(chip).toHaveAttribute('aria-hidden', 'true');
+      // Committed start → plain date, no chip.
+      rerender(<TaskScheduleStrip task={makeTask({ plannedStart: '2026-01-13' })} />);
+      expect(screen.queryByText('computed')).not.toBeInTheDocument();
+    });
+
     it('never marks a milestone Date as computed', () => {
       render(
         <TaskScheduleStrip
