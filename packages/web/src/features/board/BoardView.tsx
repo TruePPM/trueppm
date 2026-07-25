@@ -31,9 +31,7 @@ import {
 import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectCustomFields, type ProjectCustomField } from '@/hooks/useProjectCustomFields';
-import { setSearchParam, useUrlSelectedId } from '@/hooks/useUrlSelectedId';
-import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { ROLE_ADMIN, ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
+import { useUrlSelectedId } from '@/hooks/useUrlSelectedId';
 import { taskDndAnnouncements } from '@/lib/dndAnnouncements';
 import { useSpaceDragPan, SpaceAwarePointerSensor } from '@/hooks/useSpaceDragPan';
 import { useHasScrollBelow } from '@/hooks/useHasScrollBelow';
@@ -78,8 +76,6 @@ import type { ApiSprint, Task, TaskStatus } from '@/types';
 import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
 import { useBoardOffline } from './offline/useBoardOffline';
 import { LaneMeta } from './LaneMeta';
-import { WorkshopBanner } from './WorkshopBanner';
-import { BoardScopeInjectionBanner } from './BoardScopeInjectionBanner';
 import { PhaseMilestoneRail } from './PhaseMilestoneRail';
 import { phaseColor } from './phaseColors';
 import { BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
@@ -102,12 +98,14 @@ import {
   type FacetFilters,
 } from './boardFacets';
 import { useBoardTaskMaps } from './boardView/useBoardTaskMaps';
-import { COLUMN_DOT_CLASS, COLUMN_TINT } from './boardView/columnTokens';
+import { useBoardSprintScope } from './boardView/useBoardSprintScope';
+import { BoardChrome } from './boardView/BoardChrome';
+import { boardKeyboardBindings, isB3OverlayOpen } from './boardView/boardKeyboardBindings';
+import { boardReadOnly, useBoardIdentity } from './boardView/useBoardIdentity';
+import { COLUMN_TINT } from './boardView/columnTokens';
 import { BoardConfirmDialogs } from './boardView/BoardConfirmDialogs';
 import { BoardCardOverlays } from './boardView/BoardCardOverlays';
 import { BoardSidePanels } from './boardView/BoardSidePanels';
-import { BoardLensBanners, BoardZeroMatch, FocusLaneBanner } from './boardView/BoardLensBanners';
-import { CollapsedColumnsBanner } from './boardView/CollapsedColumnsBanner';
 import { visibleLanes, type LaneShape } from './boardView/BoardPhaseLanes';
 import { BoardBody } from './boardView/BoardBody';
 import { wipBreachInfo, type WipBreach } from './wipBreach';
@@ -120,19 +118,15 @@ import {
 import { buildAssigneeLanes, buildEpicLanes, epicLaneId, primaryAssigneeLaneId } from './grouping';
 import { useBoardCardSearch } from '@/hooks/useBoardCardSearch';
 import { useProject } from '@/hooks/useProject';
-import { useActiveSprint, useFlowMetrics, useSprints } from '@/hooks/useSprints';
+import { useActiveSprint, useFlowMetrics } from '@/hooks/useSprints';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useScopeChangeActions, useScopeDecisionFeedback } from '@/hooks/useScopeChangeActions';
-import { BoardSprintHeader } from './BoardSprintHeader';
 import { BoardDropNotice } from './BoardDropNotice';
-import { ClosedSprintBanner } from './ClosedSprintBanner';
-import { useDefaultBoardSprint } from '@/hooks/useDefaultBoardSprint';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { BoardCardScopeActions } from './BoardCard';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { toast } from '@/components/Toast/toast';
 import { fmtUtcLong } from '@/lib/formatUtcDate';
-import { BoardPrintLayout } from './export/BoardPrintLayout';
 import { buildBoardPrintData } from './export/boardPrintData';
 import { exportBoardPdf, boardPdfFileName } from './export/exportBoardPdf';
 
@@ -159,6 +153,67 @@ function sprintAssignTarget(sprint: ApiSprint | null, task: Task): string | unde
   if (sprint.state !== 'ACTIVE' && sprint.state !== 'PLANNED') return undefined;
   if (task.sprintId === sprint.id) return undefined;
   return sprint.id;
+}
+
+/**
+ * How many cards are awaiting scope-injection review on the active sprint.
+ *
+ * A module function rather than an inline `??` at the call site so the absent
+ * cases (no active sprint, sprint without the field) resolve in one place.
+ */
+function activeSprintPendingCount(sprint: ApiSprint | null | undefined): number {
+  return sprint?.pending_count ?? 0;
+}
+
+/**
+ * The three project fields the board chrome reads, resolved in one place.
+ *
+ * `projectDetail` is undefined until its fetch lands, and each consumer wanted
+ * a different one of these — three separate optional chains in the shell, two
+ * of them buried in `useMemo`/`useEffect` dependency arrays where a stale or
+ * mistyped key fails silently.
+ */
+type BoardProjectDetail = NonNullable<ReturnType<typeof useProject>['data']>;
+
+function boardProjectMeta(detail: BoardProjectDetail | undefined) {
+  return {
+    projectName: detail?.name,
+    methodology: detail?.methodology,
+    boardCadence: detail?.board_cadence,
+  };
+}
+
+/** The signed-in user's display name, or undefined before the fetch lands. */
+function displayNameOf(user: { display_name?: string } | null | undefined): string | undefined {
+  return user?.display_name;
+}
+
+/**
+ * Which cards the dep-chain dim set should highlight.
+ *
+ * A query with matches takes precedence over a transient dep-hover highlight;
+ * an empty query — or one that matches nothing — falls back to the hover set so
+ * the board never greys out wholesale (issue 182).
+ */
+function searchDimSet(
+  query: string,
+  matchIds: Set<string>,
+  hoverHighlightIds: Set<string> | null,
+): Set<string> | null {
+  const searchActive = query.trim().length > 0 && matchIds.size > 0;
+  return searchActive ? matchIds : hoverHighlightIds;
+}
+
+/**
+ * Facet match count plus the zero-match flag.
+ *
+ * Zero-match means facets are active but no committed card matches; it drives
+ * the dedicated banner, because the board would otherwise render every card
+ * dimmed to 30% and read as broken rather than as filtered.
+ */
+function facetMatchSummary(facetsActive: boolean, matchIds: Set<string> | null) {
+  const facetMatchCount = matchIds?.size ?? 0;
+  return { facetMatchCount, facetZeroMatch: facetsActive && facetMatchCount === 0 };
 }
 
 function sortTasksBy(tasks: Task[], sort: BoardSortKey): Task[] {
@@ -1353,16 +1408,14 @@ function useBoardDensity() {
 export function BoardView() {
   // document.title for this route is set at the router level (router.tsx
   // `handle.title`) — see RouteTitle (issue 1915, completes #1327 A4).
-  const projectId = useProjectId() ?? '';
-  // `useProjectId()` yields '' outside a project route. Nearly every hook below
-  // wants that absence as null/undefined rather than an empty string, so resolve
-  // the two shapes once instead of re-branching at ~20 call sites.
-  const projectIdOrNull = projectId || null;
-  const projectIdOrUndefined = projectId || undefined;
-  // Public board share (#1486): mint/manage is Admin+; the toolbar item is hidden
-  // for lower roles and the dialog surfaces the server kill-switch 403 verbatim.
-  const { role: currentRole } = useCurrentUserRole(projectIdOrUndefined);
-  const canShareBoard = currentRole !== null && currentRole >= ROLE_ADMIN;
+  const {
+    projectId,
+    projectIdOrNull,
+    projectIdOrUndefined,
+    currentRole,
+    canShareBoard,
+    canConfigureBoard,
+  } = useBoardIdentity(useProjectId());
   const [shareOpen, setShareOpen] = useState(false);
   const { columns: rawColumns, save: saveBoardConfig } = useBoardConfig(projectIdOrNull);
   const { tasks, isLoading, error } = useScheduleTasks();
@@ -1399,69 +1452,21 @@ export function BoardView() {
 
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Board sprint view (#429). The selected sprint scopes the phase columns to a
-  // single sprint; `null` = Project view (all committed tasks). Persisted in the
-  // `?sprint=` URL param (a distinct, shareable axis from the `?view=` saved
-  // views) so a sprint board link can be shared. The backlog band is unaffected
-  // — it stays the intake source you drag from.
-  const { sprints } = useSprints(projectIdOrNull);
-  const selectedSprintId = searchParams.get('sprint');
-  const selectedSprint = useMemo(
-    () => sprints.find((s) => s.id === selectedSprintId) ?? null,
-    [sprints, selectedSprintId],
-  );
-  // Smart default board scope (#1141): the user's last explicit choice
-  // (per-user-per-project, localStorage) or the single ACTIVE sprint. The URL
-  // param always wins — `setSelectedSprintId` writes it and also persists the
-  // choice so the next visit (without a shared link) restores it.
-  const defaultSprint = useDefaultBoardSprint(projectIdOrUndefined);
-  const setSelectedSprintId = useCallback(
-    (id: string | null) => {
-      if (projectId) defaultSprint.persist(projectId, id);
-      setSearchParam(setSearchParams, 'sprint', id);
-    },
-    [setSearchParams, defaultSprint, projectId],
-  );
+  // Board sprint view (#429, #1141). The selected sprint scopes the phase
+  // columns to a single sprint; `null` = Project view (all committed tasks).
+  // Persisted in the `?sprint=` URL param (a distinct, shareable axis from the
+  // `?view=` saved views) so a sprint board link can be shared. The backlog band
+  // is unaffected — it stays the intake source you drag from.
+  const {
+    sprints,
+    selectedSprintId,
+    selectedSprint,
+    selectedSprintName,
+    setSelectedSprintId,
+    sprintClosed,
+  } = useBoardSprintScope(projectId, searchParams, setSearchParams);
 
-  // Seed the board scope once on first load when the URL carries no explicit
-  // `?sprint=` (a shared link is authoritative and skips this entirely). Runs
-  // after sprints + current user resolve; the ref guard keeps it one-shot so a
-  // user who deliberately switches back to Project view isn't re-defaulted.
-  const seededDefaultRef = useRef(false);
-  useEffect(() => {
-    if (seededDefaultRef.current) return;
-    if (!projectId || defaultSprint.isLoading) return;
-    if (searchParams.has('sprint')) {
-      seededDefaultRef.current = true;
-      return;
-    }
-    if (sprints.length === 0) return; // wait for sprints to load before deciding
-    seededDefaultRef.current = true;
-    const def = defaultSprint.resolveDefault(sprints);
-    if (def) {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          next.set('sprint', def);
-          return next;
-        },
-        { replace: true },
-      );
-    }
-  }, [projectId, defaultSprint, sprints, searchParams, setSearchParams]);
-
-  // A COMPLETED sprint board is a retrospective read (#1141): drag-to-assign is
-  // disabled board-wide so a card move never back-dates scope into a closed
-  // sprint. Card-open and scroll stay enabled — read is the use case.
-  const sprintClosed = selectedSprint?.state === 'COMPLETED';
-  // Board authoring is Member+ (#2146): quick-capture, per-lane add, card drag,
-  // and Move-to all rendered for Viewers and 403'd. Fold the role gate into the
-  // board-wide `readOnly` used by every write affordance — pessimistic while the
-  // role loads (`canEditTask(null)` is false). `sprintClosed` stays separate for
-  // the closed-sprint banner, which must not show on an active board just
-  // because the viewer lacks write access. The server is authoritative.
-  const canConfigureBoard = (currentRole ?? -1) >= ROLE_SCHEDULER;
-  const readOnly = sprintClosed || !canEditTask(currentRole);
+  const readOnly = boardReadOnly(currentRole, sprintClosed);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
@@ -1641,8 +1646,7 @@ export function BoardView() {
   // Search dimming reuses the issue-182 dep-chain dim set. A query with matches takes
   // precedence over a transient dep-hover highlight; an empty query (or one that
   // matches nothing) leaves the board undimmed so it never greys out wholesale.
-  const searchActive = searchQuery.trim().length > 0 && searchMatchIds.size > 0;
-  const effectiveHighlightIds = searchActive ? searchMatchIds : highlightedTaskIds;
+  const effectiveHighlightIds = searchDimSet(searchQuery, searchMatchIds, highlightedTaskIds);
 
   // Board facet filters (issue 1091, ADR-0199). URL params (fa/fp/fd) are the
   // shareable source of truth; localStorage per project seeds them once on first
@@ -1829,18 +1833,20 @@ export function BoardView() {
   // `pending_count`; a team-owned actor (role >= ADMIN) can open the review
   // slide-over. The server is the real gate — this only hides the affordance.
   const { sprint: activeSprint } = useActiveSprint(projectIdOrNull);
+  const activeSprintId = useMemo(() => activeSprint?.id ?? null, [activeSprint]);
   const canManageScope = useCanManageScope(projectIdOrUndefined);
   const [scopeReviewOpen, setScopeReviewOpen] = useState(false);
   const { acceptOne: acceptScope, rejectOne: rejectScope } = useScopeChangeActions(
     projectIdOrNull,
-    activeSprint?.id ?? null,
+    activeSprintId,
   );
   // rules 149/150: accept confirms, single reject offers an Undo re-add (#2149).
   // The hook toasts failures; this adds the positive path, same as the panel.
   const { confirmAccepted, confirmRejectedWithUndo } = useScopeDecisionFeedback(
     projectIdOrNull,
-    activeSprint?.id ?? null,
+    activeSprintId,
   );
+  const { projectName, methodology, boardCadence } = boardProjectMeta(projectDetail);
   // Map a pending card to its latest pending scope-change row id (the
   // accept/reject target) before firing the mutation. ADR-0102.
   const pendingScopeChangeId = useCallback((task: Task): string | undefined => {
@@ -1958,11 +1964,8 @@ export function BoardView() {
     }
     return ids;
   }, [facetsActive, committedTasks, facetFilters]);
-  const facetMatchCount = facetMatchIds?.size ?? 0;
+  const { facetMatchCount, facetZeroMatch } = facetMatchSummary(facetsActive, facetMatchIds);
   const facetCount = activeFacetCount(facetFilters);
-  // Zero-match: facets are active but no committed card matches. Drives the
-  // dedicated banner (the board would otherwise show every card dimmed to 30%).
-  const facetZeroMatch = facetsActive && facetMatchCount === 0;
 
   // Announce filter changes to assistive tech (issue 1091 AC; the issue 1033 aria
   // omission this explicitly guards against). Skips the initial mount so a plain
@@ -2027,6 +2030,7 @@ export function BoardView() {
   // already-filtered `phases`/`COLUMNS` the live board draws, so the export
   // honors the active sprint scope and saved-view filters with no re-derivation.
   const { user: currentUser } = useCurrentUser();
+  const currentUserName = displayNameOf(currentUser);
   const boardPrintRef = useRef<HTMLDivElement>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   // The print surface mounts only while an export is in flight (not on every
@@ -2037,11 +2041,11 @@ export function BoardView() {
   const boardPrintData = useMemo(
     () =>
       buildBoardPrintData({
-        projectName: projectDetail?.name ?? 'Board',
-        sprintName: selectedSprint?.name ?? null,
+        projectName: projectName ?? 'Board',
+        sprintName: selectedSprintName ?? null,
         columns: COLUMNS.map((c) => ({ status: c.status, label: c.label })),
         lanes: phases.map((p) => ({ id: p.id, name: p.name, tasks: p.tasks })),
-        userName: currentUser?.display_name ?? null,
+        userName: currentUserName ?? null,
         generatedAtLabel: fmtUtcLong(new Date().toISOString()),
         filters: {
           myTasks: myTasksFilter.enabled,
@@ -2056,11 +2060,11 @@ export function BoardView() {
         },
       }),
     [
-      projectDetail?.name,
-      selectedSprint?.name,
+      projectName,
+      selectedSprintName,
       COLUMNS,
       phases,
-      currentUser?.display_name,
+      currentUserName,
       myTasksFilter.enabled,
       riskLinkedOnly,
       debtOnly,
@@ -2087,7 +2091,7 @@ export function BoardView() {
       try {
         if (node) {
           await exportBoardPdf(node, {
-            fileName: boardPdfFileName(projectDetail?.name ?? 'board', new Date().toISOString()),
+            fileName: boardPdfFileName(projectName ?? 'board', new Date().toISOString()),
           });
         }
       } catch {
@@ -2102,7 +2106,7 @@ export function BoardView() {
     return () => {
       cancelled = true;
     };
-  }, [exportRequested, projectDetail?.name]);
+  }, [exportRequested, projectName]);
 
   // Demotion confirmation candidate (ADR-0057, Option C) — set by handleDragEnd
   // when a NOT_STARTED card is dropped on the band; cleared on confirm/cancel.
@@ -2655,32 +2659,25 @@ export function BoardView() {
     [COLUMNS, collapsedColumns, focusedColumn, focusedPhaseId, phases, phaseTaskMap],
   );
 
-  // While any b3 overlay is open, only Esc → onCloseOverlay should fire; nav keys
-  // are suppressed.  When AddTaskModal is open, the modal owns the keyboard.
-  const b3OverlayOpen =
-    depTask !== null ||
-    riskTask !== null ||
-    showCheatsheet ||
-    popoverTask !== null ||
-    editTaskId !== null;
+  const openCheatsheet = useCallback(() => setShowCheatsheet(true), []);
+  const focusSearchInput = useCallback(() => searchInputRef.current?.focus(), []);
 
+  // When AddTaskModal is open, the modal owns the keyboard.
   useBoardKeyboard(
-    {
-      onMoveCardFocus: b3OverlayOpen ? undefined : moveFocusInColumn,
-      onMoveColumnFocus: b3OverlayOpen ? undefined : moveFocusInPhase,
-      // `E` edits the focused card (#2194 — the cheatsheet advertised this but the
-      // handler was never wired). Enter/Space open detail via the card's own
-      // key handler, which now receives real DOM focus from j/k/l/h.
-      onEditCard: !b3OverlayOpen && focusedTask ? () => setEditTaskId(focusedTask.id) : undefined,
-      onShowDeps: !b3OverlayOpen && focusedTask ? () => handleShowDeps(focusedTask) : undefined,
-      onShowCheatsheet: b3OverlayOpen ? undefined : () => setShowCheatsheet(true),
-      onFocusSearch: b3OverlayOpen ? undefined : () => searchInputRef.current?.focus(),
-      onOpenFilter: b3OverlayOpen ? undefined : toggleFilterPanel,
-      onCloseOverlay: b3OverlayOpen ? closeAllOverlays : undefined,
-      // Arrows are claimed only once the board's virtual focus is engaged, so an
-      // idle board doesn't hijack native page scroll (#2205).
-      boardFocusActive: focusedCardId !== null || focusedColumn !== null,
-    },
+    boardKeyboardBindings({
+      overlayOpen: isB3OverlayOpen({ depTask, riskTask, showCheatsheet, popoverTask, editTaskId }),
+      focusedTask,
+      focusedCardId,
+      focusedColumn,
+      moveFocusInColumn,
+      moveFocusInPhase,
+      onEditTask: setEditTaskId,
+      onShowDeps: handleShowDeps,
+      onShowCheatsheet: openCheatsheet,
+      onFocusSearch: focusSearchInput,
+      onOpenFilter: toggleFilterPanel,
+      onCloseOverlay: closeAllOverlays,
+    }),
     addTaskPhase === null,
   );
 
@@ -2761,6 +2758,20 @@ export function BoardView() {
     );
   };
 
+  // Chrome-band inputs (#2378). `tasks ?? []` was defaulted inline at two call
+  // sites; hoisting it keeps the absent case resolved once and gives both
+  // consumers the same array rather than two fresh ones per render.
+  const allTasks = useMemo(() => tasks ?? [], [tasks]);
+  const scopePendingCount = activeSprintPendingCount(activeSprint);
+  const focusedLanePhaseName = useMemo(
+    () => phases.find((p) => p.id === focusedLanePhaseId)?.name ?? null,
+    [phases, focusedLanePhaseId],
+  );
+  const openWorkshopExitConfirm = useCallback(() => setShowExitConfirm(true), []);
+  const openScopeReview = useCallback(() => setScopeReviewOpen(true), []);
+  const clearMyTasksFilter = useCallback(() => myTasksFilter.setEnabled(false), [myTasksFilter]);
+  const clearDebtOnly = useCallback(() => setDebtOnly(false), []);
+
   // A failed tasks fetch must read as broken, not as an empty board — an empty
   // board and a dead request otherwise render identically (issue #1764).
   if (error) {
@@ -2811,7 +2822,7 @@ export function BoardView() {
           {/* Board toolbar — calm refactor (issue #382, epic #361 child B). */}
           <CalmToolbar
             projectId={projectId}
-            projectName={projectDetail?.name}
+            projectName={projectName}
             activeCount={committedTasks.filter((t) => !t.isSummary).length}
             backlogCount={backlogTasks.length}
             searchQuery={searchQuery}
@@ -2900,72 +2911,39 @@ export function BoardView() {
             onChange={onFacetsChange}
             onClearAll={onClearAllFacets}
           />
-          {/* Off-screen board-export print surface (issue 326). Mounted only
-              while an export is in flight so its duplicate projection of the
-              board's text never lingers in the DOM. Positioned out of view
-              (never display:none — html-to-image must render it) and aria-hidden
-              so it's invisible to assistive tech and pointer input. */}
-          {exportRequested && (
-            <div aria-hidden="true" className="pointer-events-none absolute -left-[99999px] top-0">
-              <BoardPrintLayout ref={boardPrintRef} data={boardPrintData} />
-            </div>
-          )}
-          {/* Workshop banner — shown when a session is active (ADR-0046) */}
-          {workshopMode && workshopSession && (
-            <WorkshopBanner
-              session={workshopSession}
-              onEnd={() => setShowExitConfirm(true)}
-              isEnding={endWorkshop.isPending}
-            />
-          )}
-          {/* Mid-sprint scope-injection banner (ADR-0101 §5) — team-visible
-              record that tasks were added to the active sprint after it
-              started. Self-hides when there's nothing to report. */}
-          <BoardScopeInjectionBanner
-            tasks={tasks ?? []}
-            pendingCount={activeSprint?.pending_count ?? 0}
+          <BoardChrome
+            projectId={projectId}
+            tasks={allTasks}
+            exportRequested={exportRequested}
+            boardPrintRef={boardPrintRef}
+            boardPrintData={boardPrintData}
+            workshopMode={workshopMode}
+            workshopSession={workshopSession}
+            workshopEnding={endWorkshop.isPending}
+            onEndWorkshop={openWorkshopExitConfirm}
+            scopePendingCount={scopePendingCount}
             canManageScope={canManageScope}
-            onReview={() => setScopeReviewOpen(true)}
-          />
-
-          <BoardLensBanners
+            onReviewScope={openScopeReview}
             mineActive={mineActive}
-            onClearMine={() => myTasksFilter.setEnabled(false)}
+            onClearMine={clearMyTasksFilter}
             debtOnly={debtOnly}
-            onClearDebt={() => setDebtOnly(false)}
-          />
-
-          {/* Sprint header bar (#1138) — name + date range + Day N of M timebox
-              + goal + compact burndown. Only when a sprint is selected, and never on a
-              continuous-flow Kanban board (ADR-0164, issue 410) — that's sprint chrome. */}
-          {selectedSprint && projectId && projectDetail?.board_cadence !== 'continuous' && (
-            <BoardSprintHeader
-              sprint={selectedSprint}
-              projectId={projectId}
-              onOpenStandup={openStandup}
-            />
-          )}
-          {/* Closed-sprint read-only banner (#1141) — below the header, above the
-              grid; drag-to-assign is disabled board-wide (see `readOnly`). */}
-          {sprintClosed && projectId && <ClosedSprintBanner projectId={projectId} />}
-
-          <FocusLaneBanner
-            phaseName={phases.find((p) => p.id === focusedLanePhaseId)?.name ?? null}
-            onExit={exitFocusLane}
-          />
-
-          <CollapsedColumnsBanner
+            onClearDebt={clearDebtOnly}
+            selectedSprint={selectedSprint}
+            boardCadence={boardCadence}
+            onOpenStandup={openStandup}
+            sprintClosed={sprintClosed}
+            focusedLanePhaseName={focusedLanePhaseName}
+            onExitFocusLane={exitFocusLane}
             columns={COLUMNS}
             collapsedColumns={collapsedColumns}
             totalByStatus={totalByStatus}
             myCountByStatus={myCountByStatus}
-            dotClassFor={(status) => COLUMN_DOT_CLASS[status] ?? 'bg-neutral-text-disabled'}
             onExpandColumn={expandColumn}
             onToggleColumn={toggleColumn}
             onExpandAllColumns={expandAllColumns}
+            facetZeroMatch={facetZeroMatch}
+            onClearAllFacets={onClearAllFacets}
           />
-
-          {facetZeroMatch && <BoardZeroMatch onClearAll={onClearAllFacets} />}
 
           <BoardBody
             projectId={projectId}
@@ -2973,8 +2951,8 @@ export function BoardView() {
             effectiveLayout={effectiveLayout}
             isMobile={isMobile}
             columns={COLUMNS}
-            methodology={projectDetail?.methodology}
-            boardCadence={projectDetail?.board_cadence}
+            methodology={methodology}
+            boardCadence={boardCadence}
             queueTasks={queueTasks}
             phaseNameFor={(parentId) => phaseNameMap.get(parentId ?? 'root') ?? 'Project'}
             phaseColorFor={(parentId) => phaseColor(parentId ?? 'root')}
@@ -3158,12 +3136,12 @@ export function BoardView() {
 
       <BoardSidePanels
         projectId={projectId}
-        tasks={tasks ?? []}
+        tasks={allTasks}
         isTaskOpenable={(taskId) => taskIndex.has(taskId)}
         onOpenTask={(taskId) => setSelectedTaskId(taskId)}
         activityOpen={activityOpen}
         onCloseActivity={toggleActivity}
-        activeSprintId={activeSprint?.id ?? null}
+        activeSprintId={activeSprintId}
         standupOpen={standupOpen}
         onCloseStandup={closeStandup}
         scopeReviewOpen={scopeReviewOpen}
