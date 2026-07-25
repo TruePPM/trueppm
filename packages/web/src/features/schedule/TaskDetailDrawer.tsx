@@ -36,6 +36,7 @@ import { CollapsibleSection } from './sections/CollapsibleSection';
 import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
 import { TaskScheduleStrip } from './TaskScheduleStrip';
 import { TaskSummaryStrip } from './TaskSummaryStrip';
+import { DrawerRecentActivity } from './DrawerRecentActivity';
 import { TaskDescriptionField } from './TaskDescriptionField';
 import { AddDetailRow } from './AddDetailRow';
 import { useDrawerSectionStore, revealKey } from '@/stores/drawerSectionStore';
@@ -1218,6 +1219,11 @@ function DrawerContent({
             return (
               <div>
                 <div className="px-4 py-4 space-y-5">
+                  <DrawerRecentActivity
+                    projectId={projectId}
+                    taskId={task.id}
+                    onViewActivity={() => onTabChange('activity')}
+                  />
                   <TaskSummaryStrip task={task} />
                   <TaskScheduleStrip task={task} projectId={projectId} canEdit={canEdit} />
                   {OverviewComp && (

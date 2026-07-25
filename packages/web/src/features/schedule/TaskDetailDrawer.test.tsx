@@ -60,6 +60,9 @@ vi.mock('./TaskDescriptionField', () => ({ TaskDescriptionField: () => <div /> }
 // The header chip calls useProject (a real useQuery); this suite mocks data
 // hooks rather than providing a QueryClient, so stub the chip like the strip.
 vi.mock('./HeaderEstimateChip', () => ({ HeaderEstimateChip: () => <div /> }));
+// Reads useTaskHistory (a real query); this suite mocks data hooks rather than
+// providing a QueryClient, so stub it like the strip/description.
+vi.mock('./DrawerRecentActivity', () => ({ DrawerRecentActivity: () => <div /> }));
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {

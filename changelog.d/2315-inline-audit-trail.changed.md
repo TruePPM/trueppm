@@ -1,0 +1,1 @@
+The task-detail drawer's Details tab now opens with an inline "Recent changes" audit trail — the last 3 activity entries (who changed what, and when) — so you can see a task's recent history without switching to the Activity tab, with a one-click "Activity →" to see the full timeline. Part of the Task-Detail Drawer v2 redesign (#2315).
