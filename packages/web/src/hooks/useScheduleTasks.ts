@@ -74,6 +74,10 @@ export interface ApiTask {
   // Board batch 3 (ADR-0035) — PPM signal annotations.
   predecessor_count?: number;
   is_blocked?: boolean;
+  // Progressive-disclosure signals (#2317, ADR-0605) — whether the two
+  // lazily-fetched drawer sections have content, without firing their queries.
+  has_related_links?: boolean;
+  has_recurrence?: boolean;
   // Human blocker flag (ADR-0124). Distinct from is_blocked above
   // (dependency-readiness). blocked_reason is the flag of record (non-empty ⇒
   // flagged) and is READ-GATED server-side (assignee + @-mentioned only), so it
@@ -319,6 +323,8 @@ export function mapTask(t: ApiTask): Task {
     totalFloat: t.total_float,
     predecessorCount: t.predecessor_count ?? 0,
     isBlocked: t.is_blocked ?? false,
+    hasRelatedLinks: t.has_related_links ?? false,
+    hasRecurrence: t.has_recurrence ?? false,
     // Human blocker flag (ADR-0124). blockedReason stays `undefined` when the
     // server gated it out (the privacy signal the section reads); never default
     // it to '' or a non-assignee would look like they can read an empty reason.

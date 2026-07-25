@@ -3206,7 +3206,7 @@ def annotate_tasks_queryset(
     annotation- and method-backed fields depend on (is_summary, parent_id,
     percent_complete_rollup, has_predecessors, predecessor_count, is_blocked,
     linked_risks_*, baseline_*, assignee_is_overallocated, sprint scope changes,
-    acceptance criteria).
+    acceptance criteria, has_related_links, has_recurrence).
 
     Shared by ``TaskViewSet.get_queryset`` and ``TaskBulkView.post`` so a bulk
     create/update response re-fetches its tasks through this *annotated* queryset
@@ -3407,6 +3407,34 @@ def annotate_tasks_queryset(
         latest_note_at=Max(
             "notes_log__created_at",
             filter=Q(notes_log__is_deleted=False),
+        ),
+    )
+
+    # Progressive-disclosure signals (#2317, ADR-0605) — emptiness of the two
+    # drawer Details-tab sections whose content lives behind their own lazy query
+    # (`useTaskRelations` / `useRecurrenceRule`). Without a task-level signal the
+    # drawer could only decide "is this section empty?" by firing those queries on
+    # every open, defeating the ADR-0050 lazy-load; these booleans let it collapse
+    # an empty section behind "Add detail" for free.
+    #
+    # Deliberately Exists() subqueries, not Count/aggregates: the annotate block
+    # above already multiplies rows across the predecessors/risks/notes joins (hence
+    # its distinct=True), and a subquery is immune to that fan-out as well as cheaper
+    # — Postgres short-circuits on the first matching row.
+    qs = qs.annotate(
+        # A relation is directed but displayed both ways (RelatedLinksSection unions
+        # the two sides), so the section is populated when EITHER end is this task.
+        has_related_links=Exists(
+            TaskRelation.objects.filter(source=OuterRef("pk"), is_deleted=False)
+        )
+        | Exists(TaskRelation.objects.filter(target=OuterRef("pk"), is_deleted=False)),
+        # True only for a recurrence *template* (the OneToOne rule owner). NOT the
+        # same as ``Task.is_recurring``, which is also True for generated occurrences
+        # — those carry no rule of their own, so RecurrenceSection renders empty for
+        # them and keying off is_recurring would leave a permanently empty section
+        # expanded (ADR-0090).
+        has_recurrence=Exists(
+            TaskRecurrenceRule.objects.filter(task=OuterRef("pk"), is_deleted=False)
         ),
     )
 

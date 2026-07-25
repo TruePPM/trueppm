@@ -219,11 +219,28 @@ describe('registerOssDrawerSections — isPopulated (progressive disclosure, ADR
     expect(estimates.isPopulated!({ task: summaryTask, tasks: [summaryTask] })).toBe(false);
   });
 
-  it('related-links and recurring have NO isPopulated predicate (stay always-shown)', () => {
-    // No task-level signal exists for these, so they must not collapse — they
-    // omit the predicate and render as always-shown headers until a server
-    // annotation lands (ADR-0605 follow-up).
-    expect(find('related-links').isPopulated).toBeUndefined();
-    expect(find('recurring').isPopulated).toBeUndefined();
+  it('related-links is populated from the server hasRelatedLinks annotation (#2317)', () => {
+    const related = find('related-links');
+    expect(related.isPopulated!({ task: { ...regularTask, hasRelatedLinks: true } })).toBe(true);
+    expect(related.isPopulated!({ task: { ...regularTask, hasRelatedLinks: false } })).toBe(false);
+    // Absent annotation (task serialized off a path that bypasses the viewset)
+    // must read as NOT populated — revealable, never expanded-and-empty.
+    expect(related.isPopulated!({ task: regularTask })).toBe(false);
+  });
+
+  it('recurring is populated from the server hasRecurrence annotation (#2317)', () => {
+    const recurring = find('recurring');
+    expect(recurring.isPopulated!({ task: { ...regularTask, hasRecurrence: true } })).toBe(true);
+    expect(recurring.isPopulated!({ task: { ...regularTask, hasRecurrence: false } })).toBe(false);
+    expect(recurring.isPopulated!({ task: regularTask })).toBe(false);
+  });
+
+  it('every optional Details-tab section now declares a predicate (#2317)', () => {
+    // The point of #2317: zero empty headers left on the Details tab. If a new
+    // optional section lands without a predicate it will sit expanded-and-empty,
+    // so this asserts the full set rather than the two ids it added.
+    for (const id of ['sprint', 'blocker', 'dependencies', 'related-links', 'recurring', 'estimates']) {
+      expect(find(id).isPopulated, `${id} is missing an isPopulated predicate`).toBeDefined();
+    }
   });
 });

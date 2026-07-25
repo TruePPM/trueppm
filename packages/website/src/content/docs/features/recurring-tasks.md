@@ -14,7 +14,7 @@ The defining rule: **a recurring task never enters the schedule's CPM compute.**
 
 ## Setting up a recurrence
 
-Open a task's detail drawer and expand the **Recurrence** section. A task that doesn't repeat shows an **Add recurrence** button (visible to Resource Manager and above — see [permissions](#permissions)). The setup panel has:
+Open a task's detail drawer. On a task that already repeats, **Recurrence** is a section on the **Details** tab — expand it. On a task that doesn't repeat yet, the drawer keeps the Details tab clear of empty sections, so **Recurrence** appears as a choice under the **Add detail** row at the bottom of the tab; click it and the section opens ready to configure. Either way you land on the same panel, which shows an **Add recurrence** button (visible to Resource Manager and above — see [permissions](#permissions)) and these fields:
 
 | Field | What it does |
 |---|---|

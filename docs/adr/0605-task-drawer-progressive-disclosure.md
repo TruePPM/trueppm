@@ -44,7 +44,7 @@ Semantics in the Details tab:
   "Add detail" row. Revealing it (session-scoped, per-task, in `drawerSectionStore`)
   moves it back into the flow, auto-opened.
 
-Only the four **task-derivable** sections get a predicate this slice:
+Only the four **task-derivable** sections got a predicate in the first slice:
 | section | populated signal |
 |---|---|
 | sprint | `task.sprintId != null` |
@@ -52,27 +52,39 @@ Only the four **task-derivable** sections get a predicate this slice:
 | dependencies | any `links` edge touches the task (falls back to `predecessorCount > 0`) |
 | estimates | leaf: any PERT duration set; summary: any descendant PERT |
 
-`related-links` and `recurring` carry **no** task-level signal (their content lives
-behind `useTaskRelations` / `useRecurrenceRule`), so they omit `isPopulated` and stay
-always-shown collapsed headers — no regression. Giving them true progressive disclosure
-needs server-computed `has_related_links` / `has_recurrence` annotations on the Task
-serializer (the established `predecessorCount` / `linkedRisksCount` pattern); filed as
-a follow-up.
+`related-links` and `recurring` carried **no** task-level signal (their content lives
+behind `useTaskRelations` / `useRecurrenceRule`), so they omitted `isPopulated` and
+stayed always-shown collapsed headers — a deliberate partial, no regression.
+
+**Completed in #2317** (option C below, taken as a follow-up rather than as part of
+the first slice): `annotate_tasks_queryset` now adds two `Exists()` annotations that
+TaskSerializer exposes read-only, and the two sections read them:
+| section | populated signal |
+|---|---|
+| related-links | `task.hasRelatedLinks` — a live `TaskRelation` on **either** end (the section unions both directions) |
+| recurring | `task.hasRecurrence` — the task owns a live `TaskRecurrenceRule` |
+
+`has_recurrence` is deliberately **not** `Task.is_recurring`: the latter is also true
+for generated occurrences, which own no rule, so keying off it would leave an
+occurrence's Recurrence section expanded and permanently empty (ADR-0090). Both
+annotations default to `False` when a caller bypasses the viewset, so an unannotated
+task reports *not* populated — the section is offered under "Add detail", never
+wrongly expanded. All six optional Details-tab sections now carry a predicate.
 
 ## Alternatives Considered
 | Option | Pros | Cons |
 |--------|------|------|
 | **A. `isPopulated` predicate (chosen)** | Additive to a frozen extension point; zero new fetch; Enterprise unaffected (no predicate → shown) | related-links/recurring not covered until a server annotation lands |
 | B. Fire each section's query on drawer open to know emptiness | Covers all six | Defeats ADR-0050 lazy-load — a fetch storm on every open, exactly what the registry avoids |
-| C. Add `has_*` booleans to the Task serializer now | Covers all six cleanly | Turns a frontend slice into a full-stack change (perf/rbac/api-docs/schema); larger blast radius for the first slice |
+| **C. Add `has_*` booleans to the Task serializer** — deferred, then adopted in #2317 | Covers all six cleanly | Turns a frontend slice into a full-stack change (perf/rbac/api-docs/schema); too large a blast radius for the *first* slice, fine as a follow-up once A had shipped and proved the interaction |
 | D. Self-reporting sections (each renders, then hides if empty) | No predicate | Section must mount + fetch to decide — same fetch-storm cost as B, and empty headers still flash |
 
 ## Consequences
 - **Easier:** the common task (no sprint/blocker/deps/estimates) drops from six empty
-  headers to two, plus a clean "Add detail" row. A section with content is shown and
-  opened automatically.
-- **Harder / risks:** two sections (related-links, recurring) remain always-shown until
-  the follow-up server annotation — a deliberate, documented partial. The predicate
+  headers to two, and to **zero** once #2317 landed the two server annotations — just
+  a clean "Add detail" row. A section with content is shown and opened automatically.
+- **Harder / risks:** two sections (related-links, recurring) remained always-shown
+  between the first slice and #2317 — a deliberate, documented partial. The predicate
   runs on every drawer render; it is O(sections) over in-memory data, negligible.
   A cold schedule cache makes a summary-estimates or dependency predicate under-report
   (→ section offered in "Add detail", never wrongly showing stale data); acceptable
@@ -80,9 +92,10 @@ a follow-up.
 
 ## Implementation Notes
 - P3M layer: Programs and Projects
-- Affected packages: web only
-- Migration required: no
-- API changes: no (a follow-up will add `has_related_links` / `has_recurrence`)
+- Affected packages: web; api (as of #2317)
+- Migration required: no — both annotations are queryset-level, no model field
+- API changes: yes, as of #2317 — two additive read-only `TaskSerializer` booleans
+  (`has_related_links`, `has_recurrence`). Additive and read-only, so no client break.
 - OSS or Enterprise: OSS
 
 ### Durable Execution

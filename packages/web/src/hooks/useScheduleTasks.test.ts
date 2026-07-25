@@ -101,6 +101,21 @@ describe('useScheduleTasks mapper', () => {
     expect(task.lateFinish).toBeUndefined();
   });
 
+  it('maps the progressive-disclosure annotations (#2317)', () => {
+    const task = mapTask({ ...base, has_related_links: true, has_recurrence: true });
+    expect(task.hasRelatedLinks).toBe(true);
+    expect(task.hasRecurrence).toBe(true);
+  });
+
+  it('defaults the disclosure annotations to false on payloads that omit them', () => {
+    // A row from a path that bypasses annotate_tasks_queryset (or a pre-field
+    // WebSocket delta) must read as NOT populated, so the drawer offers the
+    // section behind "Add detail" rather than expanding it empty.
+    const task = mapTask(base);
+    expect(task.hasRelatedLinks).toBe(false);
+    expect(task.hasRecurrence).toBe(false);
+  });
+
   it('maps server-derived can_edit / can_delete capabilities (ADR-0133)', () => {
     const task = mapTask({ ...base, can_edit: true, can_delete: false });
     expect(task.canEdit).toBe(true);

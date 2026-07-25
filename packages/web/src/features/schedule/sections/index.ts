@@ -43,9 +43,14 @@ import { BaselineSection } from './BaselineSection';
 // signal below is read from the task object (or the already-warm schedule cache
 // threaded onto the context), so the drawer can collapse empty sections behind
 // "Add detail" without the eager fetch ADR-0050's lazy-load exists to avoid.
-// Only sections whose emptiness is task-derivable get a predicate; related-links
-// and recurring carry no task-level signal (they need a server annotation,
-// deferred follow-up) and so stay always-shown by omitting `isPopulated`.
+//
+// All six optional sections now carry a predicate. Four are derivable from the
+// task/schedule cache alone (sprint, blocker, dependencies, estimates); the other
+// two — related-links and recurring — hold their content behind their own lazy
+// hook, so the *server* reports their emptiness via the `has_related_links` /
+// `has_recurrence` annotations added in #2317. A section that omits `isPopulated`
+// (e.g. an Enterprise registration) stays always-shown, which remains the safe
+// default: an unknown section is never hidden.
 // ---------------------------------------------------------------------------
 
 /** Narrow the registry's `unknown` predicate context to the drawer context.
@@ -157,6 +162,11 @@ export function registerOssDrawerSections(): void {
     component: RelatedLinksSection,
     priority: 225,
     tab: 'details',
+    // Populated per the server `has_related_links` annotation (#2317) — true when
+    // a live relation touches this task from either end. The relation list itself
+    // stays behind useTaskRelations' lazy query (ADR-0050); this only reports
+    // emptiness (ADR-0605).
+    isPopulated: (ctx) => ctxTask(ctx).hasRelatedLinks === true,
   });
 
   registry.register('task_detail.section', {
@@ -235,6 +245,11 @@ export function registerOssDrawerSections(): void {
       const t = (ctx as { task: Task }).task;
       return !t.isSummary && !t.isMilestone;
     },
+    // Populated per the server `has_recurrence` annotation (#2317) — true only for
+    // a recurrence *template* (the task owning the rule). A generated occurrence
+    // has no rule of its own, so it correctly reports false and the section stays
+    // collapsed behind "Add detail" rather than expanded-and-empty (ADR-0605).
+    isPopulated: (ctx) => ctxTask(ctx).hasRecurrence === true,
   });
 
   registry.register('task_detail.section', {
