@@ -94,7 +94,7 @@ async function setup(page: import('@playwright/test').Page) {
   // Workshop spec specifics — register AFTER setupApiMocks so they win.
   // Default workshop/current to 404 (no active session). Tests that need an
   // active session override this route inside the test body.
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, (route) => {
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, async (route) => {
     if (route.request().method() === 'GET') {
       return route.fulfill({
         status: 404,
@@ -122,19 +122,19 @@ test.describe('Workshop mode', () => {
 
     // Override: start returns active session; current returns session after start
     let sessionActive = false;
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, (route) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, async (route) => {
       sessionActive = true;
-      route.fulfill({
+      await route.fulfill({
         status: 201,
         contentType: 'application/json',
         body: JSON.stringify(ACTIVE_SESSION),
       });
     });
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, (route) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, async (route) => {
       if (sessionActive) {
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
       } else {
-        route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active session.' }) });
+        await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active session.' }) });
       }
     });
 
@@ -152,15 +152,15 @@ test.describe('Workshop mode', () => {
     await setup(page);
 
     let sessionActive = false;
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, (route) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, async (route) => {
       sessionActive = true;
-      route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
     });
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, (route) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, async (route) => {
       if (sessionActive) {
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
       } else {
-        route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active session.' }) });
+        await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active session.' }) });
       }
     });
 
@@ -183,20 +183,20 @@ test.describe('Workshop mode', () => {
     await setup(page);
 
     let sessionActive = false;
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, (route) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, async (route) => {
       sessionActive = true;
-      route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
     });
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, (route) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, async (route) => {
       if (sessionActive) {
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
       } else {
-        route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active session.' }) });
+        await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active session.' }) });
       }
     });
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/end/`, (route) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/end/`, async (route) => {
       sessionActive = false;
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ENDED_SESSION) });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ENDED_SESSION) });
     });
 
     await page.goto(`${BASE_URL}/board`);
@@ -218,15 +218,15 @@ test.describe('Workshop mode', () => {
     await setup(page);
 
     let sessionActive = false;
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, (route) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, async (route) => {
       sessionActive = true;
-      route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
     });
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, (route) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, async (route) => {
       if (sessionActive) {
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
       } else {
-        route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active session.' }) });
+        await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active session.' }) });
       }
     });
 
@@ -259,15 +259,15 @@ test.describe('Workshop mode', () => {
     );
 
     let sessionActive = false;
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, (route) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, async (route) => {
       sessionActive = true;
-      route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
     });
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, (route) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, async (route) => {
       if (sessionActive) {
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTIVE_SESSION) });
       } else {
-        route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active session.' }) });
+        await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active session.' }) });
       }
     });
 

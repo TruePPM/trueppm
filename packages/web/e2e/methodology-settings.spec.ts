@@ -108,13 +108,13 @@ test.describe('Workspace methodology defaults', () => {
     await baseSetup(page);
 
     let patchBody: Record<string, unknown> | null = null;
-    await page.route('**/api/v1/workspace/', (r) => {
+    await page.route('**/api/v1/workspace/', async (r) => {
       if (r.request().method() === 'PATCH') {
         patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
-        r.fulfill(json(workspace({ methodology: 'AGILE', methodology_override_policy: 'inherit' })));
+        await r.fulfill(json(workspace({ methodology: 'AGILE', methodology_override_policy: 'inherit' })));
         return;
       }
-      r.fulfill(json(workspace()));
+      await r.fulfill(json(workspace()));
     });
 
     await page.goto('/settings/methodology');
@@ -170,13 +170,13 @@ test.describe('Project methodology', () => {
     await projectRoutes(page);
 
     let patchBody: Record<string, unknown> | null = null;
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
       if (r.request().method() === 'PATCH') {
         patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
-        r.fulfill(json(projectDetail({ methodology: 'WATERFALL', effective_methodology: 'WATERFALL' })));
+        await r.fulfill(json(projectDetail({ methodology: 'WATERFALL', effective_methodology: 'WATERFALL' })));
         return;
       }
-      r.fulfill(json(projectDetail()));
+      await r.fulfill(json(projectDetail()));
     });
 
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
@@ -199,13 +199,13 @@ test.describe('Project methodology', () => {
     await projectRoutes(page);
 
     let patchBody: Record<string, unknown> | null = null;
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
       if (r.request().method() === 'PATCH') {
         patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
-        r.fulfill(json(projectDetail({ estimation_mode: 'pm_only' })));
+        await r.fulfill(json(projectDetail({ estimation_mode: 'pm_only' })));
         return;
       }
-      r.fulfill(json(projectDetail()));
+      await r.fulfill(json(projectDetail()));
     });
 
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
@@ -230,13 +230,13 @@ test.describe('Project methodology', () => {
     await projectRoutes(page, { ws: { methodology_override_policy: 'inherit' } });
 
     let patchBody: Record<string, unknown> | null = null;
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
       if (r.request().method() === 'PATCH') {
         patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
-        r.fulfill(json(projectDetail({ estimation_mode: 'pm_only' })));
+        await r.fulfill(json(projectDetail({ estimation_mode: 'pm_only' })));
         return;
       }
-      r.fulfill(json(projectDetail({ methodology: 'AGILE', effective_methodology: 'WATERFALL' })));
+      await r.fulfill(json(projectDetail({ methodology: 'AGILE', effective_methodology: 'WATERFALL' })));
     });
 
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);

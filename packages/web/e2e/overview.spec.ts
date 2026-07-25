@@ -294,7 +294,7 @@ test.describe('Project overview page', () => {
     await expect(myTaskLink).toHaveAttribute('href', `/projects/${PROJECT_ID}/tasks/t2`);
   });
 
-  test('URL uses path-based routing — /projects/:id/overview', async ({ page }) => {
+  test('URL uses path-based routing — /projects/:id/overview', ({ page }) => {
     expect(page.url()).toMatch(new RegExp(`/projects/${PROJECT_ID}/overview`));
     expect(page.url()).not.toContain('?project=');
   });

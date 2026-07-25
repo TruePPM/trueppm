@@ -154,5 +154,88 @@ export default [
       },
     },
   },
+  // Playwright tree (#2388). Every block above is scoped to `src/**`, so until
+  // now `e2e/` matched no config at all and eslint skipped it outright ("file
+  // ignored because no matching configuration was supplied") — ~230 specs with
+  // no lint. #2382 brought them under `tsc`; this brings them under eslint.
+  //
+  // The rule that earns this block on its own is no-floating-promises: nearly
+  // every Playwright call returns a promise, so a dropped `await` is not a type
+  // error, it is a race that shows up later as an unreproducible flake. Type
+  // information is what makes that rule possible, hence the type-checked preset
+  // and the `project` pointing at tsconfig.e2e.json (the same project the
+  // typecheck gate uses, so lint and tsc never disagree about what is in scope).
+  {
+    files: ['e2e/**/*.ts', 'playwright*.config.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        project: './tsconfig.e2e.json',
+      },
+      globals: {
+        // Specs run in Node (process.env, __dirname, Buffer) but also carry
+        // browser code inside page.evaluate/addInitScript callbacks, which the
+        // parser sees as ordinary function bodies in this file.
+        ...globals.node,
+        ...globals.browser,
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsPlugin,
+    },
+    rules: {
+      ...tsPlugin.configs.recommended.rules,
+      ...tsPlugin.configs['recommended-type-checked'].rules,
+      // Specs may not author `any` themselves — that stays an error, so the
+      // three relaxations below can only ever admit `any` that arrived from a
+      // library signature, never one a spec wrote.
+      '@typescript-eslint/no-explicit-any': 'error',
+      // The `any` these three rules fire on comes from exactly two library
+      // signatures: Playwright's `Request.postDataJSON(): any` and the standard
+      // `JSON.parse(): any`. Both appear in route handlers that assert on a
+      // payload the same spec constructed a few lines earlier — the assertion is
+      // the check, and `as Record<string, unknown>` at the boundary would only
+      // restate the rule's own complaint without verifying anything.
+      //
+      // Cost of keeping them: 66 sites across 26 spec files, every fix a cast
+      // or a narrowing chain over a request body the spec already knows the
+      // shape of. That buys no defect detection and adds real churn to the
+      // fixtures, so they are off here — and only here; `src/**` keeps the full
+      // type-checked preset.
+      //
+      // no-unsafe-return and no-unsafe-call stay ON deliberately. Those are the
+      // two that let `any` *escape*: a helper returning `any` infects every
+      // caller, and calling an `any` value is an unchecked "is this even
+      // callable". Both were cheap to fix (4 sites) and both are worth keeping.
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      'no-useless-assignment': 'error',
+      'no-restricted-globals': [
+        'error',
+        { name: 'parseInt', message: 'Use Number.parseInt instead of the global.' },
+        { name: 'parseFloat', message: 'Use Number.parseFloat instead of the global.' },
+        {
+          name: 'isNaN',
+          message: 'Use Number.isNaN — it does not coerce its argument like the global isNaN.',
+        },
+        {
+          name: 'isFinite',
+          message: 'Use Number.isFinite — it does not coerce its argument like the global isFinite.',
+        },
+        { name: 'NaN', message: 'Use Number.NaN instead of the bare global.' },
+      ],
+    },
+  },
+  // The default-export ban applies to the specs and fixtures, but NOT to the
+  // playwright.*.config.ts files — Playwright loads a config by its default
+  // export, so there is no named-export form available to them.
+  {
+    files: ['e2e/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT],
+    },
+  },
   prettierConfig,
 ];

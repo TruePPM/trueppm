@@ -55,7 +55,7 @@ export interface OverviewFixture {
   critical_task_count: number;
   total_tasks: number;
   complete_tasks: number;
-  next_milestone: unknown | null;
+  next_milestone: unknown;
   team_utilization_pct: number | null;
   owner_name: string | null;
   start_date: string;
@@ -221,7 +221,6 @@ function paginated(results: unknown[]) {
 export async function setupCatchAll(page: Page): Promise<void> {
   await page.route('**/api/v1/**', async (route) => {
     const req = route.request();
-    // eslint-disable-next-line no-console
     console.warn(`[e2e mock] unmocked ${req.method()} ${req.url()} → 404`);
     await route.fulfill(
       jsonResponse(

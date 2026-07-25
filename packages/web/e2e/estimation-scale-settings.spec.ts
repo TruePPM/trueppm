@@ -113,13 +113,13 @@ async function setup(page: Page, patchRef: { body: Record<string, unknown> | nul
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (r) =>
     r.fulfill(json([ADMIN_MEMBERSHIP])),
   );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
     if (r.request().method() === 'PATCH') {
       patchRef.body = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
-      r.fulfill(json(project({ estimation_scale: 'tshirt', effective_estimation_scale: 'tshirt' })));
+      await r.fulfill(json(project({ estimation_scale: 'tshirt', effective_estimation_scale: 'tshirt' })));
       return;
     }
-    r.fulfill(json(project()));
+    await r.fulfill(json(project()));
   });
 }
 

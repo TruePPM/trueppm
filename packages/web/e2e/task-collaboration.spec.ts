@@ -188,7 +188,7 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
     const req = route.request();
     if (req.method() === 'POST') {
       // Try JSON first (link pin); fall back to multipart parsing.
-      let createdRow: Record<string, unknown> | null = null;
+      let createdRow: Record<string, unknown>;
       const ct = req.headers()['content-type'] ?? '';
       if (ct.includes('application/json')) {
         const body = req.postDataJSON() as { external_url: string; external_title: string };

@@ -56,7 +56,12 @@ type Page = import('@playwright/test').Page;
 type Route = import('@playwright/test').Route;
 
 /** `role` drives the membership response so RBAC gating can be exercised. */
-async function setup(page: Page, opts: { role?: number; onImport?: (r: Route) => void } = {}) {
+async function setup(
+  page: Page,
+  // Awaited below: the callers all fulfill the route, and an unawaited fulfill
+  // races the assertion that reads the result summary.
+  opts: { role?: number; onImport?: (r: Route) => Promise<void> | void } = {},
+) {
   const role = opts.role ?? 100; // MEMBER by default
 
   await page.addInitScript(() => {
@@ -167,10 +172,10 @@ async function setup(page: Page, opts: { role?: number; onImport?: (r: Route) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_RISK]) }),
   );
   // Import route registered AFTER the risks-list route so it takes precedence.
-  await page.route('**/api/v1/projects/*/risks/import/', (r) => {
-    if (opts.onImport) opts.onImport(r);
+  await page.route('**/api/v1/projects/*/risks/import/', async (r) => {
+    if (opts.onImport) await opts.onImport(r);
     else
-      r.fulfill({
+      await r.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ imported: 0, skipped: 0, errors: [], warnings: [] }),

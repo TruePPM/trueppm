@@ -18,7 +18,7 @@
  * WebSocket mocking reuses the `page.routeWebSocket` pattern established by
  * `connection-status.spec.ts`: the board opens two sockets (the general project
  * board channel and, in workshop mode, the workshop channel), both matching
- * `**​/ws/v1/projects/**`. A single route handler branches on the URL —
+ * `**\/ws/v1/projects/**`. A single route handler branches on the URL —
  * accepting the general channel silently and capturing the `/workshop/` channel
  * so the test can push frames and simulate a drop. Participant presence is
  * driven the way production drives it: a socket frame invalidates the
@@ -134,9 +134,9 @@ async function setup(page: import('@playwright/test').Page): Promise<Harness> {
   });
 
   // POST start → session becomes active with an (initially empty) roster.
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, (route) => {
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/start/`, async (route) => {
     sessionActive = true;
-    route.fulfill({
+    await route.fulfill({
       status: 201,
       contentType: 'application/json',
       body: JSON.stringify(activeSession()),
@@ -158,9 +158,9 @@ async function setup(page: import('@playwright/test').Page): Promise<Harness> {
       body: JSON.stringify({ detail: 'No active session.' }),
     });
   });
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/end/`, (route) => {
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/end/`, async (route) => {
     sessionActive = false;
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ ...activeSession(), ended_at: new Date().toISOString() }),
@@ -237,7 +237,7 @@ test.describe('Workshop mode — realtime collaboration', () => {
     // frame (production order — the frame only triggers a refetch, it carries no
     // roster). The banner must reflect the new participant.
     harness.setParticipants([PARTICIPANT_BOB]);
-    await harness.workshopSocket()!.send(JSON.stringify({ event_type: 'participant_joined' }));
+    harness.workshopSocket()!.send(JSON.stringify({ event_type: 'participant_joined' }));
 
     await expect(banner.getByText('1 online')).toBeVisible({ timeout: 10_000 });
     await expect(banner.locator('[title="Bob Builder"]')).toBeVisible();
@@ -245,7 +245,7 @@ test.describe('Workshop mode — realtime collaboration', () => {
     // Participant B leaves: roster row gains a left_at, so the active count drops
     // to zero and the indicator disappears again.
     harness.setParticipants([{ ...PARTICIPANT_BOB, left_at: new Date().toISOString() }]);
-    await harness.workshopSocket()!.send(JSON.stringify({ event_type: 'participant_left' }));
+    harness.workshopSocket()!.send(JSON.stringify({ event_type: 'participant_left' }));
 
     await expect(banner.getByText(/online/i)).toHaveCount(0, { timeout: 10_000 });
   });
@@ -334,7 +334,7 @@ test.describe('Workshop mode — realtime collaboration', () => {
     harness.setTasks(
       FIXTURE_TASKS.map((t) => (t.id === 'wrt2' ? { ...t, name: 'Frame the problem (revised by Bob)' } : t)),
     );
-    await harness.generalSocket()!.send(
+    harness.generalSocket()!.send(
       JSON.stringify({ event_type: 'task_updated', payload: { id: 'wrt2' } }),
     );
 
