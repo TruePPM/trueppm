@@ -413,6 +413,34 @@ def read_export_health(
     }
 
 
+def _fold_pod_hashes(
+    hashes: list[dict[str, str]],
+) -> tuple[float | None, float | None, str | None, int]:
+    """Fold the live pods' hashes into cluster-wide aggregates.
+
+    Returns ``(last_success, last_error_at, last_error, items)`` — the most recent
+    success/error timestamps across all reporting pods (with the error message that
+    accompanied the newest error), and the summed windowed item count. Empty/evicted
+    hashes are skipped so an expired record cannot reset an otherwise-live aggregate.
+    """
+    last_success: float | None = None
+    last_error_at: float | None = None
+    last_error: str | None = None
+    items = 0
+    for h in hashes:
+        if not h:
+            continue
+        success_at = _as_float(h.get("last_success_at"))
+        if success_at is not None and (last_success is None or success_at > last_success):
+            last_success = success_at
+        error_at = _as_float(h.get("last_error_at"))
+        if error_at is not None and (last_error_at is None or error_at > last_error_at):
+            last_error_at = error_at
+            last_error = h.get("last_error")
+        items += _as_int(h.get("items_window"))
+    return last_success, last_error_at, last_error, items
+
+
 def _read_signal(
     client: redis.Redis, signal: str, *, enabled: bool, now: float
 ) -> tuple[dict[str, Any], set[str]]:
@@ -432,21 +460,7 @@ def _read_signal(
             pipe.hgetall(f"{_KEY_PREFIX}pod:{signal}:{pod}")
         hashes = pipe.execute()
 
-    last_success: float | None = None
-    last_error_at: float | None = None
-    last_error: str | None = None
-    items = 0
-    for h in hashes:
-        if not h:
-            continue
-        success_at = _as_float(h.get("last_success_at"))
-        if success_at is not None and (last_success is None or success_at > last_success):
-            last_success = success_at
-        error_at = _as_float(h.get("last_error_at"))
-        if error_at is not None and (last_error_at is None or error_at > last_error_at):
-            last_error_at = error_at
-            last_error = h.get("last_error")
-        items += _as_int(h.get("items_window"))
+    last_success, last_error_at, last_error, items = _fold_pod_hashes(hashes)
 
     state = _state(
         signal, enabled=enabled, last_success=last_success, last_error_at=last_error_at, now=now
