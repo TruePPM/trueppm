@@ -247,12 +247,13 @@ test.describe('Programs — "Use program defaults" on project create (#1909)', (
   test('creating a project with the toggle on sends inherit_program_defaults', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
 
-    let captured: Record<string, unknown> | null = null;
+    // Holder object rather than a `let` — see the note in board.spec.ts.
+    const captures: { post?: Record<string, unknown> } = {};
     // Registered after setup() → wins. Captures the POST body; GET still lists
     // the (empty) readable projects the copy-settings picker reads.
     await page.route('**/api/v1/projects/', (r) => {
       if (r.request().method() === 'POST') {
-        captured = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
+        captures.post = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
         return r.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -285,10 +286,10 @@ test.describe('Programs — "Use program defaults" on project create (#1909)', (
 
     await dialog.getByRole('button', { name: /create project/i }).click();
 
-    await expect.poll(() => captured?.inherit_program_defaults).toBe(true);
-    expect(captured).not.toHaveProperty('methodology');
-    expect(captured).not.toHaveProperty('copy_settings_from');
-    expect(captured?.program).toBe(PROGRAM_ID);
+    await expect.poll(() => captures.post?.inherit_program_defaults).toBe(true);
+    expect(captures.post).not.toHaveProperty('methodology');
+    expect(captures.post).not.toHaveProperty('copy_settings_from');
+    expect(captures.post?.program).toBe(PROGRAM_ID);
   });
 
   // Empty / no-program state: the standalone create modal (opened from the global

@@ -94,8 +94,12 @@ const EMPTY_CAPACITY = {
 async function setup(
   page: import('@playwright/test').Page,
   opts: {
-    sprint?: typeof PLANNED_SPRINT;
-    carryover?: typeof INCOMING_CARRYOVER | { prior_sprint: null; tasks: [] };
+    // Serialized straight into the route body, never property-accessed here —
+    // and callers deliberately widen fields the base fixture pins (a null
+    // `capacity_points` for the no-ceiling case), so `typeof PLANNED_SPRINT`
+    // would reject valid overrides.
+    sprint?: Record<string, unknown>;
+    carryover?: Record<string, unknown>;
   } = {},
 ) {
   const sprint = opts.sprint ?? PLANNED_SPRINT;

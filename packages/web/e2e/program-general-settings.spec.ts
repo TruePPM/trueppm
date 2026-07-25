@@ -61,7 +61,9 @@ const FIXTURE_PROGRAM = {
 
 type Page = import('@playwright/test').Page;
 
-async function setup(page: Page, captures: { patch?: Record<string, unknown> }) {
+// `captures` is optional: the read-only tests (field help, breadcrumb, docs
+// deep-link) never issue a PATCH, so they have nothing to capture.
+async function setup(page: Page, captures: { patch?: Record<string, unknown> } = {}) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',

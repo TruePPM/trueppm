@@ -25,7 +25,8 @@ export interface ProjectFixture {
   name: string;
   description?: string;
   start_date?: string;
-  calendar?: string;
+  // Nullable: a project that inherits its calendar serializes `calendar: null`.
+  calendar?: string | null;
   agile_features?: boolean;
   [key: string]: unknown;
 }
@@ -84,7 +85,7 @@ export interface ApiMockOptions {
   /** Project members returned by GET /projects/{id}/members/. Defaults to a single Admin row. */
   members?: unknown[];
   /** Risks returned by GET /projects/{id}/risks/. Defaults to []. */
-  risks?: unknown[];
+  risks?: Record<string, unknown>[];
   /** Board column config returned by GET /projects/{id}/board-config/. Defaults to the canonical 5-column set. */
   boardConfig?: { columns: BoardColumnConfig[] };
   /** Saved board views. Defaults to []. */
@@ -415,7 +416,7 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
     // still render a valid R-NNN id / matrix badge instead of blank/"?".
     // Explicit fixture values win; the index-based fallback mirrors the API's
     // contiguous decimal sequence.
-    const risks = (opts.risks ?? []).map((r: Record<string, unknown>, i: number) => {
+    const risks = (opts.risks ?? []).map((r, i) => {
       const display = `R-${String(i + 1).padStart(3, '0')}`;
       return { short_id_display: display, qualified_id: display, ...r };
     });

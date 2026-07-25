@@ -53,7 +53,15 @@ export default defineConfig({
     // timeout on unrelated controls — the subtasks-drawer flake (#1655). Reduced
     // motion is also how real assistive-tech users experience the app, so this
     // makes the e2e environment more representative, not less. (#1655)
-    reducedMotion: 'reduce',
+    //
+    // Must live under `contextOptions`: Playwright dropped `reducedMotion` from
+    // the top-level `use` fixtures, and `_combinedContextOptions` only forwards
+    // the keys it destructures plus a spread of `contextOptions`. A top-level
+    // `reducedMotion` is therefore silently discarded — which is what had been
+    // happening here, leaving every spec running with animation enabled. (#2382)
+    contextOptions: {
+      reducedMotion: 'reduce',
+    },
   },
   projects: [
     {

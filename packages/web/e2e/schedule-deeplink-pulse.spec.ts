@@ -12,6 +12,14 @@ import { setupApiMocks, setupCatchAll } from './fixtures/api-mocks';
  * does not fire on a plain (hash-free) navigation.
  */
 
+// This file is the one place that asserts the pulse *animation* itself, so it
+// opts out of the suite-wide `reducedMotion: 'reduce'` default. MilestonePulseOverlay
+// deliberately does not mount under `prefers-reduced-motion` — the live-region
+// announcement carries the feedback instead — so under the global default there
+// would be nothing to assert. The reduced-motion branch is covered as a unit test
+// in MilestonePulseOverlay.test.tsx. (#2382)
+test.use({ contextOptions: { reducedMotion: 'no-preference' } });
+
 const PROJECT_ID = 'e2e-project-00000000-0000-0000-0000-000000000001';
 
 const FIXTURE_TASKS = [

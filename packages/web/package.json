@@ -21,7 +21,7 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.e2e.json --noEmit",
     "test": "NODE_OPTIONS=--max-old-space-size=4096 vitest run",
     "test:ui": "NODE_OPTIONS=--max-old-space-size=4096 vitest --ui",
     "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage",
