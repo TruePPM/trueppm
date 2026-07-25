@@ -37,6 +37,7 @@ const EXEMPT_PATTERNS = [
   /^src\/features\/schedule\/engine\/GanttEngineStub\.ts$/, // test double
   /^src\/components\/dialog\/index\.ts$/, // pure re-export barrel (no coverable statements)
   /^src\/router\/routeHandle\.ts$/, // type-only module (interface RouteHandle, no coverable statements)
+  /^src\/features\/board\/card\/types\.ts$/, // type-only module (BoardCard prop/density/EVM types)
 ];
 
 const ELIGIBLE_EXT = /\.[cm]?[jt]sx?$/;
