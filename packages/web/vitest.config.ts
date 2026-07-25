@@ -113,6 +113,9 @@ export default defineConfig({
         // imported, and check-added-files-covered.mjs would flag it forever.
         // Its shape is validated by tsc; its consumer (RouteTitle) is tested.
         'src/router/routeHandle.ts',
+        // Type-only module: prop/density/EVM types for the BoardCard tree, no
+        // executable statements — same rationale as routeHandle.ts above.
+        'src/features/board/card/types.ts',
       ],
       // No per-process thresholds: web:test is sharded (vitest --shard), so each
       // process only loads ~1/3 of the suite and would measure a partial coverage
