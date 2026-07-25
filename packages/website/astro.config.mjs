@@ -215,6 +215,7 @@ export default defineConfig({
             { slug: "overview/computed-not-guessed" },
             { slug: "overview/sso-is-not-enterprise" },
             { slug: "overview/team-ownership-not-surveillance" },
+            { slug: "overview/how-this-was-built" },
             { slug: "overview/roadmap" },
           ],
         },
