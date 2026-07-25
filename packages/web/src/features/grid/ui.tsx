@@ -1,4 +1,15 @@
-import type { TaskStatus } from '@/types';
+import type { Task, TaskStatus } from '@/types';
+
+/**
+ * Fill color for a task's progress bar: critical tasks read red, completed
+ * tasks read green, everything else uses the brand primary. Shared by the
+ * Flat/Grouped `TaskRow` and the Outline `OutlineRow` so the two stay in sync.
+ */
+export function progressBarColor(task: Pick<Task, 'isCritical' | 'isComplete'>): string {
+  if (task.isCritical) return 'bg-semantic-critical';
+  if (task.isComplete) return 'bg-semantic-on-track';
+  return 'bg-brand-primary';
+}
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   BACKLOG:      'Backlog',

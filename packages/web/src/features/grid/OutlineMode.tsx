@@ -37,6 +37,21 @@ interface OutlineModeProps {
 }
 
 /**
+ * Order sibling tasks by their dotted WBS code, comparing segment by segment
+ * numerically ("1.2" before "1.10"). Shared by drag-reorder and keyboard-move
+ * so both produce the identical sibling ordering.
+ */
+function compareTasksByWbs(a: Task, b: Task): number {
+  const aParts = (a.wbs || '0').split('.').map(Number);
+  const bParts = (b.wbs || '0').split('.').map(Number);
+  for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+    const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
  * Outline mode adapter — tree view with drag-to-reparent, indent/outdent,
  * and predecessors column. Mirrors the legacy `WbsView` body without its
  * toolbar (the shell now owns toolbar chrome).
@@ -193,15 +208,7 @@ export function OutlineMode({
 
       const siblings = tasks
         .filter((t) => t.parentId === activeTask.parentId)
-        .sort((a, b) => {
-          const aParts = (a.wbs || '0').split('.').map(Number);
-          const bParts = (b.wbs || '0').split('.').map(Number);
-          for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-            const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);
-            if (diff !== 0) return diff;
-          }
-          return 0;
-        });
+        .sort(compareTasksByWbs);
 
       const oldIndex = siblings.findIndex((t) => t.id === active.id);
       const newIndex = siblings.findIndex((t) => t.id === over.id);
@@ -234,6 +241,84 @@ export function OutlineMode({
     [projectId, updateTask],
   );
 
+  // Indent/outdent are bound to Alt+ArrowRight / Alt+ArrowLeft (mirroring the
+  // Alt+ArrowUp/Down move bindings below), NOT Tab. Binding these to Tab created
+  // a WCAG 2.1.2 keyboard trap — every Tab was intercepted and preventDefault'd,
+  // so a keyboard user could never leave the treegrid, and each escape attempt
+  // fired a WBS mutation (#2192). Plain Tab now falls through untouched.
+  const handleIndentOutdent = useCallback(
+    (key: 'ArrowLeft' | 'ArrowRight') => {
+      if (!selectedTaskId) return;
+      if (key === 'ArrowLeft') {
+        outdentTask.mutate(selectedTaskId, {
+          onSuccess: (data) => {
+            const warning = data.warning === 'has_assignments'
+              ? ' — warning: task had resource assignments'
+              : '';
+            setLiveAnnouncement(`Task outdented${warning}`);
+          },
+          onError: () => setLiveAnnouncement('Cannot outdent: task is already at root level'),
+        });
+      } else {
+        indentTask.mutate(selectedTaskId, {
+          onSuccess: (data) => {
+            const warning = data.warning === 'has_assignments'
+              ? ' — warning: parent task had resource assignments'
+              : '';
+            setLiveAnnouncement(`Task indented${warning}`);
+          },
+          onError: () => setLiveAnnouncement('Cannot indent: no previous sibling to become parent'),
+        });
+      }
+    },
+    [selectedTaskId, indentTask, outdentTask],
+  );
+
+  const handleSiblingMove = useCallback(
+    (key: 'ArrowUp' | 'ArrowDown', visible: ReturnType<typeof flattenVisible>, currentIdx: number) => {
+      if (!tasks || !selectedTaskId || currentIdx === -1) return;
+      const currentTask = visible[currentIdx].task;
+      const siblings = tasks
+        .filter((t) => t.parentId === currentTask.parentId)
+        .sort(compareTasksByWbs);
+      const sibIdx = siblings.findIndex((t) => t.id === selectedTaskId);
+      const newIdx = key === 'ArrowUp' ? sibIdx - 1 : sibIdx + 1;
+      if (newIdx < 0 || newIdx >= siblings.length) return;
+
+      const reordered = [...siblings];
+      reordered.splice(sibIdx, 1);
+      reordered.splice(newIdx, 0, currentTask);
+
+      const parentTask = currentTask.parentId
+        ? tasks.find((t) => t.id === currentTask.parentId)
+        : null;
+      const parent_path = parentTask?.wbs ?? '';
+
+      if (projectId) {
+        reorderTasks.mutate(
+          { parent_path, ordered_ids: reordered.map((t) => t.id) },
+          { onSuccess: () => setLiveAnnouncement(`${currentTask.name} moved ${key === 'ArrowUp' ? 'up' : 'down'}`) },
+        );
+      }
+    },
+    [tasks, selectedTaskId, projectId, reorderTasks],
+  );
+
+  const handleNavigate = useCallback(
+    (key: 'ArrowUp' | 'ArrowDown', visible: ReturnType<typeof flattenVisible>, currentIdx: number) => {
+      const newIdx = key === 'ArrowUp'
+        ? Math.max(0, currentIdx - 1)
+        : Math.min(visible.length - 1, currentIdx + 1);
+      const newTask = visible[newIdx];
+      if (newTask) {
+        setSelectedTaskId(newTask.task.id);
+        const row = document.querySelector<HTMLElement>(`[data-task-id="${newTask.task.id}"]`);
+        row?.focus();
+      }
+    },
+    [setSelectedTaskId],
+  );
+
   const handleTreeKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>) => {
       if (!tasks || renamingId) return;
@@ -242,91 +327,25 @@ export function OutlineMode({
       const visible = flattenVisible(tree, expandedIds);
       const currentIdx = visible.findIndex((n) => n.task.id === selectedTaskId);
 
-      // Indent/outdent are bound to Alt+ArrowRight / Alt+ArrowLeft (mirroring the
-      // Alt+ArrowUp/Down move bindings below), NOT Tab. Binding these to Tab created
-      // a WCAG 2.1.2 keyboard trap — every Tab was intercepted and preventDefault'd,
-      // so a keyboard user could never leave the treegrid, and each escape attempt
-      // fired a WBS mutation (#2192). Plain Tab now falls through untouched.
       if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && e.altKey) {
         e.preventDefault();
-        if (!selectedTaskId) return;
-        if (e.key === 'ArrowLeft') {
-          outdentTask.mutate(selectedTaskId, {
-            onSuccess: (data) => {
-              const warning = data.warning === 'has_assignments'
-                ? ' — warning: task had resource assignments'
-                : '';
-              setLiveAnnouncement(`Task outdented${warning}`);
-            },
-            onError: () => setLiveAnnouncement('Cannot outdent: task is already at root level'),
-          });
-        } else {
-          indentTask.mutate(selectedTaskId, {
-            onSuccess: (data) => {
-              const warning = data.warning === 'has_assignments'
-                ? ' — warning: parent task had resource assignments'
-                : '';
-              setLiveAnnouncement(`Task indented${warning}`);
-            },
-            onError: () => setLiveAnnouncement('Cannot indent: no previous sibling to become parent'),
-          });
-        }
+        handleIndentOutdent(e.key);
         return;
       }
 
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey) {
         e.preventDefault();
-        if (!selectedTaskId || currentIdx === -1) return;
-        const currentTask = visible[currentIdx].task;
-        const siblings = tasks
-          .filter((t) => t.parentId === currentTask.parentId)
-          .sort((a, b) => {
-            const aParts = (a.wbs || '0').split('.').map(Number);
-            const bParts = (b.wbs || '0').split('.').map(Number);
-            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-              const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);
-              if (diff !== 0) return diff;
-            }
-            return 0;
-          });
-        const sibIdx = siblings.findIndex((t) => t.id === selectedTaskId);
-        const newIdx = e.key === 'ArrowUp' ? sibIdx - 1 : sibIdx + 1;
-        if (newIdx < 0 || newIdx >= siblings.length) return;
-
-        const reordered = [...siblings];
-        reordered.splice(sibIdx, 1);
-        reordered.splice(newIdx, 0, currentTask);
-
-        const parentTask = currentTask.parentId
-          ? tasks.find((t) => t.id === currentTask.parentId)
-          : null;
-        const parent_path = parentTask?.wbs ?? '';
-
-        if (projectId) {
-          reorderTasks.mutate(
-            { parent_path, ordered_ids: reordered.map((t) => t.id) },
-            { onSuccess: () => setLiveAnnouncement(`${currentTask.name} moved ${e.key === 'ArrowUp' ? 'up' : 'down'}`) },
-          );
-        }
+        handleSiblingMove(e.key, visible, currentIdx);
         return;
       }
 
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
-        const newIdx = e.key === 'ArrowUp'
-          ? Math.max(0, currentIdx - 1)
-          : Math.min(visible.length - 1, currentIdx + 1);
-        const newTask = visible[newIdx];
-        if (newTask) {
-          setSelectedTaskId(newTask.task.id);
-          const row = document.querySelector<HTMLElement>(`[data-task-id="${newTask.task.id}"]`);
-          row?.focus();
-        }
-        return;
+        handleNavigate(e.key, visible, currentIdx);
       }
     },
-    [tasks, visibleTasks, renamingId, expandedIds, selectedTaskId, setSelectedTaskId, projectId,
-      indentTask, outdentTask, reorderTasks, setLiveAnnouncement],
+    [tasks, visibleTasks, renamingId, expandedIds, selectedTaskId,
+      handleIndentOutdent, handleSiblingMove, handleNavigate],
   );
 
   if (visibleTasks.length === 0 && hasAnyFilter(filters)) {
