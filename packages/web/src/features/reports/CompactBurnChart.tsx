@@ -19,6 +19,31 @@ interface CompactBurnChartProps {
  * Always sprint-scoped; renders a thin shell while loading. The caption is the
  * accessible read; the SVG is decorative (issue 2175).
  */
+/**
+ * The caption is split into prose + a single contiguous numeric chunk so the
+ * `.tppm-mono` count never swaps font mid-token (rule 8c). The mono chunk is
+ * the count + unit together (mirroring the BurnTooltip pattern).
+ */
+function burnCaption(opts: {
+  state: string | undefined;
+  sprintHasNoRealData: boolean;
+  lastRemaining: number;
+  committedVal: number;
+  unit: string;
+}): { lead: string | null; num: string; trail: string } {
+  const { state, sprintHasNoRealData, lastRemaining, committedVal, unit } = opts;
+  if (state === 'COMPLETED') return { lead: null, num: '', trail: 'Closed' };
+  if (sprintHasNoRealData) {
+    // PLANNED / future sprint with no snapshots yet — a flat baseline.
+    return { lead: 'Not started — ', num: `${committedVal} ${unit}`, trail: ' committed' };
+  }
+  return {
+    lead: '',
+    num: `${Math.round(lastRemaining)} of ${committedVal} ${unit}`,
+    trail: ' left',
+  };
+}
+
 export function CompactBurnChart({
   sprint,
   metric,
@@ -38,26 +63,17 @@ export function CompactBurnChart({
   const lastRemaining =
     points?.reduce<number>((last, p) => p.remaining ?? last, committedVal) ?? committedVal;
 
-  // Caption is split into prose + a single contiguous numeric chunk so the
-  // `.tppm-mono` count never swaps font mid-token (rule 8c). The mono chunk
-  // is the count + unit together (mirroring the BurnTooltip pattern).
-  let captionLead: string | null;
-  let captionNum: string;
-  let captionTrail: string;
-  if (sprint?.state === 'COMPLETED') {
-    captionLead = null;
-    captionNum = '';
-    captionTrail = 'Closed';
-  } else if (sprintHasNoRealData) {
-    // PLANNED / future sprint with no snapshots yet — a flat baseline.
-    captionLead = 'Not started — ';
-    captionNum = `${committedVal} ${unit}`;
-    captionTrail = ' committed';
-  } else {
-    captionLead = '';
-    captionNum = `${Math.round(lastRemaining)} of ${committedVal} ${unit}`;
-    captionTrail = ' left';
-  }
+  const {
+    lead: captionLead,
+    num: captionNum,
+    trail: captionTrail,
+  } = burnCaption({
+    state: sprint?.state,
+    sprintHasNoRealData,
+    lastRemaining,
+    committedVal,
+    unit,
+  });
 
   return (
     <div className="flex flex-col items-end gap-1" aria-label={`${iterationLabel} burndown`}>

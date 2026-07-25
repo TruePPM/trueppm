@@ -1,24 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
-import { useSprintBurndown } from '@/hooks/useSprints';
+import { useRef, useState } from 'react';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
-import { forecastScopeCaption } from '@/features/sprints/sprintMath';
-import { useBurnChart, type BurnVariant, type BurnMetric } from './hooks/useBurnChart';
-import {
-  describeBurnSeries,
-  deriveProjectSeries,
-  deriveSprintSeries,
-  type ScopeChange,
-} from './burnChartData';
-import { BurnChartCanvas } from './BurnChartCanvas';
+import type { BurnVariant, BurnMetric } from './hooks/useBurnChart';
+import { useBurnChartData } from './useBurnChartData';
+import { useBurnChartExport } from './useBurnChartExport';
+import { BurnChartBody } from './BurnChartBody';
 import { CompactBurnChart } from './CompactBurnChart';
-import {
-  ExportMenu,
-  BurnChartControls,
-  SprintTrendCallout,
-  BurnLegend,
-  ChartSkeleton,
-  ChartEmpty,
-} from './BurnChartChrome';
+import { ExportMenu, BurnChartControls, SprintTrendCallout, BurnLegend } from './BurnChartChrome';
 
 // Re-export the pure derive/format helpers and presentational tokens that live
 // in the co-located modules so external consumers (and the unit tests) keep a
@@ -59,134 +46,22 @@ export function BurnChart({
 }: BurnChartProps) {
   const [variant, setVariant] = useState<BurnVariant>(defaultVariant);
   const [metric, setMetric] = useState<BurnMetric>('tasks');
-  const [since, setSince] = useState<string | undefined>();
-  const [until, setUntil] = useState<string | undefined>();
   const chartRef = useRef<HTMLDivElement>(null);
-
-  const isSprintCtx = !!sprintId;
   const itl = useIterationLabel(projectId);
+  const d = useBurnChartData({ projectId, sprintId, variant, metric });
+  const { exportPng, exportPdf } = useBurnChartExport(chartRef, variant, d.today);
 
-  // --- Sprint data ---
-  const sprintQuery = useSprintBurndown(sprintId ?? null);
-  // Auto-derive sprint metric from committed_points so the series uses the right
-  // unit even though the selector is hidden in sprint context.
-  const sprintMetric: BurnMetric =
-    isSprintCtx && sprintQuery.data
-      ? (sprintQuery.data.sprint.committed_points ?? 0) > 0
-        ? 'points'
-        : 'tasks'
-      : metric;
-  const sprintResult = useMemo(() => {
-    if (!isSprintCtx || !sprintQuery.data) return null;
-    return deriveSprintSeries(sprintQuery.data.sprint, sprintQuery.data.snapshots, sprintMetric);
-  }, [isSprintCtx, sprintQuery.data, sprintMetric]);
-
-  // Forecast transparency (ADR-0102 §2): when the sprint has pending
-  // (un-accepted) injections, the burn series reflects accepted scope only.
-  // Shared copy so it can't word differently from the SprintPanel caption.
-  const scopeCaption = isSprintCtx
-    ? forecastScopeCaption(sprintQuery.data?.sprint.pending_count ?? 0)
-    : null;
-
-  // --- Project data ---
-  const burnQuery = useBurnChart(isSprintCtx ? null : projectId, variant, metric, since, until);
-  const projectResult = useMemo(() => {
-    if (isSprintCtx || !burnQuery.data?.series.length) return null;
-    return deriveProjectSeries(burnQuery.data.series, variant);
-  }, [isSprintCtx, burnQuery.data, variant]);
-
-  const isLoading = isSprintCtx ? sprintQuery.isLoading : burnQuery.isLoading;
-  const isError = isSprintCtx ? sprintQuery.isError : burnQuery.isError;
-  const points = isSprintCtx ? (sprintResult?.points ?? null) : (projectResult?.points ?? null);
-  // Memoized so the `?? []` fallback keeps a stable identity — otherwise the
-  // chart-summary useMemo (and the legend) would recompute every render.
-  const scopeChanges = useMemo<ScopeChange[]>(
-    () => (isSprintCtx ? (sprintResult?.scopeChanges ?? []) : (projectResult?.scopeChanges ?? [])),
-    [isSprintCtx, sprintResult, projectResult],
-  );
-  const isEmpty = !isLoading && !isError && (!points || points.length === 0);
-
-  // Metric selector: in sprint context, auto-derive and hide; in project context, show
-  const effectiveMetric = isSprintCtx ? sprintMetric : metric;
-
-  // Sprint trending / forecast
-  const trendAhead = sprintResult?.trendAhead ?? null;
-  const forecastDate = sprintResult?.forecastDate ?? null;
-
-  // All-zero story points warning
-  const allZeroPoints =
-    !isLoading &&
-    metric === 'points' &&
-    !isSprintCtx &&
-    !!points &&
-    points.length > 0 &&
-    points.every((p) => p.remaining === 0 && p.completed === 0);
-
-  const today = new Date().toISOString().slice(0, 10);
-
-  // Sprint-specific empty states: future sprint or active sprint with no snapshots yet.
-  // deriveSprintSeries always generates a point per day, so isEmpty is always false for
-  // sprint context — we need a separate gate to surface these UI states.
-  const sprintHasNoRealData =
-    isSprintCtx &&
-    !!sprintQuery.data &&
-    (sprintQuery.data.sprint.start_date > today || sprintQuery.data.snapshots.length === 0);
-  const showEmpty = isEmpty || sprintHasNoRealData;
-
-  // sr-only alternative for the chart SVG (issue 2175) — see describeBurnSeries.
-  const chartSummary = useMemo(
-    () =>
-      points && points.length > 0
-        ? describeBurnSeries(points, variant, effectiveMetric, scopeChanges, trendAhead)
-        : '',
-    [points, variant, effectiveMetric, scopeChanges, trendAhead],
-  );
-
-  // Export helpers
-  const exportPng = async () => {
-    const { toPng } = await import('html-to-image');
-    if (!chartRef.current) return;
-    const dataUrl = await toPng(chartRef.current, { pixelRatio: 2 });
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = `burn-${variant}-${today}.png`;
-    a.click();
-  };
-
-  const exportPdf = async () => {
-    const { toPng } = await import('html-to-image');
-    const { jsPDF } = await import('jspdf');
-    if (!chartRef.current) return;
-    const dataUrl = await toPng(chartRef.current, { pixelRatio: 2 });
-    const img = new Image();
-    img.src = dataUrl;
-    await new Promise<void>((res) => {
-      img.onload = () => res();
-    });
-    const pdf = new jsPDF({
-      orientation: 'landscape',
-      unit: 'px',
-      format: [img.width, img.height],
-    });
-    pdf.addImage(dataUrl, 'PNG', 0, 0, img.width, img.height);
-    pdf.save(`burn-${variant}-${today}.pdf`);
-  };
-
-  const heading = isSprintCtx ? `${itl.singular} Burndown` : 'Burn Chart';
-
-  // -------------------------------------------------------------------------
-  // Compact mode (#1138) — a stripped single-line burndown for the board
-  // sprint header. Always sprint-scoped; renders a thin shell while loading.
-  // -------------------------------------------------------------------------
+  // Compact mode (#1138) — a stripped single-line burndown for the board sprint
+  // header. Always sprint-scoped; renders a thin shell while loading.
   if (compact) {
     return (
       <CompactBurnChart
-        sprint={sprintQuery.data?.sprint}
-        metric={effectiveMetric}
-        points={points}
-        isLoading={isLoading}
-        isError={isError}
-        sprintHasNoRealData={sprintHasNoRealData}
+        sprint={d.sprint}
+        metric={d.effectiveMetric}
+        points={d.points}
+        isLoading={d.isLoading}
+        isError={d.isError}
+        sprintHasNoRealData={d.sprintHasNoRealData}
         iterationLabel={itl.singular}
       />
     );
@@ -200,10 +75,10 @@ export function BurnChart({
       {/* Card header */}
       <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-3 border-b border-neutral-border">
         <h2 id="burn-chart-heading" className="text-sm font-semibold text-neutral-text-primary">
-          {heading}
+          {d.isSprintCtx ? `${itl.singular} Burndown` : 'Burn Chart'}
         </h2>
         <div className="flex items-center gap-2">
-          {!isSprintCtx && (
+          {!d.isSprintCtx && (
             <select
               value={metric}
               onChange={(e) => setMetric(e.target.value as BurnMetric)}
@@ -215,7 +90,7 @@ export function BurnChart({
             </select>
           )}
           <ExportMenu
-            disabled={isLoading || showEmpty || isError}
+            disabled={d.isLoading || d.showEmpty || d.isError}
             onExportPng={() => void exportPng()}
             onExportPdf={() => void exportPdf()}
           />
@@ -226,89 +101,116 @@ export function BurnChart({
       <BurnChartControls
         variant={variant}
         onVariantChange={setVariant}
-        isSprintCtx={isSprintCtx}
-        sprint={sprintQuery.data?.sprint}
-        since={since}
-        onSinceChange={setSince}
-        until={until}
-        onUntilChange={setUntil}
+        isSprintCtx={d.isSprintCtx}
+        sprint={d.sprint}
+        since={d.since}
+        onSinceChange={d.setSince}
+        until={d.until}
+        onUntilChange={d.setUntil}
       />
 
       {/* Null story-points banner */}
-      {allZeroPoints && (
-        <div className="px-4 py-2 bg-semantic-info-bg border-b border-neutral-border flex items-center gap-2 text-xs text-neutral-text-secondary">
-          <span aria-hidden="true">ⓘ</span>
-          Most tasks have no story point estimates.{' '}
-          <button
-            type="button"
-            onClick={() => setMetric('tasks')}
-            className="underline text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          >
-            Use task count
-          </button>
-        </div>
+      {d.allZeroPoints && <NoEstimatesBanner onUseTaskCount={() => setMetric('tasks')} />}
+
+      <BurnChartBody
+        chartRef={chartRef}
+        isLoading={d.isLoading}
+        isError={d.isError}
+        showEmpty={d.showEmpty}
+        onRetry={d.refetch}
+        isSprintCtx={d.isSprintCtx}
+        sprint={d.sprint}
+        iterationLabel={itl.singular}
+        points={d.points}
+        variant={variant}
+        metric={d.effectiveMetric}
+        scopeChanges={d.scopeChanges}
+        today={d.today}
+        chartSummary={d.chartSummary}
+      />
+
+      <BurnChartFooter
+        isSprintCtx={d.isSprintCtx}
+        isLoading={d.isLoading}
+        isError={d.isError}
+        isEmpty={d.isEmpty}
+        trendAhead={d.trendAhead}
+        metric={d.effectiveMetric}
+        forecastDate={d.forecastDate}
+        scopeCaption={d.scopeCaption}
+        variant={variant}
+        scopeChanges={d.scopeChanges}
+      />
+    </section>
+  );
+}
+
+/**
+ * Story points are opt-in. When a project never estimated, the points view is a
+ * flat zero line that reads as "nothing happened" — so say what actually
+ * happened and offer the one-click switch to task count.
+ */
+function NoEstimatesBanner({ onUseTaskCount }: { onUseTaskCount: () => void }) {
+  return (
+    <div className="px-4 py-2 bg-semantic-info-bg border-b border-neutral-border flex items-center gap-2 text-xs text-neutral-text-secondary">
+      <span aria-hidden="true">ⓘ</span>
+      Most tasks have no story point estimates.{' '}
+      <button
+        type="button"
+        onClick={onUseTaskCount}
+        className="underline text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+      >
+        Use task count
+      </button>
+    </div>
+  );
+}
+
+interface BurnChartFooterProps {
+  isSprintCtx: boolean;
+  isLoading: boolean;
+  isError: boolean;
+  isEmpty: boolean;
+  trendAhead: number | null;
+  metric: BurnMetric;
+  forecastDate: string | null;
+  scopeCaption: string | null;
+  variant: BurnVariant;
+  scopeChanges: Parameters<typeof BurnLegend>[0]['scopeChanges'];
+}
+
+/**
+ * Everything below the chart: the sprint trend callout, the pending-scope
+ * forecast caveat, and the legend. Each has its own visibility rule — notably
+ * the scope caveat shows whenever the sprint has un-accepted injections,
+ * regardless of trend or empty state (ADR-0102 §2).
+ */
+function BurnChartFooter({
+  isSprintCtx,
+  isLoading,
+  isError,
+  isEmpty,
+  trendAhead,
+  metric,
+  forecastDate,
+  scopeCaption,
+  variant,
+  scopeChanges,
+}: BurnChartFooterProps) {
+  const showTrend = isSprintCtx && trendAhead !== null && !isEmpty && !isLoading;
+  const showCaption = isSprintCtx && scopeCaption && !isLoading;
+  const showLegend = !isLoading && !isError && !isEmpty;
+  return (
+    <>
+      {showTrend && (
+        <SprintTrendCallout trendAhead={trendAhead} metric={metric} forecastDate={forecastDate} />
       )}
-
-      {/* Chart area */}
-      <div ref={chartRef} className="px-4 py-4">
-        {isLoading && <ChartSkeleton />}
-        {isError && (
-          <div
-            className="flex items-center justify-center gap-3 h-48 text-xs text-semantic-at-risk"
-            aria-live="polite"
-          >
-            <span>⚠ Couldn&apos;t load chart data.</span>
-            <button
-              type="button"
-              onClick={() => (isSprintCtx ? void sprintQuery.refetch() : void burnQuery.refetch())}
-              className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            >
-              Retry
-            </button>
-          </div>
-        )}
-        {showEmpty && !isError && (
-          <ChartEmpty
-            isSprintCtx={isSprintCtx}
-            sprint={sprintQuery.data?.sprint}
-            iterationLabel={itl.singular}
-          />
-        )}
-        {!isLoading && !isError && !showEmpty && points && (
-          <p className="sr-only">{chartSummary}</p>
-        )}
-        {!isLoading && !isError && !showEmpty && points && (
-          <BurnChartCanvas
-            points={points}
-            variant={variant}
-            metric={effectiveMetric}
-            scopeChanges={scopeChanges}
-            today={today}
-          />
-        )}
-      </div>
-
-      {/* Sprint trending callout */}
-      {isSprintCtx && trendAhead !== null && !isEmpty && !isLoading && (
-        <SprintTrendCallout
-          trendAhead={trendAhead}
-          metric={effectiveMetric}
-          forecastDate={forecastDate}
-        />
-      )}
-
-      {/* Pending-scope forecast caveat (ADR-0102 §2) — shown whenever the sprint
-          has un-accepted injections, regardless of trend/empty state. */}
-      {isSprintCtx && scopeCaption && !isLoading && (
+      {showCaption && (
         <p className="px-4 py-2 border-t border-neutral-border text-xs text-neutral-text-secondary">
           <span aria-hidden="true">○</span> {scopeCaption}
         </p>
       )}
-
-      {/* Legend */}
-      {!isLoading && !isError && !isEmpty && (
-        <BurnLegend variant={variant} scopeChanges={scopeChanges} />
-      )}
-    </section>
+      {showLegend && <BurnLegend variant={variant} scopeChanges={scopeChanges} />}
+    </>
   );
 }
