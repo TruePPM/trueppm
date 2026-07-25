@@ -124,6 +124,15 @@ async function setup(page: Page, memberRows = MEMBER_SCHEDULER) {
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),
   );
+  // ProjectShell gates every project route on the detail query (#1111): a 404
+  // renders ProjectNotFound in place of the page under test.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_PROJECT),
+    }),
+  );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (r) =>
     r.fulfill({
       status: 200, contentType: 'application/json',

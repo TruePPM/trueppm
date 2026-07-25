@@ -149,6 +149,15 @@ async function setupRoutes(page: Page, tasks: object[]) {
       body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }),
     }),
   );
+  // ProjectShell gates every project route on the detail query (#1111): a 404
+  // renders ProjectNotFound in place of the page under test.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_PROJECTS[0]),
+    }),
+  );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );

@@ -90,6 +90,11 @@ async function setupRoutes(
       json({ count: FIXTURE_PROJECTS.length, next: null, previous: null, results: FIXTURE_PROJECTS }),
     ),
   );
+  // ProjectShell gates every project route on the detail query (#1111): a 404
+  // renders ProjectNotFound in place of the page under test.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+    route.fulfill(json(FIXTURE_PROJECTS[0])),
+  );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (route) =>
     route.fulfill(json(overview)),
   );

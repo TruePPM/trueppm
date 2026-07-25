@@ -85,6 +85,11 @@ async function setup(page: Page, { role, rule }: SetupOptions) {
   await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (r) => r.fulfill(page200(FIXTURE_API_PROJECTS)));
+  // ProjectShell gates every project route on the detail query (#1111): a 404
+  // renders ProjectNotFound and unmounts the drawer mid-test.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (r) =>
+    r.fulfill(json(FIXTURE_API_PROJECTS[0])),
+  );
   await page.route('**/api/v1/projects/*/presence/', (r) => r.fulfill(json([])));
   await page.route('**/api/v1/projects/*/members/**', (r) =>
     r.fulfill(json([{ id: 'm1', role }])),
