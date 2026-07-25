@@ -599,6 +599,34 @@ test.describe('TaskDetailDrawer redesign — tab grouping', () => {
     );
   });
 
+  test('all six optional Details sections fold when empty — no empty headers (#2317)', async ({
+    page,
+  }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    const addDetail = drawer.getByRole('region', { name: 'Add detail' });
+    await expect(addDetail).toBeVisible();
+
+    // t1 has no relations and no recurrence rule; the server reports both via the
+    // `has_related_links` / `has_recurrence` annotations (#2317), so these two —
+    // the last sections that used to render as empty collapsed headers — are now
+    // offered under "Add detail" like the rest.
+    await expect(addDetail.getByRole('button', { name: 'Related tasks' })).toBeVisible();
+    await expect(addDetail.getByRole('button', { name: 'Recurrence' })).toBeVisible();
+
+    // The completed goal of #2315 slice 2: every empty optional section is offered
+    // here, so the Details tab shows no empty section header at all. Estimates is
+    // populated on t1 and therefore renders as a real header, never as an offer.
+    await expect(addDetail.getByRole('button', { name: 'Estimates' })).toHaveCount(0);
+    await expect(drawer.getByRole('button', { name: 'Estimates' })).toBeVisible();
+
+    // Revealing Related tasks moves it into the flow, auto-opened.
+    await addDetail.getByRole('button', { name: 'Related tasks' }).click();
+    await expect(drawer.getByRole('button', { name: 'Related tasks' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
   test('Attachments + External links live under the Files tab', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     // Not present on the default Details tab.

@@ -232,6 +232,15 @@ export interface Task {
   blockedSince?: string | null;
   blockedBy?: { id: string; username: string } | null;
   blockedAgeSeconds?: number | null;
+  /**
+   * Progressive-disclosure signals (#2317, ADR-0605) — whether the task has any
+   * live task-relations / a recurrence rule. Server-annotated so the drawer can
+   * collapse those two Details sections when empty without firing their lazy
+   * queries. `hasRecurrence` is true only for a recurrence *template* (the rule
+   * owner), not for the occurrences it generates.
+   */
+  hasRelatedLinks?: boolean;
+  hasRecurrence?: boolean;
   /** Count of active linked risks (OPEN + MITIGATING; board batch 3, ADR-0035). */
   linkedRisksCount?: number;
   /** Max(probability * impact) across active linked risks; null when none. */

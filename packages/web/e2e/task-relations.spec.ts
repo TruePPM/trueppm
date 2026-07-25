@@ -177,7 +177,11 @@ async function openRelatedSection(page: Page): Promise<Locator> {
   await grid.getByText('Foundation', { exact: true }).click();
   const drawer = page.getByRole('dialog', { name: /Foundation/ }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });
-  // Related tasks lives in the Details tab (default) as a collapsed accordion.
+  // Related tasks lives in the Details tab (default). Since #2317 the server
+  // reports emptiness via `has_related_links`, so on a task with no relations
+  // this button is the "Add detail" chip (clicking reveals the section
+  // auto-opened); on a task that has relations it is the collapsed section
+  // header (clicking expands it). Both paths end at the same open region.
   const header = drawer.getByRole('button', { name: 'Related tasks' });
   await expect(header).toBeVisible();
   if ((await header.getAttribute('aria-expanded')) !== 'true') await header.click();

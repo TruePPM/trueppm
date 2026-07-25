@@ -164,6 +164,10 @@ async function openRecurrence(page: Page) {
   await grid.getByText('Weekly Safety Walk', { exact: true }).click();
   const drawer = page.getByRole('dialog', { name: /Weekly Safety Walk/ }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });
+  // Since #2317 the server reports emptiness via `has_recurrence`, so on a task
+  // with no rule this button is the "Add detail" chip rather than a collapsed
+  // section header — clicking it reveals the section auto-opened. On a task that
+  // already has a rule it is the section header. Either way one click opens it.
   await drawer.getByRole('button', { name: 'Recurrence' }).click();
   return drawer;
 }

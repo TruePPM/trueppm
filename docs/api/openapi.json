@@ -52951,6 +52951,16 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "has_related_links": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "default": false
+                    },
+                    "has_recurrence": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "default": false
+                    },
                     "external_link_summary": {
                         "type": "object",
                         "properties": {
@@ -53182,6 +53192,8 @@
                     "early_start",
                     "external_link_summary",
                     "free_float",
+                    "has_recurrence",
+                    "has_related_links",
                     "id",
                     "is_blocked",
                     "is_critical",

@@ -2555,6 +2555,16 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         read_only=True, allow_null=True, default=None
     )
 
+    # Progressive-disclosure signals (#2317, ADR-0605). The task drawer collapses an
+    # empty optional Details section behind "Add detail"; these two report emptiness
+    # for the sections whose content is fetched lazily by their own hook, so the
+    # drawer never has to fire those queries just to learn the section is empty.
+    # Populated by annotate_tasks_queryset(); a caller that bypasses the viewset
+    # (nested serialization, tests) gets False — the section then renders as
+    # revealable rather than wrongly expanded-and-empty.
+    has_related_links = serializers.BooleanField(read_only=True, default=False)
+    has_recurrence = serializers.BooleanField(read_only=True, default=False)
+
     # External-link summary (#767, ADR-0155): {count, worst_status} for the
     # at-a-glance link glyph on the task-list row / Gantt bar. Assembled from the
     # `external_link_count` / `external_link_worst_rank` annotations applied by
@@ -2712,6 +2722,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_impediment",
             "linked_risks_count",
             "linked_risks_max_severity",
+            "has_related_links",
+            "has_recurrence",
             "external_link_summary",
             "status_changed_at",
             "priority_rank",
@@ -2794,6 +2806,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_impediment",
             "linked_risks_count",
             "linked_risks_max_severity",
+            "has_related_links",
+            "has_recurrence",
             "external_link_summary",
             "status_changed_at",
             "assignee_is_overallocated",

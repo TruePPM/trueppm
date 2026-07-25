@@ -654,10 +654,11 @@ export function TaskDetailDrawer({
 
   // Progressive disclosure (ADR-0605, #2315): for each section that declares an
   // `isPopulated` predicate, record whether it has content for THIS task. Reads
-  // the already-warm schedule cache (tasks + links) so no section query fires.
-  // Sections without a predicate (related-links, recurring, Enterprise) are
-  // absent from the map and stay always-shown. `false` here = collapse behind
-  // the Details-tab "Add detail" affordance instead of an empty header.
+  // the already-warm schedule cache (tasks + links) plus the server's own
+  // emptiness annotations (#2317) so no section query fires. Sections without a
+  // predicate (e.g. Enterprise registrations) are absent from the map and stay
+  // always-shown. `false` here = collapse behind the Details-tab "Add detail"
+  // affordance instead of an empty header.
   const sectionPopulated = useMemo(() => {
     const map: Record<string, boolean> = {};
     if (!task) return map;
