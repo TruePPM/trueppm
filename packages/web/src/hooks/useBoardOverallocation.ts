@@ -1,6 +1,12 @@
 import { useMemo } from 'react';
 import { useResourceAllocation } from './useResourceAllocation';
-import { parseUTCDate, formatISODate, addDays } from '@/features/resource/resourceUtils';
+import {
+  parseUTCDate,
+  formatISODate,
+  addDays,
+  type AllocationResource,
+  type AllocationTask,
+} from '@/features/resource/resourceUtils';
 
 export interface OverallocationKeyParts {
   resourceId: string;
@@ -36,6 +42,72 @@ function pairKey(resourceId: string, taskId: string): string {
 }
 
 /**
+ * Invoke `visit` once per weekday (as an ISO date string) in the inclusive
+ * [startIso, endIso] window. Calendar exceptions are NOT applied (ADR-0035 §Q1).
+ * Shared by the two window walks below to keep each free of loop mechanics.
+ */
+function eachDayInWindow(startIso: string, endIso: string, visit: (iso: string) => void): void {
+  let cur = parseUTCDate(startIso);
+  const end = parseUTCDate(endIso);
+  while (cur <= end) {
+    visit(formatISODate(cur));
+    cur = addDays(cur, 1);
+  }
+}
+
+/**
+ * Build day → total assigned units across every dated task of one resource.
+ * Undated tasks (no early_start/finish) contribute nothing.
+ */
+function buildDayUnits(resource: AllocationResource): Map<string, number> {
+  const dayUnits = new Map<string, number>();
+  for (const t of resource.tasks) {
+    if (!t.early_start || !t.early_finish) continue;
+    const units = Number.parseFloat(t.units);
+    eachDayInWindow(t.early_start, t.early_finish, (iso) => {
+      dayUnits.set(iso, (dayUnits.get(iso) ?? 0) + units);
+    });
+  }
+  return dayUnits;
+}
+
+/** Peak load factor (max daily units / max_units) within a task's own window. */
+function peakFactor(task: AllocationTask, dayUnits: Map<string, number>, max: number): number {
+  let peak = 0;
+  eachDayInWindow(task.early_start as string, task.early_finish as string, (iso) => {
+    const factor = (dayUnits.get(iso) ?? 0) / max;
+    if (factor > peak) peak = factor;
+  });
+  return peak;
+}
+
+/**
+ * Peak-load-factor map keyed by `${resourceId}:${taskId}`, retaining only pairs
+ * whose peak exceeds `threshold`. Pure over the allocation payload so the hook's
+ * `useMemo` body stays a single call.
+ */
+function computeOverallocByPair(
+  resources: AllocationResource[],
+  threshold: number,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const resource of resources) {
+    const max = Number.parseFloat(resource.max_units);
+    if (!Number.isFinite(max) || max <= 0) continue;
+
+    const dayUnits = buildDayUnits(resource);
+    for (const t of resource.tasks) {
+      if (!t.early_start || !t.early_finish) continue;
+      const peak = peakFactor(t, dayUnits, max);
+      if (peak > threshold) {
+        out.set(pairKey(resource.id, t.id), peak);
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Compute peak load factor per (resource, task) for the board overallocation
  * badge (issue #184).  Reuses /projects/{id}/resource-allocation/ (ADR-0031)
  * so the board and resource timeline stay in sync.
@@ -49,47 +121,8 @@ export function useBoardOverallocation(projectId: string | null | undefined): Bo
   const threshold = readThreshold();
 
   const overallocByPair = useMemo<Map<string, number>>(() => {
-    const out = new Map<string, number>();
-    if (!allocation.data) return out;
-
-    for (const resource of allocation.data.resources) {
-      const max = Number.parseFloat(resource.max_units);
-      if (!Number.isFinite(max) || max <= 0) continue;
-
-      // Build day → total_units across all tasks assigned to this resource.
-      const dayUnits = new Map<string, number>();
-      for (const t of resource.tasks) {
-        if (!t.early_start || !t.early_finish) continue;
-        const units = Number.parseFloat(t.units);
-        let cur = parseUTCDate(t.early_start);
-        const end = parseUTCDate(t.early_finish);
-        while (cur <= end) {
-          const iso = formatISODate(cur);
-          dayUnits.set(iso, (dayUnits.get(iso) ?? 0) + units);
-          cur = addDays(cur, 1);
-        }
-      }
-
-      // For each task: peak factor = max(dayUnits[day] / max) within its window.
-      for (const t of resource.tasks) {
-        if (!t.early_start || !t.early_finish) continue;
-        let peak = 0;
-        let cur = parseUTCDate(t.early_start);
-        const end = parseUTCDate(t.early_finish);
-        while (cur <= end) {
-          const iso = formatISODate(cur);
-          const units = dayUnits.get(iso) ?? 0;
-          const factor = units / max;
-          if (factor > peak) peak = factor;
-          cur = addDays(cur, 1);
-        }
-        if (peak > threshold) {
-          out.set(pairKey(resource.id, t.id), peak);
-        }
-      }
-    }
-
-    return out;
+    if (!allocation.data) return new Map<string, number>();
+    return computeOverallocByPair(allocation.data.resources, threshold);
   }, [allocation.data, threshold]);
 
   return {

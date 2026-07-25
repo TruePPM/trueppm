@@ -159,43 +159,68 @@ export function useKeyboardReschedule({
       }
     };
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // This listener is on `document`. Suppress every binding while the user
-      // is typing in a field, except Escape (which must still cancel an active
-      // reschedule). Without this guard, pressing Enter to submit a search box
-      // would initiate a keyboard reschedule on the selected task.
-      if (isTypingInInput(e.target) && e.key !== 'Escape') return;
+    /** Assertive screen-reader announcement (rule 53); no-op without the ref. */
+    const announce = (text: string) => {
+      if (ariaAssertiveRef.current) ariaAssertiveRef.current.textContent = text;
+    };
 
-      // ── Not in keyboard mode: Shift+Enter or 'r' initiates ─────────────────
-      // Plain Enter now opens the task detail drawer (#2205); reschedule moved
-      // to Shift+Enter / 'r' so both actions are reachable from a focused bar.
-      if (!keyboardModeRef.current) {
-        const initiates = (e.key === 'Enter' && e.shiftKey) || e.key === 'r' || e.key === 'R';
-        if (!initiates) return;
-        const taskId = selectedTaskIdRef.current;
-        if (!taskId) return;
+    /** Reset keyboard-mode state after a confirm/cancel/offline exit. */
+    const exitKeyboardMode = () => {
+      keyboardModeRef.current = false;
+      cumulativeDeltaRef.current = 0;
+    };
 
-        const task = tasksRef.current.find((t) => t.id === taskId);
-        // Summary tasks and completed tasks cannot be rescheduled via keyboard
-        if (!task || task.isSummary || task.isComplete) return;
+    /**
+     * Not-in-keyboard-mode entry: Shift+Enter or 'r' on a reschedulable selected
+     * task starts keyboard mode. Plain Enter opens the task drawer elsewhere
+     * (#2205), so it is deliberately ignored here.
+     */
+    const tryInitiate = (e: KeyboardEvent) => {
+      const initiates = (e.key === 'Enter' && e.shiftKey) || e.key === 'r' || e.key === 'R';
+      if (!initiates) return;
+      const taskId = selectedTaskIdRef.current;
+      if (!taskId) return;
 
-        keyboardModeRef.current = true;
-        origStartRef.current = task.start;
-        cumulativeDeltaRef.current = 0;
-        seqRef.current = 0;
-        startDrag(taskId, true); // isKeyboard = true
-        e.preventDefault();
+      const task = tasksRef.current.find((t) => t.id === taskId);
+      // Summary tasks and completed tasks cannot be rescheduled via keyboard.
+      if (!task || task.isSummary || task.isComplete) return;
 
-        if (ariaAssertiveRef.current) {
-          ariaAssertiveRef.current.textContent =
-            `Keyboard reschedule: ${task.name}. Arrow keys to nudge, Enter to confirm, Escape to cancel.`;
-        }
+      keyboardModeRef.current = true;
+      origStartRef.current = task.start;
+      cumulativeDeltaRef.current = 0;
+      seqRef.current = 0;
+      startDrag(taskId, true); // isKeyboard = true
+      e.preventDefault();
+      announce(
+        `Keyboard reschedule: ${task.name}. Arrow keys to nudge, Enter to confirm, Escape to cancel.`,
+      );
+    };
+
+    /** Enter in keyboard mode: commit the pending nudge, guarding offline. */
+    const confirmReschedule = () => {
+      // Offline guard (mirrors rule 29 for pointer drag).
+      if (!navigator.onLine) {
+        cancelDrag();
+        exitKeyboardMode();
+        announce("You're offline — change not saved.");
         return;
       }
+      const confirmedStart = nudgeWorkingDays(origStartRef.current, cumulativeDeltaRef.current);
+      commitDrag(confirmedStart);
+      exitKeyboardMode();
+      announce('Reschedule confirmed.');
+    };
 
-      // ── In keyboard mode ────────────────────────────────────────────────────
+    /** Escape in keyboard mode: discard the pending nudge. */
+    const cancelReschedule = () => {
+      cancelDrag();
+      exitKeyboardMode();
+      announce('Reschedule cancelled.');
+    };
+
+    /** In-keyboard-mode key routing (arrows nudge, d opens popover, Enter/Esc exit). */
+    const handleActiveKey = (e: KeyboardEvent) => {
       const currentDelta = cumulativeDeltaRef.current;
-
       switch (e.key) {
         case 'ArrowRight':
           e.preventDefault();
@@ -215,44 +240,32 @@ export function useKeyboardReschedule({
           break;
         }
 
-        case 'Enter': {
+        case 'Enter':
           e.preventDefault();
-
-          // Offline guard (mirrors rule 29 for pointer drag)
-          if (!navigator.onLine) {
-            cancelDrag();
-            keyboardModeRef.current = false;
-            cumulativeDeltaRef.current = 0;
-            if (ariaAssertiveRef.current) {
-              ariaAssertiveRef.current.textContent =
-                "You're offline — change not saved.";
-            }
-            break;
-          }
-
-          const confirmedStart = nudgeWorkingDays(
-            origStartRef.current,
-            cumulativeDeltaRef.current,
-          );
-          commitDrag(confirmedStart);
-          keyboardModeRef.current = false;
-          cumulativeDeltaRef.current = 0;
-          if (ariaAssertiveRef.current) {
-            ariaAssertiveRef.current.textContent = 'Reschedule confirmed.';
-          }
+          confirmReschedule();
           break;
-        }
 
         case 'Escape':
           e.preventDefault();
-          cancelDrag();
-          keyboardModeRef.current = false;
-          cumulativeDeltaRef.current = 0;
-          if (ariaAssertiveRef.current) {
-            ariaAssertiveRef.current.textContent = 'Reschedule cancelled.';
-          }
+          cancelReschedule();
           break;
       }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // This listener is on `document`. Suppress every binding while the user
+      // is typing in a field, except Escape (which must still cancel an active
+      // reschedule). Without this guard, pressing Enter to submit a search box
+      // would initiate a keyboard reschedule on the selected task.
+      if (isTypingInInput(e.target) && e.key !== 'Escape') return;
+
+      // Plain Enter now opens the task detail drawer (#2205); reschedule moved
+      // to Shift+Enter / 'r' so both actions are reachable from a focused bar.
+      if (!keyboardModeRef.current) {
+        tryInitiate(e);
+        return;
+      }
+      handleActiveKey(e);
     };
 
     document.addEventListener('keydown', handleKeyDown);

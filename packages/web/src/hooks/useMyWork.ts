@@ -274,6 +274,26 @@ interface StatusUpdateArgs {
 }
 
 /**
+ * Optimistic cache edit: set task `taskId`'s status to `next` across every cached
+ * My Work page, leaving all other rows untouched. Extracted from the mutation
+ * `onMutate` so the `setQueryData` updater stays flat (avoids >4-deep nesting).
+ */
+function applyStatusToPages(
+  data: InfiniteData<MyWorkPage> | undefined,
+  taskId: string,
+  next: TaskStatus,
+): InfiniteData<MyWorkPage> | undefined {
+  if (!data) return data;
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      results: page.results.map((t) => (t.id === taskId ? { ...t, status: next } : t)),
+    })),
+  };
+}
+
+/**
  * Status update from the /me/work surface.
  *
  * Fires `PATCH /api/v1/tasks/{id}/` with `X-Source: my_work` so the backend
@@ -295,16 +315,9 @@ export function useMyWorkStatusUpdate() {
     onMutate: async ({ taskId, next }) => {
       await queryClient.cancelQueries({ queryKey: ['me', 'work'] });
       const snapshot = queryClient.getQueryData<InfiniteData<MyWorkPage>>(['me', 'work']);
-      queryClient.setQueryData<InfiniteData<MyWorkPage>>(['me', 'work'], (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page) => ({
-            ...page,
-            results: page.results.map((t) => (t.id === taskId ? { ...t, status: next } : t)),
-          })),
-        };
-      });
+      queryClient.setQueryData<InfiniteData<MyWorkPage>>(['me', 'work'], (old) =>
+        applyStatusToPages(old, taskId, next),
+      );
       return { snapshot };
     },
     onError: (_err, _vars, ctx) => {
