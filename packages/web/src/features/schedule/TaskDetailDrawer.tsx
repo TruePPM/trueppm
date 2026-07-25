@@ -35,6 +35,7 @@ import { CollapsibleSection } from './sections/CollapsibleSection';
 import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
 import { TaskScheduleStrip } from './TaskScheduleStrip';
 import { TaskSummaryStrip } from './TaskSummaryStrip';
+import { TaskRecentActivity } from './TaskRecentActivity';
 import { TaskDescriptionField } from './TaskDescriptionField';
 import { registerOssDrawerSections } from './sections';
 
@@ -1160,6 +1161,14 @@ function DrawerContent({
               <div>
                 <div className="px-4 py-4 space-y-5">
                   <TaskSummaryStrip task={task} />
+                  {/* Inline audit trail (#2315) — the last few events, so "what
+                      just happened here?" is answerable without a tab switch.
+                      Self-hides when the task has no activity. */}
+                  <TaskRecentActivity
+                    projectId={projectId}
+                    taskId={task.id}
+                    onViewAll={() => onTabChange('activity')}
+                  />
                   <TaskScheduleStrip task={task} projectId={projectId} canEdit={canEdit} />
                   {OverviewComp && (
                     <SectionErrorBoundary sectionTitle="Overview">

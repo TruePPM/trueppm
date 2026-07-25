@@ -57,6 +57,7 @@ vi.mock('@/hooks/useIterationLabel', () => ({
 vi.mock('./sections', () => ({ registerOssDrawerSections: () => {} }));
 vi.mock('./TaskScheduleStrip', () => ({ TaskScheduleStrip: () => <div /> }));
 vi.mock('./TaskDescriptionField', () => ({ TaskDescriptionField: () => <div /> }));
+vi.mock('./TaskRecentActivity', () => ({ TaskRecentActivity: () => <div /> }));
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {

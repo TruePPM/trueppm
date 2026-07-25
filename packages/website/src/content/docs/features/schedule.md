@@ -53,7 +53,11 @@ the drawer groups everything about the task into four tabs:
   estimates, recurrence). **Duration is editable right here** — click it and type
   a new value (e.g. `10`, or `2w` for two working weeks) instead of dragging the
   bar; Start, Finish, and Float re-compute the moment you commit. Milestones have
-  no duration, and Viewers see it read-only.
+  no duration, and Viewers see it read-only. A **Recent activity** line near the
+  top shows the last three things that happened to the task — who, what, and how
+  long ago — so you can see whether someone just touched it without leaving the
+  tab; **View all** opens the full Activity feed. It hides itself on a task with
+  no activity yet.
 - **Subtasks** — the checklist breakdown, with a done/total count on the tab.
 - **Activity** — comments, the activity timeline, field history, and baseline.
 - **Files** — attachments and external links.

@@ -486,7 +486,9 @@ test.describe('TaskDetailDrawer redesign — tabs', () => {
     for (const label of ['Start', 'Finish', 'Float']) {
       await expect(schedule.getByRole('group', { name: label })).toBeVisible();
     }
-    await expect(schedule.getByRole('button', { name: /Duration, 10 days\. Edit\./ })).toBeVisible();
+    await expect(
+      schedule.getByRole('button', { name: /Duration, 10 days\. Edit\./ }),
+    ).toBeVisible();
     await expect(drawer.getByText('10d', { exact: true })).toBeVisible();
     // Overview is the first Details section → expanded → Assignees visible.
     await expect(drawer.getByRole('region', { name: 'Assignees' })).toBeVisible();
@@ -677,7 +679,9 @@ test.describe('TaskDetailDrawer redesign — Save/Cancel (#1977)', () => {
     await expect(drawer).not.toBeVisible();
   });
 
-  test('close button while dirty prompts the guard instead of silently saving', async ({ page }) => {
+  test('close button while dirty prompts the guard instead of silently saving', async ({
+    page,
+  }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await drawer.getByRole('textbox', { name: 'Task name' }).fill('Dirty name');
     await drawer.getByRole('button', { name: 'Close task detail' }).click();
@@ -783,5 +787,42 @@ test.describe('TaskDetailDrawer — editor sees controls (ADR-0133 contrast)', (
     const drawer = await openDrawer(page, 'Discovery & Design');
     await expect(drawer.getByText('View only')).toHaveCount(0);
     await expect(drawer.getByRole('combobox', { name: /Task status/i })).toBeVisible();
+  });
+});
+
+test.describe('TaskDetailDrawer — inline audit trail (#2315)', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoSchedule(page);
+  });
+
+  test('surfaces the three most recent events on the Details tab, newest first', async ({
+    page,
+  }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    const trail = drawer.getByTestId('drawer-recent-activity');
+    await expect(trail).toBeVisible();
+
+    // Capped at three, ordered newest-first from FIXTURE_HISTORY.
+    const rows = trail.getByRole('listitem');
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(0)).toContainText('Erin');
+    await expect(rows.nth(0)).toContainText('edited a comment');
+    await expect(rows.nth(1)).toContainText('Bob');
+    await expect(rows.nth(1)).toContainText('linked a risk');
+    // An authorless event is labelled, never blank.
+    await expect(rows.nth(2)).toContainText('System');
+    await expect(rows.nth(2)).toContainText('recalculated the schedule');
+  });
+
+  test('"View all" hands off to the Activity tab', async ({ page }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await drawer.getByTestId('drawer-recent-activity-view-all').click();
+
+    await expect(drawer.getByRole('tab', { name: /Activity/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    // The inline trail is a Details-tab affordance — it does not follow you over.
+    await expect(drawer.getByTestId('drawer-recent-activity')).toHaveCount(0);
   });
 });

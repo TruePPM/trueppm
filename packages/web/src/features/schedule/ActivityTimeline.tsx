@@ -237,7 +237,7 @@ interface TimelineEvent {
  * not — and a missing `event_type` would otherwise crash `summaryVerb` and tear
  * down the whole drawer via the error boundary. Infer from the legacy keys.
  */
-function normalize(entry: TaskActivityEntry): TaskActivityEntry {
+export function normalize(entry: TaskActivityEntry): TaskActivityEntry {
   if (entry.event_type && entry.timestamp) return entry;
   const inferred =
     entry.history_type === '+'
@@ -272,7 +272,7 @@ function groupsFor(entry: TaskActivityEntry): Set<Group> {
 
 /** A change record that conveys nothing the user can read — an empty `~` diff —
  *  is the bare "Updated" pill (issue 874). Guarded here regardless of backend version. */
-function isEmptyChange(entry: TaskActivityEntry): boolean {
+export function isEmptyChange(entry: TaskActivityEntry): boolean {
   return entry.event_type === 'fields_changed' && (entry.diff?.length ?? 0) === 0;
 }
 
@@ -328,7 +328,7 @@ function fmtMinutes(min: number): string {
 
 /** The summary verb rendered after the actor name. Field-diff verbs live in
  *  `changeVerb`; everything else is a fixed phrase (a couple vary on detail). */
-function summaryVerb(entry: TaskActivityEntry): string {
+export function summaryVerb(entry: TaskActivityEntry): string {
   const { event_type: et, detail } = entry;
   switch (et) {
     case 'task_created':
