@@ -1,4 +1,5 @@
 import { test, expect, type Page } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Program visual identity & wayfinding (#963).
@@ -52,6 +53,11 @@ function paginated<T>(results: T[]) {
 
 test.beforeEach(async ({ page }) => {
   await seedAuth(page);
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
+
   // Keep the session live so the SessionExpiredBanner overlay never intercepts
   // clicks (in-memory access token since #897).
   await page.route('**/api/v1/auth/me/', (route) =>

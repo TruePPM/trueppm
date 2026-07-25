@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Smoke tests — verify the app shell loads and key structural elements are present.
@@ -52,6 +53,11 @@ const FIXTURE_API_PROJECTS = [
 
 test.beforeEach(async ({ page }) => {
   await seedAuth(page);
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
+
   await page.route('**/api/v1/projects/**', (route) =>
     route.fulfill({
       status: 200,

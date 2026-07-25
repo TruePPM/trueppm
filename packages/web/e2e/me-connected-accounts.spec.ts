@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * /me/settings/connected-accounts — golden path + revoke + anchor-scroll deep link.
@@ -116,6 +117,11 @@ async function setup(
 
   const pj = (data: unknown) => JSON.stringify(data);
   let state: CredentialRow[] = JSON.parse(JSON.stringify(initial));
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   // Playwright matches routes in reverse registration order, so the
   // catch-all has to be registered FIRST — otherwise it shadows the

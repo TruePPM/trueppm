@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Overview risk-ranked focus cards E2E (#1191 / #1192).
@@ -79,10 +80,20 @@ async function setupRoutes(
     body: JSON.stringify(body),
   });
 
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
+
   await page.route(`**/api/v1/projects/`, (route) =>
     route.fulfill(
       json({ count: FIXTURE_PROJECTS.length, next: null, previous: null, results: FIXTURE_PROJECTS }),
     ),
+  );
+  // ProjectShell gates every project route on the detail query (#1111): a 404
+  // renders ProjectNotFound in place of the page under test.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+    route.fulfill(json(FIXTURE_PROJECTS[0])),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (route) =>
     route.fulfill(json(overview)),

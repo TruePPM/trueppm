@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Jira connect flow (#1421, ADR-0313) — the PAT-based, in-page wizard that fills
@@ -99,6 +100,11 @@ async function setup(page: Page) {
     lastSynced: null as string | null,
     deployment: 'cloud' as 'cloud' | 'server',
   };
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   // Catch-all registered FIRST so the specific handlers below (registered later)
   // win — Playwright matches routes in reverse registration order.

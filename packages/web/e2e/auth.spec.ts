@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Authentication E2E flows — login form happy path and error handling.
@@ -36,6 +37,11 @@ test.describe('Login flow', () => {
   });
 
   test('successful login redirects to the app shell', async ({ page }) => {
+    // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+    // falling through and 401ing, which trips the token-refresh session
+    // teardown and races the page render (#2366). Routes below win.
+    await setupCatchAll(page);
+
     await page.route(AUTH_TOKEN_URL, (route) =>
       route.fulfill({
         status: 200,

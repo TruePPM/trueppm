@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Self-service password reset E2E (issue 765, ADR-0209).
@@ -27,6 +28,11 @@ test.describe('Password reset', () => {
   test('golden path: requesting a link advances to the "check your email" screen', async ({
     page,
   }) => {
+    // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+    // falling through and 401ing, which trips the token-refresh session
+    // teardown and races the page render (#2366). Routes below win.
+    await setupCatchAll(page);
+
     // Request endpoint always returns 200 (no user enumeration).
     await page.route(RESET_REQUEST_URL, (route) =>
       route.fulfill({

@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Locator } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * E2E coverage for the Subtasks drawer section (ADR-0060 #308).
@@ -117,6 +118,11 @@ async function setupRoutes(page: Page, tasks: object[]) {
     );
   });
 
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
+
   // Catch-all: any /api/v1/ request not matched below returns 404 instead of
   // hitting the real Docker backend (which would 401, triggering session expiry).
   // Registered first so specific mocks (registered later) take precedence —
@@ -141,6 +147,15 @@ async function setupRoutes(page: Page, tasks: object[]) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }),
+    }),
+  );
+  // ProjectShell gates every project route on the detail query (#1111): a 404
+  // renders ProjectNotFound in place of the page under test.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_PROJECTS[0]),
     }),
   );
   await page.route('**/api/v1/projects/*/presence/', (route) =>

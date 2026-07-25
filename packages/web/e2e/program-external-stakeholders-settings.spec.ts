@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Program Settings → External stakeholders E2E (#1658, ADR-0264).
@@ -81,6 +82,11 @@ async function setup(page: Page, opts: { myRole?: number; stakeholders?: unknown
 
   const pj = (data: unknown) => JSON.stringify(data);
   const program = { ...FIXTURE_PROGRAM, my_role: opts.myRole ?? 400 };
+
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
 
   // 401-guard catch-all (list shape). Registered FIRST so specific routes below
   // win under Playwright's LIFO precedence.

@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Resource assignment E2E tests — TaskDetailDrawer integration (#97).
@@ -64,6 +65,11 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
     );
   });
 
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
+
   // 401-guard safety net. Any endpoint not explicitly mocked below (the app-wide
   // shell + ⌘K palette fetch programs, sprints, velocity, project detail, me/work,
   // …) would otherwise 401 → refresh → expire and raise the full-screen
@@ -109,6 +115,15 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
         previous: null,
         results: FIXTURE_API_PROJECTS,
       }),
+    }),
+  );
+  // ProjectShell gates every project route on the detail query (#1111): a 404
+  // renders ProjectNotFound in place of the page under test.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_API_PROJECTS[0]),
     }),
   );
   await page.route('**/api/v1/projects/*/presence/', (route) =>

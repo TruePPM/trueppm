@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Wave 6 — Resources/Team heatmap (issues #217 + #219, ADR-0042).
@@ -85,6 +86,11 @@ async function setup(page: Page, memberRows = MEMBER_SCHEDULER) {
   const pj = (results: unknown[]) =>
     JSON.stringify({ count: results.length, next: null, previous: null, results });
 
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
+
   // --- Standard shell routes ---
   // /auth/me/ drives RootRedirect's server-resolved landing (ADR-0129). Point it
   // at this project's overview so `goto('/')` lands on /projects/.../overview.
@@ -119,6 +125,15 @@ async function setup(page: Page, memberRows = MEMBER_SCHEDULER) {
   );
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),
+  );
+  // ProjectShell gates every project route on the detail query (#1111): a 404
+  // renders ProjectNotFound in place of the page under test.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_PROJECT),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (r) =>
     r.fulfill({
