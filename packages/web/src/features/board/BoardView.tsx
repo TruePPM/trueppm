@@ -16,10 +16,7 @@
  * WIP limits, progress rings, entry stamps, and CP badges are spec-defined
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
-import { WarningIcon, BoardIcon, ChevronDownIcon, ChevronUpIcon } from '@/components/Icons';
 import { selectVisibleCards, DEFAULT_CELL_CAP } from './cellCap';
-import { EmptyState } from '@/components/EmptyState';
-import { Button } from '@/components/Button';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import {
   memo,
@@ -38,7 +35,6 @@ import { setSearchParam, useUrlSelectedId } from '@/hooks/useUrlSelectedId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN, ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
 import { taskDndAnnouncements } from '@/lib/dndAnnouncements';
-import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import { useSpaceDragPan, SpaceAwarePointerSensor } from '@/hooks/useSpaceDragPan';
 import { useHasScrollBelow } from '@/hooks/useHasScrollBelow';
 import { useHasScrollRight } from '@/hooks/useHasScrollRight';
@@ -54,26 +50,21 @@ import {
   type DragOverEvent,
   DragOverlay,
 } from '@dnd-kit/core';
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-  arrayMove,
-} from '@dnd-kit/sortable';
+import { useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { isTaskScheduled } from '@/lib/task';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
-import { FlowAnalyticsPanel } from './FlowAnalyticsPanel';
 import { useMyTasksFilter } from '@/hooks/useMyTasksFilter';
 import { useCurrentUserResourceId } from '@/hooks/useCurrentUserResourceId';
 import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
 import { useBoardOverallocation } from '@/hooks/useBoardOverallocation';
 import { type BoardSortKey, type BoardViewConfig } from '@/hooks/useBoardSavedViews';
-import { wipState, wipTrend, type WipState, type WipTrend } from './wip';
+import { wipState, type WipState } from './wip';
 import { boardGridTemplate } from './boardGrid';
-import { ColumnResizeHandle, PhaseResizeHandle } from './BoardResizeHandle';
+import { ChevronDownIcon, ChevronUpIcon } from '@/components/Icons';
+import { PhaseResizeHandle } from './BoardResizeHandle';
 import { useBoardColumnWidths, useBoardPhaseHeights } from '@/hooks/useBoardResize';
 import { useTaskDependencies } from '@/hooks/useTaskDependencies';
 import { useQueryClient } from '@tanstack/react-query';
@@ -83,29 +74,16 @@ import { useQueueReorder } from '@/hooks/useQueueReorder';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { useWorkshopSocket } from '@/hooks/useWorkshopSocket';
 import { useCreateTask, useUpdateTask } from '@/hooks/useTaskMutations';
-import type { Task, TaskStatus } from '@/types';
+import type { ApiSprint, Task, TaskStatus } from '@/types';
 import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
 import { useBoardOffline } from './offline/useBoardOffline';
-import { MobileColumnStrip, type MobileColumnStripSegment } from './MobileColumnStrip';
 import { LaneMeta } from './LaneMeta';
 import { WorkshopBanner } from './WorkshopBanner';
 import { BoardScopeInjectionBanner } from './BoardScopeInjectionBanner';
-import { TaskFormModal } from './TaskFormModal';
 import { PhaseMilestoneRail } from './PhaseMilestoneRail';
-import { KeyboardCheatsheet } from './KeyboardCheatsheet';
-import { BoardSettingsPanel } from './BoardSettingsPanel';
-import { DepPopover } from './DepPopover';
-import { RiskPopover } from './RiskPopover';
-import { BoardCardPopover } from './BoardCardPopover';
-import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
 import { phaseColor } from './phaseColors';
-import { BacklogBand, BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
+import { BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
-import { BacklogDrawer } from './BacklogDrawer';
-import { QueueLayout } from './QueueLayout';
-import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
-import { WipLimitConfirmDialog } from './WipLimitConfirmDialog';
-import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
 import { CalmToolbar } from './CalmToolbar';
 import { BoardFilterControl, BoardFilterChips } from './BoardFilterControl';
 import {
@@ -123,9 +101,16 @@ import {
   deserializeFacets,
   type FacetFilters,
 } from './boardFacets';
-import { SprintPanel } from './SprintPanel';
-import { BoardActivityPanel } from './activity/BoardActivityPanel';
-import { StandupMode } from './standup/StandupMode';
+import { useBoardTaskMaps } from './boardView/useBoardTaskMaps';
+import { COLUMN_DOT_CLASS, COLUMN_TINT } from './boardView/columnTokens';
+import { BoardConfirmDialogs } from './boardView/BoardConfirmDialogs';
+import { BoardCardOverlays } from './boardView/BoardCardOverlays';
+import { BoardSidePanels } from './boardView/BoardSidePanels';
+import { BoardLensBanners, BoardZeroMatch, FocusLaneBanner } from './boardView/BoardLensBanners';
+import { CollapsedColumnsBanner } from './boardView/CollapsedColumnsBanner';
+import { visibleLanes, type LaneShape } from './boardView/BoardPhaseLanes';
+import { BoardBody } from './boardView/BoardBody';
+import { wipBreachInfo, type WipBreach } from './wipBreach';
 import {
   useBoardToolbarPrefs,
   resolveBoardLayout,
@@ -138,7 +123,6 @@ import { useProject } from '@/hooks/useProject';
 import { useActiveSprint, useFlowMetrics, useSprints } from '@/hooks/useSprints';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useScopeChangeActions, useScopeDecisionFeedback } from '@/hooks/useScopeChangeActions';
-import { ScopePendingReviewPanel } from '@/features/sprints/ScopePendingReviewPanel';
 import { BoardSprintHeader } from './BoardSprintHeader';
 import { BoardDropNotice } from './BoardDropNotice';
 import { ClosedSprintBanner } from './ClosedSprintBanner';
@@ -155,6 +139,27 @@ import { exportBoardPdf, boardPdfFileName } from './export/exportBoardPdf';
 // ---------------------------------------------------------------------------
 // Sort helper
 // ---------------------------------------------------------------------------
+
+/**
+ * The sprint a dropped/promoted card should be assigned to, or undefined when
+ * the drop assigns nothing (#429). A COMPLETED sprint view is read-only for
+ * assignment — we never back-date scope into a closed sprint.
+ */
+/**
+ * True when a highlight/facet set is active and this card is not in it — the
+ * card is dimmed (dep highlight) or removed from the view (facet filter). A
+ * `null` set means "no lens active", which dims nothing.
+ */
+function isOutsideSet(ids: Set<string> | null, taskId: string): boolean {
+  return ids !== null && !ids.has(taskId);
+}
+
+function sprintAssignTarget(sprint: ApiSprint | null, task: Task): string | undefined {
+  if (!sprint) return undefined;
+  if (sprint.state !== 'ACTIVE' && sprint.state !== 'PLANNED') return undefined;
+  if (task.sprintId === sprint.id) return undefined;
+  return sprint.id;
+}
 
 function sortTasksBy(tasks: Task[], sort: BoardSortKey): Task[] {
   if (sort === 'priority') {
@@ -275,264 +280,6 @@ function phaseProgress(phase: Phase): number {
 // WIP badge
 // ---------------------------------------------------------------------------
 
-interface WipBadgeProps {
-  count: number;
-  limit: number | null | undefined;
-}
-
-/**
- * WIP-limit badge for board column headers (#232).
- *
- * Three visual bands per the spec:
- *   count < limit   → neutral (no warning chrome)
- *   count == limit  → at-risk amber, label `{N}/{limit} WIP`
- *   count >  limit  → critical red, label `{N}/{limit} — over WIP limit`
- *
- * `limit == null` falls back to a count-only neutral chip — fully
- * backwards compatible with projects that haven't configured WIP yet.
- */
-function WipBadge({ count, limit }: WipBadgeProps) {
-  if (limit == null) {
-    return (
-      <span className="ml-1.5 text-xs text-neutral-text-disabled font-medium tppm-mono">
-        {count}
-      </span>
-    );
-  }
-  if (count > limit) {
-    return (
-      <span
-        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded-chip border bg-semantic-critical-bg border-semantic-critical/40 text-semantic-critical tppm-mono"
-        aria-label={`${count} of ${limit} WIP limit, over limit`}
-      >
-        {count}/{limit} — over WIP limit
-      </span>
-    );
-  }
-  if (count >= limit) {
-    return (
-      <span
-        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded-chip border bg-semantic-at-risk-bg border-semantic-at-risk/40 text-semantic-at-risk tppm-mono"
-        aria-label={`${count} of ${limit} WIP limit, at limit`}
-      >
-        {count}/{limit} WIP
-      </span>
-    );
-  }
-  return (
-    <span
-      className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded-chip border bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary tppm-mono"
-      aria-label={`${count} of ${limit} WIP limit`}
-    >
-      {count}/{limit}
-    </span>
-  );
-}
-
-/**
- * Always-on WIP breach chip for a column header (issue 1188 / ADR-0130 D2).
- *
- * Unlike WipBadge (which shows the numeric N/limit only under the "Show WIP
- * limits" toggle), this renders whenever a limit is at/over breach — a breach is
- * a signal Alex needs to catch before the retro, not an opt-in detail. Color is
- * never the sole cue: the ⚠ glyph + text carry the meaning. The chip itself is
- * aria-hidden because the column's <h2> accessible name already announces the
- * breach, so a screen reader hears it once, not twice.
- */
-function WipBreachChip({ state }: { state: 'at' | 'over' }) {
-  const cls =
-    state === 'over'
-      ? 'bg-semantic-critical-bg text-semantic-critical'
-      : 'bg-semantic-at-risk-bg text-semantic-at-risk';
-  return (
-    <span
-      aria-hidden="true"
-      data-testid="wip-breach-chip"
-      data-breach={state}
-      className={`inline-flex items-center gap-0.5 rounded-chip px-1 py-0.5 text-xs font-semibold ${cls}`}
-    >
-      <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
-      {state === 'over' ? 'Over limit' : 'At limit'}
-    </span>
-  );
-}
-
-/**
- * Tiny WIP trend arrow for a column header (issue 1213, VoC Alex).
- *
- * The always-on WipBreachChip catches a column that is *already* at/over limit;
- * this catches the creep *before* it breaches by reading the recent slope of the
- * column's CFD occupancy (computed by `wipTrend()`). An arrow — not a sparkline —
- * because a single high-contrast glyph is WCAG-legible at header scale where a
- * ~2px sparkline bar is not, and the header only needs the one-bit direction
- * signal (the full curve lives in FlowAnalyticsPanel).
- *
- * Color is never the sole cue: the ▲/▼ orientation carries the direction and the
- * `aria-label` names it. Amber (`approaching`) is reserved for the actionable
- * "rising and about to tip" case; a rising column comfortably under its limit,
- * and any falling column, stay neutral. Unlike the breach chip this is *not*
- * announced by the column <h2> accessible name (it's net-new information), so the
- * span carries `role="img"` + a label rather than being aria-hidden.
- */
-function WipTrendArrow({ trend }: { trend: WipTrend }) {
-  const rising = trend.direction === 'rising';
-  const cls = trend.approaching ? 'text-semantic-at-risk' : 'text-neutral-text-secondary';
-  const label = rising
-    ? trend.approaching
-      ? 'trending up toward WIP limit'
-      : 'trending up'
-    : 'trending down';
-  return (
-    <span
-      role="img"
-      aria-label={label}
-      title={label}
-      data-testid="wip-trend-arrow"
-      data-trend={trend.direction}
-      data-approaching={trend.approaching ? 'true' : 'false'}
-      className={`text-xs font-semibold leading-none ${cls}`}
-    >
-      <span aria-hidden="true">{rising ? '▲' : '▼'}</span>
-    </span>
-  );
-}
-
-/**
- * Collapsed-column stub for the board header (issue 1459, ADR-0192 Part 2).
- *
- * A narrow rail standing in for a folded column: status dot, a label rotated
- * to read bottom-to-top, and a count badge. The whole stub is a button —
- * clicking it expands the column back to full width. A stub is a *lens* on the
- * column, not a place to hide a signal the expanded header would show, so three
- * signals survive the fold:
- *
- *  - **WIP breach** (#1695) — the breach tone (amber `at` / red `over`) and the
- *    `N/limit` ratio render **always**, independent of the "Show WIP limits"
- *    toggle, matching the expanded header's `WipBreachChip` invariant (rule 176
- *    extended to stubs). Only the *limit* portion of a non-breaching count obeys
- *    `showWip`. The band is computed via the shared `wipState()` helper so the
- *    stub never drifts from the header (issue 546).
- *  - **Folded ≠ empty** (#1697) — a populated stub shows a filled count pill; an
- *    empty column (0 cards) shows a dashed hollow "0" so an observer never has to
- *    guess whether a folded column holds work.
- *  - **Your cards inside** (#1696) — a quiet 2px brand left-edge accent when the
- *    stub holds ≥1 card assigned to the current user, so collapsing a column can
- *    never silently swallow your own work.
- *
- * The glyphs are `aria-hidden`; the button's accessible name carries the column,
- * count (or "empty"), any breach, and whether it hides the current user's cards.
- */
-function ColumnStub({
-  label,
-  status,
-  count,
-  wipBand,
-  wipLimit,
-  showWip,
-  myCardCount,
-  onExpand,
-}: {
-  label: string;
-  status: TaskStatus;
-  count: number;
-  wipBand: WipState;
-  wipLimit: number | null;
-  showWip: boolean;
-  myCardCount: number;
-  onExpand: () => void;
-}) {
-  const dotClass = COLUMN_DOT_CLASS[status] ?? 'bg-neutral-text-disabled';
-  const breached = wipBand === 'at' || wipBand === 'over';
-  const isEmpty = count === 0;
-  const hasMyCards = myCardCount > 0;
-  // The limit portion (`N/limit`) shows whenever the column breaches — a breach
-  // is always visible on a stub (#1695) — or when "Show WIP limits" is on and a
-  // limit exists. A non-breaching count with the toggle off renders the plain N.
-  const showLimit = wipLimit != null && (breached || showWip);
-  // Pair the `-bg` pill fill with the matching full semantic token for text +
-  // border (rule 8b) — `bg-semantic-critical text-white` failed WCAG 1.4.3 in
-  // dark mode (white on the critical red-400 fill is approx 2.8:1). The `-bg` tints are pre-computed
-  // per-mode in globals.css so the badge stays AA in both themes. An empty stub
-  // drops the fill entirely for a dashed hollow ring (folded ≠ empty, #1697).
-  const badgeClass = isEmpty
-    ? 'border-dashed border-neutral-border text-neutral-text-secondary'
-    : wipBand === 'over'
-      ? 'bg-semantic-critical-bg text-semantic-critical border-semantic-critical/40'
-      : wipBand === 'at'
-        ? 'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40'
-        : 'bg-neutral-surface text-neutral-text-secondary border-neutral-border';
-  return (
-    <button
-      type="button"
-      onClick={onExpand}
-      title={`Expand ${label}`}
-      data-testid={`column-stub-${status}`}
-      data-wip-state={wipBand}
-      data-has-my-cards={hasMyCards ? 'true' : undefined}
-      aria-label={`Expand ${label} column, ${
-        isEmpty ? 'empty' : `${count} task${count !== 1 ? 's' : ''}`
-      }${
-        wipBand === 'over'
-          ? `, over WIP limit of ${wipLimit}`
-          : wipBand === 'at'
-            ? `, at WIP limit of ${wipLimit}`
-            : ''
-      }${hasMyCards ? `, contains ${myCardCount} of your card${myCardCount !== 1 ? 's' : ''}` : ''}`}
-      className={`h-full w-full py-2.5 flex flex-col items-center gap-2 bg-neutral-surface-sunken
-        hover:bg-neutral-surface transition-colors
-        focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset${
-          hasMyCards ? ' border-l-2 border-l-brand-primary' : ''
-        }`}
-    >
-      <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`} />
-      <span
-        aria-hidden="true"
-        className="text-xs font-semibold text-neutral-text-primary whitespace-nowrap tracking-wide
-          [writing-mode:vertical-rl] rotate-180"
-      >
-        {label}
-      </span>
-      <span
-        aria-hidden="true"
-        className={`tppm-mono tabular-nums text-xs font-bold min-w-[18px] px-1 py-px rounded-full border text-center ${badgeClass}`}
-      >
-        {isEmpty ? '0' : showLimit ? `${count}/${wipLimit}` : count}
-      </span>
-    </button>
-  );
-}
-
-/** WIP-limit breach details for a pending move, or `null` when the destination
- *  is under its limit (or has none configured). */
-export interface WipBreach {
-  label: string;
-  count: number;
-  limit: number;
-}
-
-/**
- * Compute whether moving one card into `newStatus` would push that column past
- * its WIP limit (#232). Returns the breach details (column label + current
- * count + limit) to feed the confirm dialog, or ``null`` when the move is under
- * the limit or the column has no limit.
- *
- * Replaces the old ``confirmWipMove`` native ``window.confirm`` (#2050): the
- * caller now defers the move behind a styled ``role="alertdialog"`` instead of a
- * browser-chrome prompt fired mid-drop.
- */
-function wipBreachInfo(
-  columns: { status: TaskStatus; label: string; wipLimit: number | null }[],
-  countByStatus: Record<string, number>,
-  newStatus: TaskStatus,
-): WipBreach | null {
-  const col = columns.find((c) => c.status === newStatus);
-  const limit = col?.wipLimit;
-  if (!limit) return null;
-  const count = countByStatus[newStatus] ?? 0;
-  if (count + 1 <= limit) return null;
-  return { label: col?.label ?? newStatus, count, limit };
-}
-
 // ---------------------------------------------------------------------------
 // Phase summary chips
 // ---------------------------------------------------------------------------
@@ -616,32 +363,6 @@ interface BoardCellProps {
 // step back toward neutral without losing the "this is the close-out column"
 // affordance. Review and Backlog are left at /5 — they don't get a status-dot
 // equivalent yet (Backlog is in the band; Review is still loud-by-design).
-const COLUMN_TINT: Partial<Record<TaskStatus, string>> = {
-  COMPLETE: 'bg-semantic-on-track/[0.025]',
-  REVIEW: 'bg-brand-accent/5',
-  BACKLOG: 'bg-neutral-text-disabled/5',
-};
-
-// Status-dot color per column (epic #361 child E, issue #385).
-// Drives the 6px dot prefix on each column header — a non-color label is
-// always present, so the dot is `aria-hidden`. BACKLOG is mapped for
-// completeness but never renders in the current grid (ADR-0057 lifted it
-// into the band).
-const COLUMN_DOT_CLASS: Record<TaskStatus, string> = {
-  BACKLOG: 'bg-neutral-text-disabled',
-  NOT_STARTED: 'bg-neutral-text-disabled',
-  IN_PROGRESS: 'bg-brand-primary',
-  REVIEW: 'bg-brand-accent',
-  ON_HOLD: 'bg-neutral-text-disabled',
-  COMPLETE: 'bg-semantic-on-track',
-};
-
-// Board zoom (issue 379, ADR-0145). Each level sets coordinated CSS custom properties
-// on the board grid container; the column-header / lane / phase-rail grids read
-// --board-phase-col and --board-col-gap, and the column card-stack reads
-// --board-card-gap. `normal` reproduces the pre-zoom defaults exactly (188px /
-// gap-2 / gap-1.5) so the default board is visually unchanged. dnd-kit-safe:
-// these are real CSS sizes, not a transform/zoom that would break drag math.
 const BOARD_ZOOM_VARS: Record<BoardZoom, CSSProperties> = {
   small: {
     '--board-phase-col': '150px',
@@ -676,6 +397,141 @@ const EMPTY_TASKS_BY_STATUS: Record<TaskStatus, Task[]> = {
   ON_HOLD: EMPTY_TASKS,
   COMPLETE: EMPTY_TASKS,
 };
+
+/**
+ * Per-cell card cap (issue 1967, ADR-0420) and its ephemeral expansion state.
+ *
+ * A WIP-breached cell is NEVER capped — the overload pile stays visible (the
+ * Scrum-Master signal, and the rule-176 always-on-breach invariant). The breach
+ * band itself reads the full `tasks.length`, so it is unaffected by the visible
+ * slice.
+ *
+ * Expansion is deliberately not persisted: the overflow reveals when the user
+ * opens it, when keyboard focus lands on a hidden card (rule 105 — never strand
+ * a card out of reach), or when a drag just dropped into the cell. During an
+ * active drag-over the whole cell is a drop target, so every card shows.
+ */
+function useCellOverflow(opts: {
+  tasks: Task[];
+  cellCap: number | null | undefined;
+  myResourceId: string | null;
+  wipBandRaw: WipState;
+  focusedCardId: string | null;
+  over: boolean;
+  isDragActive: boolean;
+}) {
+  const { tasks, cellCap, myResourceId, wipBandRaw, focusedCardId, over, isDragActive } = opts;
+  const capActive = cellCap != null && wipBandRaw !== 'at' && wipBandRaw !== 'over';
+  const { visible, overflow } = useMemo(
+    () =>
+      capActive
+        ? selectVisibleCards(tasks, { cap: cellCap, myResourceId })
+        : { visible: tasks, overflow: EMPTY_TASKS },
+    [capActive, tasks, cellCap, myResourceId],
+  );
+
+  const [manualExpanded, setManualExpanded] = useState(false);
+  const focusInTail = focusedCardId != null && overflow.some((t) => t.id === focusedCardId);
+  const expanded = manualExpanded || focusInTail;
+
+  // A card dropped into a capped cell may sort into overflow; auto-expand the
+  // drop-target cell so the just-moved card is visible where it landed. `over`
+  // going false while the drag has *ended* (isDragActive false) — not merely
+  // moved to another cell — identifies the drop target.
+  const prevOver = useRef(over);
+  useEffect(() => {
+    if (prevOver.current && !over && !isDragActive) setManualExpanded(true);
+    prevOver.current = over;
+  }, [over, isDragActive]);
+
+  const showAll = expanded || over;
+  const overflowIds = useMemo(() => new Set(overflow.map((t) => t.id)), [overflow]);
+  const toggleOverflow = useCallback(() => setManualExpanded((v) => !v), []);
+
+  return {
+    renderedTasks: showAll ? tasks : visible,
+    overflowIds,
+    overflowCount: overflow.length,
+    expanded,
+    showOverflowToggle: capActive && overflow.length > 0 && !over,
+    toggleOverflow,
+  };
+}
+
+/**
+ * Per-cell WIP notice. Only the at/over bands say anything — an under-limit cell
+ * stays quiet so the grid reads calm (rule 122).
+ */
+function CellWipNotice({
+  band,
+  limit,
+  count,
+}: {
+  band: WipState;
+  limit: number | null | undefined;
+  count: number;
+}) {
+  if (band === 'over') {
+    return (
+      <div className="text-xs text-semantic-critical font-semibold px-1">
+        WIP limit: {limit} — {count - (limit ?? 0)} over
+      </div>
+    );
+  }
+  if (band === 'at') {
+    return (
+      <div className="text-xs text-semantic-at-risk font-semibold px-1">
+        WIP limit: {limit} — at limit
+      </div>
+    );
+  }
+  return null;
+}
+
+/**
+ * Overflow disclosure (ADR-0420, rule 210): a real aria-expanded toggle, neutral
+ * tone (a capped cell is always under-WIP), reusing the ColumnStub tppm-mono
+ * count vocabulary. The hidden count is in the accessible name so color/glyph is
+ * never the only signal (rule 6).
+ */
+function CellOverflowToggle({
+  expanded,
+  hiddenCount,
+  controlsId,
+  onToggle,
+}: {
+  expanded: boolean;
+  hiddenCount: number;
+  controlsId: string;
+  onToggle: () => void;
+}) {
+  const Chevron = expanded ? ChevronUpIcon : ChevronDownIcon;
+  return (
+    <button
+      type="button"
+      data-testid="cell-overflow-toggle"
+      aria-expanded={expanded}
+      aria-controls={controlsId}
+      aria-label={expanded ? 'Show fewer cards' : `Show ${hiddenCount} more cards`}
+      onClick={onToggle}
+      className="w-full min-h-[36px] flex items-center justify-center gap-1.5 rounded-card
+            border border-neutral-border bg-neutral-surface text-neutral-text-secondary
+            hover:bg-neutral-surface-raised hover:text-neutral-text-primary transition-colors
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
+    >
+      <Chevron className="h-3.5 w-3.5" aria-hidden="true" />
+      <span className="text-xs">
+        {expanded ? (
+          'Show less'
+        ) : (
+          <>
+            <span className="tppm-mono tabular-nums font-semibold">{hiddenCount}</span> more
+          </>
+        )}
+      </span>
+    </button>
+  );
+}
 
 function BoardCellImpl({
   phaseId,
@@ -721,50 +577,26 @@ function BoardCellImpl({
     ? (COLUMN_TINT[status] ?? 'bg-neutral-surface-sunken')
     : 'bg-neutral-surface-sunken';
 
-  // Per-cell card cap (issue 1967, ADR-0420). A WIP-breached cell is NEVER
-  // capped — the overload pile stays visible (the Scrum-Master signal, and the
-  // rule-176 always-on-breach invariant). `wipBand` reads `tasks.length`, so the
-  // breach chip above is unaffected by the visible slice.
-  const capActive = cellCap != null && wipBandRaw !== 'at' && wipBandRaw !== 'over';
-  const { visible, overflow } = useMemo(
-    () =>
-      capActive
-        ? selectVisibleCards(tasks, { cap: cellCap, myResourceId })
-        : { visible: tasks, overflow: EMPTY_TASKS },
-    [capActive, tasks, cellCap, myResourceId],
-  );
-  // Ephemeral expanded state (not persisted, ADR-0420). The overflow reveals
-  // when the user opens it, when keyboard focus lands on a hidden card (rule 105
-  // — never strand a card out of reach), or when a drag just dropped into it.
-  const [manualExpanded, setManualExpanded] = useState(false);
-  const focusInTail = focusedCardId != null && overflow.some((t) => t.id === focusedCardId);
-  const expanded = manualExpanded || focusInTail;
-  // A card dropped into a capped cell may sort into overflow; auto-expand the
-  // drop-target cell so the just-moved card is visible where it landed. `over`
-  // going false while the drag has *ended* (isDragActive false) — not merely
-  // moved to another cell — identifies the drop target.
-  const prevOver = useRef(over);
-  useEffect(() => {
-    if (prevOver.current && !over && !isDragActive) setManualExpanded(true);
-    prevOver.current = over;
-  }, [over, isDragActive]);
-  // During an active drag-over the whole cell is a drop target — show every card.
-  const showAll = expanded || over;
-  const renderedTasks = showAll ? tasks : visible;
+  const {
+    renderedTasks,
+    overflowIds,
+    overflowCount,
+    expanded,
+    showOverflowToggle,
+    toggleOverflow,
+  } = useCellOverflow({
+    tasks,
+    cellCap,
+    myResourceId,
+    wipBandRaw,
+    focusedCardId,
+    over,
+    isDragActive,
+  });
   const overflowId = `cell-overflow-${phaseId}-${status}`;
-  const showOverflowToggle = capActive && overflow.length > 0 && !over;
-  const overflowIds = useMemo(() => new Set(overflow.map((t) => t.id)), [overflow]);
 
-  // Empty cell (epic #361 child E, issue #385; regridded in #1866). At rest with
-  // no committed cards the cell stays quiet — no card outline, no surface fill,
-  // no "drop here" hint — but it now reads as a *grid cell*: it carries the
-  // shared column rule (`border-l`) and stretches to fill its grid track (grid
-  // `align-items: stretch`, with a small floor for an all-empty phase) so the
-  // phase×column grid is legible instead of the cards floating on a flat
-  // surface. The droppable is still wired up, so during drag (`isDragActive`)
-  // the cell expands back to a full slot so the user has a target. The tick
-  // line is `aria-hidden`; the column header's count chip already announces
-  // "0 tasks" to assistive tech.
+  const revealAnimated = (taskId: string) => expanded && !over && overflowIds.has(taskId);
+
   const isEmpty = tasks.length === 0;
   const showRestingTick = isEmpty && !isDragActive;
 
@@ -790,25 +622,14 @@ function BoardCellImpl({
           : `${restingBg} border-l border-neutral-border`,
       ].join(' ')}
     >
-      {wipBand === 'over' && (
-        <div className="text-xs text-semantic-critical font-semibold px-1">
-          WIP limit: {wipLimit} — {tasks.length - (wipLimit ?? 0)} over
-        </div>
-      )}
-      {wipBand === 'at' && (
-        <div className="text-xs text-semantic-at-risk font-semibold px-1">
-          WIP limit: {wipLimit} — at limit
-        </div>
-      )}
+      <CellWipNotice band={wipBand} limit={wipLimit} count={tasks.length} />
       <div id={overflowId} className="contents">
         {renderedTasks.map((task) => (
           <div
             key={task.id}
-            className={
-              expanded && !over && overflowIds.has(task.id)
-                ? 'motion-safe:animate-empty-state-in'
-                : undefined
-            }
+            // Cards revealed by opening the overflow animate in; the same cards
+            // shown because a drag is hovering the cell must not (rule 70).
+            className={revealAnimated(task.id) ? 'motion-safe:animate-empty-state-in' : undefined}
             onPointerDown={() => onCardFocus(task.id, status, phaseId)}
             onFocusCapture={() => onCardFocus(task.id, status, phaseId)}
           >
@@ -818,8 +639,8 @@ function BoardCellImpl({
               onMenuMove={onMenuMove}
               columns={columns}
               isKeyboardFocused={focusedCardId === task.id}
-              isDimmed={highlightedTaskIds !== null && !highlightedTaskIds.has(task.id)}
-              isFilteredOut={facetMatchIds !== null && !facetMatchIds.has(task.id)}
+              isDimmed={isOutsideSet(highlightedTaskIds, task.id)}
+              isFilteredOut={isOutsideSet(facetMatchIds, task.id)}
               overallocByResource={overallocByResourcePerTask.get(task.id)}
               onShowDeps={onShowDeps}
               onShowRisks={onShowRisks}
@@ -839,33 +660,12 @@ function BoardCellImpl({
           tppm-mono count vocabulary. The hidden count is in the accessible name
           so color/glyph is never the only signal (rule 6). */}
       {showOverflowToggle && (
-        <button
-          type="button"
-          data-testid="cell-overflow-toggle"
-          aria-expanded={expanded}
-          aria-controls={overflowId}
-          aria-label={expanded ? 'Show fewer cards' : `Show ${overflow.length} more cards`}
-          onClick={() => setManualExpanded((v) => !v)}
-          className="w-full min-h-[36px] flex items-center justify-center gap-1.5 rounded-card
-            border border-neutral-border bg-neutral-surface text-neutral-text-secondary
-            hover:bg-neutral-surface-raised hover:text-neutral-text-primary transition-colors
-            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
-        >
-          {expanded ? (
-            <ChevronUpIcon className="h-3.5 w-3.5" aria-hidden="true" />
-          ) : (
-            <ChevronDownIcon className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-          <span className="text-xs">
-            {expanded ? (
-              'Show less'
-            ) : (
-              <>
-                <span className="tppm-mono tabular-nums font-semibold">{overflow.length}</span> more
-              </>
-            )}
-          </span>
-        </button>
+        <CellOverflowToggle
+          expanded={expanded}
+          hiddenCount={overflowCount}
+          controlsId={overflowId}
+          onToggle={toggleOverflow}
+        />
       )}
     </div>
   );
@@ -957,6 +757,156 @@ interface PhaseLaneProps {
   myResourceId: string | null;
 }
 
+/**
+ * Lane collapse/expand chevron. ~14px glyph plus an invisible expander to reach
+ * the 44px touch target (rule 5) without disturbing the dense lane-header row.
+ */
+function LaneCollapseToggle({
+  phaseId,
+  phaseName,
+  collapsed,
+  onToggleCollapse,
+  onKeyDown,
+}: {
+  phaseId: string;
+  phaseName: string;
+  collapsed: boolean;
+  onToggleCollapse: (phaseId: string) => void;
+  onKeyDown: (e: ReactKeyboardEvent<HTMLButtonElement>) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onToggleCollapse(phaseId)}
+      onKeyDown={onKeyDown}
+      title={collapsed ? 'Expand lane  ]' : 'Collapse lane  ['}
+      className="relative flex-shrink-0 text-neutral-text-secondary text-xs select-none
+        focus:ring-2 focus:ring-brand-primary focus:outline-none rounded-control
+        before:absolute before:inset-[-15px] before:content-['']"
+      aria-expanded={!collapsed}
+      aria-controls={`phase-${phaseId}-content`}
+      aria-label={collapsed ? `Expand ${phaseName}` : `Collapse ${phaseName}`}
+    >
+      {collapsed ? '▸' : '▾'}
+    </button>
+  );
+}
+
+/**
+ * Phase-lane focus toggle (issue 1460, ADR-0192 Part 3). Zooms the board to this
+ * one lane (others hidden) via the ?focus= URL param; pressing it again, or the
+ * focus banner's "Exit focus", clears it. Rendered in the lane meta header row so
+ * the affordance sits with the phase it scopes to. 22px visual control plus an
+ * invisible expander to reach the 44px touch target (rule 5).
+ */
+function LaneFocusToggle({
+  phaseId,
+  phaseName,
+  focused,
+  onToggleFocus,
+}: {
+  phaseId: string;
+  phaseName: string;
+  focused: boolean;
+  onToggleFocus: (phaseId: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onToggleFocus(phaseId)}
+      title={focused ? 'Exit focus' : `Focus on ${phaseName}`}
+      data-testid={`focus-lane-${phaseId}`}
+      aria-pressed={focused}
+      aria-label={focused ? `Exit focus on ${phaseName}` : `Focus on ${phaseName}`}
+      className={[
+        'relative flex-shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded-control border',
+        focused
+          ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+          : 'border-neutral-border bg-neutral-surface text-neutral-text-secondary hover:border-brand-primary/50 hover:text-brand-primary',
+        'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+        "before:absolute before:inset-[-11px] before:content-['']",
+      ].join(' ')}
+    >
+      <svg
+        aria-hidden="true"
+        width={13}
+        height={13}
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+      >
+        <circle cx="8" cy="8" r="2.2" />
+        <path d="M8 1v2.4M8 12.6V15M1 8h2.4M12.6 8H15" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * A column collapsed board-wide (issue 1459) renders as a narrow empty stub
+ * track in every lane so the lane stays aligned with the stubbed header;
+ * clicking it expands the column back.
+ */
+function LaneColumnStubTrack({
+  phaseId,
+  col,
+  count,
+  onExpandColumn,
+}: {
+  phaseId: string;
+  col: { status: TaskStatus; label: string };
+  count: number;
+  onExpandColumn: (status: TaskStatus) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onExpandColumn(col.status)}
+      title={`Expand ${col.label}`}
+      aria-label={`Expand ${col.label} column`}
+      data-testid={`lane-stub-${phaseId}-${col.status}`}
+      className="bg-neutral-surface-sunken/60 border-l border-neutral-border
+                  hover:bg-neutral-surface-sunken focus:outline-none focus:ring-2
+                  focus:ring-brand-primary focus:ring-inset"
+    >
+      {count > 0 && (
+        <span className="sr-only">
+          {count} task{count !== 1 ? 's' : ''}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * A cell inside a collapsed lane: the card count only. An empty one shows a
+ * dashed hollow "0" so a collapsed lane reads as "no cards", not "n/a" (#1943)
+ * — matching the ColumnStub empty treatment (#1697) instead of a bare em-dash
+ * (rule 201).
+ */
+function CollapsedLaneCell({ count }: { count: number }) {
+  return (
+    <div className="bg-neutral-surface-sunken border-l border-neutral-border p-2 min-h-[56px] flex items-center justify-center">
+      {count > 0 ? (
+        <span className="text-xs text-neutral-text-secondary">
+          {count} task{count !== 1 ? 's' : ''}
+        </span>
+      ) : (
+        <>
+          <span
+            aria-hidden="true"
+            className="tppm-mono tabular-nums text-xs font-bold min-w-[18px] px-1 py-px rounded-full border border-dashed border-neutral-border text-neutral-text-secondary text-center"
+          >
+            0
+          </span>
+          <span className="sr-only">0 cards, empty</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PhaseLaneImpl({
   phase,
   columns,
@@ -1039,61 +989,21 @@ function PhaseLaneImpl({
   );
 
   const collapseToggle = (
-    <button
-      type="button"
-      onClick={() => onToggleCollapse(phase.id)}
+    <LaneCollapseToggle
+      phaseId={phase.id}
+      phaseName={phase.name}
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
       onKeyDown={handleKeyDown}
-      title={collapsed ? 'Expand lane  ]' : 'Collapse lane  ['}
-      // ~14px glyph + an invisible expander to reach the 44px touch target
-      // (rule 5) without disturbing the dense lane-header row, mirroring the
-      // focusToggle sibling below.
-      className="relative flex-shrink-0 text-neutral-text-secondary text-xs select-none
-        focus:ring-2 focus:ring-brand-primary focus:outline-none rounded-control
-        before:absolute before:inset-[-15px] before:content-['']"
-      aria-expanded={!collapsed}
-      aria-controls={`phase-${phase.id}-content`}
-      aria-label={collapsed ? `Expand ${phase.name}` : `Collapse ${phase.name}`}
-    >
-      {collapsed ? '▸' : '▾'}
-    </button>
+    />
   );
-
-  // Phase-lane focus toggle (issue 1460, ADR-0192 Part 3). Zooms the board to this
-  // one lane (others hidden) via the ?focus= URL param; pressing it again, or
-  // the focus banner's "Exit focus", clears it. Rendered in the lane meta
-  // header row so the affordance sits with the phase it scopes to.
   const focusToggle = (
-    <button
-      type="button"
-      onClick={() => onToggleFocus(phase.id)}
-      title={focused ? 'Exit focus' : `Focus on ${phase.name}`}
-      data-testid={`focus-lane-${phase.id}`}
-      aria-pressed={focused}
-      aria-label={focused ? `Exit focus on ${phase.name}` : `Focus on ${phase.name}`}
-      className={[
-        'relative flex-shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded-control border',
-        focused
-          ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
-          : 'border-neutral-border bg-neutral-surface text-neutral-text-secondary hover:border-brand-primary/50 hover:text-brand-primary',
-        'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
-        // 22px visual control + an invisible expander to reach the 44px touch
-        // target (rule 5) without disturbing the dense lane-meta layout.
-        "before:absolute before:inset-[-11px] before:content-['']",
-      ].join(' ')}
-    >
-      <svg
-        aria-hidden="true"
-        width={13}
-        height={13}
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-      >
-        <circle cx="8" cy="8" r="2.2" />
-        <path d="M8 1v2.4M8 12.6V15M1 8h2.4M12.6 8H15" strokeLinecap="round" />
-      </svg>
-    </button>
+    <LaneFocusToggle
+      phaseId={phase.id}
+      phaseName={phase.name}
+      focused={focused}
+      onToggleFocus={onToggleFocus}
+    />
   );
 
   return (
@@ -1156,55 +1066,20 @@ function PhaseLaneImpl({
             narrow empty stub track in every lane so the lane stays aligned
             with the stubbed header; clicking the header stub expands it. */}
         {columns.map((col) => {
+          const cellCount = tasksByStatus[col.status]?.length ?? 0;
           if (collapsedColumns.has(col.status)) {
-            const count = tasksByStatus[col.status]?.length ?? 0;
             return (
-              <button
+              <LaneColumnStubTrack
                 key={col.status}
-                type="button"
-                onClick={() => onExpandColumn(col.status)}
-                title={`Expand ${col.label}`}
-                aria-label={`Expand ${col.label} column`}
-                data-testid={`lane-stub-${phase.id}-${col.status}`}
-                className="bg-neutral-surface-sunken/60 border-l border-neutral-border
-                  hover:bg-neutral-surface-sunken focus:outline-none focus:ring-2
-                  focus:ring-brand-primary focus:ring-inset"
-              >
-                {count > 0 && (
-                  <span className="sr-only">
-                    {count} task{count !== 1 ? 's' : ''}
-                  </span>
-                )}
-              </button>
+                phaseId={phase.id}
+                col={col}
+                count={cellCount}
+                onExpandColumn={onExpandColumn}
+              />
             );
           }
           if (collapsed) {
-            const count = tasksByStatus[col.status]?.length ?? 0;
-            return (
-              <div
-                key={col.status}
-                className="bg-neutral-surface-sunken border-l border-neutral-border p-2 min-h-[56px] flex items-center justify-center"
-              >
-                {count > 0 ? (
-                  <span className="text-xs text-neutral-text-secondary">
-                    {count} task{count !== 1 ? 's' : ''}
-                  </span>
-                ) : (
-                  <>
-                    {/* Empty cell — a dashed hollow "0" so a collapsed lane reads as
-                        "no cards", not "n/a" (#1943). Matches the ColumnStub empty
-                        treatment (#1697) instead of a bare em-dash (rule 201). */}
-                    <span
-                      aria-hidden="true"
-                      className="tppm-mono tabular-nums text-xs font-bold min-w-[18px] px-1 py-px rounded-full border border-dashed border-neutral-border text-neutral-text-secondary text-center"
-                    >
-                      0
-                    </span>
-                    <span className="sr-only">0 cards, empty</span>
-                  </>
-                )}
-              </div>
-            );
+            return <CollapsedLaneCell key={col.status} count={cellCount} />;
           }
           return (
             <BoardCell
@@ -1475,239 +1350,21 @@ function useBoardDensity() {
 // Mobile snap-scroll board (v3 case 8)
 // ---------------------------------------------------------------------------
 
-interface MobileBoardProps {
-  columns: {
-    status: TaskStatus;
-    label: string;
-    wipLimit: number | null;
-    color: string | null;
-    slaDays?: number;
-  }[];
-  /** Flat per-status task lists — phase grouping collapses on mobile. */
-  tasksByStatus: Record<TaskStatus, Task[]>;
-  density: BoardDensity;
-  onMenuMove: (task: Task, newStatus: TaskStatus) => void;
-  focusedCardId: string | null;
-  onCardFocus: (taskId: string, status: TaskStatus, phaseId: string) => void;
-  onShowDeps: (task: Task) => void;
-  onShowRisks: (task: Task) => void;
-  onCardClick: (task: Task, anchor: HTMLElement) => void;
-  showEvm: EvmMode;
-  showCost: boolean;
-  customFieldDefs: ProjectCustomField[];
-  scopeActions: BoardCardScopeActions;
-  readOnly: boolean;
-  /** Facet-filter match set (issue 1091) — null when no facet active. */
-  facetMatchIds: Set<string> | null;
-  /** Per-status CFD daily-count series for the WIP-creep trend arrow (issue 1213). */
-  wipTrendSeriesByStatus: Partial<Record<TaskStatus, number[]>>;
-  /** Reports the status column currently snapped into view (issue 605, FAB target). */
-  onActiveStatusChange?: (status: TaskStatus) => void;
-}
-
-/**
- * Mobile board: each status column is a full-width snap-scroll page, with a
- * dot-strip nav above (v3 design case 8).
- *
- * Phase grouping is intentionally **collapsed** on mobile — a phase × status
- * grid is unreadable on a 375px screen, so each column shows a flat list of
- * its cards across every phase. The phase a card belongs to is still legible
- * from the card itself; the column's job here is the status axis.
- *
- * Snap-scroll is native CSS (`snap-x snap-mandatory` on the scroller, each
- * column `min-w-full snap-start`) — no JS scroll animation, so it is inherently
- * `prefers-reduced-motion` safe. An IntersectionObserver tracks which column is
- * snapped into view to drive the strip's active segment; tapping a strip
- * segment scrolls that column into view (`scrollIntoView({ inline: 'start' })`,
- * gated to `smooth` only under `motion-safe`).
- *
- * Card anatomy, the WIP pill, critical (red left-border) / blocked treatment,
- * and the status vocabulary are unchanged from desktop — `BoardCard` is reused
- * as-is; only the layout reflows.
- */
-function MobileBoard({
-  columns,
-  tasksByStatus,
-  density,
-  onMenuMove,
-  focusedCardId,
-  onCardFocus,
-  onShowDeps,
-  onShowRisks,
-  onCardClick,
-  showEvm,
-  showCost,
-  customFieldDefs,
-  scopeActions,
-  readOnly,
-  wipTrendSeriesByStatus,
-  onActiveStatusChange,
-  facetMatchIds,
-}: MobileBoardProps) {
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const columnRefs = useRef<(HTMLElement | null)[]>([]);
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  // Keep the parent's FAB target in sync with the column in view (issue 605).
-  // Reports on mount and on every swipe / tap-jump so a create always lands in
-  // the visible group. Effect (not inline) so the render stays a pure function.
-  useEffect(() => {
-    const status = columns[activeIndex]?.status;
-    if (status) onActiveStatusChange?.(status);
-  }, [activeIndex, columns, onActiveStatusChange]);
-
-  const segments: MobileColumnStripSegment[] = columns.map((col) => ({
-    status: col.status,
-    label: col.label,
-    count: tasksByStatus[col.status]?.length ?? 0,
-  }));
-
-  // Track the snapped-to column via IntersectionObserver: whichever column page
-  // is most in view drives the strip's active segment. Re-observes when the
-  // column set changes (e.g. a column toggled visible in board settings).
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    // Guard for environments without IntersectionObserver (jsdom/unit tests,
-    // very old browsers): the strip simply stays on its initial active index
-    // and tap-to-jump still works — only the swipe-driven active sync is lost.
-    if (typeof IntersectionObserver === 'undefined') return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-            const idx = columnRefs.current.indexOf(entry.target as HTMLElement);
-            if (idx !== -1) setActiveIndex(idx);
-          }
-        }
-      },
-      { root: scroller, threshold: [0.6] },
-    );
-    for (const el of columnRefs.current) {
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
-  }, [columns.length]);
-
-  const jumpToColumn = useCallback((index: number) => {
-    const el = columnRefs.current[index];
-    if (!el) return;
-    const reduceMotion =
-      typeof window !== 'undefined' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    el.scrollIntoView({
-      behavior: reduceMotion ? 'auto' : 'smooth',
-      inline: 'start',
-      block: 'nearest',
-    });
-    setActiveIndex(index);
-  }, []);
-
-  return (
-    <div className="flex-1 flex flex-col min-h-0 bg-neutral-surface-sunken">
-      <div className="flex-shrink-0 bg-neutral-surface border-b border-neutral-border">
-        <MobileColumnStrip segments={segments} activeIndex={activeIndex} onJump={jumpToColumn} />
-      </div>
-      <div
-        ref={scrollerRef}
-        data-testid="mobile-board-scroller"
-        className="flex-1 flex min-h-0 overflow-x-auto overflow-y-hidden snap-x snap-mandatory"
-        style={{ scrollbarWidth: 'none' }}
-      >
-        {columns.map((col, i) => {
-          const cards = tasksByStatus[col.status] ?? [];
-          // Shared wipState() so the mobile column header shows the at-limit
-          // breach chip too, not only over-limit (issue 1358 F6).
-          const wipBand = col.wipLimit != null ? wipState(cards.length, col.wipLimit) : 'none';
-          return (
-            <section
-              key={col.status}
-              ref={(el) => {
-                columnRefs.current[i] = el;
-              }}
-              data-status={col.status}
-              data-mobile-column="true"
-              aria-label={`${col.label}, ${cards.length} task${cards.length !== 1 ? 's' : ''}`}
-              className="min-w-full snap-start overflow-y-auto px-4 py-3 flex flex-col gap-2.5"
-            >
-              <div className="flex items-center gap-2 pb-1">
-                <h2 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
-                  {col.label}
-                </h2>
-                <span className="text-xs text-neutral-text-secondary tppm-mono">
-                  {cards.length}
-                </span>
-                {(() => {
-                  // WIP-creep arrow (issue 1213) + breach chip share the trailing
-                  // cluster on mobile, same left-to-right order as desktop.
-                  const trend = wipTrend(wipTrendSeriesByStatus[col.status] ?? [], col.wipLimit);
-                  const breached = wipBand === 'over' || wipBand === 'at';
-                  if (!trend && !breached) return null;
-                  return (
-                    <span className="ml-auto flex items-center gap-1.5">
-                      {trend && <WipTrendArrow trend={trend} />}
-                      {(wipBand === 'over' || wipBand === 'at') && (
-                        <WipBreachChip state={wipBand} />
-                      )}
-                    </span>
-                  );
-                })()}
-              </div>
-              {cards.length === 0 ? (
-                <div
-                  className="flex items-center justify-center py-10 text-center text-sm text-neutral-text-disabled"
-                  role="status"
-                >
-                  Nothing here yet — drag a card in.
-                </div>
-              ) : (
-                cards.map((task) => (
-                  <div
-                    key={task.id}
-                    onPointerDown={() => onCardFocus(task.id, col.status, task.parentId ?? 'root')}
-                    onFocusCapture={() => onCardFocus(task.id, col.status, task.parentId ?? 'root')}
-                  >
-                    <BoardCard
-                      task={task}
-                      density={density}
-                      onMenuMove={onMenuMove}
-                      columns={columns}
-                      isKeyboardFocused={focusedCardId === task.id}
-                      isFilteredOut={facetMatchIds !== null && !facetMatchIds.has(task.id)}
-                      onShowDeps={onShowDeps}
-                      onShowRisks={onShowRisks}
-                      onCardClick={onCardClick}
-                      showEvm={showEvm}
-                      showCost={showCost}
-                      customFieldDefs={customFieldDefs}
-                      scopeActions={scopeActions}
-                      readOnly={readOnly}
-                    />
-                  </div>
-                ))
-              )}
-            </section>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// BoardView
-// ---------------------------------------------------------------------------
-
 export function BoardView() {
   // document.title for this route is set at the router level (router.tsx
   // `handle.title`) — see RouteTitle (issue 1915, completes #1327 A4).
   const projectId = useProjectId() ?? '';
+  // `useProjectId()` yields '' outside a project route. Nearly every hook below
+  // wants that absence as null/undefined rather than an empty string, so resolve
+  // the two shapes once instead of re-branching at ~20 call sites.
+  const projectIdOrNull = projectId || null;
+  const projectIdOrUndefined = projectId || undefined;
   // Public board share (#1486): mint/manage is Admin+; the toolbar item is hidden
   // for lower roles and the dialog surfaces the server kill-switch 403 verbatim.
-  const { role: currentRole } = useCurrentUserRole(projectId || undefined);
+  const { role: currentRole } = useCurrentUserRole(projectIdOrUndefined);
   const canShareBoard = currentRole !== null && currentRole >= ROLE_ADMIN;
   const [shareOpen, setShareOpen] = useState(false);
-  const { columns: rawColumns, save: saveBoardConfig } = useBoardConfig(projectId || null);
+  const { columns: rawColumns, save: saveBoardConfig } = useBoardConfig(projectIdOrNull);
   const { tasks, isLoading, error } = useScheduleTasks();
   const updateStatus = useUpdateTaskStatus();
   const updateTask = useUpdateTask();
@@ -1715,13 +1372,13 @@ export function BoardView() {
   // Board offline (ADR-0220): hydrate the offline card-status queue, seed the
   // board from the last cached fetch when opened offline, and flush queued moves
   // on reconnect. Scoped to card-status moves; all other writes keep ADR-0205.
-  useBoardOffline(projectId || null);
-  const { data: workshopSession } = useWorkshopSession(projectId || null);
-  const startWorkshop = useStartWorkshop(projectId || null);
-  const endWorkshop = useEndWorkshop(projectId || null);
-  const phaseReorder = usePhaseReorder(projectId || null);
-  const queueReorder = useQueueReorder(projectId || null);
-  const canManageBacklog = useCanManageBacklog(projectId || undefined);
+  useBoardOffline(projectIdOrNull);
+  const { data: workshopSession } = useWorkshopSession(projectIdOrNull);
+  const startWorkshop = useStartWorkshop(projectIdOrNull);
+  const endWorkshop = useEndWorkshop(projectIdOrNull);
+  const phaseReorder = usePhaseReorder(projectIdOrNull);
+  const queueReorder = useQueueReorder(projectIdOrNull);
+  const canManageBacklog = useCanManageBacklog(projectIdOrUndefined);
   // BACKLOG cards live in the band above the phase grid (ADR-0057), not in an
   // inline column inside each phase. The visible-column list excludes BACKLOG
   // even when the saved board config marks it visible — that flag governs the
@@ -1747,7 +1404,7 @@ export function BoardView() {
   // `?sprint=` URL param (a distinct, shareable axis from the `?view=` saved
   // views) so a sprint board link can be shared. The backlog band is unaffected
   // — it stays the intake source you drag from.
-  const { sprints } = useSprints(projectId || null);
+  const { sprints } = useSprints(projectIdOrNull);
   const selectedSprintId = searchParams.get('sprint');
   const selectedSprint = useMemo(
     () => sprints.find((s) => s.id === selectedSprintId) ?? null,
@@ -1757,7 +1414,7 @@ export function BoardView() {
   // (per-user-per-project, localStorage) or the single ACTIVE sprint. The URL
   // param always wins — `setSelectedSprintId` writes it and also persists the
   // choice so the next visit (without a shared link) restores it.
-  const defaultSprint = useDefaultBoardSprint(projectId || undefined);
+  const defaultSprint = useDefaultBoardSprint(projectIdOrUndefined);
   const setSelectedSprintId = useCallback(
     (id: string | null) => {
       if (projectId) defaultSprint.persist(projectId, id);
@@ -1814,7 +1471,7 @@ export function BoardView() {
   const [workshopMode, setWorkshopMode] = useState(false);
   // Open the workshop WS channel while a session is active so participant
   // join/leave events update the banner in real time.
-  useWorkshopSocket(projectId || null, workshopMode && !!workshopSession, (event) => {
+  useWorkshopSocket(projectIdOrNull, workshopMode && !!workshopSession, (event) => {
     if (event.event_type === 'participant_joined' || event.event_type === 'participant_left') {
       void queryClient.invalidateQueries({ queryKey: ['workshopSession', projectId] });
     }
@@ -1852,8 +1509,8 @@ export function BoardView() {
   const [cpOnly, setCpOnly] = useState(false);
   const [dueSoonDays, setDueSoonDays] = useState<number | null>(null);
   // "My tasks" filter (issue #198) — default by role, persisted per-user-per-project.
-  const myTasksFilter = useMyTasksFilter(projectId || undefined);
-  const { resourceId: myResourceId } = useCurrentUserResourceId(projectId || undefined);
+  const myTasksFilter = useMyTasksFilter(projectIdOrUndefined);
+  const { resourceId: myResourceId } = useCurrentUserResourceId(projectIdOrUndefined);
   // Active when the user has opted in AND has a resource on the project. If the
   // user has no resource and no email match, mineActive is true but myResourceId
   // is null — phaseTaskMap below resolves that to "zero matches" so the
@@ -1950,32 +1607,6 @@ export function BoardView() {
     },
     [focusedLanePhaseId, exitFocusLane, setFocusLane],
   );
-  // WIP-breach popover anchored in the collapsed-columns banner (issue 1459, VoC:
-  // Alex) — surfaces which folded columns are over/at their WIP limit so the
-  // breach signal isn't lost when a column is stubbed.
-  const [wipPopoverOpen, setWipPopoverOpen] = useState(false);
-  // Anchors the WIP popover + its trigger so an outside pointerdown or Escape
-  // dismisses it and returns focus to the trigger (ux-review issue 1457 — a11y).
-  const wipPopoverRef = useRef<HTMLDivElement>(null);
-  const wipTriggerRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!wipPopoverOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (!wipPopoverRef.current?.contains(e.target as Node)) setWipPopoverOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setWipPopoverOpen(false);
-        wipTriggerRef.current?.focus();
-      }
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [wipPopoverOpen]);
   // editTaskId opens the unified TaskFormModal in edit mode (issue #305).
   // The popover's "Edit" footer action sets this; the modal owns the rest.
   const [editTaskId, setEditTaskId] = useState<string | null>(null);
@@ -2174,8 +1805,8 @@ export function BoardView() {
   // Effective swimlane grouping (324). Workshop mode authors WBS phase
   // structure, so it always groups by phase regardless of the saved preference.
   const groupMode: BoardGroupMode = workshopMode ? 'phase' : toolbarPrefs.groupBy;
-  const { data: projectDetail } = useProject(projectId || null);
-  const iterationLabel = useIterationLabel(projectId || undefined);
+  const { data: projectDetail } = useProject(projectIdOrNull);
+  const iterationLabel = useIterationLabel(projectIdOrUndefined);
 
   // WIP-creep trend arrows (issue 1213). The CFD daily per-status counts already
   // carry each column's recent occupancy; read them at board level so the header
@@ -2183,7 +1814,7 @@ export function BoardView() {
   // window shares its TanStack Query key with FlowAnalyticsPanel, so opening the
   // panel reuses this cache rather than re-fetching. Suppressed / errored reads
   // yield no series → no arrow (ADR-0104; trend is enhancement-only chrome).
-  const { data: flowMetrics } = useFlowMetrics(projectId || null);
+  const { data: flowMetrics } = useFlowMetrics(projectIdOrNull);
   const wipTrendSeriesByStatus = useMemo(() => {
     const map: Partial<Record<TaskStatus, number[]>> = {};
     if (!flowMetrics || flowMetrics.flow_metrics_suppressed) return map;
@@ -2197,17 +1828,17 @@ export function BoardView() {
   // Sprint scope-injection approve-gate (ADR-0102). The active sprint carries
   // `pending_count`; a team-owned actor (role >= ADMIN) can open the review
   // slide-over. The server is the real gate — this only hides the affordance.
-  const { sprint: activeSprint } = useActiveSprint(projectId || null);
-  const canManageScope = useCanManageScope(projectId || undefined);
+  const { sprint: activeSprint } = useActiveSprint(projectIdOrNull);
+  const canManageScope = useCanManageScope(projectIdOrUndefined);
   const [scopeReviewOpen, setScopeReviewOpen] = useState(false);
   const { acceptOne: acceptScope, rejectOne: rejectScope } = useScopeChangeActions(
-    projectId || null,
+    projectIdOrNull,
     activeSprint?.id ?? null,
   );
   // rules 149/150: accept confirms, single reject offers an Undo re-add (#2149).
   // The hook toasts failures; this adds the positive path, same as the panel.
   const { confirmAccepted, confirmRejectedWithUndo } = useScopeDecisionFeedback(
-    projectId || null,
+    projectIdOrNull,
     activeSprint?.id ?? null,
   );
   // Map a pending card to its latest pending scope-change row id (the
@@ -2270,7 +1901,7 @@ export function BoardView() {
     useSensor(KeyboardSensor),
   );
 
-  const createTask = useCreateTask(projectId || null);
+  const createTask = useCreateTask(projectIdOrNull);
 
   // Partition BACKLOG cards out of the phase tree (ADR-0057). Summary tasks
   // never have BACKLOG status, so the isSummary check is defensive — it would
@@ -2502,47 +2133,16 @@ export function BoardView() {
     scheduleTriggerRef.current = null;
   }, []);
 
-  // Hoisted ahead of `handleDragEnd` / `handleMenuMove` so the WIP-limit
-  // guard can read live counts before issuing the move mutation (#232).
-  const totalByStatus = useMemo(() => {
-    const counts: Record<TaskStatus, number> = {
-      BACKLOG: 0,
-      NOT_STARTED: 0,
-      IN_PROGRESS: 0,
-      REVIEW: 0,
-      ON_HOLD: 0,
-      COMPLETE: 0,
-    };
-    for (const phase of phases) {
-      for (const task of phase.tasks) {
-        counts[task.status]++;
-      }
-    }
-    return counts;
-  }, [phases]);
-
-  // Per-column count of cards assigned to the current user — powers the quiet
-  // "your cards are folded inside this stub" signal (#1696). Uses the same
-  // assignee predicate as the "My tasks" filter. Zero for every column when the
-  // user has no resource identity on this project (myResourceId === null), so the
-  // signal is simply absent rather than wrong.
-  const myCountByStatus = useMemo(() => {
-    const counts: Record<TaskStatus, number> = {
-      BACKLOG: 0,
-      NOT_STARTED: 0,
-      IN_PROGRESS: 0,
-      REVIEW: 0,
-      ON_HOLD: 0,
-      COMPLETE: 0,
-    };
-    if (myResourceId === null) return counts;
-    for (const phase of phases) {
-      for (const task of phase.tasks) {
-        if (task.assignees.some((a) => a.resourceId === myResourceId)) counts[task.status]++;
-      }
-    }
-    return counts;
-  }, [phases, myResourceId]);
+  // Every task grouping the three layouts read (grid cells, mobile snap lists,
+  // queue list) plus the live per-status counts the WIP-limit guard needs before
+  // issuing a move mutation (#232). Derived from one shared filter definition.
+  const sortCell = useCallback((list: Task[]) => sortTasksBy(list, sort), [sort]);
+  const boardFilters = useMemo(
+    () => ({ cpOnly, dueSoonDays, mineActive, myResourceId, debtOnly, riskLinkedOnly }),
+    [cpOnly, dueSoonDays, mineActive, myResourceId, debtOnly, riskLinkedOnly],
+  );
+  const { phaseTaskMap, mobileTasksByStatus, queueTasks, totalByStatus, myCountByStatus } =
+    useBoardTaskMaps({ phases, allTasks: tasks, filters: boardFilters, sortCell });
 
   const handleAddPhase = useCallback(() => {
     const name = `Phase ${phases.filter((p) => p.id !== 'root').length + 1}`;
@@ -2648,105 +2248,31 @@ export function BoardView() {
     return m;
   }, [phases]);
 
-  // Tasks visible in the queue: applies the same task-level filters as the
-  // phase-grid path so layout switching doesn't reveal hidden work. Phase-level
-  // filters (e.g. workshop empty-phase preservation) don't apply — the queue
-  // is a flat list, not a grid.
-  const queueTasks = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const out: Task[] = [];
-    for (const t of tasks ?? []) {
-      if (t.isSummary) continue;
-      if (cpOnly && !(t.isCritical && isTaskScheduled(t))) continue;
-      if (dueSoonDays !== null) {
-        const finish = new Date(t.finish);
-        const diffMs = finish.getTime() - today.getTime();
-        if (diffMs < 0 || diffMs > dueSoonDays * 86_400_000) continue;
-      }
-      if (mineActive) {
-        if (myResourceId === null) continue;
-        if (!t.assignees.some((a) => a.resourceId === myResourceId)) continue;
-      }
-      if (riskLinkedOnly && (t.linkedRisksCount ?? 0) === 0) continue;
-      if (debtOnly && t.taskType !== 'tech_debt') continue;
-      out.push(t);
-    }
-    return out;
-  }, [tasks, cpOnly, dueSoonDays, mineActive, myResourceId, riskLinkedOnly, debtOnly]);
+  // Single writer for the board's aria-live region (rule 105) so every move
+  // path — drag, keyboard Move-to, demote confirm — announces the same way.
+  const announce = useCallback((text: string) => {
+    if (ariaLiveRef.current) ariaLiveRef.current.textContent = text;
+  }, []);
 
-  // Per-phase, per-status task groupings — applies active sort order.
-  const phaseTaskMap = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const result = new Map<string, Record<TaskStatus, Task[]>>();
-    for (const phase of phases) {
-      const byStatus: Record<TaskStatus, Task[]> = {
-        BACKLOG: [],
-        NOT_STARTED: [],
-        IN_PROGRESS: [],
-        REVIEW: [],
-        ON_HOLD: [],
-        COMPLETE: [],
-      };
-      for (const task of phase.tasks) {
-        // Built-in view filters
-        // CP-only filter must also exclude uncommitted tasks (issue #332):
-        // CPM marks every dated task isCritical, so an unfiltered "CP only"
-        // view leaks backlog ideas into the visible set.
-        if (cpOnly && !(task.isCritical && isTaskScheduled(task))) continue;
-        if (dueSoonDays !== null) {
-          const finish = new Date(task.finish);
-          const diffMs = finish.getTime() - today.getTime();
-          if (diffMs < 0 || diffMs > dueSoonDays * 86_400_000) continue;
-        }
-        // "My tasks" filter (issue #198): only tasks assigned to the current
-        // user's resource. When mineActive but myResourceId is null, drop
-        // every task — the empty state below explains why.
-        if (mineActive) {
-          if (myResourceId === null) continue;
-          if (!task.assignees.some((a) => a.resourceId === myResourceId)) continue;
-        }
-        // Tech-debt lens (ADR-0178, #1076): narrow to remediation work.
-        if (debtOnly && task.taskType !== 'tech_debt') continue;
-        byStatus[task.status]?.push(task);
+  // WIP-limit guard (#232, #2050): if the destination column is at or over its
+  // limit and the task isn't already there, defer the move behind a styled
+  // confirm dialog instead of a native window.confirm mid-drop.
+  // Toggle-independent (rule 176; #2169): the confirm is a process guardrail, so
+  // — like the always-on breach chip — it must NOT be gated on the cosmetic
+  // `showWip` display toggle. Only the numeric badge obeys `showWip`; a breach
+  // still gates the move even with chips hidden.
+  const guardWipThenMove = useCallback(
+    (fromStatus: TaskStatus, toStatus: TaskStatus, taskName: string, perform: () => void) => {
+      const breach =
+        toStatus !== fromStatus ? wipBreachInfo(COLUMNS, totalByStatus, toStatus) : null;
+      if (breach) {
+        setWipMoveCandidate({ breach, taskName, perform });
+        return;
       }
-      // Apply sort within each status cell
-      for (const s of Object.keys(byStatus) as TaskStatus[]) {
-        byStatus[s] = sortTasksBy(byStatus[s], sort);
-      }
-      result.set(phase.id, byStatus);
-    }
-    return result;
-  }, [phases, sort, cpOnly, dueSoonDays, mineActive, myResourceId, debtOnly]);
-
-  // Flat per-status task lists for the mobile snap-scroll board. The
-  // phase × status grid collapses on mobile — each status column shows every
-  // matching card across all phases as one list. Derived from `phaseTaskMap`
-  // so the same task-level filters (cpOnly / dueSoon / mine / debt) and sort
-  // already applied per cell carry through; only the phase grouping drops.
-  const mobileTasksByStatus = useMemo(() => {
-    const out: Record<TaskStatus, Task[]> = {
-      BACKLOG: [],
-      NOT_STARTED: [],
-      IN_PROGRESS: [],
-      REVIEW: [],
-      ON_HOLD: [],
-      COMPLETE: [],
-    };
-    for (const byStatus of phaseTaskMap.values()) {
-      for (const s of Object.keys(out) as TaskStatus[]) {
-        const cell = byStatus[s];
-        if (cell?.length) out[s].push(...cell);
-      }
-    }
-    // Re-apply the active sort across the merged list so cross-phase order is
-    // coherent (per-cell sort alone leaves phase-boundary jumps).
-    for (const s of Object.keys(out) as TaskStatus[]) {
-      out[s] = sortTasksBy(out[s], sort);
-    }
-    return out;
-  }, [phaseTaskMap, sort]);
+      perform();
+    },
+    [COLUMNS, totalByStatus],
+  );
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(String(event.active.id));
@@ -2777,90 +2303,73 @@ export function BoardView() {
     [activeTask?.status],
   );
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      const activeIdStr = String(active.id);
-      setActiveId(null);
-      setOverCell(null);
+  // Phase reorder (workshop mode) — the dragged id is prefixed with 'phase:'.
+  // Optimistic: the local order moves first and rolls back if the PATCH fails.
+  const reorderPhases = useCallback(
+    (activeIdStr: string, overIdStr: string) => {
+      if (activeIdStr === overIdStr) return;
+      const fromIdx = phaseOrder.indexOf(activeIdStr.replace('phase:', ''));
+      const toIdx = phaseOrder.indexOf(overIdStr.replace('phase:', ''));
+      if (fromIdx === -1 || toIdx === -1) return;
+      const prevOrder = phaseOrder;
+      const newOrder = arrayMove(phaseOrder, fromIdx, toIdx);
+      setPhaseOrder(newOrder);
+      phaseReorder.mutate(
+        newOrder.map((id) => ({ id, serverVersion: taskIndex.get(id)?.serverVersion ?? 0 })),
+        { onError: () => setPhaseOrder(prevOrder) },
+      );
+    },
+    [phaseOrder, phaseReorder, taskIndex],
+  );
 
-      // Phase reorder (workshop mode) — active ID is prefixed with 'phase:'
-      if (activeIdStr.startsWith('phase:') && over) {
-        const overId = String(over.id);
-        if (activeIdStr !== overId) {
-          const fromPhaseId = activeIdStr.replace('phase:', '');
-          const toPhaseId = overId.replace('phase:', '');
-          const fromIdx = phaseOrder.indexOf(fromPhaseId);
-          const toIdx = phaseOrder.indexOf(toPhaseId);
-          if (fromIdx !== -1 && toIdx !== -1) {
-            const newOrder = arrayMove(phaseOrder, fromIdx, toIdx);
-            const prevOrder = phaseOrder;
-            setPhaseOrder(newOrder);
-            phaseReorder.mutate(
-              newOrder.map((id) => ({
-                id,
-                serverVersion: taskIndex.get(id)?.serverVersion ?? 0,
-              })),
-              { onError: () => setPhaseOrder(prevOrder) },
-            );
-          }
-        }
+  // Drop onto the BACKLOG band above the phase grid (ADR-0057).
+  const dropOnBacklogBand = useCallback(
+    (task: Task) => {
+      // No-op when already in backlog — drag dropped back onto the band.
+      if (task.status === 'BACKLOG') return;
+      // Lock at IN_PROGRESS+: work has begun (or finished), demoting back to
+      // BACKLOG would erase momentum/history. The card simply doesn't move;
+      // we announce via the live region so the keyboard/SR path isn't silent.
+      if (task.status === 'IN_PROGRESS' || task.status === 'REVIEW' || task.status === 'COMPLETE') {
+        announce(`${task.name} cannot move to backlog — work has already started.`);
         return;
       }
-
-      // Card status change (and optional phase move in workshop mode)
-      const overId = over?.id;
-      if (!overId || !activeTask) return;
-
-      // Drop onto the BACKLOG band above the phase grid (ADR-0057).
-      if (String(overId) === BACKLOG_BAND_DROPPABLE_ID) {
-        // No-op when already in backlog — drag dropped back onto the band.
-        if (activeTask.status === 'BACKLOG') return;
-        // Lock at IN_PROGRESS+: work has begun (or finished), demoting back to
-        // BACKLOG would erase momentum/history. The card simply doesn't move;
-        // we announce via the live region so the keyboard/SR path isn't silent.
-        if (
-          activeTask.status === 'IN_PROGRESS' ||
-          activeTask.status === 'REVIEW' ||
-          activeTask.status === 'COMPLETE'
-        ) {
-          if (ariaLiveRef.current) {
-            ariaLiveRef.current.textContent = `${activeTask.name} cannot move to backlog — work has already started.`;
-          }
-          return;
-        }
-        // NOT_STARTED (TO DO): committed but not started — open the deliberate-
-        // decision dialog (VoC outcome, Option C). Sarah's mobile concern is
-        // mitigated by a focus-first confirm button + Esc-to-cancel.
-        if (activeTask.status === 'NOT_STARTED') {
-          setBacklogDemoteCandidate(activeTask);
-          return;
-        }
-        // ON_HOLD (legacy) follows the same guard pattern as a backlog item —
-        // it's not a committed delivery, so demote it without confirmation.
-        updateStatus.mutate({ projectId, taskId: activeTask.id, status: 'BACKLOG' });
-        if (ariaLiveRef.current) {
-          ariaLiveRef.current.textContent = `${activeTask.name} moved to Backlog`;
-        }
+      // NOT_STARTED (TO DO): committed but not started — open the deliberate-
+      // decision dialog (VoC outcome, Option C). Sarah's mobile concern is
+      // mitigated by a focus-first confirm button + Esc-to-cancel.
+      if (task.status === 'NOT_STARTED') {
+        setBacklogDemoteCandidate(task);
         return;
       }
+      // ON_HOLD (legacy) follows the same guard pattern as a backlog item —
+      // it's not a committed delivery, so demote it without confirmation.
+      updateStatus.mutate({ projectId, taskId: task.id, status: 'BACKLOG' });
+      announce(`${task.name} moved to Backlog`);
+    },
+    [announce, projectId, updateStatus],
+  );
 
-      const [newPhaseId, newStatus] = String(overId).split(':');
+  // Drop into a `${phaseId}:${status}` grid cell — the status move, plus the
+  // workshop-mode phase move and the sprint-view assignment that ride with it.
+  const dropOnCell = useCallback(
+    (task: Task, cellId: string) => {
+      const [newPhaseId, newStatus] = cellId.split(':');
       if (!newStatus) return;
-      const currentPhaseId = activeTask.parentId ?? 'root';
-      const phaseChanged = workshopMode && newPhaseId !== currentPhaseId;
+      const phaseChanged = workshopMode && newPhaseId !== (task.parentId ?? 'root');
       // Cross-lane drag under assignee (324) or epic (364) grouping: drag-to-
       // reassign is a deferred follow-up, so a drop into a different assignee or
       // epic lane never changes the assignee or the parent epic. A status
       // (column) change in the same drop still applies; we append a hint
       // pointing at the card's own control for that dimension.
       const reassignDeferred =
-        (groupMode === 'assignee' && newPhaseId !== primaryAssigneeLaneId(activeTask)) ||
-        (groupMode === 'epic' && newPhaseId !== epicLaneId(activeTask));
-      const reassignNoun = groupMode === 'epic' ? 'epic' : 'assignee';
-      if (newStatus === activeTask.status && !phaseChanged) {
-        if (reassignDeferred && ariaLiveRef.current) {
-          ariaLiveRef.current.textContent = `Drag-to-reassign isn't available yet — open ${activeTask.name} to change its ${reassignNoun}.`;
+        (groupMode === 'assignee' && newPhaseId !== primaryAssigneeLaneId(task)) ||
+        (groupMode === 'epic' && newPhaseId !== epicLaneId(task));
+      if (newStatus === task.status && !phaseChanged) {
+        if (reassignDeferred) {
+          const noun = groupMode === 'epic' ? 'epic' : 'assignee';
+          announce(
+            `Drag-to-reassign isn't available yet — open ${task.name} to change its ${noun}.`,
+          );
         }
         return;
       }
@@ -2872,26 +2381,19 @@ export function BoardView() {
       // read-only for assignment — we never back-date scope into a closed sprint.
       // Computed ahead of the WIP guard so both the immediate and the
       // deferred-confirm paths share one move definition.
-      const assignSprintId =
-        selectedSprint &&
-        (selectedSprint.state === 'ACTIVE' || selectedSprint.state === 'PLANNED') &&
-        activeTask.sprintId !== selectedSprint.id
-          ? selectedSprint.id
-          : undefined;
+      const assignSprintId = sprintAssignTarget(selectedSprint, task);
       const performMove = () => {
         updateStatus.mutate({
           projectId,
-          taskId: activeTask.id,
+          taskId: task.id,
           status: newStatus as TaskStatus,
           ...(phaseChanged ? { parentId: newPhaseId } : {}),
           ...(assignSprintId ? { sprintId: assignSprintId } : {}),
         });
-        if (ariaLiveRef.current) {
-          const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
-          const intoSprint = assignSprintId ? ` and added to ${selectedSprint?.name}` : '';
-          const reassignNote = reassignDeferred ? ' — reassign from the card' : '';
-          ariaLiveRef.current.textContent = `${activeTask.name} moved to ${colLabel}${intoSprint}${reassignNote}`;
-        }
+        const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
+        const intoSprint = assignSprintId ? ` and added to ${selectedSprint?.name}` : '';
+        const reassignNote = reassignDeferred ? ' — reassign from the card' : '';
+        announce(`${task.name} moved to ${colLabel}${intoSprint}${reassignNote}`);
         // Scope-injection drop toast (#1140): only an ACTIVE-sprint assignment
         // creates a pending scope-change (ADR-0102 post-activation injection). A
         // PLANNED-sprint link is part of the commitment baseline (no pending
@@ -2903,37 +2405,43 @@ export function BoardView() {
           });
         }
       };
-      // WIP-limit guard (#232, #2050): if the destination column is at or over
-      // its limit and the task isn't already there, defer the move behind a
-      // styled confirm dialog instead of a native window.confirm mid-drop.
-      // Toggle-independent (rule 176; #2169): the confirm is a process guardrail,
-      // so — like `wipBandRaw` and the always-on breach chip — it must NOT be
-      // gated on the cosmetic `showWip` display toggle. Only the numeric badge
-      // obeys `showWip`; a breach still gates the move even with chips hidden.
-      const breach =
-        newStatus !== activeTask.status
-          ? wipBreachInfo(COLUMNS, totalByStatus, newStatus as TaskStatus)
-          : null;
-      if (breach) {
-        setWipMoveCandidate({ breach, taskName: activeTask.name, perform: performMove });
-        return;
-      }
-      performMove();
+      guardWipThenMove(task.status, newStatus as TaskStatus, task.name, performMove);
     },
     [
-      activeTask,
-      projectId,
-      updateStatus,
+      announce,
       COLUMNS,
-      phaseOrder,
-      phaseReorder,
-      taskIndex,
-      workshopMode,
-      selectedSprint,
-      totalByStatus,
-      iterationLabel,
       groupMode,
+      guardWipThenMove,
+      iterationLabel,
+      projectId,
+      selectedSprint,
+      updateStatus,
+      workshopMode,
     ],
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      const activeIdStr = String(active.id);
+      setActiveId(null);
+      setOverCell(null);
+
+      if (activeIdStr.startsWith('phase:')) {
+        if (over) reorderPhases(activeIdStr, String(over.id));
+        return;
+      }
+
+      // Card status change (and optional phase move in workshop mode)
+      const overId = over?.id;
+      if (!overId || !activeTask) return;
+      if (String(overId) === BACKLOG_BAND_DROPPABLE_ID) {
+        dropOnBacklogBand(activeTask);
+        return;
+      }
+      dropOnCell(activeTask, String(overId));
+    },
+    [activeTask, reorderPhases, dropOnBacklogBand, dropOnCell],
   );
 
   const handleDragCancel = useCallback(() => {
@@ -2953,27 +2461,13 @@ export function BoardView() {
       // sprint can never be mutated regardless of which affordance triggers the
       // move — the banner alone was purely cosmetic (issue 1512).
       if (readOnly) return;
-      const performMove = () => {
+      guardWipThenMove(task.status, newStatus, task.name, () => {
         updateStatus.mutate({ projectId, taskId: task.id, status: newStatus });
-        if (ariaLiveRef.current) {
-          const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
-          ariaLiveRef.current.textContent = `${task.name} moved to ${colLabel}`;
-        }
-      };
-      // WIP-limit guard (#232, #2050): defer past-limit moves behind the styled
-      // confirm dialog — the keyboard Move-to path is a second write into the
-      // same mutation, so it needs the same non-native prompt as drag-end.
-      // Toggle-independent (rule 176; #2169): computed regardless of the cosmetic
-      // `showWip` display toggle, matching the drag-end guard above.
-      const breach =
-        newStatus !== task.status ? wipBreachInfo(COLUMNS, totalByStatus, newStatus) : null;
-      if (breach) {
-        setWipMoveCandidate({ breach, taskName: task.name, perform: performMove });
-        return;
-      }
-      performMove();
+        const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
+        announce(`${task.name} moved to ${colLabel}`);
+      });
     },
-    [projectId, updateStatus, COLUMNS, totalByStatus, readOnly],
+    [announce, COLUMNS, guardWipThenMove, projectId, readOnly, updateStatus],
   );
 
   const handleAddTask = useCallback((phaseId: string, phaseName: string, isSynthetic = false) => {
@@ -3190,6 +2684,83 @@ export function BoardView() {
     addTaskPhase === null,
   );
 
+  // One lane's props. Held together here (rather than in `BoardPhaseLanes`) so the
+  // reference-stable values the PhaseLane memo depends on stay assembled in the
+  // component that owns them (issue 1520).
+  const laneProps = (phase: Phase) => ({
+    phase,
+    columns: COLUMNS,
+    tasksByStatus: phaseTaskMap.get(phase.id) ?? EMPTY_TASKS_BY_STATUS,
+    milestones: milestonesByPhase.get(phase.id) ?? EMPTY_MILESTONES,
+    // Pre-compute this lane's drag-over column so only the lane under
+    // the pointer sees a changed prop; every other lane stays null and
+    // its memo skips the drag-over re-render (issue 1520). overCell is
+    // `${phaseId}:${status}`; phase ids carry no ':'.
+    overStatus:
+      overCell && overCell.startsWith(`${phase.id}:`)
+        ? (overCell.slice(phase.id.length + 1) as TaskStatus)
+        : null,
+    isDragActive: activeId !== null,
+    showWip,
+    showColTints,
+    density,
+    collapsed: collapsedIds.has(phase.id),
+    onToggleCollapse: toggleCollapse,
+    collapsedColumns,
+    onExpandColumn: expandColumn,
+    focused: focusedLanePhaseId === phase.id,
+    onToggleFocus: toggleFocusLane,
+    onMenuMove: handleMenuMove,
+    // Assignee (324) and epic (364) lanes can't host a new task (a
+    // lane id is a resource or an epic, not a WBS parent) — suppress
+    // the per-lane add button in those read-only lenses. Also
+    // suppressed board-wide when `readOnly` (closed sprint or a
+    // Viewer, #2146).
+    onAddTask:
+      readOnly || groupMode === 'assignee' || groupMode === 'epic' ? undefined : handleAddTask,
+    focusedCardId,
+    // Search match set (when active) overrides the issue-182 dep-hover
+    // dim set — see effectiveHighlightIds (issue 323).
+    highlightedTaskIds: effectiveHighlightIds,
+    facetMatchIds,
+    overallocByResourcePerTask,
+    onCardFocus: handleCardFocus,
+    onShowDeps: handleShowDeps,
+    onShowRisks: handleShowRisks,
+    onChainHover: handleChainHover,
+    onCardClick: handleCardClick,
+    onOpenMilestone: handleOpenMilestone,
+    showEvm: evmMode,
+    showCost,
+    customFieldDefs: cardCustomFieldDefs,
+    scopeActions,
+    readOnly,
+    workshop: workshopMode,
+    onPhaseRename: workshopMode ? handlePhaseRename : undefined,
+    // Board resize (issue 285): per-column widths + this lane's height.
+    columnWidths,
+    phaseHeight: phaseHeights[phase.id],
+    onResizeHeight: setPhaseHeight,
+    // Per-cell card cap (issue 1967, ADR-0420) — desktop matrix only.
+    cellCap: toolbarPrefs.cellCap,
+    myResourceId,
+  });
+
+  // Workshop mode makes lanes sortable; every other mode renders them plain.
+  // Deliberately not memoized: `laneProps` closes over ~40 board values and is
+  // rebuilt every render regardless, so a useCallback here would never hit — and
+  // `BoardPhaseLanes` is not memoized, so nothing downstream depends on the
+  // identity. The per-lane memo that does matter lives on `PhaseLane` itself,
+  // and it is preserved because `laneProps` still feeds reference-stable values.
+  const renderLane = (lane: LaneShape) => {
+    const phase = lane as Phase;
+    return workshopMode ? (
+      <SortablePhaseLane key={phase.id} {...laneProps(phase)} />
+    ) : (
+      <PhaseLane key={phase.id} {...laneProps(phase)} />
+    );
+  };
+
   // A failed tasks fetch must read as broken, not as an empty board — an empty
   // board and a dead request otherwise render identically (issue #1764).
   if (error) {
@@ -3357,49 +2928,12 @@ export function BoardView() {
             onReview={() => setScopeReviewOpen(true)}
           />
 
-          {/* "My tasks" active chip (issue #198) — keeps the filter state
-              inescapable so users don't think the board has lost data. */}
-          {mineActive && (
-            <div
-              className="flex items-center gap-2 px-3 py-1.5 text-xs
-                bg-brand-primary/5 border-b border-brand-primary/20
-                text-brand-primary"
-              role="status"
-            >
-              <span aria-hidden="true">★</span>
-              <span>Filter: My tasks</span>
-              <button
-                type="button"
-                onClick={() => myTasksFilter.setEnabled(false)}
-                className="ml-1 underline hover:no-underline
-                  focus:ring-2 focus:ring-brand-primary focus:outline-none rounded-control"
-              >
-                Show all →
-              </button>
-            </div>
-          )}
-
-          {/* "Tech debt" active chip (ADR-0178, #1076) — keeps the lens
-              inescapable so a narrowed board doesn't read as "lost tasks". */}
-          {debtOnly && (
-            <div
-              className="flex items-center gap-2 px-3 py-1.5 text-xs
-                bg-brand-primary/5 border-b border-brand-primary/20
-                text-brand-primary"
-              role="status"
-            >
-              <span aria-hidden="true">⚒</span>
-              <span>Filter: Tech debt</span>
-              <button
-                type="button"
-                onClick={() => setDebtOnly(false)}
-                className="ml-1 underline hover:no-underline
-                  focus:ring-2 focus:ring-brand-primary focus:outline-none rounded-control"
-              >
-                Show all →
-              </button>
-            </div>
-          )}
+          <BoardLensBanners
+            mineActive={mineActive}
+            onClearMine={() => myTasksFilter.setEnabled(false)}
+            debtOnly={debtOnly}
+            onClearDebt={() => setDebtOnly(false)}
+          />
 
           {/* Sprint header bar (#1138) — name + date range + Day N of M timebox
               + goal + compact burndown. Only when a sprint is selected, and never on a
@@ -3415,714 +2949,90 @@ export function BoardView() {
               grid; drag-to-assign is disabled board-wide (see `readOnly`). */}
           {sprintClosed && projectId && <ClosedSprintBanner projectId={projectId} />}
 
-          {/* Phase-lane focus banner (issue 1460, ADR-0192 Part 3) — keeps focus
-              mode inescapable (mirrors the My-tasks / Tech-debt filter chips) so
-              a board zoomed to one lane never reads as "lost lanes". A stale
-              ?focus= for a phase that no longer exists self-hides. */}
-          {focusedLanePhaseId && phases.some((p) => p.id === focusedLanePhaseId) && (
-            <div
-              className="flex items-center gap-2 px-3 py-1.5 text-xs
-                bg-brand-primary/5 border-b border-brand-primary/20 text-brand-primary"
-              role="status"
-              data-testid="focus-banner"
-            >
-              <svg
-                aria-hidden="true"
-                width={12}
-                height={12}
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <circle cx="8" cy="8" r="2.2" />
-                <path d="M8 1v2.4M8 12.6V15M1 8h2.4M12.6 8H15" strokeLinecap="round" />
-              </svg>
-              <span>
-                Focused on{' '}
-                <strong className="font-semibold">
-                  {phases.find((p) => p.id === focusedLanePhaseId)?.name}
-                </strong>{' '}
-                · other lanes hidden
-              </span>
-              <button
-                type="button"
-                onClick={exitFocusLane}
-                data-testid="exit-focus"
-                className="ml-1 underline hover:no-underline
-                  focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded-control"
-              >
-                Exit focus →
-              </button>
-            </div>
-          )}
+          <FocusLaneBanner
+            phaseName={phases.find((p) => p.id === focusedLanePhaseId)?.name ?? null}
+            onExit={exitFocusLane}
+          />
 
-          {/* Collapsed-columns banner (issue 1459, ADR-0192 Part 2) — count + bulk
-              expand, plus a tappable WIP indicator that pops a list of folded
-              columns breaching their limit so the breach signal survives the
-              collapse (VoC: Alex). */}
-          {collapsedColumns.size > 0 &&
-            (() => {
-              const collapsedList = COLUMNS.filter((c) => collapsedColumns.has(c.status));
-              // Columns that have folded away ≥1 card assigned to the current
-              // user — findable via a quiet banner clause (#1696).
-              const myHiddenCols = collapsedList.filter((c) => myCountByStatus[c.status] > 0);
-              const myHiddenCount = myHiddenCols.reduce((n, c) => n + myCountByStatus[c.status], 0);
-              const breaching = collapsedList
-                .map((c) => ({ col: c, band: wipState(totalByStatus[c.status], c.wipLimit) }))
-                .filter(({ band }) => band === 'at' || band === 'over');
-              const overCount = breaching.filter((b) => b.band === 'over').length;
-              const atCount = breaching.length - overCount;
-              // Tone + wording follow the worst band present (rule 159): any
-              // over-limit column → critical red; only at-limit → at-risk amber.
-              // The label names the actual band — never call an at-limit column
-              // "over" (ux-review issue 1457).
-              const worstOver = overCount > 0;
-              const breachLabel =
-                overCount > 0 && atCount === 0
-                  ? `${overCount} over WIP`
-                  : atCount > 0 && overCount === 0
-                    ? `${atCount} at WIP limit`
-                    : `${breaching.length} at/over WIP`;
-              return (
-                <div
-                  ref={wipPopoverRef}
-                  className="relative flex items-center gap-2 px-3 py-1.5 text-xs
-                    bg-neutral-surface-sunken border-b border-neutral-border/60 text-neutral-text-secondary"
-                  role="status"
-                  data-testid="collapsed-columns-banner"
-                >
-                  <span aria-hidden="true">⊟</span>
-                  <span>
-                    {collapsedColumns.size} column{collapsedColumns.size !== 1 ? 's' : ''} collapsed
-                  </span>
-                  {myHiddenCount > 0 && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <button
-                        type="button"
-                        onClick={() => myHiddenCols.forEach((c) => expandColumn(c.status))}
-                        data-testid="expand-my-hidden-columns"
-                        aria-label="Expand columns containing your cards"
-                        className="min-h-[44px] md:min-h-0 underline hover:no-underline
-                          text-neutral-text-secondary hover:text-brand-primary
-                          focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded-control"
-                      >
-                        {myHiddenCount} of your card{myHiddenCount !== 1 ? 's' : ''} hidden
-                      </button>
-                    </>
-                  )}
-                  {breaching.length > 0 && (
-                    <button
-                      ref={wipTriggerRef}
-                      type="button"
-                      onClick={() => setWipPopoverOpen((v) => !v)}
-                      aria-expanded={wipPopoverOpen}
-                      aria-haspopup="dialog"
-                      aria-controls="collapsed-wip-popover"
-                      data-testid="collapsed-wip-trigger"
-                      className={`flex items-center gap-1 px-1.5 py-px rounded-chip border font-medium
-                        focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none ${
-                          worstOver
-                            ? 'border-semantic-critical/40 bg-semantic-critical-bg text-semantic-critical'
-                            : 'border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk'
-                        }`}
-                    >
-                      <WarningIcon
-                        className="inline-block h-3 w-3 align-[-0.125em]"
-                        aria-hidden="true"
-                      />
-                      {breachLabel}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={expandAllColumns}
-                    data-testid="expand-all-columns"
-                    className="ml-auto underline hover:no-underline text-brand-primary
-                      focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded-control"
-                  >
-                    Expand all →
-                  </button>
-                  {wipPopoverOpen && breaching.length > 0 && (
-                    <div
-                      id="collapsed-wip-popover"
-                      role="dialog"
-                      aria-label="Collapsed columns at or over WIP limit"
-                      data-testid="collapsed-wip-popover"
-                      className="absolute top-[calc(100%+4px)] left-3 z-30 min-w-[200px]
-                        rounded-card border border-neutral-border bg-neutral-surface p-2 shadow-pop"
-                    >
-                      <p className="text-xs font-semibold text-neutral-text-primary mb-1.5">
-                        WIP limit status
-                      </p>
-                      <ul className="flex flex-col gap-1">
-                        {breaching.map(({ col, band }) => (
-                          <li key={col.status}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                toggleColumn(col.status);
-                                setWipPopoverOpen(false);
-                              }}
-                              aria-label={`Expand ${col.label} column, ${totalByStatus[col.status]} of ${col.wipLimit}, ${
-                                band === 'over' ? 'over limit' : 'at limit'
-                              }`}
-                              className="w-full flex items-center gap-2 px-1.5 py-1 rounded-control text-left
-                                hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-inset focus:outline-none"
-                            >
-                              <span
-                                aria-hidden="true"
-                                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                  COLUMN_DOT_CLASS[col.status] ?? 'bg-neutral-text-disabled'
-                                }`}
-                              />
-                              <span className="flex-1 text-neutral-text-primary">{col.label}</span>
-                              <span
-                                aria-hidden="true"
-                                className={`tppm-mono text-xs font-bold ${
-                                  band === 'over'
-                                    ? 'text-semantic-critical'
-                                    : 'text-semantic-at-risk'
-                                }`}
-                              >
-                                {totalByStatus[col.status]}/{col.wipLimit}
-                              </span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+          <CollapsedColumnsBanner
+            columns={COLUMNS}
+            collapsedColumns={collapsedColumns}
+            totalByStatus={totalByStatus}
+            myCountByStatus={myCountByStatus}
+            dotClassFor={(status) => COLUMN_DOT_CLASS[status] ?? 'bg-neutral-text-disabled'}
+            onExpandColumn={expandColumn}
+            onToggleColumn={toggleColumn}
+            onExpandAllColumns={expandAllColumns}
+          />
 
-          {/* Zero-match state (issue 1091) — facets are active but no card
-              matches. Supersedes the board body (which would otherwise be every
-              card dimmed to 30%); offers a one-click clear. */}
-          {facetZeroMatch && (
-            <div
-              className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-text-secondary text-sm"
-              role="status"
-              data-testid="board-zero-match"
-            >
-              <p>No cards match these filters.</p>
-              <button
-                type="button"
-                onClick={onClearAllFacets}
-                data-testid="board-zero-match-clear"
-                className="border border-brand-primary/40 rounded-control px-3 py-1.5 text-xs
-                  text-brand-primary font-medium hover:bg-brand-primary/10
-                  focus:ring-2 focus:ring-brand-primary focus:outline-none"
-              >
-                Clear filters
-              </button>
-            </div>
-          )}
+          {facetZeroMatch && <BoardZeroMatch onClearAll={onClearAllFacets} />}
 
-          {/* Body — backlog surface (rail | drawer | queue) + scrolling phase
-              grid. The rail sits left of the grid (flex-row); the drawer sits
-              above it (flex-col, full width); the queue replaces both.
-              Layout is persisted via `useBoardToolbarPrefs` (ADR-0057 / epic #361). */}
-          {!facetZeroMatch && effectiveLayout === 'queue' && (
-            <QueueLayout
-              tasks={queueTasks}
-              phaseNameFor={(parentId) => phaseNameMap.get(parentId ?? 'root') ?? 'Project'}
-              phaseColorFor={(parentId) => (parentId ? phaseColor(parentId) : phaseColor('root'))}
-              focusedCardId={focusedCardId}
-              onCardFocus={handleCardFocus}
-              onCardClick={handleCardClick}
-              canReorder={canManageBacklog}
-              onReorderGroup={(entries) => queueReorder.mutate(entries)}
-              header={
-                projectId ? (
-                  <SprintPanel
-                    projectId={projectId}
-                    methodology={projectDetail?.methodology}
-                    boardCadence={projectDetail?.board_cadence}
-                  />
-                ) : null
-              }
-            />
-          )}
-          {effectiveLayout === 'drawer' && (
-            <BacklogDrawer
-              tasks={backlogTasks}
-              isDragActive={activeId !== null}
-              isOver={overCell === BACKLOG_BAND_DROPPABLE_ID}
-              density={toolbarPrefs.backlogDensity}
-              phaseColorFor={(parentId) => (parentId ? phaseColor(parentId) : phaseColor('root'))}
-              focusedCardId={focusedCardId}
-              onCardFocus={handleCardFocus}
-              onCardClick={handleCardClick}
-            />
-          )}
-          {/* Mobile snap-scroll board (v3 case 8). On phones the phase ×
-              status grid is unreadable, so each status column becomes a
-              full-width snap page with a dot-strip nav. Gated behind `isMobile`
-              so the desktop layout below is unchanged. The backlog band/drawer
-              is suppressed here — the FAB + card menus cover capture/move on a
-              phone, and the strip owns the horizontal axis. Queue layout keeps
-              its own (already mobile-friendly) flat list above. */}
-          {!facetZeroMatch && effectiveLayout !== 'queue' && isMobile && (
-            <MobileBoard
-              columns={COLUMNS}
-              tasksByStatus={mobileTasksByStatus}
-              density={density}
-              onMenuMove={handleMenuMove}
-              focusedCardId={focusedCardId}
-              onCardFocus={handleCardFocus}
-              onShowDeps={handleShowDeps}
-              onShowRisks={handleShowRisks}
-              onCardClick={handleCardClick}
-              showEvm={evmMode}
-              showCost={showCost}
-              customFieldDefs={cardCustomFieldDefs}
-              scopeActions={scopeActions}
-              readOnly={readOnly}
-              wipTrendSeriesByStatus={wipTrendSeriesByStatus}
-              onActiveStatusChange={setMobileActiveStatus}
-              facetMatchIds={facetMatchIds}
-            />
-          )}
-          {!facetZeroMatch && effectiveLayout !== 'queue' && !isMobile && (
-            <div className="flex-1 flex flex-row min-h-0">
-              {effectiveLayout === 'rail' && (
-                <BacklogBand
-                  tasks={backlogTasks}
-                  isDragActive={activeId !== null}
-                  isOver={overCell === BACKLOG_BAND_DROPPABLE_ID}
-                  density={toolbarPrefs.backlogDensity}
-                  phaseColorFor={(parentId) =>
-                    parentId ? phaseColor(parentId) : phaseColor('root')
-                  }
-                  focusedCardId={focusedCardId}
-                  onCardFocus={handleCardFocus}
-                  onCardClick={handleCardClick}
-                  onSchedule={projectId ? handleScheduleRequest : undefined}
-                  onQuickCapture={projectId && !readOnly ? handleQuickCaptureBacklog : undefined}
-                  isQuickCapturePending={createTask.isPending}
-                  onCaptureIdea={() => handleAddTask('root', 'backlog', true)}
-                  isCaptureIdeaPending={false}
-                  onOpenCommandPalette={() => openCommandPalette(true)}
-                  readOnly={readOnly}
-                />
-              )}
-
-              {/* Board grid — scrollable. `setBoardScrollEl` + the grab/grabbing
-                  cursor classes wire Space-held drag-panning (issue 1265);
-                  `select-none` while panning stops text selection mid-drag. The
-                  `relative` wrapper hosts the bottom edge-fade overflow cue
-                  (#1962) — the vertical analog of ShellNavScroller (rule 174). */}
-              <div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
-                <div
-                  ref={setBoardScrollEl}
-                  data-testid="board-scroll"
-                  data-space-panning={isBoardPanning ? 'true' : undefined}
-                  // pb-6 / pr-6 keep the final lane's tallest card and the
-                  // rightmost (DONE) column off the scroll fold (#1963 / #1972):
-                  // a card sheared flush at the viewport edge reads as truncated,
-                  // not scrollable. The trailing gutters — paired with the #1962
-                  // bottom edge-fade and the #1972 right edge-fade — are the "keep
-                  // scrolling" signal on both axes. The fixed-track grid overflows
-                  // horizontally by design (boardGrid.ts), so the right gutter is
-                  // the horizontal analog of the vertical breathing room.
-                  className={`flex-1 overflow-auto min-h-0 pb-6 pr-6 bg-neutral-surface-sunken${
-                    isBoardPanArmed
-                      ? isBoardPanning
-                        ? ' cursor-grabbing select-none'
-                        : ' cursor-grab'
-                      : ''
-                  }`}
-                  // Board zoom CSS vars (issue 379) — cascade to the column-header / lane /
-                  // phase-rail grids and the column card-stacks below.
-                  style={BOARD_ZOOM_VARS[toolbarPrefs.zoom]}
-                >
-                  {/* Active-sprint summary (ADR-0073) — rendered inside the scroll
-                container so the burndown / velocity charts scroll away with
-                the board instead of permanently consuming vertical space.
-                Hidden entirely on WATERFALL projects and on projects with
-                no active sprint. */}
-                  {projectId && (
-                    <SprintPanel
-                      projectId={projectId}
-                      methodology={projectDetail?.methodology}
-                      boardCadence={projectDetail?.board_cadence}
-                    />
-                  )}
-                  {/* Flow analytics (ADR-0137, issue 1188) — collapsed by default;
-                team-private behind the ADR-0104 flow_metrics signal. */}
-                  {projectId && (
-                    <FlowAnalyticsPanel
-                      projectId={projectId}
-                      boardCadence={projectDetail?.board_cadence}
-                    />
-                  )}
-                  {/* Sticky 2-tier header (issue 1458, ADR-0192 Part 1). The header row
-                    pins on vertical scroll (sticky top); the "Phase" corner cell
-                    additionally pins on horizontal scroll (sticky left) so it
-                    stays over the lane sidebar. Z-order: corner (z-20) > header
-                    row (z-10) > lane sidebar (z-[5]) > body cells. The header
-                    stays at z-10 (not higher) so it never paints over the
-                    toolbar's portaled menus. `w-max min-w-full` makes the
-                    fixed-width tracks overflow the scroll container
-                    horizontally rather than squishing. */}
-                  <div
-                    className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b-2 border-neutral-border bg-neutral-surface sticky top-0 z-10 w-max min-w-full"
-                    style={{
-                      gridTemplateColumns: boardGridTemplate(
-                        COLUMNS,
-                        collapsedColumns,
-                        columnWidths,
-                      ),
-                    }}
-                  >
-                    <div className="sticky left-0 z-20 bg-neutral-surface text-xs uppercase tracking-wide text-neutral-text-secondary px-2 flex items-center">
-                      Phase
-                    </div>
-                    {COLUMNS.map((col) => {
-                      const count = totalByStatus[col.status];
-                      // Folded column (issue 1459) — render the narrow stub in place of
-                      // the full header cell. The stub carries the WIP-breach tone
-                      // so the signal survives collapse.
-                      if (collapsedColumns.has(col.status)) {
-                        return (
-                          <ColumnStub
-                            key={col.status}
-                            label={col.label}
-                            status={col.status}
-                            count={count}
-                            // Breach band computed unconditionally — a WIP breach
-                            // stays visible on the stub regardless of the "Show WIP
-                            // limits" toggle, matching the expanded header's
-                            // always-on WipBreachChip (#1695, rule 176 → stubs).
-                            wipBand={wipState(count, col.wipLimit)}
-                            wipLimit={col.wipLimit}
-                            showWip={showWip}
-                            myCardCount={myCountByStatus[col.status]}
-                            onExpand={() => toggleColumn(col.status)}
-                          />
-                        );
-                      }
-                      const state = showWip ? wipState(count, col.wipLimit) : 'none';
-                      // A WIP breach is a signal, not an opt-in detail (issue 1188 /
-                      // ADR-0130 D2 / VoC Alex): the breach chip + the column's accessible name
-                      // announce it independent of the "Show WIP limits" toggle, which
-                      // continues to gate only the numeric N/limit badge. Computed from
-                      // the live column count (same source as the tint), so it equals the
-                      // server breach verdict without a staler redundant read.
-                      const breach = wipState(count, col.wipLimit);
-                      const breached = breach === 'at' || breach === 'over';
-                      // WIP-state band tint kept on at/over states (issue #232) but
-                      // dropped on `none` — epic #361 child E (#385) introduced the
-                      // status-dot prefix as the resting signal, so a tint at rest
-                      // would compete with the dot.
-                      const headerTint =
-                        state === 'over'
-                          ? 'bg-semantic-critical-bg border-l-2 border-semantic-critical'
-                          : state === 'at'
-                            ? 'bg-semantic-at-risk-bg border-l-2 border-semantic-at-risk'
-                            : '';
-                      const dotClass = COLUMN_DOT_CLASS[col.status] ?? 'bg-neutral-text-disabled';
-                      return (
-                        <div
-                          key={col.status}
-                          // The per-column left rule (#1866) makes the header align with
-                          // the body grid's vertical column rules; a WIP at/over tint
-                          // supplies its own `border-l-2 border-semantic-*` and wins.
-                          className={`relative flex items-center gap-2 px-2 ${
-                            headerTint || 'border-l border-neutral-border'
-                          }`}
-                          data-wip-state={state}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`}
-                          />
-                          <h2
-                            className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
-                            // The inline WipBadge names the limit state visually; the
-                            // header's accessible name must carry it too so a screen
-                            // reader hears "at/over limit" on the column itself (#1033).
-                            aria-label={
-                              breach === 'over'
-                                ? `${col.label}, ${count} task${count !== 1 ? 's' : ''}, over limit`
-                                : breach === 'at'
-                                  ? `${col.label}, ${count} task${count !== 1 ? 's' : ''}, at limit`
-                                  : `${col.label}, ${count} task${count !== 1 ? 's' : ''}`
-                            }
-                          >
-                            {col.label}
-                          </h2>
-                          <span className="text-xs text-neutral-text-disabled tppm-mono">
-                            {count}
-                          </span>
-                          <span className="ml-auto flex items-center gap-1.5">
-                            {(() => {
-                              // WIP-creep arrow (issue 1213): reads before the
-                              // breach chip so the row scans "heading up → current
-                              // breach → number". No series (suppressed / ON_HOLD /
-                              // no limit) → wipTrend returns null → nothing renders.
-                              const trend = wipTrend(
-                                wipTrendSeriesByStatus[col.status] ?? [],
-                                col.wipLimit,
-                              );
-                              return trend ? <WipTrendArrow trend={trend} /> : null;
-                            })()}
-                            {breached && <WipBreachChip state={breach} />}
-                            {showWip && col.wipLimit != null && (
-                              <WipBadge count={count} limit={col.wipLimit} />
-                            )}
-                            {/* Collapse-to-stub control (issue 1459). Folds this column
-                              across every lane; the header stub expands it back. */}
-                            <button
-                              type="button"
-                              onClick={() => toggleColumn(col.status)}
-                              title={`Collapse ${col.label}`}
-                              aria-label={`Collapse ${col.label} column`}
-                              data-testid={`collapse-column-${col.status}`}
-                              className="relative flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center rounded-control
-                              text-neutral-text-disabled hover:text-brand-primary hover:bg-brand-primary/10
-                              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
-                              before:absolute before:inset-[-13px] before:content-['']"
-                            >
-                              <svg
-                                aria-hidden="true"
-                                width={11}
-                                height={11}
-                                viewBox="0 0 12 12"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth={1.6}
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <path d="M7.5 2.5L4 6l3.5 3.5M11 2.5L7.5 6 11 9.5" />
-                              </svg>
-                            </button>
-                          </span>
-                          {/* Drag the right edge to resize this column (issue 285). */}
-                          <ColumnResizeHandle
-                            label={col.label}
-                            onResize={(px) => setColumnWidth(col.status, px)}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Phase lanes */}
-                  {(() => {
-                    const filteredPhases = sortedPhases.filter((phase) => {
-                      // Phase-lane focus mode (issue 1460) — when a lane is focused,
-                      // render only that lane. Filtering to one lane supersedes
-                      // every other lane-visibility rule below. A stale ?focus=
-                      // (phase no longer present) falls through and shows all.
-                      if (
-                        focusedLanePhaseId &&
-                        sortedPhases.some((p) => p.id === focusedLanePhaseId)
-                      ) {
-                        return phase.id === focusedLanePhaseId;
-                      }
-                      const phaseCells = phaseTaskMap.get(phase.id);
-                      // After cpOnly / dueSoonDays / mineActive filtering, hide
-                      // phases with no visible tasks. Without this the empty-state
-                      // branch below can never render — phases would stay even when
-                      // every cell has been emptied by the filter.
-                      if (cpOnly || dueSoonDays !== null || mineActive || debtOnly) {
-                        const visibleCount = Object.values(phaseCells ?? {}).reduce(
-                          (s: number, arr) => s + (arr as unknown[]).length,
-                          0,
-                        );
-                        if (visibleCount === 0) return false;
-                      }
-                      if (!riskLinkedOnly) return true;
-                      return phase.tasks.some((t) => (t.linkedRisksCount ?? 0) > 0);
-                    });
-
-                    const laneProps = (phase: Phase) => ({
-                      phase,
-                      columns: COLUMNS,
-                      tasksByStatus: phaseTaskMap.get(phase.id) ?? EMPTY_TASKS_BY_STATUS,
-                      milestones: milestonesByPhase.get(phase.id) ?? EMPTY_MILESTONES,
-                      // Pre-compute this lane's drag-over column so only the lane under
-                      // the pointer sees a changed prop; every other lane stays null and
-                      // its memo skips the drag-over re-render (issue 1520). overCell is
-                      // `${phaseId}:${status}`; phase ids carry no ':'.
-                      overStatus:
-                        overCell && overCell.startsWith(`${phase.id}:`)
-                          ? (overCell.slice(phase.id.length + 1) as TaskStatus)
-                          : null,
-                      isDragActive: activeId !== null,
-                      showWip,
-                      showColTints,
-                      density,
-                      collapsed: collapsedIds.has(phase.id),
-                      onToggleCollapse: toggleCollapse,
-                      collapsedColumns,
-                      onExpandColumn: expandColumn,
-                      focused: focusedLanePhaseId === phase.id,
-                      onToggleFocus: toggleFocusLane,
-                      onMenuMove: handleMenuMove,
-                      // Assignee (324) and epic (364) lanes can't host a new task (a
-                      // lane id is a resource or an epic, not a WBS parent) — suppress
-                      // the per-lane add button in those read-only lenses. Also
-                      // suppressed board-wide when `readOnly` (closed sprint or a
-                      // Viewer, #2146).
-                      onAddTask:
-                        readOnly || groupMode === 'assignee' || groupMode === 'epic'
-                          ? undefined
-                          : handleAddTask,
-                      focusedCardId,
-                      // Search match set (when active) overrides the issue-182 dep-hover
-                      // dim set — see effectiveHighlightIds (issue 323).
-                      highlightedTaskIds: effectiveHighlightIds,
-                      facetMatchIds,
-                      overallocByResourcePerTask,
-                      onCardFocus: handleCardFocus,
-                      onShowDeps: handleShowDeps,
-                      onShowRisks: handleShowRisks,
-                      onChainHover: handleChainHover,
-                      onCardClick: handleCardClick,
-                      onOpenMilestone: handleOpenMilestone,
-                      showEvm: evmMode,
-                      showCost,
-                      customFieldDefs: cardCustomFieldDefs,
-                      scopeActions,
-                      readOnly,
-                      workshop: workshopMode,
-                      onPhaseRename: workshopMode ? handlePhaseRename : undefined,
-                      // Board resize (issue 285): per-column widths + this lane's height.
-                      columnWidths,
-                      phaseHeight: phaseHeights[phase.id],
-                      onResizeHeight: setPhaseHeight,
-                      // Per-cell card cap (issue 1967, ADR-0420) — desktop matrix only.
-                      cellCap: toolbarPrefs.cellCap,
-                      myResourceId,
-                    });
-
-                    if (workshopMode) {
-                      return (
-                        <>
-                          <SortableContext
-                            items={filteredPhases.map((p) => `phase:${p.id}`)}
-                            strategy={verticalListSortingStrategy}
-                          >
-                            {filteredPhases.length === 0 ? (
-                              <div className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-text-secondary">
-                                <p className="text-sm">
-                                  No phases yet. Add your first phase to start planning.
-                                </p>
-                                <button
-                                  type="button"
-                                  onClick={handleAddPhase}
-                                  disabled={createTask.isPending}
-                                  className="border border-brand-primary/40 rounded-control px-4 py-2 text-sm
-                              text-brand-primary font-medium
-                              hover:bg-brand-primary/10 disabled:opacity-50
-                              focus:ring-2 focus:ring-brand-primary focus:outline-none"
-                                >
-                                  {createTask.isPending ? 'Adding…' : '+ Add Phase'}
-                                </button>
-                              </div>
-                            ) : (
-                              filteredPhases.map((phase) => (
-                                <SortablePhaseLane key={phase.id} {...laneProps(phase)} />
-                              ))
-                            )}
-                          </SortableContext>
-                          {filteredPhases.length > 0 && (
-                            <div className="flex justify-start px-4 py-3">
-                              <button
-                                type="button"
-                                onClick={handleAddPhase}
-                                disabled={createTask.isPending}
-                                className="border border-dashed border-neutral-border rounded-control px-3 py-1.5 text-xs
-                            text-neutral-text-secondary hover:border-brand-primary/40
-                            hover:text-brand-primary
-                            hover:bg-brand-primary/5 disabled:opacity-50
-                            focus:ring-2 focus:ring-brand-primary focus:outline-none"
-                              >
-                                {createTask.isPending ? 'Adding…' : '+ Add Phase'}
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      );
-                    }
-
-                    if (filteredPhases.length === 0) {
-                      if (mineActive) {
-                        return (
-                          <div
-                            className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-text-secondary text-sm"
-                            role="status"
-                          >
-                            <p>No tasks assigned to you in this project yet.</p>
-                            <button
-                              type="button"
-                              onClick={() => myTasksFilter.setEnabled(false)}
-                              className="border border-brand-primary/40 rounded-control px-3 py-1.5 text-xs
-                          text-brand-primary font-medium
-                          hover:bg-brand-primary/10
-                          focus:ring-2 focus:ring-brand-primary focus:outline-none"
-                            >
-                              Show all tasks
-                            </button>
-                          </div>
-                        );
-                      }
-                      return (
-                        <EmptyState
-                          className="h-full bg-neutral-surface"
-                          icon={BoardIcon}
-                          title="No tasks yet"
-                          description="Add your first task to get started — it will appear here and across every view."
-                          action={
-                            projectId ? (
-                              <Button onClick={handleMobileFabAdd}>+ Add task</Button>
-                            ) : undefined
-                          }
-                        />
-                      );
-                    }
-
-                    return filteredPhases.map((phase) => (
-                      <PhaseLane key={phase.id} {...laneProps(phase)} />
-                    ));
-                  })()}
-                </div>
-                {/* Bottom edge-fade — the "more below" cue for vertical overflow
-                  (#1962). Decorative (rule 6): the column-header aria-label counts
-                  (rule 101) already announce the true totals to screen readers.
-                  Rendered only while content sits below the fold. */}
-                {hasScrollBelow && (
-                  <span
-                    aria-hidden="true"
-                    data-testid="board-scroll-fade"
-                    className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-gradient-to-t from-neutral-surface-sunken to-transparent"
-                  />
-                )}
-                {/* Right edge-fade — the "more to the right" cue for horizontal
-                  overflow (#1972), the horizontal analog of the bottom fade
-                  above. The fixed-track grid overflows its scroll container by
-                  design (boardGrid.ts), so the rightmost DONE column shears
-                  flush at the viewport edge with no scroll affordance on
-                  auto-hiding-scrollbar platforms (macOS/touch). Decorative (rule
-                  6): the column-header aria-labels (rule 101) already announce
-                  the true per-column totals. Rendered only while content sits to
-                  the right of the current scroll position. */}
-                {hasScrollRight && (
-                  <span
-                    aria-hidden="true"
-                    data-testid="board-scroll-fade-right"
-                    className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-neutral-surface-sunken to-transparent"
-                  />
-                )}
-              </div>
-            </div>
-          )}
+          <BoardBody
+            projectId={projectId}
+            facetZeroMatch={facetZeroMatch}
+            effectiveLayout={effectiveLayout}
+            isMobile={isMobile}
+            columns={COLUMNS}
+            methodology={projectDetail?.methodology}
+            boardCadence={projectDetail?.board_cadence}
+            queueTasks={queueTasks}
+            phaseNameFor={(parentId) => phaseNameMap.get(parentId ?? 'root') ?? 'Project'}
+            phaseColorFor={(parentId) => phaseColor(parentId ?? 'root')}
+            canReorder={canManageBacklog}
+            onReorderGroup={(entries) => queueReorder.mutate(entries)}
+            backlogTasks={backlogTasks}
+            isDragActive={activeId !== null}
+            isBacklogOver={overCell === BACKLOG_BAND_DROPPABLE_ID}
+            backlogDensity={toolbarPrefs.backlogDensity}
+            onSchedule={handleScheduleRequest}
+            onQuickCapture={handleQuickCaptureBacklog}
+            isQuickCapturePending={createTask.isPending}
+            onCaptureIdea={() => handleAddTask('root', 'backlog', true)}
+            onOpenCommandPalette={() => openCommandPalette(true)}
+            mobileTasksByStatus={mobileTasksByStatus}
+            onActiveStatusChange={setMobileActiveStatus}
+            density={density}
+            onMenuMove={handleMenuMove}
+            focusedCardId={focusedCardId}
+            onCardFocus={handleCardFocus}
+            onShowDeps={handleShowDeps}
+            onShowRisks={handleShowRisks}
+            onCardClick={handleCardClick}
+            showEvm={evmMode}
+            showCost={showCost}
+            cardCustomFieldDefs={cardCustomFieldDefs}
+            scopeActions={scopeActions}
+            readOnly={readOnly}
+            facetMatchIds={facetMatchIds}
+            setBoardScrollEl={setBoardScrollEl}
+            isBoardPanArmed={isBoardPanArmed}
+            isBoardPanning={isBoardPanning}
+            zoomVars={BOARD_ZOOM_VARS[toolbarPrefs.zoom]}
+            hasScrollBelow={hasScrollBelow}
+            hasScrollRight={hasScrollRight}
+            collapsedColumns={collapsedColumns}
+            columnWidths={columnWidths}
+            totalByStatus={totalByStatus}
+            myCountByStatus={myCountByStatus}
+            showWip={showWip}
+            wipTrendSeriesByStatus={wipTrendSeriesByStatus}
+            onToggleColumn={toggleColumn}
+            onResizeColumn={setColumnWidth}
+            lanes={visibleLanes(sortedPhases, focusedLanePhaseId, phaseTaskMap, {
+              cpOnly,
+              dueSoonDays,
+              mineActive,
+              debtOnly,
+              riskLinkedOnly,
+            })}
+            renderLane={renderLane}
+            workshopMode={workshopMode}
+            onAddPhase={handleAddPhase}
+            isAddingPhase={createTask.isPending}
+            mineActive={mineActive}
+            onShowAllTasks={() => myTasksFilter.setEnabled(false)}
+            onAddTask={handleMobileFabAdd}
+          />
 
           {/* Scope-injection drop toast (#1140) — bottom-center, neutral, ephemeral.
               Positioned absolute within this relative board container. */}
@@ -4157,326 +3067,109 @@ export function BoardView() {
         </button>
       )}
 
-      {/* Backlog demote confirm — opens when a NOT_STARTED card drops on the
-          band (ADR-0057, Option C). Audit row is captured automatically by
-          simple_history on the status field change. */}
-      {backlogDemoteCandidate && (
-        <BacklogDemoteConfirmDialog
-          task={backlogDemoteCandidate}
-          onCancel={() => setBacklogDemoteCandidate(null)}
-          onConfirm={() => {
-            const target = backlogDemoteCandidate;
-            setBacklogDemoteCandidate(null);
-            updateStatus.mutate({
-              projectId,
-              taskId: target.id,
-              status: 'BACKLOG',
-            });
-            if (ariaLiveRef.current) {
-              ariaLiveRef.current.textContent = `${target.name} moved to Backlog`;
-            }
-          }}
-        />
-      )}
-
-      {/* WIP-limit breach confirm (#232, #2050) — replaces a native window.confirm
-          fired mid-drop. Cancel-first: dismissing keeps the card in place. */}
-      {wipMoveCandidate && (
-        <WipLimitConfirmDialog
-          taskName={wipMoveCandidate.taskName}
-          columnLabel={wipMoveCandidate.breach.label}
-          count={wipMoveCandidate.breach.count}
-          limit={wipMoveCandidate.breach.limit}
-          onCancel={() => setWipMoveCandidate(null)}
-          onConfirm={() => {
-            const perform = wipMoveCandidate.perform;
-            setWipMoveCandidate(null);
-            perform();
-          }}
-        />
-      )}
-
-      {/* Schedule "…" dialog (#318, rule 135) — keyboard alternative to dragging
-          a backlog idea onto the Schedule view's timeline. Opened from a
-          BacklogCard's ··· action; issues the same
-          { planned_start, status: 'NOT_STARTED' } promote PATCH (decision A2). */}
-      {scheduleDialogTask && projectId && (
-        <ScheduleTaskDialog
-          task={scheduleDialogTask}
-          projectId={projectId}
-          // Keyboard parity with drag-to-assign (#2170): when the board is scoped
-          // to a PLANNED/ACTIVE sprint, promoting a backlog card also pulls it
-          // into that sprint — otherwise the promoted card is committed-but-
-          // unscoped and hidden from the sprint board. Mirrors handleDragEnd's
-          // assignSprintId gate (#429); a COMPLETED sprint is read-only.
-          assignSprint={
-            selectedSprint &&
-            (selectedSprint.state === 'ACTIVE' || selectedSprint.state === 'PLANNED') &&
-            scheduleDialogTask.sprintId !== selectedSprint.id
-              ? {
-                  id: selectedSprint.id,
-                  name: selectedSprint.name,
-                  pending: selectedSprint.state === 'ACTIVE',
-                }
-              : null
+      <BoardConfirmDialogs
+        projectId={projectId}
+        isMobile={isMobile}
+        selectedSprint={selectedSprint}
+        backlogDemoteCandidate={backlogDemoteCandidate}
+        onBacklogDemoteCancel={() => setBacklogDemoteCandidate(null)}
+        onBacklogDemoteConfirm={(target) => {
+          setBacklogDemoteCandidate(null);
+          updateStatus.mutate({ projectId, taskId: target.id, status: 'BACKLOG' });
+          if (ariaLiveRef.current) {
+            ariaLiveRef.current.textContent = `${target.name} moved to Backlog`;
           }
-          onClose={handleScheduleDialogClose}
-        />
-      )}
-
-      {/* Per-phase task create modal (issue #305 — replaced AddTaskModal).
-          When the source is the synthetic phase-less Project Tasks lane
-          (#387), open with status defaulting to BACKLOG; the modal title
-          becomes "Add to backlog" via the lowercased phaseName.
-
-          The `'root'` sentinel is the BoardView's view-layer name for the
-          parentless lane — the API expects `parent_id: null` (see
-          views.py "null = root level"), so normalize before the modal
-          stores it as `selectedParentId`. */}
-      {addTaskPhase && projectId && (
-        <TaskFormModal
-          projectId={projectId}
-          task={null}
-          phaseName={addTaskPhase.name}
-          parentId={addTaskPhase.id === 'root' ? null : addTaskPhase.id}
-          defaultStatus={
-            // Explicit FAB target (issue 605) wins; else the synthetic backlog
-            // lane defaults to BACKLOG and a real phase to NOT_STARTED.
-            addTaskPhase.status ?? (addTaskPhase.isSynthetic ? 'BACKLOG' : 'NOT_STARTED')
-          }
-          isMobile={isMobile}
-          onClose={() => setAddTaskPhase(null)}
-        />
-      )}
-
-      {/* Board batch 3 overlays — at most one open at a time. */}
-      {showCheatsheet && <KeyboardCheatsheet onClose={() => setShowCheatsheet(false)} />}
-      {shareOpen && projectId && (
-        <ShareViewDialog
-          projectId={projectId}
-          contentKind="board"
-          onClose={() => setShareOpen(false)}
-        />
-      )}
-      {showSettings && (
-        <BoardSettingsPanel
-          columns={rawColumns}
-          onSave={saveBoardConfig}
-          onClose={() => setShowSettings(false)}
-          showCustomFieldsOnCards={toolbarPrefs.showCustomFieldsOnCards}
-          onToggleCustomFieldsOnCards={toolbarPrefs.setShowCustomFieldsOnCards}
-          // Column/WIP config is a shared-board write — SCHEDULER+ (#2146). The
-          // panel ships a complete view-only mode ("schedulers can edit columns")
-          // that was never wired; a Member/Viewer could edit and hit a raw 403.
-          readOnly={!canConfigureBoard}
-        />
-      )}
-      {depTask && (
-        <DepPopover
-          task={depTask}
-          taskIndex={taskIndex}
-          onClose={() => setDepTask(null)}
-          onJumpTo={(taskId) => {
-            const target = taskIndex.get(taskId);
-            if (target) {
-              handleCardFocus(taskId, target.status, target.parentId ?? 'root');
-            }
-            setDepTask(null);
-          }}
-        />
-      )}
-      {riskTask && projectId && (
-        <RiskPopover projectId={projectId} task={riskTask} onClose={() => setRiskTask(null)} />
-      )}
-
-      {/* Card information popover (issue #304) — primary card-click target.
-          "Open detail" hands off to TaskDetailDrawer below; "Edit" routes
-          there in edit mode (one-line swap target for #305 modal). */}
-      {popoverTask && projectId && (
-        <BoardCardPopover
-          task={popoverTask}
-          projectId={projectId}
-          anchor={popoverAnchor}
-          isMobile={isMobile}
-          onClose={() => {
-            // Return focus to the originating card on close (rule 4 / a11y).
-            const anchor = popoverAnchor;
-            closeCardPopover();
-            if (anchor && anchor.isConnected) anchor.focus();
-          }}
-          onOpenDetail={() => {
-            const id = popoverTask.id;
-            closeCardPopover();
-            setSelectedTaskId(id);
-          }}
-          onEdit={() => {
-            // #305 wired: Edit opens the unified TaskFormModal in edit mode.
-            const id = popoverTask.id;
-            closeCardPopover();
-            setEditTaskId(id);
-          }}
-        />
-      )}
-
-      {/* Task detail drawer — rendered from BoardView for the first time
-          (folds in #265). Driven by the popover's "Open detail" action;
-          shares the same registry-backed entry path as the Schedule view
-          (ADR-0050). Conditionally mounted on selection so a closed
-          `role="dialog"` does not collide with the Workshop modal's loose
-          `getByRole('dialog')` locator (wave9-workshop e2e). */}
-      {projectId && selectedTaskId && (
-        <TaskDetailDrawer
-          task={taskIndex.get(selectedTaskId) ?? null}
-          projectId={projectId}
-          onClose={() => setSelectedTaskId(null)}
-          // Keep-editing on a dirty swap: the card click already moved selection
-          // to the new task; restore it to the one the drawer is still showing so
-          // selection and drawer stay in sync (#1978).
-          onSwapCanceled={(keptId) => setSelectedTaskId(keptId)}
-        />
-      )}
-
-      {/* Board activity feed (ADR-0160, issue 1261) — a docked right-edge rail
-          (overlay on mobile). Clicking an event opens its card via the same
-          selectedTaskId drawer; a deleted/absent card is not openable. The panel
-          is non-modal, dismissed via its close button or the toolbar toggle. */}
-      {projectId && activityOpen && (
-        <div className="fixed inset-y-0 right-0 z-30 flex w-full max-w-sm border-l border-neutral-border md:w-80">
-          <BoardActivityPanel
-            projectId={projectId}
-            onClose={toggleActivity}
-            onOpenTask={(taskId) => setSelectedTaskId(taskId)}
-            isTaskOpenable={(taskId) => taskIndex.has(taskId)}
-            // ADR-0412 (#1946): when a sprint is active, open the feed scoped to it
-            // ("This sprint" default with a Whole-board toggle) — Activity where the
-            // team already looks, narrowed to the ~40 sprint cards Alex/Jordan watch.
-            sprintId={activeSprint?.id ?? null}
-          />
-        </div>
-      )}
-
-      {/* Daily standup walk-the-board (ADR-0166, issue 1278) — a focused full-surface mode
-          driven by the active sprint's per-person walk; opens the same selectedTaskId
-          drawer when a card is clicked. Mounted off ?standup=1. */}
-      {projectId && standupOpen && (
-        <StandupMode
-          projectId={projectId}
-          onClose={closeStandup}
-          onOpenTask={(taskId) => setSelectedTaskId(taskId)}
-        />
-      )}
-
-      {/* Task edit modal (issue #305) — opened by the popover's "Edit"
-          action. Same component handles create/edit; mode is inferred from
-          `task` (null = create, set = edit). */}
-      {projectId && editTaskId && (
-        <TaskFormModal
-          projectId={projectId}
-          task={taskIndex.get(editTaskId) ?? null}
-          isMobile={isMobile}
-          onClose={() => setEditTaskId(null)}
-          onDeleted={() => {
-            setEditTaskId(null);
-            setSelectedTaskId(null);
-          }}
-        />
-      )}
-
-      {/* Workshop exit confirmation dialog (ADR-0046) */}
-      {showExitConfirm && (
-        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="workshop-exit-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay"
-          tabIndex={-1}
-          onKeyDown={(e: ReactKeyboardEvent<HTMLDivElement>) => {
-            if (e.key === 'Escape') {
+        }}
+        wipMoveCandidate={wipMoveCandidate}
+        onWipMoveCancel={() => setWipMoveCandidate(null)}
+        onWipMoveConfirm={(perform) => {
+          setWipMoveCandidate(null);
+          perform();
+        }}
+        scheduleDialogTask={scheduleDialogTask}
+        onScheduleDialogClose={handleScheduleDialogClose}
+        addTaskPhase={addTaskPhase}
+        onAddTaskClose={() => setAddTaskPhase(null)}
+        workshopExitOpen={showExitConfirm}
+        workshopEnding={endWorkshop.isPending}
+        workshopToggleRef={workshopToggleRef}
+        onWorkshopExitCancel={() => setShowExitConfirm(false)}
+        onWorkshopExitConfirm={() => {
+          endWorkshop.mutate(undefined, {
+            onSettled: () => {
+              setWorkshopMode(false);
               setShowExitConfirm(false);
               workshopToggleRef.current?.focus();
-              return;
-            }
-            // Focus trap: cycle Tab through the dialog's interactive elements.
-            if (e.key === 'Tab') {
-              const focusable = Array.from(
-                e.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled])'),
-              );
-              if (focusable.length === 0) return;
-              const first = focusable[0];
-              const last = focusable[focusable.length - 1];
-              if (e.shiftKey && document.activeElement === first) {
-                e.preventDefault();
-                last.focus();
-              } else if (!e.shiftKey && document.activeElement === last) {
-                e.preventDefault();
-                first.focus();
-              }
-            }
-          }}
-        >
-          <div className="bg-neutral-surface border border-neutral-border rounded-card p-6 max-w-sm w-full mx-4">
-            <h2
-              id="workshop-exit-title"
-              className="text-sm font-semibold text-neutral-text-primary mb-2"
-            >
-              End workshop session?
-            </h2>
-            <p className="text-xs text-neutral-text-secondary mb-4">
-              This will end the session for all participants. The board will return to normal mode.
-            </p>
-            <div className="flex gap-2 justify-end">
-              <button
-                // eslint-disable-next-line jsx-a11y/no-autofocus
-                autoFocus
-                type="button"
-                onClick={() => {
-                  setShowExitConfirm(false);
-                  workshopToggleRef.current?.focus();
-                }}
-                className="border border-neutral-border rounded-control px-3 py-1.5 text-xs
-                  text-neutral-text-primary hover:bg-neutral-surface-raised
-                  focus:ring-2 focus:ring-brand-primary focus:outline-none"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={endWorkshop.isPending}
-                onClick={() => {
-                  endWorkshop.mutate(undefined, {
-                    onSettled: () => {
-                      setWorkshopMode(false);
-                      setShowExitConfirm(false);
-                      workshopToggleRef.current?.focus();
-                    },
-                  });
-                }}
-                className="border border-semantic-critical/40 rounded-control px-3 py-1.5 text-xs
-                  text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50
-                  focus:ring-2 focus:ring-semantic-critical focus:outline-none"
-              >
-                {endWorkshop.isPending ? 'Ending…' : 'End Workshop'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            },
+          });
+        }}
+      />
 
-      {/* Sprint scope-injection review slide-over (ADR-0102 §5). Mounted only
-          for a team-owned actor (canManageScope); offline disables the
-          accept/reject controls — chips still render but no action queues
-          (ADR-0102 §6 / frontend rule 152: a stale accept could re-commit
-          rejected work, so we never queue these). */}
-      {scopeReviewOpen && projectId && activeSprint && canManageScope && (
-        <ScopePendingReviewPanel
-          projectId={projectId}
-          sprintId={activeSprint.id}
-          tasks={tasks ?? []}
-          offline={typeof navigator !== 'undefined' && !navigator.onLine}
-          onClose={() => setScopeReviewOpen(false)}
-        />
-      )}
+      <BoardCardOverlays
+        projectId={projectId}
+        isMobile={isMobile}
+        taskIndex={taskIndex}
+        showCheatsheet={showCheatsheet}
+        onCloseCheatsheet={() => setShowCheatsheet(false)}
+        shareOpen={shareOpen}
+        onCloseShare={() => setShareOpen(false)}
+        showSettings={showSettings}
+        onCloseSettings={() => setShowSettings(false)}
+        rawColumns={rawColumns}
+        onSaveBoardConfig={saveBoardConfig}
+        showCustomFieldsOnCards={toolbarPrefs.showCustomFieldsOnCards}
+        onToggleCustomFieldsOnCards={toolbarPrefs.setShowCustomFieldsOnCards}
+        canConfigureBoard={canConfigureBoard}
+        depTask={depTask}
+        onCloseDeps={() => setDepTask(null)}
+        onJumpToTask={(taskId) => {
+          const target = taskIndex.get(taskId);
+          if (target) handleCardFocus(taskId, target.status, target.parentId ?? 'root');
+          setDepTask(null);
+        }}
+        riskTask={riskTask}
+        onCloseRisks={() => setRiskTask(null)}
+        popoverTask={popoverTask}
+        popoverAnchor={popoverAnchor}
+        onClosePopover={() => {
+          // Return focus to the originating card on close (rule 4 / a11y).
+          const anchor = popoverAnchor;
+          closeCardPopover();
+          if (anchor?.isConnected) anchor.focus();
+        }}
+        onOpenDetail={(id) => {
+          closeCardPopover();
+          setSelectedTaskId(id);
+        }}
+        onEditTask={(id) => {
+          closeCardPopover();
+          setEditTaskId(id);
+        }}
+        selectedTaskId={selectedTaskId}
+        onCloseDrawer={() => setSelectedTaskId(null)}
+        onDrawerSwapCanceled={(keptId) => setSelectedTaskId(keptId)}
+        editTaskId={editTaskId}
+        onCloseEditModal={() => setEditTaskId(null)}
+        onEditModalDeleted={() => {
+          setEditTaskId(null);
+          setSelectedTaskId(null);
+        }}
+      />
+
+      <BoardSidePanels
+        projectId={projectId}
+        tasks={tasks ?? []}
+        isTaskOpenable={(taskId) => taskIndex.has(taskId)}
+        onOpenTask={(taskId) => setSelectedTaskId(taskId)}
+        activityOpen={activityOpen}
+        onCloseActivity={toggleActivity}
+        activeSprintId={activeSprint?.id ?? null}
+        standupOpen={standupOpen}
+        onCloseStandup={closeStandup}
+        scopeReviewOpen={scopeReviewOpen}
+        canManageScope={canManageScope}
+        onCloseScopeReview={() => setScopeReviewOpen(false)}
+      />
     </>
   );
 }
