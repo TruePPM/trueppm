@@ -164,9 +164,232 @@ function CrossTeamSprintRows({
   );
 }
 
-/** Renders the one-or-two popover rows for a single health segment. Forecast
- *  expands to a P50 row + a P80 row (the P50·P80 band, ADR-0144/0175) — never a
- *  single percentile. Forecast rows are always neutral (rule 172). */
+/** Forecast band — a P50 row + a P80 row (the P50·P80 band, ADR-0144/0175), never
+ *  a single percentile. Always neutral (rule 172), even inside a red chip. */
+function ForecastRows({
+  segment,
+  canOpenForecast,
+  onOpenForecast,
+}: {
+  segment: Extract<HealthSegment, { kind: 'forecast' }>;
+  canOpenForecast: boolean;
+  onOpenForecast: () => void;
+}): ReactNode {
+  const p50Text = segment.p50 != null ? formatForecastDate(segment.p50) : null;
+  const p80Text = segment.p80 != null ? formatForecastDate(segment.p80) : null;
+  // aria-label MUST start with "Monte Carlo forecast" when the band is
+  // present (schedule-monte-carlo.spec locates the drill by this prefix).
+  const detailAria =
+    p50Text != null
+      ? `Monte Carlo forecast: P50 ${p50Text}, P80 ${p80Text ?? 'not run'}. View distribution.`
+      : `Monte Carlo P80 completion ${p80Text ?? 'not run'}. View distribution.`;
+  return (
+    <>
+      {/* P50 row — neutral, static (rule 172: forecast is informational,
+          never amber, even when the chip itself is red). */}
+      <div className={ROW}>
+        <span className="text-neutral-text-secondary">Forecast P50</span>
+        <span
+          className={p50Text ? 'tppm-mono text-neutral-text-primary' : 'text-neutral-text-disabled'}
+        >
+          {p50Text ?? '—'}
+        </span>
+      </div>
+      {/* P80 row — neutral, with the Details › drill into the MC distribution. */}
+      <div className={ROW}>
+        <span className="text-neutral-text-secondary">Forecast P80</span>
+        <span className="flex items-center gap-2">
+          <span
+            className={
+              p80Text ? 'tppm-mono text-neutral-text-primary' : 'text-neutral-text-disabled'
+            }
+            title={p80Text ? undefined : 'Run the scheduler'}
+          >
+            {p80Text ?? '—'}
+          </span>
+          {canOpenForecast && (
+            <button
+              type="button"
+              onClick={onOpenForecast}
+              aria-haspopup="dialog"
+              aria-label={detailAria}
+              className="text-brand-primary rounded-control px-1 hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
+            >
+              Details ›
+            </button>
+          )}
+        </span>
+      </div>
+    </>
+  );
+}
+
+/** The active-sprint jump row (folded-in CurrentSprintButton, #1680) plus other
+ *  teams' sprint rows. Falls back to the sprints list until the board path
+ *  resolves so the primary row is never dead. */
+function SprintRows({
+  segment,
+  iterationLower,
+  inContextBoardPath,
+  crossTeamTargets,
+  onGoToSprints,
+  onJumpToBoard,
+}: {
+  segment: Extract<HealthSegment, { kind: 'sprint' }>;
+  iterationLower: string;
+  inContextBoardPath: string | null;
+  crossTeamTargets: SprintJumpTarget[];
+  onGoToSprints: () => void;
+  onJumpToBoard: (path: string) => void;
+}): ReactNode {
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => (inContextBoardPath ? onJumpToBoard(inContextBoardPath) : onGoToSprints())}
+        // The announced destination must match where the click lands: only
+        // promise the board once its path has resolved, else the fallback
+        // (sprints list) would mismatch the name for a load tick.
+        aria-label={
+          inContextBoardPath
+            ? `${segment.name}, day ${segment.dayN} of ${segment.dayM}. Go to ${iterationLower} board.`
+            : `${segment.name}, day ${segment.dayN} of ${segment.dayM}. View ${iterationLower}s.`
+        }
+        className={ROW_BTN}
+      >
+        <span className="text-neutral-text-primary font-medium">{segment.name}</span>
+        <span className="tppm-mono text-neutral-text-secondary">
+          Day {segment.dayN}/{segment.dayM}
+        </span>
+      </button>
+      <CrossTeamSprintRows
+        targets={crossTeamTargets}
+        iterationLower={iterationLower}
+        onJumpToBoard={onJumpToBoard}
+      />
+    </>
+  );
+}
+
+/** The no-active-sprint row: routes to the sprints list, with other teams' active
+ *  sprints still reachable as jump rows below. */
+function SprintEmptyRows({
+  iterationSingular,
+  iterationLower,
+  crossTeamTargets,
+  onGoToSprints,
+  onJumpToBoard,
+}: {
+  iterationSingular: string;
+  iterationLower: string;
+  crossTeamTargets: SprintJumpTarget[];
+  onGoToSprints: () => void;
+  onJumpToBoard: (path: string) => void;
+}): ReactNode {
+  return (
+    <>
+      <button
+        type="button"
+        onClick={onGoToSprints}
+        aria-label={`No active ${iterationLower}. View ${iterationLower}s.`}
+        className={ROW_BTN}
+      >
+        <span className="text-neutral-text-secondary">No active {iterationSingular}</span>
+        <span aria-hidden="true" className="text-neutral-text-disabled">
+          ›
+        </span>
+      </button>
+      <CrossTeamSprintRows
+        targets={crossTeamTargets}
+        iterationLower={iterationLower}
+        onJumpToBoard={onJumpToBoard}
+      />
+    </>
+  );
+}
+
+/** Committed-vs-completed points/items row for the active sprint. */
+function PointsRow({ segment }: { segment: Extract<HealthSegment, { kind: 'points' }> }): ReactNode {
+  return (
+    <div
+      className={ROW}
+      aria-label={`${segment.completed} of ${segment.committed} ${
+        segment.unit === 'pts' ? 'points' : 'items'
+      } completed`}
+    >
+      <span className="text-neutral-text-secondary">Points</span>
+      <span className="flex items-center gap-1">
+        <span className="tppm-mono text-neutral-text-primary">
+          {segment.completed}/{segment.committed}
+        </span>
+        <span className="text-neutral-text-secondary">{segment.unit}</span>
+      </span>
+    </div>
+  );
+}
+
+/** ADR-0104 / rule 168: content-free velocity privacy wall — no number ever rendered. */
+function VelocityGatedRow({ iterationLower }: { iterationLower: string }): ReactNode {
+  return (
+    <div
+      className={ROW + ' text-neutral-text-secondary'}
+      aria-label={`Team ${iterationLower} velocity is kept private to the team`}
+    >
+      <span className="flex items-center gap-1.5">
+        <LockGlyph />
+        Velocity
+      </span>
+      <span>Kept to the team</span>
+    </div>
+  );
+}
+
+/** In-audience velocity figure with its ADR-0104 audience-boundary padlock. Renders
+ *  a calm em-dash read until there is enough closed-sprint history. */
+function VelocityRow({
+  segment,
+  iterationLower,
+  onGoToSprints,
+}: {
+  segment: Extract<HealthSegment, { kind: 'velocity' }>;
+  iterationLower: string;
+  onGoToSprints: () => void;
+}): ReactNode {
+  if (segment.avg == null) {
+    return (
+      <div className={ROW} title="Not enough closed-sprint history yet">
+        <span className="text-neutral-text-secondary">Velocity</span>
+        <span className="text-neutral-text-disabled">—</span>
+      </div>
+    );
+  }
+  const range =
+    segment.low != null && segment.high != null ? `, range ${segment.low}–${segment.high}` : '';
+  const excluded = segment.excluded > 0 ? `, ${segment.excluded} excluded` : '';
+  return (
+    <button
+      type="button"
+      onClick={onGoToSprints}
+      title={VELOCITY_PRIVACY_NOTE}
+      aria-label={`Velocity ${segment.avg} points per ${iterationLower}${range}${excluded}. ${VELOCITY_PRIVACY_NOTE}. View ${iterationLower}s.`}
+      className={ROW_BTN}
+    >
+      {/* Lock = the audience boundary on the in-audience figure (issue 1197).
+          Decorative; the boundary text lives in the aria-label + title. */}
+      <span className="flex items-center gap-1.5 text-neutral-text-secondary">
+        <LockGlyph />
+        Velocity
+      </span>
+      <span className="tppm-mono text-neutral-text-primary">
+        {segment.avg} pts/{iterationLower}
+      </span>
+    </button>
+  );
+}
+
+/** Dispatches a single health segment to its row renderer. Forecast expands to a
+ *  P50 + P80 band (ADR-0144/0175); at-risk/critical drill; sprint/points/velocity
+ *  render their agile reads with the ADR-0104 velocity privacy wall honored. */
 function SegmentRows({
   segment,
   iterationSingular,
@@ -180,57 +403,14 @@ function SegmentRows({
   onJumpToBoard,
 }: SegmentRowsProps): ReactNode {
   switch (segment.kind) {
-    case 'forecast': {
-      const p50Text = segment.p50 != null ? formatForecastDate(segment.p50) : null;
-      const p80Text = segment.p80 != null ? formatForecastDate(segment.p80) : null;
-      // aria-label MUST start with "Monte Carlo forecast" when the band is
-      // present (schedule-monte-carlo.spec locates the drill by this prefix).
-      const detailAria =
-        p50Text != null
-          ? `Monte Carlo forecast: P50 ${p50Text}, P80 ${p80Text ?? 'not run'}. View distribution.`
-          : `Monte Carlo P80 completion ${p80Text ?? 'not run'}. View distribution.`;
+    case 'forecast':
       return (
-        <>
-          {/* P50 row — neutral, static (rule 172: forecast is informational,
-              never amber, even when the chip itself is red). */}
-          <div className={ROW}>
-            <span className="text-neutral-text-secondary">Forecast P50</span>
-            <span
-              className={
-                p50Text ? 'tppm-mono text-neutral-text-primary' : 'text-neutral-text-disabled'
-              }
-            >
-              {p50Text ?? '—'}
-            </span>
-          </div>
-          {/* P80 row — neutral, with the Details › drill into the MC distribution. */}
-          <div className={ROW}>
-            <span className="text-neutral-text-secondary">Forecast P80</span>
-            <span className="flex items-center gap-2">
-              <span
-                className={
-                  p80Text ? 'tppm-mono text-neutral-text-primary' : 'text-neutral-text-disabled'
-                }
-                title={p80Text ? undefined : 'Run the scheduler'}
-              >
-                {p80Text ?? '—'}
-              </span>
-              {canOpenForecast && (
-                <button
-                  type="button"
-                  onClick={onOpenForecast}
-                  aria-haspopup="dialog"
-                  aria-label={detailAria}
-                  className="text-brand-primary rounded-control px-1 hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
-                >
-                  Details ›
-                </button>
-              )}
-            </span>
-          </div>
-        </>
+        <ForecastRows
+          segment={segment}
+          canOpenForecast={canOpenForecast}
+          onOpenForecast={onOpenForecast}
+        />
       );
-    }
 
     case 'atRisk':
       return (
@@ -259,128 +439,38 @@ function SegmentRows({
       );
 
     case 'sprint':
-      // Primary row jumps to the in-context board (the folded-in CurrentSprintButton,
-      // #1680); falls back to the sprints list until the board path resolves so it is
-      // never dead. Other teams' sprints follow as per-team jump rows.
       return (
-        <>
-          <button
-            type="button"
-            onClick={() =>
-              inContextBoardPath ? onJumpToBoard(inContextBoardPath) : onGoToSprints()
-            }
-            // The announced destination must match where the click lands: only
-            // promise the board once its path has resolved, else the fallback
-            // (sprints list) would mismatch the name for a load tick.
-            aria-label={
-              inContextBoardPath
-                ? `${segment.name}, day ${segment.dayN} of ${segment.dayM}. Go to ${iterationLower} board.`
-                : `${segment.name}, day ${segment.dayN} of ${segment.dayM}. View ${iterationLower}s.`
-            }
-            className={ROW_BTN}
-          >
-            <span className="text-neutral-text-primary font-medium">{segment.name}</span>
-            <span className="tppm-mono text-neutral-text-secondary">
-              Day {segment.dayN}/{segment.dayM}
-            </span>
-          </button>
-          <CrossTeamSprintRows
-            targets={crossTeamTargets}
-            iterationLower={iterationLower}
-            onJumpToBoard={onJumpToBoard}
-          />
-        </>
+        <SprintRows
+          segment={segment}
+          iterationLower={iterationLower}
+          inContextBoardPath={inContextBoardPath}
+          crossTeamTargets={crossTeamTargets}
+          onGoToSprints={onGoToSprints}
+          onJumpToBoard={onJumpToBoard}
+        />
       );
 
     case 'sprintEmpty':
-      // No in-context board to jump to; the primary row still routes to the sprints
-      // list. Other teams' active sprints remain reachable as jump rows.
       return (
-        <>
-          <button
-            type="button"
-            onClick={onGoToSprints}
-            aria-label={`No active ${iterationLower}. View ${iterationLower}s.`}
-            className={ROW_BTN}
-          >
-            <span className="text-neutral-text-secondary">No active {iterationSingular}</span>
-            <span aria-hidden="true" className="text-neutral-text-disabled">
-              ›
-            </span>
-          </button>
-          <CrossTeamSprintRows
-            targets={crossTeamTargets}
-            iterationLower={iterationLower}
-            onJumpToBoard={onJumpToBoard}
-          />
-        </>
+        <SprintEmptyRows
+          iterationSingular={iterationSingular}
+          iterationLower={iterationLower}
+          crossTeamTargets={crossTeamTargets}
+          onGoToSprints={onGoToSprints}
+          onJumpToBoard={onJumpToBoard}
+        />
       );
 
     case 'points':
-      return (
-        <div
-          className={ROW}
-          aria-label={`${segment.completed} of ${segment.committed} ${
-            segment.unit === 'pts' ? 'points' : 'items'
-          } completed`}
-        >
-          <span className="text-neutral-text-secondary">Points</span>
-          <span className="flex items-center gap-1">
-            <span className="tppm-mono text-neutral-text-primary">
-              {segment.completed}/{segment.committed}
-            </span>
-            <span className="text-neutral-text-secondary">{segment.unit}</span>
-          </span>
-        </div>
-      );
+      return <PointsRow segment={segment} />;
 
     case 'velocityGated':
-      // ADR-0104 / rule 168: content-free wall, no number ever rendered.
-      return (
-        <div
-          className={ROW + ' text-neutral-text-secondary'}
-          aria-label={`Team ${iterationLower} velocity is kept private to the team`}
-        >
-          <span className="flex items-center gap-1.5">
-            <LockGlyph />
-            Velocity
-          </span>
-          <span>Kept to the team</span>
-        </div>
-      );
+      return <VelocityGatedRow iterationLower={iterationLower} />;
 
-    case 'velocity': {
-      if (segment.avg == null) {
-        return (
-          <div className={ROW} title="Not enough closed-sprint history yet">
-            <span className="text-neutral-text-secondary">Velocity</span>
-            <span className="text-neutral-text-disabled">—</span>
-          </div>
-        );
-      }
-      const range =
-        segment.low != null && segment.high != null ? `, range ${segment.low}–${segment.high}` : '';
-      const excluded = segment.excluded > 0 ? `, ${segment.excluded} excluded` : '';
+    case 'velocity':
       return (
-        <button
-          type="button"
-          onClick={onGoToSprints}
-          title={VELOCITY_PRIVACY_NOTE}
-          aria-label={`Velocity ${segment.avg} points per ${iterationLower}${range}${excluded}. ${VELOCITY_PRIVACY_NOTE}. View ${iterationLower}s.`}
-          className={ROW_BTN}
-        >
-          {/* Lock = the audience boundary on the in-audience figure (issue 1197).
-              Decorative; the boundary text lives in the aria-label + title. */}
-          <span className="flex items-center gap-1.5 text-neutral-text-secondary">
-            <LockGlyph />
-            Velocity
-          </span>
-          <span className="tppm-mono text-neutral-text-primary">
-            {segment.avg} pts/{iterationLower}
-          </span>
-        </button>
+        <VelocityRow segment={segment} iterationLower={iterationLower} onGoToSprints={onGoToSprints} />
       );
-    }
 
     default:
       return null;
