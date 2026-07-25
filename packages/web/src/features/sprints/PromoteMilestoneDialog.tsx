@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import { Button } from '@/components/Button';
 import {
@@ -172,6 +173,145 @@ export function PromoteMilestoneDialog({
     );
   }, [candidates, search]);
 
+  const { handlePromote, handleUnbind } = usePromoteActions({
+    sprint,
+    mode,
+    selectedId,
+    createName,
+    createTargetDate,
+    rebinding,
+    alreadyBound,
+    canSubmit,
+    promote,
+    unbind,
+    onBound,
+    onClose,
+    setRebinding,
+    setConflict,
+  });
+
+  const widthClass = quickMode || conflict ? 'max-w-md' : 'max-w-md lg:max-w-3xl';
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Close dialog"
+        className="fixed inset-0 z-50 bg-neutral-overlay cursor-default"
+        onClick={onClose}
+      />
+      <div className="fixed inset-0 z-[51] flex items-center justify-center p-4 pointer-events-none">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={
+            conflict && !rebinding
+              ? `${itl.singular} already bound to a milestone`
+              : `Promote ${itl.lower} to milestone`
+          }
+          tabIndex={-1}
+          className={`w-full ${widthClass} max-h-[90vh] overflow-auto rounded-card border border-neutral-border bg-neutral-surface pointer-events-auto focus:outline-none`}
+        >
+          <DialogHeader
+            conflict={conflict}
+            rebinding={rebinding}
+            compact={compact}
+            showForm={showForm}
+            quickMode={quickMode}
+            itl={itl}
+            sprint={sprint}
+            onToggleQuick={() => setQuickMode((q) => !q)}
+            onClose={onClose}
+          />
+
+          <DialogBody
+            sprint={sprint}
+            itl={itl}
+            busy={busy}
+            conflict={conflict}
+            rebinding={rebinding}
+            showPreview={showPreview}
+            hasTarget={hasTarget}
+            mode={mode}
+            onModeChange={setMode}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            search={search}
+            onSearch={setSearch}
+            createName={createName}
+            onCreateName={setCreateName}
+            createTargetDate={createTargetDate}
+            onCreateTargetDate={setCreateTargetDate}
+            candidates={filteredCandidates}
+            candidatesLoading={candidatesLoading}
+            preview={preview}
+            firstFieldRef={firstFieldRef}
+            onClose={onClose}
+            onUnbind={handleUnbind}
+            onRebind={() => {
+              setRebinding(true);
+              setConflict(false);
+            }}
+          />
+
+          {showForm && (
+            <PromoteFooter
+              iterationLower={itl.lower}
+              busy={busy}
+              canSubmit={canSubmit}
+              offline={offline}
+              mode={mode}
+              onClose={onClose}
+              onPromote={handlePromote}
+            />
+          )}
+
+          <PromoteError promote={promote} unbind={unbind} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Actions hook
+// ---------------------------------------------------------------------------
+
+/** Encapsulates the promote / unbind mutation orchestration (rebind = unbind then
+ *  promote; 409-race → conflict view). Kept out of the component body so the
+ *  dialog function stays a thin composition of state + presentational parts. */
+function usePromoteActions({
+  sprint,
+  mode,
+  selectedId,
+  createName,
+  createTargetDate,
+  rebinding,
+  alreadyBound,
+  canSubmit,
+  promote,
+  unbind,
+  onBound,
+  onClose,
+  setRebinding,
+  setConflict,
+}: {
+  sprint: ApiSprint;
+  mode: Mode;
+  selectedId: string | null;
+  createName: string;
+  createTargetDate: string;
+  rebinding: boolean;
+  alreadyBound: boolean;
+  canSubmit: boolean;
+  promote: ReturnType<typeof usePromoteSprintToMilestone>;
+  unbind: ReturnType<typeof useUnbindSprintMilestone>;
+  onBound?: (sprint: ApiSprint) => void;
+  onClose: () => void;
+  setRebinding: (v: boolean) => void;
+  setConflict: (v: boolean) => void;
+}) {
   function handlePromote() {
     if (!canSubmit) return;
     const milestoneId = mode === 'bind' ? selectedId : null;
@@ -202,10 +342,7 @@ export function PromoteMilestoneDialog({
     // Rebinding: unbind first (binding never silently re-points — ADR-0106 §2),
     // then promote to the new target.
     if (rebinding && alreadyBound) {
-      unbind.mutate(
-        { sprintId: sprint.id },
-        { onSuccess: () => run() },
-      );
+      unbind.mutate({ sprintId: sprint.id }, { onSuccess: () => run() });
       return;
     }
     run();
@@ -223,197 +360,275 @@ export function PromoteMilestoneDialog({
     );
   }
 
-  const widthClass = quickMode || conflict ? 'max-w-md' : 'max-w-md lg:max-w-3xl';
-
-  return (
-    <>
-      <button
-        type="button"
-        aria-label="Close dialog"
-        className="fixed inset-0 z-50 bg-neutral-overlay cursor-default"
-        onClick={onClose}
-      />
-      <div className="fixed inset-0 z-[51] flex items-center justify-center p-4 pointer-events-none">
-        <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label={
-            conflict && !rebinding
-              ? `${itl.singular} already bound to a milestone`
-              : `Promote ${itl.lower} to milestone`
-          }
-          tabIndex={-1}
-          className={`w-full ${widthClass} max-h-[90vh] overflow-auto rounded-card border border-neutral-border bg-neutral-surface pointer-events-auto focus:outline-none`}
-        >
-          {/* Header */}
-          <div className="flex items-start justify-between gap-4 border-b border-neutral-border p-5">
-            <div className="flex flex-col gap-1 min-w-0">
-              <h2 className="text-base font-semibold text-neutral-text-primary">
-                {conflict && !rebinding
-                  ? 'Already bound to a milestone'
-                  : 'Promote to milestone'}
-              </h2>
-              <p className="text-xs text-neutral-text-secondary leading-relaxed">
-                {conflict && !rebinding
-                  ? `A ${itl.lower} commitment advances one milestone at a time. Rebinding is recorded in the ${itl.lower} history.`
-                  : `Link ${sprint.short_id_display}'s commitment to a schedule milestone so its velocity reforecasts the CPM finish — no copy-paste between tools.`}
-              </p>
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              {showForm && !compact && (
-                <button
-                  type="button"
-                  onClick={() => setQuickMode((q) => !q)}
-                  aria-pressed={quickMode}
-                  className="hidden lg:inline-flex h-7 items-center rounded px-2 text-xs font-medium text-neutral-text-secondary
-                    hover:text-neutral-text-primary border border-neutral-border
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                >
-                  {quickMode ? 'Show forecast' : 'Quick mode'}
-                </button>
-              )}
-              <button
-                type="button"
-                aria-label="Close"
-                onClick={onClose}
-                className="h-7 w-7 inline-flex items-center justify-center rounded text-neutral-text-disabled
-                  hover:text-neutral-text-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              >
-                <span aria-hidden="true" className="text-lg leading-none">×</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Body */}
-          {conflict && !rebinding ? (
-            <ConflictBody
-              sprint={sprint}
-              busy={busy}
-              iterationLower={itl.lower}
-              onClose={onClose}
-              onUnbind={handleUnbind}
-              onRebind={() => {
-                setRebinding(true);
-                setConflict(false);
-              }}
-            />
-          ) : (
-            <div
-              className={
-                showPreview
-                  ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]'
-                  : ''
-              }
-            >
-              {/* Left — the form */}
-              <div className="flex flex-col gap-4 p-5">
-                {rebinding && (
-                  <p
-                    role="status"
-                    className="flex items-center gap-2 rounded-card bg-semantic-at-risk-bg px-3 py-2 text-xs text-semantic-at-risk"
-                  >
-                    <WarningIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
-                    Rebinding moves the reforecast off the current milestone. The old
-                    milestone reverts to its CPM-only forecast.
-                  </p>
-                )}
-
-                {/* create-vs-bind segmented control */}
-                <div
-                  role="group"
-                  aria-label="Milestone source"
-                  className="inline-flex gap-1 rounded-control border border-neutral-border bg-neutral-surface-sunken p-1 self-start"
-                >
-                  <ModeButton
-                    ref={firstFieldRef}
-                    active={mode === 'create'}
-                    onClick={() => setMode('create')}
-                  >
-                    <PlusIcon className="h-3 w-3" aria-hidden="true" />
-                    Create new
-                  </ModeButton>
-                  <ModeButton active={mode === 'bind'} onClick={() => setMode('bind')}>
-                    <FlagIcon className="h-3 w-3" />
-                    Bind existing
-                  </ModeButton>
-                </div>
-
-                {mode === 'create' ? (
-                  <CreateModeBody
-                    name={createName}
-                    onNameChange={setCreateName}
-                    targetDate={createTargetDate}
-                    onTargetDateChange={setCreateTargetDate}
-                    iterationLower={itl.lower}
-                  />
-                ) : (
-                  <BindModeBody
-                    candidates={filteredCandidates}
-                    isLoading={candidatesLoading}
-                    search={search}
-                    onSearch={setSearch}
-                    selectedId={selectedId}
-                    onSelect={setSelectedId}
-                  />
-                )}
-              </div>
-
-              {/* Right — live reforecast preview (variant B, ≥ lg only) */}
-              {showPreview && (
-                <div className="hidden lg:flex flex-col gap-3 border-l border-neutral-border bg-neutral-surface-sunken p-5">
-                  <ReforecastPreviewPanel
-                    preview={preview}
-                    hasTarget={hasTarget}
-                    mode={mode}
-                    label={itl}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Footer */}
-          {showForm && (
-            <div className="flex items-center gap-3 border-t border-neutral-border p-4">
-              <p className="flex-1 text-xs text-neutral-text-secondary tppm-mono">
-                Reforecasts on {itl.lower} close · recorded in history
-              </p>
-              <Button variant="ghost" size="md" onClick={onClose} disabled={busy}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="md"
-                onClick={handlePromote}
-                disabled={!canSubmit}
-                title={offline ? "You're offline — binding needs a connection." : undefined}
-              >
-                <FlagIcon className="h-3 w-3" />
-                {busy
-                  ? 'Binding…'
-                  : mode === 'create'
-                    ? 'Create & bind'
-                    : 'Bind & reforecast'}
-              </Button>
-            </div>
-          )}
-
-          {(promote.isError && !isSprintAlreadyBound(promote.error)) || unbind.isError ? (
-            <p role="alert" className="px-5 pb-4 text-xs text-semantic-critical">
-              Couldn’t update the milestone binding. Please try again.
-            </p>
-          ) : null}
-        </div>
-      </div>
-    </>
-  );
+  return { handlePromote, handleUnbind };
 }
 
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+/** Dialog header — title + subtitle (conflict vs promote copy), the optional
+ *  quick-mode toggle (form view, non-compact only), and the close button. */
+function DialogHeader({
+  conflict,
+  rebinding,
+  compact,
+  showForm,
+  quickMode,
+  itl,
+  sprint,
+  onToggleQuick,
+  onClose,
+}: {
+  conflict: boolean;
+  rebinding: boolean;
+  compact: boolean;
+  showForm: boolean;
+  quickMode: boolean;
+  itl: IterationLabelForms;
+  sprint: ApiSprint;
+  onToggleQuick: () => void;
+  onClose: () => void;
+}) {
+  const showConflictCopy = conflict && !rebinding;
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-neutral-border p-5">
+      <div className="flex flex-col gap-1 min-w-0">
+        <h2 className="text-base font-semibold text-neutral-text-primary">
+          {showConflictCopy ? 'Already bound to a milestone' : 'Promote to milestone'}
+        </h2>
+        <p className="text-xs text-neutral-text-secondary leading-relaxed">
+          {showConflictCopy
+            ? `A ${itl.lower} commitment advances one milestone at a time. Rebinding is recorded in the ${itl.lower} history.`
+            : `Link ${sprint.short_id_display}'s commitment to a schedule milestone so its velocity reforecasts the CPM finish — no copy-paste between tools.`}
+        </p>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        {showForm && !compact && (
+          <button
+            type="button"
+            onClick={onToggleQuick}
+            aria-pressed={quickMode}
+            className="hidden lg:inline-flex h-7 items-center rounded px-2 text-xs font-medium text-neutral-text-secondary
+              hover:text-neutral-text-primary border border-neutral-border
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            {quickMode ? 'Show forecast' : 'Quick mode'}
+          </button>
+        )}
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={onClose}
+          className="h-7 w-7 inline-flex items-center justify-center rounded text-neutral-text-disabled
+            hover:text-neutral-text-primary
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          <span aria-hidden="true" className="text-lg leading-none">×</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Dialog body — the conflict view when already bound, otherwise the promote form
+ *  (create/bind segmented control + the matching mode body + the reforecast
+ *  preview column at lg). */
+function DialogBody({
+  sprint,
+  itl,
+  busy,
+  conflict,
+  rebinding,
+  showPreview,
+  hasTarget,
+  mode,
+  onModeChange,
+  selectedId,
+  onSelect,
+  search,
+  onSearch,
+  createName,
+  onCreateName,
+  createTargetDate,
+  onCreateTargetDate,
+  candidates,
+  candidatesLoading,
+  preview,
+  firstFieldRef,
+  onClose,
+  onUnbind,
+  onRebind,
+}: {
+  sprint: ApiSprint;
+  itl: IterationLabelForms;
+  busy: boolean;
+  conflict: boolean;
+  rebinding: boolean;
+  showPreview: boolean;
+  hasTarget: boolean;
+  mode: Mode;
+  onModeChange: (mode: Mode) => void;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  search: string;
+  onSearch: (v: string) => void;
+  createName: string;
+  onCreateName: (v: string) => void;
+  createTargetDate: string;
+  onCreateTargetDate: (v: string) => void;
+  candidates: MilestoneCandidate[];
+  candidatesLoading: boolean;
+  preview: ReforecastPreview | null;
+  firstFieldRef: RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  onUnbind: () => void;
+  onRebind: () => void;
+}) {
+  if (conflict && !rebinding) {
+    return (
+      <ConflictBody
+        sprint={sprint}
+        busy={busy}
+        iterationLower={itl.lower}
+        onClose={onClose}
+        onUnbind={onUnbind}
+        onRebind={onRebind}
+      />
+    );
+  }
+  return (
+    <div className={showPreview ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]' : ''}>
+      {/* Left — the form */}
+      <div className="flex flex-col gap-4 p-5">
+        {rebinding && (
+          <p
+            role="status"
+            className="flex items-center gap-2 rounded-card bg-semantic-at-risk-bg px-3 py-2 text-xs text-semantic-at-risk"
+          >
+            <WarningIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
+            Rebinding moves the reforecast off the current milestone. The old milestone
+            reverts to its CPM-only forecast.
+          </p>
+        )}
+
+        {/* create-vs-bind segmented control */}
+        <div
+          role="group"
+          aria-label="Milestone source"
+          className="inline-flex gap-1 rounded-control border border-neutral-border bg-neutral-surface-sunken p-1 self-start"
+        >
+          <ModeButton
+            ref={firstFieldRef}
+            active={mode === 'create'}
+            onClick={() => onModeChange('create')}
+          >
+            <PlusIcon className="h-3 w-3" aria-hidden="true" />
+            Create new
+          </ModeButton>
+          <ModeButton active={mode === 'bind'} onClick={() => onModeChange('bind')}>
+            <FlagIcon className="h-3 w-3" />
+            Bind existing
+          </ModeButton>
+        </div>
+
+        {mode === 'create' ? (
+          <CreateModeBody
+            name={createName}
+            onNameChange={onCreateName}
+            targetDate={createTargetDate}
+            onTargetDateChange={onCreateTargetDate}
+            iterationLower={itl.lower}
+          />
+        ) : (
+          <BindModeBody
+            candidates={candidates}
+            isLoading={candidatesLoading}
+            search={search}
+            onSearch={onSearch}
+            selectedId={selectedId}
+            onSelect={onSelect}
+          />
+        )}
+      </div>
+
+      {/* Right — live reforecast preview (variant B, ≥ lg only) */}
+      {showPreview && (
+        <div className="hidden lg:flex flex-col gap-3 border-l border-neutral-border bg-neutral-surface-sunken p-5">
+          <ReforecastPreviewPanel
+            preview={preview}
+            hasTarget={hasTarget}
+            mode={mode}
+            label={itl}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Dialog footer — the "reforecasts on close" note, Cancel, and the primary
+ *  Create&bind / Bind&reforecast action. */
+function PromoteFooter({
+  iterationLower,
+  busy,
+  canSubmit,
+  offline,
+  mode,
+  onClose,
+  onPromote,
+}: {
+  iterationLower: string;
+  busy: boolean;
+  canSubmit: boolean;
+  offline: boolean;
+  mode: Mode;
+  onClose: () => void;
+  onPromote: () => void;
+}) {
+  let submitLabel: string;
+  if (busy) submitLabel = 'Binding…';
+  else if (mode === 'create') submitLabel = 'Create & bind';
+  else submitLabel = 'Bind & reforecast';
+  return (
+    <div className="flex items-center gap-3 border-t border-neutral-border p-4">
+      <p className="flex-1 text-xs text-neutral-text-secondary tppm-mono">
+        Reforecasts on {iterationLower} close · recorded in history
+      </p>
+      <Button variant="ghost" size="md" onClick={onClose} disabled={busy}>
+        Cancel
+      </Button>
+      <Button
+        variant="primary"
+        size="md"
+        onClick={onPromote}
+        disabled={!canSubmit}
+        title={offline ? "You're offline — binding needs a connection." : undefined}
+      >
+        <FlagIcon className="h-3 w-3" />
+        {submitLabel}
+      </Button>
+    </div>
+  );
+}
+
+/** The bind-failure alert (suppressed for the already-bound 409, which routes to
+ *  the conflict view instead). */
+function PromoteError({
+  promote,
+  unbind,
+}: {
+  promote: ReturnType<typeof usePromoteSprintToMilestone>;
+  unbind: ReturnType<typeof useUnbindSprintMilestone>;
+}) {
+  const show = (promote.isError && !isSprintAlreadyBound(promote.error)) || unbind.isError;
+  if (!show) return null;
+  return (
+    <p role="alert" className="px-5 pb-4 text-xs text-semantic-critical">
+      Couldn’t update the milestone binding. Please try again.
+    </p>
+  );
+}
 
 interface ModeButtonProps {
   active: boolean;

@@ -89,68 +89,24 @@ export function EstimationPokerCard({
       {isLoading ? (
         <div className="h-16 rounded bg-neutral-surface motion-safe:animate-pulse" aria-busy="true" />
       ) : !liveSession ? (
-        // ── Idle ──────────────────────────────────────────────────────────────
-        <div className="flex flex-col gap-2">
-          <p className="text-sm text-neutral-text-secondary">
-            {unestimated.length === 0
-              ? 'All selected candidates estimated · poker idle.'
-              : `${unestimated.length} candidate${unestimated.length === 1 ? '' : 's'} still unestimated.`}
-          </p>
-          {canFacilitate && nextCandidate && (
-            <button
-              type="button"
-              onClick={() => open.mutate({ sprintId, taskId: nextCandidate.id })}
-              disabled={open.isPending}
-              className="self-start rounded-full bg-brand-primary text-neutral-text-inverse px-4 h-8 text-sm font-medium
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                disabled:opacity-50"
-            >
-              Start poker · {nextCandidate.name}
-            </button>
-          )}
-        </div>
+        <IdleBody
+          unestimatedCount={unestimated.length}
+          canFacilitate={canFacilitate}
+          nextCandidate={nextCandidate}
+          starting={open.isPending}
+          onStart={(taskId) => open.mutate({ sprintId, taskId })}
+        />
       ) : liveSession.state === 'open' ? (
-        // ── Open voting ───────────────────────────────────────────────────────
-        <div className="flex flex-col gap-3">
-          <p className="text-sm text-neutral-text-primary">
-            Sizing: <span className="font-medium">{liveSession.task.name}</span>
-          </p>
-          <FibonacciCardRow
-            value={liveSession.my_vote ? liveSession.my_vote.value : undefined}
-            onSelect={(card) =>
-              vote.mutate({ sprintId, sessionId: liveSession.id, value: card })
-            }
-          />
-          <p className="text-xs text-neutral-text-secondary tppm-mono" role="status" aria-live="polite">
-            {liveSession.vote_count} of {liveSession.participant_count} voted
-          </p>
-          {canFacilitate && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => reveal.mutate({ sprintId, sessionId: liveSession.id })}
-                disabled={reveal.isPending || liveSession.vote_count === 0}
-                className="rounded border border-brand-primary/40 text-brand-primary bg-brand-primary/10 px-3 h-7 text-xs font-medium
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                  disabled:opacity-50"
-              >
-                Reveal
-              </button>
-              <button
-                type="button"
-                onClick={() => cancel.mutate({ sprintId, sessionId: liveSession.id })}
-                disabled={cancel.isPending}
-                className="rounded border border-neutral-border text-neutral-text-secondary px-3 h-7 text-xs font-medium
-                  hover:bg-neutral-surface
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-        </div>
+        <OpenVotingBody
+          session={liveSession}
+          canFacilitate={canFacilitate}
+          onVote={(card) => vote.mutate({ sprintId, sessionId: liveSession.id, value: card })}
+          onReveal={() => reveal.mutate({ sprintId, sessionId: liveSession.id })}
+          onCancel={() => cancel.mutate({ sprintId, sessionId: liveSession.id })}
+          revealDisabled={reveal.isPending || liveSession.vote_count === 0}
+          cancelDisabled={cancel.isPending}
+        />
       ) : (
-        // ── Revealed ──────────────────────────────────────────────────────────
         <RevealBody
           session={liveSession}
           canFacilitate={canFacilitate}
@@ -167,6 +123,103 @@ export function EstimationPokerCard({
         />
       )}
     </section>
+  );
+}
+
+/** Idle state — nothing being sized right now. Shows the remaining-candidate count and,
+ *  for a facilitator, the "start poker" button for the next unestimated task. */
+function IdleBody({
+  unestimatedCount,
+  canFacilitate,
+  nextCandidate,
+  starting,
+  onStart,
+}: {
+  unestimatedCount: number;
+  canFacilitate: boolean;
+  nextCandidate: Candidate | null;
+  starting: boolean;
+  onStart: (taskId: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-sm text-neutral-text-secondary">
+        {unestimatedCount === 0
+          ? 'All selected candidates estimated · poker idle.'
+          : `${unestimatedCount} candidate${unestimatedCount === 1 ? '' : 's'} still unestimated.`}
+      </p>
+      {canFacilitate && nextCandidate && (
+        <button
+          type="button"
+          onClick={() => onStart(nextCandidate.id)}
+          disabled={starting}
+          className="self-start rounded-full bg-brand-primary text-neutral-text-inverse px-4 h-8 text-sm font-medium
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            disabled:opacity-50"
+        >
+          Start poker · {nextCandidate.name}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Open-voting state — the Fibonacci card row plus the live vote tally, and the
+ *  facilitator's Reveal / Cancel controls. */
+function OpenVotingBody({
+  session,
+  canFacilitate,
+  onVote,
+  onReveal,
+  onCancel,
+  revealDisabled,
+  cancelDisabled,
+}: {
+  session: PokerSession;
+  canFacilitate: boolean;
+  onVote: (card: number | null) => void;
+  onReveal: () => void;
+  onCancel: () => void;
+  revealDisabled: boolean;
+  cancelDisabled: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-neutral-text-primary">
+        Sizing: <span className="font-medium">{session.task.name}</span>
+      </p>
+      <FibonacciCardRow
+        value={session.my_vote ? session.my_vote.value : undefined}
+        onSelect={onVote}
+      />
+      <p className="text-xs text-neutral-text-secondary tppm-mono" role="status" aria-live="polite">
+        {session.vote_count} of {session.participant_count} voted
+      </p>
+      {canFacilitate && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onReveal}
+            disabled={revealDisabled}
+            className="rounded border border-brand-primary/40 text-brand-primary bg-brand-primary/10 px-3 h-7 text-xs font-medium
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              disabled:opacity-50"
+          >
+            Reveal
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={cancelDisabled}
+            className="rounded border border-neutral-border text-neutral-text-secondary px-3 h-7 text-xs font-medium
+              hover:bg-neutral-surface
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
