@@ -19,6 +19,7 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
   sprint: 'Current sprint',
   sprintTask: 'Current sprint tasks',
   task: 'Tasks',
+  label: 'Labels',
   current: 'Current project',
   person: 'People',
   epic: 'Epics',
@@ -32,8 +33,9 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
 };
 // Render + keyboard-nav order. `sprint` (jump to today's active sprint board, the
 // first-class issue 1594 action) leads always; `sprintTask` (active-sprint tasks,
-// ADR-0508) then `task` (all other tasks) follow — both query-gated; `current`
-// (in-context role targets) then the query-gated global searches — `person`
+// ADR-0508) then `task` (all other tasks) follow — both query-gated; `label`
+// (#2334) sits with them so every task-finding result reads as one block before
+// `current` (in-context role targets), then the query-gated global searches — `person`
 // (people), `epic` + `story` (cross-program Epic/Story omni-search, ADR-0508 D4) —
 // sit above `recent` (cold-only recently-visited projects, ADR-0508) and the global
 // navigation.
@@ -41,6 +43,7 @@ const GROUP_ORDER: CommandItem['group'][] = [
   'sprint',
   'sprintTask',
   'task',
+  'label',
   'current',
   'person',
   'epic',
@@ -194,6 +197,15 @@ function PaletteOption({
       }`}
     >
       <span className="flex min-w-0 items-baseline gap-2">
+        {item.swatch && (
+          // Decorative: the label's name is the primary text right beside it, so
+          // the swatch never carries meaning on its own (#2334).
+          <span
+            aria-hidden="true"
+            className="size-2 shrink-0 self-center rounded-sm"
+            style={{ backgroundColor: item.swatch }}
+          />
+        )}
         <span className="min-w-0 truncate">{item.label}</span>
         {item.detail && (
           <span className="tppm-mono hidden shrink-0 text-xs text-neutral-text-secondary sm:inline">
