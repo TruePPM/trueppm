@@ -2422,7 +2422,7 @@
             },
             "delete": {
                 "operationId": "v1_calendars_destroy",
-                "description": "Deletes a calendar from the shared org library.\n\nA calendar that is still applied somewhere cannot be deleted — it would leave a live schedule without the working-time definition it was computed against. That is refused with `409`, and the body names what still references it so the caller can detach those first. A calendar is referenced when it is a project's base calendar, a project overlay, a program default, or the workspace default.",
+                "description": "Deletes a calendar from the shared org library.\n\nA calendar that is still applied somewhere cannot be deleted — it would leave a live schedule without the working-time definition it was computed against. That is refused with `409`, and the body names what still references it so the caller can detach those first. A calendar is referenced when it is a project's base calendar, a project overlay, a program default, the workspace default, or a resource's calendar.",
                 "summary": "Delete a calendar",
                 "parameters": [
                     {
@@ -2460,7 +2460,7 @@
                                 }
                             }
                         },
-                        "description": "Calendar is still applied as a project/program/workspace base or as a project overlay. Body carries `reference_count` and a `references` sample so the client can name what to detach first."
+                        "description": "Calendar is still applied as a project/program/workspace base, a project overlay, or a resource calendar. Body carries `reference_count` and a `references` sample so the client can name what to detach first."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -29805,7 +29805,8 @@
             },
             "delete": {
                 "operationId": "v1_skills_destroy",
-                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. Writes require ``SCHEDULER+`` on at least\none project (#254 — IsProjectMember alone would not gate writes here\nbecause the route is not project-nested). Skill creation normalises the\nname and returns the existing row if the normalised name already exists\n(de-dup by normalized_name unique constraint).",
+                "description": "Deletes a skill from the org-level catalog.\n\nA skill that is still tagged on a resource or required by a task cannot be deleted — removing it would silently strip the tag from every resource that carries it and drop the requirement from every task that needs it. That is refused with `409`, and the body names the resources and tasks still using it so the caller can detach them first.",
+                "summary": "Delete a skill",
                 "parameters": [
                     {
                         "in": "path",
@@ -29831,7 +29832,18 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "No response body"
+                        "description": "Skill deleted."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Skill is still tagged on a resource or required by a task. Body carries `reference_count` and a `references` sample naming the resources and tasks to detach first."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -29849,8 +29861,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Delete skill"
+                }
             }
         },
         "/api/v1/slip-conflicts/": {

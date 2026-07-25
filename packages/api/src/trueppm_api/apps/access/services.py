@@ -11,14 +11,88 @@ ADR-0070: see §Durable Execution §4 for the atomic-create rationale.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import Methodology, Program, Project
+
+
+def _protecting_relations(model: type[models.Model]) -> list[Any]:
+    """Reverse relations into *model* whose FK is ``on_delete=PROTECT``.
+
+    Derived from ``_meta`` rather than hand-listed. Every hand-maintained version of
+    this list in the codebase went stale as new ``PROTECT`` FKs landed — three delete
+    paths were each written against the FKs that existed at the time and silently
+    started raising ``ProtectedError`` later (#2364). Reflection cannot drift.
+
+    ``include_hidden=True`` is load-bearing, not defensive: a FK declared with
+    ``related_name="+"`` is absent from ``_meta.related_objects`` but Django's
+    deletion collector still enforces its ``PROTECT``. Walking the public
+    ``related_objects`` would silently miss exactly those — reproducing the bug this
+    helper exists to prevent, just one layer down. ``Workspace.calendar`` is a live
+    example of a ``+``-named ``PROTECT`` FK in this codebase.
+
+    ``test_protect_relations_snapshot`` pins the resolved set, so adding a new
+    ``PROTECT`` FK fails a test and forces a deliberate call on whether a hard delete
+    should purge that child or refuse — rather than silently purging it here.
+    """
+    return [
+        rel
+        for rel in model._meta.get_fields(include_hidden=True)
+        if rel.is_relation
+        and rel.auto_created
+        and not rel.concrete
+        and getattr(rel, "on_delete", None) is models.PROTECT
+    ]
+
+
+def _purge_protecting_children(model: type[models.Model], pks: Sequence[Any]) -> None:
+    """Delete every ``PROTECT``-ing child of *pks* so the parent rows can be removed.
+
+    Only for paths where the caller has already confirmed a permanent, irreversible
+    delete (the archive → ``?force=true`` dialog, sample-data teardown, the retention
+    purge). Everywhere else a ``PROTECT`` FK should surface as a 409 refusal, not be
+    bulldozed — see :mod:`trueppm_api.core.protect_conflict`.
+    """
+    if not pks:
+        return
+    for rel in _protecting_relations(model):
+        rel.related_model._base_manager.filter(**{f"{rel.field.name}__in": pks}).delete()
+
+
+@transaction.atomic
+def hard_delete_projects(project_ids: Sequence[Any]) -> int:
+    """Permanently delete projects and the rows whose ``PROTECT`` FKs block them.
+
+    Returns the number of ``Project`` rows removed. Callers are responsible for
+    authorization, audit events, and sync broadcasts — this helper owns only the
+    delete order.
+    """
+    if not project_ids:
+        return 0
+    _purge_protecting_children(Project, project_ids)
+    _, by_model = Project.objects.filter(pk__in=project_ids).delete()
+    return int(by_model.get(Project._meta.label, 0))
+
+
+@transaction.atomic
+def hard_delete_program(program_id: uuid.UUID | str) -> None:
+    """Permanently delete a program, its projects, and all ``PROTECT``-ing children.
+
+    The program's projects are deleted outright rather than detached — the only
+    caller is sample-data teardown, where the whole subtree is disposable. Contrast
+    :func:`delete_program_cascade`, which *soft*-deletes a real program and detaches
+    its projects so they survive as standalone work.
+    """
+    project_ids = list(Project.objects.filter(program_id=program_id).values_list("pk", flat=True))
+    hard_delete_projects(project_ids)
+    _purge_protecting_children(Program, [program_id])
+    Program.objects.filter(pk=program_id).delete()
 
 
 @transaction.atomic
