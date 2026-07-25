@@ -1,5 +1,16 @@
-import { useMemo, useRef, useState, useEffect, useCallback, type ComponentType } from 'react';
-import { NavLink, useNavigate } from 'react-router';
+import {
+  useMemo,
+  useRef,
+  useState,
+  useEffect,
+  useCallback,
+  type ComponentType,
+  type RefObject,
+  type Dispatch,
+  type SetStateAction,
+  type ReactNode,
+} from 'react';
+import { NavLink, useNavigate, type NavigateFunction } from 'react-router';
 
 import { useShellStore, selectSidebarWidth } from '@/stores/shellStore';
 import { useProjects } from '@/hooks/useProjects';
@@ -144,6 +155,76 @@ function youRowClass(active: boolean): string {
   ].join(' ');
 }
 
+// Auto-collapse the desktop rail below `lg` unless the user took manual control
+// (preserved from the prior sidebar). Isolated from the component so the rail body
+// stays a thin orchestrator (issue 2369).
+function useAutoCollapseSidebar(
+  isDrawer: boolean,
+  sidebarUserControlled: boolean,
+  setSidebarCollapsed: (collapsed: boolean, userControlled?: boolean) => void,
+) {
+  const handleResize = useCallback(() => {
+    if (sidebarUserControlled) return;
+    setSidebarCollapsed(window.matchMedia('(max-width: 1023px)').matches, false);
+  }, [sidebarUserControlled, setSidebarCollapsed]);
+  useEffect(() => {
+    if (isDrawer) return;
+    handleResize();
+    const mq = window.matchMedia('(max-width: 1023px)');
+    mq.addEventListener('change', handleResize);
+    return () => mq.removeEventListener('change', handleResize);
+  }, [isDrawer, handleResize]);
+}
+
+// Drawer variant: Esc closes it.
+function useDrawerEscape(isDrawer: boolean, onClose?: () => void) {
+  useEffect(() => {
+    if (!isDrawer) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose?.();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isDrawer, onClose]);
+}
+
+// Desktop "Browse" switcher: Esc closes + returns focus to the trigger, and an
+// outside click closes it. On open, focus moves into the panel (rule: a
+// disclosure that opens a focus context re-seats focus).
+function useBrowseSwitcherDismiss(
+  switchOpen: boolean,
+  setSwitchOpen: (open: boolean) => void,
+  switchTriggerRef: RefObject<HTMLButtonElement | null>,
+  switchPanelRef: RefObject<HTMLDivElement | null>,
+) {
+  useEffect(() => {
+    if (!switchOpen) return;
+    const closeToTrigger = () => {
+      setSwitchOpen(false);
+      switchTriggerRef.current?.focus();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeToTrigger();
+    };
+    const onPointer = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        !switchPanelRef.current?.contains(target) &&
+        !switchTriggerRef.current?.contains(target)
+      ) {
+        setSwitchOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onPointer);
+    switchPanelRef.current?.focus();
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onPointer);
+    };
+  }, [switchOpen, setSwitchOpen, switchTriggerRef, switchPanelRef]);
+}
+
 /**
  * The v2 left rail (ADR-0126) restructured into three role-scoped tiers (issue 1642):
  *
@@ -256,58 +337,11 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
     [projects],
   );
 
-  // Auto-collapse < lg unless the user took control (preserved from the prior sidebar).
-  const handleResize = useCallback(() => {
-    if (sidebarUserControlled) return;
-    setSidebarCollapsed(window.matchMedia('(max-width: 1023px)').matches, false);
-  }, [sidebarUserControlled, setSidebarCollapsed]);
-  useEffect(() => {
-    if (isDrawer) return;
-    handleResize();
-    const mq = window.matchMedia('(max-width: 1023px)');
-    mq.addEventListener('change', handleResize);
-    return () => mq.removeEventListener('change', handleResize);
-  }, [isDrawer, handleResize]);
-
-  // Drawer: Esc closes.
-  useEffect(() => {
-    if (!isDrawer) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose?.();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [isDrawer, onClose]);
-
-  // Desktop "Browse" switcher: Esc closes + returns focus to the trigger, and an
-  // outside click closes it. On open, focus moves into the panel (rule: a
-  // disclosure that opens a focus context re-seats focus).
-  useEffect(() => {
-    if (!switchOpen) return;
-    const closeToTrigger = () => {
-      setSwitchOpen(false);
-      switchTriggerRef.current?.focus();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeToTrigger();
-    };
-    const onPointer = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (
-        !switchPanelRef.current?.contains(target) &&
-        !switchTriggerRef.current?.contains(target)
-      ) {
-        setSwitchOpen(false);
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('mousedown', onPointer);
-    switchPanelRef.current?.focus();
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('mousedown', onPointer);
-    };
-  }, [switchOpen]);
+  // Rail lifecycle effects (auto-collapse, drawer Esc, Browse-switcher dismissal)
+  // are isolated in hooks so this component stays a thin orchestrator (issue 2369).
+  useAutoCollapseSidebar(isDrawer, sidebarUserControlled, setSidebarCollapsed);
+  useDrawerEscape(isDrawer, onClose);
+  useBrowseSwitcherDismiss(switchOpen, setSwitchOpen, switchTriggerRef, switchPanelRef);
 
   // Navigating OUT of the switcher dismisses it: the desktop popover
   // (`switchOpen`) and, in the drawer, the whole drawer (`onClose` is defined
@@ -354,6 +388,635 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   // complementary landmark already, and a nested nav named with "program" / "view"
   // would strict-mode-collide with the ProgramTabs / ViewTabs nav-name e2e locators.
   const browseContent = (
+    <BrowseContent
+      edition={edition}
+      programs={programs}
+      projects={projects}
+      expanded={expanded}
+      pinned={pinned}
+      pinnedPrograms={pinnedPrograms}
+      orphanProjects={orphanProjects}
+      projectsCount={projectsCount}
+      countFor={countFor}
+      go={go}
+      dismissSwitcher={dismissSwitcher}
+      toggleProgram={toggleProgram}
+      togglePin={togglePin}
+      togglePinProgram={togglePinProgram}
+      openPalette={openPalette}
+      setShowNewProgram={setShowNewProgram}
+      setShowNewProject={setShowNewProject}
+      setShowImport={setShowImport}
+    />
+  );
+
+  return (
+    <>
+      <aside
+        id="primary-nav-rail"
+        aria-label="Primary navigation"
+        aria-hidden={hidden || undefined}
+        inert={hidden || undefined}
+        style={isDrawer ? undefined : { width: sidebarWidth, transition: 'width 200ms ease-out' }}
+        className={[
+          'flex flex-col h-full bg-chrome-surface overflow-hidden flex-shrink-0',
+          'border-r border-chrome-border/8',
+          isDrawer ? 'w-[248px]' : '',
+        ].join(' ')}
+      >
+        <SidebarBrand isDrawer={isDrawer} onToggle={toggleSidebar} />
+
+        {/* Scrollable body. The brand header (above) and settings footer (below)
+            stay pinned; this column holds Tier 1–3. On the mobile drawer it scrolls
+            as ONE region (`overflow-y-auto`) so the inlined Programs tree in Tier 3
+            — which is `shrink-0` and would otherwise overflow the `overflow-hidden`
+            aside with no way to reach the lower items (#1688) — is reachable. On
+            desktop it is a transparent flex passthrough: Tier 2 owns its own scroll
+            and Tier 3 is the fixed bottom bar with its Browse popover. */}
+        <div
+          className={[
+            'flex flex-1 flex-col min-h-0',
+            isDrawer ? 'overflow-y-auto overflow-x-hidden' : '',
+          ].join(' ')}
+        >
+          {/* Tier 1 — You: identity + the personal destinations. */}
+          {showFull && (
+            <YouTier
+              user={user}
+              roleLabel={roleLabel}
+              dueTodayCount={dueTodayCount}
+              unreadCount={unreadCount}
+              closeDrawer={closeDrawer}
+            />
+          )}
+
+          {/* Tier 2 — This project (grouped views) or, off a project, the pinned list.
+            This is the rail's primary in-context landmark (`Workspace navigation`). */}
+          <nav
+            aria-label="Workspace navigation"
+            className={[
+              'px-2 pb-2',
+              // Desktop: this tier is the scroll region and grows to fill. In the
+              // drawer the wrapper scrolls as one, so Tier 2 is plain in-flow content.
+              isDrawer ? '' : 'flex-1 overflow-y-auto overflow-x-hidden',
+            ].join(' ')}
+          >
+            {showFull &&
+              (projectId ? (
+                <ProjectViewsTier projectId={projectId} isDrawer={isDrawer} onClose={onClose} />
+              ) : programId ? (
+                <ProgramViewsTier programId={programId} isDrawer={isDrawer} onClose={onClose} />
+              ) : (
+                <PinnedTier
+                  hasPins={hasPins}
+                  pinnedProgramList={pinnedProgramList}
+                  pinnedProjects={pinnedProjects}
+                  hasProjects={(projects ?? []).length > 0}
+                  loadingDemo={loadSample.isPending}
+                  go={go}
+                  togglePin={togglePin}
+                  togglePinProgram={togglePinProgram}
+                  setShowNewProject={setShowNewProject}
+                  loadDemo={loadDemo}
+                />
+              ))}
+          </nav>
+
+          {/* Tier 3 — Jump: ⌘K search + the Browse switcher (drawer inlines it).
+            Desktop keeps `shrink-0` (fixed bottom bar); in the drawer it is in-flow
+            content inside the scroll wrapper so its inlined browse tree scrolls. */}
+          {showFull && (
+            <JumpTier
+              isDrawer={isDrawer}
+              openPalette={openPalette}
+              switchOpen={switchOpen}
+              setSwitchOpen={setSwitchOpen}
+              switchTriggerRef={switchTriggerRef}
+              switchPanelRef={switchPanelRef}
+              browseContent={browseContent}
+            />
+          )}
+        </div>
+
+        <SidebarFooter
+          showFull={showFull}
+          user={user}
+          settingsTo={settingsTo}
+          settingsLabel={settingsLabel}
+          closeDrawer={closeDrawer}
+        />
+      </aside>
+
+      <SidebarModals
+        showNewProject={showNewProject}
+        showNewProgram={showNewProgram}
+        showImport={showImport}
+        isDrawer={isDrawer}
+        setShowNewProject={setShowNewProject}
+        setShowNewProgram={setShowNewProgram}
+        setShowImport={setShowImport}
+        navigate={navigate}
+        onClose={onClose}
+      />
+    </>
+  );
+}
+
+type ProjectListItem = NonNullable<ReturnType<typeof useProjects>['data']>[number];
+type ProgramListItem = NonNullable<ReturnType<typeof usePrograms>['data']>[number];
+type SidebarUser = Parameters<typeof labelForUser>[0];
+
+/** Brand mark + the desktop collapse control (≡ in the unified shell bar re-opens
+ *  when hidden). Extracted so the rail body stays a thin orchestrator (issue 2369). */
+function SidebarBrand({ isDrawer, onToggle }: { isDrawer: boolean; onToggle: () => void }) {
+  return (
+    <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-b border-chrome-border/8">
+      <NavLink
+        to="/me/work"
+        aria-label="TruePPM — My Work"
+        className="flex items-center gap-2 min-w-0"
+      >
+        <LogoMark size={22} className="shrink-0" />
+        <span className="font-display text-base font-bold tracking-[-0.02em] leading-none truncate">
+          <span className="text-navy-700 dark:text-reversed">True</span>
+          <span className="text-brand-primary">PPM</span>
+        </span>
+      </NavLink>
+      <div className="flex-1" />
+      {!isDrawer && (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label="Collapse sidebar"
+          title={`Hide sidebar (${modifierKeyLabel()}B)`}
+          className="w-9 h-9 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+        >
+          <span aria-hidden="true" className="text-base leading-none">
+            «
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Tier 1 "You" — identity + the personal destinations (My Work, Timesheet, My
+ *  Assets, Notifications) framed as a card. */
+function YouTier({
+  user,
+  roleLabel,
+  dueTodayCount,
+  unreadCount,
+  closeDrawer,
+}: {
+  user: SidebarUser;
+  roleLabel: string | null | undefined;
+  dueTodayCount: number;
+  unreadCount: number;
+  closeDrawer: () => void;
+}) {
+  return (
+    <div className="m-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
+      <div className="flex items-center gap-2 px-1 pb-1.5">
+        <AvatarInitials initials={initialsForUser(user)} size="md" />
+        <div className="min-w-0">
+          <span className="block min-w-0 truncate text-sm font-medium text-chrome-text-primary">
+            {labelForUser(user)}
+          </span>
+          {roleLabel && (
+            <span className="block min-w-0 truncate text-xs text-chrome-text-secondary">
+              {roleLabel}
+            </span>
+          )}
+        </div>
+      </div>
+      <NavLink
+        to="/me/work"
+        aria-label={dueTodayCount > 0 ? `My Work, ${dueTodayCount} due today` : 'My Work'}
+        onClick={closeDrawer}
+        className={({ isActive }) => youRowClass(isActive)}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 14 14"
+          fill="currentColor"
+          aria-hidden="true"
+          className="shrink-0"
+        >
+          <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
+        </svg>
+        <span className="min-w-0 truncate">My Work</span>
+        {dueTodayCount > 0 && (
+          <span className="tppm-mono ml-auto shrink-0 rounded-full bg-semantic-critical-bg px-1.5 py-0.5 text-xs text-semantic-critical">
+            {dueTodayCount}
+          </span>
+        )}
+      </NavLink>
+      <NavLink
+        to="/me/timesheet"
+        aria-label="Timesheet"
+        onClick={closeDrawer}
+        className={({ isActive }) => youRowClass(isActive)}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 14 14"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          aria-hidden="true"
+          className="shrink-0"
+        >
+          <rect x="1.5" y="2" width="11" height="10" rx="1" />
+          <path d="M1.5 5h11M5 5v7M9 5v7" />
+        </svg>
+        <span className="min-w-0 truncate">Timesheet</span>
+      </NavLink>
+      <NavLink
+        to="/me/assets"
+        aria-label="My Assets"
+        onClick={closeDrawer}
+        className={({ isActive }) => youRowClass(isActive)}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 14 14"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          className="shrink-0"
+        >
+          <path d="M12 6.5 6.9 11.6a2.5 2.5 0 0 1-3.5-3.5l5-5a1.6 1.6 0 0 1 2.3 2.3l-5 5a.7.7 0 0 1-1-1L9.5 5" />
+        </svg>
+        <span className="min-w-0 truncate">My Assets</span>
+      </NavLink>
+      <NavLink
+        to="/me/notifications"
+        aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+        onClick={closeDrawer}
+        className={({ isActive }) => youRowClass(isActive)}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 14 14"
+          fill="currentColor"
+          aria-hidden="true"
+          className="shrink-0"
+        >
+          <path d="M7 1a3 3 0 0 0-3 3v2.5L2.5 9h9L10 6.5V4a3 3 0 0 0-3-3Zm0 12a2 2 0 0 0 2-2H5a2 2 0 0 0 2 2Z" />
+        </svg>
+        <span className="min-w-0 truncate">Notifications</span>
+        {unreadCount > 0 && (
+          <span className="tppm-mono ml-auto shrink-0 rounded-full bg-brand-primary px-1.5 py-0.5 text-xs text-neutral-text-inverse">
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
+      </NavLink>
+    </div>
+  );
+}
+
+/** Tier 2, off a project/program route: the flat pinned jump list, or the
+ *  zero-project first-run CTA, or the "pin something" hint. */
+function PinnedTier({
+  hasPins,
+  pinnedProgramList,
+  pinnedProjects,
+  hasProjects,
+  loadingDemo,
+  go,
+  togglePin,
+  togglePinProgram,
+  setShowNewProject,
+  loadDemo,
+}: {
+  hasPins: boolean;
+  pinnedProgramList: ProgramListItem[];
+  pinnedProjects: ProjectListItem[];
+  hasProjects: boolean;
+  loadingDemo: boolean;
+  go: (to: string) => void;
+  togglePin: (id: string) => void;
+  togglePinProgram: (id: string) => void;
+  setShowNewProject: Dispatch<SetStateAction<boolean>>;
+  loadDemo: () => void;
+}) {
+  return (
+    <>
+      <h2 className={GROUP_LABEL}>Pinned</h2>
+      {hasPins ? (
+        <>
+          {/* Pinned programs first, then pinned projects — a flat jump
+              list, not a tree. Items also keep their normal tree
+              position; pinning adds a shortcut, it does not relocate. */}
+          {pinnedProgramList.map((prog) => (
+            <div key={prog.id} className={rowClass(false)}>
+              <ProgramIdentitySquare program={prog} size="xs-label" />
+              <button
+                type="button"
+                onClick={() => go(`/programs/${prog.id}/overview`)}
+                className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
+              >
+                {prog.name}
+              </button>
+              <PinToggle name={prog.name} pinned onToggle={() => togglePinProgram(prog.id)} />
+            </div>
+          ))}
+          {pinnedProjects.map((p) => (
+            <ProjectRow
+              key={p.id}
+              name={p.name}
+              health={(p.healthState as HealthState) ?? 'unknown'}
+              openTaskCount={p.openTaskCount}
+              pinned
+              onOpen={() => go(`/projects/${p.id}/overview`)}
+              onTogglePin={() => togglePin(p.id)}
+            />
+          ))}
+        </>
+      ) : !hasProjects ? (
+        // A zero-project user cannot act on "pin something" advice
+        // (#2034) — give them the two things they actually can do.
+        // Keep `role="status"` on the advisory text only, not the
+        // actions (a live region should not announce controls).
+        <div className="flex flex-col items-start gap-2 px-3 py-2">
+          <p role="status" className="text-xs text-chrome-text-secondary">
+            No projects yet — create one or load a demo.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowNewProject(true)}
+            className="text-xs font-medium text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary rounded-control"
+          >
+            + New project
+          </button>
+          <button
+            type="button"
+            onClick={loadDemo}
+            disabled={loadingDemo}
+            className="text-xs font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary rounded-control disabled:opacity-50"
+          >
+            {loadingDemo ? 'Loading demo…' : 'Load a demo'}
+          </button>
+        </div>
+      ) : (
+        <p role="status" className="px-3 py-2 text-xs italic text-chrome-text-secondary">
+          Pin a program or project for quick access.
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Tier 3 "Jump" — the ⌘K trigger plus the Browse switcher (a desktop popover; the
+ *  drawer inlines `browseContent`). */
+function JumpTier({
+  isDrawer,
+  openPalette,
+  switchOpen,
+  setSwitchOpen,
+  switchTriggerRef,
+  switchPanelRef,
+  browseContent,
+}: {
+  isDrawer: boolean;
+  openPalette: (open: boolean) => void;
+  switchOpen: boolean;
+  setSwitchOpen: Dispatch<SetStateAction<boolean>>;
+  switchTriggerRef: RefObject<HTMLButtonElement | null>;
+  switchPanelRef: RefObject<HTMLDivElement | null>;
+  browseContent: ReactNode;
+}) {
+  return (
+    <div className={['border-t border-chrome-border/8 p-2', isDrawer ? '' : 'shrink-0'].join(' ')}>
+      <button
+        type="button"
+        onClick={() => openPalette(true)}
+        aria-label="Search or jump to (command palette)"
+        aria-keyshortcuts="Meta+K Control+K"
+        className="flex w-full items-center gap-2 h-8 rounded-control border border-chrome-border/15 bg-chrome-surface-raised px-2.5 text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+      >
+        <SearchIcon className="h-4 w-4 shrink-0" />
+        <span className="text-[13px]">Search or jump to…</span>
+        <kbd className="tppm-mono ml-auto shrink-0 rounded-chip border border-chrome-border/20 px-1.5 py-0.5 text-xs">
+          {modifierKeyLabel()}K
+        </kbd>
+      </button>
+
+      {isDrawer ? (
+        browseContent
+      ) : (
+        <div className="relative mt-2">
+          <button
+            ref={switchTriggerRef}
+            type="button"
+            onClick={() => setSwitchOpen((v) => !v)}
+            aria-expanded={switchOpen}
+            aria-controls="rail-browse-panel"
+            className="flex w-full items-center gap-2 h-9 rounded-control border border-chrome-border/15 px-2.5 text-sm text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 14 14"
+              fill="currentColor"
+              aria-hidden="true"
+              className="shrink-0"
+            >
+              <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
+            </svg>
+            <span className="min-w-0 flex-1 truncate text-left">Browse projects and programs</span>
+            <ChevronRightIcon
+              aria-hidden="true"
+              className={`h-3 w-3 shrink-0 transition-transform ${switchOpen ? 'rotate-90' : '-rotate-90'}`}
+            />
+          </button>
+          {switchOpen && (
+            <div
+              ref={switchPanelRef}
+              id="rail-browse-panel"
+              tabIndex={-1}
+              className="absolute bottom-full left-0 z-40 mb-1 max-h-[60vh] w-full overflow-y-auto rounded-card border border-chrome-border/15 bg-chrome-surface shadow-pop focus:outline-none"
+            >
+              {browseContent}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Rail footer — a quiet "Signed in / {name}" orientation label (not a control,
+ *  #1737) plus the role-aware settings gear. */
+function SidebarFooter({
+  showFull,
+  user,
+  settingsTo,
+  settingsLabel,
+  closeDrawer,
+}: {
+  showFull: boolean;
+  user: SidebarUser;
+  settingsTo: string;
+  settingsLabel: string;
+  closeDrawer: () => void;
+}) {
+  return (
+    <div className="shrink-0 border-t border-chrome-border/8 p-2">
+      <div className="flex items-center gap-2">
+        {showFull && (
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold uppercase tracking-widest leading-none text-chrome-text-secondary">
+              Signed in
+            </div>
+            <div className="mt-0.5 truncate text-sm font-medium leading-tight text-chrome-text-primary">
+              {labelForUser(user)}
+            </div>
+          </div>
+        )}
+        {/* When the rail is collapsed (label suppressed) keep the gear right-aligned. */}
+        {!showFull && <div className="flex-1" />}
+        <NavLink
+          to={settingsTo}
+          aria-label={settingsLabel}
+          title={settingsLabel}
+          onClick={closeDrawer}
+          className={({ isActive }) =>
+            [
+              'w-9 h-9 flex items-center justify-center rounded-control transition-colors',
+              'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface',
+              isActive
+                ? 'bg-brand-primary/10 text-chrome-text-primary'
+                : 'text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
+            ].join(' ')
+          }
+        >
+          <SettingsIcon className="h-4 w-4" />
+        </NavLink>
+      </div>
+    </div>
+  );
+}
+
+/** The New project / New program / Import modals, rendered as siblings of the rail
+ *  so their overlays escape the `overflow-hidden` aside. */
+function SidebarModals({
+  showNewProject,
+  showNewProgram,
+  showImport,
+  isDrawer,
+  setShowNewProject,
+  setShowNewProgram,
+  setShowImport,
+  navigate,
+  onClose,
+}: {
+  showNewProject: boolean;
+  showNewProgram: boolean;
+  showImport: boolean;
+  isDrawer: boolean;
+  setShowNewProject: Dispatch<SetStateAction<boolean>>;
+  setShowNewProgram: Dispatch<SetStateAction<boolean>>;
+  setShowImport: Dispatch<SetStateAction<boolean>>;
+  navigate: NavigateFunction;
+  onClose?: () => void;
+}) {
+  return (
+    <>
+      {showNewProject && (
+        <NewProjectModal
+          onClose={() => setShowNewProject(false)}
+          onCreated={(projectId) => {
+            setShowNewProject(false);
+            if (isDrawer) onClose?.();
+            void navigate(`/projects/${projectId}/overview`);
+          }}
+        />
+      )}
+      {showNewProgram && (
+        <NewProgramModal
+          onClose={() => setShowNewProgram(false)}
+          onCreated={(programId) => {
+            setShowNewProgram(false);
+            if (isDrawer) onClose?.();
+            void navigate(`/programs/${programId}/projects`);
+          }}
+        />
+      )}
+      {showImport && (
+        <ImportProjectModal
+          onClose={() => setShowImport(false)}
+          onCreated={(projectId) => {
+            setShowImport(false);
+            if (isDrawer) onClose?.();
+            void navigate(`/projects/${projectId}/overview`);
+          }}
+          onProgramImported={(programId) => {
+            // A native TruePPM seed re-materializes as a whole program
+            // (ADR-0222); land on its overview, not a single project.
+            setShowImport(false);
+            if (isDrawer) onClose?.();
+            void navigate(`/programs/${programId}/overview`);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+/** The Organization + Programs tree + standalone Projects for the Tier-3 Browse
+ *  switcher. Rendered inline in the drawer and inside the desktop popover. A plain
+ *  <div> (not a <nav> landmark): the links live inside the rail's complementary
+ *  landmark already, and a nested nav named with "program" / "view" would
+ *  strict-mode-collide with the ProgramTabs / ViewTabs nav-name e2e locators. */
+function BrowseContent({
+  edition,
+  programs,
+  projects,
+  expanded,
+  pinned,
+  pinnedPrograms,
+  orphanProjects,
+  projectsCount,
+  countFor,
+  go,
+  dismissSwitcher,
+  toggleProgram,
+  togglePin,
+  togglePinProgram,
+  openPalette,
+  setShowNewProgram,
+  setShowNewProject,
+  setShowImport,
+}: {
+  edition: string;
+  programs: ProgramListItem[] | undefined;
+  projects: ProjectListItem[] | undefined;
+  expanded: string[];
+  pinned: string[];
+  pinnedPrograms: string[];
+  orphanProjects: ProjectListItem[];
+  projectsCount: number | undefined;
+  countFor: (programId: string) => number;
+  go: (to: string) => void;
+  dismissSwitcher: () => void;
+  toggleProgram: (id: string) => void;
+  togglePin: (id: string) => void;
+  togglePinProgram: (id: string) => void;
+  openPalette: (open: boolean) => void;
+  setShowNewProgram: Dispatch<SetStateAction<boolean>>;
+  setShowNewProject: Dispatch<SetStateAction<boolean>>;
+  setShowImport: Dispatch<SetStateAction<boolean>>;
+}) {
+  return (
     <div className="px-1 pb-2">
       {/* Organization — org-level destinations. Resources catalog is OSS and
           always present; the cross-program Portfolio rollup is Enterprise: the
@@ -561,411 +1224,6 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
         </button>
       </div>
     </div>
-  );
-
-  return (
-    <>
-      <aside
-        id="primary-nav-rail"
-        aria-label="Primary navigation"
-        aria-hidden={hidden || undefined}
-        inert={hidden || undefined}
-        style={isDrawer ? undefined : { width: sidebarWidth, transition: 'width 200ms ease-out' }}
-        className={[
-          'flex flex-col h-full bg-chrome-surface overflow-hidden flex-shrink-0',
-          'border-r border-chrome-border/8',
-          isDrawer ? 'w-[248px]' : '',
-        ].join(' ')}
-      >
-        {/* Brand + collapse (≡ in the unified shell bar re-opens when hidden) */}
-        <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-b border-chrome-border/8">
-          <NavLink
-            to="/me/work"
-            aria-label="TruePPM — My Work"
-            className="flex items-center gap-2 min-w-0"
-          >
-            <LogoMark size={22} className="shrink-0" />
-            <span className="font-display text-base font-bold tracking-[-0.02em] leading-none truncate">
-              <span className="text-navy-700 dark:text-reversed">True</span>
-              <span className="text-brand-primary">PPM</span>
-            </span>
-          </NavLink>
-          <div className="flex-1" />
-          {!isDrawer && (
-            <button
-              type="button"
-              onClick={toggleSidebar}
-              aria-label="Collapse sidebar"
-              title={`Hide sidebar (${modifierKeyLabel()}B)`}
-              className="w-9 h-9 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
-            >
-              <span aria-hidden="true" className="text-base leading-none">
-                «
-              </span>
-            </button>
-          )}
-        </div>
-
-        {/* Scrollable body. The brand header (above) and settings footer (below)
-            stay pinned; this column holds Tier 1–3. On the mobile drawer it scrolls
-            as ONE region (`overflow-y-auto`) so the inlined Programs tree in Tier 3
-            — which is `shrink-0` and would otherwise overflow the `overflow-hidden`
-            aside with no way to reach the lower items (#1688) — is reachable. On
-            desktop it is a transparent flex passthrough: Tier 2 owns its own scroll
-            and Tier 3 is the fixed bottom bar with its Browse popover. */}
-        <div
-          className={[
-            'flex flex-1 flex-col min-h-0',
-            isDrawer ? 'overflow-y-auto overflow-x-hidden' : '',
-          ].join(' ')}
-        >
-          {/* Tier 1 — You: identity + the personal destinations. */}
-          {showFull && (
-            <div className="m-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
-              <div className="flex items-center gap-2 px-1 pb-1.5">
-                <AvatarInitials initials={initialsForUser(user)} size="md" />
-                <div className="min-w-0">
-                  <span className="block min-w-0 truncate text-sm font-medium text-chrome-text-primary">
-                    {labelForUser(user)}
-                  </span>
-                  {roleLabel && (
-                    <span className="block min-w-0 truncate text-xs text-chrome-text-secondary">
-                      {roleLabel}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <NavLink
-                to="/me/work"
-                aria-label={dueTodayCount > 0 ? `My Work, ${dueTodayCount} due today` : 'My Work'}
-                onClick={closeDrawer}
-                className={({ isActive }) => youRowClass(isActive)}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 14 14"
-                  fill="currentColor"
-                  aria-hidden="true"
-                  className="shrink-0"
-                >
-                  <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
-                </svg>
-                <span className="min-w-0 truncate">My Work</span>
-                {dueTodayCount > 0 && (
-                  <span className="tppm-mono ml-auto shrink-0 rounded-full bg-semantic-critical-bg px-1.5 py-0.5 text-xs text-semantic-critical">
-                    {dueTodayCount}
-                  </span>
-                )}
-              </NavLink>
-              <NavLink
-                to="/me/timesheet"
-                aria-label="Timesheet"
-                onClick={closeDrawer}
-                className={({ isActive }) => youRowClass(isActive)}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  aria-hidden="true"
-                  className="shrink-0"
-                >
-                  <rect x="1.5" y="2" width="11" height="10" rx="1" />
-                  <path d="M1.5 5h11M5 5v7M9 5v7" />
-                </svg>
-                <span className="min-w-0 truncate">Timesheet</span>
-              </NavLink>
-              <NavLink
-                to="/me/assets"
-                aria-label="My Assets"
-                onClick={closeDrawer}
-                className={({ isActive }) => youRowClass(isActive)}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                  className="shrink-0"
-                >
-                  <path d="M12 6.5 6.9 11.6a2.5 2.5 0 0 1-3.5-3.5l5-5a1.6 1.6 0 0 1 2.3 2.3l-5 5a.7.7 0 0 1-1-1L9.5 5" />
-                </svg>
-                <span className="min-w-0 truncate">My Assets</span>
-              </NavLink>
-              <NavLink
-                to="/me/notifications"
-                aria-label={
-                  unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'
-                }
-                onClick={closeDrawer}
-                className={({ isActive }) => youRowClass(isActive)}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 14 14"
-                  fill="currentColor"
-                  aria-hidden="true"
-                  className="shrink-0"
-                >
-                  <path d="M7 1a3 3 0 0 0-3 3v2.5L2.5 9h9L10 6.5V4a3 3 0 0 0-3-3Zm0 12a2 2 0 0 0 2-2H5a2 2 0 0 0 2 2Z" />
-                </svg>
-                <span className="min-w-0 truncate">Notifications</span>
-                {unreadCount > 0 && (
-                  <span className="tppm-mono ml-auto shrink-0 rounded-full bg-brand-primary px-1.5 py-0.5 text-xs text-neutral-text-inverse">
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
-                )}
-              </NavLink>
-            </div>
-          )}
-
-          {/* Tier 2 — This project (grouped views) or, off a project, the pinned list.
-            This is the rail's primary in-context landmark (`Workspace navigation`). */}
-          <nav
-            aria-label="Workspace navigation"
-            className={[
-              'px-2 pb-2',
-              // Desktop: this tier is the scroll region and grows to fill. In the
-              // drawer the wrapper scrolls as one, so Tier 2 is plain in-flow content.
-              isDrawer ? '' : 'flex-1 overflow-y-auto overflow-x-hidden',
-            ].join(' ')}
-          >
-            {showFull &&
-              (projectId ? (
-                <ProjectViewsTier projectId={projectId} isDrawer={isDrawer} onClose={onClose} />
-              ) : programId ? (
-                <ProgramViewsTier programId={programId} isDrawer={isDrawer} onClose={onClose} />
-              ) : (
-                <>
-                  <h2 className={GROUP_LABEL}>Pinned</h2>
-                  {hasPins ? (
-                    <>
-                      {/* Pinned programs first, then pinned projects — a flat jump
-                          list, not a tree. Items also keep their normal tree
-                          position; pinning adds a shortcut, it does not relocate. */}
-                      {pinnedProgramList.map((prog) => (
-                        <div key={prog.id} className={rowClass(false)}>
-                          <ProgramIdentitySquare program={prog} size="xs-label" />
-                          <button
-                            type="button"
-                            onClick={() => go(`/programs/${prog.id}/overview`)}
-                            className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
-                          >
-                            {prog.name}
-                          </button>
-                          <PinToggle
-                            name={prog.name}
-                            pinned
-                            onToggle={() => togglePinProgram(prog.id)}
-                          />
-                        </div>
-                      ))}
-                      {pinnedProjects.map((p) => (
-                        <ProjectRow
-                          key={p.id}
-                          name={p.name}
-                          health={(p.healthState as HealthState) ?? 'unknown'}
-                          openTaskCount={p.openTaskCount}
-                          pinned
-                          onOpen={() => go(`/projects/${p.id}/overview`)}
-                          onTogglePin={() => togglePin(p.id)}
-                        />
-                      ))}
-                    </>
-                  ) : (projects ?? []).length === 0 ? (
-                    // A zero-project user cannot act on "pin something" advice
-                    // (#2034) — give them the two things they actually can do.
-                    // Keep `role="status"` on the advisory text only, not the
-                    // actions (a live region should not announce controls).
-                    <div className="flex flex-col items-start gap-2 px-3 py-2">
-                      <p role="status" className="text-xs text-chrome-text-secondary">
-                        No projects yet — create one or load a demo.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setShowNewProject(true)}
-                        className="text-xs font-medium text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary rounded-control"
-                      >
-                        + New project
-                      </button>
-                      <button
-                        type="button"
-                        onClick={loadDemo}
-                        disabled={loadSample.isPending}
-                        className="text-xs font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary rounded-control disabled:opacity-50"
-                      >
-                        {loadSample.isPending ? 'Loading demo…' : 'Load a demo'}
-                      </button>
-                    </div>
-                  ) : (
-                    <p
-                      role="status"
-                      className="px-3 py-2 text-xs italic text-chrome-text-secondary"
-                    >
-                      Pin a program or project for quick access.
-                    </p>
-                  )}
-                </>
-              ))}
-          </nav>
-
-          {/* Tier 3 — Jump: ⌘K search + the Browse switcher (drawer inlines it).
-            Desktop keeps `shrink-0` (fixed bottom bar); in the drawer it is in-flow
-            content inside the scroll wrapper so its inlined browse tree scrolls. */}
-          {showFull && (
-            <div
-              className={['border-t border-chrome-border/8 p-2', isDrawer ? '' : 'shrink-0'].join(
-                ' ',
-              )}
-            >
-              <button
-                type="button"
-                onClick={() => openPalette(true)}
-                aria-label="Search or jump to (command palette)"
-                aria-keyshortcuts="Meta+K Control+K"
-                className="flex w-full items-center gap-2 h-8 rounded-control border border-chrome-border/15 bg-chrome-surface-raised px-2.5 text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
-              >
-                <SearchIcon className="h-4 w-4 shrink-0" />
-                <span className="text-[13px]">Search or jump to…</span>
-                <kbd className="tppm-mono ml-auto shrink-0 rounded-chip border border-chrome-border/20 px-1.5 py-0.5 text-xs">
-                  {modifierKeyLabel()}K
-                </kbd>
-              </button>
-
-              {isDrawer ? (
-                browseContent
-              ) : (
-                <div className="relative mt-2">
-                  <button
-                    ref={switchTriggerRef}
-                    type="button"
-                    onClick={() => setSwitchOpen((v) => !v)}
-                    aria-expanded={switchOpen}
-                    aria-controls="rail-browse-panel"
-                    className="flex w-full items-center gap-2 h-9 rounded-control border border-chrome-border/15 px-2.5 text-sm text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 14 14"
-                      fill="currentColor"
-                      aria-hidden="true"
-                      className="shrink-0"
-                    >
-                      <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
-                    </svg>
-                    <span className="min-w-0 flex-1 truncate text-left">
-                      Browse projects and programs
-                    </span>
-                    <ChevronRightIcon
-                      aria-hidden="true"
-                      className={`h-3 w-3 shrink-0 transition-transform ${switchOpen ? 'rotate-90' : '-rotate-90'}`}
-                    />
-                  </button>
-                  {switchOpen && (
-                    <div
-                      ref={switchPanelRef}
-                      id="rail-browse-panel"
-                      tabIndex={-1}
-                      className="absolute bottom-full left-0 z-40 mb-1 max-h-[60vh] w-full overflow-y-auto rounded-card border border-chrome-border/15 bg-chrome-surface shadow-pop focus:outline-none"
-                    >
-                      {browseContent}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Footer — signed-in label + settings gear (stays at the very bottom).
-            The identity is a quiet "Signed in / {name}" orientation label, not a
-            control: the former avatar circle looked tappable but was inert
-            (aria-hidden), so it was demoted to text (#1737). The gear is the one
-            interactive element here. */}
-        <div className="shrink-0 border-t border-chrome-border/8 p-2">
-          <div className="flex items-center gap-2">
-            {showFull && (
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold uppercase tracking-widest leading-none text-chrome-text-secondary">
-                  Signed in
-                </div>
-                <div className="mt-0.5 truncate text-sm font-medium leading-tight text-chrome-text-primary">
-                  {labelForUser(user)}
-                </div>
-              </div>
-            )}
-            {/* When the rail is collapsed (label suppressed) keep the gear right-aligned. */}
-            {!showFull && <div className="flex-1" />}
-            <NavLink
-              to={settingsTo}
-              aria-label={settingsLabel}
-              title={settingsLabel}
-              onClick={closeDrawer}
-              className={({ isActive }) =>
-                [
-                  'w-9 h-9 flex items-center justify-center rounded-control transition-colors',
-                  'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface',
-                  isActive
-                    ? 'bg-brand-primary/10 text-chrome-text-primary'
-                    : 'text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
-                ].join(' ')
-              }
-            >
-              <SettingsIcon className="h-4 w-4" />
-            </NavLink>
-          </div>
-        </div>
-      </aside>
-
-      {showNewProject && (
-        <NewProjectModal
-          onClose={() => setShowNewProject(false)}
-          onCreated={(projectId) => {
-            setShowNewProject(false);
-            if (isDrawer) onClose?.();
-            void navigate(`/projects/${projectId}/overview`);
-          }}
-        />
-      )}
-      {showNewProgram && (
-        <NewProgramModal
-          onClose={() => setShowNewProgram(false)}
-          onCreated={(programId) => {
-            setShowNewProgram(false);
-            if (isDrawer) onClose?.();
-            void navigate(`/programs/${programId}/projects`);
-          }}
-        />
-      )}
-      {showImport && (
-        <ImportProjectModal
-          onClose={() => setShowImport(false)}
-          onCreated={(projectId) => {
-            setShowImport(false);
-            if (isDrawer) onClose?.();
-            void navigate(`/projects/${projectId}/overview`);
-          }}
-          onProgramImported={(programId) => {
-            // A native TruePPM seed re-materializes as a whole program
-            // (ADR-0222); land on its overview, not a single project.
-            setShowImport(false);
-            if (isDrawer) onClose?.();
-            void navigate(`/programs/${programId}/overview`);
-          }}
-        />
-      )}
-    </>
   );
 }
 

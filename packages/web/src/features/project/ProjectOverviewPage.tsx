@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, type NavigateFunction } from 'react-router';
 import { Button } from '@/components/Button';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
@@ -826,17 +826,11 @@ const HEALTH_VARIANT: Record<OverviewData['schedule_health'], OverviewMetric['va
  * the `/overview/` payload exposes no signed day-variance, so a "+9d vs
  * baseline" subtitle would be fabricated from SPI, which rule 120 forbids.
  */
-function buildOverviewMetrics(
+// ── Schedule health ──────────────────────────────────────────────────────
+function buildScheduleMetric(
   overview: OverviewData | undefined,
-  mcData: MonteCarloResult | undefined,
-  projectId: string | undefined,
-  canSeeResources: boolean,
-): OverviewMetric[] {
-  // Drill-down targets resolve to `undefined` (static card) whenever there is no
-  // project id yet — the pre-load neutral placeholder set must never be clickable.
-  const base = projectId ? `/projects/${projectId}` : undefined;
-
-  // ── Schedule health ────────────────────────────────────────────────────
+  base: string | undefined,
+): OverviewMetric {
   const health = overview?.schedule_health ?? 'unknown';
   const scheduleSub =
     health === 'on_track'
@@ -844,7 +838,7 @@ function buildOverviewMetrics(
       : health === 'at_risk' || health === 'critical'
         ? 'Behind schedule'
         : 'Not yet computed';
-  const scheduleMetric: OverviewMetric = {
+  return {
     key: 'schedule_health',
     label: 'Schedule health',
     value: HEALTH_LABEL[health],
@@ -857,10 +851,15 @@ function buildOverviewMetrics(
     to: base ? `${base}/schedule` : undefined,
     toLabel: 'the schedule',
   };
+}
 
-  // ── Forecast finish (P80 date — informational, always neutral) ─────────
+// ── Forecast finish (P80 date — informational, always neutral) ─────────────
+function buildForecastMetric(
+  mcData: MonteCarloResult | undefined,
+  base: string | undefined,
+): OverviewMetric {
   const p80 = mcData?.p80;
-  const forecastMetric: OverviewMetric = {
+  return {
     key: 'forecast_finish',
     label: 'Forecast finish',
     value: p80 ? formatIsoDate(p80) : '—',
@@ -870,11 +869,16 @@ function buildOverviewMetrics(
     to: base && p80 ? `${base}/schedule` : undefined,
     toLabel: 'the forecast',
   };
+}
 
-  // ── Tasks late ─────────────────────────────────────────────────────────
+// ── Tasks late ─────────────────────────────────────────────────────────────
+function buildTasksLateMetric(
+  overview: OverviewData | undefined,
+  base: string | undefined,
+): OverviewMetric {
   const lateCount = overview?.tasks_late_count;
   const hasLate = lateCount != null && lateCount > 0;
-  const tasksLateMetric: OverviewMetric = {
+  return {
     key: 'tasks_late',
     label: 'Tasks late',
     value: lateCount != null ? `${lateCount} late` : '—',
@@ -885,14 +889,18 @@ function buildOverviewMetrics(
     to: base && hasLate ? `${base}/grid?due=overdue` : undefined,
     toLabel: 'overdue tasks',
   };
+}
 
-  // ── Open risks ─────────────────────────────────────────────────────────
+// ── Open risks ─────────────────────────────────────────────────────────────
+function buildOpenRisksMetric(
+  overview: OverviewData | undefined,
+  base: string | undefined,
+): OverviewMetric {
   const high = overview?.high_risk_count;
   const open = overview?.open_risk_count;
   const hasRisks = (high != null && high > 0) || (open != null && open > 0);
-  const risksValue =
-    high != null && high > 0 ? `${high} high` : open != null ? `${open} open` : '—';
-  const openRisksMetric: OverviewMetric = {
+  const risksValue = high != null && high > 0 ? `${high} high` : open != null ? `${open} open` : '—';
+  return {
     key: 'open_risks',
     label: 'Open risks',
     value: risksValue,
@@ -906,12 +914,18 @@ function buildOverviewMetrics(
         : undefined,
     toLabel: 'the risk register',
   };
+}
 
-  // ── Team utilization ───────────────────────────────────────────────────
+// ── Team utilization ───────────────────────────────────────────────────────
+function buildUtilizationMetric(
+  overview: OverviewData | undefined,
+  base: string | undefined,
+  canSeeResources: boolean,
+): OverviewMetric {
   const util = overview?.team_utilization_pct;
   const utilVariant: OverviewMetric['variant'] =
     util == null ? 'neutral' : util > 100 ? 'critical' : util >= 85 ? 'at-risk' : 'on-track';
-  const utilizationMetric: OverviewMetric = {
+  return {
     key: 'team_utilization',
     label: 'Team utilization',
     value: util != null ? `${Math.round(util)}%` : '—',
@@ -923,15 +937,20 @@ function buildOverviewMetrics(
     to: base && util != null && canSeeResources ? `${base}/resources` : undefined,
     toLabel: 'team allocation',
   };
+}
 
-  // ── Next milestone (informational, always neutral) ─────────────────────
+// ── Next milestone (informational, always neutral) ─────────────────────────
+function buildMilestoneMetric(
+  overview: OverviewData | undefined,
+  base: string | undefined,
+): OverviewMetric {
   let milestoneSub: string | undefined;
   if (overview?.next_milestone?.date) {
     const days = daysFromToday(overview.next_milestone.date);
     milestoneSub = days < 0 ? `${Math.abs(days)}d ago` : days === 0 ? 'Today' : `in ${days}d`;
   }
   const milestoneId = overview?.next_milestone?.id;
-  const milestoneMetric: OverviewMetric = {
+  return {
     key: 'next_milestone',
     label: 'Next milestone',
     value: overview?.next_milestone?.name ?? '—',
@@ -941,15 +960,293 @@ function buildOverviewMetrics(
     to: base && milestoneId ? `${base}/tasks/${milestoneId}` : undefined,
     toLabel: 'the milestone',
   };
+}
 
+function buildOverviewMetrics(
+  overview: OverviewData | undefined,
+  mcData: MonteCarloResult | undefined,
+  projectId: string | undefined,
+  canSeeResources: boolean,
+): OverviewMetric[] {
+  // Drill-down targets resolve to `undefined` (static card) whenever there is no
+  // project id yet — the pre-load neutral placeholder set must never be clickable.
+  const base = projectId ? `/projects/${projectId}` : undefined;
   return [
-    scheduleMetric,
-    forecastMetric,
-    tasksLateMetric,
-    openRisksMetric,
-    utilizationMetric,
-    milestoneMetric,
+    buildScheduleMetric(overview, base),
+    buildForecastMetric(mcData, base),
+    buildTasksLateMetric(overview, base),
+    buildOpenRisksMetric(overview, base),
+    buildUtilizationMetric(overview, base, canSeeResources),
+    buildMilestoneMetric(overview, base),
   ];
+}
+
+// ---------------------------------------------------------------------------
+// ProjectOverviewPage sub-sections
+// ---------------------------------------------------------------------------
+
+/**
+ * First-run handoff (#2048): a project with zero tasks lands on six zero-value KPI
+ * cards and widgets whose empty copy assumes existing work ("Run the scheduler…") —
+ * a dead dashboard right after the user's most important commitment. Swap the whole
+ * body for a focused "add your first task" moment; the KPIs return automatically the
+ * instant there's work to measure.
+ */
+function FirstRunOverview({
+  projectId,
+  overview,
+  canInvite,
+  showCriticalPath,
+  navigate,
+}: {
+  projectId: string;
+  overview: OverviewData | undefined;
+  canInvite: boolean;
+  showCriticalPath: boolean;
+  navigate: NavigateFunction;
+}) {
+  // Scheduling-first app: land authoring on Schedule wherever it's visible,
+  // falling back to Board for an agile-only project (schedule tab hidden).
+  const workSurface = showCriticalPath ? 'schedule' : 'board';
+  const workSurfaceLabel = showCriticalPath ? 'Schedule' : 'Board';
+  return (
+    <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
+      {/* sr-only page landmark (#2200) — sibling views (Board/Schedule/
+          Resources) ship one; the Overview landing had none, so the page
+          heading was the first h2 and the RouteAnnouncer had no h1 to name. */}
+      <h1 className="sr-only">Overview</h1>
+      {overview && <ProjectHeader overview={overview} projectId={projectId} />}
+      <section
+        aria-labelledby="first-run-heading"
+        className="rounded-card border border-neutral-border bg-neutral-surface p-6 flex flex-col gap-4"
+      >
+        <div className="flex flex-col gap-1">
+          <h2 id="first-run-heading" className="text-base font-semibold text-neutral-text-primary">
+            Your project is ready — add your first task
+          </h2>
+          <p className="max-w-xl text-sm text-neutral-text-secondary">
+            This Overview fills in with health, forecast, and critical-path insights as soon as
+            there&rsquo;s work to plan. Start by adding a task, then invite the people who&rsquo;ll
+            help deliver it.
+          </p>
+        </div>
+        {/* Route the CTAs through the shared DS Button so the primary keeps the
+            brand navy-on-sage recipe (white-on-sage fails AA in dark mode) — same
+            pattern as ScheduleEmptyState. In-app navigation via router push. */}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={() => void navigate(`/projects/${projectId}/${workSurface}`)}
+          >
+            Add your first task
+          </Button>
+          {canInvite && (
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={() => void navigate(`/projects/${projectId}/settings#access`)}
+            >
+              Invite teammates
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-neutral-text-secondary">
+          Prefer the timeline? Head to the {workSurfaceLabel} to lay out your schedule.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+/** The KPI rows: a health-fetch error state, the loading skeleton, or the ranked
+ *  focus + secondary card grids. */
+function OverviewKpiSection({
+  overviewError,
+  overviewLoading,
+  focus,
+  secondary,
+  focusHeadingText,
+  refetchOverview,
+}: {
+  overviewError: boolean;
+  overviewLoading: boolean;
+  focus: OverviewMetric[];
+  secondary: OverviewMetric[];
+  focusHeadingText: string;
+  refetchOverview: () => unknown;
+}) {
+  if (overviewError) {
+    // Without this the health row hangs on KpiSkeleton forever on a failed
+    // fetch — indistinguishable from a slow load (issue #1764).
+    return (
+      <section aria-label="Project health">
+        <QueryErrorState
+          variant="inline"
+          message="Couldn't load project health."
+          onRetry={() => void refetchOverview()}
+        />
+      </section>
+    );
+  }
+  if (overviewLoading) {
+    return (
+      <section aria-label="Project health">
+        <KpiSkeleton />
+      </section>
+    );
+  }
+  return (
+    <>
+      <section aria-labelledby="overview-focus-heading">
+        <h2
+          id="overview-focus-heading"
+          className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3"
+        >
+          {focusHeadingText}
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {focus.map((m) => (
+            <KpiCard
+              key={m.key}
+              label={m.label}
+              value={m.value}
+              sub={m.sub}
+              variant={m.variant}
+              title={m.title}
+              to={m.to}
+              toLabel={m.toLabel}
+              prominent
+            />
+          ))}
+        </div>
+      </section>
+
+      {secondary.length > 0 && (
+        <section aria-labelledby="overview-secondary-heading">
+          <h2
+            id="overview-secondary-heading"
+            className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3"
+          >
+            More metrics
+          </h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {secondary.map((m) => (
+              <KpiCard
+                key={m.key}
+                label={m.label}
+                value={m.value}
+                sub={m.sub}
+                variant={m.variant}
+                title={m.title}
+                to={m.to}
+                toLabel={m.toLabel}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+/** The two-column lower section: Needs-attention and My-tasks-this-week, each with
+ *  its own error / loading / data state. */
+function AttentionMyTasksGrid({
+  projectId,
+  attention,
+  attentionError,
+  attentionLoading,
+  refetchAttention,
+  myTasks,
+  myTasksError,
+  myTasksLoading,
+  refetchMyTasks,
+}: {
+  projectId: string;
+  attention: AttentionItem[] | undefined;
+  attentionError: boolean;
+  attentionLoading: boolean;
+  refetchAttention: () => unknown;
+  myTasks: MyTask[] | undefined;
+  myTasksError: boolean;
+  myTasksLoading: boolean;
+  refetchMyTasks: () => unknown;
+}) {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Attention panel */}
+      <section aria-label="Attention items">
+        <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
+          Needs attention
+        </h2>
+        {attentionError ? (
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load attention items."
+            onRetry={() => void refetchAttention()}
+          />
+        ) : attentionLoading ? (
+          <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
+        ) : (
+          <AttentionPanel items={attention ?? []} projectId={projectId} />
+        )}
+      </section>
+
+      {/* My tasks */}
+      <section aria-label="My tasks this week">
+        <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
+          My tasks this week
+        </h2>
+        {myTasksError ? (
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load your tasks."
+            onRetry={() => void refetchMyTasks()}
+          />
+        ) : myTasksLoading ? (
+          <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
+        ) : (
+          <MyTasksPanel tasks={myTasks ?? []} projectId={projectId} />
+        )}
+      </section>
+    </div>
+  );
+}
+
+/** Critical-path panel — CPM/schedule artifact, hidden on AGILE (#1765). Owns its
+ *  own error / loading / data state. */
+function CriticalPathSection({
+  projectId,
+  cpTasks,
+  cpTasksError,
+  cpTasksLoading,
+  refetchCpTasks,
+}: {
+  projectId: string;
+  cpTasks: CpTask[] | undefined;
+  cpTasksError: boolean;
+  cpTasksLoading: boolean;
+  refetchCpTasks: () => unknown;
+}) {
+  return (
+    <section aria-label="Critical path">
+      <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
+        Critical path
+      </h2>
+      {cpTasksError ? (
+        <QueryErrorState
+          variant="inline"
+          message="Couldn't load the critical path."
+          onRetry={() => void refetchCpTasks()}
+        />
+      ) : cpTasksLoading ? (
+        <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
+      ) : (
+        <CriticalPathPanel tasks={cpTasks ?? []} projectId={projectId} />
+      )}
+    </section>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1042,57 +1339,14 @@ export function ProjectOverviewPage() {
   const isFirstRun =
     !overviewLoading && !overviewError && overview !== undefined && overview.total_tasks === 0;
   if (isFirstRun && projectId) {
-    // Scheduling-first app: land authoring on Schedule wherever it's visible,
-    // falling back to Board for an agile-only project (schedule tab hidden).
-    const workSurface = showCriticalPath ? 'schedule' : 'board';
-    const workSurfaceLabel = showCriticalPath ? 'Schedule' : 'Board';
     return (
-      <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
-        {/* sr-only page landmark (#2200) — sibling views (Board/Schedule/
-            Resources) ship one; the Overview landing had none, so the page
-            heading was the first h2 and the RouteAnnouncer had no h1 to name. */}
-        <h1 className="sr-only">Overview</h1>
-        {overview && <ProjectHeader overview={overview} projectId={projectId} />}
-        <section
-          aria-labelledby="first-run-heading"
-          className="rounded-card border border-neutral-border bg-neutral-surface p-6 flex flex-col gap-4"
-        >
-          <div className="flex flex-col gap-1">
-            <h2 id="first-run-heading" className="text-base font-semibold text-neutral-text-primary">
-              Your project is ready — add your first task
-            </h2>
-            <p className="max-w-xl text-sm text-neutral-text-secondary">
-              This Overview fills in with health, forecast, and critical-path insights as soon as
-              there&rsquo;s work to plan. Start by adding a task, then invite the people who&rsquo;ll
-              help deliver it.
-            </p>
-          </div>
-          {/* Route the CTAs through the shared DS Button so the primary keeps the
-              brand navy-on-sage recipe (white-on-sage fails AA in dark mode) — same
-              pattern as ScheduleEmptyState. In-app navigation via router push. */}
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              variant="primary"
-              size="lg"
-              onClick={() => void navigate(`/projects/${projectId}/${workSurface}`)}
-            >
-              Add your first task
-            </Button>
-            {canInvite && (
-              <Button
-                variant="secondary"
-                size="lg"
-                onClick={() => void navigate(`/projects/${projectId}/settings#access`)}
-              >
-                Invite teammates
-              </Button>
-            )}
-          </div>
-          <p className="text-xs text-neutral-text-secondary">
-            Prefer the timeline? Head to the {workSurfaceLabel} to lay out your schedule.
-          </p>
-        </section>
-      </div>
+      <FirstRunOverview
+        projectId={projectId}
+        overview={overview}
+        canInvite={canInvite}
+        showCriticalPath={showCriticalPath}
+        navigate={navigate}
+      />
     );
   }
 
@@ -1112,72 +1366,14 @@ export function ProjectOverviewPage() {
           a PM needs to act on is always at the top-left. Visual order ===
           DOM order: the data is sorted and rendered in that order, never CSS
           `order`, so screen-reader order matches the visual priority. */}
-      {overviewError ? (
-        // Without this the health row hangs on KpiSkeleton forever on a failed
-        // fetch — indistinguishable from a slow load (issue #1764).
-        <section aria-label="Project health">
-          <QueryErrorState
-            variant="inline"
-            message="Couldn't load project health."
-            onRetry={() => void refetchOverview()}
-          />
-        </section>
-      ) : overviewLoading ? (
-        <section aria-label="Project health">
-          <KpiSkeleton />
-        </section>
-      ) : (
-        <>
-          <section aria-labelledby="overview-focus-heading">
-            <h2
-              id="overview-focus-heading"
-              className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3"
-            >
-              {focusHeadingText}
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {focus.map((m) => (
-                <KpiCard
-                  key={m.key}
-                  label={m.label}
-                  value={m.value}
-                  sub={m.sub}
-                  variant={m.variant}
-                  title={m.title}
-                  to={m.to}
-                  toLabel={m.toLabel}
-                  prominent
-                />
-              ))}
-            </div>
-          </section>
-
-          {secondary.length > 0 && (
-            <section aria-labelledby="overview-secondary-heading">
-              <h2
-                id="overview-secondary-heading"
-                className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3"
-              >
-                More metrics
-              </h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {secondary.map((m) => (
-                  <KpiCard
-                    key={m.key}
-                    label={m.label}
-                    value={m.value}
-                    sub={m.sub}
-                    variant={m.variant}
-                    title={m.title}
-                    to={m.to}
-                    toLabel={m.toLabel}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-        </>
-      )}
+      <OverviewKpiSection
+        overviewError={overviewError}
+        overviewLoading={overviewLoading}
+        focus={focus}
+        secondary={secondary}
+        focusHeadingText={focusHeadingText}
+        refetchOverview={refetchOverview}
+      />
 
       {/* Blocked-task roll-up — the PM's impediment triage list (ADR-0124). */}
       {projectId && <BlockedRollupPanel scope="project" projectId={projectId} />}
@@ -1202,63 +1398,28 @@ export function ProjectOverviewPage() {
       {/* Two-column lower section — gated on projectId so the task-row links can
           address the task detail route (rows are inert until the project is known). */}
       {projectId && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Attention panel */}
-          <section aria-label="Attention items">
-            <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
-              Needs attention
-            </h2>
-            {attentionError ? (
-              <QueryErrorState
-                variant="inline"
-                message="Couldn't load attention items."
-                onRetry={() => void refetchAttention()}
-              />
-            ) : attentionLoading ? (
-              <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
-            ) : (
-              <AttentionPanel items={attention ?? []} projectId={projectId} />
-            )}
-          </section>
-
-          {/* My tasks */}
-          <section aria-label="My tasks this week">
-            <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
-              My tasks this week
-            </h2>
-            {myTasksError ? (
-              <QueryErrorState
-                variant="inline"
-                message="Couldn't load your tasks."
-                onRetry={() => void refetchMyTasks()}
-              />
-            ) : myTasksLoading ? (
-              <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
-            ) : (
-              <MyTasksPanel tasks={myTasks ?? []} projectId={projectId} />
-            )}
-          </section>
-        </div>
+        <AttentionMyTasksGrid
+          projectId={projectId}
+          attention={attention}
+          attentionError={attentionError}
+          attentionLoading={attentionLoading}
+          refetchAttention={refetchAttention}
+          myTasks={myTasks}
+          myTasksError={myTasksError}
+          myTasksLoading={myTasksLoading}
+          refetchMyTasks={refetchMyTasks}
+        />
       )}
 
       {/* Critical path panel — CPM/schedule artifact, hidden on AGILE (#1765). */}
       {projectId && showCriticalPath && (
-        <section aria-label="Critical path">
-          <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
-            Critical path
-          </h2>
-          {cpTasksError ? (
-            <QueryErrorState
-              variant="inline"
-              message="Couldn't load the critical path."
-              onRetry={() => void refetchCpTasks()}
-            />
-          ) : cpTasksLoading ? (
-            <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
-          ) : (
-            <CriticalPathPanel tasks={cpTasks ?? []} projectId={projectId} />
-          )}
-        </section>
+        <CriticalPathSection
+          projectId={projectId}
+          cpTasks={cpTasks}
+          cpTasksError={cpTasksError}
+          cpTasksLoading={cpTasksLoading}
+          refetchCpTasks={refetchCpTasks}
+        />
       )}
 
       {/* Project history (import provenance, #799). Self-hides when the

@@ -38,6 +38,347 @@ function formatStatus(status: string | null | undefined): string {
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
 
+// Action wrappers threaded through every section builder: `act` closes the
+// overlay before running an effect; `go` is `act` specialized to a route push.
+type Act = (fn: () => void) => () => void;
+type Go = (path: string) => () => void;
+
+// Hook-derived data shapes, so the section builders below can live at module
+// scope (keeping the useMemo body's cognitive complexity low, issue 2369) while
+// still tracking the hooks' real return types.
+type ScheduleTasks = ReturnType<typeof useScheduleTasks>['tasks'];
+type TaskItem = NonNullable<ScheduleTasks>[number];
+type ActiveSprintData = ReturnType<typeof useActiveSprint>['sprint'];
+type SprintTargets = ReturnType<typeof useCurrentSprintTargets>;
+type ProjectsData = ReturnType<typeof useProjects>['data'];
+type ProgramsData = ReturnType<typeof usePrograms>['data'];
+type ProjectItem = NonNullable<ProjectsData>[number];
+type PeopleData = ReturnType<typeof useResourceSearch>['data'];
+type RecentProjectsData = ReturnType<typeof useRecentProjects>['data'];
+type CurrentUser = ReturnType<typeof useCurrentUser>['user'];
+type IterationLabel = ReturnType<typeof useIterationLabel>;
+
+// ---- Jump to current sprint (first-class, top-ranked) ----------------------
+// The issue 1594 headline action: one entry per team with a live ACTIVE sprint,
+// each landing directly on that sprint's board (`?sprint=` scope). Works from
+// anywhere (not just a project route) so a multi-team Scrum Master reaches any
+// of their boards without hunting through the SPRINT view tabs.
+function buildSprintJumps(sprintTargets: SprintTargets, go: Go): CommandItem[] {
+  return sprintTargets.map((t) => ({
+    id: `sprint:${t.sprintId}`,
+    label: `Current sprint — ${t.sprintName}`,
+    group: 'sprint',
+    tag: 'Sprint',
+    detail: t.projectName,
+    keywords: `jump current active sprint board ${t.projectName}`,
+    run: go(t.path),
+  }));
+}
+
+// ---- Tier 2: Tasks (current project) ---------------------------------------
+// Built for every current-project task; the palette query filters them and caps
+// the visible set. Split into two disjoint groups (ADR-0508/#1557): tasks in the
+// current project's ACTIVE sprint land in `sprintTask` (raised cap 25), everything
+// else in `task` (cap 8). A task is in exactly one group, so keyboard nav stays
+// single-listed. With no active sprint, `sprintTaskItems` is empty and `taskItems`
+// holds every task — unchanged behavior for Waterfall / no-sprint projects.
+function buildTaskItems(
+  tier2Id: string | undefined,
+  tasks: ScheduleTasks,
+  activeSprint: ActiveSprintData,
+  act: Act,
+  openTask: (task: TaskItem, projectId: string) => void,
+): { sprintTaskItems: CommandItem[]; taskItems: CommandItem[] } {
+  const sprintTaskItems: CommandItem[] = [];
+  const taskItems: CommandItem[] = [];
+  if (!tier2Id) return { sprintTaskItems, taskItems };
+  const activeSprintId = activeSprint?.id ?? null;
+  for (const task of tasks ?? []) {
+    const detail = [task.wbs, formatStatus(task.status)].filter(Boolean).join(' · ');
+    const inActiveSprint = activeSprintId !== null && task.sprintId === activeSprintId;
+    (inActiveSprint ? sprintTaskItems : taskItems).push({
+      id: `task:${task.id}`,
+      label: `Open task: ${task.name}`,
+      group: inActiveSprint ? 'sprintTask' : 'task',
+      tag: 'Task',
+      detail,
+      keywords: `${task.shortId ?? ''} ${task.wbs ?? ''} ${task.status ?? ''}`,
+      run: act(() => openTask(task, tier2Id)),
+    });
+  }
+  return { sprintTaskItems, taskItems };
+}
+
+// ---- Tier 2: Current project (sprint retro + role-gated grooming + hidden) --
+function buildCurrentItems(
+  tier2Id: string | undefined,
+  currentProject: ProjectItem | null,
+  activeSprint: ActiveSprintData,
+  canManageBacklog: boolean,
+  user: CurrentUser,
+  iteration: IterationLabel,
+  go: Go,
+): CommandItem[] {
+  const currentItems: CommandItem[] = [];
+  if (!tier2Id) return currentItems;
+  const projectName = currentProject?.name ?? 'this project';
+  // The in-context active sprint's *board* jump lives in the top-ranked `sprint`
+  // group (issue 1594); the retro jump stays here as an in-context target.
+  if (activeSprint) {
+    currentItems.push({
+      id: `current:retro:${tier2Id}`,
+      label: `Open ${activeSprint.name} retro`,
+      group: 'current',
+      tag: 'Sprint',
+      keywords: 'retrospective sprint',
+      // Deep-link the active sprint so the view selects it directly (#2046),
+      // rather than landing on the default selection.
+      run: go(`/projects/${tier2Id}/sprints?sprint=${activeSprint.id}`),
+    });
+  }
+  // Role/facet-gated: backlog grooming is Product-Owner-facet or Admin+ only, and
+  // only meaningful on a methodology that has a backlog (ADR-0105). The gate reads
+  // the server-provided role/facets — never an invented client rule.
+  if (canManageBacklog && currentProject?.methodology !== 'WATERFALL') {
+    currentItems.push({
+      id: `current:groom:${tier2Id}`,
+      label: `Groom backlog — ${projectName}`,
+      group: 'current',
+      tag: 'Backlog',
+      keywords: 'product backlog grooming prioritize',
+      run: go(`/projects/${tier2Id}/product-backlog`),
+    });
+  }
+  // Hidden views stay reachable via ⌘K (ADR-0139). Surface a "Go to {label}" jump
+  // for each view the user has personally hidden that *would* be visible for this
+  // project's methodology — methodology-hidden views are excluded (the user can't
+  // hide those, and they communicate "not how we work here").
+  const hiddenViews = new Set(user?.hidden_views ?? []);
+  if (hiddenViews.size === 0) return currentItems;
+  const methodology: Methodology = currentProject?.methodology ?? 'HYBRID';
+  for (const view of hiddenViews) {
+    if (!isTabVisibleForMethodology(view, methodology)) continue;
+    const label = view === 'sprints' ? iteration.plural : VIEW_TAB_META[view]?.label;
+    if (!label) continue;
+    currentItems.push({
+      id: `current:hidden-view:${tier2Id}:${view}`,
+      label: `Go to ${label}`,
+      group: 'current',
+      tag: 'View',
+      keywords: `view hidden ${view}`,
+      run: go(`/projects/${tier2Id}/${view}`),
+    });
+  }
+  return currentItems;
+}
+
+// ---- People (global, query-gated) ------------------------------------------
+// Server-searched resources (ADR-0401/#1940). Selecting one opens the org resource
+// catalog pre-filtered to that name (`/resources?q=`) — there is no per-resource
+// detail route, so the catalog + seeded search is the destination.
+function buildPeopleItems(peopleEnabled: boolean, people: PeopleData, go: Go): CommandItem[] {
+  if (!peopleEnabled) return [];
+  return (people ?? []).map((person) => ({
+    id: `person:${person.id}`,
+    label: person.name,
+    group: 'person',
+    tag: 'Person',
+    keywords: `person resource member teammate ${person.name}`,
+    run: go(`/resources?q=${encodeURIComponent(person.name)}`),
+  }));
+}
+
+// ---- Recent (cold-only recently-visited projects) --------------------------
+// ADR-0508/#1557. Bare project name + "{program} · {relative}" recency hint. Cold,
+// a project can appear in BOTH `recent` and the full `jump` list — the intentional
+// Spotlight shortcut-strip pattern (web-rule 268). Deep-links to project overview
+// (the one view present for every methodology).
+function buildRecentItems(
+  recentEnabled: boolean,
+  recentProjects: RecentProjectsData,
+  go: Go,
+): CommandItem[] {
+  if (!recentEnabled) return [];
+  return (recentProjects ?? []).map((rp) => ({
+    id: `recent:${rp.id}`,
+    label: rp.name,
+    group: 'recent' as const,
+    tag: 'Project',
+    detail: [rp.program_name, formatRelative(new Date(rp.visited_at))].filter(Boolean).join(' · '),
+    keywords: `recent recently visited project ${rp.program_name ?? ''}`,
+    run: go(`/projects/${rp.id}/overview`),
+  }));
+}
+
+// ---- Tier 1: Jump to (global) + always-findable Settings landings ----------
+function buildJumps(
+  programs: ProgramsData,
+  projects: ProjectsData,
+  isWorkspaceAdmin: boolean,
+  go: Go,
+): CommandItem[] {
+  const jumps: CommandItem[] = [
+    { id: 'jump:my-work', label: 'My Work', group: 'jump', tag: 'View', run: go('/me/work') },
+    {
+      id: 'jump:inbox',
+      label: 'Notifications',
+      group: 'jump',
+      tag: 'View',
+      keywords: 'notifications inbox',
+      run: go('/me/notifications'),
+    },
+    { id: 'jump:programs', label: 'Programs', group: 'jump', tag: 'View', run: go('/programs') },
+  ];
+  for (const program of programs ?? []) {
+    jumps.push({
+      id: `jump:program:${program.id}`,
+      label: program.name,
+      group: 'jump',
+      tag: 'Program',
+      keywords: program.code,
+      run: go(`/programs/${program.id}/overview`),
+    });
+  }
+  for (const project of projects ?? []) {
+    jumps.push({
+      id: `jump:project:${project.id}`,
+      label: project.name,
+      group: 'jump',
+      tag: 'Project',
+      // Overview is the one view present for every methodology — a safe default.
+      run: go(`/projects/${project.id}/overview`),
+    });
+  }
+  // Cold-visible top-level landings (#2298). Workspace settings + Trash are
+  // admin-only, so they are HIDDEN (not shown-disabled) for members — a palette
+  // entry a member can never act on is noise. Personal settings is any-role.
+  if (isWorkspaceAdmin) {
+    jumps.push({
+      id: 'jump:workspace-settings',
+      label: 'Workspace settings',
+      group: 'jump',
+      tag: 'Settings',
+      keywords: 'settings preferences configuration admin workspace members sso email retention',
+      run: go('/settings'),
+    });
+  }
+  jumps.push({
+    id: 'jump:personal-settings',
+    label: 'Personal settings',
+    group: 'jump',
+    tag: 'Settings',
+    keywords: 'settings preferences profile account me notifications tokens connected',
+    run: go('/me/settings/general'),
+  });
+  if (isWorkspaceAdmin) {
+    jumps.push({
+      id: 'jump:trash',
+      label: 'Trash',
+      group: 'jump',
+      tag: 'Settings',
+      keywords: 'trash deleted restore recover projects',
+      run: go('/settings/trash'),
+    });
+  }
+  return jumps;
+}
+
+// ---- Settings sections (ADR-0606/#2319) ------------------------------------
+// Individual settings sections as a query-only group so typing "smtp" / "oidc"
+// jumps straight to Email & SMTP / Single sign-on. Workspace sections derive from
+// the SAME builder that feeds the rail and are admin-gated as a whole; personal
+// sections come from ME_SETTINGS_LINKS and are ungated.
+function buildSettingsSections(isWorkspaceAdmin: boolean, go: Go): CommandItem[] {
+  const settingsSections: CommandItem[] = [];
+  if (isWorkspaceAdmin) {
+    for (const group of buildWorkspaceNavGroups({ linked: true })) {
+      for (const item of group.items) {
+        if (item.id === 'trash' || !item.to) continue; // trash → cold jump above
+        settingsSections.push({
+          id: `settings:ws:${item.id}`,
+          label: item.label,
+          group: 'settings',
+          tag: 'Settings',
+          detail: 'Workspace',
+          keywords: item.keywords,
+          run: go(item.to),
+        });
+      }
+    }
+  }
+  for (const link of ME_SETTINGS_LINKS) {
+    settingsSections.push({
+      id: `settings:me:${link.to}`,
+      label: link.label,
+      group: 'settings',
+      tag: 'Settings',
+      detail: 'Personal',
+      keywords: link.keywords,
+      run: go(link.to),
+    });
+  }
+  return settingsSections;
+}
+
+// ---- Tier 1: Backlog + Board (global) --------------------------------------
+function buildBacklogAndBoard(
+  projects: ProjectsData,
+  go: Go,
+): { backlog: CommandItem[]; board: CommandItem[] } {
+  const backlog: CommandItem[] = [];
+  const board: CommandItem[] = [];
+  for (const project of projects ?? []) {
+    // Backlog exists only for Agile/Hybrid projects (ADR-0105); methodology is on
+    // the list payload, so this gates with no extra fetch.
+    if (project.methodology !== 'WATERFALL') {
+      backlog.push({
+        id: `backlog:${project.id}`,
+        label: `Backlog: ${project.name}`,
+        group: 'backlog',
+        tag: 'Backlog',
+        keywords: 'product backlog',
+        run: go(`/projects/${project.id}/product-backlog`),
+      });
+    }
+    board.push({
+      id: `board:${project.id}`,
+      label: `Board: ${project.name}`,
+      group: 'board',
+      tag: 'Board',
+      keywords: 'kanban sprint board',
+      run: go(`/projects/${project.id}/board`),
+    });
+  }
+  return { backlog, board };
+}
+
+// ---- Global actions --------------------------------------------------------
+function buildActions(
+  theme: Theme,
+  setTheme: (theme: Theme) => void,
+  toggleSidebar: () => void,
+  act: Act,
+): CommandItem[] {
+  return [
+    {
+      id: 'action:cycle-theme',
+      label: `Switch theme (now: ${theme})`,
+      group: 'action',
+      tag: 'Action',
+      keywords: 'dark light auto appearance',
+      run: act(() => setTheme(THEME_CYCLE[theme])),
+    },
+    {
+      id: 'action:toggle-sidebar',
+      label: 'Toggle sidebar',
+      group: 'action',
+      tag: 'Action',
+      keywords: 'collapse expand rail',
+      run: act(toggleSidebar),
+    },
+  ];
+}
+
 /**
  * Assembles the live command-palette items (ADR-0138, issue 647) in two tiers:
  *
@@ -108,132 +449,41 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
   const { data: recentProjects } = useRecentProjects(recentEnabled);
 
   return useMemo(() => {
-    // Wrap every action so the overlay closes first, then the effect runs.
-    const act = (fn: () => void) => () => {
+    // Wrap every action so the overlay closes first, then the effect runs; `go`
+    // is `act` specialized to a route push.
+    const act: Act = (fn) => () => {
       setOpen(false);
       fn();
     };
-    const go = (path: string) =>
+    const go: Go = (path) =>
       act(() => {
         void navigate(path);
       });
 
-    // ---- Jump to current sprint (first-class, top-ranked) --------------------
-    // The issue 1594 headline action: one entry per team with a live ACTIVE sprint,
-    // each landing directly on that sprint's board (`?sprint=` scope). Works from
-    // anywhere (not just a project route) so a multi-team Scrum Master reaches any
-    // of their boards without hunting through the SPRINT view tabs.
-    const sprintJumps: CommandItem[] = sprintTargets.map((t) => ({
-      id: `sprint:${t.sprintId}`,
-      label: `Current sprint — ${t.sprintName}`,
-      group: 'sprint',
-      tag: 'Sprint',
-      detail: t.projectName,
-      keywords: `jump current active sprint board ${t.projectName}`,
-      run: go(t.path),
-    }));
-
-    // ---- Tier 2: Tasks (current project) -------------------------------------
-    // Built for every current-project task; the palette query filters them and
-    // caps the visible set. Selecting one opens the app-wide drawer in place.
-    // Gated on `tier2Id` (not `currentProjectId`) so the Tier-2 items are built
-    // only while the palette is open — `useScheduleTasks` falls back to the route
-    // project when handed `undefined`, so gating on the raw route id would build
-    // task items (and read possibly-partial task data) on every project route even
-    // with the palette closed.
-    // Split into two disjoint groups (ADR-0508/#1557): tasks in the current
-    // project's ACTIVE sprint land in `sprintTask` (raised cap 25), everything
-    // else in `task` (cap 8). A task is in exactly one group, so keyboard nav
-    // stays single-listed and each cap applies to its own set. With no active
-    // sprint, `sprintTaskItems` is empty and `taskItems` holds every task —
-    // fully unchanged behavior for Waterfall / no-sprint projects.
-    const sprintTaskItems: CommandItem[] = [];
-    const taskItems: CommandItem[] = [];
-    if (tier2Id) {
-      const activeSprintId = activeSprint?.id ?? null;
-      for (const task of tasks ?? []) {
-        const detail = [task.wbs, formatStatus(task.status)].filter(Boolean).join(' · ');
-        const inActiveSprint = activeSprintId !== null && task.sprintId === activeSprintId;
-        (inActiveSprint ? sprintTaskItems : taskItems).push({
-          id: `task:${task.id}`,
-          label: `Open task: ${task.name}`,
-          group: inActiveSprint ? 'sprintTask' : 'task',
-          tag: 'Task',
-          detail,
-          keywords: `${task.shortId ?? ''} ${task.wbs ?? ''} ${task.status ?? ''}`,
-          run: act(() => openTask(task, tier2Id)),
-        });
-      }
-    }
-
-    // ---- Tier 2: Current project (sprint + role-gated grooming) ---------------
-    const currentItems: CommandItem[] = [];
-    if (tier2Id) {
-      const projectName = currentProject?.name ?? 'this project';
-      // The in-context active sprint's *board* jump lives in the top-ranked
-      // `sprint` group (issue 1594); the retro jump stays here as an in-context target.
-      if (activeSprint) {
-        currentItems.push({
-          id: `current:retro:${tier2Id}`,
-          label: `Open ${activeSprint.name} retro`,
-          group: 'current',
-          tag: 'Sprint',
-          keywords: 'retrospective sprint',
-          // Deep-link the active sprint so the view selects it directly (#2046),
-          // rather than landing on the default selection.
-          run: go(`/projects/${tier2Id}/sprints?sprint=${activeSprint.id}`),
-        });
-      }
-      // Role/facet-gated: backlog grooming is Product-Owner-facet or Admin+ only,
-      // and only meaningful on a methodology that has a backlog (ADR-0105). The
-      // gate reads the server-provided role/facets — never an invented client rule.
-      if (canManageBacklog && currentProject?.methodology !== 'WATERFALL') {
-        currentItems.push({
-          id: `current:groom:${tier2Id}`,
-          label: `Groom backlog — ${projectName}`,
-          group: 'current',
-          tag: 'Backlog',
-          keywords: 'product backlog grooming prioritize',
-          run: go(`/projects/${tier2Id}/product-backlog`),
-        });
-      }
-      // Hidden views stay reachable via ⌘K (ADR-0139). Surface a "Go to {label}"
-      // jump for each view the user has personally hidden that *would* be visible
-      // for this project's methodology — methodology-hidden views are excluded
-      // (the user can't hide those, and they communicate "not how we work here").
-      const hiddenViews = new Set(user?.hidden_views ?? []);
-      if (hiddenViews.size > 0) {
-        const methodology: Methodology = currentProject?.methodology ?? 'HYBRID';
-        for (const view of hiddenViews) {
-          if (!isTabVisibleForMethodology(view, methodology)) continue;
-          const label = view === 'sprints' ? iteration.plural : VIEW_TAB_META[view]?.label;
-          if (!label) continue;
-          currentItems.push({
-            id: `current:hidden-view:${tier2Id}:${view}`,
-            label: `Go to ${label}`,
-            group: 'current',
-            tag: 'View',
-            keywords: `view hidden ${view}`,
-            run: go(`/projects/${tier2Id}/${view}`),
-          });
-        }
-      }
-    }
-
-    // ---- People (global, query-gated) ----------------------------------------
-    // Server-searched resources (ADR-0401/#1940). Selecting one opens the org
-    // resource catalog pre-filtered to that name (`/resources?q=`) — there is no
-    // per-resource detail route, so the catalog + seeded search is the destination.
-    const peopleItems: CommandItem[] = peopleEnabled
-      ? (people ?? []).map((person) => ({
-          id: `person:${person.id}`,
-          label: person.name,
-          group: 'person',
-          tag: 'Person',
-          keywords: `person resource member teammate ${person.name}`,
-          run: go(`/resources?q=${encodeURIComponent(person.name)}`),
-        }))
-      : [];
+    // Each tier is assembled by a module-scope builder so this callback stays a
+    // thin orchestration seam (issue 2369). Gating notes preserved on the builders.
+    const sprintJumps = buildSprintJumps(sprintTargets, go);
+    // Gated on `tier2Id` (not `currentProjectId`) so Tier-2 items build only while
+    // the palette is open — `useScheduleTasks` falls back to the route project when
+    // handed `undefined`, so gating on the raw route id would build task items (and
+    // read possibly-partial task data) on every project route even when closed.
+    const { sprintTaskItems, taskItems } = buildTaskItems(
+      tier2Id,
+      tasks,
+      activeSprint,
+      act,
+      openTask,
+    );
+    const currentItems = buildCurrentItems(
+      tier2Id,
+      currentProject,
+      activeSprint,
+      canManageBacklog,
+      user,
+      iteration,
+      go,
+    );
+    const peopleItems = buildPeopleItems(peopleEnabled, people, go);
 
     // ---- Epic / Story (global, query-gated cross-program omni-search) --------
     // ADR-0508 D4/#2103. Server-ranked, membership-scoped results split into the
@@ -244,181 +494,12 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     const epicItems = omniItems.filter((i) => i.group === 'epic');
     const storyItems = omniItems.filter((i) => i.group === 'story');
 
-    // ---- Recent (cold-only recently-visited projects) ------------------------
-    // ADR-0508/#1557. Bare project name + "{program} · {relative}" recency hint.
-    // Cold, a project can appear in BOTH `recent` and the full `jump` list — the
-    // intentional Spotlight shortcut-strip pattern (web-rule 268); once the user
-    // types, `recentEnabled` is false so nothing is built and `jump` owns search.
-    // Deep-links to project overview (the one view present for every methodology).
-    const recentItems: CommandItem[] = recentEnabled
-      ? (recentProjects ?? []).map((rp) => ({
-          id: `recent:${rp.id}`,
-          label: rp.name,
-          group: 'recent' as const,
-          tag: 'Project',
-          detail: [rp.program_name, formatRelative(new Date(rp.visited_at))]
-            .filter(Boolean)
-            .join(' · '),
-          keywords: `recent recently visited project ${rp.program_name ?? ''}`,
-          run: go(`/projects/${rp.id}/overview`),
-        }))
-      : [];
-
-    // ---- Tier 1: Jump to (global) --------------------------------------------
-    const jumps: CommandItem[] = [
-      { id: 'jump:my-work', label: 'My Work', group: 'jump', tag: 'View', run: go('/me/work') },
-      {
-        id: 'jump:inbox',
-        label: 'Notifications',
-        group: 'jump',
-        tag: 'View',
-        keywords: 'notifications inbox',
-        run: go('/me/notifications'),
-      },
-      { id: 'jump:programs', label: 'Programs', group: 'jump', tag: 'View', run: go('/programs') },
-    ];
-    for (const program of programs ?? []) {
-      jumps.push({
-        id: `jump:program:${program.id}`,
-        label: program.name,
-        group: 'jump',
-        tag: 'Program',
-        keywords: program.code,
-        run: go(`/programs/${program.id}/overview`),
-      });
-    }
-    for (const project of projects ?? []) {
-      jumps.push({
-        id: `jump:project:${project.id}`,
-        label: project.name,
-        group: 'jump',
-        tag: 'Project',
-        // Overview is the one view present for every methodology — a safe default.
-        run: go(`/projects/${project.id}/overview`),
-      });
-    }
-
-    // ---- Settings (always findable via ⌘K, #2298) ----------------------------
-    // Cold-visible top-level landings. Workspace settings is admin-only, so it is
-    // HIDDEN (not shown-disabled) for members — a palette entry a member can never
-    // act on is noise, and hiding it means no permission-wall dead end. Personal
-    // settings is reachable by any role. Mirrors the role-aware sidebar gear and ⌘,.
+    const recentItems = buildRecentItems(recentEnabled, recentProjects, go);
     const isWorkspaceAdmin = (user?.workspace_role ?? -1) >= WORKSPACE_ADMIN_ROLE;
-    if (isWorkspaceAdmin) {
-      jumps.push({
-        id: 'jump:workspace-settings',
-        label: 'Workspace settings',
-        group: 'jump',
-        tag: 'Settings',
-        keywords: 'settings preferences configuration admin workspace members sso email retention',
-        run: go('/settings'),
-      });
-    }
-    jumps.push({
-      id: 'jump:personal-settings',
-      label: 'Personal settings',
-      group: 'jump',
-      tag: 'Settings',
-      keywords: 'settings preferences profile account me notifications tokens connected',
-      run: go('/me/settings/general'),
-    });
-    // Trash lives under the workspace-admin-gated /settings tree, so gate its
-    // cold jump the same way — an unconditional entry bounced a member on click
-    // (pre-existing #2298 inconsistency, fixed here). Keeps its dedicated
-    // /settings/trash route (a full page) rather than the #trash landing card, so
-    // the generated Settings section group below intentionally omits `trash`.
-    if (isWorkspaceAdmin) {
-      jumps.push({
-        id: 'jump:trash',
-        label: 'Trash',
-        group: 'jump',
-        tag: 'Settings',
-        keywords: 'trash deleted restore recover projects',
-        run: go('/settings/trash'),
-      });
-    }
-
-    // ---- Settings sections (ADR-0606/#2319) ----------------------------------
-    // Individual settings sections as a query-only group so typing "smtp" / "oidc"
-    // jumps straight to Email & SMTP / Single sign-on. Workspace sections derive
-    // from the SAME builder that feeds the rail (labels/keywords/anchors stay in
-    // lockstep) and are admin-gated as a whole (the /settings tree is
-    // RequireWorkspaceAdmin). Personal sections come from ME_SETTINGS_LINKS and are
-    // ungated. `linked: true` gives every workspace item a `/settings#<id>` anchor.
-    const settingsSections: CommandItem[] = [];
-    if (isWorkspaceAdmin) {
-      for (const group of buildWorkspaceNavGroups({ linked: true })) {
-        for (const item of group.items) {
-          if (item.id === 'trash' || !item.to) continue; // trash → cold jump above
-          settingsSections.push({
-            id: `settings:ws:${item.id}`,
-            label: item.label,
-            group: 'settings',
-            tag: 'Settings',
-            detail: 'Workspace',
-            keywords: item.keywords,
-            run: go(item.to),
-          });
-        }
-      }
-    }
-    for (const link of ME_SETTINGS_LINKS) {
-      settingsSections.push({
-        id: `settings:me:${link.to}`,
-        label: link.label,
-        group: 'settings',
-        tag: 'Settings',
-        detail: 'Personal',
-        keywords: link.keywords,
-        run: go(link.to),
-      });
-    }
-
-    // ---- Tier 1: Backlog + Board (global) ------------------------------------
-    const backlog: CommandItem[] = [];
-    const board: CommandItem[] = [];
-    for (const project of projects ?? []) {
-      // Backlog exists only for Agile/Hybrid projects (ADR-0105); methodology is
-      // on the list payload, so this gates with no extra fetch.
-      if (project.methodology !== 'WATERFALL') {
-        backlog.push({
-          id: `backlog:${project.id}`,
-          label: `Backlog: ${project.name}`,
-          group: 'backlog',
-          tag: 'Backlog',
-          keywords: 'product backlog',
-          run: go(`/projects/${project.id}/product-backlog`),
-        });
-      }
-      board.push({
-        id: `board:${project.id}`,
-        label: `Board: ${project.name}`,
-        group: 'board',
-        tag: 'Board',
-        keywords: 'kanban sprint board',
-        run: go(`/projects/${project.id}/board`),
-      });
-    }
-
-    // ---- Global actions ------------------------------------------------------
-    const actions: CommandItem[] = [
-      {
-        id: 'action:cycle-theme',
-        label: `Switch theme (now: ${theme})`,
-        group: 'action',
-        tag: 'Action',
-        keywords: 'dark light auto appearance',
-        run: act(() => setTheme(THEME_CYCLE[theme])),
-      },
-      {
-        id: 'action:toggle-sidebar',
-        label: 'Toggle sidebar',
-        group: 'action',
-        tag: 'Action',
-        keywords: 'collapse expand rail',
-        run: act(toggleSidebar),
-      },
-    ];
+    const jumps = buildJumps(programs, projects, isWorkspaceAdmin, go);
+    const settingsSections = buildSettingsSections(isWorkspaceAdmin, go);
+    const { backlog, board } = buildBacklogAndBoard(projects, go);
+    const actions = buildActions(theme, setTheme, toggleSidebar, act);
 
     // Order matches the palette's GROUP_ORDER so keyboard nav and the visual
     // sections agree.
