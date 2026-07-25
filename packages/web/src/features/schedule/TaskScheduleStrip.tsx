@@ -268,6 +268,45 @@ function DurationCell({
 }
 
 /**
+ * The Start value when it is CPM-computed rather than PM-committed (#2314/#2379,
+ * ADR-0603, web-rule 276).
+ *
+ * Two cues, because neither alone reaches every user: a **dotted** underline —
+ * deliberately not the dashed underline that means "editable" on
+ * {@link DurationCell} — and the design's visible `computed` qualifier chip.
+ * The chip is what a sighted pointer-free user gets: the previous `title`-only
+ * treatment was unreachable on touch (web-rules 22a/121), so the cell still read
+ * as a committed date and silently contradicted the advisory below it.
+ *
+ * The chip is `aria-hidden` and the fuller sr-only qualifier is retained
+ * (web-rule 216): "computed" is already carried accessibly, so announcing the
+ * chip too would double-read it, and "(computed, not committed)" is the clearer
+ * phrasing for a screen-reader user than a bare "computed".
+ *
+ * The value wraps (`flex-wrap`) rather than clipping — at the 480px drawer width
+ * a 4-across grid cell cannot hold the date and the chip on one line.
+ */
+function ComputedStartValue({ iso }: { iso: string }) {
+  return (
+    <span
+      className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5"
+      title="Auto-calculated by the scheduler (CPM) — not a committed start."
+    >
+      <span className="border-b border-dotted border-neutral-text-disabled">
+        {formatDate(iso)}
+      </span>
+      <span
+        aria-hidden="true"
+        className="rounded-chip px-1 py-px text-xs leading-tight tracking-wider uppercase bg-semantic-at-risk-bg text-semantic-at-risk"
+      >
+        computed
+      </span>
+      <span className="sr-only"> (computed, not committed)</span>
+    </span>
+  );
+}
+
+/**
  * Pure render of the bordered vitals frame — Start · Finish · {duration slot} ·
  * Float, plus an optional below-grid slot (inline error / recalc prompt) and the
  * critical-path banner. Calls no data hooks, so the read-only strip stays
@@ -299,17 +338,7 @@ function StripFrame({
         <Cell label={task.isMilestone ? 'Date' : 'Start'}>
           {hasSchedule ? (
             startComputed ? (
-              // Dotted (not dashed — dashed reads "editable" like DurationCell)
-              // underline + a `title` and an sr-only qualifier, so mouse and
-              // screen-reader users both learn the date is auto-calculated, not
-              // committed (web-rule 275). The advisory below carries the full fix.
-              <span
-                className="border-b border-dotted border-neutral-text-disabled"
-                title="Auto-calculated by the scheduler (CPM) — not a committed start."
-              >
-                {formatDate(task.start)}
-                <span className="sr-only"> (computed, not committed)</span>
-              </span>
+              <ComputedStartValue iso={task.start} />
             ) : (
               formatDate(task.start)
             )
