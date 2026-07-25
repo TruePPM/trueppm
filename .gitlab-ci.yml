@@ -313,6 +313,32 @@ workflow:
   # deletes node_modules and reinstalls every run, so a node_modules cache buys
   # nothing — but a warm content cache lets `npm ci --prefer-offline` rebuild it
   # with zero network for already-seen packages (#1212).
+  #
+  # --no-audit --no-fund on every `npm ci` in this file (#2377). Neither flag
+  # changes a gate — `npm ci` has never gated on its audit summary, and nothing
+  # reads it. They suppress two purely cosmetic trailers that made every web job
+  # log *look* like it was waving vulnerabilities through:
+  #
+  #   9 high severity vulnerabilities
+  #   249 packages are looking for funding
+  #
+  # `security:osv` is the SCA authority (it replaced the per-package npm-audit
+  # jobs in #904 — see the security:osv comment below) and it hard-fails on
+  # HIGH/CRITICAL. Do NOT re-add the audit summary as a safety net: it is not a
+  # second opinion. Both tools are fed by the same GitHub Advisory Database —
+  # every npm ID OSV returns is a GHSA — so on npm they detect identically.
+  # Verified head-to-head on packages/web/package-lock.json with suppressions
+  # bypassed: npm audit's 9 highs and OSV's findings are the *same single*
+  # advisory (GHSA-mh99-v99m-4gvg / CVE-2026-14257, brace-expansion DoS),
+  # already an accepted dev-only risk with a documented, expiring override in
+  # packages/web/osv-scanner.toml (#2363).
+  #
+  # The 9-vs-2 discrepancy is npm inflating one advisory up the dependency chain
+  # to every ancestor that transitively depends on it (eslint, its plugins,
+  # minimatch, @redocly/openapi-core, openapi-typescript, …). OSV counts the two
+  # actually-vulnerable resolutions. OSV's number is the truthful one, so the
+  # louder tool was also the less accurate one — which is why this is a net gain
+  # in signal, not a suppression of it.
   cache: &web-cache
     key:
       files:
@@ -323,7 +349,7 @@ workflow:
   before_script:
     - *retry-fn
     - cd packages/web
-    - retry npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --no-audit --no-fund --quiet
 
 # Mobile (bare React Native) — node-only template for the lint/type-check gates.
 # Both run on the standard node runners (no emulator/Xcode/Gradle): they only
@@ -343,7 +369,7 @@ workflow:
   before_script:
     - *retry-fn
     - cd packages/mobile
-    - retry npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --no-audit --no-fund --quiet
 
 .website:
   # node:22 — Astro 7 requires Node >=22.12 (dropped Node 20 support).
@@ -358,7 +384,7 @@ workflow:
   before_script:
     - *retry-fn
     - cd packages/website
-    - retry npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --no-audit --no-fund --quiet
 
 .wasm:
   # Uses the custom ci-wasm image (built by ci:build-wasm-image), which pre-bakes
@@ -2510,7 +2536,7 @@ web:e2e:coverage:
   before_script:
     - *retry-fn
     - cd packages/web
-    - retry npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --no-audit --no-fund --quiet
   script:
     - npm run build
     # Always merge + upload whatever coverage was collected, even when some specs
@@ -2637,7 +2663,7 @@ web:e2e:
   before_script:
     - *retry-fn
     - cd packages/web
-    - retry npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --no-audit --no-fund --quiet
   script:
     - npx playwright test --shard="$CI_NODE_INDEX/$CI_NODE_TOTAL" --reporter=blob
   artifacts:
@@ -2677,7 +2703,7 @@ web:e2e:report:
   before_script:
     - *retry-fn
     - cd packages/web
-    - retry npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --no-audit --no-fund --quiet
   script:
     - npx playwright merge-reports --config=playwright.merge.config.ts ./blob-report
     # Surface flaky outcomes (tests that only passed on retry) LOUDLY (issue 1514).
@@ -2795,7 +2821,7 @@ web:integration:
       'until curl -sf http://127.0.0.1:8000/api/v1/health/ > /dev/null;
        do sleep 1; done'
     # Install web dependencies — the step that ECONNRESET-failed in #1212.
-    - cd packages/web && retry npm ci --prefer-offline --quiet && cd ../..
+    - cd packages/web && retry npm ci --prefer-offline --no-audit --no-fund --quiet && cd ../..
   script:
     - cd packages/web
     # Exclude the @sso-tagged Keycloak handshake spec — it requires the live
@@ -2917,7 +2943,7 @@ sso:integration:
       timeout 150 sh -c
       'until curl -sf http://keycloak:8080/realms/trueppm-ci/.well-known/openid-configuration > /dev/null;
        do sleep 3; done'
-    - cd packages/web && retry npm ci --prefer-offline --quiet && cd ../..
+    - cd packages/web && retry npm ci --prefer-offline --no-audit --no-fund --quiet && cd ../..
   script:
     - cd packages/web
     - npx playwright test e2e/integration/sso-keycloak.spec.ts --config playwright.integration.config.ts --reporter=line
@@ -3348,7 +3374,7 @@ license:check:web:
     # of `--production` deps never needs the ~600 dev-tool packages, so skipping
     # them shrinks both the install and the tree license-checker has to walk.
     # --prefer-offline resolves from the pulled web-npm cache.
-    - retry npm ci --omit=dev --prefer-offline --quiet
+    - retry npm ci --omit=dev --prefer-offline --no-audit --no-fund --quiet
   script:
     # --onlyAllow covers --failOn implicitly: any license not in the list fails.
     # @trueppm/web declares license "Apache-2.0" in package.json and is audited
@@ -3848,7 +3874,7 @@ web:publish:npm:
         exit 0
       fi
     - cd packages/web
-    - retry npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --no-audit --no-fund --quiet
     # Verify the tag version matches package.json before publishing.
     - |
       PKG_VERSION=$(node -p "require('./package.json').version")
