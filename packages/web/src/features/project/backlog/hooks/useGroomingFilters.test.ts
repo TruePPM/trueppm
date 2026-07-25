@@ -5,7 +5,12 @@ import { useGroomingFilters } from './useGroomingFilters';
 describe('useGroomingFilters (issue 1044)', () => {
   it('starts empty and inactive', () => {
     const { result } = renderHook(() => useGroomingFilters());
-    expect(result.current.filters).toEqual({ query: '', dorStates: [], unestimatedOnly: false });
+    expect(result.current.filters).toEqual({
+      query: '',
+      dorStates: [],
+      unestimatedOnly: false,
+      labelIds: [],
+    });
     expect(result.current.active).toBe(false);
   });
 
@@ -35,7 +40,12 @@ describe('useGroomingFilters (issue 1044)', () => {
     });
     expect(result.current.active).toBe(true);
     act(() => result.current.reset());
-    expect(result.current.filters).toEqual({ query: '', dorStates: [], unestimatedOnly: false });
+    expect(result.current.filters).toEqual({
+      query: '',
+      dorStates: [],
+      unestimatedOnly: false,
+      labelIds: [],
+    });
     expect(result.current.active).toBe(false);
   });
 });

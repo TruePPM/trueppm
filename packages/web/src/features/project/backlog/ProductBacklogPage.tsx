@@ -54,6 +54,8 @@ import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import { ListIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useLabels } from '@/hooks/useLabels';
+import { countTasksByLabel } from '@/components/filters/labelFilter';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
@@ -475,6 +477,7 @@ function DesktopGroomingView() {
   const navigate = useNavigate();
   const itl = useIterationLabel(projectId);
   const { data, isLoading, isError } = useProductBacklog(projectId);
+  const { data: labelCatalog } = useLabels(projectId);
   const autoRank = useAutoRank(projectId);
   const setDor = useSetDor(projectId);
   const reorder = useReorderBacklog(projectId);
@@ -658,6 +661,14 @@ function DesktopGroomingView() {
   const filteredRanked = filterActive
     ? rankedStories.filter((s) => matchesFilters(s, filterCtl.filters))
     : rankedStories;
+
+  // Label facet options (#2383): the project's full catalog, with counts taken
+  // over the loaded stories so a `0` truthfully means "no story here carries it".
+  const labels = labelCatalog ?? [];
+  const labelCounts = countTasksByLabel(
+    allStories,
+    labels.map((l) => l.id),
+  );
 
   function commitReorder(optimistic: ProductBacklog) {
     setConflict(false);
@@ -907,6 +918,8 @@ function DesktopGroomingView() {
             controls={filterCtl}
             matchCount={filteredMatchCount}
             totalCount={totalCount}
+            labels={labels}
+            labelCounts={labelCounts}
           />
         )}
 

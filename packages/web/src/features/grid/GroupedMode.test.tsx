@@ -126,7 +126,7 @@ describe('GroupedMode — group key resolution', () => {
     render(
       <GroupedMode
         groupBy="phase"
-        filters={{ search: 'no-match', ownerFilter: '', statusFilter: '', dueFilter: 'all' as const }}
+        filters={{ search: 'no-match', ownerFilter: '', statusFilter: '', dueFilter: 'all', labelIds: [] as const }}
         onClearFilters={vi.fn()}
       />,
     );

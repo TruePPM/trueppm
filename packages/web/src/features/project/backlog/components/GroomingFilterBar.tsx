@@ -11,6 +11,8 @@
  * subset would corrupt server-side ranks.
  */
 
+import { LabelFacet } from '@/components/filters/LabelFacet';
+import type { Label } from '@/hooks/useLabels';
 import { DOR_FILTER_ORDER, DorFilterChip } from './GroomingFilterChips';
 import { GroomingSearchInput } from './GroomingSearchInput';
 import type { GroomingFilterControls } from '../hooks/useGroomingFilters';
@@ -19,10 +21,20 @@ interface GroomingFilterBarProps {
   controls: GroomingFilterControls;
   matchCount: number;
   totalCount: number;
+  /** The project's label catalog; empty while loading or when none exist. */
+  labels?: Label[];
+  /** Per-label counts over the loaded stories. */
+  labelCounts?: Record<string, number>;
 }
 
-export function GroomingFilterBar({ controls, matchCount, totalCount }: GroomingFilterBarProps) {
-  const { filters, active, setQuery, toggleDor, setUnestimatedOnly, reset } = controls;
+export function GroomingFilterBar({
+  controls,
+  matchCount,
+  totalCount,
+  labels = [],
+  labelCounts = {},
+}: GroomingFilterBarProps) {
+  const { filters, active, setQuery, toggleDor, setUnestimatedOnly, setLabelIds, reset } = controls;
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-neutral-border bg-neutral-surface px-6 py-2.5">
@@ -47,13 +59,24 @@ export function GroomingFilterBar({ controls, matchCount, totalCount }: Grooming
         ))}
       </div>
 
+      {/* Label sits after Readiness, matching the chip-trigger language the
+          program backlog already uses for Type / Tags. */}
+      <LabelFacet
+        labels={labels}
+        counts={labelCounts}
+        selected={filters.labelIds}
+        onChange={setLabelIds}
+      />
+
       <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-neutral-text-secondary">
         <input
           type="checkbox"
           checked={filters.unestimatedOnly}
           onChange={(e) => setUnestimatedOnly(e.target.checked)}
           aria-label="Show only unestimated stories"
-          className="h-4 w-4 accent-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          // `focus:` not `focus-visible:` — the latter withholds the ring on
+          // pointer-driven focus in Firefox/desktop Safari (rule 214, WCAG 2.4.7).
+          className="h-4 w-4 accent-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         />
         Unestimated only
       </label>
@@ -68,7 +91,7 @@ export function GroomingFilterBar({ controls, matchCount, totalCount }: Grooming
           <button
             type="button"
             onClick={reset}
-            className="text-xs font-semibold text-brand-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="text-xs font-semibold text-brand-primary underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             Clear
           </button>

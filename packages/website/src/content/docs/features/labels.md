@@ -16,6 +16,22 @@ Labels are **project-scoped**: each project owns its own label vocabulary. They 
 - **Board cards** — colored pills in the card's badge row. Card density controls how many show: **compact** renders up to three color dots, **comfortable** shows up to two pills plus a `+N` overflow chip, and **detailed** shows them all.
 - **Schedule task drawer** — the task's labels, with an inline control to assign existing labels or create a new one.
 - **Board filter bar** — a **Label** facet joins the existing Assignee, Priority, and Due facets. Select one or more labels and the board narrows to cards carrying any of them; non-matching cards dim out. The facet appears only when the board has labeled cards.
+- **Table / Grid toolbar** and the **product backlog filter bar** — the same **Label** facet, described under [Filtering by label](#filtering-by-label) below.
+
+## Filtering by label
+
+A **Label** facet sits in the toolbar of the board, the **Table / Grid**, and the **product backlog**. It behaves the same way on each:
+
+- **Pick one or more labels.** Rows carrying **any** of the selected labels are kept (OR). The label filter combines with everything else that is set — an owner, a status, a readiness state — by **AND**.
+- **The list shows every label in the project**, each with a count of how many rows in the current view carry it. A label used by nothing shows a visible `0`, so choosing it is a deliberate act and the resulting empty result is expected rather than puzzling.
+- **Each active label gets its own chip** below the toolbar, with its color swatch and name. The chip's ✕ removes just that label; **Clear labels** in the panel drops all of them and leaves your other filters alone; **Clear all** resets everything.
+- **Filtering is instant and works offline.** It runs over the rows the view has already loaded, so there is no spinner and no waiting — when you are offline the chip strip says how many loaded rows are being filtered.
+- **Keyboard-complete.** Open the panel with <kbd>Enter</kbd>, <kbd>Space</kbd> or <kbd>↓</kbd>; move with <kbd>↑</kbd>/<kbd>↓</kbd>, jump with <kbd>Home</kbd>/<kbd>End</kbd>, or type the first letters of a label's name. <kbd>Space</kbd> toggles a label without closing the panel, so you can refine and watch the rows update. <kbd>Esc</kbd> closes and returns focus to the trigger. A label's name is always shown next to its color, so the filter never depends on distinguishing hues.
+- Once a project has more than eight labels the panel grows a search box. Searching narrows what you can *see* in the list, never what is *applied*.
+
+On the **Table / Grid** the selection is part of the URL as `?fl=<label-id>[,<id>…]` — the same key the board uses — so a filtered table can be bookmarked or pasted into a status report. Existing Table links that carry `?owner=` or `?status=` are unaffected. The product backlog's grooming filter is not stored in the URL (none of its filters are), so a label selection there lasts for the session.
+
+If a project has no labels yet, the facet still opens and explains where labels come from, with a link to the project's label settings.
 
 ## Creating and assigning labels
 
@@ -42,5 +58,7 @@ Labels are first-class API objects. A read-only MCP client (or any API consumer)
 ## Not in the first release
 
 - Labels do not yet appear in the **schedule PDF export** or color the **Gantt bars** — that is planned as a follow-up.
+- The **schedule / Gantt** view does not yet carry the Label facet. When it lands it will **dim** non-matching rows rather than hide them, because a filtered-out task still drives the dates of the ones that remain.
 - **Saved board views** do not yet persist a label filter.
+- A **cross-project** "tasks with label X" view does not exist. Labels are project-scoped, so filtering is always within one project.
 - Label colors are chosen from the fixed palette; free hex colors are not supported.
