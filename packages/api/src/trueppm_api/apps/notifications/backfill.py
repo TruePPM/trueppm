@@ -26,6 +26,36 @@ _VALID_EVENT_TYPES = {
 _VALID_CHANNELS = {"in_app", "email", "slack", "mobile_push"}
 
 
+def _clean_channel_row(channels: dict[Any, Any]) -> tuple[dict[str, bool], bool]:
+    """Keep only valid ``(channel → bool)`` cells; report whether anything was dropped."""
+    row: dict[str, bool] = {}
+    changed = False
+    for channel, enabled in channels.items():
+        if channel not in _VALID_CHANNELS or not isinstance(enabled, bool):
+            changed = True
+            continue
+        row[channel] = enabled
+    return row, changed
+
+
+def _clean_matrix_payload(matrix: dict[Any, Any]) -> tuple[dict[str, dict[str, bool]], bool]:
+    """Strip unknown event-type keys and clean each channel row; report any drop.
+
+    Split from :func:`_clean_matrix` so the outer per-row iteration keeps the driver
+    loop (which persists) readable and each nesting level stays shallow.
+    """
+    cleaned: dict[str, dict[str, bool]] = {}
+    changed = False
+    for event_type, channels in matrix.items():
+        if event_type not in _VALID_EVENT_TYPES or not isinstance(channels, dict):
+            changed = True
+            continue
+        row, row_changed = _clean_channel_row(channels)
+        changed = changed or row_changed
+        cleaned[event_type] = row
+    return cleaned, changed
+
+
 def _clean_matrix(apps: Any, schema_editor: Any) -> None:
     """Strip unknown event-type / channel keys from persisted notification matrices (#675).
 
@@ -43,19 +73,7 @@ def _clean_matrix(apps: Any, schema_editor: Any) -> None:
             pref.matrix = {}
             pref.save(update_fields=["matrix"])
             continue
-        cleaned: dict[str, dict[str, bool]] = {}
-        changed = False
-        for event_type, channels in matrix.items():
-            if event_type not in _VALID_EVENT_TYPES or not isinstance(channels, dict):
-                changed = True
-                continue
-            row: dict[str, bool] = {}
-            for channel, enabled in channels.items():
-                if channel not in _VALID_CHANNELS or not isinstance(enabled, bool):
-                    changed = True
-                    continue
-                row[channel] = enabled
-            cleaned[event_type] = row
+        cleaned, changed = _clean_matrix_payload(matrix)
         if changed:
             pref.matrix = cleaned
             pref.save(update_fields=["matrix"])
