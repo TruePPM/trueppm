@@ -25,6 +25,7 @@ import { MonteCarloHistogram } from '@/features/schedule/MonteCarloHistogram';
 import { ImportProvenanceSection } from '@/features/project/ImportProvenanceSection';
 import { SprintForecastWidget } from '@/features/project/SprintForecastWidget';
 import { BlockedRollupPanel } from '@/features/blocker/BlockedRollupPanel';
+import { CheckIcon } from '@/components/Icons';
 import {
   rankOverviewMetrics,
   focusHeading,
@@ -444,7 +445,7 @@ function AttentionPanel({ items, projectId }: AttentionPanelProps) {
           bg-semantic-on-track-bg text-sm text-semantic-on-track"
         role="status"
       >
-        <span aria-hidden="true">✓</span>
+        <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
         No items need attention right now.
       </div>
     );

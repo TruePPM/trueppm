@@ -28,6 +28,7 @@ import {
 import { McpConnectPanel } from '@/features/settings/components/integrations/McpConnectPanel';
 import { MeSettingsSubNav } from '@/features/me/MeSettingsSubNav';
 import { docsUrl } from '@/lib/docsUrl';
+import { CheckIcon } from '@/components/Icons';
 
 /** Whether a created/listed token carries the read-only MCP scope. */
 function isMcpRead(scopes: readonly string[] | undefined): boolean {
@@ -588,7 +589,14 @@ function CopyButton({ value }: { value: string }) {
       aria-label="Copy token"
       className="h-9 px-3 shrink-0 rounded-control bg-brand-primary text-neutral-text-inverse text-[12px] font-medium hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
     >
-      {copied ? 'Copied ✓' : 'Copy'}
+      {copied ? (
+        <>
+          Copied
+          <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] ml-1" aria-hidden="true" />
+        </>
+      ) : (
+        'Copy'
+      )}
     </button>
   );
 }

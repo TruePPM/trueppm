@@ -95,6 +95,7 @@ describe('AgentActionDrawer', () => {
     render(<AgentActionDrawer action={action()} onClose={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Copy record_hash' }));
     expect(writeText).toHaveBeenCalledWith('record-xyz');
-    expect(await screen.findByText('✓')).toBeInTheDocument();
+    // The copied confirmation is a house CheckIcon SVG, not a "✓" glyph (issue 1749).
+    expect(await screen.findByTestId('copied-check')).toBeInTheDocument();
   });
 });

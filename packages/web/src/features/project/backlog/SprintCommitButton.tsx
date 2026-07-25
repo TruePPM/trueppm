@@ -7,6 +7,7 @@ import { isSyncConflict } from '@/api/conflict';
 import { toast } from '@/components/Toast/toast';
 import type { Task } from '@/types';
 import { SprintCommitmentChip } from './components/atoms';
+import { CheckIcon } from '@/components/Icons';
 
 /** Minimal planned-sprint reference the commit toggle needs. */
 export interface PlannedSprintRef {
@@ -83,7 +84,14 @@ export function SprintCommitButton({ story, projectId, plannedSprint, canManage 
           : `Add ${story.name} to ${plannedSprint.short_id_display}`
       }
     >
-      {inSprint ? '✓ In' : '+ Add'}
+      {inSprint ? (
+        <>
+          <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
+          In
+        </>
+      ) : (
+        '+ Add'
+      )}
     </Button>
   );
 }

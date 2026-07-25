@@ -30,7 +30,7 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react';
-import { ChevronDownIcon, SlidersIcon } from '@/components/Icons';
+import { CheckIcon, ChevronDownIcon, RadioDotIcon, SlidersIcon } from '@/components/Icons';
 import type { ScheduleViewMode } from '@/stores/scheduleStore';
 import type { TaskNamePlacement } from './engine';
 
@@ -327,8 +327,15 @@ export function ScheduleDisplayMenu({
           focus-visible:outline-none focus-visible:bg-neutral-surface-raised"
       >
         <span className="flex-1">{item.label}</span>
-        <span aria-hidden="true" className="text-brand-primary w-3 text-right">
-          {item.checked ? (item.kind === 'radio' ? '●' : '✓') : ''}
+        {/* A radio row marks its selection with a dot, a checkbox row with a check —
+            the shape distinguishes "one of these" from "any of these" (issue 1749). */}
+        <span aria-hidden="true" className="flex w-3 shrink-0 justify-end text-brand-primary">
+          {item.checked &&
+            (item.kind === 'radio' ? (
+              <RadioDotIcon className="h-3 w-3" />
+            ) : (
+              <CheckIcon className="h-3 w-3" />
+            ))}
         </span>
       </button>
     );

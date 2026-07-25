@@ -19,6 +19,7 @@
 import { CardPeekButton } from './CardPeekButton';
 import type { CustomFieldOption, ProjectCustomField } from '@/hooks/useProjectCustomFields';
 import type { CustomFieldPersonValue, CustomFieldValue } from '@/types';
+import { CheckIcon } from '@/components/Icons';
 
 const COMFORTABLE_INLINE_CAP = 3;
 const MULTI_INLINE_CAP = 2;
@@ -228,10 +229,10 @@ function FieldMark({
       <span className="inline-flex items-center gap-1 text-xs" aria-label={`${label}: yes`}>
         <span className={valClass}>{label}</span>
         <span
-          className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-neutral-surface-sunken border border-neutral-border text-neutral-text-secondary text-[10px] leading-none"
+          className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-neutral-surface-sunken border border-neutral-border text-neutral-text-secondary"
           aria-hidden="true"
         >
-          ✓
+          <CheckIcon className="h-2.5 w-2.5" />
         </span>
       </span>
     );

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useToastStore } from './toastStore';
 import type { ToastItem } from './toastStore';
+import { CheckIcon } from '@/components/Icons';
 
 /**
  * Global toast host (v2 fluidity, ADR-0126; issue 1225) — mounted once in
@@ -76,9 +77,11 @@ function ToastPill({ toast }: { toast: ToastItem }) {
           inverse of the canvas, so light sage on the light-mode navy pill,
           darker sage on the dark-mode light pill. */}
       {toast.variant !== 'error' && (
-        <span aria-hidden="true" className="text-sage-400 dark:text-sage-700">
-          ✓
-        </span>
+        <CheckIcon
+          className="text-sage-400 dark:text-sage-700 inline-block h-3 w-3 align-[-0.125em]"
+          aria-hidden="true"
+          data-testid="toast-success-check"
+        />
       )}
       <span className={toast.action ? 'pr-1' : undefined}>{toast.message}</span>
       {toast.action ? (

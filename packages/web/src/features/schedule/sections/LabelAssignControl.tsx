@@ -18,6 +18,7 @@ import {
 } from '@/hooks/useLabels';
 import { LabelPill } from '@/components/LabelPill';
 import { LABEL_COLOR_KEYS, LABEL_COLOR_LABEL, labelDotStyle } from '@/lib/labelColors';
+import { CheckIcon } from '@/components/Icons';
 
 /** Client mirror of the server soft cap (TRUEPPM_LABEL_SOFT_CAP default). The
  *  server is authoritative; this only gates the create affordance early. */
@@ -195,9 +196,7 @@ function LabelPopover({
               />
               <span className="flex-1 truncate">{label.name}</span>
               {checked && (
-                <span className="text-brand-primary" aria-hidden="true">
-                  ✓
-                </span>
+                <CheckIcon className="text-brand-primary inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
               )}
             </button>
           );

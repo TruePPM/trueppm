@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RECALC_PROMPT_TIMEOUT_MS, type RecalcPromptState } from './recalcPercentPrompt';
+import { CheckIcon } from '@/components/Icons';
 
 type Phase = 'idle' | 'accepting' | 'done' | 'error';
 
@@ -77,7 +78,7 @@ export function RecalcPercentChip({ prompt, onAccept, onDismiss }: Props) {
         data-testid="recalc-percent-chip"
         className={`${base} border-semantic-on-track/40 bg-semantic-on-track-bg text-semantic-on-track`}
       >
-        <span aria-hidden="true">✓</span>
+        <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
         <span>Set to {suggestedPercent}%</span>
       </span>
     );

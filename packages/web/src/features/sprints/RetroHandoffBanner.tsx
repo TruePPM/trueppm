@@ -1,3 +1,5 @@
+import { CheckIcon } from '@/components/Icons';
+
 interface Props {
   /** Name of the just-closed sprint, shown in the CTA copy and label. */
   sprintName: string;
@@ -35,9 +37,7 @@ export function RetroHandoffBanner({
         px-3 py-2 text-xs flex items-center justify-between gap-3"
     >
       <div className="flex items-center gap-2 min-w-0">
-        <span aria-hidden="true" className="text-brand-primary font-semibold">
-          ✓
-        </span>
+        <CheckIcon className="h-3.5 w-3.5 shrink-0 text-brand-primary" aria-hidden="true" />
         <p className="text-neutral-text-primary truncate">
           <span className="font-medium">{sprintName}</span> closed.{' '}
           <span className="text-neutral-text-secondary">

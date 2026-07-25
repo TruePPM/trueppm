@@ -7,6 +7,7 @@ import {
   type RiskImportIssue,
 } from '@/hooks/useImportRisks';
 import { ImportDropzone } from '@/components/import/ImportDropzone';
+import { CheckIcon } from '@/components/Icons';
 
 interface Props {
   /** Active project; the modal is gated on a non-null id by the caller. */
@@ -175,9 +176,10 @@ export function RiskImportModal({ projectId, onClose }: Props) {
             /* Result — partial success: counts + per-row diagnostics. */
             <div role="status" className="flex flex-col gap-3">
               <p className="text-sm text-neutral-text-primary">
-                <span aria-hidden="true" className="text-semantic-on-track">
-                  ✓{' '}
-                </span>
+                <CheckIcon
+                  className="text-semantic-on-track inline-block h-3 w-3 align-[-0.125em] mr-1"
+                  aria-hidden="true"
+                />
                 Imported {result.imported} {result.imported === 1 ? 'risk' : 'risks'}
                 {result.skipped > 0 ? `, skipped ${result.skipped}` : ''}.
               </p>

@@ -689,8 +689,9 @@ test.describe('Resend invite (#969)', () => {
     await page.getByRole('button', { name: 'Resend invite to bob@example.com' }).click();
 
     await expect.poll(() => resendPosted).toBe(true);
-    // The 202 is fire-and-forget; the admin's confirmation is the row cue.
-    await expect(page.getByText('Sent ✓')).toBeVisible();
+    // The 202 is fire-and-forget; the admin's confirmation is the row cue. The check
+    // is a house CheckIcon SVG rather than a "✓" glyph (issue 1749).
+    await expect(page.getByTestId('invite-resent-cue')).toBeVisible();
   });
 
   test('bulk "Resend all" posts to the resend-all endpoint', async ({ page }) => {
@@ -736,7 +737,7 @@ test.describe('Resend invite (#969)', () => {
 
     await expect(page.getByText(/Too many resends/i)).toBeVisible();
     // The Sent cue must NOT appear on a throttled attempt.
-    await expect(page.getByText('Sent ✓')).toHaveCount(0);
+    await expect(page.getByTestId('invite-resent-cue')).toHaveCount(0);
   });
 });
 

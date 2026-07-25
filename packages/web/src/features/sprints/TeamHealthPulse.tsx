@@ -1,4 +1,4 @@
-import { LockIcon, WarningIcon } from '@/components/Icons';
+import { CheckIcon, LockIcon, WarningIcon } from '@/components/Icons';
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   usePulse,
@@ -184,7 +184,10 @@ function PulsePoll({ sprintId, canRespond }: { sprintId: string; canRespond: boo
             Couldn&apos;t record your pulse. Tap again to retry.
           </p>
         ) : savedAt !== null ? (
-          <p className="text-xs text-semantic-on-track">✓ saved</p>
+          <p className="text-xs text-semantic-on-track">
+            <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
+            saved
+          </p>
         ) : canRespond && (mood === null || energy === null) ? (
           <p className="text-xs italic text-neutral-text-disabled">
             Pick mood and energy to record your pulse.

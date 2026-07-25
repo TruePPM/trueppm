@@ -1,4 +1,4 @@
-import { WarningIcon } from '@/components/Icons';
+import { CheckIcon, WarningIcon } from '@/components/Icons';
 import type { Task } from '@/types';
 import { useSchedulerStore } from '@/stores/schedulerStore';
 
@@ -66,7 +66,12 @@ export function ScheduleSummaryChip({ visibleTasks }: ScheduleSummaryChipProps) 
             </span>
           ) : (
             <span className="text-semantic-on-track">
-              CPM <span aria-hidden="true">✓</span>
+              CPM{' '}
+              <CheckIcon
+                className="inline-block h-3 w-3 align-[-0.125em]"
+                aria-hidden="true"
+                data-testid="cpm-healthy-check"
+              />
             </span>
           )}
         </>

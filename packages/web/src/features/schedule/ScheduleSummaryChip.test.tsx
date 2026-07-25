@@ -38,7 +38,8 @@ describe('ScheduleSummaryChip', () => {
     expect(screen.getByLabelText(/Project status: 3 tasks, 2 critical, CPM healthy/)).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
-    expect(screen.getByText('✓')).toBeInTheDocument();
+    // The healthy-CPM mark is a house CheckIcon SVG, not a "✓" glyph (issue 1749).
+    expect(screen.getByTestId('cpm-healthy-check')).toBeInTheDocument();
   });
 
   it('uses singular "task" for count of 1', () => {

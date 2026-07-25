@@ -27,6 +27,7 @@ import {
   type SprintOutcome,
 } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { CheckIcon, HalfCircleIcon, XMarkIcon } from '@/components/Icons';
 
 interface Props {
   outcome: SprintOutcome;
@@ -143,14 +144,14 @@ function SprintReviewSection({
           not set" — coverage-hygiene states, not grades. */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-sm border-b border-neutral-border">
         <span className="text-semantic-on-track font-medium" data-testid="accepted-count">
-          <span aria-hidden="true">✓ </span>
+          <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
           {r.accepted_count} accepted
           {r.accepted_points != null && (
             <span className="text-neutral-text-secondary font-normal"> ({r.accepted_points} pts)</span>
           )}
         </span>
         <span className="text-semantic-at-risk font-medium" data-testid="not-accepted-count">
-          <span aria-hidden="true">✗ </span>
+          <XMarkIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
           {r.not_accepted_count} criteria incomplete
           {r.not_accepted_points != null && (
             <span className="text-neutral-text-secondary font-normal">
@@ -443,7 +444,9 @@ function AcceptanceBadge({
       }`}
       aria-label={`${a.met} of ${a.total} acceptance criteria met${fullyAccepted ? ' — accepted' : ''}${criteriaIncomplete ? ' — show incomplete criteria' : ''}`}
     >
-      <span aria-hidden="true">{fullyAccepted ? '✓ ' : ''}</span>
+      {fullyAccepted && (
+        <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
+      )}
       {a.met}/{a.total} criteria
     </button>
   );
@@ -553,9 +556,7 @@ function UnmetCriteriaList({
     <ul className="mt-1 pl-16 text-xs text-neutral-text-secondary" data-testid="unmet-criteria">
       {story.unmet_criteria.map((c) => (
         <li key={c.id} className="flex items-start gap-1">
-          <span aria-hidden="true" className="text-semantic-at-risk">
-            ✗
-          </span>
+          <XMarkIcon className="text-semantic-at-risk mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
           <span>{c.text}</span>
         </li>
       ))}
@@ -614,7 +615,8 @@ function CriteriaFollowup({
         )}
         {story.flagged_to_backlog ? (
           <span className="text-xs text-semantic-on-track" data-testid="flagged-state">
-            <span aria-hidden="true">✓ </span>Flagged for backlog
+            <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
+            Flagged for backlog
           </span>
         ) : (
           <button
@@ -740,10 +742,12 @@ function GoalVerdict({ status }: { status: SprintOutcome['goal_outcome'] }) {
       : status === 'PARTIAL'
         ? 'text-semantic-at-risk'
         : 'text-semantic-critical';
-  const glyph = status === 'MET' ? '✓' : status === 'PARTIAL' ? '◐' : '✗';
+  // Three distinct shapes, not three tints of one: the mark alone must distinguish
+  // met / partial / missed for a user who cannot resolve the tone (rule 6).
+  const Glyph = status === 'MET' ? CheckIcon : status === 'PARTIAL' ? HalfCircleIcon : XMarkIcon;
   return (
     <span className={`text-sm font-semibold ${tone}`} aria-label={`Goal ${GOAL_LABEL[status]}`}>
-      <span aria-hidden="true">{glyph} </span>
+      <Glyph className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
       {GOAL_LABEL[status]}
     </span>
   );

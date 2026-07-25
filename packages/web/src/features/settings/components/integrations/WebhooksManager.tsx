@@ -18,6 +18,7 @@ import {
   type IntegrationScope,
 } from '@/hooks/useWebhooks';
 import { WebhookEditorModal } from './WebhookEditorModal';
+import { CheckIcon } from '@/components/Icons';
 
 export interface WebhooksManagerProps {
   scope: IntegrationScope;
@@ -118,7 +119,17 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
                 <FormatPill format={wh.format} />
                 <div className="flex items-center gap-1 shrink-0">
                   <RowButton onClick={() => handleTest(wh)} disabled={test.isPending}>
-                    {testedId === wh.id ? 'Sent ✓' : 'Test'}
+                    {testedId === wh.id ? (
+                      <>
+                        Sent
+                        <CheckIcon
+                          className="inline-block h-3 w-3 align-[-0.125em] ml-1"
+                          aria-hidden="true"
+                        />
+                      </>
+                    ) : (
+                      'Test'
+                    )}
                   </RowButton>
                   <RowButton onClick={() => setEditing(wh)}>Edit</RowButton>
                   <RowButton onClick={() => setConfirmDelete(wh)} variant="danger">
