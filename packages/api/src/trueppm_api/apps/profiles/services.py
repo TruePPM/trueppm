@@ -316,6 +316,20 @@ def _resolve_landing(user: Any, *, pref: Any = _UNSET, max_role: Any = _UNSET) -
     enterprise = settings.TRUEPPM_EDITION == "enterprise"
 
     # 1. Explicit preference wins — honored when reachable, else falls through.
+    preferred = _landing_from_preference(user, pref, enterprise)
+    if preferred is not None:
+        return preferred
+
+    # 2. No memberships at all → onboarding via My Work's empty state.
+    if not _has_any_membership(user):
+        return Landing("my_work", MY_WORK_PATH, "fallback")
+
+    # 3. AUTO role policy.
+    return _landing_from_role_policy(user, enterprise, max_role)
+
+
+def _landing_from_preference(user: Any, pref: Any, enterprise: bool) -> Landing | None:
+    """Landing for an explicit preference, or ``None`` to fall through to policy."""
     if pref == DefaultLanding.MY_WORK:
         return Landing("my_work", MY_WORK_PATH, "preference")
     if pref == DefaultLanding.PROJECT_OVERVIEW:
@@ -328,12 +342,11 @@ def _resolve_landing(user: Any, *, pref: Any = _UNSET, max_role: Any = _UNSET) -
         if path is not None:
             return Landing("portfolio", path, "preference")
         # provider gave no path → fall through
+    return None
 
-    # 2. No memberships at all → onboarding via My Work's empty state.
-    if not _has_any_membership(user):
-        return Landing("my_work", MY_WORK_PATH, "fallback")
 
-    # 3. AUTO role policy.
+def _landing_from_role_policy(user: Any, enterprise: bool, max_role: Any) -> Landing:
+    """AUTO role policy: Portfolio (entitled) → PM Overview → My Work."""
     #    PMO / Exec → Portfolio when entitled (Enterprise), else continue.
     if enterprise and has_portfolio_access(user):
         path = _portfolio_path(user)
