@@ -57,35 +57,154 @@ const INPUT_BASE =
   'text-neutral-text-primary text-sm ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
 
-export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps) {
-  const isEdit = risk !== undefined;
+/** Create-mode field values — the shape every form field seeds from. */
+const CREATE_DEFAULTS = {
+  title: '',
+  description: '',
+  status: 'OPEN' as Risk['status'],
+  probability: 3,
+  impact: 3,
+  tasks: [] as string[],
+  category: '',
+  response: '',
+  mitigationDueDate: '',
+  trigger: '',
+  contingency: '',
+};
 
-  const [title, setTitle] = useState(risk?.title ?? '');
-  const [description, setDescription] = useState(risk?.description ?? '');
-  const [status, setStatus] = useState<Risk['status']>(risk?.status ?? 'OPEN');
-  const [probability, setProbability] = useState<number>(risk?.probability ?? 3);
-  const [impact, setImpact] = useState<number>(risk?.impact ?? 3);
+/**
+ * Seed values for the form: the create defaults, or the risk being edited with
+ * its nullable framework fields normalized to '' (a select/input cannot hold
+ * null, and `toPayload` maps '' back to null on the way out).
+ */
+function fieldDefaults(risk: Risk | undefined): typeof CREATE_DEFAULTS {
+  if (!risk) return CREATE_DEFAULTS;
+  return {
+    title: risk.title,
+    description: risk.description,
+    status: risk.status,
+    probability: risk.probability,
+    impact: risk.impact,
+    tasks: risk.tasks,
+    category: risk.category ?? '',
+    response: risk.response ?? '',
+    mitigationDueDate: risk.mitigation_due_date ?? '',
+    trigger: risk.trigger ?? '',
+    contingency: risk.contingency ?? '',
+  };
+}
+
+/**
+ * The risk form's field state. Every field seeds from the risk being edited (or
+ * its create-mode default) in one place, so the component body is not a wall of
+ * `risk?.x ?? default` — and `toPayload` keeps the create/update shape in a
+ * single definition rather than two.
+ */
+function useRiskFormFields(risk: Risk | undefined) {
+  const d = fieldDefaults(risk);
+  const [title, setTitle] = useState(d.title);
+  const [description, setDescription] = useState(d.description);
+  const [status, setStatus] = useState<Risk['status']>(d.status);
+  const [probability, setProbability] = useState<number>(d.probability);
+  const [impact, setImpact] = useState<number>(d.impact);
   const [titleError, setTitleError] = useState('');
   // Linked tasks (#2156). Seed from the risk's current links; on submit the full
   // desired set is sent because the serializer replaces (not appends) the M2M.
-  const [taskIds, setTaskIds] = useState<string[]>(risk?.tasks ?? []);
+  const [taskIds, setTaskIds] = useState<string[]>(d.tasks);
 
   // Risk framework fields — Advanced section
-  const [category, setCategory] = useState<string>(risk?.category ?? '');
-  const [response, setResponse] = useState<string>(risk?.response ?? '');
-  const [mitigationDueDate, setMitigationDueDate] = useState(risk?.mitigation_due_date ?? '');
-  const [trigger, setTrigger] = useState(risk?.trigger ?? '');
-  const [contingency, setContingency] = useState(risk?.contingency ?? '');
+  const [category, setCategory] = useState<string>(d.category);
+  const [response, setResponse] = useState<string>(d.response);
+  const [mitigationDueDate, setMitigationDueDate] = useState(d.mitigationDueDate);
+  const [trigger, setTrigger] = useState(d.trigger);
+  const [contingency, setContingency] = useState(d.contingency);
   // Auto-open if any framework field is already set (edit mode with existing data)
-  const [advancedOpen, setAdvancedOpen] = useState(
-    !!(
-      risk?.category ||
-      risk?.response ||
-      risk?.mitigation_due_date ||
-      risk?.trigger ||
-      risk?.contingency
-    ),
+  const [advancedOpen, setAdvancedOpen] = useState(() => hasFrameworkData(risk));
+
+  return {
+    title,
+    setTitle,
+    description,
+    setDescription,
+    status,
+    setStatus,
+    probability,
+    setProbability,
+    impact,
+    setImpact,
+    titleError,
+    setTitleError,
+    taskIds,
+    setTaskIds,
+    category,
+    setCategory,
+    response,
+    setResponse,
+    mitigationDueDate,
+    setMitigationDueDate,
+    trigger,
+    setTrigger,
+    contingency,
+    setContingency,
+    advancedOpen,
+    setAdvancedOpen,
+    toPayload: () => ({
+      title: title.trim(),
+      description,
+      status,
+      probability,
+      impact,
+      owner: null,
+      tasks: taskIds,
+      // Empty select → null, so "unset" round-trips as absent rather than ''.
+      category: (category || null) as Risk['category'],
+      response: (response || null) as Risk['response'],
+      mitigation_due_date: mitigationDueDate || null,
+      trigger,
+      contingency,
+    }),
+  };
+}
+
+/** True when the risk already carries any Advanced-section value. */
+function hasFrameworkData(risk: Risk | undefined): boolean {
+  if (!risk) return false;
+  return Boolean(
+    risk.category || risk.response || risk.mitigation_due_date || risk.trigger || risk.contingency,
   );
+}
+
+export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps) {
+  const isEdit = risk !== undefined;
+  const f = useRiskFormFields(risk);
+  const {
+    title,
+    setTitle,
+    description,
+    setDescription,
+    status,
+    setStatus,
+    probability,
+    setProbability,
+    impact,
+    setImpact,
+    titleError,
+    setTitleError,
+    taskIds,
+    setTaskIds,
+    category,
+    setCategory,
+    response,
+    setResponse,
+    mitigationDueDate,
+    setMitigationDueDate,
+    trigger,
+    setTrigger,
+    contingency,
+    setContingency,
+    advancedOpen,
+    setAdvancedOpen,
+  } = f;
 
   const createMutation = useCreateRisk();
   const updateMutation = useUpdateRisk();
@@ -109,20 +228,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
     updateMutation.reset();
     if (!validate()) return;
 
-    const payload = {
-      title: title.trim(),
-      description,
-      status,
-      probability,
-      impact,
-      owner: null,
-      tasks: taskIds,
-      category: (category || null) as Risk['category'],
-      response: (response || null) as Risk['response'],
-      mitigation_due_date: mitigationDueDate || null,
-      trigger,
-      contingency,
-    };
+    const payload = f.toPayload();
 
     if (isEdit) {
       updateMutation.mutate({ projectId, id: risk.id, data: payload }, { onSuccess });
