@@ -14,7 +14,6 @@ function mockMatch(handle?: RouteHandle): UIMatch {
     id: 'test',
     pathname: '/test',
     params: {},
-    data: undefined,
     loaderData: undefined,
     handle,
   };
