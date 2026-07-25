@@ -2422,7 +2422,8 @@
             },
             "delete": {
                 "operationId": "v1_calendars_destroy",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
+                "description": "Deletes a calendar from the shared org library.\n\nA calendar that is still applied somewhere cannot be deleted — it would leave a live schedule without the working-time definition it was computed against. That is refused with `409`, and the body names what still references it so the caller can detach those first. A calendar is referenced when it is a project's base calendar, a project overlay, a program default, or the workspace default.",
+                "summary": "Delete a calendar",
                 "parameters": [
                     {
                         "in": "path",
@@ -2448,7 +2449,18 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "No response body"
+                        "description": "Calendar deleted."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Calendar is still applied as a project/program/workspace base or as a project overlay. Body carries `reference_count` and a `references` sample so the client can name what to detach first."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -2466,8 +2478,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Delete calendar"
+                }
             }
         },
         "/api/v1/dependencies/": {

@@ -13,6 +13,9 @@ file) because a single batch fix spans several views:
 - **Date query params**: unvalidated ``?start__gte=`` / ``?finish__lte=`` on
   ``DateField`` columns raised a Django ``ValidationError`` the UUID-only handler
   did not map (500) → now a 400.
+- **PROTECT-ed delete** (#2364): deleting a ``Calendar`` still applied by a
+  project, program, workspace, or overlay layer raised an uncaught
+  ``ProtectedError`` (500) → now a 409 naming what still references it.
 """
 
 from __future__ import annotations
@@ -27,8 +30,10 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
+    CalendarRole,
     Program,
     Project,
+    ProjectCalendarLayer,
     Sprint,
     SprintState,
     SprintTaskOutcome,
@@ -205,3 +210,65 @@ def test_tasks_list_valid_date_param_ok(
 ) -> None:
     resp = owner_client.get(f"/api/v1/tasks/?{param}=2026-01-01")
     assert resp.status_code == status.HTTP_200_OK
+
+
+# --------------------------------------------------------------------------- #
+# DELETE /calendars/{id}/ must 409 on a PROTECT-ed calendar, not 500 (#2364)
+# --------------------------------------------------------------------------- #
+
+
+def test_delete_calendar_in_use_by_project_409(owner_client: APIClient, project: Project) -> None:
+    """A calendar applied as a project's base is PROTECT-ed — refuse with 409, not 500."""
+    resp = owner_client.delete(f"/api/v1/calendars/{project.calendar_id}/")
+
+    assert resp.status_code == status.HTTP_409_CONFLICT
+    body = resp.json()
+    assert body["code"] == "calendar_in_use"
+    assert body["reference_count"] == 1
+    assert body["references"] == [{"type": "project", "id": str(project.id), "name": project.name}]
+    assert Calendar.objects.filter(pk=project.calendar_id).exists()
+
+
+def test_delete_calendar_in_use_as_overlay_409(owner_client: APIClient, project: Project) -> None:
+    """An overlay layer PROTECTs too, and reports the *project*, not the join row.
+
+    The ``ProjectCalendarLayer`` id is meaningless to a user; what they can act on
+    is the project whose overlay set still applies the calendar.
+    """
+    overlay = Calendar.objects.create(name="Public holidays")
+    ProjectCalendarLayer.objects.create(
+        project=project, calendar=overlay, role=CalendarRole.HOLIDAYS, sort_order=0
+    )
+
+    resp = owner_client.delete(f"/api/v1/calendars/{overlay.pk}/")
+
+    assert resp.status_code == status.HTTP_409_CONFLICT
+    assert resp.json()["references"] == [
+        {"type": "project", "id": str(project.id), "name": project.name}
+    ]
+
+
+def test_delete_calendar_in_use_by_program_409(
+    owner_client: APIClient, project: Project, program: Program
+) -> None:
+    """``Program.calendar`` (ADR-0441) PROTECTs as well."""
+    cal = Calendar.objects.create(name="Program default")
+    program.calendar = cal
+    program.save(update_fields=["calendar"])
+
+    resp = owner_client.delete(f"/api/v1/calendars/{cal.pk}/")
+
+    assert resp.status_code == status.HTTP_409_CONFLICT
+    assert resp.json()["references"] == [
+        {"type": "program", "id": str(program.id), "name": program.name}
+    ]
+
+
+def test_delete_unused_calendar_still_204(owner_client: APIClient, project: Project) -> None:
+    """The refusal must not have broken the ordinary delete path."""
+    cal = Calendar.objects.create(name="Unused")
+
+    resp = owner_client.delete(f"/api/v1/calendars/{cal.pk}/")
+
+    assert resp.status_code == status.HTTP_204_NO_CONTENT
+    assert not Calendar.objects.filter(pk=cal.pk).exists()

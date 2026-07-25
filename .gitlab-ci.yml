@@ -1790,6 +1790,18 @@ api:fuzz:
   # their responses loosely; including them buries the real defects under
   # thousands of conformance nits. Tighten the schema first, then add those
   # checks back if we want a documentation-accuracy gate.
+  #
+  # `--suppress-health-check=filter_too_much` (#2364) silences a Hypothesis
+  # *generation-efficiency* alarm, NOT a check. It fired on
+  # `PUT /projects/{id}/calendars/` and errored the whole job without testing
+  # anything. Reproduced off the committed schema alone: 23/60 seeds trip it at
+  # max-examples=30, and bisecting the body pins it to the `overlays` array's
+  # structured item schema — remove the `role` enum property, or make the items
+  # free-form, and the rate goes to 0/40. It is not the allOf/$ref/default
+  # wrapping drf-spectacular emits, and not the uuid formats. The operation is
+  # fully fuzzable regardless: with the check suppressed all 40 seeds produce the
+  # full 30 examples and 1200/1200 generated bodies are structurally valid, so
+  # suppressing costs zero coverage and hides no defect.
   stage: test
   allow_failure: true
   image: $CI_REGISTRY_IMAGE/ci-integration:noble
@@ -1797,8 +1809,16 @@ api:fuzz:
     - job: ci:build-integration-image
       optional: true
   services:
+    # max_connections above the stock 100 (#2364). The nightly run exhausted the
+    # default pool and returned `OperationalError: sorry, too many clients
+    # already` as an unhandled 500, which the fuzzer then reported as an API
+    # defect on whichever operation happened to draw it. Headroom, not a proven
+    # leak: the trace was truncated at GitLab's 16 MB limit before the summary, so
+    # the source of the accumulation was never isolated. A recurrence on this same
+    # signature means the accumulation is real and needs its own investigation.
     - name: postgres:16-alpine
       alias: postgres
+      command: ["postgres", "-c", "max_connections=300"]
     - name: valkey/valkey:8-alpine
       alias: valkey
   rules:
@@ -1855,6 +1875,7 @@ api:fuzz:
       --max-examples "$FUZZ_MAX_EXAMPLES"
       --header "Authorization: Bearer $FUZZ_TOKEN"
       --workers 4
+      --suppress-health-check=filter_too_much
       --report junit --report-junit-path junit-fuzz.xml
   artifacts:
     when: always
