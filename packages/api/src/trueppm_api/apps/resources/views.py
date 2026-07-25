@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
 
-from django.db import connection, transaction
-from django.db.models import QuerySet, Sum
+from django.db import connection, models, transaction
+from django.db.models import ProtectedError, QuerySet, Sum
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     extend_schema_view,
 )
@@ -54,16 +56,89 @@ from trueppm_api.apps.resources.serializers import (
 )
 from trueppm_api.apps.resources.services import ensure_project_resource
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
+from trueppm_api.core.protect_conflict import protected_error_response
 
 # Shared 404 detail — matches DRF's default NotFound detail so a missing or
 # soft-deleted lookup reads identically across the resource actions below.
 _NOT_FOUND_DETAIL = "Not found."
+
+#: Refusal shipped when a skill is still tagged on a resource or required by a task.
+#: Both FKs into ``Skill`` are ``on_delete=PROTECT`` (``ResourceSkill.skill``,
+#: ``TaskSkillRequirement.skill``) so deleting a catalog entry cannot silently strip
+#: the skill from every resource that carries it or every task that requires it.
+#: Django reports the refusal as ``ProtectedError``, which is not an ``APIException``
+#: and escaped as an unhandled 500 until #2364.
+_SKILL_IN_USE_DETAIL = "This skill is still in use and cannot be deleted."
 
 # ---------------------------------------------------------------------------
 # Skill catalog
 # ---------------------------------------------------------------------------
 
 
+def _skill_reference_describer(user: Any) -> Callable[[models.Model], dict[str, str]]:
+    """Build a describer that names a skill's blockers without leaking task names.
+
+    ``ResourceSkill`` and ``TaskSkillRequirement`` are join tables the user never
+    sees and which have no ``name`` of their own; echoing them back would produce a
+    list of opaque UUIDs. What the caller can act on is the resource to retag or the
+    task whose requirement to drop.
+
+    **Task names are membership-scoped, and this endpoint's gate is not.**
+    ``IsOrgScheduler`` only proves the caller holds SCHEDULER+ on *some* project, so
+    a naive describer would let anyone with one project turn repeated delete attempts
+    into an oracle for task names across every project in the install — and a task
+    name describes actual work, unlike a resource name. Tasks in projects the caller
+    is not a member of are therefore reported by type and id only, with the name
+    withheld; ``reference_count`` still reflects the true total, so the refusal stays
+    honest about how much is blocking even when it cannot say what.
+
+    Resource names are *not* filtered: the resource catalog is org-shared and already
+    readable by any authenticated user (see :class:`ResourceViewSet`), so naming one
+    here discloses nothing the caller could not list directly.
+    """
+    visible_project_ids = set(
+        ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
+            "project_id", flat=True
+        )
+    )
+
+    def describe(obj: models.Model) -> dict[str, str]:
+        if isinstance(obj, ResourceSkill):
+            return {"type": "resource", "id": str(obj.resource_id), "name": obj.resource.name}
+        if isinstance(obj, TaskSkillRequirement):
+            entry = {"type": "task", "id": str(obj.task_id)}
+            if obj.task.project_id in visible_project_ids:
+                entry["name"] = obj.task.name
+            return entry
+        return {"type": obj._meta.model_name or "", "id": str(obj.pk), "name": str(obj)}
+
+    return describe
+
+
+@extend_schema_view(
+    destroy=extend_schema(
+        summary="Delete a skill",
+        description=(
+            "Deletes a skill from the org-level catalog.\n\n"
+            "A skill that is still tagged on a resource or required by a task cannot "
+            "be deleted — removing it would silently strip the tag from every resource "
+            "that carries it and drop the requirement from every task that needs it. "
+            "That is refused with `409`, and the body names the resources and tasks "
+            "still using it so the caller can detach them first."
+        ),
+        responses={
+            204: OpenApiResponse(description="Skill deleted."),
+            409: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Skill is still tagged on a resource or required by a task. Body "
+                    "carries `reference_count` and a `references` sample naming the "
+                    "resources and tasks to detach first."
+                ),
+            ),
+        },
+    )
+)
 class SkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[Skill]):
     """CRUD for the org-level skill catalog.
 
@@ -85,6 +160,28 @@ class SkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[Skill]):
         if self.request.method in ("GET", "HEAD", "OPTIONS"):
             return [IsAuthenticated()]
         return [IsAuthenticated(), IsOrgScheduler()]
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Delete the skill, or 409 when a resource or task still uses it.
+
+        Overrides ``destroy`` rather than ``perform_destroy`` because the refusal body
+        carries an integer ``reference_count``, and DRF coerces every value in an
+        ``APIException`` detail to ``ErrorDetail`` (a ``str`` subclass) — raising would
+        ship the count as ``"3"``. Returning is safe: ``ProtectedError`` is raised
+        while the collector walks the FKs, *before* any DELETE is issued, so there is
+        no partial state for ``ATOMIC_REQUESTS`` to roll back.
+        """
+        instance = self.get_object()
+        try:
+            instance.delete()
+        except ProtectedError as exc:
+            return protected_error_response(
+                exc.protected_objects,
+                detail=_SKILL_IN_USE_DETAIL,
+                code="skill_in_use",
+                describe=_skill_reference_describer(request.user),
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def create(self, request: Request, *args: object, **kwargs: object) -> Response:
         """Create or return existing skill — de-dup by normalized_name."""

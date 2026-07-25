@@ -1,9 +1,11 @@
 """Project-wide DRF exception handler.
 
 The single custom ``EXCEPTION_HANDLER`` DRF invokes for every unhandled
-exception raised inside a view. Its job is to translate the two failure modes a
-malformed UUID produces into a clean 4xx response instead of the HTTP 500 DRF's
-stock handler returns for them (#2125):
+exception raised inside a view. It translates non-``APIException`` failures that
+DRF's stock handler would return as HTTP 500 into the clean 4xx they actually are.
+
+Two families are handled. First, the two failure modes a malformed UUID produces
+(#2125):
 
 * ``uuid.UUID("<garbage>")`` raises ``ValueError("badly formed hexadecimal UUID
   string")``; and
@@ -22,6 +24,17 @@ routes through DRF's ``get_object_or_404``, which does catch these.
 A single handler is the smallest-blast-radius systemic fix: it covers router
 routes, hand-registered nested routes, and query params at once, without editing
 ~20 url modules or risking the non-UUID lookup routes (share tokens, etc.).
+
+Second, ``ProtectedError`` from a delete blocked by an ``on_delete=PROTECT``
+foreign key (#2364). The refusal is correct — a live schedule must not lose the
+calendar it was computed against — but reporting it as a server error is not; it
+is a 409. This is a **net, not the primary guard**: endpoints where the caller can
+act on the blocker list catch ``ProtectedError`` themselves and return the richer
+``reference_count``/``references`` body from
+:mod:`trueppm_api.core.protect_conflict`. The net exists because the same bug was
+found three times — a delete path written against the FKs that existed at the
+time, silently rotting as new ``PROTECT`` FKs landed. It guarantees the next one
+is a 409 rather than a 500 even if nobody remembers to update the view.
 """
 
 from __future__ import annotations
@@ -30,10 +43,19 @@ import uuid
 from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import ProtectedError
 from rest_framework.exceptions import NotFound
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
+
+from trueppm_api.core.protect_conflict import protected_error_response
+
+#: Generic refusal for a ``PROTECT``-ed delete no view claimed. Deliberately does
+#: not name the referencing model — the net fires on paths that have not decided
+#: how to describe their blockers, and leaking an internal model name reads as an
+#: implementation detail rather than something the caller can act on.
+_PROTECTED_DELETE_DETAIL = "This item is still referenced by other records and cannot be deleted."
 
 # Stable substrings emitted by the two malformed-UUID code paths. Matching on the
 # message keeps the handler narrowly scoped to genuine UUID-coercion failures, so
@@ -78,10 +100,16 @@ def _path_has_malformed_uuid(context: dict[str, Any]) -> bool:
 
 
 def trueppm_exception_handler(exc: Exception, context: dict[str, Any]) -> Response | None:
-    """DRF exception handler that maps malformed-UUID failures to 404/400.
+    """Map malformed-UUID failures to 404/400 and PROTECT-ed deletes to 409.
 
     Delegates everything else to DRF's default handler unchanged.
     """
     if _is_malformed_uuid_error(exc):
         exc = NotFound() if _path_has_malformed_uuid(context) else DRFValidationError()
+    elif isinstance(exc, ProtectedError):
+        return protected_error_response(
+            exc.protected_objects,
+            detail=_PROTECTED_DELETE_DETAIL,
+            code="protected_reference",
+        )
     return drf_exception_handler(exc, context)

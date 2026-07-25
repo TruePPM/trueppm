@@ -26,6 +26,7 @@ from django.db.models import (
     Max,
     Min,
     OuterRef,
+    ProtectedError,
     Q,
     QuerySet,
     Subquery,
@@ -211,6 +212,7 @@ from trueppm_api.apps.webhooks.models import (
     WebhookDelivery,
 )
 from trueppm_api.core.openapi import suppress_list_pagination
+from trueppm_api.core.protect_conflict import describe_reference, protected_error_response
 
 logger = logging.getLogger(__name__)
 
@@ -326,6 +328,64 @@ class BoardColumnConfigResponseSerializer(serializers.Serializer[Any]):
     columns = serializers.ListField(child=serializers.DictField())
 
 
+#: Refusal shipped when a calendar is still applied somewhere. Every FK into
+#: ``Calendar`` is ``on_delete=PROTECT`` — ``Project.calendar``, ``Program.calendar``
+#: and ``Workspace.calendar`` (ADR-0441), ``ProjectCalendarLayer.calendar``
+#: (ADR-0251) and ``Resource.calendar`` — so a live schedule can never lose the
+#: calendar underneath it. Django reports that refusal as ``ProtectedError``, which is
+#: not an ``APIException``, so it escaped the view as an unhandled 500 until #2364.
+#: 409 is the honest status: the request is well-formed and authorized, it conflicts
+#: with current state. Do not treat this list as authoritative when writing code — the
+#: enumeration going stale is the bug this fix exists to close; derive it from
+#: ``Calendar._meta.related_objects`` (see ``test_protect_relations_snapshot``).
+_CALENDAR_IN_USE_DETAIL = "This calendar is still in use and cannot be deleted."
+
+
+def _describe_calendar_reference(obj: db_models.Model) -> dict[str, str]:
+    """Render one PROTECT-ing row as a client-actionable ``{type, id, name}`` entry.
+
+    Names the referencing project/program even when the caller is not a member of it.
+    That is deliberate and scoped to the ``IsOrgAdmin`` gate on this endpoint: the
+    role exists to curate the shared calendar library, and "3 projects still use
+    this" without saying which is unactionable for exactly that persona. It does
+    widen what an org admin can learn — repeated delete attempts would enumerate the
+    names of projects they are not a member of — so if project names ever become
+    membership-confidential, filter this list by visibility and report the remainder
+    as an opaque count.
+    """
+    if isinstance(obj, ProjectCalendarLayer):
+        # The layer row is a join table the user never sees. What they can act on is
+        # the project whose overlay set still applies this calendar.
+        return {"type": "project", "id": str(obj.project_id), "name": obj.project.name}
+    return describe_reference(obj)
+
+
+@extend_schema_view(
+    destroy=extend_schema(
+        summary="Delete a calendar",
+        description=(
+            "Deletes a calendar from the shared org library.\n\n"
+            "A calendar that is still applied somewhere cannot be deleted — it would "
+            "leave a live schedule without the working-time definition it was computed "
+            "against. That is refused with `409`, and the body names what still "
+            "references it so the caller can detach those first. A calendar is "
+            "referenced when it is a project's base calendar, a project overlay, a "
+            "program default, the workspace default, or a resource's calendar."
+        ),
+        responses={
+            204: OpenApiResponse(description="Calendar deleted."),
+            409: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Calendar is still applied as a project/program/workspace base, a "
+                    "project overlay, or a resource calendar. Body carries "
+                    "`reference_count` and a `references` sample so the client can name "
+                    "what to detach first."
+                ),
+            ),
+        },
+    )
+)
 class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     """CRUD for project calendars.
 
@@ -351,6 +411,28 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
         # Calendars are not project-scoped — they are shared org-level resources.
         # Return the full queryset for any authenticated user.
         return Calendar.objects.prefetch_related("exceptions").order_by("name")
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Delete the calendar, or 409 when something still schedules against it.
+
+        Overrides ``destroy`` rather than ``perform_destroy`` because the refusal
+        body carries an integer ``reference_count``, and DRF coerces every value in
+        an ``APIException`` detail to ``ErrorDetail`` (a ``str`` subclass) — raising
+        would ship the count as ``"3"``. Returning is safe here: ``ProtectedError``
+        is raised while the collector walks the FKs, *before* any DELETE is issued,
+        so there is no partial state for ``ATOMIC_REQUESTS`` to roll back.
+        """
+        instance = self.get_object()
+        try:
+            instance.delete()
+        except ProtectedError as exc:
+            return protected_error_response(
+                exc.protected_objects,
+                detail=_CALENDAR_IN_USE_DETAIL,
+                code="calendar_in_use",
+                describe=_describe_calendar_reference,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def perform_update(self, serializer: BaseSerializer[Calendar]) -> None:
         # working_days and hours_per_day are the only CPM inputs on Calendar —
@@ -881,15 +963,15 @@ class ProjectViewSet(
                 raise DRFValidationError(
                     {"detail": "Archive the project before requesting a permanent delete."}
                 )
-            # ProjectMembership.project is on_delete=PROTECT so a bare
-            # Project.delete() raises ProtectedError. The two-step archive →
-            # force-delete dialog already gates against accidents; at this
-            # point the Owner has confirmed and the membership rows must go
-            # with the project row.
-            from trueppm_api.apps.access.models import ProjectMembership
+            # Several FKs into Project are on_delete=PROTECT (memberships, mention
+            # groups), so a bare Project.delete() raises ProtectedError. The two-step
+            # archive → force-delete dialog already gates against accidents; at this
+            # point the Owner has confirmed and those rows must go with the project
+            # row. hard_delete_projects resolves the PROTECT-ing set from _meta so
+            # this path cannot rot as new FKs land (#2364).
+            from trueppm_api.apps.access.services import hard_delete_projects
 
-            ProjectMembership.objects.filter(project=instance).delete()
-            Project.objects.filter(pk=instance.pk).delete()
+            hard_delete_projects([instance.pk])
             _record_project_audit_event(
                 event_type="project_deleted",
                 actor=self.request.user,

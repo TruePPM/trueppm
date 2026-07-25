@@ -30,7 +30,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership
+from trueppm_api.apps.access.models import ProgramMembership
 from trueppm_api.apps.access.permissions import (
     IsProgramAdmin,
     IsProgramMember,
@@ -42,6 +42,7 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.access.services import (
     create_program,
     delete_program_cascade,
+    hard_delete_program,
     transfer_program_sponsorship,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
@@ -825,11 +826,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # Lock the program row so a concurrent member-add / project-assign
             # can't resurrect a PROTECTed reference mid-teardown.
             Program.objects.select_for_update().filter(pk=program.pk).first()
-            project_ids = list(Project.objects.filter(program=program).values_list("pk", flat=True))
-            ProjectMembership.objects.filter(project_id__in=project_ids).delete()
-            Project.objects.filter(pk__in=project_ids).delete()
-            ProgramMembership.objects.filter(program=program).delete()
-            Program.objects.filter(pk=program.pk).delete()
+            # hard_delete_program resolves the PROTECT-ing children from _meta rather
+            # than listing them here — the hand-written list this replaced covered
+            # memberships but not mention groups, so teardown 500'd on any sample
+            # program that had one (#2364).
+            hard_delete_program(program.pk)
         transaction.on_commit(
             lambda: broadcast_board_event(program_id, "program_deleted", {"id": program_id})
         )
