@@ -84,6 +84,66 @@ def _is_replacement(path: Path) -> bool:
         return False
 
 
+def _scan_migration_dir(
+    mig_dir: Path, base: str
+) -> tuple[list[tuple[str, str, str, list[str]]], int]:
+    """Find cross-branch numbering collisions in one app's migrations directory.
+
+    Returns the collisions found (``(app, num, name, clashes)`` tuples) and the
+    next free migration number for the app (used to suggest a renumber).
+    """
+    app = mig_dir.parent.name
+    tree_files = {p.name for p in mig_dir.glob("[0-9]*.py")}
+    base_files = _base_basenames(base, mig_dir)
+
+    base_by_num: dict[str, set[str]] = defaultdict(set)
+    for name in base_files:
+        num = _number(name)
+        if num:
+            base_by_num[num].add(name)
+
+    all_nums = [
+        int(num)
+        for name in tree_files | base_files
+        if (num := _number(name)) is not None
+    ]
+    next_free = (max(all_nums) + 1) if all_nums else 1
+
+    collisions: list[tuple[str, str, str, list[str]]] = []
+    for name in sorted(tree_files):
+        num = _number(name)
+        if num is None or name in base_files:
+            continue  # unchanged file, or not a numbered migration
+        if _is_replacement(mig_dir / name):
+            continue  # squash migration — reusing a replaced number is correct
+        clashes = base_by_num.get(num, set()) - {name}
+        if clashes:
+            collisions.append((app, num, name, sorted(clashes)))
+    return collisions, next_free
+
+
+def _report_collisions(
+    base: str,
+    collisions: list[tuple[str, str, str, list[str]]],
+    next_free: dict[str, int],
+) -> None:
+    """Print the human-readable collision report and remediation hint."""
+    print(f"✖ Migration-numbering collision(s) with {base}:\n")
+    for app, num, name, clashes in collisions:
+        suggested = f"{next_free[app]:04d}"
+        print(f"  apps/{app}/migrations/{name}")
+        print(
+            f"      reuses number {num}, already taken on {base} by: {', '.join(clashes)}"
+        )
+        print(f"      → renumber to {suggested}_… (and repoint its `dependencies`)")
+    print(
+        "\nTwo branches numbered a migration the same; the second to merge would leave\n"
+        f"{base} with two leaf migrations. Renumber the branch's migration above the\n"
+        "base's highest number for that app, or run `makemigrations --merge` if a merge\n"
+        "migration is the intended resolution."
+    )
+
+
 def main() -> int:
     base = sys.argv[1] if len(sys.argv) > 1 else "origin/main"
 
@@ -102,51 +162,15 @@ def main() -> int:
     next_free: dict[str, int] = {}
 
     for mig_dir in sorted(_API_SRC.glob(_MIGRATIONS_GLOB)):
-        app = mig_dir.parent.name
-        tree_files = {p.name for p in mig_dir.glob("[0-9]*.py")}
-        base_files = _base_basenames(base, mig_dir)
-
-        base_by_num: dict[str, set[str]] = defaultdict(set)
-        for name in base_files:
-            num = _number(name)
-            if num:
-                base_by_num[num].add(name)
-
-        all_nums = [
-            int(num)
-            for name in tree_files | base_files
-            if (num := _number(name)) is not None
-        ]
-        next_free[app] = (max(all_nums) + 1) if all_nums else 1
-
-        for name in sorted(tree_files):
-            num = _number(name)
-            if num is None or name in base_files:
-                continue  # unchanged file, or not a numbered migration
-            if _is_replacement(mig_dir / name):
-                continue  # squash migration — reusing a replaced number is correct
-            clashes = base_by_num.get(num, set()) - {name}
-            if clashes:
-                collisions.append((app, num, name, sorted(clashes)))
+        dir_collisions, dir_next_free = _scan_migration_dir(mig_dir, base)
+        collisions.extend(dir_collisions)
+        next_free[mig_dir.parent.name] = dir_next_free
 
     if not collisions:
         print(f"✓ No migration-numbering collisions with {base}.")
         return 0
 
-    print(f"✖ Migration-numbering collision(s) with {base}:\n")
-    for app, num, name, clashes in collisions:
-        suggested = f"{next_free[app]:04d}"
-        print(f"  apps/{app}/migrations/{name}")
-        print(
-            f"      reuses number {num}, already taken on {base} by: {', '.join(clashes)}"
-        )
-        print(f"      → renumber to {suggested}_… (and repoint its `dependencies`)")
-    print(
-        "\nTwo branches numbered a migration the same; the second to merge would leave\n"
-        f"{base} with two leaf migrations. Renumber the branch's migration above the\n"
-        "base's highest number for that app, or run `makemigrations --merge` if a merge\n"
-        "migration is the intended resolution."
-    )
+    _report_collisions(base, collisions, next_free)
     return 1
 
 

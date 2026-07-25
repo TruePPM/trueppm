@@ -414,26 +414,76 @@ PC_BASELINE_WBS = {
 }
 
 
+def _pc_sprint(i: int, state: str, committed, completed, goal: str) -> dict:
+    """One Platform Core sprint dict; point aggregates are omitted when unset."""
+    start = PC_SPRINT_START + i * PC_SPRINT_LEN
+    sprint = {
+        "slug": f"pc-sprint-{i + 1}",
+        "name": f"Sprint {i + 1}",
+        "goal": goal,
+        "state": state,
+        "start_date": d(start),
+        "finish_date": d(start + 13),
+        "capacity_points": 34,
+    }
+    if committed is not None:
+        sprint["committed_points"] = committed
+    if completed is not None:
+        sprint["completed_points"] = completed
+    return sprint
+
+
+def _pc_story(row: tuple) -> dict:
+    """One Platform Core story task from a PC_STORIES row."""
+    wbs, name, points, sprint_no, status, assignee, pct, remaining = row
+    story: dict = {
+        "wbs_path": wbs,
+        "name": name,
+        "type": "story",
+        "status": status,
+    }
+    if status == "COMPLETE":
+        story["percent_complete"] = 100.0
+    elif pct is not None:
+        story["percent_complete"] = pct
+    story["story_points"] = points
+    if remaining is not None:
+        story["remaining_points"] = remaining
+    story.update(
+        {
+            "parent_epic": wbs.partition(".")[0],
+            "assignee": assignee,
+            "sprint": f"pc-sprint-{sprint_no}",
+            "delivery_mode": "scrum",
+            "governance_class": "flow",
+        }
+    )
+    if wbs in PC_STORY_LABELS:
+        story["labels"] = PC_STORY_LABELS[wbs]
+    if wbs in PC_STORY_LINKS:
+        story["links"] = PC_STORY_LINKS[wbs]
+    if wbs == "2.6":
+        # Near-infeasible commitment (#372): committed to the ACTIVE sprint but
+        # gated by a cross-project FS predecessor — Migration Tooling's
+        # "Performance tuning" (mt:3.2) — whose planned window lands *after* this
+        # sprint closes. Once the program CPM pass runs, its early_start is pushed
+        # past the sprint boundary, so the dependency-reality at-risk indicator
+        # fires; the team parked it ON_HOLD.
+        story["notes"] = (
+            "Committed to the active sprint but gated on the migration team's "
+            "Performance tuning task — a cross-project predecessor whose finish "
+            "lands after this sprint closes. Demonstrates the dependency-reality "
+            "at-risk indicator (#372)."
+        )
+    return story
+
+
 def build_platform_core() -> dict:
     tasks: list[dict] = []
-    sprints: list[dict] = []
-
-    for i, (state, committed, completed, goal) in enumerate(PC_SPRINTS):
-        start = PC_SPRINT_START + i * PC_SPRINT_LEN
-        sprint = {
-            "slug": f"pc-sprint-{i + 1}",
-            "name": f"Sprint {i + 1}",
-            "goal": goal,
-            "state": state,
-            "start_date": d(start),
-            "finish_date": d(start + 13),
-            "capacity_points": 34,
-        }
-        if committed is not None:
-            sprint["committed_points"] = committed
-        if completed is not None:
-            sprint["completed_points"] = completed
-        sprints.append(sprint)
+    sprints: list[dict] = [
+        _pc_sprint(i, state, committed, completed, goal)
+        for i, (state, committed, completed, goal) in enumerate(PC_SPRINTS)
+    ]
 
     # Epics as grouping nodes (excluded from CPM); stories beneath them.
     for e_idx, epic_name in enumerate(PC_EPICS, start=1):
@@ -447,47 +497,7 @@ def build_platform_core() -> dict:
             }
         )
 
-    for wbs, name, points, sprint_no, status, assignee, pct, remaining in PC_STORIES:
-        story: dict = {
-            "wbs_path": wbs,
-            "name": name,
-            "type": "story",
-            "status": status,
-        }
-        if status == "COMPLETE":
-            story["percent_complete"] = 100.0
-        elif pct is not None:
-            story["percent_complete"] = pct
-        story["story_points"] = points
-        if remaining is not None:
-            story["remaining_points"] = remaining
-        story.update(
-            {
-                "parent_epic": wbs.partition(".")[0],
-                "assignee": assignee,
-                "sprint": f"pc-sprint-{sprint_no}",
-                "delivery_mode": "scrum",
-                "governance_class": "flow",
-            }
-        )
-        if wbs in PC_STORY_LABELS:
-            story["labels"] = PC_STORY_LABELS[wbs]
-        if wbs in PC_STORY_LINKS:
-            story["links"] = PC_STORY_LINKS[wbs]
-        if wbs == "2.6":
-            # Near-infeasible commitment (#372): committed to the ACTIVE sprint
-            # but gated by a cross-project FS predecessor — Migration Tooling's
-            # "Performance tuning" (mt:3.2) — whose planned window lands *after*
-            # this sprint closes. Once the program CPM pass runs, its early_start
-            # is pushed past the sprint boundary, so the dependency-reality
-            # at-risk indicator fires; the team parked it ON_HOLD.
-            story["notes"] = (
-                "Committed to the active sprint but gated on the migration team's "
-                "Performance tuning task — a cross-project predecessor whose finish "
-                "lands after this sprint closes. Demonstrates the dependency-reality "
-                "at-risk indicator (#372)."
-            )
-        tasks.append(story)
+    tasks.extend(_pc_story(row) for row in PC_STORIES)
 
     # GA milestone lands just after the Sprint 8 runway (target of last sprint).
     tasks.append(
@@ -715,6 +725,60 @@ MT_TASK_LINKS = {
 }
 
 
+def _mt_task_entry(
+    p_idx: int, t_idx: int, item: tuple
+) -> tuple[dict, dict, list[dict]]:
+    """Build one Migration Tooling task with its baseline row and dependency rows.
+
+    Returns ``(task, baseline_row, dep_rows)``. The baseline row keeps the
+    ORIGINAL (pre-slip) window; ``slip is None`` leaves off the SNET floor so the
+    task chains its predecessor's variance straight through (#1891).
+    """
+    name, ml, dep_paths, dep_type, original, slip, risk = item
+    wbs = f"{p_idx}.{t_idx}"
+    done = p_idx <= 2  # first two phases complete
+    in_progress = wbs == "3.1"  # the execution front
+    task: dict = {
+        "wbs_path": wbs,
+        "name": name,
+        "type": "task",
+        "status": (
+            "COMPLETE" if done else ("IN_PROGRESS" if in_progress else "NOT_STARTED")
+        ),
+    }
+    if done:
+        task["percent_complete"] = 100.0
+    elif in_progress:
+        task["percent_complete"] = 55.0
+    task.update(
+        {
+            "duration": ml,
+            "estimate": three_point(ml, risk),
+            "assignee": MT_DEVS[(p_idx + t_idx) % len(MT_DEVS)],
+            "governance_class": "gated",
+            "delivery_mode": "waterfall",
+        }
+    )
+    if slip is not None:
+        task["planned_start"] = d(original + slip)
+    if wbs in MT_TASK_LABELS:
+        task["labels"] = MT_TASK_LABELS[wbs]
+    if wbs in MT_TASK_LINKS:
+        task["links"] = MT_TASK_LINKS[wbs]
+
+    baseline_row = {
+        "task": wbs,
+        "start": d(original),
+        "finish": d(original + ml),
+        "duration": ml,
+    }
+    dep_rows = [
+        {"predecessor": dep, "successor": wbs, "dep_type": dep_type, "lag": 0}
+        for dep in dep_paths
+    ]
+    return task, baseline_row, dep_rows
+
+
 def build_migration_tooling() -> dict:
     tasks: list[dict] = []
     deps: list[dict] = []
@@ -730,65 +794,11 @@ def build_migration_tooling() -> dict:
                 "delivery_mode": "waterfall",
             }
         )
-        for t_idx, (name, ml, dep_paths, dep_type, original, slip, risk) in enumerate(
-            items, start=1
-        ):
-            wbs = f"{p_idx}.{t_idx}"
-            done = p_idx <= 2  # first two phases complete
-            in_progress = wbs == "3.1"  # the execution front
-            task: dict = {
-                "wbs_path": wbs,
-                "name": name,
-                "type": "task",
-                "status": (
-                    "COMPLETE"
-                    if done
-                    else ("IN_PROGRESS" if in_progress else "NOT_STARTED")
-                ),
-            }
-            if done:
-                task["percent_complete"] = 100.0
-            elif in_progress:
-                task["percent_complete"] = 55.0
-            task.update(
-                {
-                    "duration": ml,
-                    "estimate": three_point(ml, risk),
-                    "assignee": MT_DEVS[(p_idx + t_idx) % len(MT_DEVS)],
-                    "governance_class": "gated",
-                    "delivery_mode": "waterfall",
-                }
-            )
-            # slip is None -> no SNET floor: the task is purely FS-driven by its
-            # predecessor, so predecessor variance chains straight through it to
-            # the finish. Used for the tail cutover tasks (#1891) so the last two
-            # steps compound their three-point variance into the milestone instead
-            # of each being decoupled by its own fixed planned_start.
-            if slip is not None:
-                task["planned_start"] = d(original + slip)
-            if wbs in MT_TASK_LABELS:
-                task["labels"] = MT_TASK_LABELS[wbs]
-            if wbs in MT_TASK_LINKS:
-                task["links"] = MT_TASK_LINKS[wbs]
+        for t_idx, item in enumerate(items, start=1):
+            task, baseline_row, dep_rows = _mt_task_entry(p_idx, t_idx, item)
             tasks.append(task)
-            # The baseline keeps the ORIGINAL (pre-slip) window.
-            baseline_rows.append(
-                {
-                    "task": wbs,
-                    "start": d(original),
-                    "finish": d(original + ml),
-                    "duration": ml,
-                }
-            )
-            for dep in dep_paths:
-                deps.append(
-                    {
-                        "predecessor": dep,
-                        "successor": wbs,
-                        "dep_type": dep_type,
-                        "lag": 0,
-                    }
-                )
+            baseline_rows.append(baseline_row)
+            deps.extend(dep_rows)
 
     # Cutover milestone. Deliberately carries NO planned_start pin: a fixed SNET
     # floor here would clamp the project finish to a constant date, and because
@@ -955,6 +965,84 @@ GTM_ENABLEMENT = [
 ]
 
 
+def _gtm_planning_task(i: int, row: tuple) -> tuple[dict, list[dict]]:
+    """One GTM launch-planning (waterfall) task with its dependency rows."""
+    name, ml, dep_paths, start_day, status, pct = row
+    wbs = f"1.{i}"
+    task: dict = {
+        "wbs_path": wbs,
+        "name": name,
+        "duration": ml,
+        "planned_start": d(start_day),
+        "estimate": three_point(ml),
+        "status": status,
+    }
+    if pct is not None:
+        task["percent_complete"] = pct
+    task.update(
+        {
+            "governance_class": "gated",
+            "delivery_mode": "waterfall",
+            "assignee": "jordan",
+        }
+    )
+    if wbs in GTM_TASK_LABELS:
+        task["labels"] = GTM_TASK_LABELS[wbs]
+    dep_rows = [
+        {"predecessor": dep, "successor": wbs, "dep_type": "FS", "lag": 0}
+        for dep in dep_paths
+    ]
+    return task, dep_rows
+
+
+def _gtm_enablement_story(row: tuple) -> dict:
+    """One GTM enablement (agile / flow) story from a GTM_ENABLEMENT row."""
+    minor, name, points, sprint_no, status, assignee, pct, remaining = row
+    story: dict = {
+        "wbs_path": f"2.{minor}",
+        "name": name,
+        "type": "story",
+        "status": status,
+    }
+    if status == "COMPLETE":
+        story["percent_complete"] = 100.0
+    elif pct is not None:
+        story["percent_complete"] = pct
+    story["story_points"] = points
+    if remaining is not None:
+        story["remaining_points"] = remaining
+    story.update(
+        {
+            "assignee": assignee,
+            "sprint": f"gtm-sprint-{sprint_no}",
+            "governance_class": "flow",
+            "delivery_mode": "scrum",
+        }
+    )
+    if f"2.{minor}" in GTM_TASK_LABELS:
+        story["labels"] = GTM_TASK_LABELS[f"2.{minor}"]
+    return story
+
+
+def _gtm_sprint(row: tuple) -> dict:
+    """One GTM enablement sprint dict; point aggregates omitted when unset."""
+    slug, name, state, start, committed, completed, goal = row
+    sprint = {
+        "slug": slug,
+        "name": name,
+        "goal": goal,
+        "state": state,
+        "start_date": d(start),
+        "finish_date": d(start + 13),
+        "capacity_points": 14,
+    }
+    if committed is not None:
+        sprint["committed_points"] = committed
+    if completed is not None:
+        sprint["completed_points"] = completed
+    return sprint
+
+
 def build_gtm_readiness() -> dict:
     tasks: list[dict] = []
     deps: list[dict] = []
@@ -975,34 +1063,10 @@ def build_gtm_readiness() -> dict:
         ("Pricing & packaging sign-off", 3, ["1.1"], 81, "IN_PROGRESS", 60.0),
         ("Launch gate review", 2, ["1.2"], 96, "NOT_STARTED", None),
     ]
-    for i, (name, ml, dep_paths, start_day, status, pct) in enumerate(
-        planning, start=1
-    ):
-        wbs = f"1.{i}"
-        task: dict = {
-            "wbs_path": wbs,
-            "name": name,
-            "duration": ml,
-            "planned_start": d(start_day),
-            "estimate": three_point(ml),
-            "status": status,
-        }
-        if pct is not None:
-            task["percent_complete"] = pct
-        task.update(
-            {
-                "governance_class": "gated",
-                "delivery_mode": "waterfall",
-                "assignee": "jordan",
-            }
-        )
-        if wbs in GTM_TASK_LABELS:
-            task["labels"] = GTM_TASK_LABELS[wbs]
+    for i, row in enumerate(planning, start=1):
+        task, dep_rows = _gtm_planning_task(i, row)
         tasks.append(task)
-        for dep in dep_paths:
-            deps.append(
-                {"predecessor": dep, "successor": wbs, "dep_type": "FS", "lag": 0}
-            )
+        deps.extend(dep_rows)
 
     # Enablement work (agile / flow) running a real sprint cadence.
     tasks.append(
@@ -1013,57 +1077,9 @@ def build_gtm_readiness() -> dict:
             "delivery_mode": "scrum",
         }
     )
-    for (
-        minor,
-        name,
-        points,
-        sprint_no,
-        status,
-        assignee,
-        pct,
-        remaining,
-    ) in GTM_ENABLEMENT:
-        story: dict = {
-            "wbs_path": f"2.{minor}",
-            "name": name,
-            "type": "story",
-            "status": status,
-        }
-        if status == "COMPLETE":
-            story["percent_complete"] = 100.0
-        elif pct is not None:
-            story["percent_complete"] = pct
-        story["story_points"] = points
-        if remaining is not None:
-            story["remaining_points"] = remaining
-        story.update(
-            {
-                "assignee": assignee,
-                "sprint": f"gtm-sprint-{sprint_no}",
-                "governance_class": "flow",
-                "delivery_mode": "scrum",
-            }
-        )
-        if f"2.{minor}" in GTM_TASK_LABELS:
-            story["labels"] = GTM_TASK_LABELS[f"2.{minor}"]
-        tasks.append(story)
+    tasks.extend(_gtm_enablement_story(row) for row in GTM_ENABLEMENT)
 
-    sprints: list[dict] = []
-    for slug, name, state, start, committed, completed, goal in GTM_SPRINTS:
-        sprint = {
-            "slug": slug,
-            "name": name,
-            "goal": goal,
-            "state": state,
-            "start_date": d(start),
-            "finish_date": d(start + 13),
-            "capacity_points": 14,
-        }
-        if committed is not None:
-            sprint["committed_points"] = committed
-        if completed is not None:
-            sprint["completed_points"] = completed
-        sprints.append(sprint)
+    sprints: list[dict] = [_gtm_sprint(row) for row in GTM_SPRINTS]
 
     # Public-launch milestone (gated by both planning and Migration completion).
     # A+80: respects the migration-complete milestone (A+74 after the realized

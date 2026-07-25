@@ -88,6 +88,129 @@ def _accounts(rows: list[tuple[str, str, str]]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _aurora_sprints(
+    states: list[str], committed: list, completed: list, date_fn
+) -> list[dict]:
+    """Aurora's sprint dicts; point aggregates are omitted when unset."""
+    sprints = []
+    for i, (state, com, vel) in enumerate(zip(states, committed, completed)):
+        sp = {
+            "slug": f"au-sprint-{i + 1}",
+            "name": f"Sprint {i + 1}",
+            "goal": f"Mobile increment {i + 1}.",
+            "state": state,
+            "start_date": date_fn(i * 14),
+            "finish_date": date_fn(i * 14 + 13),
+            "capacity_points": 28,
+        }
+        if com is not None:
+            sp["committed_points"] = com
+        if vel is not None:
+            sp["completed_points"] = vel
+        sprints.append(sp)
+    return sprints
+
+
+def _aurora_epic_story_tasks(
+    epics: list,
+    states: list[str],
+    points: list[int],
+    overrides: dict[str, dict[str, object]],
+    story_labels: dict[str, list[str]],
+    devs: list[str],
+    wbs: dict[str, str],
+) -> list[dict]:
+    """Epic grouping nodes plus their stories; ``wbs`` is filled name -> wbs_path.
+
+    A global story index (identical to the old flat index) drives the sprint /
+    point / assignee placement so the authored event timeline still lands on the
+    right work regardless of how the epic grouping is sliced.
+    """
+    tasks: list[dict] = []
+    story_idx = 0
+    for e_idx, (epic_name, feats) in enumerate(epics, start=1):
+        epic_wbs = str(e_idx)
+        tasks.append(
+            {
+                "wbs_path": epic_wbs,
+                "name": epic_name,
+                "type": "epic",
+                "delivery_mode": "scrum",
+                "governance_class": "flow",
+            }
+        )
+        for s_idx, name in enumerate(feats, start=1):
+            sprint_idx = story_idx % 4
+            state = states[sprint_idx]
+            status = {
+                "COMPLETED": "COMPLETE",
+                "ACTIVE": "IN_PROGRESS",
+                "PLANNED": "BACKLOG",
+            }[state]
+            story_wbs = f"{e_idx}.{s_idx}"
+            wbs[name] = story_wbs
+            story = {
+                "wbs_path": story_wbs,
+                "name": name,
+                "type": "story",
+                "status": status,
+                "percent_complete": {
+                    "COMPLETE": 100.0,
+                    "IN_PROGRESS": 50.0,
+                    "BACKLOG": 0.0,
+                }[status],
+                "story_points": points[story_idx % len(points)],
+                "parent_epic": epic_wbs,
+                # Spread each sprint's stories across the whole team rather than
+                # one dev per sprint (story_idx // 4 advances once per sprint-row,
+                # so the four devs round-robin *within* every sprint). The event
+                # timeline then reassigns a few of these as the program plays out.
+                "assignee": devs[(story_idx // len(devs)) % len(devs)],
+                "sprint": f"au-sprint-{sprint_idx + 1}",
+                "delivery_mode": "scrum",
+                "governance_class": "flow",
+                "dor": "ready" if state != "PLANNED" else "idea",
+            }
+            story.update(overrides.get(name, {}))
+            if name in story_labels:
+                story["labels"] = story_labels[name]
+            tasks.append(story)
+            story_idx += 1
+    return tasks
+
+
+def _aurora_backlog_tasks(wbs: dict[str, str]) -> list[dict]:
+    """A real unassigned backlog (#1784): stories refined under their epics but
+    committed to no sprint and owned by nobody yet, so the Backlog view has
+    actual intake to groom instead of rendering empty. ``wbs`` is filled with
+    each backlog story's name -> wbs_path."""
+    tasks: list[dict] = []
+    for epic_wbs, slot, name, pts, dor in [
+        ("1", 6, "App shortcuts", 3, "refine"),
+        ("2", 6, "Contact import", 5, "refine"),
+        ("3", 6, "Video capture", 8, "idea"),
+        ("5", 6, "Promo codes", 3, "idea"),
+        ("6", 6, "Sound design", 2, "idea"),
+    ]:
+        story_wbs = f"{epic_wbs}.{slot}"
+        wbs[name] = story_wbs
+        tasks.append(
+            {
+                "wbs_path": story_wbs,
+                "name": name,
+                "type": "story",
+                "status": "BACKLOG",
+                "percent_complete": 0.0,
+                "story_points": pts,
+                "parent_epic": epic_wbs,
+                "delivery_mode": "scrum",
+                "governance_class": "flow",
+                "dor": dor,
+            }
+        )
+    return tasks
+
+
 def build_aurora() -> dict:
     ns = "aurora"
     people = [
@@ -133,7 +256,6 @@ def build_aurora() -> dict:
     def T(offset: int, hour: int = 10, minute: int = 0) -> str:
         return ts(offset, hour, minute, anchor)
 
-    sprints = []
     states = ["COMPLETED", "COMPLETED", "ACTIVE", "PLANNED"]
     # A realistic ramp with reconciled aggregates (#1784): Sprint 1 closed
     # PARTIAL — 20 of 25 committed points landed and Profile editor (5 pts)
@@ -145,21 +267,7 @@ def build_aurora() -> dict:
     # the authored sprint.close beats.
     committed = [25, 27, 21, None]
     completed = [20, 27, None, None]
-    for i, (state, com, vel) in enumerate(zip(states, committed, completed)):
-        sp = {
-            "slug": f"au-sprint-{i + 1}",
-            "name": f"Sprint {i + 1}",
-            "goal": f"Mobile increment {i + 1}.",
-            "state": state,
-            "start_date": D(i * 14),
-            "finish_date": D(i * 14 + 13),
-            "capacity_points": 28,
-        }
-        if com is not None:
-            sp["committed_points"] = com
-        if vel is not None:
-            sp["completed_points"] = vel
-        sprints.append(sp)
+    sprints = _aurora_sprints(states, committed, completed, D)
 
     # The backlog is grouped into epics so the board and timeline read as themed
     # initiatives, not a flat 30-story list — the epic → story hierarchy an agile
@@ -255,87 +363,14 @@ def build_aurora() -> dict:
         "Activity feed": {"story_points": 5},
         "Pull-to-refresh": {"story_points": 3},
     }
-    tasks: list[dict] = []
     # Story name -> wbs_path, so the event/risk authoring below references a story
     # by name and stays correct regardless of how the epic grouping is sliced.
     wbs: dict[str, str] = {}
     points = [2, 3, 5, 8, 3, 5, 2, 8]
-    story_idx = 0
-    for e_idx, (epic_name, feats) in enumerate(epics, start=1):
-        epic_wbs = str(e_idx)
-        tasks.append(
-            {
-                "wbs_path": epic_wbs,
-                "name": epic_name,
-                "type": "epic",
-                "delivery_mode": "scrum",
-                "governance_class": "flow",
-            }
-        )
-        for s_idx, name in enumerate(feats, start=1):
-            sprint_idx = story_idx % 4
-            state = states[sprint_idx]
-            status = {
-                "COMPLETED": "COMPLETE",
-                "ACTIVE": "IN_PROGRESS",
-                "PLANNED": "BACKLOG",
-            }[state]
-            story_wbs = f"{e_idx}.{s_idx}"
-            wbs[name] = story_wbs
-            story = {
-                "wbs_path": story_wbs,
-                "name": name,
-                "type": "story",
-                "status": status,
-                "percent_complete": {
-                    "COMPLETE": 100.0,
-                    "IN_PROGRESS": 50.0,
-                    "BACKLOG": 0.0,
-                }[status],
-                "story_points": points[story_idx % len(points)],
-                "parent_epic": epic_wbs,
-                # Spread each sprint's stories across the whole team rather than
-                # one dev per sprint (story_idx // 4 advances once per sprint-row,
-                # so the four devs round-robin *within* every sprint). The event
-                # timeline then reassigns a few of these as the program plays out.
-                "assignee": devs[(story_idx // len(devs)) % len(devs)],
-                "sprint": f"au-sprint-{sprint_idx + 1}",
-                "delivery_mode": "scrum",
-                "governance_class": "flow",
-                "dor": "ready" if state != "PLANNED" else "idea",
-            }
-            story.update(overrides.get(name, {}))
-            if name in story_labels:
-                story["labels"] = story_labels[name]
-            tasks.append(story)
-            story_idx += 1
-
-    # A real unassigned backlog (#1784): stories refined under their epics but
-    # committed to no sprint and owned by nobody yet, so the Backlog view has
-    # actual intake to groom instead of rendering empty.
-    for epic_wbs, slot, name, pts, dor in [
-        ("1", 6, "App shortcuts", 3, "refine"),
-        ("2", 6, "Contact import", 5, "refine"),
-        ("3", 6, "Video capture", 8, "idea"),
-        ("5", 6, "Promo codes", 3, "idea"),
-        ("6", 6, "Sound design", 2, "idea"),
-    ]:
-        story_wbs = f"{epic_wbs}.{slot}"
-        wbs[name] = story_wbs
-        tasks.append(
-            {
-                "wbs_path": story_wbs,
-                "name": name,
-                "type": "story",
-                "status": "BACKLOG",
-                "percent_complete": 0.0,
-                "story_points": pts,
-                "parent_epic": epic_wbs,
-                "delivery_mode": "scrum",
-                "governance_class": "flow",
-                "dor": dor,
-            }
-        )
+    tasks: list[dict] = _aurora_epic_story_tasks(
+        epics, states, points, overrides, story_labels, devs, wbs
+    )
+    tasks.extend(_aurora_backlog_tasks(wbs))
 
     # Informational task-to-task relations (ADR-0455): non-scheduling "see also"
     # cross-references. Authored by story name (resolved to wbs) and attached to
@@ -804,6 +839,176 @@ def build_aurora() -> dict:
 # #618 Bayside Civic Center — waterfall-only
 # ---------------------------------------------------------------------------
 
+# The trades crew that round-robins across every waterfall task.
+BAYSIDE_CREW = ["diego", "tom", "nadia", "omar"]
+
+
+def _bayside_done_wbs(phases, execution_front: str | None) -> set[str]:
+    """The wbs paths a project is "done through" — everything strictly before its
+    execution front (COMPLETE before it, IN_PROGRESS at it, NOT_STARTED after).
+    An ``execution_front`` of ``None`` means an all-future project (nothing done).
+    """
+    done: set[str] = set()
+    if execution_front is None:
+        return done
+    ef_phase, ef_task = (int(x) for x in execution_front.split("."))
+    for p_i, (_ph, items) in enumerate(phases, start=1):
+        for t_i, _ in enumerate(items, start=1):
+            if (p_i, t_i) < (ef_phase, ef_task):
+                done.add(f"{p_i}.{t_i}")
+    return done
+
+
+def _bayside_task_entry(
+    p_idx: int,
+    t_idx: int,
+    item: tuple,
+    *,
+    base_day: int,
+    slug: str,
+    execution_front: str | None,
+    done_wbs: set[str],
+    mezzanine_shift,
+    crew: list[str],
+) -> tuple[dict, list[dict], list[dict], list[dict]]:
+    """Build one waterfall task with its baseline and dependency rows.
+
+    Returns ``(task, contract_rows, rebaseline_rows, dep_rows)``. The baseline row
+    lists are empty for a milestone — only real tasks get baselined. The contract
+    baseline is the plan at award (no slip); the rebaseline captures the change
+    order; both keep ORIGINAL vs. re-baselined dates so each shows drift against
+    the current plan.
+    """
+    name, ml, dep_list = item[0], item[1], item[2]
+    labels = item[3] if len(item) > 3 else []
+    wbs = f"{p_idx}.{t_idx}"
+    rebase_shift, cur_shift = mezzanine_shift(wbs)
+    is_done = wbs in done_wbs
+    in_prog = wbs == execution_front
+    status = "COMPLETE" if is_done else ("IN_PROGRESS" if in_prog else "NOT_STARTED")
+    is_ms = ml == 0
+    # Floor decking absorbed the change-order rework: re-estimated 6 -> 8.
+    duration = 8 if (slug == "bayside-sitework" and wbs == "3.2") else ml
+    task = {
+        "wbs_path": wbs,
+        "name": name,
+        "status": status,
+        "governance_class": "gated",
+        "delivery_mode": "waterfall",
+        "assignee": crew[(p_idx + t_idx) % len(crew)],
+    }
+    if labels:
+        task["labels"] = labels
+    # NOT_STARTED work carries no percent_complete — an honest ragged front, not
+    # a wall of zeros.
+    if is_done:
+        task["percent_complete"] = 100.0
+    elif in_prog:
+        task["percent_complete"] = 55.0
+
+    contract_rows: list[dict] = []
+    rebaseline_rows: list[dict] = []
+    if is_ms:
+        task["is_milestone"] = True
+        task["delivery_mode"] = "milestone"
+        task["planned_start"] = d(base_day + cur_shift)
+    else:
+        task["duration"] = duration
+        task["planned_start"] = d(base_day + cur_shift)
+        task["estimate"] = three_point(duration)
+        contract_rows.append(
+            {
+                "task": wbs,
+                "start": d(base_day),
+                "finish": d(base_day + ml),
+                "duration": ml,
+            }
+        )
+        rebaseline_rows.append(
+            {
+                "task": wbs,
+                "start": d(base_day + rebase_shift),
+                "finish": d(base_day + rebase_shift + duration),
+                "duration": duration,
+            }
+        )
+    dep_rows = [
+        {
+            "predecessor": dep[0],
+            "successor": wbs,
+            "dep_type": dep[1],
+            "lag": dep[2] if len(dep) > 2 else 0,
+        }
+        for dep in dep_list
+    ]
+    return task, contract_rows, rebaseline_rows, dep_rows
+
+
+def _emit_bayside_project(
+    phases, *, cursor, slug, execution_front, mezzanine_shift, crew=BAYSIDE_CREW
+):
+    """Generate one waterfall project's tasks/deps/baseline rows.
+
+    ``execution_front`` names the single in-flight wbs (COMPLETE before it,
+    IN_PROGRESS at it, NOT_STARTED after) or is ``None`` for an all-future
+    project. ``mezzanine_shift`` is a callable ``wbs -> (rebaseline_days,
+    current_days)`` giving the change-order slip captured by the active
+    rebaseline vs. the further slip on the current plan — so the contract
+    baseline (0), the rebaseline, and the current plan can each diverge.
+    """
+    tasks: list[dict] = []
+    deps: list[dict] = []
+    contract_rows: list[dict] = []
+    rebaseline_rows: list[dict] = []
+    done_wbs = _bayside_done_wbs(phases, execution_front)
+    for p_idx, (phase, items) in enumerate(phases, start=1):
+        tasks.append(
+            {
+                "wbs_path": str(p_idx),
+                "name": phase,
+                "governance_class": "gated",
+                "delivery_mode": "waterfall",
+            }
+        )
+        for t_idx, item in enumerate(items, start=1):
+            base_day = cursor[0] * 2
+            task, c_rows, r_rows, dep_rows = _bayside_task_entry(
+                p_idx,
+                t_idx,
+                item,
+                base_day=base_day,
+                slug=slug,
+                execution_front=execution_front,
+                done_wbs=done_wbs,
+                mezzanine_shift=mezzanine_shift,
+                crew=crew,
+            )
+            tasks.append(task)
+            contract_rows.extend(c_rows)
+            rebaseline_rows.extend(r_rows)
+            deps.extend(dep_rows)
+            cursor[0] += max(item[1], 1)
+    return tasks, deps, contract_rows, rebaseline_rows
+
+
+# Change-order slip model. The mezzanine change order pushed the structure from
+# Floor decking (3.2) onward +7 of the contract; a subsequent weather delay added
+# +2 to the roof/inspection tail on the *current* plan only, so it drifts past
+# even the rebaseline. Building work inherits the full slip.
+def _bayside_sitework_shift(wbs: str) -> tuple[int, int]:
+    if wbs in ("3.3", "3.4"):  # roof + framing inspection caught the weather slip
+        return 7, 9
+    if wbs == "3.2":  # floor decking: change order only
+        return 7, 7
+    return 0, 0  # phases 1-2 and steel erection predate the change order
+
+
+def _bayside_building_shift(_wbs: str) -> tuple[int, int]:
+    # Building has a single Contract baseline (no rebaseline); pass the same value
+    # for rebaseline/current so its rebaseline rows are unused. Current plan
+    # carries the full +9 cross-project slip from the structure.
+    return 9, 9
+
 
 def build_bayside() -> dict:
     """Bayside Civic Center — a two-project waterfall PROGRAM (#2003).
@@ -986,134 +1191,13 @@ def build_bayside() -> dict:
         ),
     ]
 
-    crew = ["diego", "tom", "nadia", "omar"]
-
-    def _emit_project(phases, *, cursor, slug, execution_front, mezzanine_shift):
-        """Generate one waterfall project's tasks/deps/baseline rows.
-
-        ``execution_front`` names the single in-flight wbs (COMPLETE before it,
-        IN_PROGRESS at it, NOT_STARTED after) or is ``None`` for an all-future
-        project. ``mezzanine_shift`` is a callable ``wbs -> (rebaseline_days,
-        current_days)`` giving the change-order slip captured by the active
-        rebaseline vs. the further slip on the current plan — so the contract
-        baseline (0), the rebaseline, and the current plan can each diverge.
-        """
-        tasks, deps = [], []
-        contract_rows, rebaseline_rows = [], []
-        # A project is "done through" everything up to its execution front.
-        done_wbs: set[str] = set()
-        if execution_front is not None:
-            ef_phase, ef_task = (int(x) for x in execution_front.split("."))
-            for p_i, (_ph, items) in enumerate(phases, start=1):
-                for t_i, _ in enumerate(items, start=1):
-                    if (p_i, t_i) < (ef_phase, ef_task):
-                        done_wbs.add(f"{p_i}.{t_i}")
-        for p_idx, (phase, items) in enumerate(phases, start=1):
-            tasks.append(
-                {
-                    "wbs_path": str(p_idx),
-                    "name": phase,
-                    "governance_class": "gated",
-                    "delivery_mode": "waterfall",
-                }
-            )
-            for t_idx, item in enumerate(items, start=1):
-                name, ml, dep_list = item[0], item[1], item[2]
-                labels = item[3] if len(item) > 3 else []
-                wbs = f"{p_idx}.{t_idx}"
-                rebase_shift, cur_shift = mezzanine_shift(wbs)
-                is_done = wbs in done_wbs
-                in_prog = wbs == execution_front
-                status = (
-                    "COMPLETE"
-                    if is_done
-                    else ("IN_PROGRESS" if in_prog else "NOT_STARTED")
-                )
-                is_ms = ml == 0
-                # Floor decking absorbed the change-order rework: re-estimated 6 -> 8.
-                duration = 8 if (slug == "bayside-sitework" and wbs == "3.2") else ml
-                task = {
-                    "wbs_path": wbs,
-                    "name": name,
-                    "status": status,
-                    "governance_class": "gated",
-                    "delivery_mode": "waterfall",
-                    "assignee": crew[(p_idx + t_idx) % len(crew)],
-                }
-                if labels:
-                    task["labels"] = labels
-                # NOT_STARTED work carries no percent_complete — an honest ragged
-                # front, not a wall of zeros.
-                if is_done:
-                    task["percent_complete"] = 100.0
-                elif in_prog:
-                    task["percent_complete"] = 55.0
-                base_day = cursor[0] * 2
-                if is_ms:
-                    task["is_milestone"] = True
-                    task["delivery_mode"] = "milestone"
-                    task["planned_start"] = d(base_day + cur_shift)
-                else:
-                    task["duration"] = duration
-                    task["planned_start"] = d(base_day + cur_shift)
-                    task["estimate"] = three_point(duration)
-                    # Contract baseline: the plan at award (no slip). Rebaseline:
-                    # the change-order plan (captures the +7 shift and the 3.2
-                    # re-estimate). Both keep ORIGINAL vs. re-baselined dates so
-                    # each shows drift against the current plan.
-                    contract_rows.append(
-                        {
-                            "task": wbs,
-                            "start": d(base_day),
-                            "finish": d(base_day + ml),
-                            "duration": ml,
-                        }
-                    )
-                    rebaseline_rows.append(
-                        {
-                            "task": wbs,
-                            "start": d(base_day + rebase_shift),
-                            "finish": d(base_day + rebase_shift + duration),
-                            "duration": duration,
-                        }
-                    )
-                tasks.append(task)
-                for dep in dep_list:
-                    deps.append(
-                        {
-                            "predecessor": dep[0],
-                            "successor": wbs,
-                            "dep_type": dep[1],
-                            "lag": dep[2] if len(dep) > 2 else 0,
-                        }
-                    )
-                cursor[0] += max(ml, 1)
-        return tasks, deps, contract_rows, rebaseline_rows
-
-    # Change-order slip model. The mezzanine change order pushed the structure
-    # from Floor decking (3.2) onward +7 of the contract; a subsequent weather
-    # delay added +2 to the roof/inspection tail on the *current* plan only, so
-    # it drifts past even the rebaseline. Building work inherits the full slip.
-    def sitework_shift(wbs: str) -> tuple[int, int]:
-        if wbs in ("3.3", "3.4"):  # roof + framing inspection caught the weather slip
-            return 7, 9
-        if wbs == "3.2":  # floor decking: change order only
-            return 7, 7
-        return 0, 0  # phases 1-2 and steel erection predate the change order
-
-    def building_shift(_wbs: str) -> tuple[int, int]:
-        # Building has a single Contract baseline (no rebaseline); pass the same
-        # value for rebaseline/current so its rebaseline rows are unused. Current
-        # plan carries the full +9 cross-project slip from the structure.
-        return 9, 9
-
     cursor = [0]
-    sw_tasks, sw_deps, sw_contract, sw_rebaseline = _emit_project(
+    sw_tasks, sw_deps, sw_contract, sw_rebaseline = _emit_bayside_project(
         sitework_phases,
         cursor=cursor,
         slug="bayside-sitework",
         execution_front="3.1",
-        mezzanine_shift=sitework_shift,
+        mezzanine_shift=_bayside_sitework_shift,
     )
     # "Structure topped out" — the program marker gating all interior work.
     _topped = cursor[0] * 2
@@ -1130,12 +1214,12 @@ def build_bayside() -> dict:
     )
     sw_deps.append({"predecessor": "3.4", "successor": "4", "dep_type": "FS", "lag": 0})
 
-    bd_tasks, bd_deps, bd_contract, _bd_rebaseline = _emit_project(
+    bd_tasks, bd_deps, bd_contract, _bd_rebaseline = _emit_bayside_project(
         building_phases,
         cursor=cursor,
         slug="bayside-building",
         execution_front=None,
-        mezzanine_shift=building_shift,
+        mezzanine_shift=_bayside_building_shift,
     )
     # "Certificate of occupancy" — the program finish milestone.
     _co = cursor[0] * 2
