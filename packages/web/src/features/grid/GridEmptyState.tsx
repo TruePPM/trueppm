@@ -20,29 +20,98 @@ export function GridEmptyState({ onAddTask }: GridEmptyStateProps) {
   );
 }
 
-/** Filtered-empty state for Flat / Grouped / Outline when filters yield zero rows. */
-export function GridFilteredEmptyState({ onClear }: { onClear: () => void }) {
+/**
+ * One active facet's contribution to an empty result, for the multi-facet
+ * diagnosis below. `standaloneCount` is how many rows this facet keeps *on its
+ * own*; `recoveredCount` is how many would come back if this facet alone were
+ * dropped.
+ */
+export interface EmptyStateFacet {
+  key: string;
+  /** Chip-style label, e.g. `Owner: J. Park`. */
+  label: string;
+  standaloneCount: number;
+  recoveredCount: number;
+  onDrop: () => void;
+}
+
+const COUNT_WORD: Record<number, string> = { 2: 'both', 3: 'all three', 4: 'all four' };
+
+/**
+ * Filtered-empty state for Flat / Grouped / Outline when filters yield zero rows.
+ *
+ * With two or more facets active this is where the AND-across/OR-within model
+ * is most likely to surprise: each facet has rows on its own, so "no results"
+ * reads as a bug rather than as an intersection that happens to be empty. The
+ * diagnosis names each facet's standalone count and offers to drop the one
+ * whose removal brings back the most rows — the single click most likely to be
+ * what the user wanted.
+ */
+export function GridFilteredEmptyState({
+  onClear,
+  facets = [],
+}: {
+  onClear: () => void;
+  facets?: EmptyStateFacet[];
+}) {
+  // Only worth diagnosing when the intersection is the culprit. One facet with
+  // zero rows is self-explanatory.
+  const diagnose = facets.length >= 2;
+  const best = diagnose
+    ? facets.reduce((a, b) => (b.recoveredCount > a.recoveredCount ? b : a))
+    : undefined;
+  const countWord = COUNT_WORD[facets.length] ?? `all ${facets.length}`;
+
   return (
     <div
       role="status"
-      className="flex h-full flex-col items-center justify-center gap-3 bg-neutral-surface"
+      className="flex h-full flex-col items-center justify-center gap-3 bg-neutral-surface px-6
+        text-center"
     >
       <p className="text-sm text-neutral-text-primary font-medium">
-        No tasks match these filters
+        {diagnose ? `No tasks match ${countWord} filters` : 'No tasks match these filters'}
       </p>
-      {/* Standalone button: focus: (not focus-visible:) so the ring shows on
-          pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7). */}
-      <button
-        type="button"
-        onClick={onClear}
-        className="
-          text-xs text-brand-primary underline
-          focus:outline-none focus:ring-2 focus:ring-brand-primary
-          focus:ring-offset-1
-        "
-      >
-        Clear filters
-      </button>
+      {diagnose && (
+        <p className="max-w-md text-xs text-neutral-text-secondary">
+          Each filter has rows on its own —{' '}
+          {facets.map((f, i) => (
+            <span key={f.key}>
+              {i > 0 && ' · '}
+              <span className="text-neutral-text-primary">{f.label}</span>{' '}
+              <span className="tppm-mono tabular-nums">{f.standaloneCount}</span>
+            </span>
+          ))}{' '}
+          — but nothing carries {countWord}. Filters combine with AND across facets.
+        </p>
+      )}
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        {/* Standalone buttons: focus: (not focus-visible:) so the ring shows on
+            pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7). */}
+        {best && best.recoveredCount > 0 && (
+          <button
+            type="button"
+            onClick={best.onDrop}
+            className="
+              rounded-control border border-neutral-border px-3 h-8 text-xs font-medium
+              text-neutral-text-primary hover:bg-neutral-surface-raised
+              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
+            "
+          >
+            Drop {best.label}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onClear}
+          className="
+            text-xs text-brand-primary underline
+            focus:outline-none focus:ring-2 focus:ring-brand-primary
+            focus:ring-offset-1
+          "
+        >
+          {diagnose ? 'Clear all filters' : 'Clear filters'}
+        </button>
+      </div>
     </div>
   );
 }

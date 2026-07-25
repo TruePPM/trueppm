@@ -29,9 +29,21 @@ A **Label** facet sits in the toolbar of the board, the **Table / Grid**, and th
 - **Keyboard-complete.** Open the panel with <kbd>Enter</kbd>, <kbd>Space</kbd> or <kbd>↓</kbd>; move with <kbd>↑</kbd>/<kbd>↓</kbd>, jump with <kbd>Home</kbd>/<kbd>End</kbd>, or type the first letters of a label's name. <kbd>Space</kbd> toggles a label without closing the panel, so you can refine and watch the rows update. <kbd>Esc</kbd> closes and returns focus to the trigger. A label's name is always shown next to its color, so the filter never depends on distinguishing hues.
 - Once a project has more than eight labels the panel grows a search box. Searching narrows what you can *see* in the list, never what is *applied*.
 
-On the **Table / Grid** the selection is part of the URL as `?fl=<label-id>[,<id>…]` — the same key the board uses — so a filtered table can be bookmarked or pasted into a status report. Existing Table links that carry `?owner=` or `?status=` are unaffected. The product backlog's grooming filter is not stored in the URL (none of its filters are), so a label selection there lasts for the session.
+On the **Table / Grid** the selection is part of the URL as `?fl=<label-id>[,<id>…]` — the same key the board uses — so a filtered table can be bookmarked or pasted into a status report. The product backlog's grooming filter is not stored in the URL (none of its filters are), so a label selection there lasts for the session.
 
 If a project has no labels yet, the facet still opens and explains where labels come from, with a link to the project's label settings.
+
+### Owner and Status on the Table / Grid
+
+The Table / Grid toolbar carries three facets, reading left to right: **Owner**, **Status**, **Label**. They are one control with three option lists, so what you learn on any of them applies to the others — the same panel, the same counts, the same keyboard model, the same chips below.
+
+- **Owner** lists **everyone on the project's resource pool**, split into `On these rows` (people with at least one matching row, most first) and `All members`. Someone with nothing in the current view is still listed, with a `0` — so "nobody is assigned to this" never gets confused with "that person has no rows here". Past eight people the panel grows a search box that filters both groups at once.
+- **Status** lists **every status**, always in pipeline order — Backlog, Not started, In progress, Review, On hold, Done — and never re-sorts by count. A status nothing is in stays listed and selectable; picking it is a legitimate way to confirm nothing is there.
+- All three are multi-select. Within a facet the values combine with **OR**; across facets they combine with **AND**. Each selected value gets its own chip, so you can drop one owner without losing the other.
+- Opening one panel closes the others, and each facet is its own <kbd>Tab</kbd> stop, so you can sweep all three without a mouse.
+- When the combination matches nothing, the empty state names what each filter would have kept on its own and offers to drop the one that brings back the most rows — an empty intersection reads as an intersection rather than as a broken filter.
+
+Both selections ride the URL as `?owner=<id>[,<id>…]` and `?status=<STATUS>[,…]`, alongside `?fl=`, so the whole filtered view is one shareable link. **Links made before these controls existed keep working** — a single value is simply a one-item list, and an `?owner=` carrying a person's name still resolves.
 
 ## Creating and assigning labels
 

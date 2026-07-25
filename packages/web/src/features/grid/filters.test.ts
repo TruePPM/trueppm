@@ -38,24 +38,24 @@ describe('matchesFilters', () => {
     expect(
       matchesFilters(task, {
         search: 'design',
-        ownerFilter: '',
-        statusFilter: '',
+        ownerIds: [],
+        statuses: [],
         dueFilter: 'all' as const, labelIds: [],
       }),
     ).toBe(true);
     expect(
       matchesFilters(task, {
         search: 'DESIGN',
-        ownerFilter: '',
-        statusFilter: '',
+        ownerIds: [],
+        statuses: [],
         dueFilter: 'all' as const, labelIds: [],
       }),
     ).toBe(true);
     expect(
       matchesFilters(task, {
         search: 'build',
-        ownerFilter: '',
-        statusFilter: '',
+        ownerIds: [],
+        statuses: [],
         dueFilter: 'all' as const, labelIds: [],
       }),
     ).toBe(false);
@@ -65,16 +65,16 @@ describe('matchesFilters', () => {
     expect(
       matchesFilters(task, {
         search: '',
-        ownerFilter: 'Alice',
-        statusFilter: '',
+        ownerIds: ['Alice'],
+        statuses: [],
         dueFilter: 'all' as const, labelIds: [],
       }),
     ).toBe(true);
     expect(
       matchesFilters(task, {
         search: '',
-        ownerFilter: 'Bob',
-        statusFilter: '',
+        ownerIds: ['Bob'],
+        statuses: [],
         dueFilter: 'all' as const, labelIds: [],
       }),
     ).toBe(false);
@@ -84,16 +84,16 @@ describe('matchesFilters', () => {
     expect(
       matchesFilters(task, {
         search: '',
-        ownerFilter: '',
-        statusFilter: 'IN_PROGRESS',
+        ownerIds: [],
+        statuses: ['IN_PROGRESS'],
         dueFilter: 'all' as const, labelIds: [],
       }),
     ).toBe(true);
     expect(
       matchesFilters(task, {
         search: '',
-        ownerFilter: '',
-        statusFilter: 'COMPLETE',
+        ownerIds: [],
+        statuses: ['COMPLETE'],
         dueFilter: 'all' as const, labelIds: [],
       }),
     ).toBe(false);
@@ -102,15 +102,15 @@ describe('matchesFilters', () => {
   it('combines all three filters with AND', () => {
     const ok = {
       search: 'design',
-      ownerFilter: 'Alice',
-      statusFilter: 'IN_PROGRESS' as const,
+      ownerIds: ['Alice'],
+      statuses: ['IN_PROGRESS' as const],
       dueFilter: 'all' as const, labelIds: [],
     };
     expect(matchesFilters(task, ok)).toBe(true);
     const fail = {
       search: 'design',
-      ownerFilter: 'Bob',
-      statusFilter: 'IN_PROGRESS' as const,
+      ownerIds: ['Bob'],
+      statuses: ['IN_PROGRESS' as const],
       dueFilter: 'all' as const, labelIds: [],
     };
     expect(matchesFilters(task, fail)).toBe(false);
@@ -121,8 +121,8 @@ describe('matchesFilters', () => {
     expect(
       matchesFilters(orphan, {
         search: '',
-        ownerFilter: 'Alice',
-        statusFilter: '',
+        ownerIds: ['Alice'],
+        statuses: [],
         dueFilter: 'all' as const, labelIds: [],
       }),
     ).toBe(false);
@@ -131,8 +131,8 @@ describe('matchesFilters', () => {
   it('overdue filter keeps only late, non-complete tasks', () => {
     const overdue = {
       search: '',
-      ownerFilter: '',
-      statusFilter: '' as const,
+      ownerIds: [],
+      statuses: [],
       dueFilter: 'overdue' as const, labelIds: [],
     };
     // task fixture finishes 2026-01-05 with status IN_PROGRESS. Against a
@@ -184,15 +184,15 @@ describe('hasAnyFilter', () => {
   });
   it('returns true when search is set', () => {
     expect(
-      hasAnyFilter({ search: 'a', ownerFilter: '', statusFilter: '', dueFilter: 'all', labelIds: [] as const }),
+      hasAnyFilter({ search: 'a', ownerIds: [], statuses: [], dueFilter: 'all', labelIds: [] as const }),
     ).toBe(true);
   });
   it('returns true when owner is set', () => {
     expect(
       hasAnyFilter({
         search: '',
-        ownerFilter: 'Alice',
-        statusFilter: '',
+        ownerIds: ['Alice'],
+        statuses: [],
         dueFilter: 'all' as const, labelIds: [],
       }),
     ).toBe(true);
@@ -201,8 +201,8 @@ describe('hasAnyFilter', () => {
     expect(
       hasAnyFilter({
         search: '',
-        ownerFilter: '',
-        statusFilter: 'COMPLETE',
+        ownerIds: [],
+        statuses: ['COMPLETE'],
         dueFilter: 'all' as const, labelIds: [],
       }),
     ).toBe(true);
@@ -248,8 +248,8 @@ describe('matchesFilters — label facet (#2383)', () => {
     });
     expect(matchesFilters(task, { ...base, labelIds: ['l1'] })).toBe(true);
     // Right label, wrong owner → excluded.
-    expect(matchesFilters(task, { ...base, labelIds: ['l1'], ownerFilter: 'Bob' })).toBe(false);
+    expect(matchesFilters(task, { ...base, labelIds: ['l1'], ownerIds: ['Bob'] })).toBe(false);
     // Right owner, wrong label → excluded.
-    expect(matchesFilters(task, { ...base, labelIds: ['other'], ownerFilter: 'Alice' })).toBe(false);
+    expect(matchesFilters(task, { ...base, labelIds: ['other'], ownerIds: ['Alice'] })).toBe(false);
   });
 });

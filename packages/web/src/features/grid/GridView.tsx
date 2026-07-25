@@ -19,7 +19,7 @@ import { ModeToggle } from './ModeToggle';
 import { GroupBySelector } from './GroupBySelector';
 import { ChipStrip } from './ChipStrip';
 import { ConfirmDeleteStrip } from './ConfirmDeleteStrip';
-import { GridEmptyState } from './GridEmptyState';
+import { GridEmptyState, GridFilteredEmptyState } from './GridEmptyState';
 import { FlatMode } from './FlatMode';
 import { GroupedMode } from './GroupedMode';
 import { OutlineMode } from './OutlineMode';
@@ -32,9 +32,11 @@ import {
   type GridGroupBy,
 } from './persistence';
 import { methodologyDefaultMode } from './methodologyDefaults';
-import { matchesFilters, type GridFilterState } from './filters';
+import { emptyFilters, matchesFilters, type GridFilterState } from './filters';
 import { CheckIcon } from '@/components/Icons';
 import { LabelFacet } from '@/components/filters/LabelFacet';
+import { OwnerFacet } from '@/components/filters/OwnerFacet';
+import { StatusFacet } from '@/components/filters/StatusFacet';
 import {
   LABEL_PARAM,
   countTasksByLabel,
@@ -42,7 +44,20 @@ import {
   pruneUnknownLabelIds,
   serializeLabelIds,
 } from '@/components/filters/labelFilter';
+import {
+  OWNER_PARAM,
+  STATUS_PARAM,
+  parseIdList,
+  serializeIdList,
+} from '@/components/filters/facetParams';
+import { countTasksByOwner, ownerDisplayName } from '@/components/filters/ownerFilter';
+import {
+  countTasksByStatus,
+  parseStatuses,
+  statusDisplayName,
+} from '@/components/filters/statusFilter';
 import { useLabels } from '@/hooks/useLabels';
+import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { useFilterAnnouncement } from '@/hooks/useFilterAnnouncement';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
@@ -133,16 +148,24 @@ export function GridView() {
   // clear individual filters.
   const [search, setSearch] = useState(() => searchParams.get('q') ?? '');
   const [searchDraft, setSearchDraft] = useState(() => searchParams.get('q') ?? '');
-  const [ownerFilter, setOwnerFilter] = useState(() => searchParams.get('owner') ?? '');
-  const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>(
-    () => (searchParams.get('status') as TaskStatus | null) ?? '',
+  // Owner and Status are multi-select as of #2387 (ADR-0624). A pre-existing
+  // single-value link is a one-item list, so `?owner=Alice&status=IN_PROGRESS`
+  // parses and resolves exactly as it did before.
+  const [ownerIds, setOwnerIds] = useState(() => parseIdList(searchParams.get(OWNER_PARAM)));
+  const [statuses, setStatuses] = useState<TaskStatus[]>(() =>
+    parseStatuses(parseIdList(searchParams.get(STATUS_PARAM))),
   );
   // Label facet (`?fl=`, ADR-0620). The param name is the Board's, adopted
   // verbatim so one bookmark format works on every view — and this is purely
   // additive: an existing `?owner=…&status=…` link with no `fl` is untouched.
   const [labelIds, setLabelIds] = useState(() => parseLabelIds(searchParams.get(LABEL_PARAM)));
+  const ownerTriggerRef = useRef<HTMLButtonElement>(null);
+  const statusTriggerRef = useRef<HTMLButtonElement>(null);
   const labelTriggerRef = useRef<HTMLButtonElement>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // One panel at a time: opening Status closes Owner. Held here rather than in
+  // each facet because only the shared parent can know a sibling opened.
+  const [openFacet, setOpenFacet] = useState<'owner' | 'status' | 'label' | null>(null);
 
   // Mirror the applied filters into the URL. Empty values drop their key so a
   // clean grid has a clean URL. `search` (not the debounced `searchDraft`) is the
@@ -156,14 +179,14 @@ export function GridView() {
           else next.delete(key);
         };
         setParam('q', search);
-        setParam('owner', ownerFilter);
-        setParam('status', statusFilter);
+        setParam(OWNER_PARAM, serializeIdList(ownerIds));
+        setParam(STATUS_PARAM, serializeIdList(statuses));
         setParam(LABEL_PARAM, serializeLabelIds(labelIds));
         return next;
       },
       { replace: true },
     );
-  }, [search, ownerFilter, statusFilter, labelIds, setSearchParams]);
+  }, [search, ownerIds, statuses, labelIds, setSearchParams]);
 
   // `?due=overdue` deep-link — the Overview "Tasks late" card drills in here so
   // the count it shows and the rows the grid shows use the same late definition
@@ -218,15 +241,34 @@ export function GridView() {
     [labelIds, labels],
   );
 
+  // The Owner facet's catalog is the project's resource pool — everyone who
+  // *could* own work here, not just the assignees on the loaded rows. Same
+  // contract as Label: a member with zero rows is visible, with a truthful `0`,
+  // before you select them (ADR-0624).
+  const { data: resourcePool } = useProjectResourcePool(projectId ?? '');
+  const ownerCandidates = useMemo(
+    () => (resourcePool ?? []).map((r) => ({ id: r.resourceId, name: r.resource.name })),
+    [resourcePool],
+  );
+  const ownerCounts = useMemo(
+    () =>
+      countTasksByOwner(
+        tasks ?? [],
+        ownerCandidates.map((c) => c.id),
+      ),
+    [tasks, ownerCandidates],
+  );
+  const statusCounts = useMemo(() => countTasksByStatus(tasks ?? []), [tasks]);
+
   const filters: GridFilterState = useMemo(
     () => ({
       search,
-      ownerFilter,
-      statusFilter,
+      ownerIds,
+      statuses,
       dueFilter: overdue ? 'overdue' : 'all',
       labelIds: appliedLabelIds,
     }),
-    [search, ownerFilter, statusFilter, overdue, appliedLabelIds],
+    [search, ownerIds, statuses, overdue, appliedLabelIds],
   );
 
   // Open a task's detail in the app-wide drawer (mounted in AppShell) when a
@@ -275,8 +317,8 @@ export function GridView() {
   const handleClearFilters = () => {
     setSearch('');
     setSearchDraft('');
-    setOwnerFilter('');
-    setStatusFilter('');
+    setOwnerIds([]);
+    setStatuses([]);
     setOverdue(false);
     setLabelIds([]);
   };
@@ -376,13 +418,126 @@ export function GridView() {
     [appliedLabelIds, labels, labelCounts],
   );
 
+  const ownerChips = useMemo(
+    () => ownerIds.map((id) => ({ id, name: ownerDisplayName(id, ownerCandidates) })),
+    [ownerIds, ownerCandidates],
+  );
+  const statusChips = useMemo(
+    () => statuses.map((id) => ({ id, name: statusDisplayName(id) })),
+    [statuses],
+  );
+
   // Announce the outcome once the user stops clicking, not once per selection.
+  // The tail names *how many of each* facet rather than listing every value:
+  // "2 owners, 1 status, 1 label" is the shape of the filter, which is what a
+  // screen-reader user needs after a burst of toggles — the values themselves
+  // are already in the chip strip.
   const online = useOnlineStatus();
-  const labelNames = labelChips.map((c) => c.name).join(', ');
+  const hasFacetFilter =
+    ownerIds.length > 0 || statuses.length > 0 || appliedLabelIds.length > 0;
+  // Below md the popover has nowhere to go on a 428px toolbar, so each trigger
+  // opens the same panel body inside a bottom sheet instead.
+  const facetPresentation = isMobile ? 'sheet' : 'popover';
+  const facetSummary = [
+    ownerIds.length > 0 ? `${ownerIds.length} owner${ownerIds.length === 1 ? '' : 's'}` : null,
+    statuses.length > 0 ? `${statuses.length} status${statuses.length === 1 ? '' : 'es'}` : null,
+    appliedLabelIds.length > 0
+      ? `${appliedLabelIds.length} label${appliedLabelIds.length === 1 ? '' : 's'}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
   const announcement = useFilterAnnouncement(
-    appliedLabelIds.length > 0 && tasks
-      ? `${filteredCount} of ${tasks.length} rows match ${labelNames}`
-      : '',
+    facetSummary && tasks ? `${filteredCount} of ${tasks.length} rows — ${facetSummary}` : '',
+  );
+
+  /**
+   * Per-facet diagnosis for the zero-result state. `standalone` is how many rows
+   * the facet keeps on its own; `recovered` is how many come back if it alone is
+   * dropped — the empty state offers the drop that recovers the most, which is
+   * the click most likely to be what the user wanted.
+   *
+   * Computed only when the result set is actually empty and more than one facet
+   * is active, so the extra passes over `tasks` never run on the common path.
+   */
+  const emptyStateFacets = useMemo(() => {
+    if (!tasks || filteredCount > 0) return [];
+    const base = emptyFilters();
+    const active: {
+      key: string;
+      label: string;
+      only: Partial<GridFilterState>;
+      clear: Partial<GridFilterState>;
+      onDrop: () => void;
+    }[] = [];
+    if (search)
+      active.push({
+        key: 'search',
+        label: `"${search}"`,
+        only: { search },
+        clear: { search: '' },
+        onDrop: () => {
+          setSearch('');
+          setSearchDraft('');
+        },
+      });
+    if (ownerIds.length > 0)
+      active.push({
+        key: 'owner',
+        label: `Owner: ${summarizeValues(ownerChips.map((c) => c.name))}`,
+        only: { ownerIds },
+        clear: { ownerIds: [] },
+        onDrop: () => setOwnerIds([]),
+      });
+    if (statuses.length > 0)
+      active.push({
+        key: 'status',
+        label: `Status: ${summarizeValues(statusChips.map((c) => c.name))}`,
+        only: { statuses },
+        clear: { statuses: [] },
+        onDrop: () => setStatuses([]),
+      });
+    if (appliedLabelIds.length > 0)
+      active.push({
+        key: 'label',
+        label: `Label: ${summarizeValues(labelChips.map((c) => c.name))}`,
+        only: { labelIds: appliedLabelIds },
+        clear: { labelIds: [] },
+        onDrop: () => setLabelIds([]),
+      });
+    if (overdue)
+      active.push({
+        key: 'overdue',
+        label: 'Overdue',
+        only: { dueFilter: 'overdue' as const },
+        clear: { dueFilter: 'all' as const },
+        onDrop: () => setOverdue(false),
+      });
+    if (active.length < 2) return [];
+    return active.map((f) => ({
+      key: f.key,
+      label: f.label,
+      standaloneCount: tasks.filter((t) => matchesFilters(t, { ...base, ...f.only })).length,
+      recoveredCount: tasks.filter((t) => matchesFilters(t, { ...filters, ...f.clear })).length,
+      onDrop: f.onDrop,
+    }));
+  }, [
+    tasks,
+    filteredCount,
+    filters,
+    search,
+    ownerIds,
+    statuses,
+    appliedLabelIds,
+    overdue,
+    ownerChips,
+    statusChips,
+    labelChips,
+    setOverdue,
+  ]);
+
+  const filteredEmptyState = (
+    <GridFilteredEmptyState onClear={handleClearFilters} facets={emptyStateFacets} />
   );
 
   const exportFilteredTasks = useCallback(() => {
@@ -537,17 +692,44 @@ export function GridView() {
         onCollapseAll={() => setCollapseAllCounter((c) => c + 1)}
         onCsvExport={exportFilteredTasks}
         canExport={filteredCount > 0}
-        labelFacet={
-          <LabelFacet
-            triggerRef={labelTriggerRef}
-            labels={labels}
-            counts={labelCounts}
-            selected={labelIds}
-            onChange={setLabelIds}
-            onOpenLabelSettings={
-              projectId ? () => void navigate(`/projects/${projectId}/settings/labels`) : undefined
-            }
-          />
+        facets={
+          <>
+            {/* Owner · Status · Label, left→right — the same order the chip
+                strip lists them in below. One `openFacet` means opening any of
+                the three closes the other two. */}
+            <OwnerFacet
+              triggerRef={ownerTriggerRef}
+              candidates={ownerCandidates}
+              counts={ownerCounts}
+              selected={ownerIds}
+              onChange={setOwnerIds}
+              open={openFacet === 'owner'}
+              onOpenChange={(next) => setOpenFacet(next ? 'owner' : null)}
+              presentation={facetPresentation}
+            />
+            <StatusFacet
+              triggerRef={statusTriggerRef}
+              counts={statusCounts}
+              selected={statuses}
+              onChange={setStatuses}
+              open={openFacet === 'status'}
+              onOpenChange={(next) => setOpenFacet(next ? 'status' : null)}
+              presentation={facetPresentation}
+            />
+            <LabelFacet
+              triggerRef={labelTriggerRef}
+              labels={labels}
+              counts={labelCounts}
+              selected={labelIds}
+              onChange={setLabelIds}
+              open={openFacet === 'label'}
+              onOpenChange={(next) => setOpenFacet(next ? 'label' : null)}
+              presentation={facetPresentation}
+              onOpenLabelSettings={
+                projectId ? () => void navigate(`/projects/${projectId}/settings/labels`) : undefined
+              }
+            />
+          </>
         }
         canEdit={canEdit}
       />
@@ -561,32 +743,34 @@ export function GridView() {
 
       <ChipStrip
         search={search}
-        ownerFilter={ownerFilter}
-        statusFilter={statusFilter}
-        overdue={overdue}
+        ownerChips={ownerChips}
+        statusChips={statusChips}
         labelChips={labelChips}
-        onRemoveLabel={(id) => setLabelIds((prev) => prev.filter((v) => v !== id))}
+        overdue={overdue}
+        ownerTriggerRef={ownerTriggerRef}
+        statusTriggerRef={statusTriggerRef}
         labelTriggerRef={labelTriggerRef}
         note={
-          !online && appliedLabelIds.length > 0 && tasks
+          !online && hasFacetFilter && tasks
             ? `Offline — filtering the ${tasks.length} rows already loaded`
             : undefined
         }
-        onRemove={(key) => {
-          if (key === 'search') {
-            setSearch('');
-            setSearchDraft('');
-          }
-          if (key === 'owner') setOwnerFilter('');
-          if (key === 'status') setStatusFilter('');
-          if (key === 'overdue') setOverdue(false);
+        onRemoveSearch={() => {
+          setSearch('');
+          setSearchDraft('');
         }}
+        onRemoveOwner={(id) => setOwnerIds((prev) => prev.filter((v) => v !== id))}
+        onRemoveStatus={(id) => setStatuses((prev) => prev.filter((v) => v !== id))}
+        onRemoveLabel={(id) => setLabelIds((prev) => prev.filter((v) => v !== id))}
+        onRemoveOverdue={() => setOverdue(false)}
+        onClearAll={handleClearFilters}
       />
 
       {effectiveMode === 'flat' && (
         <FlatMode
           filters={filters}
           onClearFilters={handleClearFilters}
+          filteredEmptyState={filteredEmptyState}
           onOpenDetail={handleOpenDetail}
           canEdit={canEdit}
         />
@@ -595,6 +779,7 @@ export function GridView() {
         <OutlineMode
           filters={filters}
           onClearFilters={handleClearFilters}
+          filteredEmptyState={filteredEmptyState}
           expandAllCounter={expandAllCounter}
           collapseAllCounter={collapseAllCounter}
         />
@@ -604,6 +789,7 @@ export function GridView() {
           groupBy={groupBy}
           filters={filters}
           onClearFilters={handleClearFilters}
+          filteredEmptyState={filteredEmptyState}
           onOpenDetail={handleOpenDetail}
           canEdit={canEdit}
         />
@@ -683,11 +869,11 @@ interface ToolbarProps {
   onCsvExport: () => void;
   canExport: boolean;
   /**
-   * The Label facet trigger, injected rather than constructed here so the
-   * Toolbar stays presentational and the facet's catalog/count wiring lives with
-   * the rest of the filter state.
+   * The Owner / Status / Label facet triggers, injected rather than constructed
+   * here so the Toolbar stays presentational and the catalog/count/open-state
+   * wiring lives with the rest of the filter state.
    */
-  labelFacet?: ReactNode;
+  facets?: ReactNode;
   /** Member+ may author (#2145). Below it, the select-all box, bulk Delete, and
    *  the +Task / +Child create buttons are suppressed — a Viewer never sees a
    *  destructive bulk flow that 403s per task. */
@@ -719,7 +905,7 @@ function Toolbar({
   onCollapseAll,
   onCsvExport,
   canExport,
-  labelFacet,
+  facets,
   canEdit,
 }: ToolbarProps) {
   if (deletePhase !== 'idle') {
@@ -802,9 +988,9 @@ function Toolbar({
         />
       </div>
 
-      {/* Label facet sits with the search field as the filter cluster, and reads
-          left→right in the same order the chip strip below lists them. */}
-      {labelFacet}
+      {/* Facet cluster sits with the search field, and reads left→right in the
+          same order the chip strip below lists them: Owner · Status · Label. */}
+      {facets}
 
       {supportsBulkSelect && (
         // Same WCAG 2.5.8 treatment as the per-row select box (TaskRow): a
@@ -934,4 +1120,15 @@ function Toolbar({
       </button>
     </div>
   );
+}
+
+/**
+ * Compact a facet's selected values for a one-line label: the first value, plus
+ * `+N` for the rest. Used by the zero-result diagnosis, where naming all five
+ * selected owners would bury the sentence it sits in.
+ */
+function summarizeValues(names: string[]): string {
+  if (names.length === 0) return 'any';
+  if (names.length === 1) return names[0];
+  return `${names[0]} +${names.length - 1}`;
 }

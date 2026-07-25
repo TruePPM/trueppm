@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useCallback, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useCallback, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
@@ -15,6 +15,9 @@ import { matchesFilters } from './filters';
 interface FlatModeProps {
   filters: GridFilterState;
   onClearFilters: () => void;
+  /** Overrides the default filtered-empty state — the Grid supplies one
+   *  carrying the multi-facet diagnosis (#2387). */
+  filteredEmptyState?: ReactNode;
   onOpenDetail?: (task: Task) => void;
   /** Member+ authoring (#2145) — gates the per-row select checkbox. */
   canEdit?: boolean;
@@ -27,7 +30,13 @@ interface FlatModeProps {
  * Mirrors the legacy `TaskListView` body without the toolbar (the shell owns
  * search, filter chips, and bulk-action chrome).
  */
-export function FlatMode({ filters, onClearFilters, onOpenDetail, canEdit = true }: FlatModeProps) {
+export function FlatMode({
+  filters,
+  onClearFilters,
+  onOpenDetail,
+  canEdit = true,
+  filteredEmptyState,
+}: FlatModeProps) {
   const projectId = useProjectId() ?? null;
   const { tasks } = useScheduleTasks();
   const { selectedIds, toggle } = useTaskSelectionStore();
@@ -101,7 +110,7 @@ export function FlatMode({ filters, onClearFilters, onOpenDetail, canEdit = true
   );
 
   if (filtered.length === 0) {
-    return <GridFilteredEmptyState onClear={onClearFilters} />;
+    return filteredEmptyState ?? <GridFilteredEmptyState onClear={onClearFilters} />;
   }
 
   return (

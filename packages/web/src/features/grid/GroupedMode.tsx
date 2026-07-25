@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, type KeyboardEvent } from 'react';
+import { useMemo, useCallback, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
@@ -18,6 +18,9 @@ interface GroupedModeProps {
   groupBy: GridGroupBy;
   filters: GridFilterState;
   onClearFilters: () => void;
+  /** Overrides the default filtered-empty state — the Grid supplies one
+   *  carrying the multi-facet diagnosis (#2387). */
+  filteredEmptyState?: ReactNode;
   onOpenDetail?: (task: Task) => void;
   /** Member+ authoring (#2145) — gates the per-row select checkbox. */
   canEdit?: boolean;
@@ -32,6 +35,7 @@ export function GroupedMode({
   groupBy,
   filters,
   onClearFilters,
+  filteredEmptyState,
   onOpenDetail,
   canEdit = true,
 }: GroupedModeProps) {
@@ -109,7 +113,7 @@ export function GroupedMode({
   }, [filtered, groupBy, tasksById, sprintNameById]);
 
   if (filtered.length === 0) {
-    return <GridFilteredEmptyState onClear={onClearFilters} />;
+    return filteredEmptyState ?? <GridFilteredEmptyState onClear={onClearFilters} />;
   }
 
   return (

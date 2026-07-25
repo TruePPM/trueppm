@@ -21,6 +21,7 @@
  *    `0` next to a label that exists project-wide is correct and informative.
  */
 
+import { parseIdList, serializeIdList } from './facetParams';
 import type { Task, TaskLabel } from '@/types';
 
 /**
@@ -39,23 +40,13 @@ type LabelBearing = Pick<Task, 'labels'> | { labels?: TaskLabel[] };
  * preserving first-seen order (so the chip strip is stable across a reload).
  */
 export function parseLabelIds(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const part of raw.split(',')) {
-    const id = part.trim();
-    if (id && !seen.has(id)) {
-      seen.add(id);
-      out.push(id);
-    }
-  }
-  return out;
+  return parseIdList(raw);
 }
 
 /** Serialize label ids for `?fl=`. An empty selection yields `''` so the caller
  *  drops the key entirely and an unfiltered view keeps a clean URL. */
 export function serializeLabelIds(ids: string[]): string {
-  return ids.join(',');
+  return serializeIdList(ids);
 }
 
 /**
