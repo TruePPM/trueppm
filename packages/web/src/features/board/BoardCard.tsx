@@ -32,6 +32,7 @@ import { CustomFieldMarks, CustomFieldCompactPeek } from './CustomFieldMarks';
 import type { ProjectCustomField } from '@/hooks/useProjectCustomFields';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useIsOverflowing } from '@/hooks/useIsOverflowing';
+import { useElementRef } from '@/hooks/useElementRef';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
 
@@ -321,8 +322,8 @@ function BoardCardImpl({
   // rules of hooks; on a fine pointer `coarsePointer` is false and the compact
   // branch renders today's exact DOM (byte-identical desktop).
   const coarsePointer = useIsCoarsePointer();
-  const titleRef = useRef<HTMLSpanElement>(null);
-  const titleOverflowing = useIsOverflowing(titleRef);
+  const { el: titleEl, setEl: setTitleEl } = useElementRef<HTMLSpanElement>();
+  const titleOverflowing = useIsOverflowing(titleEl);
   const menuRef = useRef<HTMLDivElement>(null);
   // issue 838: roving-focus keyboard nav for the overflow menu + submenu.
   const menuPanelRef = useRef<HTMLDivElement>(null);
@@ -838,7 +839,7 @@ function BoardCardImpl({
         />
         <div className="pl-2.5 pr-8 py-2 flex items-center gap-1 min-w-0">
           <span
-            ref={titleRef}
+            ref={setTitleEl}
             className={[
               'text-xs font-medium truncate flex-1 min-w-0',
               showCriticalState

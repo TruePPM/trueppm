@@ -3,7 +3,7 @@
  *
  * Covers the horizontal right-overflow probe that drives the board's right
  * edge-fade cue: the fit / overflow / scrolled-to-right states, re-measure on
- * scroll and on ResizeObserver fire, the null-ref (unmounted) case, and cleanup.
+ * scroll and on ResizeObserver fire, the null (unmounted) case, and cleanup.
  * The horizontal analog of useHasScrollBelow.test.ts (#1962).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -52,21 +52,20 @@ afterEach(() => {
 
 describe('useHasScrollRight', () => {
   it('is false when content fits the container', () => {
-    const ref = { current: makeEl({ scrollLeft: 0, clientWidth: 100, scrollWidth: 100 }) };
-    const { result } = renderHook(() => useHasScrollRight(ref));
+    const el = makeEl({ scrollLeft: 0, clientWidth: 100, scrollWidth: 100 });
+    const { result } = renderHook(() => useHasScrollRight(el));
     expect(result.current).toBe(false);
   });
 
   it('is true when content overflows to the right', () => {
-    const ref = { current: makeEl({ scrollLeft: 0, clientWidth: 100, scrollWidth: 500 }) };
-    const { result } = renderHook(() => useHasScrollRight(ref));
+    const el = makeEl({ scrollLeft: 0, clientWidth: 100, scrollWidth: 500 });
+    const { result } = renderHook(() => useHasScrollRight(el));
     expect(result.current).toBe(true);
   });
 
   it('flips to false once scrolled fully right', () => {
     const el = makeEl({ scrollLeft: 0, clientWidth: 100, scrollWidth: 500 });
-    const ref = { current: el };
-    const { result } = renderHook(() => useHasScrollRight(ref));
+    const { result } = renderHook(() => useHasScrollRight(el));
     expect(result.current).toBe(true);
 
     act(() => {
@@ -78,8 +77,7 @@ describe('useHasScrollRight', () => {
 
   it('re-measures when the ResizeObserver fires (content grew)', () => {
     const el = makeEl({ scrollLeft: 0, clientWidth: 100, scrollWidth: 100 });
-    const ref = { current: el };
-    const { result } = renderHook(() => useHasScrollRight(ref));
+    const { result } = renderHook(() => useHasScrollRight(el));
     expect(result.current).toBe(false);
 
     act(() => {
@@ -91,21 +89,38 @@ describe('useHasScrollRight', () => {
 
   it('tolerates 1px of sub-pixel slack at the exact right edge', () => {
     // scrollLeft + clientWidth === scrollWidth - 1 → treated as fully-right.
-    const ref = { current: makeEl({ scrollLeft: 0, clientWidth: 100, scrollWidth: 101 }) };
-    const { result } = renderHook(() => useHasScrollRight(ref));
+    const el = makeEl({ scrollLeft: 0, clientWidth: 100, scrollWidth: 101 });
+    const { result } = renderHook(() => useHasScrollRight(el));
     expect(result.current).toBe(false);
   });
 
   it('is false when the ref is unmounted (null)', () => {
-    const ref = { current: null };
-    const { result } = renderHook(() => useHasScrollRight(ref));
+    const el = null;
+    const { result } = renderHook(() => useHasScrollRight(el));
     expect(result.current).toBe(false);
   });
 
   it('removes the scroll listener on unmount', () => {
-    const ref = { current: makeEl({ scrollLeft: 0, clientWidth: 100, scrollWidth: 500 }) };
-    const { unmount } = renderHook(() => useHasScrollRight(ref));
+    const el = makeEl({ scrollLeft: 0, clientWidth: 100, scrollWidth: 500 });
+    const { unmount } = renderHook(() => useHasScrollRight(el));
     unmount();
     expect(removeSpy).toHaveBeenCalledWith('scroll', expect.any(Function));
+  });
+
+  it('measures when the container mounts AFTER first commit (#2365)', () => {
+    // The board renders a loading skeleton before its scroll container exists,
+    // so on a cold load the container arrives several commits late. The old
+    // `RefObject` signature made this unobservable — a ref's identity never
+    // changes, so the effect never re-ran and the right edge-fade cue (#1972)
+    // never appeared.
+    const el = makeEl({ scrollLeft: 0, clientWidth: 100, scrollWidth: 500 });
+    const { result, rerender } = renderHook(({ node }: { node: HTMLElement | null }) =>
+      useHasScrollRight(node),
+    { initialProps: { node: null as HTMLElement | null } });
+
+    expect(result.current).toBe(false);
+
+    rerender({ node: el });
+    expect(result.current).toBe(true);
   });
 });

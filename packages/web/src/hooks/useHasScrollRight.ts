@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useState } from 'react';
 
 /**
  * True when the referenced scroll container has content to the right of the
@@ -14,17 +14,17 @@ import { useEffect, useState, type RefObject } from 'react';
  * Re-measured on scroll and via `ResizeObserver` on the container and its direct
  * children, so a viewport resize, a card added to a column, a panel expanding, a
  * column collapse, or a board zoom change flips the result. SSR / JSDOM without
- * `ResizeObserver` resolves to the initial measurement (or `false` when the ref
- * is unmounted) and never throws.
+ * `ResizeObserver` resolves to the initial measurement (or `false` when the
+ * container is unmounted) and never throws.
  *
- * @param ref Scroll container whose horizontal overflow to observe.
+ * @param el Scroll container whose horizontal overflow to observe, or `null`
+ *   before it mounts.
  * @returns Whether more content sits to the right of the current scroll position.
  */
-export function useHasScrollRight(ref: RefObject<HTMLElement | null>): boolean {
+export function useHasScrollRight(el: HTMLElement | null): boolean {
   const [hasRight, setHasRight] = useState(false);
 
   useEffect(() => {
-    const el = ref.current;
     if (!el) return;
 
     // 1px slack absorbs sub-pixel rounding at the exact right edge.
@@ -44,7 +44,7 @@ export function useHasScrollRight(ref: RefObject<HTMLElement | null>): boolean {
       el.removeEventListener('scroll', measure);
       ro?.disconnect();
     };
-  }, [ref]);
+  }, [el]);
 
   return hasRight;
 }

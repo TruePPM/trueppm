@@ -15,10 +15,11 @@
  * teardown — the sensor is only *gated*, never mutated.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { RefObject, PointerEvent as ReactPointerEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { PointerSensor, type PointerSensorOptions } from '@dnd-kit/core';
 
 import { isTypingInInput } from './useGlobalShortcut';
+import { useElementRef } from './useElementRef';
 
 /**
  * Options for {@link SpaceAwarePointerSensor}, extending the stock
@@ -91,8 +92,17 @@ export interface UseSpaceDragPanOptions {
 
 /** Return value of {@link useSpaceDragPan}. */
 export interface UseSpaceDragPanResult {
-  /** Attach to the scroll container that should pan. */
-  scrollRef: RefObject<HTMLDivElement | null>;
+  /**
+   * Attach to the scroll container that should pan: `ref={setScrollEl}`.
+   *
+   * This is a callback ref, not a `RefObject`, on purpose — the container
+   * commonly mounts *after* first paint (a board renders a loading skeleton
+   * first), and a `RefObject` would leave the pan listeners permanently
+   * unattached for that mount. See {@link useElementRef} (#2365).
+   */
+  setScrollEl: (node: HTMLDivElement | null) => void;
+  /** The mounted scroll container, or `null` before it mounts. */
+  scrollEl: HTMLDivElement | null;
   /** `true` while Space is held (pan mode armed) — drives cursor styling. */
   isSpaceHeld: boolean;
   /** `true` while an active click-drag pan is in progress. */
@@ -108,11 +118,11 @@ export interface UseSpaceDragPanResult {
  * Wires Space-held click-drag panning onto a scroll container.
  *
  * @param options - See {@link UseSpaceDragPanOptions}.
- * @returns A ref for the scroll container plus the pan-mode flags and the dnd
- *   suppression predicate. See {@link UseSpaceDragPanResult}.
+ * @returns A callback ref for the scroll container plus the pan-mode flags and
+ *   the dnd suppression predicate. See {@link UseSpaceDragPanResult}.
  */
 export function useSpaceDragPan({ enabled = true }: UseSpaceDragPanOptions = {}): UseSpaceDragPanResult {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const { el: scrollEl, setEl: setScrollEl } = useElementRef<HTMLDivElement>();
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
 
@@ -161,10 +171,14 @@ export function useSpaceDragPan({ enabled = true }: UseSpaceDragPanOptions = {})
     };
   }, [enabled]);
 
-  // Click-drag panning on the scroll container while pan mode is armed.
+  // Click-drag panning on the scroll container while pan mode is armed. Keyed
+  // on the element itself (not a ref) so the listeners attach as soon as the
+  // container mounts, even when that is several commits after this hook's
+  // first run — the board renders a loading skeleton before its scroll
+  // container exists (#2365).
   useEffect(() => {
     if (!enabled) return;
-    const el = scrollRef.current;
+    const el = scrollEl;
     if (!el) return;
 
     let start: { x: number; y: number; left: number; top: number; pointerId: number } | null = null;
@@ -210,7 +224,7 @@ export function useSpaceDragPan({ enabled = true }: UseSpaceDragPanOptions = {})
       el.removeEventListener('pointerup', endPan);
       el.removeEventListener('pointercancel', endPan);
     };
-  }, [enabled]);
+  }, [enabled, scrollEl]);
 
-  return { scrollRef, isSpaceHeld, isPanning, shouldSuppressDrag };
+  return { setScrollEl, scrollEl, isSpaceHeld, isPanning, shouldSuppressDrag };
 }
