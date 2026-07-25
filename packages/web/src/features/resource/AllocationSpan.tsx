@@ -63,6 +63,7 @@ export function AllocationSpan({
       ? `${task.early_start} – ${task.early_finish}`
       : 'unscheduled',
     variant === 'over' ? '⚠ overallocated' : '',
+    variant === 'complete' ? 'complete' : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -74,6 +75,10 @@ export function AllocationSpan({
       ? `${task.early_start} to ${task.early_finish}`
       : 'unscheduled',
     variant === 'over' ? 'overallocated' : '',
+    // The completion cue is otherwise the check mark plus opacity-60 — both
+    // visual-only, and the button's aria-label overrides its content, so without
+    // this the state never reaches a screen reader (rule 6 / WCAG 1.4.1).
+    variant === 'complete' ? 'complete' : '',
   ]
     .filter(Boolean)
     .join(', ');
