@@ -173,12 +173,11 @@ describe('useSpaceDragPan — click-drag panning', () => {
     el.releasePointerCapture = vi.fn();
     document.body.appendChild(el);
 
-    // Assigning the ref in the render body (before effects run) means the pointer
-    // effect binds its listeners to `el` on mount.
-    const { result } = renderHook(() => {
-      const api = useSpaceDragPan();
-      api.scrollRef.current = el;
-      return api;
+    const { result } = renderHook(() => useSpaceDragPan());
+    // React invokes a callback ref after commit, never during render — mirror
+    // that here (calling it during render would set state mid-render).
+    act(() => {
+      result.current.setScrollEl(el);
     });
 
     act(() => {
@@ -204,6 +203,79 @@ describe('useSpaceDragPan — click-drag panning', () => {
     expect(result.current.isPanning).toBe(false);
   });
 
+  it('binds pointer listeners when the container mounts AFTER first commit (#2365)', () => {
+    // The board renders a loading skeleton before its scroll container exists,
+    // so on a cold load the container mounts several commits after this hook
+    // first runs. The old `RefObject` implementation bailed on the null ref in
+    // a mount effect keyed only on `enabled` and never re-ran, leaving panning
+    // silently dead for the whole page — it read as e2e flake because a warm
+    // query cache sometimes rendered the container on the first commit.
+    const el = document.createElement('div');
+    Object.defineProperty(el, 'scrollLeft', { writable: true, value: 100, configurable: true });
+    Object.defineProperty(el, 'scrollTop', { writable: true, value: 60, configurable: true });
+    el.setPointerCapture = vi.fn();
+    el.releasePointerCapture = vi.fn();
+    document.body.appendChild(el);
+
+    // First commit: no container yet (the skeleton branch).
+    const { result } = renderHook(() => useSpaceDragPan());
+
+    // Later commit: the data resolved and the container mounted.
+    act(() => {
+      result.current.setScrollEl(el);
+    });
+
+    act(() => {
+      pressSpace();
+    });
+    act(() => {
+      el.dispatchEvent(makePointerEvent('pointerdown', { clientX: 200, clientY: 200 }));
+    });
+    expect(result.current.isPanning).toBe(true);
+
+    act(() => {
+      el.dispatchEvent(makePointerEvent('pointermove', { clientX: 170, clientY: 185 }));
+    });
+    expect(el.scrollLeft).toBe(130);
+    expect(el.scrollTop).toBe(75);
+  });
+
+  it('rebinds when the container is swapped for a different node', () => {
+    const first = document.createElement('div');
+    const second = document.createElement('div');
+    for (const el of [first, second]) {
+      Object.defineProperty(el, 'scrollLeft', { writable: true, value: 100, configurable: true });
+      Object.defineProperty(el, 'scrollTop', { writable: true, value: 60, configurable: true });
+      el.setPointerCapture = vi.fn();
+      el.releasePointerCapture = vi.fn();
+      document.body.appendChild(el);
+    }
+
+    const { result } = renderHook(() => useSpaceDragPan());
+    act(() => {
+      result.current.setScrollEl(first);
+    });
+    act(() => {
+      result.current.setScrollEl(second);
+    });
+
+    act(() => {
+      pressSpace();
+    });
+    act(() => {
+      second.dispatchEvent(makePointerEvent('pointerdown', { clientX: 200, clientY: 200 }));
+      second.dispatchEvent(makePointerEvent('pointermove', { clientX: 170, clientY: 185 }));
+    });
+    expect(second.scrollLeft).toBe(130);
+
+    // The old node was unbound by the effect cleanup, so it no longer pans.
+    act(() => {
+      first.dispatchEvent(makePointerEvent('pointerdown', { clientX: 200, clientY: 200 }));
+      first.dispatchEvent(makePointerEvent('pointermove', { clientX: 170, clientY: 185 }));
+    });
+    expect(first.scrollLeft).toBe(100);
+  });
+
   it('does not pan when Space is not held', () => {
     const el = document.createElement('div');
     Object.defineProperty(el, 'scrollLeft', { writable: true, value: 100, configurable: true });
@@ -211,10 +283,9 @@ describe('useSpaceDragPan — click-drag panning', () => {
     el.setPointerCapture = vi.fn();
     document.body.appendChild(el);
 
-    renderHook(() => {
-      const api = useSpaceDragPan();
-      api.scrollRef.current = el;
-      return api;
+    const { result } = renderHook(() => useSpaceDragPan());
+    act(() => {
+      result.current.setScrollEl(el);
     });
 
     act(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useState } from 'react';
 
 /**
  * True when the referenced scroll container has content below the current
@@ -16,14 +16,14 @@ import { useEffect, useState, type RefObject } from 'react';
  * resolves to the initial measurement (or `false` when the ref is unmounted) and
  * never throws.
  *
- * @param ref Scroll container whose vertical overflow to observe.
+ * @param el Scroll container whose vertical overflow to observe, or `null`
+ *   before it mounts.
  * @returns Whether more content sits below the current scroll position.
  */
-export function useHasScrollBelow(ref: RefObject<HTMLElement | null>): boolean {
+export function useHasScrollBelow(el: HTMLElement | null): boolean {
   const [hasBelow, setHasBelow] = useState(false);
 
   useEffect(() => {
-    const el = ref.current;
     if (!el) return;
 
     // 1px slack absorbs sub-pixel rounding at the exact bottom.
@@ -43,7 +43,7 @@ export function useHasScrollBelow(ref: RefObject<HTMLElement | null>): boolean {
       el.removeEventListener('scroll', measure);
       ro?.disconnect();
     };
-  }, [ref]);
+  }, [el]);
 
   return hasBelow;
 }

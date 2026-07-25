@@ -2247,7 +2247,8 @@ export function BoardView() {
   // the scroll container instead of lifting a card; releasing Space restores
   // normal @dnd-kit drag. `scrollRef` attaches to the desktop grid scroller.
   const {
-    scrollRef: boardScrollRef,
+    setScrollEl: setBoardScrollEl,
+    scrollEl: boardScrollEl,
     isSpaceHeld: isBoardPanArmed,
     isPanning: isBoardPanning,
     shouldSuppressDrag,
@@ -2257,8 +2258,8 @@ export function BoardView() {
   // macOS/touch the auto-hiding scrollbar is the only "more below" cue, so a
   // card clipped at the fold reads as truncation; the fade renders only while
   // content sits below the scroll position.
-  const hasScrollBelow = useHasScrollBelow(boardScrollRef);
-  const hasScrollRight = useHasScrollRight(boardScrollRef);
+  const hasScrollBelow = useHasScrollBelow(boardScrollEl);
+  const hasScrollRight = useHasScrollRight(boardScrollEl);
 
   const sensors = useSensors(
     useSensor(SpaceAwarePointerSensor, {
@@ -3709,14 +3710,14 @@ export function BoardView() {
                 />
               )}
 
-              {/* Board grid — scrollable. `boardScrollRef` + the grab/grabbing
+              {/* Board grid — scrollable. `setBoardScrollEl` + the grab/grabbing
                   cursor classes wire Space-held drag-panning (issue 1265);
                   `select-none` while panning stops text selection mid-drag. The
                   `relative` wrapper hosts the bottom edge-fade overflow cue
                   (#1962) — the vertical analog of ShellNavScroller (rule 174). */}
               <div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
                 <div
-                  ref={boardScrollRef}
+                  ref={setBoardScrollEl}
                   data-testid="board-scroll"
                   data-space-panning={isBoardPanning ? 'true' : undefined}
                   // pb-6 / pr-6 keep the final lane's tallest card and the
