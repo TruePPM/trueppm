@@ -92,6 +92,54 @@ export interface ScopeChange {
  * "committed vs remaining vs trend" (issue 2175). Derived entirely from the
  * already-computed series, so it can never drift from what the chart draws.
  */
+/** Last point whose given series value is non-null (reads the series from the end). */
+function lastWithValue(
+  points: NormPoint[],
+  key: 'remaining' | 'completed' | 'scope',
+): NormPoint | undefined {
+  return [...points].reverse().find((p) => p[key] != null);
+}
+
+/** "N remaining versus an ideal of M" clause, or null when there is no remaining data. */
+function remainingClause(points: NormPoint[], unit: string): string | null {
+  const p = lastWithValue(points, 'remaining');
+  if (!p) return null;
+  return `${Math.round(p.remaining as number)} ${unit} remaining versus an ideal of ${Math.round(p.ideal)}`;
+}
+
+/** "N of M completed" clause, or null when either the completed or scope series is empty. */
+function completedClause(points: NormPoint[], unit: string): string | null {
+  const c = lastWithValue(points, 'completed');
+  const s = lastWithValue(points, 'scope');
+  if (!c || !s) return null;
+  return `${Math.round(c.completed as number)} of ${Math.round(s.scope as number)} ${unit} completed`;
+}
+
+/** "N ahead of / behind the ideal pace" clause, or null when no trend is available. */
+function trendClause(trendAhead: number | null, unit: string): string | null {
+  if (trendAhead == null) return null;
+  const n = Math.abs(Math.round(trendAhead));
+  return `${n} ${unit} ${trendAhead >= 0 ? 'ahead of' : 'behind'} the ideal pace`;
+}
+
+/** "X additions and Y removals" clause, or null when scope never changed. */
+function scopeChangeClause(scopeChanges: ScopeChange[]): string | null {
+  const added = scopeChanges.filter((c) => c.delta > 0).length;
+  const removed = scopeChanges.filter((c) => c.delta < 0).length;
+  if (!added && !removed) return null;
+  const bits: string[] = [];
+  if (added) bits.push(`${added} scope ${added === 1 ? 'addition' : 'additions'}`);
+  if (removed) bits.push(`${removed} scope ${removed === 1 ? 'removal' : 'removals'}`);
+  return bits.join(' and ');
+}
+
+/** Human label for the chart variant used to open the summary sentence. */
+function variantLabel(variant: BurnVariant): string {
+  if (variant === 'burnup') return 'Burn-up';
+  if (variant === 'combined') return 'Combined burn';
+  return 'Burndown';
+}
+
 export function describeBurnSeries(
   points: NormPoint[],
   variant: BurnVariant,
@@ -100,45 +148,19 @@ export function describeBurnSeries(
   trendAhead: number | null,
 ): string {
   const unit = metric === 'points' ? 'story points' : 'tasks';
-  const lastWith = (key: 'remaining' | 'completed' | 'scope'): NormPoint | undefined =>
-    [...points].reverse().find((p) => p[key] != null);
   const asOf = points[points.length - 1]?.date;
-  const parts: string[] = [];
+  const showBurndown = variant === 'burndown' || variant === 'combined';
+  const showBurnup = variant === 'burnup' || variant === 'combined';
 
-  if (variant === 'burndown' || variant === 'combined') {
-    const p = lastWith('remaining');
-    if (p) {
-      parts.push(
-        `${Math.round(p.remaining as number)} ${unit} remaining versus an ideal of ${Math.round(p.ideal)}`,
-      );
-    }
-  }
-  if (variant === 'burnup' || variant === 'combined') {
-    const c = lastWith('completed');
-    const s = lastWith('scope');
-    if (c && s) {
-      parts.push(
-        `${Math.round(c.completed as number)} of ${Math.round(s.scope as number)} ${unit} completed`,
-      );
-    }
-  }
-  if (trendAhead != null) {
-    const n = Math.abs(Math.round(trendAhead));
-    parts.push(`${n} ${unit} ${trendAhead >= 0 ? 'ahead of' : 'behind'} the ideal pace`);
-  }
-  const added = scopeChanges.filter((c) => c.delta > 0).length;
-  const removed = scopeChanges.filter((c) => c.delta < 0).length;
-  if (added || removed) {
-    const bits: string[] = [];
-    if (added) bits.push(`${added} scope ${added === 1 ? 'addition' : 'additions'}`);
-    if (removed) bits.push(`${removed} scope ${removed === 1 ? 'removal' : 'removals'}`);
-    parts.push(bits.join(' and '));
-  }
+  const parts = [
+    showBurndown ? remainingClause(points, unit) : null,
+    showBurnup ? completedClause(points, unit) : null,
+    trendClause(trendAhead, unit),
+    scopeChangeClause(scopeChanges),
+  ].filter((part): part is string => part !== null);
 
-  const label =
-    variant === 'burnup' ? 'Burn-up' : variant === 'combined' ? 'Combined burn' : 'Burndown';
   const body = parts.length ? parts.join('; ') : 'no data yet';
-  return `${label} chart${asOf ? ` as of ${asOf}` : ''}: ${body}.`;
+  return `${variantLabel(variant)} chart${asOf ? ` as of ${asOf}` : ''}: ${body}.`;
 }
 
 export function deriveProjectSeries(
@@ -227,6 +249,39 @@ function projectedDayValue(
   return carried;
 }
 
+// ---------------------------------------------------------------------------
+// Per-metric snapshot accessors. Each isolates the `points`/`tasks` branch so
+// the sprint loop below stays flat (one call, no nested ternary per field).
+// ---------------------------------------------------------------------------
+type SprintBurnSnapshot = import('@/hooks/useSprints').SprintBurnSnapshot;
+
+function snapRemaining(snap: SprintBurnSnapshot, metric: BurnMetric): number {
+  return metric === 'points' ? snap.remaining_points : snap.remaining_task_count;
+}
+
+function snapCompleted(snap: SprintBurnSnapshot, metric: BurnMetric): number {
+  return metric === 'points' ? snap.completed_points : snap.completed_task_count;
+}
+
+/**
+ * Cumulative signed scope delta for a snapshot (0 when absent). `undefined` snap
+ * folds to 0 so the caller need not branch on presence before adding it to the
+ * committed baseline.
+ */
+function snapScopeDelta(snap: SprintBurnSnapshot | undefined, metric: BurnMetric): number {
+  if (!snap) return 0;
+  return metric === 'points'
+    ? (snap.scope_change_points ?? 0)
+    : (snap.scope_change_task_count ?? 0);
+}
+
+/** ISO (UTC) date `dayOffset` days after a sprint's `start_date`. */
+function sprintDayIso(startDate: string, dayOffset: number): string {
+  const d = new Date(startDate + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + dayOffset);
+  return d.toISOString().slice(0, 10);
+}
+
 /** Add `days` to today and return the ISO (UTC) date string. */
 function isoDaysFromToday(days: number): string {
   const fd = new Date();
@@ -300,14 +355,12 @@ export function deriveSprintSeries(
   let carriedScope = committedVal;
 
   for (let i = 0; i < totalDays; i++) {
-    const d = new Date(sprint.start_date + 'T00:00:00Z');
-    d.setUTCDate(d.getUTCDate() + i);
-    const iso = d.toISOString().slice(0, 10);
+    const iso = sprintDayIso(sprint.start_date, i);
     const snap = byDate.get(iso);
 
     if (snap) {
-      carriedRemaining = metric === 'points' ? snap.remaining_points : snap.remaining_task_count;
-      carriedCompleted = metric === 'points' ? snap.completed_points : snap.completed_task_count;
+      carriedRemaining = snapRemaining(snap, metric);
+      carriedCompleted = snapCompleted(snap, metric);
     }
 
     // Anchor day 0 at the committed value even with no snapshot (sprint start =
@@ -326,11 +379,11 @@ export function deriveSprintSeries(
     );
     const completed = projectedDayValue(!!snap, isFirstDay, isAfterData, 0, carriedCompleted);
 
-    const scopeDelta =
-      metric === 'points' ? (snap?.scope_change_points ?? 0) : (snap?.scope_change_task_count ?? 0);
     // scope_change_points is the CUMULATIVE signed delta from the committed baseline
-    // as of this snapshot, so the total scope on a snapshot day is committed + delta.
-    const curScope = committedVal + (snap ? scopeDelta : 0);
+    // as of this snapshot (0 when absent), so the total scope on a snapshot day is
+    // committed + delta.
+    const scopeDelta = snapScopeDelta(snap, metric);
+    const curScope = committedVal + scopeDelta;
     if (snap) carriedScope = curScope;
     const ideal = idealRemainingAt(committedVal, i, denom);
 

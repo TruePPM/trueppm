@@ -26,6 +26,76 @@ function weekDisplay(isoWeek: string): string {
   return isoWeek.includes('-W') ? `W${isoWeek.split('-W')[1]}` : isoWeek;
 }
 
+type HeatmapResult = ReturnType<typeof useResourceHeatmap>;
+type SummaryResult = ReturnType<typeof useResourceSummary>;
+
+/** KPI row for the Heatmap page: skeleton while loading, 4-card row on success, retry line on error. */
+function KpiSection({ summary }: { summary: SummaryResult }) {
+  if (summary.status === 'loading') return <ResourcesKpiRowSkeleton />;
+  if (summary.status === 'success') return <ResourcesKpiRow data={summary.data!} />;
+  return (
+    <div className="text-xs text-semantic-critical px-1">
+      Could not load summary.{' '}
+      <button type="button" className="underline" onClick={() => window.location.reload()}>
+        Retry
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Week × person heatmap grid: skeleton while loading, the grid (or an empty
+ * "no team members" prompt) on success, a retry line on error.
+ */
+function HeatmapSection({
+  heatmap,
+  weeks,
+  projectId,
+}: {
+  heatmap: HeatmapResult;
+  weeks: WeeksWindow;
+  projectId: string | undefined;
+}) {
+  if (heatmap.status === 'loading') return <ResourcesHeatmapSkeleton cols={weeks} />;
+  if (heatmap.status === 'error') {
+    return (
+      <div className="text-xs text-semantic-critical px-1">
+        Could not load heatmap.{' '}
+        <button type="button" className="underline" onClick={() => window.location.reload()}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+  if (heatmap.status === 'success' && heatmap.data) {
+    if (heatmap.data.resources.length === 0) {
+      return (
+        <div
+          className="flex items-center justify-center py-12 text-sm text-neutral-text-secondary"
+          role="status"
+        >
+          No team members yet —{' '}
+          <a
+            href={`../roster`}
+            className="ml-1 underline text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            add resources via the Roster tab
+          </a>
+          .
+        </div>
+      );
+    }
+    return (
+      <ResourcesHeatmap
+        projectId={projectId ?? ''}
+        weeks={heatmap.data.weeks}
+        resources={heatmap.data.resources}
+      />
+    );
+  }
+  return null;
+}
+
 /**
  * Resources / Team — Heatmap sub-page (issues #217 + #219, ADR-0042).
  *
@@ -159,61 +229,8 @@ export function HeatmapPage() {
         <ResourceEmptyState onRunScheduler={() => void triggerScheduler()} />
       ) : (
         <>
-          {/* KPI row */}
-          {summaryResult.status === 'loading' ? (
-            <ResourcesKpiRowSkeleton />
-          ) : summaryResult.status === 'success' ? (
-            <ResourcesKpiRow data={summaryResult.data!} />
-          ) : (
-            <div className="text-xs text-semantic-critical px-1">
-              Could not load summary.{' '}
-              <button
-                type="button"
-                className="underline"
-                onClick={() => window.location.reload()}
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
-          {/* Heatmap */}
-          {heatmapResult.status === 'loading' ? (
-            <ResourcesHeatmapSkeleton cols={weeks} />
-          ) : heatmapResult.status === 'success' && heatmapResult.data ? (
-            heatmapResult.data.resources.length === 0 ? (
-              <div
-                className="flex items-center justify-center py-12 text-sm text-neutral-text-secondary"
-                role="status"
-              >
-                No team members yet —{' '}
-                <a
-                  href={`../roster`}
-                  className="ml-1 underline text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                >
-                  add resources via the Roster tab
-                </a>
-                .
-              </div>
-            ) : (
-              <ResourcesHeatmap
-                projectId={projectId ?? ''}
-                weeks={heatmapResult.data.weeks}
-                resources={heatmapResult.data.resources}
-              />
-            )
-          ) : heatmapResult.status === 'error' ? (
-            <div className="text-xs text-semantic-critical px-1">
-              Could not load heatmap.{' '}
-              <button
-                type="button"
-                className="underline"
-                onClick={() => window.location.reload()}
-              >
-                Retry
-              </button>
-            </div>
-          ) : null}
+          <KpiSection summary={summaryResult} />
+          <HeatmapSection heatmap={heatmapResult} weeks={weeks} projectId={projectId} />
         </>
       )}
     </div>
