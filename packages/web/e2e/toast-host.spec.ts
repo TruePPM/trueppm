@@ -28,6 +28,12 @@ test.describe('global toast host (#1225)', () => {
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
+    // Pins are server state as of #2390, and the success toast waits for the
+    // server rather than firing on click — so the write must be mocked or the
+    // toast under test is the *error* one.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/pin/`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    );
     await page.goto(`/projects/${PROJECT_ID}/overview`);
 
     // Gate on the rail being rendered before driving its controls.
