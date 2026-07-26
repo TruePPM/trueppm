@@ -3,6 +3,9 @@ import {
   formatShortDate,
   nudgeWorkingDays,
   computeInitialScrollLeft,
+  computeInitialFraming,
+  framedBarCoverage,
+  type RowBar,
 } from './scheduleUtils';
 
 // ---------------------------------------------------------------------------
@@ -127,5 +130,103 @@ describe('computeInitialScrollLeft', () => {
     // would scroll into the empty trailing buffer and hide the project, so skip it
     // and leave the default project-start view (#2004).
     expect(computeInitialScrollLeft(9000, 1100, 2812)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// framedBarCoverage / computeInitialFraming (#2423)
+// ---------------------------------------------------------------------------
+
+/** Fourteen rows whose bars all sit well left of the viewport — the demo project. */
+function barsBehind(): (RowBar | null)[] {
+  return Array.from({ length: 14 }, (_, i) => ({ x0: 100 + i * 40, x1: 300 + i * 40 }));
+}
+
+describe('framedBarCoverage', () => {
+  it('counts a bar that merely overlaps the viewport edge as framed', () => {
+    // A bar straddling the left edge is visible, so it counts — using strict
+    // containment here would fail a project whose bars are wider than the screen.
+    const bars: RowBar[] = [
+      { x0: 900, x1: 1100 },
+      { x0: 1900, x1: 2100 },
+    ];
+    expect(framedBarCoverage(bars, 1000, 2000)).toBe(1);
+  });
+
+  it('excludes rows with no bar from both numerator and denominator', () => {
+    // An unscheduled task has no bar at any offset, so no framing decision can
+    // rescue it — counting it would drag the ratio down for a reason framing
+    // cannot fix.
+    const bars: (RowBar | null)[] = [{ x0: 1100, x1: 1200 }, null, null, { x0: 9000, x1: 9100 }];
+    expect(framedBarCoverage(bars, 1000, 2000)).toBe(0.5);
+  });
+
+  it('returns null when no row carries a bar', () => {
+    expect(framedBarCoverage([null, null], 0, 1000)).toBeNull();
+  });
+});
+
+describe('computeInitialFraming', () => {
+  it('falls back to fitToProject when today framing would show mostly empty canvas', () => {
+    // The reported defect: the demo project starts in April, today is in July, so
+    // the rule-81 offset lands past every bar and nine of fourteen rows open blank.
+    expect(computeInitialFraming(3000, 1100, 4000, barsBehind())).toEqual({ kind: 'fit' });
+  });
+
+  it('keeps rule 81 when the project straddles today', () => {
+    // todayX 1507, viewport 1100 → scrollLeft 1232, framing [1232, 2332].
+    const bars: RowBar[] = [
+      { x0: 1300, x1: 1600 },
+      { x0: 1500, x1: 1900 },
+      { x0: 1800, x1: 2200 },
+      { x0: 4000, x1: 4200 },
+    ];
+    expect(computeInitialFraming(1507, 1100, 2812, bars)).toEqual({
+      kind: 'scroll',
+      scrollLeft: 1232,
+    });
+  });
+
+  it('does not regress rule 81 for a project entirely in the future', () => {
+    // Today sits left of the chart, so the target clamps to 0 and the project
+    // start — the meaningful view — is what shows. This is the case rule 81 was
+    // written for, and the coverage gate must not steal it.
+    const bars: RowBar[] = [
+      { x0: 0, x1: 400 },
+      { x0: 300, x1: 800 },
+    ];
+    expect(computeInitialFraming(-200, 1100, 2000, bars)).toEqual({ kind: 'scroll', scrollLeft: 0 });
+  });
+
+  it('keeps rule 81 for a future project whose start is past the initial window', () => {
+    // The gate the coverage ratio alone could not express. Today is 1507 and every
+    // bar sits ahead of it but past the [scrollLeft, scrollLeft + viewport] window,
+    // so coverage is 0 — yet fitting here would zoom out over months of nothing
+    // before the start, and the work is one scroll-right away. Only a project with
+    // mass *behind* today opens on canvas the user cannot scroll to.
+    const bars: RowBar[] = [
+      { x0: 4000, x1: 4200 },
+      { x0: 4300, x1: 4600 },
+    ];
+    expect(framedBarCoverage(bars, 1232, 2332)).toBe(0);
+    expect(computeInitialFraming(1507, 1100, 2812, bars)).toEqual({
+      kind: 'scroll',
+      scrollLeft: 1232,
+    });
+  });
+
+  it('reports none when there is nothing to frame, without consulting coverage', () => {
+    // maxScroll <= 0: the whole chart already fits, so both scrolling and fitting
+    // are no-ops and the default view is already correct (#2004).
+    expect(computeInitialFraming(1507, 1100, 0, barsBehind())).toEqual({ kind: 'none' });
+  });
+
+  it('frames on today when every visible row is unscheduled', () => {
+    // No bar anywhere means fitToProject has nothing better to offer, so the
+    // near-term context of rule 81 remains the most useful default.
+    expect(computeInitialFraming(1507, 1100, 2812, [null, null, null])).toEqual({
+      kind: 'scroll',
+      scrollLeft: 1232,
+    });
   });
 });

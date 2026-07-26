@@ -408,8 +408,11 @@ test.describe('Schedule zoom & pan (#351 / #491)', () => {
       )
       .toBeGreaterThan(0);
 
+    // Capture the offset rather than asserting 0: initial framing (#2423) now
+    // deliberately positions the viewport on load, so the starting offset is the
+    // framing's business, not this spec's. What this spec owns is that the pan
+    // *moves* it, so the assertion below is relative to whatever it starts at.
     const startScrollLeft = await scroll.evaluate((el) => (el as HTMLElement).scrollLeft);
-    expect(startScrollLeft).toBe(0);
 
     // Dispatch the pointer sequence the engine listens for on the interaction
     // canvas. Middle button (button:1, buttons:4) claims the pan immediately and
@@ -453,7 +456,7 @@ test.describe('Schedule zoom & pan (#351 / #491)', () => {
     // the pan delta to the real scroll container.
     await expect
       .poll(async () => scroll.evaluate((el) => (el as HTMLElement).scrollLeft))
-      .toBeGreaterThan(0);
+      .toBeGreaterThan(startScrollLeft);
   });
 });
 

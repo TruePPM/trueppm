@@ -16,7 +16,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { setSearchParam } from '@/hooks/useUrlSelectedId';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
-import { computeInitialScrollLeft } from './scheduleUtils';
+import { computeInitialFraming, type RowBar } from './scheduleUtils';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useScheduleStore } from '@/stores/scheduleStore';
@@ -1014,18 +1014,49 @@ export function ScheduleView() {
     if (!engine || !scheduleScales) return;
     const container = canvasScrollRef.current;
     if (!container) return;
+
+    // Two readiness gates, both of which must leave the effect ARMED rather than
+    // decide on incomplete input — deciding early and disarming would frame the
+    // wrong way permanently, and deciding early without disarming is the race
+    // that let a late fitToProject() yank a viewport the user had already zoomed.
+    //
+    // 1. Not scrollable yet: the scroll spacer has not reached full width (#2004),
+    //    so maxScroll reads 0 and every offset would clamp to it.
+    const maxScroll = container.scrollWidth - container.clientWidth;
+    if (maxScroll <= 0) return;
+    // 2. No tasks yet: coverage is a statement about the rows the user will see,
+    //    which cannot be judged against an empty grid.
+    if (visibleTasks.length === 0) return;
+
     const todayX = dateToLeft(new Date().toISOString().slice(0, 10), scheduleScales);
-    const target = computeInitialScrollLeft(
-      todayX,
-      container.clientWidth,
-      container.scrollWidth - container.clientWidth,
-    );
-    // null → nothing to frame (chart fits, or today is entirely off the chart —
-    // a finished/future project); leave the default project-start view.
-    if (target === null) return;
-    container.scrollLeft = target;
+
+    // The rows that will actually be on screen at scrollTop = 0 — the ones whose
+    // emptiness the user reads as "the schedule is broken" (#2423).
+    const rowsInView = Math.max(1, Math.ceil((container.clientHeight - HEADER_HEIGHT) / ROW_HEIGHT));
+    const bars: (RowBar | null)[] = visibleTasks.slice(0, rowsInView).map((t) => {
+      if (!t.start || !t.finish) return null;
+      return { x0: dateToLeft(t.start, scheduleScales), x1: dateToLeft(t.finish, scheduleScales) };
+    });
+
+    const framing = computeInitialFraming(todayX, container.clientWidth, maxScroll, bars);
+
+    // Past the gates every outcome is a real decision, so disarm before acting on
+    // it: a later `visibleTasks` change must not re-frame and steal a viewport the
+    // user has since zoomed or panned.
     didInitialFrameRef.current = true;
-  }, [engine, scheduleScales]);
+
+    // 'none' → today is entirely off the chart (a finished project); leave the
+    // default project-start view.
+    if (framing.kind === 'none') return;
+    if (framing.kind === 'fit') {
+      // Framing on today would have opened on mostly-empty canvas, so show the
+      // project instead. fitToProject drives the engine's own scale, so the
+      // container's scrollLeft is not ours to set here.
+      engine.fitToProject();
+    } else {
+      container.scrollLeft = framing.scrollLeft;
+    }
+  }, [engine, scheduleScales, visibleTasks]);
 
   // Drag CPM preview — wires engine events + Web Worker (issue #19). Uses the
   // full dependency graph (`allLinks`), NOT the paint-filtered `links`: the live
