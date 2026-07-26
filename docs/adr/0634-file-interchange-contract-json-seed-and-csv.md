@@ -140,6 +140,24 @@ We document the Excel workaround instead of making the format ambiguous.
 - The whole import is one `transaction.atomic()`; a file-level failure never leaves a
   partial object graph.
 
+**One shape, two strictness policies.** The row-level split above is a **CSV** tier. The
+JSON seed has no counterpart and must not grow one: it is fatal-only, so a seed either
+imports whole or not at all. That asymmetry is the decision, not an inconsistency to be
+tidied away later —
+
+- A seed is machine-generated and declares its own `schema_version`. A dangling reference
+  means the file is not what it claims to be, and degrading would let it import
+  "successfully" minus some dependencies, destroying the ADR-0109 byte-identical
+  round-trip guarantee that makes it the fidelity format.
+- A spreadsheet is typed by a person and always has a few bad cells. Rejecting a 4,000-row
+  sheet over one unparseable date would make CSV import useless, and CSV import is the
+  migration path for teams whose plan lives in Excel (#111).
+
+What must stay identical between the two is the diagnostic **shape** — a stable
+machine-readable code, a location, a severity, and a human-readable message — so one
+client renders a report from either importer without knowing which produced it. Spec
+§6.6 carries the normative statement; #2420 implements it.
+
 ### 5. Integrity and confidentiality are named now, built later — and 0.4 ships neither
 
 This ADR fixes the *design intent* so that the 0.4 posture is a stated choice, and so
