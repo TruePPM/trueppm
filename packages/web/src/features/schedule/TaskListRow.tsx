@@ -10,7 +10,7 @@ import type { Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
 import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
-import { useScheduleStore } from '@/stores/scheduleStore';
+import { useScheduleStore, type ScheduleActionToast } from '@/stores/scheduleStore';
 import { toast } from '@/components/Toast';
 import {
   useUpdateTask,
@@ -715,6 +715,495 @@ function TaskDataCells({
   );
 }
 
+/**
+ * Local inline-rename state for the flag-off path (Build Mode drives the richer
+ * EditableCell instead). Split out of TaskListRowInner (#2081): the state, the
+ * "+ Phase" auto-edit effect and the focus-on-activate step move together
+ * because they are one unit — every branch and dependency array is verbatim.
+ */
+function useRowInlineEdit(ctx: {
+  task: Task;
+  projectId: string;
+  updateTask: UpdateTaskMutation;
+  startInlineEditOnMount: boolean;
+  onAutoEditConsumed?: () => void;
+}) {
+  const { task, projectId, updateTask, startInlineEditOnMount, onAutoEditConsumed } = ctx;
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = useCallback(() => {
+    setEditValue(task.name);
+    setIsEditing(true);
+  }, [task.name]);
+
+  // "+ Phase" auto-edit (issue #1754): a freshly created phase (or its first
+  // structural child) drops straight into the same inline rename input a
+  // double-click reaches — but only outside Build Mode (ScheduleView only
+  // sets `startInlineEditOnMount` when Build Mode is off; when it's on,
+  // `focus.enterCellEdit` drives the richer EditableCell path instead). The
+  // ref guards against re-firing if this row re-renders with the prop still
+  // true before the parent clears it.
+  const autoEditFiredRef = useRef(false);
+  useEffect(() => {
+    if (startInlineEditOnMount && !autoEditFiredRef.current) {
+      autoEditFiredRef.current = true;
+      startEdit();
+      onAutoEditConsumed?.();
+    }
+  }, [startInlineEditOnMount, startEdit, onAutoEditConsumed]);
+
+  // Focus and select when edit mode activates (avoids jsx-a11y/no-autofocus)
+  const prevEditingRef = useRef(false);
+  if (isEditing && !prevEditingRef.current && inputRef.current) {
+    inputRef.current.focus();
+    inputRef.current.select();
+  }
+  prevEditingRef.current = isEditing;
+
+  const commitEdit = useCallback(() => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== task.name) {
+      updateTask.mutate({ id: task.id, projectId, name: trimmed });
+    }
+    setIsEditing(false);
+  }, [editValue, task.id, task.name, projectId, updateTask]);
+
+  const cancelEdit = useCallback(() => {
+    setIsEditing(false);
+  }, []);
+
+  return { isEditing, editValue, setEditValue, inputRef, startEdit, commitEdit, cancelEdit };
+}
+
+/**
+ * Per-cell Build Mode focus/edit flags. Split out of TaskListRowInner (#2081) —
+ * each `?? false` fallback preserves the flag-off behavior when the
+ * BuildModeProvider is not mounted.
+ */
+function useBuildCellState(buildMode: BuildMode | null, taskId: string) {
+  const isBuildSelected = buildMode?.focus.isRowFocused(taskId) ?? false;
+  const editingColumnName = buildMode?.focus.isCellInEdit(taskId, 'name') ?? false;
+  const editingColumnDuration = buildMode?.focus.isCellInEdit(taskId, 'duration') ?? false;
+  const editingColumnProgress = buildMode?.focus.isCellInEdit(taskId, 'progress') ?? false;
+  const anyCellInEdit = editingColumnName || editingColumnDuration || editingColumnProgress;
+  return {
+    isBuildSelected,
+    editingColumnName,
+    editingColumnDuration,
+    editingColumnProgress,
+    anyCellInEdit,
+  };
+}
+
+/**
+ * #344: start/stop the build ghost bar as the name cell enters/exits edit mode.
+ * Split out of TaskListRowInner (#2081) — the 5-day inclusive default bar and
+ * the cleanup-on-unmount contract are verbatim.
+ */
+function useBuildGhostBar(buildMode: BuildMode | null, editingColumnName: boolean, taskId: string) {
+  const startBuilding = useDragStore((s) => s.startBuilding);
+  const stopBuilding = useDragStore((s) => s.stopBuilding);
+  useEffect(() => {
+    if (!buildMode || !editingColumnName) {
+      stopBuilding();
+      return;
+    }
+    const today = localTodayIso();
+    const defaultFinish = addDaysISO(today, 4); // 5-day inclusive bar
+    startBuilding(taskId, today, defaultFinish);
+    return () => {
+      stopBuilding();
+    };
+    // startBuilding/stopBuilding are stable store actions, taskId/buildMode are deps that matter
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingColumnName, buildMode, taskId]);
+}
+
+/**
+ * #347: pointer handlers for the ⋮⋮ sibling-reorder handle. Split out of
+ * TaskListRowInner (#2081) — the row-height quantisation and every no-op guard
+ * (no handle down, unknown sibling, zero delta, clamped to range) are verbatim.
+ */
+function useRowReorderHandle(ctx: {
+  buildMode: BuildMode | null;
+  siblingIds: string[] | undefined;
+  task: Task;
+  reorderTasks: ReturnType<typeof useReorderTasks>;
+}) {
+  const { buildMode, siblingIds, task, reorderTasks } = ctx;
+  const reorderHandleRef = useRef<{ startY: number } | null>(null);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (!buildMode || !siblingIds) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    reorderHandleRef.current = { startY: e.clientY };
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!reorderHandleRef.current) return;
+    e.preventDefault();
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (!reorderHandleRef.current || !siblingIds) return;
+    const deltaY = e.clientY - reorderHandleRef.current.startY;
+    reorderHandleRef.current = null;
+    const deltaRows = Math.round(deltaY / ROW_HEIGHT);
+    if (deltaRows === 0) return;
+    const currentIdx = siblingIds.indexOf(task.id);
+    if (currentIdx === -1) return;
+    const newIdx = Math.max(0, Math.min(siblingIds.length - 1, currentIdx + deltaRows));
+    if (newIdx === currentIdx) return;
+    const newOrder = [...siblingIds];
+    newOrder.splice(currentIdx, 1);
+    newOrder.splice(newIdx, 0, task.id);
+    reorderTasks.mutate({ parent_path: wbsParentPath(task.wbs), ordered_ids: newOrder });
+  };
+
+  return { onPointerDown, onPointerMove, onPointerUp };
+}
+
+/**
+ * Mark-complete (#477) and Duplicate (#477) row actions. Split out of
+ * TaskListRowInner (#2081) — the celebrate-only-on-transition-into-complete
+ * capture, the progress-anchor 400 toast, the 4 s auto-clear (#362 pattern) and
+ * the ACTIVE-sprint Undo affordance (ADR-0066 Q2) are all verbatim.
+ */
+function useRowActions(ctx: {
+  projectId: string;
+  task: Task;
+  toggleComplete: ReturnType<typeof useToggleComplete>;
+  duplicateTask: ReturnType<typeof useDuplicateTask>;
+  updateTask: UpdateTaskMutation;
+  siblingNames: string[] | undefined;
+  sourceSprint: { id: string; name: string; state: string } | null | undefined;
+  setScheduleError: (message: string | null) => void;
+  setScheduleActionToast: (toast: ScheduleActionToast | null) => void;
+}) {
+  const {
+    projectId,
+    task,
+    toggleComplete,
+    duplicateTask,
+    updateTask,
+    siblingNames,
+    sourceSprint,
+    setScheduleError,
+    setScheduleActionToast,
+  } = ctx;
+
+  const handleToggleComplete = useCallback(() => {
+    if (!projectId || task.isMilestone) return;
+    // Captured before the optimistic flip: only celebrate the transition INTO
+    // complete, never un-completing. Warm toast fires on confirmed success.
+    const becomingComplete = task.status !== 'COMPLETE';
+    toggleComplete.mutate(
+      { id: task.id, projectId, previousStatus: task.status },
+      {
+        onSuccess: () => {
+          if (becomingComplete) toast.warm(`Nice — ${task.name} done.`);
+        },
+        onError: (err) => {
+          const anchor = parseProgressAnchorError(err);
+          setScheduleError(anchor?.detail ?? 'Failed to update task status.');
+          // Auto-clear the error toast after 4 s so it doesn't pin to the
+          // bottom of the screen indefinitely (#362 pattern).
+          setTimeout(() => setScheduleError(null), 4000);
+        },
+      },
+    );
+  }, [
+    projectId,
+    task.id,
+    task.name,
+    task.status,
+    task.isMilestone,
+    toggleComplete,
+    setScheduleError,
+  ]);
+
+  const handleDuplicate = useCallback(() => {
+    if (!projectId) return;
+    duplicateTask.mutate(
+      {
+        projectId,
+        source: {
+          name: task.name,
+          duration: task.duration,
+          parent_id: task.parentId,
+          sprint_id: task.sprintId ?? null,
+          is_milestone: task.isMilestone,
+        },
+        siblingNames: siblingNames ?? [],
+      },
+      {
+        onSuccess: (created) => {
+          if (sourceSprint && sourceSprint.state === 'ACTIVE') {
+            setScheduleActionToast({
+              message: `Added to ${sourceSprint.name}`,
+              action: {
+                label: 'Undo',
+                onClick: () => {
+                  updateTask.mutate({ id: created.id, projectId, sprint: null });
+                  setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
+                },
+              },
+            });
+          }
+        },
+        onError: () => {
+          setScheduleError('Failed to duplicate task.');
+          setTimeout(() => setScheduleError(null), 4000);
+        },
+      },
+    );
+  }, [
+    projectId,
+    task.name,
+    task.duration,
+    task.parentId,
+    task.sprintId,
+    task.isMilestone,
+    siblingNames,
+    sourceSprint,
+    duplicateTask,
+    updateTask,
+    setScheduleActionToast,
+    setScheduleError,
+  ]);
+
+  return { handleToggleComplete, handleDuplicate };
+}
+
+/**
+ * The ⋮⋮ sibling-reorder grip (#347) — build mode only, revealed on row hover or
+ * focus-within and always visible on touch. Split out of TaskListRowInner
+ * (#2081); markup and classes verbatim.
+ */
+function RowReorderHandle({
+  handlers,
+}: {
+  handlers: ReturnType<typeof useRowReorderHandle>;
+}) {
+  return (
+    <div
+      className="absolute left-0 inset-y-0 w-3.5 flex items-center justify-center z-10
+        opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100
+        transition-opacity cursor-grab active:cursor-grabbing
+        text-neutral-text-disabled hover:text-neutral-text-secondary"
+      title={`Drag to reorder  ·  ${REORDER_KEY}+↑/↓ keyboard`}
+      aria-hidden="true"
+      onPointerDown={handlers.onPointerDown}
+      onPointerMove={handlers.onPointerMove}
+      onPointerUp={handlers.onPointerUp}
+    >
+      <svg width="7" height="11" viewBox="0 0 7 11" fill="currentColor" aria-hidden="true">
+        <circle cx="1.5" cy="1.5" r="1.2" />
+        <circle cx="5.5" cy="1.5" r="1.2" />
+        <circle cx="1.5" cy="5.5" r="1.2" />
+        <circle cx="5.5" cy="5.5" r="1.2" />
+        <circle cx="1.5" cy="9.5" r="1.2" />
+        <circle cx="5.5" cy="9.5" r="1.2" />
+      </svg>
+    </div>
+  );
+}
+
+/**
+ * WBS column (#248). Split out of TaskListRowInner (#2081) — the character
+ * budget that drives the middle-ellipsis truncation is verbatim.
+ */
+function RowWbsCell({ wbs, widthPx }: { wbs: string; widthPx: number }) {
+  return (
+    <div
+      className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
+        text-right text-neutral-text-secondary tppm-mono pr-2 text-xs"
+      style={{ width: widthPx }}
+      role="gridcell"
+      aria-label={`WBS ${wbs}`}
+      title={wbs}
+    >
+      {truncateWbsPath(wbs, Math.max(3, Math.floor(widthPx / 8) - 1))}
+    </div>
+  );
+}
+
+/**
+ * Collapse/expand chevron for summary rows; a fixed-width spacer keeps leaf rows
+ * aligned. Split out of TaskListRowInner (#2081).
+ */
+function RowExpandChevron({
+  hasChildren,
+  isExpanded,
+  task,
+  onToggleId,
+  tabIndex,
+}: {
+  hasChildren: boolean;
+  isExpanded: boolean;
+  task: Task;
+  onToggleId?: (id: string) => void;
+  tabIndex: number;
+}) {
+  if (!hasChildren) return <span className="shrink-0 w-4 mr-0.5" aria-hidden="true" />;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggleId?.(task.id);
+      }}
+      tabIndex={tabIndex}
+      aria-expanded={isExpanded}
+      aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
+      className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
+        text-neutral-text-secondary hover:text-neutral-text-primary
+        focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary rounded-control"
+    >
+      <svg
+        width="8"
+        height="8"
+        viewBox="0 0 8 8"
+        fill="currentColor"
+        aria-hidden="true"
+        className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+      >
+        <path d="M2 1l4 3-4 3z" />
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * Properties button — absolutely positioned within the task column so it never
+ * overlaps the Dur·Start or % columns. Visible on hover/focus or when selected.
+ * Split out of TaskListRowInner (#2081).
+ */
+function RowPropertiesButton({
+  task,
+  isSelected,
+  tabIndex,
+  setSelectedTaskId,
+}: {
+  task: Task;
+  isSelected: boolean;
+  tabIndex: number;
+  setSelectedTaskId: (id: string | null) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={`Open properties for ${task.name}`}
+      title="Task properties"
+      tabIndex={tabIndex}
+      onClick={(e) => {
+        e.stopPropagation();
+        setSelectedTaskId(task.id);
+      }}
+      className={[
+        'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-control',
+        'text-neutral-text-secondary hover:text-neutral-text-primary',
+        'transition-opacity duration-100',
+        isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary',
+      ].join(' ')}
+    >
+      {/* Horizontal ellipsis */}
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+        <circle cx="2" cy="6" r="1.2" />
+        <circle cx="6" cy="6" r="1.2" />
+        <circle cx="10" cy="6" r="1.2" />
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * Row-container pointer/focus handlers. Split out of TaskListRowInner (#2081) so
+ * the branch-dense inline arrow functions live at module scope; each guard is
+ * verbatim.
+ */
+interface RowSurfaceCtx {
+  isEditing: boolean;
+  anyCellInEdit: boolean;
+  buildMode: BuildMode | null;
+  task: Task;
+  isSelected: boolean;
+  setSelectedTaskId: (id: string | null) => void;
+  startEdit: () => void;
+  setMenuAnchor: React.Dispatch<React.SetStateAction<{ x: number; y: number } | null>>;
+  onHoverChange?: (taskId: string | null) => void;
+}
+
+function handleRowClick(ctx: RowSurfaceCtx): void {
+  if (ctx.isEditing || ctx.anyCellInEdit) return;
+  if (ctx.buildMode) {
+    ctx.buildMode.focus.focusRow(ctx.task.id);
+  } else {
+    ctx.setSelectedTaskId(ctx.isSelected ? null : ctx.task.id);
+  }
+}
+
+function handleRowDoubleClick(ctx: RowSurfaceCtx): void {
+  if (ctx.buildMode) {
+    // Build-mode double-click → enter Name cell (consistent across all editable cells).
+    ctx.buildMode.focus.focusRow(ctx.task.id);
+    ctx.buildMode.focus.enterCellEdit(ctx.task.id, 'name');
+  } else {
+    ctx.startEdit();
+  }
+}
+
+function handleRowContextMenu(e: React.MouseEvent, ctx: RowSurfaceCtx): void {
+  if (!ctx.buildMode) return;
+  // #806: suppress right-click while a structural mutation (indent/outdent/
+  // delete) is in flight for this row. Opening the menu mid-delete strands
+  // the BuildModeRowMenu portal when the row unmounts on cache invalidation,
+  // which then blocks subsequent right-clicks on other rows until refresh.
+  if (ctx.buildMode.isMutationPending(ctx.task.id)) return;
+  e.preventDefault();
+  ctx.buildMode.focus.focusRow(ctx.task.id);
+  ctx.setMenuAnchor({ x: e.clientX, y: e.clientY });
+}
+
+function handleRowBlur(e: React.FocusEvent, ctx: RowSurfaceCtx): void {
+  // Only clear hover when focus actually leaves the row, not when it
+  // moves to a child element (e.g. EditableCell input).
+  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+    ctx.onHoverChange?.(null);
+  }
+}
+
+/**
+ * Row context-menu items, empty outside Build Mode (the menu only opens on a
+ * build-mode right-click). Split out of TaskListRowInner (#2081) so the
+ * flag-off empty-list branch lives beside the builder it guards.
+ */
+function buildRowMenuItemsFor(
+  buildMode: BuildMode | null,
+  ctx: Omit<RowMenuCtx, 'buildMode'>,
+): RowMenuItem[] {
+  if (!buildMode) return [];
+  return buildRowMenuItems({ ...ctx, buildMode });
+}
+
+/**
+ * Critical-path and summary emphasis for the task-name cell. Split out of
+ * TaskListRowInner (#2081); both class strings are verbatim.
+ */
+function taskNameStyles(task: Task): { isCriticalStyle: string; isSummaryStyle: string } {
+  return {
+    isCriticalStyle: task.isCritical
+      ? 'font-semibold text-semantic-critical'
+      : 'text-neutral-text-primary',
+    isSummaryStyle: task.isSummary ? 'font-medium' : '',
+  };
+}
+
 function TaskListRowInner({
   task,
   level,
@@ -769,50 +1258,14 @@ function TaskListRowInner({
   // effective `confirm` policy; never a modal, never on mobile, never on cascade.
   const [recalcPrompt, setRecalcPrompt] = useState<RecalcPromptState | null>(null);
 
-  const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const startEdit = useCallback(() => {
-    setEditValue(task.name);
-    setIsEditing(true);
-  }, [task.name]);
-
-  // "+ Phase" auto-edit (issue #1754): a freshly created phase (or its first
-  // structural child) drops straight into the same inline rename input a
-  // double-click reaches — but only outside Build Mode (ScheduleView only
-  // sets `startInlineEditOnMount` when Build Mode is off; when it's on,
-  // `focus.enterCellEdit` drives the richer EditableCell path instead). The
-  // ref guards against re-firing if this row re-renders with the prop still
-  // true before the parent clears it.
-  const autoEditFiredRef = useRef(false);
-  useEffect(() => {
-    if (startInlineEditOnMount && !autoEditFiredRef.current) {
-      autoEditFiredRef.current = true;
-      startEdit();
-      onAutoEditConsumed?.();
-    }
-  }, [startInlineEditOnMount, startEdit, onAutoEditConsumed]);
-
-  // Focus and select when edit mode activates (avoids jsx-a11y/no-autofocus)
-  const prevEditingRef = useRef(false);
-  if (isEditing && !prevEditingRef.current && inputRef.current) {
-    inputRef.current.focus();
-    inputRef.current.select();
-  }
-  prevEditingRef.current = isEditing;
-
-  const commitEdit = useCallback(() => {
-    const trimmed = editValue.trim();
-    if (trimmed && trimmed !== task.name) {
-      updateTask.mutate({ id: task.id, projectId, name: trimmed });
-    }
-    setIsEditing(false);
-  }, [editValue, task.id, task.name, projectId, updateTask]);
-
-  const cancelEdit = useCallback(() => {
-    setIsEditing(false);
-  }, []);
+  const { isEditing, editValue, setEditValue, inputRef, startEdit, commitEdit, cancelEdit } =
+    useRowInlineEdit({
+      task,
+      projectId,
+      updateTask,
+      startInlineEditOnMount,
+      onAutoEditConsumed,
+    });
 
   // ──────────────────────────────────────────────────────────────────────
   // Build-mode wiring (issues #338/#339/#341, gated on the flag — null when
@@ -824,14 +1277,9 @@ function TaskListRowInner({
 
   // #347: sibling reorder via Option/Alt+↑/↓ and ⋮⋮ handle
   const reorderTasks = useReorderTasks(projectId || null);
-  const reorderHandleRef = useRef<{ startY: number } | null>(null);
 
   // #343: name autocomplete state
   const [autocompleteQuery, setAutocompleteQuery] = useState('');
-
-  // #344: ghost bar store actions (effects wired below, after editingColumnName is declared)
-  const startBuilding = useDragStore((s) => s.startBuilding);
-  const stopBuilding = useDragStore((s) => s.stopBuilding);
 
   // #345: milestone date picker visibility
   const [showMilestonePicker, setShowMilestonePicker] = useState(false);
@@ -846,27 +1294,15 @@ function TaskListRowInner({
   // leaving the row. `priorSprintId` lets Undo revert the assignment.
   const [sprintOutcome, setSprintOutcome] = useState<SprintOutcome | null>(null);
 
-  const isBuildSelected = buildMode?.focus.isRowFocused(task.id) ?? false;
-  const editingColumnName = buildMode?.focus.isCellInEdit(task.id, 'name') ?? false;
-  const editingColumnDuration = buildMode?.focus.isCellInEdit(task.id, 'duration') ?? false;
-  const editingColumnProgress = buildMode?.focus.isCellInEdit(task.id, 'progress') ?? false;
-  const anyCellInEdit = editingColumnName || editingColumnDuration || editingColumnProgress;
+  const {
+    isBuildSelected,
+    editingColumnName,
+    editingColumnDuration,
+    editingColumnProgress,
+    anyCellInEdit,
+  } = useBuildCellState(buildMode, task.id);
 
-  // #344: start/stop build ghost bar when name cell enters/exits edit mode
-  useEffect(() => {
-    if (!buildMode || !editingColumnName) {
-      stopBuilding();
-      return;
-    }
-    const today = localTodayIso();
-    const defaultFinish = addDaysISO(today, 4); // 5-day inclusive bar
-    startBuilding(task.id, today, defaultFinish);
-    return () => {
-      stopBuilding();
-    };
-    // startBuilding/stopBuilding are stable store actions, task.id/buildMode are deps that matter
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingColumnName, buildMode, task.id]);
+  useBuildGhostBar(buildMode, editingColumnName, task.id);
 
   // Move keyboard focus to a sibling row by data-row-id selector. Used by both
   // the build-mode and flag-off arrow-key handlers so the destination row
@@ -892,155 +1328,31 @@ function TaskListRowInner({
       focusRowDom,
     });
 
-  // #347: ⋮⋮ drag handle pointer handlers
-  const handleReorderPointerDown = (e: React.PointerEvent) => {
-    if (!buildMode || !siblingIds) return;
-    e.preventDefault();
-    e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    reorderHandleRef.current = { startY: e.clientY };
-  };
+  const reorderHandlers = useRowReorderHandle({ buildMode, siblingIds, task, reorderTasks });
 
-  const handleReorderPointerMove = (e: React.PointerEvent) => {
-    if (!reorderHandleRef.current) return;
-    e.preventDefault();
-  };
-
-  const handleReorderPointerUp = (e: React.PointerEvent) => {
-    if (!reorderHandleRef.current || !siblingIds) return;
-    const deltaY = e.clientY - reorderHandleRef.current.startY;
-    reorderHandleRef.current = null;
-    const deltaRows = Math.round(deltaY / ROW_HEIGHT);
-    if (deltaRows === 0) return;
-    const currentIdx = siblingIds.indexOf(task.id);
-    if (currentIdx === -1) return;
-    const newIdx = Math.max(0, Math.min(siblingIds.length - 1, currentIdx + deltaRows));
-    if (newIdx === currentIdx) return;
-    const newOrder = [...siblingIds];
-    newOrder.splice(currentIdx, 1);
-    newOrder.splice(newIdx, 0, task.id);
-    reorderTasks.mutate({ parent_path: wbsParentPath(task.wbs), ordered_ids: newOrder });
-  };
-
-  const handleContextMenu = (e: React.MouseEvent) => {
-    if (!buildMode) return;
-    // #806: suppress right-click while a structural mutation (indent/outdent/
-    // delete) is in flight for this row. Opening the menu mid-delete strands
-    // the BuildModeRowMenu portal when the row unmounts on cache invalidation,
-    // which then blocks subsequent right-clicks on other rows until refresh.
-    if (buildMode.isMutationPending(task.id)) return;
-    e.preventDefault();
-    buildMode.focus.focusRow(task.id);
-    setMenuAnchor({ x: e.clientX, y: e.clientY });
-  };
-
-  // ──────────────────────────────────────────────────────────────────────
-  // Mark complete (#477) — Space toggle on focused row, also from context
-  // menu. Optimistic; surfaces progress-anchor 400 toast on rollback.
-  // ──────────────────────────────────────────────────────────────────────
-  const handleToggleComplete = useCallback(() => {
-    if (!projectId || task.isMilestone) return;
-    // Captured before the optimistic flip: only celebrate the transition INTO
-    // complete, never un-completing. Warm toast fires on confirmed success.
-    const becomingComplete = task.status !== 'COMPLETE';
-    toggleComplete.mutate(
-      { id: task.id, projectId, previousStatus: task.status },
-      {
-        onSuccess: () => {
-          if (becomingComplete) toast.warm(`Nice — ${task.name} done.`);
-        },
-        onError: (err) => {
-          const anchor = parseProgressAnchorError(err);
-          setScheduleError(anchor?.detail ?? 'Failed to update task status.');
-          // Auto-clear the error toast after 4 s so it doesn't pin to the
-          // bottom of the screen indefinitely (#362 pattern).
-          setTimeout(() => setScheduleError(null), 4000);
-        },
-      },
-    );
-  }, [
+  const { handleToggleComplete, handleDuplicate } = useRowActions({
     projectId,
-    task.id,
-    task.name,
-    task.status,
-    task.isMilestone,
+    task,
     toggleComplete,
-    setScheduleError,
-  ]);
-
-  // ──────────────────────────────────────────────────────────────────────
-  // Duplicate (#477) — frontend-only via POST /tasks/ with `(copy)` suffix,
-  // inheriting parent + sprint. ACTIVE-sprint duplicates surface an Undo
-  // toast so the PM can revert with one click (ADR-0066 Q2).
-  // ──────────────────────────────────────────────────────────────────────
-  const handleDuplicate = useCallback(() => {
-    if (!projectId) return;
-    duplicateTask.mutate(
-      {
-        projectId,
-        source: {
-          name: task.name,
-          duration: task.duration,
-          parent_id: task.parentId,
-          sprint_id: task.sprintId ?? null,
-          is_milestone: task.isMilestone,
-        },
-        siblingNames: siblingNames ?? [],
-      },
-      {
-        onSuccess: (created) => {
-          if (sourceSprint && sourceSprint.state === 'ACTIVE') {
-            setScheduleActionToast({
-              message: `Added to ${sourceSprint.name}`,
-              action: {
-                label: 'Undo',
-                onClick: () => {
-                  updateTask.mutate({ id: created.id, projectId, sprint: null });
-                  setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
-                },
-              },
-            });
-          }
-        },
-        onError: () => {
-          setScheduleError('Failed to duplicate task.');
-          setTimeout(() => setScheduleError(null), 4000);
-        },
-      },
-    );
-  }, [
-    projectId,
-    task.name,
-    task.duration,
-    task.parentId,
-    task.sprintId,
-    task.isMilestone,
-    siblingNames,
-    sourceSprint,
     duplicateTask,
     updateTask,
-    setScheduleActionToast,
+    siblingNames,
+    sourceSprint,
     setScheduleError,
-  ]);
+    setScheduleActionToast,
+  });
 
   const isComplete = task.status === 'COMPLETE';
-  const menuItems: RowMenuItem[] = buildMode
-    ? buildRowMenuItems({
-        buildMode,
-        task,
-        level,
-        isComplete,
-        onAddDependencyRequest,
-        handleToggleComplete,
-        handleDuplicate,
-      })
-    : [];
+  const menuItems: RowMenuItem[] = buildRowMenuItemsFor(buildMode, {
+    task,
+    level,
+    isComplete,
+    onAddDependencyRequest,
+    handleToggleComplete,
+    handleDuplicate,
+  });
 
-  const isCriticalStyle = task.isCritical
-    ? 'font-semibold text-semantic-critical'
-    : 'text-neutral-text-primary';
-
-  const isSummaryStyle = task.isSummary ? 'font-medium' : '';
+  const { isCriticalStyle, isSummaryStyle } = taskNameStyles(task);
 
   // Data-integrity warning (issue #317): a task that has reached IN_PROGRESS /
   // REVIEW / COMPLETE without a PM-committed `planned_start` is a data error,
@@ -1073,6 +1385,18 @@ function TaskListRowInner({
   const rovingRowTabIndex = rowTabIndex(isEditing || anyCellInEdit, isActiveRow);
   const rovingChildTabIndex = isActiveRow ? 0 : -1;
 
+  const surface: RowSurfaceCtx = {
+    isEditing,
+    anyCellInEdit,
+    buildMode,
+    task,
+    isSelected,
+    setSelectedTaskId,
+    startEdit,
+    setMenuAnchor,
+    onHoverChange,
+  };
+
   return (
     <div
       role="row"
@@ -1091,24 +1415,9 @@ function TaskListRowInner({
         dimmed,
         isStructuralPending,
       })}
-      onClick={() => {
-        if (isEditing || anyCellInEdit) return;
-        if (buildMode) {
-          buildMode.focus.focusRow(task.id);
-        } else {
-          setSelectedTaskId(isSelected ? null : task.id);
-        }
-      }}
-      onDoubleClick={() => {
-        if (buildMode) {
-          // Build-mode double-click → enter Name cell (consistent across all editable cells).
-          buildMode.focus.focusRow(task.id);
-          buildMode.focus.enterCellEdit(task.id, 'name');
-        } else {
-          startEdit();
-        }
-      }}
-      onContextMenu={handleContextMenu}
+      onClick={() => handleRowClick(surface)}
+      onDoubleClick={() => handleRowDoubleClick(surface)}
+      onContextMenu={(e) => handleRowContextMenu(e, surface)}
       onMouseEnter={() => onHoverChange?.(task.id)}
       onMouseLeave={() => onHoverChange?.(null)}
       onFocus={() => {
@@ -1118,13 +1427,7 @@ function TaskListRowInner({
         // overlay's onFocus → setFocusedTaskId).
         onRowFocus?.(task.id);
       }}
-      onBlur={(e) => {
-        // Only clear hover when focus actually leaves the row, not when it
-        // moves to a child element (e.g. EditableCell input).
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-          onHoverChange?.(null);
-        }
-      }}
+      onBlur={(e) => handleRowBlur(e, surface)}
       onKeyDown={(e) =>
         handleRowKeyDown(e, {
           sprintOutcome,
@@ -1146,42 +1449,10 @@ function TaskListRowInner({
       }
     >
       {/* ── ⋮⋮ reorder handle — build mode only, visible on row hover (#347) ── */}
-      {buildMode && siblingIds && (
-        <div
-          className="absolute left-0 inset-y-0 w-3.5 flex items-center justify-center z-10
-            opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100
-            transition-opacity cursor-grab active:cursor-grabbing
-            text-neutral-text-disabled hover:text-neutral-text-secondary"
-          title={`Drag to reorder  ·  ${REORDER_KEY}+↑/↓ keyboard`}
-          aria-hidden="true"
-          onPointerDown={handleReorderPointerDown}
-          onPointerMove={handleReorderPointerMove}
-          onPointerUp={handleReorderPointerUp}
-        >
-          <svg width="7" height="11" viewBox="0 0 7 11" fill="currentColor" aria-hidden="true">
-            <circle cx="1.5" cy="1.5" r="1.2" />
-            <circle cx="5.5" cy="1.5" r="1.2" />
-            <circle cx="1.5" cy="5.5" r="1.2" />
-            <circle cx="5.5" cy="5.5" r="1.2" />
-            <circle cx="1.5" cy="9.5" r="1.2" />
-            <circle cx="5.5" cy="9.5" r="1.2" />
-          </svg>
-        </div>
-      )}
+      {buildMode && siblingIds && <RowReorderHandle handlers={reorderHandlers} />}
 
       {/* ── WBS column (#248) ───────────────────────────────────────────────── */}
-      {visible.wbs && (
-        <div
-          className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
-            text-right text-neutral-text-secondary tppm-mono pr-2 text-xs"
-          style={{ width: widths.wbs }}
-          role="gridcell"
-          aria-label={`WBS ${task.wbs}`}
-          title={task.wbs}
-        >
-          {truncateWbsPath(task.wbs, Math.max(3, Math.floor(widths.wbs / 8) - 1))}
-        </div>
-      )}
+      {visible.wbs && <RowWbsCell wbs={task.wbs} widthPx={widths.wbs} />}
 
       {/* ── Task column ─────────────────────────────────────────────────────── */}
       {/* Positioned wrapper carries the WBS indent. Properties button lives here
@@ -1194,34 +1465,13 @@ function TaskListRowInner({
         style={{ width: widths.task, paddingLeft: (level - 1) * WBS_INDENT + 8 }}
       >
         {/* Collapse/expand chevron for summary tasks */}
-        {hasChildren ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleId?.(task.id);
-            }}
-            tabIndex={rovingChildTabIndex}
-            aria-expanded={isExpanded}
-            aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
-            className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
-              text-neutral-text-secondary hover:text-neutral-text-primary
-              focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary rounded-control"
-          >
-            <svg
-              width="8"
-              height="8"
-              viewBox="0 0 8 8"
-              fill="currentColor"
-              aria-hidden="true"
-              className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
-            >
-              <path d="M2 1l4 3-4 3z" />
-            </svg>
-          </button>
-        ) : (
-          <span className="shrink-0 w-4 mr-0.5" aria-hidden="true" />
-        )}
+        <RowExpandChevron
+          hasChildren={hasChildren}
+          isExpanded={isExpanded}
+          task={task}
+          onToggleId={onToggleId}
+          tabIndex={rovingChildTabIndex}
+        />
 
         {/* Milestone diamond indicator */}
         {task.isMilestone && (
@@ -1267,32 +1517,12 @@ function TaskListRowInner({
 
         {/* Properties button — absolute within the task column so it never overlaps
             the Dur·Start or % columns. Visible on hover/focus or when selected. */}
-        <button
-          type="button"
-          aria-label={`Open properties for ${task.name}`}
-          title="Task properties"
+        <RowPropertiesButton
+          task={task}
+          isSelected={isSelected}
           tabIndex={rovingChildTabIndex}
-          onClick={(e) => {
-            e.stopPropagation();
-            setSelectedTaskId(task.id);
-          }}
-          className={[
-            'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-control',
-            'text-neutral-text-secondary hover:text-neutral-text-primary',
-            'transition-opacity duration-100',
-            isSelected
-              ? 'opacity-100'
-              : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary',
-          ].join(' ')}
-        >
-          {/* Horizontal ellipsis */}
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-            <circle cx="2" cy="6" r="1.2" />
-            <circle cx="6" cy="6" r="1.2" />
-            <circle cx="10" cy="6" r="1.2" />
-          </svg>
-        </button>
+          setSelectedTaskId={setSelectedTaskId}
+        />
       </div>
 
       <TaskDataCells
