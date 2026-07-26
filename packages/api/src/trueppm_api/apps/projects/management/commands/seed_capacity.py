@@ -32,6 +32,7 @@ from datetime import date
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
@@ -145,6 +146,10 @@ class Command(BaseCommand):
                 password=CAPACITY_OWNER_PASSWORD,
             )
         else:
+            # Held to the configured validators like any other credential: the
+            # constant is weak by design but must still clear the project's bar,
+            # so weakening it later fails here rather than silently shipping.
+            validate_password(CAPACITY_OWNER_PASSWORD, user=owner)
             owner.set_password(CAPACITY_OWNER_PASSWORD)
             owner.save(update_fields=["password"])
         return owner
@@ -182,6 +187,9 @@ class Command(BaseCommand):
             raise CommandError(f"reset failed: {remaining} capacity project(s) still present")
 
     def _build_program(self, owner: Any) -> Program:
+        # ``Program.code`` is deliberately non-unique at the DB level (#2025), so
+        # this lookup cannot be constraint-backed.
+        # get-or-create-ok: local capacity harness, fixed constant code, single-writer CLI
         program, _ = Program.objects.get_or_create(
             code=CAPACITY_PROGRAM_CODE,
             defaults={"name": "Capacity envelope"},
