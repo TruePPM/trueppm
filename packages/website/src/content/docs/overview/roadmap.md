@@ -121,6 +121,13 @@ we ask anyone to run a real project on, and a beta earns that by being *finished
 being *large*. Six standing audits — UX, accessibility, voice-of-customer, red-team,
 settings, and security — fed the queue rather than a feature backlog.
 
+0.4 is also the first release to publish a **[tested scale envelope](/administration/sizing/#tested-envelope)** (#2391): measured
+capacity per dimension, the issue that sets each ceiling, and an explicit list of what
+was *not* tested. A beta that invites people to put a real program on their own hardware
+owes them a number rather than silence — including the number that is currently
+unflattering. In 0.4 a project stays comfortable in the Schedule view to roughly
+**1,000 tasks**, bounded by the whole-project client load (#2277).
+
 - **Accessibility remediation** (#1685 #2202) — focus traps across roughly twenty dialogs,
   44px touch targets on the board and schedule surfaces, contrast fixes in both light and
   dark themes, live-region announcements for route changes and async writes, and keyboard

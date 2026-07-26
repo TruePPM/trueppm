@@ -1,0 +1,94 @@
+{
+  "gates": {
+    "p95_ms": 2000.0,
+    "error_rate": 0.01,
+    "control_p95_ms": 150.0
+  },
+  "host": {
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "cpu_count": 10,
+    "load_avg_at_finish": [
+      10.44,
+      9.23,
+      11.25
+    ],
+    "note": "Shared developer workstation, not an idle host. Every step carries its own control measurement and load average; steps flagged `contaminated` were measured while the host was busy and must not be published as capacity numbers."
+  },
+  "git_sha": "89fc5137f387f8a526cf3c55d6b3d89156b8d2fd",
+  "base_url": "http://127.0.0.1:28000",
+  "dimensions": [
+    {
+      "dimension": "workspace_totals",
+      "description": "Many projects in one program; measures the project-list read.",
+      "steps": [
+        {
+          "step": "5x500",
+          "label": "5 projects / 2500 tasks",
+          "n": 25,
+          "p50_ms": 36.8,
+          "p95_ms": 40.9,
+          "p99_ms": 201.3,
+          "max_ms": 201.3,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 15.8,
+          "load_avg": 9.81,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": "10x1000",
+          "label": "10 projects / 10000 tasks",
+          "n": 25,
+          "p50_ms": 36.1,
+          "p95_ms": 42.6,
+          "p99_ms": 43.8,
+          "max_ms": 43.8,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 15.7,
+          "load_avg": 9.31,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": "25x1000",
+          "label": "25 projects / 25000 tasks",
+          "n": 25,
+          "p50_ms": 44.7,
+          "p95_ms": 50.5,
+          "p99_ms": 61.0,
+          "max_ms": 61.0,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 17.2,
+          "load_avg": 8.9,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": "50x1000",
+          "label": "50 projects / 50000 tasks",
+          "n": 25,
+          "p50_ms": 53.1,
+          "p95_ms": 58.0,
+          "p99_ms": 169.0,
+          "max_ms": 169.0,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 16.8,
+          "load_avg": 10.44,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        }
+      ],
+      "ceiling": null,
+      "constraint": "#1482 \u2014 the project list is the known N+1 path"
+    }
+  ]
+}

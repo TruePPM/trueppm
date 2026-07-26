@@ -1,0 +1,110 @@
+{
+  "gates": {
+    "p95_ms": 2000.0,
+    "error_rate": 0.01,
+    "control_p95_ms": 150.0
+  },
+  "host": {
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "cpu_count": 10,
+    "load_avg_at_finish": [
+      6.96,
+      11.33,
+      13.97
+    ],
+    "note": "Shared developer workstation, not an idle host. Every step carries its own control measurement and load average; steps flagged `contaminated` were measured while the host was busy and must not be published as capacity numbers."
+  },
+  "git_sha": "89fc5137f387f8a526cf3c55d6b3d89156b8d2fd",
+  "base_url": "http://127.0.0.1:28000",
+  "dimensions": [
+    {
+      "dimension": "tasks_per_project",
+      "description": "Single project re-seeded at each size. Measures the schedule-open read path (paginated task list), which is what the Gantt fetches on open.",
+      "steps": [
+        {
+          "step": 500,
+          "label": "500 tasks \u2014 first page",
+          "n": 30,
+          "p50_ms": 265.6,
+          "p95_ms": 348.2,
+          "p99_ms": 402.2,
+          "max_ms": 402.2,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 16.5,
+          "load_avg": 18.45,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": 1000,
+          "label": "1000 tasks \u2014 first page",
+          "n": 30,
+          "p50_ms": 496.5,
+          "p95_ms": 574.7,
+          "p99_ms": 578.9,
+          "max_ms": 578.9,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 24.0,
+          "load_avg": 16.51,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": 2000,
+          "label": "2000 tasks \u2014 first page",
+          "n": 30,
+          "p50_ms": 1015.3,
+          "p95_ms": 1189.4,
+          "p99_ms": 1470.2,
+          "max_ms": 1470.2,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 49.5,
+          "load_avg": 14.2,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": 4000,
+          "label": "4000 tasks \u2014 first page",
+          "n": 30,
+          "p50_ms": 1697.4,
+          "p95_ms": 1991.7,
+          "p99_ms": 2277.2,
+          "max_ms": 2277.2,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 42.9,
+          "load_avg": 12.34,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": 8000,
+          "label": "8000 tasks \u2014 first page",
+          "n": 30,
+          "p50_ms": 7108.4,
+          "p95_ms": 8252.7,
+          "p99_ms": 9047.9,
+          "max_ms": 9047.9,
+          "error_rate": 0.0,
+          "breached": true,
+          "control_p95_ms": 30.0,
+          "load_avg": 6.96,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        }
+      ],
+      "ceiling": 8000,
+      "constraint": "#2277 \u2014 the Schedule loads the whole project into memory via fetchAllPagesParallel"
+    }
+  ]
+}
