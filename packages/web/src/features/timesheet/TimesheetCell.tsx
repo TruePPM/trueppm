@@ -235,10 +235,13 @@ function EditableCell({
         // Popover, not in-flow, so the reason reads at a legible width without
         // stretching the narrow day column or the row height. A 4xx validation
         // error is shown here — never through the global sync badge (#1945).
+        // Opaque `bg-neutral-surface`, not the translucent `bg-semantic-critical-bg`
+        // (web-rule 286): it overhangs the neighbouring day cells, whose digits
+        // would otherwise read through the message.
         <span
           id={errorId}
           role="alert"
-          className="absolute right-0 top-full z-20 mt-0.5 w-max max-w-[14rem] rounded-control border border-semantic-critical/40 bg-semantic-critical-bg px-2 py-1 text-left text-xs font-normal leading-tight text-semantic-critical shadow-pop"
+          className="absolute right-0 top-full z-20 mt-0.5 w-max max-w-[14rem] rounded-control border border-semantic-critical/40 bg-neutral-surface px-2 py-1 text-left text-xs font-normal leading-tight text-semantic-critical shadow-pop"
         >
           {errorText}
         </span>

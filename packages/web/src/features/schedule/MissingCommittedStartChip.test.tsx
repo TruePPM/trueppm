@@ -89,6 +89,23 @@ describe('MissingCommittedStartChip', () => {
     expect(mutate).not.toHaveBeenCalled();
   });
 
+  it('gives the portaled popover an opaque surface, not a translucent semantic fill (rule 286)', async () => {
+    const user = userEvent.setup();
+    renderChip(true);
+    await user.click(screen.getByTestId('missing-dates-chip'));
+    const dialog = await screen.findByRole('dialog');
+
+    // The panel floats over the task list, so an 8-15%-alpha `-bg` token would let
+    // the rows behind it read through the copy (#2447). The warning tone stays on
+    // the border and heading, which is what keeps color off the sole-signal path.
+    expect(dialog).toHaveClass('bg-neutral-surface');
+    expect(dialog.className).not.toMatch(/bg-semantic-[a-z-]+-bg/);
+    expect(dialog).toHaveClass('border-semantic-at-risk');
+
+    // The in-flow trigger chip is rule 8b's sanctioned use and must NOT change.
+    expect(screen.getByTestId('missing-dates-chip')).toHaveClass('bg-semantic-at-risk-bg');
+  });
+
   it('surfaces an offline error and keeps the dialog open (rule 29)', async () => {
     Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
     const user = userEvent.setup();
