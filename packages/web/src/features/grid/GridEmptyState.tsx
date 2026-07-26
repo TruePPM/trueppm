@@ -57,8 +57,12 @@ export function GridFilteredEmptyState({
   // Only worth diagnosing when the intersection is the culprit. One facet with
   // zero rows is self-explanatory.
   const diagnose = facets.length >= 2;
+  // Seeded with the first facet (guaranteed present by `diagnose`) so the
+  // best-recovery fold can never run against an empty array — the guard and the
+  // fold are separate statements, and an unseeded reduce would turn any future
+  // loosening of `diagnose` into a render throw inside the Grid.
   const best = diagnose
-    ? facets.reduce((a, b) => (b.recoveredCount > a.recoveredCount ? b : a))
+    ? facets.reduce((a, b) => (b.recoveredCount > a.recoveredCount ? b : a), facets[0])
     : undefined;
   const countWord = COUNT_WORD[facets.length] ?? `all ${facets.length}`;
 
