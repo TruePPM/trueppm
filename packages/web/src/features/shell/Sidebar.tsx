@@ -42,6 +42,7 @@ import {
   SettingsIcon,
   OverviewIcon,
   ListIcon,
+  TagIcon,
   WbsIcon,
   GanttIcon,
   ResourcesIcon,
@@ -131,6 +132,7 @@ const PROGRAM_VIEWS: {
 }[] = [
   { view: 'overview', label: 'Overview', Icon: OverviewIcon },
   { view: 'backlog', label: 'Backlog', Icon: ListIcon },
+  { view: 'labels', label: 'Labels', Icon: TagIcon },
   { view: 'projects', label: 'Projects', Icon: WbsIcon },
   { view: 'schedule', label: 'Schedule', Icon: GanttIcon },
   { view: 'resources', label: 'Resources', Icon: BarChartIcon },

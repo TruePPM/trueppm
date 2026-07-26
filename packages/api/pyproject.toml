@@ -239,9 +239,17 @@ ignore = ["RUF002", "RUF003"]
 "*/models.py" = ["RUF012"]
 "*/serializers.py" = ["RUF012"]
 "*/views.py" = ["RUF012"]
-# `program_views.py` is a DRF viewset module too — the `*/views.py` glob misses it
-# by filename, so the same ViewSet-attribute exemption is declared explicitly.
+# `program_views.py` and `program_label_views.py` are DRF viewset modules too —
+# the `*/views.py` glob misses them by filename, so the same ViewSet-attribute
+# exemption is declared explicitly.
+#
+# A `*_views.py` suffix glob would cover the whole family and stop this list
+# growing, but the other per-domain view modules already carry inline
+# `# noqa: RUF012` directives; broadening the glob turns all 26 of them into
+# RUF100 "unused noqa" errors. That cleanup is worth doing on its own branch,
+# not smuggled into a feature.
 "*/program_views.py" = ["RUF012"]
+"*/program_label_views.py" = ["RUF012"]
 
 [tool.coverage.run]
 # CI runs api:test as 4 parallel shards (each writes .coverage.<n>) and stitches

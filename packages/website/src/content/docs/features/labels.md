@@ -45,6 +45,36 @@ The Table / Grid toolbar carries three facets, reading left to right: **Owner**,
 
 Both selections ride the URL as `?owner=<id>[,<id>…]` and `?status=<STATUS>[,…]`, alongside `?fl=`, so the whole filtered view is one shareable link. **Links made before these controls existed keep working** — a single value is simply a one-item list, and an `?owner=` carrying a person's name still resolves.
 
+## Finding a label across a program
+
+Labels are project-scoped, so `security-review` in one project is a different
+catalog entry from `security-review` in another — different id, and possibly a
+different color. The **Labels** view on a program answers the question that
+spans them: *everything tagged `security-review` anywhere in this program*.
+
+Open a program and choose **Labels**. Pick a label name and the matching tasks
+appear grouped by project, in plan order within each group. Matching is by
+**name and case-insensitive**, so `Security-Review` and `security-review` are
+treated as one concept rather than two.
+
+Three things are worth knowing before you rely on it:
+
+- **The same label can appear in different colors.** Each row shows its own
+  project's pill, in that project's color, because color is a per-project
+  choice and there is no canonical answer across projects. The view says so
+  inline when a result set actually spans more than one color.
+- **You may not see everything.** Being a member of the *program* is what opens
+  this view; being a member of each *project* is what fills it. If some of the
+  program's projects are ones you do not belong to, the view tells you how many
+  were left out rather than quietly showing a short list.
+- **It is scoped to one program, deliberately.** There is no "across all
+  programs" version in the community edition — cross-program rollup is
+  portfolio governance rather than program management.
+
+The counts in the label picker are the number of **projects** carrying that
+name, not the number of tasks — the picker's job is to show you where a label
+is in use.
+
 ## Creating and assigning labels
 
 Any **team member or above** can create a label — coin `needs-design` mid-retro without filing a ticket. Each project has a soft cap on the number of label definitions (50 by default, configurable by the operator) to keep the vocabulary from sprawling.
@@ -95,11 +125,20 @@ Labels sync to the offline store like the rest of the schedule: the label catalo
 
 ## For integrations and agents
 
-Labels are first-class API objects. A read-only MCP client (or any API consumer) can read a task's labels, and filter the task list by them with `GET /api/v1/tasks/?labels=<id>[,<id>…]` — a comma-separated list of label UUIDs returns tasks carrying **any** of them (OR), the same semantics as the board's label facet. Labels are project-scoped, so results stay within the projects you can already see. Writing labels from an agent — attaching or detaching them — arrives with the MCP write surface in a later release.
+Labels are first-class API objects. A read-only MCP client (or any API consumer) can read a task's labels, and filter the task list by them with `GET /api/v1/tasks/?labels=<id>[,<id>…]` — a comma-separated list of label UUIDs returns tasks carrying **any** of them (OR), the same semantics as the board's label facet. Labels are project-scoped, so results stay within the projects you can already see.
+
+Across a program, two read-only endpoints back the program Labels view:
+
+- `GET /api/v1/programs/{program_id}/label-tasks/?label=<name>` — tasks in that program carrying the label **name** (case-insensitive), paginated, each row carrying the project it belongs to. The response also reports `withheld_project_count`, the number of the program's projects excluded because you are not a member of them.
+- `GET /api/v1/programs/{program_id}/label-catalog/` — the distinct label names in the program, each with the number of projects using it.
+
+The program id is part of the **path**, not a query parameter, and that is deliberate: it means there is no way to widen the request to "every program at once" by omitting a filter.
+
+Writing labels from an agent — attaching or detaching them — arrives with the MCP write surface in a later release.
 
 ## Not in the first release
 
 - Labels do not yet appear in the **schedule PDF export** or color the **Gantt bars** — that is planned as a follow-up.
 - The **schedule / Gantt** view does not yet carry the Label facet. When it lands it will **dim** non-matching rows rather than hide them, because a filtered-out task still drives the dates of the ones that remain.
-- A **cross-project** "tasks with label X" view does not exist. Labels are project-scoped, so filtering is always within one project.
+- A **workspace-wide** "tasks with label X" view does not exist — cross-project search is scoped to a single program (see [Finding a label across a program](#finding-a-label-across-a-program)).
 - Label colors are chosen from the fixed palette; free hex colors are not supported.

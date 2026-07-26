@@ -626,6 +626,7 @@ describe('Sidebar rail — Tier 2 "This program" (#1920)', () => {
   const PROGRAM_VIEWS = [
     'Overview',
     'Backlog',
+    'Labels',
     'Projects',
     'Schedule',
     'Resources',
@@ -638,7 +639,7 @@ describe('Sidebar rail — Tier 2 "This program" (#1920)', () => {
     mockUseProgramId.mockReturnValue('prog1');
   });
 
-  it('renders the "This program" header card + ALL eight program-view links', () => {
+  it('renders the "This program" header card + ALL nine program-view links', () => {
     renderRail();
     expect(screen.getByText('This program')).toBeInTheDocument();
     // Header card shows the active program's name (from usePrograms).
