@@ -48270,7 +48270,7 @@
             },
             "ProgramRollupConfig": {
                 "type": "object",
-                "description": "GET/PATCH payload for ``/api/v1/programs/{id}/rollup-config/`` (ADR-0169).\n\nBoth fields are partial-updatable. ``enabled_kpis`` is validated against\nthe closed ``RollupKpi`` enum — unknown identifiers raise 400 rather than\nbeing silently dropped, which would leave the UI and the server in\ndifferent states.",
+                "description": "GET/PATCH payload for ``/api/v1/programs/{id}/rollup-config/`` (ADR-0169).\n\nBoth writable fields are partial-updatable. ``enabled_kpis`` is validated\nagainst the closed ``RollupKpi`` enum — unknown identifiers raise 400 rather\nthan being silently dropped, which would leave the UI and the server in\ndifferent states.\n\n``unavailable_kpis`` is read-only and publishes which enum members cannot\nproduce a value yet, so the picker can disable them instead of offering a\nswitch that does nothing (#2404). It is deliberately *not* enforced on write:\na program whose stored ``enabled_kpis`` already contains a deferred KPI must\nkeep round-tripping its own config (the client PATCHes the whole array when\ntoggling any other KPI), so rejecting those values here would turn a stale\nconfig into a hard 400 on an unrelated edit. The rollup itself already\ndegrades cleanly, returning ``{\"available\": false, \"reason\": ...}``.",
                 "properties": {
                     "enabled_kpis": {
                         "type": "array",
@@ -48282,11 +48282,20 @@
                     },
                     "aggregation_policy": {
                         "$ref": "#/components/schemas/AggregationPolicyEnum"
+                    },
+                    "unavailable_kpis": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "description": "KPI identifier → stable machine reason it cannot produce a value yet (e.g. no_cost_data, no_montecarlo_store). Same reason strings the /rollup/ response returns for a deferred KPI. Empty once every KPI has a backing source.",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "aggregation_policy",
-                    "enabled_kpis"
+                    "enabled_kpis",
+                    "unavailable_kpis"
                 ]
             },
             "ProgramUserDefinedMentionGroupRead": {

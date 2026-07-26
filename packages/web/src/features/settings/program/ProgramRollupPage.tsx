@@ -19,6 +19,7 @@ import {
   useToggleProgramRollupKpi,
   type AggregationPolicy,
   type RollupKpi,
+  type UnavailableKpiReason,
 } from './useProgramRollupConfig';
 
 interface KpiMeta {
@@ -139,11 +140,13 @@ function Toggle({
   onToggle,
   disabled,
   ariaLabel,
+  describedBy,
 }: {
   on: boolean;
   onToggle: () => void;
   disabled: boolean;
   ariaLabel: string;
+  describedBy?: string;
 }) {
   return (
     <button
@@ -151,6 +154,7 @@ function Toggle({
       role="switch"
       aria-checked={on}
       aria-label={ariaLabel}
+      aria-describedby={describedBy}
       aria-disabled={disabled || undefined}
       onClick={() => {
         if (!disabled) onToggle();
@@ -177,6 +181,23 @@ function Toggle({
 interface InlineToastState {
   message: string;
   variant: 'error' | 'success';
+}
+
+// Plain-language explanation for a KPI the server reports as unavailable
+// (#2404), keyed by its stable machine reason. Longer than the overview's
+// `DEFERRED_REASON_LABEL` on purpose: on the overview the PM is reading a blank
+// tile, here they are being told why a switch will not move.
+const UNAVAILABLE_REASON_TEXT: Record<UnavailableKpiReason, string> = {
+  no_cost_data: 'Not yet available — needs project cost data to roll up.',
+  no_montecarlo_store: 'Not yet available — needs stored Monte Carlo runs to roll up.',
+};
+
+function unavailableReasonText(reason: UnavailableKpiReason | undefined): string | undefined {
+  // Unknown reasons are possible: the server owns this vocabulary and may add
+  // one before the web package ships a matching label. Fall back to the generic
+  // sentence rather than rendering `undefined` into the row.
+  if (!reason) return undefined;
+  return UNAVAILABLE_REASON_TEXT[reason] ?? 'Not yet available in this release.';
 }
 
 const PREVIEW_VARIANT_TEXT: Record<KpiVariant, string> = {
@@ -479,39 +500,60 @@ export function ProgramRollupPage() {
                 >
                   {group.heading}
                 </h3>
-                {group.kpis.map((kpi, i) => (
-                  <div
-                    key={kpi.id}
-                    className={[
-                      'flex items-center gap-4 px-4 py-3',
-                      i < group.kpis.length - 1 ? 'border-b border-neutral-border/55' : '',
-                    ].join(' ')}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-medium text-neutral-text-primary">
-                        {kpi.label}
+                {group.kpis.map((kpi, i) => {
+                  const isOn = enabledSet.has(kpi.id);
+                  const reasonText = unavailableReasonText(config.unavailable_kpis?.[kpi.id]);
+                  // An unavailable KPI can never be switched ON — that was the
+                  // defect (#2404): the switch saved fine and the tile stayed
+                  // permanently blank. It stays switchable OFF when already on,
+                  // so a program that enabled it before this fix can still clear
+                  // it; otherwise a stale selection would be unremovable.
+                  const lockedOff = reasonText !== undefined && !isOn;
+                  const reasonId = reasonText ? `kpi-reason-${kpi.id}` : undefined;
+                  return (
+                    <div
+                      key={kpi.id}
+                      className={[
+                        'flex items-center gap-4 px-4 py-3',
+                        i < group.kpis.length - 1 ? 'border-b border-neutral-border/55' : '',
+                      ].join(' ')}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-medium text-neutral-text-primary">
+                          {kpi.label}
+                        </div>
+                        <div className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug">
+                          {kpi.description}
+                        </div>
+                        {reasonText && (
+                          <div
+                            id={reasonId}
+                            className="text-[12px] text-neutral-text-disabled mt-1 leading-snug"
+                          >
+                            {reasonText}
+                            {isOn && ' It is enabled but shows no value on the overview.'}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug">
-                        {kpi.description}
-                      </div>
+                      {canEdit ? (
+                        <Toggle
+                          on={isOn}
+                          onToggle={() => onToggle(kpi.id)}
+                          disabled={lockedOff}
+                          ariaLabel={kpi.label}
+                          describedBy={reasonId}
+                        />
+                      ) : (
+                        <ReadOnlyIndicator
+                          label={kpi.label}
+                          value={isOn ? 'On' : 'Off'}
+                          provenance="managed by the program admin"
+                          filled={isOn}
+                        />
+                      )}
                     </div>
-                    {canEdit ? (
-                      <Toggle
-                        on={enabledSet.has(kpi.id)}
-                        onToggle={() => onToggle(kpi.id)}
-                        disabled={!canEdit}
-                        ariaLabel={kpi.label}
-                      />
-                    ) : (
-                      <ReadOnlyIndicator
-                        label={kpi.label}
-                        value={enabledSet.has(kpi.id) ? 'On' : 'Off'}
-                        provenance="managed by the program admin"
-                        filled={enabledSet.has(kpi.id)}
-                      />
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ))}
         </section>

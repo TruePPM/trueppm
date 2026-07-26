@@ -46,6 +46,14 @@ const FIXTURE_PROGRAM = {
 const FIXTURE_CONFIG = {
   enabled_kpis: ['schedule_health', 'milestone_health', 'p80_completion'],
   aggregation_policy: 'worst',
+  // Mirrors the server's DEFERRED_KPI_REASONS (#2404). p80_completion is both
+  // unavailable and already enabled here — the stale-config case the picker has
+  // to keep switchable OFF.
+  unavailable_kpis: {
+    cost_variance: 'no_cost_data',
+    budget_utilization: 'no_cost_data',
+    p80_completion: 'no_montecarlo_store',
+  },
 };
 
 type Page = import('@playwright/test').Page;
@@ -186,6 +194,49 @@ test.describe('Program Settings → Rollup KPIs', () => {
     await expect.poll(() => captures.patchCount, { timeout: 2000 }).toBeGreaterThanOrEqual(1);
     const body = captures.lastPatchBody as { enabled_kpis?: string[] } | undefined;
     expect(body?.enabled_kpis).toContain('risk_score');
+    expect(body?.enabled_kpis).toContain('schedule_health');
+  });
+
+  test('a KPI the server reports unavailable cannot be switched on (#2404)', async ({ page }) => {
+    const captures: Captures = { patchCount: 0 };
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
+
+    const costVariance = page.getByRole('switch', { name: 'Cost variance (CV)' });
+    await expect(costVariance).toHaveAttribute('aria-checked', 'false');
+    await expect(costVariance).toHaveAttribute('aria-disabled', 'true');
+    await expect(
+      page.getByText('Not yet available — needs project cost data to roll up.').first(),
+    ).toBeVisible();
+
+    // `force` bypasses Playwright's actionability check, which already refuses
+    // to click an aria-disabled control. Forcing it proves the handler itself
+    // no-ops rather than relying on the attribute alone to stop the user.
+    await costVariance.click({ force: true });
+
+    // Still off, and no PATCH — the defect was that this saved fine and then
+    // rendered nothing on the overview forever.
+    await expect(costVariance).toHaveAttribute('aria-checked', 'false');
+    await page.waitForTimeout(600); // past the 250ms toggle debounce
+    expect(captures.patchCount).toBe(0);
+  });
+
+  test('an already-enabled unavailable KPI can still be switched off (#2404)', async ({ page }) => {
+    const captures: Captures = { patchCount: 0 };
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
+
+    // p80_completion is in the fixture's enabled_kpis but is unavailable — a
+    // config saved before the picker was locked. It must remain removable.
+    const p80 = page.getByRole('switch', { name: 'P80 completion date' });
+    await expect(p80).toHaveAttribute('aria-checked', 'true');
+    await expect(p80).not.toHaveAttribute('aria-disabled', 'true');
+
+    await p80.click();
+
+    await expect.poll(() => captures.patchCount, { timeout: 2000 }).toBeGreaterThanOrEqual(1);
+    const body = captures.lastPatchBody as { enabled_kpis?: string[] } | undefined;
+    expect(body?.enabled_kpis).not.toContain('p80_completion');
     expect(body?.enabled_kpis).toContain('schedule_health');
   });
 

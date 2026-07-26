@@ -26,9 +26,24 @@ export type AggregationPolicy =
   | 'weighted_by_budget'
   | 'task_weighted';
 
+/**
+ * Stable machine reasons a KPI has no backing data source yet. Mirrors the
+ * server's `DEFERRED_KPI_REASONS` and the `reason` returned by `GET /rollup/`
+ * for a deferred KPI.
+ */
+export type UnavailableKpiReason = 'no_cost_data' | 'no_montecarlo_store';
+
 export interface ProgramRollupConfig {
   enabled_kpis: RollupKpi[];
   aggregation_policy: AggregationPolicy;
+  /**
+   * KPI → why it cannot produce a value yet (#2404). Server-published rather
+   * than hard-coded here so the picker unlocks a KPI the moment its backing
+   * store lands, with no client release. Optional because a cached response
+   * from a pre-#2404 server has no such key — treat a missing map as "all
+   * available" and fall back to the previous behavior.
+   */
+  unavailable_kpis?: Partial<Record<RollupKpi, UnavailableKpiReason>>;
 }
 
 const queryKey = (programId: string | undefined) =>
