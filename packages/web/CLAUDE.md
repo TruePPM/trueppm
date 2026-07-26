@@ -386,10 +386,31 @@ These rules are enforced at review time. Violations block merge.
     calls `container.scrollLeft` to restore it after `scales-change`. The visible
     date range shifts symmetrically around the user's current view midpoint.
 
-81. **Initial viewport: today at 25% from left** — on engine `ready` event, set
-    `container.scrollLeft` so today's date lands at 25% of the viewport width from
-    the left edge. Provides immediate context without centering (which would hide
-    near-term tasks).
+81. **Initial viewport: today at 25% from left — but verify the result, and fit the
+    project instead when framing on today would open on empty canvas (#2423).**
+    Set `container.scrollLeft` so today lands at 25% of the viewport width from the
+    left edge; that provides immediate context without centering (which would hide
+    near-term tasks). The reasoning holds only while the project's mass straddles
+    today, and fails whenever it sits well behind — the normal state of any project
+    past its midpoint. On the seeded demo project it put the viewport at W28/July
+    for work starting April 15, so nine of the first fourteen rows opened with no
+    bar and the flagship view read as broken rather than as scrolled. So the offset
+    is now **checked before it is applied**: compute the share of initially-visible
+    *bar-carrying* rows that would land in frame, and when it falls below
+    `MIN_FRAMED_BAR_COVERAGE` (0.6), call `engine.fitToProject()` instead. Rows with
+    no bar are excluded from the ratio — no scroll offset can bring an unscheduled
+    task into frame, so counting it would drag the ratio down for a reason framing
+    cannot fix — and when *no* row has a bar the today framing stands, since fitting
+    has nothing better to offer. Rule 81's original case is preserved by
+    construction: a project entirely in the future frames on today, its bars are in
+    frame, coverage passes, and the fallback never fires. Note that at default zoom
+    a viewport spans roughly ten weeks, so "today at 25% from the left" already *is*
+    the `[today − 2wk, today + 8wk]` window intersected with the project extent; the
+    coverage check is what changes behavior. The decision is a pure function
+    (`computeInitialFraming` in `scheduleUtils.ts`) so it is unit-tested without a
+    canvas; the framing still runs in the `scheduleScales`-gated once-per-project
+    effect, never on engine `ready` (that is the #2004 race — the scroll spacer has
+    not reached full width yet, so the browser clamps the assignment to 0).
 
 82. **"Today" button in toolbar** — a `type="button"` element with the same style
     as ZoomControl buttons (rule 42): `border border-neutral-border rounded h-7 px-3

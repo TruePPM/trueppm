@@ -16,7 +16,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { setSearchParam } from '@/hooks/useUrlSelectedId';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
-import { computeInitialScrollLeft } from './scheduleUtils';
+import { computeInitialFraming, type RowBar } from './scheduleUtils';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useScheduleStore } from '@/stores/scheduleStore';
@@ -1015,17 +1015,34 @@ export function ScheduleView() {
     const container = canvasScrollRef.current;
     if (!container) return;
     const todayX = dateToLeft(new Date().toISOString().slice(0, 10), scheduleScales);
-    const target = computeInitialScrollLeft(
+
+    // The rows that will actually be on screen at scrollTop = 0 — the ones whose
+    // emptiness the user reads as "the schedule is broken" (#2423).
+    const rowsInView = Math.max(1, Math.ceil((container.clientHeight - HEADER_HEIGHT) / ROW_HEIGHT));
+    const bars: (RowBar | null)[] = visibleTasks.slice(0, rowsInView).map((t) => {
+      if (!t.start || !t.finish) return null;
+      return { x0: dateToLeft(t.start, scheduleScales), x1: dateToLeft(t.finish, scheduleScales) };
+    });
+
+    const framing = computeInitialFraming(
       todayX,
       container.clientWidth,
       container.scrollWidth - container.clientWidth,
+      bars,
     );
-    // null → nothing to frame (chart fits, or today is entirely off the chart —
+    // 'none' → nothing to frame (chart fits, or today is entirely off the chart —
     // a finished/future project); leave the default project-start view.
-    if (target === null) return;
-    container.scrollLeft = target;
+    if (framing.kind === 'none') return;
+    if (framing.kind === 'fit') {
+      // Framing on today would have opened on mostly-empty canvas, so show the
+      // project instead. fitToProject drives the engine's own scale, so the
+      // container's scrollLeft is not ours to set here.
+      engine.fitToProject();
+    } else {
+      container.scrollLeft = framing.scrollLeft;
+    }
     didInitialFrameRef.current = true;
-  }, [engine, scheduleScales]);
+  }, [engine, scheduleScales, visibleTasks]);
 
   // Drag CPM preview — wires engine events + Web Worker (issue #19). Uses the
   // full dependency graph (`allLinks`), NOT the paint-filtered `links`: the live

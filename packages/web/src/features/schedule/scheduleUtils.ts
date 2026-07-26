@@ -63,3 +63,84 @@ export function computeInitialScrollLeft(
   const target = todayX - viewportWidth * 0.25;
   return Math.max(0, Math.min(maxScroll, target));
 }
+
+/** A row's bar as canvas-origin x extents, or `null` for a row that has no bar. */
+export interface RowBar {
+  x0: number;
+  x1: number;
+}
+
+/**
+ * The share of bar-carrying rows that must land in the initial viewport before
+ * framing on today is considered to have shown the user their project.
+ *
+ * Below this, the first impression is a populated task list beside a blank grid,
+ * which reads as broken rather than as scrolled (#2423).
+ */
+export const MIN_FRAMED_BAR_COVERAGE = 0.6;
+
+/**
+ * Fraction of the given rows whose bar intersects the viewport `[left, right)`.
+ *
+ * Rows with no bar at all are excluded from both numerator and denominator: an
+ * unscheduled task or a bare milestone has no bar anywhere on the canvas, so no
+ * choice of scroll offset can bring it into frame and counting it would drag the
+ * ratio down for a reason framing cannot fix. Returns `null` when no row carries
+ * a bar, i.e. there is nothing to frame on.
+ */
+export function framedBarCoverage(
+  bars: readonly (RowBar | null)[],
+  left: number,
+  right: number,
+): number | null {
+  const withBars = bars.filter((b): b is RowBar => b !== null);
+  if (withBars.length === 0) return null;
+  const framed = withBars.filter((b) => b.x1 >= left && b.x0 <= right).length;
+  return framed / withBars.length;
+}
+
+/** What the initial-framing pass decided to do. */
+export type InitialFraming =
+  | { kind: 'scroll'; scrollLeft: number }
+  | { kind: 'fit' }
+  | { kind: 'none' };
+
+/**
+ * Decide how the Gantt frames itself when a project is first opened (#2423).
+ *
+ * Rule 81 frames today at 25% from the left, which is right when the project's
+ * mass straddles today and wrong whenever it sits well behind it — the normal
+ * state of any project past its midpoint. On the seeded demo project that put the
+ * viewport at W28/July for work starting April 15, so nine of the first fourteen
+ * rows opened with no bar at all.
+ *
+ * So: take the rule-81 offset, then *check it*. If fewer than
+ * `MIN_FRAMED_BAR_COVERAGE` of the initially-visible bar-carrying rows would be
+ * in frame, fall back to fitting the whole project — which is a view of the data
+ * rather than a view of empty canvas.
+ *
+ * Note that at default zoom a viewport spans roughly ten weeks, so "today at 25%
+ * from the left" already *is* the `[today − 2wk, today + 8wk]` window intersected
+ * with the project extent; the coverage check is what actually changes behavior.
+ *
+ * The near-term-context case rule 81 was written for is preserved by
+ * construction: a project entirely in the future frames on today, its bars are in
+ * frame, coverage passes, and the fallback never fires.
+ *
+ * @param bars canvas x extents of the rows visible at `scrollTop = 0`, in row
+ *   order, with `null` for rows that have no bar.
+ */
+export function computeInitialFraming(
+  todayX: number,
+  viewportWidth: number,
+  maxScroll: number,
+  bars: readonly (RowBar | null)[],
+): InitialFraming {
+  const scrollLeft = computeInitialScrollLeft(todayX, viewportWidth, maxScroll);
+  if (scrollLeft === null) return { kind: 'none' };
+
+  const coverage = framedBarCoverage(bars, scrollLeft, scrollLeft + viewportWidth);
+  if (coverage !== null && coverage < MIN_FRAMED_BAR_COVERAGE) return { kind: 'fit' };
+
+  return { kind: 'scroll', scrollLeft };
+}
