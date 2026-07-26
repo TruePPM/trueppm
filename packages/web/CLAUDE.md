@@ -401,16 +401,29 @@ These rules are enforced at review time. Violations block merge.
     no bar are excluded from the ratio — no scroll offset can bring an unscheduled
     task into frame, so counting it would drag the ratio down for a reason framing
     cannot fix — and when *no* row has a bar the today framing stands, since fitting
-    has nothing better to offer. Rule 81's original case is preserved by
-    construction: a project entirely in the future frames on today, its bars are in
-    frame, coverage passes, and the fallback never fires. Note that at default zoom
-    a viewport spans roughly ten weeks, so "today at 25% from the left" already *is*
-    the `[today − 2wk, today + 8wk]` window intersected with the project extent; the
-    coverage check is what changes behavior. The decision is a pure function
+    has nothing better to offer. Rule 81's original case is preserved by an
+    **explicit gate, not by coverage**: the fallback is considered only when some
+    visible bar starts *behind* today, so a project entirely ahead of today always
+    frames on today. Coverage alone would not have preserved it — at default zoom a
+    viewport spans roughly ten weeks, so a project starting more than ~8 weeks out
+    scores zero coverage and would have been fitted, zooming out over months of
+    nothing before its start for a reason unrelated to the defect. Only mass behind
+    today opens on canvas the user cannot scroll to. (That ten-week span also means
+    "today at 25% from the left" already *is* the `[today − 2wk, today + 8wk]`
+    window intersected with the project extent.) The decision is a pure function
     (`computeInitialFraming` in `scheduleUtils.ts`) so it is unit-tested without a
     canvas; the framing still runs in the `scheduleScales`-gated once-per-project
     effect, never on engine `ready` (that is the #2004 race — the scroll spacer has
     not reached full width yet, so the browser clamps the assignment to 0).
+
+    **The one-shot flag must be set on every decision, including the no-op one.**
+    The effect depends on `visibleTasks` (it needs the bars), so it re-runs as data
+    arrives. Its readiness guards — spacer not sized, no tasks yet — return while
+    leaving it *armed*, because those are "too early to decide", not decisions. Once
+    past them, every outcome disarms it before acting, `'none'` included. Returning
+    early from a real decision without disarming is what let a late
+    `engine.fitToProject()` fire after the user had already zoomed and silently
+    reset their viewport — two `schedule.spec.ts` specs caught exactly this.
 
 82. **"Today" button in toolbar** — a `type="button"` element with the same style
     as ZoomControl buttons (rule 42): `border border-neutral-border rounded h-7 px-3

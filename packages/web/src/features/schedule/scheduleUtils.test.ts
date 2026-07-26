@@ -198,6 +198,23 @@ describe('computeInitialFraming', () => {
     expect(computeInitialFraming(-200, 1100, 2000, bars)).toEqual({ kind: 'scroll', scrollLeft: 0 });
   });
 
+  it('keeps rule 81 for a future project whose start is past the initial window', () => {
+    // The gate the coverage ratio alone could not express. Today is 1507 and every
+    // bar sits ahead of it but past the [scrollLeft, scrollLeft + viewport] window,
+    // so coverage is 0 — yet fitting here would zoom out over months of nothing
+    // before the start, and the work is one scroll-right away. Only a project with
+    // mass *behind* today opens on canvas the user cannot scroll to.
+    const bars: RowBar[] = [
+      { x0: 4000, x1: 4200 },
+      { x0: 4300, x1: 4600 },
+    ];
+    expect(framedBarCoverage(bars, 1232, 2332)).toBe(0);
+    expect(computeInitialFraming(1507, 1100, 2812, bars)).toEqual({
+      kind: 'scroll',
+      scrollLeft: 1232,
+    });
+  });
+
   it('reports none when there is nothing to frame, without consulting coverage', () => {
     // maxScroll <= 0: the whole chart already fits, so both scrolling and fitting
     // are no-ops and the default view is already correct (#2004).

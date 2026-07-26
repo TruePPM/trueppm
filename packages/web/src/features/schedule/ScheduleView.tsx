@@ -1014,6 +1014,20 @@ export function ScheduleView() {
     if (!engine || !scheduleScales) return;
     const container = canvasScrollRef.current;
     if (!container) return;
+
+    // Two readiness gates, both of which must leave the effect ARMED rather than
+    // decide on incomplete input — deciding early and disarming would frame the
+    // wrong way permanently, and deciding early without disarming is the race
+    // that let a late fitToProject() yank a viewport the user had already zoomed.
+    //
+    // 1. Not scrollable yet: the scroll spacer has not reached full width (#2004),
+    //    so maxScroll reads 0 and every offset would clamp to it.
+    const maxScroll = container.scrollWidth - container.clientWidth;
+    if (maxScroll <= 0) return;
+    // 2. No tasks yet: coverage is a statement about the rows the user will see,
+    //    which cannot be judged against an empty grid.
+    if (visibleTasks.length === 0) return;
+
     const todayX = dateToLeft(new Date().toISOString().slice(0, 10), scheduleScales);
 
     // The rows that will actually be on screen at scrollTop = 0 — the ones whose
@@ -1024,14 +1038,15 @@ export function ScheduleView() {
       return { x0: dateToLeft(t.start, scheduleScales), x1: dateToLeft(t.finish, scheduleScales) };
     });
 
-    const framing = computeInitialFraming(
-      todayX,
-      container.clientWidth,
-      container.scrollWidth - container.clientWidth,
-      bars,
-    );
-    // 'none' → nothing to frame (chart fits, or today is entirely off the chart —
-    // a finished/future project); leave the default project-start view.
+    const framing = computeInitialFraming(todayX, container.clientWidth, maxScroll, bars);
+
+    // Past the gates every outcome is a real decision, so disarm before acting on
+    // it: a later `visibleTasks` change must not re-frame and steal a viewport the
+    // user has since zoomed or panned.
+    didInitialFrameRef.current = true;
+
+    // 'none' → today is entirely off the chart (a finished project); leave the
+    // default project-start view.
     if (framing.kind === 'none') return;
     if (framing.kind === 'fit') {
       // Framing on today would have opened on mostly-empty canvas, so show the
@@ -1041,7 +1056,6 @@ export function ScheduleView() {
     } else {
       container.scrollLeft = framing.scrollLeft;
     }
-    didInitialFrameRef.current = true;
   }, [engine, scheduleScales, visibleTasks]);
 
   // Drag CPM preview — wires engine events + Web Worker (issue #19). Uses the

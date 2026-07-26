@@ -123,9 +123,11 @@ export type InitialFraming =
  * from the left" already *is* the `[today − 2wk, today + 8wk]` window intersected
  * with the project extent; the coverage check is what actually changes behavior.
  *
- * The near-term-context case rule 81 was written for is preserved by
- * construction: a project entirely in the future frames on today, its bars are in
- * frame, coverage passes, and the fallback never fires.
+ * The near-term-context case rule 81 was written for is preserved by an explicit
+ * gate, not by coverage: a project entirely ahead of today always frames on
+ * today. Coverage alone would not have preserved it — at default zoom a project
+ * starting more than ~8 weeks out falls outside the initial window and would have
+ * been fitted, which is not the defect this fallback is for.
  *
  * @param bars canvas x extents of the rows visible at `scrollTop = 0`, in row
  *   order, with `null` for rows that have no bar.
@@ -138,6 +140,16 @@ export function computeInitialFraming(
 ): InitialFraming {
   const scrollLeft = computeInitialScrollLeft(todayX, viewportWidth, maxScroll);
   if (scrollLeft === null) return { kind: 'none' };
+
+  // The fallback exists for a project whose mass sits *behind* today, which is
+  // the only shape that opens on empty canvas with no work left to scroll to. A
+  // project entirely ahead of today is rule 81's original case: the near-term
+  // window is what the user wants, its work is reachable by scrolling right, and
+  // fitting would zoom out to show months of nothing before the start. Gating on
+  // this explicitly rather than trusting coverage matters because a project
+  // starting more than ~8 weeks out fails the coverage ratio for a reason that
+  // has nothing to do with the defect (the default viewport spans ~10 weeks).
+  if (!bars.some((b) => b !== null && b.x0 < todayX)) return { kind: 'scroll', scrollLeft };
 
   const coverage = framedBarCoverage(bars, scrollLeft, scrollLeft + viewportWidth);
   if (coverage !== null && coverage < MIN_FRAMED_BAR_COVERAGE) return { kind: 'fit' };
