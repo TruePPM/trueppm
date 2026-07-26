@@ -1,0 +1,7 @@
+# Rule 126 — Program navigation lives in the global TopBar, mirroring project ViewTabs (ADR-0095)
+
+> **Decision record.** Moved out of `packages/web/CLAUDE.md` by #2433 (ADR-0653): precedent bound to one surface, not a general invariant. It is still binding for the surface it governs.
+>
+> Original section: *Program Navigation (Issue #790, ADR-0095)*
+
+**Program navigation lives in the global TopBar, mirroring project `ViewTabs` (ADR-0095).** `ProgramTabs.tsx` renders inside `TopBar` (alongside `ViewTabs`), gated on `useProgramId()`, `hidden md:flex h-full` so it adds no height. Canonical order: `Overview · Backlog · Projects · Members · Settings` — Settings is last, matching projects, and is the discoverable entry to program settings (#790). `ViewTabs` and `ProgramTabs` are **mutually exclusive** — each returns null without its id, and a URL is either project- or program-scoped — so exactly one renders; do not render program nav in-content (`ProgramShell` is a minimal `<Outlet>` wrapper, like `ProjectShell`). Styling is identical to `ViewTabs` (web-rule 38: underline active `border-brand-primary text-brand-primary` + `aria-current="page"`, rule-4 focus ring, leading `aria-hidden` icon, `text-sm`). Active tab = the path segment after `:programId`; the Settings tab stays active across every `/programs/:id/settings/*` sub-route. No role gating on the tabs — writes are gated inside each page. `BottomNav` program parity is a deferred mobile follow-up. Covered by `ProgramTabs.test.tsx` and `e2e/programs.spec.ts`.

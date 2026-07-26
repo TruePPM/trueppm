@@ -40,11 +40,19 @@ Split the corpus by **what kind of claim a rule makes**, not by subject area.
 ### 1. Invariants stay in `packages/web/CLAUDE.md`
 
 An **invariant** is a rule that is (a) generalisable beyond the surface that
-produced it, and (b) still correct for a surface that does not exist yet. Roughly
-40 of the 285 qualify: token discipline (8/8a/8b/8c), the focus-ring form matrix
-(4/214), the surface-state triad (246 / 224 / 177), canvas channel orthogonality
-(235), the `useAnchoredPopover` contract (260), the dialog commit/discard contract
-(217), the redundancy rule (284).
+produced it, and (b) still correct for a surface that does not exist yet. **60 of
+the 288 qualify**: token discipline (8/8a/8b/8c), the focus-ring form matrix
+(4/214), the surface-state quartet (248 / 177 / 246 / 224), canvas channel
+orthogonality (235), the `useAnchoredPopover` contract (260), the dialog
+commit/discard contract (217), the redundancy rule (284).
+
+They are regrouped under 13 concept-titled sections — Foundations, Accessibility
+floors, Color and tokens, Signal encoding, Redundancy, Surface states, Motion,
+Controls and composition, Dialogs/focus/keyboard, Canvas, Iconography,
+Placeholders and operator surfaces, Product boundary. The original headings were
+themselves issue-titled (`Issue #1464`, `Issue #1339`) — the ledger symptom
+reproduced in the table of contents, so keeping them would have preserved the
+shape this ADR exists to change.
 
 These are the design system. They must be short enough to read in one sitting,
 because a rule nobody reads is not a rule.
@@ -91,6 +99,13 @@ yet?* If no, it is a decision record.
 **Not addressed here.** This ADR does not change any rule's content. The relocation
 is lossless — every moved rule keeps its number, so an existing `rule 176`
 reference in code, an ADR, or an MR description still resolves.
+
+**One collision surfaced and was resolved.** The source file used `122.` twice:
+the `SettingsShell` scrollbar-gutter rule and the disabled-placeholder recipe. So
+"rule 122" was ambiguous in every citation — a defect a 1151-line file hides and
+the split makes obvious, which is itself evidence for the change. Every `rule 122`
+reference in the codebase means the disabled-placeholder recipe, so that rule keeps
+the number and the scrollbar-gutter rule became **286**.
 
 ## Alternatives considered
 

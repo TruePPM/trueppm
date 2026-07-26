@@ -1,0 +1,7 @@
+# Rule 135 — Promoting a backlog item is a { planned_start, status: 'NOT_STARTED' } PATCH via usePromoteTask (decision A2)
+
+> **Decision record.** Moved out of `packages/web/CLAUDE.md` by #2433 (ADR-0653): precedent bound to one surface, not a general invariant. It is still binding for the surface it governs.
+>
+> Original section: *Schedule Backlog-Promote Rules (Issue #318)*
+
+**Promoting a backlog item is a `{ planned_start, status: 'NOT_STARTED' }` PATCH via `usePromoteTask` (decision A2).** Sending an explicit `status: 'NOT_STARTED'` in the body skips the server serializer's date-gated NOT_STARTED → IN_PROGRESS auto-bump (which only fires when `status` is absent), so a backlog promotion lands deterministically in To Do regardless of the drop date — and the success toast verb is fixed: `Promoted '{name}' to To Do and scheduled for {date}` (`{date}` = `MMM D`, matching the drop-indicator label). The To Do gutter path is unchanged — it sends only `planned_start` and the server owns the bump (#336). `usePromoteTask` carries an `onMutate` optimistic cache snapshot (the chip leaves its section immediately) + `onError` rollback (the chip returns), mirroring `useUpdateTask`/`useToggleComplete`. The offline guard (rule 29) skips the PATCH, clears the preview, and leaves the chip; aria-live is written via DOM ref (rule 30): "Promoted {name}, scheduled for {date}." / "Could not schedule {name}." Esc cancels mid-drag (rule 28). There is **no** server change and **no** new endpoint — reuse `PATCH /tasks/{id}/`.

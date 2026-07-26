@@ -1,0 +1,7 @@
+# Rule 133 — The Unscheduled gutter is a two-section tray (To Do above, Backlog below) in one scroll container
+
+> **Decision record.** Moved out of `packages/web/CLAUDE.md` by #2433 (ADR-0653): precedent bound to one surface, not a general invariant. It is still binding for the surface it governs.
+>
+> Original section: *Schedule Backlog-Promote Rules (Issue #318)*
+
+**The Unscheduled gutter is a two-section tray (To Do above, Backlog below) in one scroll container.** `UnscheduledGutter` partitions its task list by `status === 'BACKLOG'` into an upper "To Do" section (NOT_STARTED, no committed `planned_start`) and a lower "Backlog" section (`BACKLOG` ideas). Each section is a `<section role="group">` with a count in its `aria-label`, and a sticky sub-header (`sticky top-0` inside the scroll container) using the rule-36/101 token (`text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary`): `TO DO · UNSCHEDULED ({n})` and `BACKLOG ({n})` (the Backlog header adds a `hidden lg:inline` italic hint "drag onto the timeline to promote & schedule" only when non-empty). The gutter header count is the **sum** of both sections. Each section renders a muted `role="status"` empty row ("No unscheduled To Do tasks" / "No backlog items") rather than collapsing — **never hide one section while the other has items**. Both empty falls back to the existing whole-gutter "all scheduled" header behavior. Sections are separated by `border-t border-neutral-border`.
