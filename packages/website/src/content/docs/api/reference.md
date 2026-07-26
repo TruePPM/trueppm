@@ -530,6 +530,18 @@ Webhooks are scoped to a project or a program:
 | PUT / PATCH | `/api/v1/projects/{id}/webhooks/{wid}/` | Update |
 | DELETE | `/api/v1/projects/{id}/webhooks/{wid}/` | Delete |
 
+TruePPM emits **19 event types** across tasks, dependencies, schedule, projects,
+sprints, risks, baselines, and comments. The full catalog — every event name, what
+triggers it, the payload shape, HMAC signature verification, request headers,
+delivery ordering and gap detection, and the retry schedule — is documented in
+[Webhooks](/features/webhooks/). Start there before subscribing:
+
+- [Event types](/features/webhooks/#event-types) — the 19-event catalog
+- [Payload shape](/features/webhooks/#payload-shape)
+- [Signature verification](/features/webhooks/#signature-verification)
+- [Delivery ordering and gap detection](/features/webhooks/#delivery-ordering-and-gap-detection)
+- [Delivery retries](/features/webhooks/#delivery-retries)
+
 The signing `secret` (used to HMAC-sign delivered payloads) is **write-only** and
 follows a one-time-secret model:
 
@@ -624,4 +636,13 @@ consumes no additional quota but continues to return `429`.
 | 403 | Insufficient role |
 | 404 | Not found or soft-deleted |
 | 409 | Conflict (e.g. duplicate membership, sync id collision) |
+| 415 | Unsupported media type (attachment upload outside the MIME allow-list) |
+| 422 | Well-formed but unprocessable (idempotency-key reuse, program-schedule limits) |
 | 429 | Rate limit exceeded — general default or a scoped throttle; includes a `Retry-After` header |
+| 501 | Not implemented by this deployment's configured backend |
+| 502 | An upstream identity provider could not be reached |
+
+Errors come in two shapes: field-keyed validation messages with **no** machine
+code, and structured bodies carrying a stable `code` you can branch on. See
+[Errors and status codes](/api/errors/) for the full code table, the extra keys
+each carries, and which of them the stability contract covers.

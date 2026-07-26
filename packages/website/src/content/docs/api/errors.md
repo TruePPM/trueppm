@@ -1,0 +1,204 @@
+---
+title: Errors and status codes
+description: The two error response shapes, the stable machine-readable code values you can branch on, and what the API stability contract guarantees about them.
+---
+
+TruePPM returns errors in **two different shapes**, and the difference decides
+whether you get a machine-readable `code` to branch on. Knowing which is which is
+the whole point of this page — it is the thing you would otherwise have to
+reverse-engineer.
+
+For what a version bump may and may not change, see
+[API stability](/api/stability/). For webhook delivery failures — a separate
+surface with its own retry semantics — see
+[Webhooks](/features/webhooks/#delivery-retries).
+
+## Shape 1 — field validation errors (no `code`)
+
+Serializer validation failures return a map of **field name → list of messages**,
+with the HTTP status `400`:
+
+```json
+{
+  "planned_start": ["This field is required."],
+  "duration_days": ["Ensure this value is greater than or equal to 0."]
+}
+```
+
+There is **no `code` key** in this shape, and the individual messages are not
+stable. Internally these errors do carry a code, but Django REST Framework
+serializes each one to its message string alone, so it never reaches the wire.
+
+**Branch on the field key. Never match on the message text.** The strings come
+from DRF and Django validators and can change with a framework upgrade.
+
+Non-field validation errors arrive under the `non_field_errors` key, and
+authentication or permission failures arrive as a bare `detail`:
+
+```json
+{"detail": "You do not have permission to perform this action."}
+```
+
+## Shape 2 — structured errors (with a stable `code`)
+
+Failures that a client is expected to *handle differently* — not merely report —
+return a flat object carrying a stable `code`:
+
+```json
+{
+  "detail": "Cannot set progress on a task with no start date.",
+  "code": "progress_requires_anchor"
+}
+```
+
+`detail` is for humans and may be reworded at any time. `code` is the contract.
+Some codes carry extra keys; those are noted in the tables below.
+
+The codes on this page are the complete set of values that appear in this shape.
+If an endpoint returns a bare `detail` with no `code`, treat it as a generic
+failure of its HTTP status class.
+
+## Structured error codes
+
+### 400 — refused writes
+
+| Code | Meaning | Extra keys |
+|------|---------|-----------|
+| `progress_requires_anchor` | Progress was set on a task with no date to anchor it to | — |
+| `milestone_rollup_locked` | The value is rolled up to the milestone and cannot be set directly | — |
+| `child_of_milestone` | A milestone is a zero-duration gate and cannot be given children | — |
+| `guardrail_blocked` | A configured guardrail refused the write | `rule`, `suggested_action` |
+| `base_url_not_allowed` | The supplied integration base URL is not permitted | — |
+| `invalid_token` | The password-reset uid+token pair is bad, unknown, or expired | — |
+| `weak_password` | The new password failed validation | `messages` |
+
+### 403 — refused by policy
+
+| Code | Meaning |
+|------|---------|
+| `scope_accept_forbidden` | The caller may not accept this scope-injection request |
+
+### 404 / 409 — conflicts and protected references
+
+Refused deletes carry a count of the rows still pointing at the target, and —
+only where the endpoint's permission gate authorizes the caller to see them — a
+capped sample naming them:
+
+```json
+{
+  "detail": "This calendar is still referenced and cannot be deleted.",
+  "code": "calendar_in_use",
+  "reference_count": 3,
+  "references": [{"type": "project", "name": "Harbor Fit-out"}]
+}
+```
+
+| Code | Status | Meaning | Extra keys |
+|------|--------|---------|-----------|
+| `protected_reference` | `409` | Generic refused delete — other rows still reference this one | `reference_count`, `references`? |
+| `calendar_in_use` | `409` | The working calendar is still referenced | `reference_count`, `references`? |
+| `skill_in_use` | `409` | The skill is still referenced | `reference_count`, `references`? |
+| `sprint_already_bound` | `409` | The milestone is already bound to a sprint | — |
+| `sync_conflict` | `409` | A stale write overlapped a concurrent writer | see below |
+| `proposal_closed` | `409` | The ceiling proposal is no longer open | — |
+| `not_open` | `409` | The planning-poker round is not open for votes | — |
+| `not_live` | `409` | The planning-poker session is not live | — |
+| `not_revealed` | `409` | The planning-poker round has not been revealed yet | — |
+| `sprint_not_planned` | `409` | The sprint is not in the PLANNED state | — |
+| `not_found` | `404` | The targeted poker round or ceiling proposal does not exist | — |
+
+A `sync_conflict` carries the field-level divergence so the client can render a
+merge rather than guess:
+
+```json
+{
+  "code": "sync_conflict",
+  "conflict_fields": ["name"],
+  "server_value": {"name": "..."},
+  "client_value": {"name": "..."},
+  "server_version": 41
+}
+```
+
+### 422 — well-formed but unprocessable
+
+| Code | Meaning | Extra keys |
+|------|---------|-----------|
+| `program_schedule_invalid_input` | A task in the program has data the schedule engine cannot compute | `reason`?, `project`?, `task`? |
+| `program_schedule_too_large` | The program exceeds the schedule-computation size limit | — |
+| `credential_required` | The connection needs a credential that was not supplied | — |
+| `provider_verification_failed` | The external provider rejected the supplied credential | — |
+| `source_verification_failed` | The configured external source could not be verified | — |
+
+### 429 — throttled
+
+| Code | Meaning | Extra keys |
+|------|---------|-----------|
+| `sync_cooldown` | The connection was refreshed too recently to sync again | `retry_after` (seconds) |
+
+The **general** rate limiter is different: it returns a bare `detail` with **no
+`code`**, plus a `Retry-After` header. See
+[rate limiting](/api/reference/#rate-limiting).
+
+## SSO error codes
+
+SSO failures are a third shape again. The login and callback endpoints are
+**browser redirects**, so the code arrives as an `?error=` query parameter on the
+SPA completion URL — not in a response body:
+
+```
+https://ppm.example.com/auth/complete?error=invalid_state
+```
+
+| Code | Equivalent status | Meaning |
+|------|-------------------|---------|
+| `oidc_error` | `400` | Generic SSO failure (the base code) |
+| `sso_not_configured` | `400` | No enabled provider matched the request |
+| `invalid_state` | `400` | The state parameter was missing, unknown, or did not match the cookie |
+| `token_exchange_failed` | `400` | The provider rejected the authorization-code exchange |
+| `invalid_id_token` | `400` | The ID token failed signature or claim validation |
+| `email_unverified` | `403` | The provider reports the account's email as unverified |
+| `sso_no_member` | `403` | The authenticated identity maps to no workspace member |
+| `provider_unreachable` | `502` | The provider's discovery or JWKS endpoint could not be reached |
+
+These codes never carry token material or PII.
+
+## Warning codes are not errors
+
+A few `code` values appear on **successful** `2xx` responses, inside a `warnings`
+array or a `warning` field. The write succeeded — these are advisories. Do not
+treat them as failures:
+
+| Code | Appears on | Meaning |
+|------|-----------|---------|
+| `resource_overallocated` | assignment writes | The resource is now allocated beyond its capacity |
+| `skill_mismatch` | assignment writes | The resource lacks a skill the task requires |
+| `has_assignments` | task restructure | A task became a summary task while still carrying assignments |
+| `scope_pending_on_close` | sprint close | Scope-injection requests were still pending at close |
+
+## What the stability contract covers
+
+The [API stability contract](/api/stability/) applies as follows.
+
+**Within a minor release, TruePPM will not:**
+
+- change the spelling of any `code` on this page;
+- change the HTTP status a listed `code` accompanies;
+- remove a listed `code`, or move one between the error and warning categories;
+- remove a documented extra key (`retry_after`, `conflict_fields`, `rule`, …)
+  from a body that carries it.
+
+**Within a minor release, TruePPM may:**
+
+- **add** new `code` values, including on endpoints that previously returned a
+  bare `detail`;
+- promote an endpoint from Shape 1 to Shape 2 by introducing a `code`;
+- reword any `detail` string — `detail` is never part of the contract;
+- add new keys alongside `code`.
+
+**Not covered at all:** the message strings in Shape 1 field errors, and the
+`detail` text everywhere. Match on the field key or on `code`, never on prose.
+
+Because new codes may appear in a minor release, treat an unrecognized `code` as
+a generic failure of its HTTP status class rather than raising on it. That single
+rule is what keeps a client forward-compatible.

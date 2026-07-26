@@ -125,6 +125,143 @@ release ([#604](https://gitlab.com/trueppm/trueppm/-/issues/604)); until then th
 is a deployment responsibility.
 :::
 
+## Quickstart for non-Python clients (raw HTTP)
+
+`trueppm-mcp` is a Python package, but nothing about the wire protocol is
+Python-specific. This section is a worked `curl` transcript against the
+Streamable HTTP transport so a TypeScript, Go, or Rust agent author can build
+against it without reverse-engineering the handshake. Use an
+[MCP SDK](https://modelcontextprotocol.io) for real work — this is the paved path
+for understanding what the SDK does, and for debugging when it misbehaves.
+
+Start the server on loopback first:
+
+```bash
+TRUEPPM_API_URL=https://ppm.example.com \
+TRUEPPM_API_TOKEN=tppm_your_token_here \
+  trueppm-mcp --transport http --host 127.0.0.1 --port 8000
+```
+
+The Streamable HTTP endpoint is **`POST /mcp`**. Two request headers are
+mandatory on every call:
+
+- `Content-Type: application/json`
+- `Accept: application/json, text/event-stream` — responses are framed as SSE
+  events even for a single reply. Omitting `text/event-stream` returns **406**.
+
+### 1. Initialize
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "protocolVersion":"2025-06-18","capabilities":{},
+        "clientInfo":{"name":"my-agent","version":"1.0"}}}'
+```
+
+The response carries the session id in a header — capture it, every later request
+needs it:
+
+```http
+HTTP/1.1 200 OK
+content-type: text/event-stream
+mcp-session-id: 9107b4c7e7014f9d86ac599e3b812065
+
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18",
+       "capabilities":{"tools":{"listChanged":false}, ...},
+       "serverInfo":{"name":"trueppm","version":"1.28.1"},
+       "instructions":"Read-only access to a self-hosted TruePPM instance: ..."}}
+```
+
+A request without `Mcp-Session-Id` returns **400**.
+
+### 2. Confirm initialization
+
+```bash
+curl -X POST http://127.0.0.1:8000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H "Mcp-Session-Id: $SESSION" \
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+```
+
+This is a notification, not a request — no `id`, and the server answers **202**
+with an empty body.
+
+### 3. List the tools
+
+```bash
+curl -X POST http://127.0.0.1:8000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H "Mcp-Session-Id: $SESSION" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+```
+
+```
+event: message
+data: {"jsonrpc":"2.0","id":2,"result":{"tools":[
+       {"name":"list_projects","description":"List every project you can read...",
+        "inputSchema":{"properties":{},"type":"object"},
+        "outputSchema":{"type":"object","additionalProperties":true}}, ...]}}
+```
+
+### 4. Call a read tool
+
+```bash
+curl -X POST http://127.0.0.1:8000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H "Mcp-Session-Id: $SESSION" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call",
+       "params":{"name":"list_projects","arguments":{}}}'
+```
+
+Every tool result arrives twice over: `content` (the JSON rendered as text, for
+models that only read text) and `structuredContent` (the same payload as real
+JSON). **Parse `structuredContent`.**
+
+```
+event: message
+data: {"jsonrpc":"2.0","id":3,"result":{
+       "content":[{"type":"text","text":"{\n  \"items\": [],\n  \"total_count\": 0\n}"}],
+       "structuredContent":{"items":[],"total_count":0},
+       "isError":false}}
+```
+
+### 5. Read the inline provenance
+
+The primary-answer tools — `get_task`, `get_schedule_summary`,
+`get_monte_carlo_forecast`, and `whatif` — attach a **`why`** block inside
+`structuredContent`. It is TruePPM's "computed, not guessed" evidence: the
+server-side reason behind the number the tool just returned.
+
+```json
+{
+  "p80": "2026-11-14",
+  "cpm_finish": "2026-10-30",
+  "why": {
+    "top_driver": {"task_id": "…", "index": 0.62},
+    "explanation": "This forecast: the P80 finish 2026-11-14 is 11 working day(s) past the deterministic CPM finish 2026-10-30; the largest single driver of that spread is task ….",
+    "see_also": "get_schedule_derivation(project_id, quantity='p50'|'p80'|'p95') for the full risk-premium and per-driver derivation"
+  }
+}
+```
+
+Two properties make `why` cheap to consume: it never triggers a recompute or an
+extra API call (it is distilled from fields the tool already fetched), and it is
+scope-safe — it re-presents the token's own permission-filtered payload, so it
+can never surface a field the token cannot see. It is **omitted entirely** rather
+than fabricated when the inputs are absent, so treat it as optional.
+
+### Legacy SSE transport
+
+`--transport sse` serves the older two-endpoint transport instead: open a `GET`
+stream on **`/sse`** and post messages to **`/messages/`**. Prefer Streamable
+HTTP for anything new; use SSE only for a client that cannot speak the newer one.
+
 ## Docker
 
 The package ships a `Dockerfile` (`packages/mcp/Dockerfile`). It is a two-stage,
