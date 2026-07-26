@@ -274,7 +274,15 @@ class TaskSensitivity:
 
 @dataclass
 class MonteCarloResult:
-    """Output of a Monte Carlo probabilistic schedule simulation."""
+    """Output of a Monte Carlo probabilistic schedule simulation.
+
+    ``p50``/``p80``/``p95`` are completion dates at those confidence levels, not
+    three competing estimates: 50%, 80%, and 95% of simulated runs finished on or
+    before each. P80 is the conventional commitment date; P50 sits close to the
+    deterministic :func:`schedule` finish and carries roughly even odds. When all
+    three are equal the project had nothing to vary (no three-point estimates, no
+    velocity signal) and the simulation correctly collapsed onto the CPM finish.
+    """
 
     project_id: str
     runs: int
@@ -1908,6 +1916,15 @@ def _validate_project(project: Project) -> None:
 def schedule(project: Project) -> ScheduleResult:
     """Run CPM on a project and return a ScheduleResult.
 
+    The dates this returns are **deterministic and optimistic**: the forward pass
+    computes the *earliest feasible* schedule, i.e. what happens if every task
+    takes exactly its estimated ``duration`` and nothing slips. The project finish
+    is therefore a single point on a distribution, not a confidence-weighted
+    commitment date — in practice it lands near the P50 of the corresponding
+    :func:`monte_carlo` run, so committing to it is close to a coin flip. Callers
+    presenting a CPM date to a human should say which of the two it is; see
+    :func:`monte_carlo` for the probabilistic counterpart.
+
     The original project is not mutated; a deep copy is made for computation.
 
     Every task in ``project.tasks`` is placed in the network and scheduled. The
@@ -2781,6 +2798,15 @@ def monte_carlo(
     sensitivity_cap: int = MC_SENSITIVITY_CAP,
 ) -> MonteCarloResult:
     """Run Monte Carlo probabilistic scheduling on a project.
+
+    Where :func:`schedule` answers "when can this finish?" with one deterministic
+    date, this answers "how confident are we in that date?" with a distribution.
+    The percentiles are read as: **P50** — half the runs finished by here, close to
+    the CPM finish, a midpoint and never a commitment; **P80** — the conventional
+    commitment date for internal and stakeholder plans; **P95** — for contractual
+    or externally-visible deadlines. A P80 later than the CPM finish is not a
+    disagreement between the two passes: it is the risk premium the deterministic
+    pass cannot express.
 
     Each task's per-run duration is sampled by one of three paths, in priority order:
 

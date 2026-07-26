@@ -104,6 +104,54 @@ Conventions:
 
 See [the full documentation](https://docs.trueppm.com/features/scheduler) for CPM output fields, Monte Carlo usage, and CLI reference.
 
+## Interpreting the output
+
+The two entry points answer different questions, and their outputs are not the
+same kind of thing. Reading a `schedule()` date as if it were a commitment is
+the single most common way to misuse this library.
+
+**`schedule()` returns one date, and it is the optimistic one.** The CPM finish
+is the *earliest feasible* completion — the date you get if every task takes
+exactly the duration you estimated, no task slips, and no risk fires. It is a
+point on a distribution, not the distribution. Nothing about the forward pass
+makes that point likely; it is simply the arithmetic consequence of the numbers
+you fed it.
+
+**`monte_carlo()` returns the distribution that date sits in.** Sampling each
+task's duration and re-running the network thousands of times produces the
+range of finishes the plan can actually deliver:
+
+| Percentile | Reading | Use it for |
+|------------|---------|------------|
+| `p50` | Half the simulated runs finished on or before this date. In practice it lands close to the CPM finish. | A midpoint, never a commitment |
+| `p80` | 4 in 5 runs finished by this date. | **The commitment date** — internal and stakeholder plans |
+| `p95` | 19 in 20 runs finished by this date. | Contractual deadlines, launch dates, regulatory submissions |
+
+So a CPM finish of `2026-03-03` and a P80 of `2026-03-14` do not disagree. They
+say: *the plan can finish on March 3, and it will finish by March 14 four times
+out of five.* Committing to March 3 is committing to a coin flip.
+
+Two consequences worth internalizing:
+
+- **A task with no three-point estimate contributes no uncertainty.** It uses
+  its fixed `duration` on every run, so a project where nothing is estimated
+  simulates to precisely the CPM finish — `p50 == p80 == p95`. That is a correct
+  result, not a broken one: you asked what varies, and the answer was nothing.
+  Add optimistic/most-likely/pessimistic values to the tasks that drive the date
+  (`MonteCarloResult.sensitivity` ranks them) to get a real band.
+- **Widening the band is not pessimism.** A pessimistic estimate set to
+  `most_likely × 1.2` produces a distribution too narrow to be useful — PERT
+  derives σ as `(P − O) / 6`, so a P barely above M encodes near-certainty. The
+  P value should describe a realistic bad day.
+
+The same framing, with the underlying math, is in
+[the Monte Carlo documentation](https://docs.trueppm.com/features/monte-carlo/#interpreting-results).
+
+> **Scope.** Only this package's Python engine runs Monte Carlo. The companion
+> Rust/WASM engine (`trueppm-wasm-scheduler`, used for browser-side and offline
+> recompute) implements the deterministic CPM pass only — there is no
+> probabilistic path there to keep in conformance.
+
 ## Errors and input limits
 
 Every exception the engine raises subclasses `ValueError`, so one
@@ -162,12 +210,17 @@ Alpha releases are pre-releases — `pip install trueppm-scheduler` skips them
 unless you pass `--pre`. Breaking changes are recorded in
 [`CHANGELOG.md`](./CHANGELOG.md), which also ships inside the wheel.
 
-### Monte Carlo determinism
+### Reproducibility (seeded runs)
 
-Monte Carlo simulation is **deterministic for a fixed seed**: the same `seed`
+Monte Carlo simulation is **reproducible for a fixed seed**: the same `seed`
 always yields the same P50/P80/P95 forecast for the same input. This is a
 supported, tested property you can rely on for reproducible reports and
 regression baselines — not an implementation detail.
+
+This is a statement about *repeatability of the sampling*, not about the shape
+of the answer — a seeded Monte Carlo run still returns a probability
+distribution. Do not confuse it with the deterministic single-date output of
+`schedule()`, which is [a different thing entirely](#interpreting-the-output).
 
 ## Security
 

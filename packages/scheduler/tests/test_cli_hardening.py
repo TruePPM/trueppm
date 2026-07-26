@@ -73,6 +73,42 @@ def _parallel_file(tmp_path: Path) -> str:
     return str(path)
 
 
+def _estimated_file(tmp_path: Path) -> str:
+    """A→B chain where both tasks carry a wide three-point estimate.
+
+    ``_parallel_file`` has no PERT values, so it simulates to a single date; this
+    one gives the CLI a genuinely spread distribution (p50 < p95) to render.
+    """
+    project = Project(
+        id="p3",
+        name="Est",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(
+                id="A",
+                name="Alpha",
+                duration=timedelta(days=10),
+                optimistic_duration=timedelta(days=4),
+                most_likely_duration=timedelta(days=10),
+                pessimistic_duration=timedelta(days=30),
+            ),
+            Task(
+                id="B",
+                name="Beta",
+                duration=timedelta(days=10),
+                optimistic_duration=timedelta(days=4),
+                most_likely_duration=timedelta(days=10),
+                pessimistic_duration=timedelta(days=30),
+            ),
+        ],
+        dependencies=[Dependency("A", "B")],
+        calendar=Calendar(),
+    )
+    path = tmp_path / "est.json"
+    path.write_text(project.to_json())
+    return str(path)
+
+
 def _cycle_file(tmp_path: Path) -> str:
     """A→B→A — schedule() raises CyclicDependencyError, driving the error path."""
     project = Project(
@@ -247,6 +283,56 @@ def test_monte_carlo_human_lines_are_exact(
     assert "  P50 (median):  " in out
     assert "  P80:           " in out
     assert "  P95:           " in out
+
+
+def test_schedule_human_finish_is_labeled_earliest_feasible(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch
+) -> None:
+    # The CPM finish is a deterministic earliest-feasible date, not a commitment
+    # date (#2437). The human output must say so, or a CLI user has no way to
+    # learn it before pasting the number into a status report.
+    _run(["schedule", _parallel_file(tmp_path)], monkeypatch)
+    out = capsys.readouterr().out
+    assert "(earliest feasible — run 'monte-carlo' for confidence dates)" in out
+
+
+def test_monte_carlo_percentiles_carry_their_reading(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch
+) -> None:
+    # Bare "P50:"/"P80:" labels leave the reader to guess which one to commit to.
+    _run(["monte-carlo", "--runs", "500", "--seed", "7", _estimated_file(tmp_path)], monkeypatch)
+    out = capsys.readouterr().out
+    assert "midpoint — even odds, not a commitment" in out
+    assert "← commit to this date" in out
+    assert "external or contractual deadlines" in out
+    # A project with real estimates has a spread, so it must NOT claim collapse.
+    assert "no uncertainty to model" not in out
+
+
+def test_monte_carlo_explains_a_collapsed_distribution(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch
+) -> None:
+    # _parallel_file carries no three-point estimates, so every run finishes on
+    # the same day. That is a correct result, but reads as a broken simulation
+    # unless the output says why (#2437).
+    _run(["monte-carlo", "--runs", "500", "--seed", "7", _parallel_file(tmp_path)], monkeypatch)
+    out = capsys.readouterr().out
+    assert "Every run finished on the same date" in out
+    assert "no uncertainty to model" in out
+
+
+def test_monte_carlo_json_output_carries_no_prose(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch
+) -> None:
+    # --json is machine output: the interpretation lines belong to the human
+    # path only and must never contaminate a parseable payload.
+    _run(
+        ["monte-carlo", "--json", "--runs", "300", "--seed", "7", _parallel_file(tmp_path)],
+        monkeypatch,
+    )
+    out = capsys.readouterr().out
+    json.loads(out)  # would raise if prose leaked into the payload
+    assert "commit to this date" not in out
 
 
 def test_monte_carlo_json_is_pretty_printed(
