@@ -84,7 +84,7 @@ function Cell({ label, first, children }: { label: string; first?: boolean; chil
 function BaselineCell({ task }: { task: Task }) {
   const variance = computeVariance(task);
   if (variance === null) {
-    return <span className="text-sm text-neutral-text-disabled">No baseline</span>;
+    return <span className="text-sm text-neutral-text-secondary">No baseline</span>;
   }
   return (
     <span
