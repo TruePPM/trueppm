@@ -130,7 +130,7 @@ def _parse_column_map(request: Request) -> dict[str, str]:
     return {str(k): str(v) for k, v in parsed.items() if isinstance(k, str)}
 
 
-class CsvImportPreviewView(APIView):
+class CsvImportPreviewView(IdempotencyMixin, APIView):
     """Parse a spreadsheet and return the detected mapping — persisting nothing.
 
     Synchronous and stateless by design (ADR-0632 decision 5): the wizard holds
@@ -138,6 +138,8 @@ class CsvImportPreviewView(APIView):
     without any server-side draft to resume or expire.
     """
 
+    # Nothing is persisted, so a replay has no resource to dedup.
+    idempotency_exempt = True
     # Gated identically to the commit path: preview parses attacker-supplied
     # files, so it is not a lighter-privilege surface just because it does not
     # persist.
