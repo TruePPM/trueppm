@@ -38,6 +38,8 @@ import {
   COLOR_DARK,
   setRendererColorMode,
   setRendererChartOptions,
+  drawFilterMatchMarker,
+  FILTER_DIM_ALPHA,
   canvasFont,
   refreshFontScale,
   drawRowBands,
@@ -131,6 +133,10 @@ export class GanttEngineImpl implements GanttEngine {
   // arrows (predecessor chain blue, successor chain green). React owns the
   // BFS compute; the engine just paints what it's told.
   private _hoverChain: import('./GanttEngine').HoverChain | null = null;
+  // Label-filter paint instruction (#2384). Null means no filter is applied —
+  // which is also what the host pushes on a zero-match selection, so "dim
+  // everything" is unreachable by construction rather than by convention.
+  private _filterHighlight: import('./GanttEngine').FilterHighlight | null = null;
   // Cached row index of _hoverChain.hoveredId so the per-frame hover-row band
   // (#2096) never scans _tasks; recomputed only when the hovered id changes.
   private _hoverRowIndex = -1;
@@ -556,6 +562,18 @@ export class GanttEngineImpl implements GanttEngine {
   // ---------------------------------------------------------------------------
   // GanttEngine — Hover chain (#475)
   // ---------------------------------------------------------------------------
+
+  setFilterHighlight(highlight: import('./GanttEngine').FilterHighlight | null): void {
+    // Reference comparison, same contract as setHoverChain — ScheduleView
+    // memoizes the classification so the identity is stable until the selection
+    // actually changes.
+    if (this._filterHighlight === highlight) return;
+    this._filterHighlight = highlight;
+    // The filter changes bars, markers and arrow contrast, but never the bg
+    // layer (row bands, grid, today line, header) — repaint only the bars.
+    this._barsRepaintPending = true;
+    this._requestRepaint();
+  }
 
   setHoverChain(chain: import('./GanttEngine').HoverChain | null): void {
     // Reference comparison is enough — React calls with a stable identity
@@ -1165,10 +1183,17 @@ export class GanttEngineImpl implements GanttEngine {
           this._hoverChain.predecessors.has(task.id) ||
           this._hoverChain.successors.has(task.id);
 
+    // Label-filter dimming (#2384, ADR-0631) — a row outside the filter fades
+    // but keeps its position, so no bar geometry and no date changes. Multiplied
+    // with the hover-chain alpha rather than overwriting it: with both active
+    // the row is dimmed by both signals, which is the honest composition.
+    const filterDimmed = this._filterHighlight?.dimmed.has(task.id) === true;
+
     // Translate so that scrollTop is offset
     ctx.save();
     ctx.translate(0, -this._scrollTop);
     if (!isInChain) ctx.globalAlpha = 0.25;
+    if (filterDimmed) ctx.globalAlpha *= FILTER_DIM_ALPHA;
 
     if (task.isMilestone) {
       drawMilestone(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
@@ -1199,6 +1224,12 @@ export class GanttEngineImpl implements GanttEngine {
         this._scrollLeft,
         this._viewportWidth,
       );
+    }
+
+    // Leading match marker (#2384) — drawn last so it sits above the bar, and at
+    // full opacity so it stays legible when the row is also hover-chain dimmed.
+    if (this._filterHighlight?.matched.has(task.id)) {
+      drawFilterMatchMarker(ctx, rowIndex);
     }
 
     ctx.restore();

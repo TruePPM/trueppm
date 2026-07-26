@@ -47,6 +47,21 @@ export const SUMMARY_BAR_HEIGHT = 8;
 // selection), so a narrow selected critical bar keeps its red frame.
 const MIN_NEST_WIDTH = 12;
 export const MILESTONE_SIZE = 12;
+
+/**
+ * Opacity applied to a row the label filter did not match (#2384, ADR-0631).
+ *
+ * Deliberately far higher than the hover-chain's 0.25: hover dimming is
+ * momentary and follows the cursor, whereas a filter can sit applied for
+ * minutes while the PM reads the plan. The dimmed rows still have to be
+ * *readable* — they are the dependency context that explains where the matching
+ * bars sit — so this is a de-emphasis, not a fade-out. Paired with the task
+ * table's own dim class, which keeps name text at >= 4.5:1 on `--gantt-surface`.
+ */
+export const FILTER_DIM_ALPHA = 0.35;
+
+/** Width of the leading accent bar marking a filter-matched row. */
+export const FILTER_MARKER_WIDTH = 3;
 /** Baseline ghost bar and actual-date overlay height (rule 14). */
 export const GHOST_BAR_HEIGHT = 6;
 // ---------------------------------------------------------------------------
@@ -194,6 +209,9 @@ export const COLOR = {
   // crosshair link affordance carries, so the preview reads as "an action in
   // progress" rather than a data state. 5.93:1 on the white surface.
   linkPreview: SAGE_700, // sage-700 — brand-primary (light)
+  // Leading accent on a label-filter match (#2384). brand-primary, the same
+  // ink as the link preview: both mean "this is the thing you are acting on".
+  filterMarker: SAGE_700,
 } as const;
 
 /** Semantic type for the color palette. Both COLOR and COLOR_DARK satisfy this. */
@@ -243,6 +261,7 @@ export const COLOR_DARK: ColorPalette = {
   // lighter affordance stop that reads on navy (mirrors the light/dark flip of
   // barComplete / todayLine; #1666).
   linkPreview: SAGE_400, // sage-400 — brand-primary (dark)
+  filterMarker: SAGE_400,
 };
 
 /**
@@ -284,6 +303,9 @@ export const COLOR_FORCED: ColorPalette = {
   linkDraft: 'LinkText',
   linkOpen: 'LinkText',
   linkPreview: 'Highlight',
+  // Forced colors: the marker must survive a high-contrast theme, and dimming
+  // is suppressed there entirely (the OS palette has no opacity budget).
+  filterMarker: 'Highlight',
 };
 
 /**
@@ -1140,6 +1162,29 @@ export function drawTaskBar(
   if (!skipLabel) {
     drawTaskBarLabel(ctx, task, rowIndex, scales, scrollLeft, viewportWidth);
   }
+}
+
+/**
+ * Draw the leading accent marking a row the label filter matched (#2384).
+ *
+ * Painted at the row's left edge in the *viewport*, not at the bar's left edge:
+ * a matching bar can be scrolled far off-screen horizontally, and a match
+ * indicator that scrolls away is useless for scanning which rows matched. It is
+ * a second, non-color-dependent cue alongside the surrounding rows' dimming
+ * (rule 6 / WCAG 1.4.1) — dimming alone would encode the state in contrast only.
+ */
+export function drawFilterMatchMarker(
+  ctx: CanvasRenderingContext2D,
+  rowIndex: number,
+): void {
+  const top = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+  ctx.save();
+  // Full opacity regardless of any ambient alpha: the marker is the signal that
+  // survives when everything around it is de-emphasized.
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = _palette.filterMarker;
+  ctx.fillRect(0, top, FILTER_MARKER_WIDTH, BAR_HEIGHT);
+  ctx.restore();
 }
 
 /**

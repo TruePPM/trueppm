@@ -29,6 +29,19 @@ export interface HoverChain {
   successors: ReadonlySet<string>;
 }
 
+/**
+ * The label filter's paint instruction (#2384, ADR-0631).
+ *
+ * Pure id sets — the engine never evaluates a predicate. `dimmed` holds the
+ * rows to paint at reduced contrast; `matched` holds the rows that earn a
+ * leading marker. A summary that is neither (a *context* row, whose children
+ * match but which does not itself) appears in no set: full contrast, no marker.
+ */
+export interface FilterHighlight {
+  dimmed: ReadonlySet<string>;
+  matched: ReadonlySet<string>;
+}
+
 // ---------------------------------------------------------------------------
 // Event map
 // ---------------------------------------------------------------------------
@@ -246,6 +259,23 @@ export interface GanttEngine {
    * paints what it's told.
    */
   setHoverChain(chain: HoverChain | null): void;
+
+  // ── Filter highlight (#2384) ──────────────────────────────────────────────
+
+  /**
+   * Push the label filter's dim set (ADR-0631).
+   *
+   * The Schedule dims rather than hides, because a filtered-out task still
+   * drives dates and still owns the arrows that explain where a matching bar
+   * sits. Pass `null` to clear — which is also what the host passes when the
+   * filter matches nothing, since dimming *every* row reads as broken rather
+   * than as an empty result.
+   *
+   * The engine classifies nothing: `ScheduleView` computes the state with
+   * `classifyScheduleRows` and pushes the resulting id sets here, the same
+   * one-way contract as {@link setHoverChain}.
+   */
+  setFilterHighlight(highlight: FilterHighlight | null): void;
 
   // ── Event emitter ─────────────────────────────────────────────────────────
 
