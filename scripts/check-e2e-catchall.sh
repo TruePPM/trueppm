@@ -34,10 +34,6 @@ ALLOWLIST=(
   "landing-redirect.spec.ts"
   # Static design-token assertions — makes no API calls at all.
   "brand.spec.ts"
-  # Tracked in #2367: needs its missing mocks written before the catch-all can
-  # be added without failing (it currently relies on unmocked fall-through).
-  "schedule-backlog-promote.spec.ts"
-  "wave10-sprints-backlog.spec.ts"
 )
 
 is_allowlisted() {
