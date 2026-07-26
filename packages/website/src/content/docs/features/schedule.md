@@ -18,6 +18,42 @@ Step 2 ([Schedule the skeleton — CPM, milestones, baseline](/the-story/#2-sche
 - Route: `/projects/:projectId/schedule`
 - Tab: **Schedule** (visible by default for HYBRID and WATERFALL projects per [methodology preset](/features/methodology-preset/))
 
+## How to read these dates
+
+Every date on this view — the bars, the Start and Finish columns, the milestone
+diamonds — comes from the **CPM pass**. It is the *earliest feasible* schedule:
+what happens if every task takes exactly the duration you estimated, no task
+slips, and no risk fires. That makes it a single point, and an optimistic one.
+
+This matters because a Gantt bar looks like a commitment. It isn't one. In
+practice the CPM finish lands close to the **P50** of the same project's
+[Monte Carlo forecast](/features/monte-carlo/) — meaning roughly even odds of
+hitting it. Committing to the date on the bar is committing to a coin flip.
+
+The [Forecast & sensitivity](#forecast--sensitivity) bar below the timeline is
+where the confidence bands live. The short version:
+
+| | What it is | What to do with it |
+|---|---|---|
+| The bars on this view | The deterministic CPM schedule — earliest feasible | Plan, sequence, find the critical path |
+| **P50** | Half of simulated runs finished by here | Read as a midpoint, never quote it |
+| **P80** | 4 in 5 runs finished by here | **The date you commit to** |
+| **P95** | 19 in 20 runs finished by here | Contractual and externally-visible deadlines |
+
+So a Finish column reading `3 Mar` next to a P80 of `14 Mar` is not a
+contradiction — it is the risk premium the CPM pass cannot express. See
+[Interpreting results](/features/monte-carlo/#interpreting-results) for the
+full treatment, including what to do when all three percentiles come back
+identical.
+
+:::note[Computed is not the same as committed]
+A separate distinction, easy to conflate: a task can carry a PM-set **committed
+start** or run purely on **computed** CPM dates, and the app flags the second
+case where it matters. That is about *provenance* — who put the date there.
+This section is about *probability* — how likely any date is to hold. A
+committed date is no more likely to be met than a computed one.
+:::
+
 ## Layout
 
 Split-pane: a virtualized task list on the left (seven columns — WBS, Task, Dur, Start, Finish, %, Owner — all but Task hideable and resizable, persisted via `localStorage`), and the canvas timeline on the right. Scroll is synchronized in both directions.
@@ -168,6 +204,10 @@ Below the timeline, a collapsible **Forecast & sensitivity** bar surfaces the Mo
 - **What's holding the date** — a sensitivity ranking of the tasks whose duration moves the project finish most, shown as labeled percent bars (critical-path tasks in red). This is a real duration-sensitivity tornado from the simulation, not a guess based on estimate spread — a high-variance task with plenty of float ranks low, while a task on the binding path ranks high. See the [scheduler reference](/features/scheduler/#sensitivity-whats-holding-the-date) for the underlying metric.
 
 Run a simulation from the Monte Carlo row to populate it; the expand/collapse choice is remembered per user.
+
+Until you do, the view shows only the deterministic CPM dates — see
+[How to read these dates](#how-to-read-these-dates) for why that is a midpoint
+rather than a commitment.
 
 ## Export to PDF
 
