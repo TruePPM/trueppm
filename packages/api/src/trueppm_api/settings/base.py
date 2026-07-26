@@ -1227,6 +1227,27 @@ REST_FRAMEWORK = {
         # human (or an MCP agent) exploring a handful of "what if I slip this task"
         # scenarios while blunting a scripted resource-exhaustion flood.
         "monte_carlo_whatif": _STRICT_ABUSE_RATE,
+        # Bundled-sample demo loader (#2402). POST /programs/load-sample/ is the
+        # most expensive single write in the API: it hard-deletes the caller's
+        # prior program with the same code (memberships -> projects -> cascade)
+        # and rebuilds the whole fixture — three projects, per-row saves with
+        # simple_history rows, the v2 replay timeline, and a forecast backfill —
+        # synchronously inside one transaction. The default sample measures ~3.4 s
+        # and ~3,700 sequential DB round-trips locally, several times that on
+        # modest hardware. Left on the general "user" default (1000/min) one
+        # authenticated member could drive a thousand full teardown-and-rebuilds a
+        # minute. 6/min matches monte_carlo_whatif — the same "one call is costly
+        # enough that even a modest loop is abusive" tier — and is ample for a
+        # human clicking "Load demo data" and trying a couple of samples.
+        "sample_load": env("TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE", default=_STRICT_ABUSE_RATE),
+        # Caller-supplied seed import (#2402). POST /programs/import/ runs the
+        # *same* importer as load-sample on a payload the caller sizes, under the
+        # same IsAuthenticated-only gate, so it is the cheaper of the two
+        # exhaustion vectors and needs the same bound. A separate bucket from
+        # sample_load so loading a demo never spends a user's real import
+        # allowance — importing a handful of program bundles in a sitting is
+        # normal; sixty a minute is not.
+        "seed_import": env("TRUEPPM_THROTTLE_SEED_IMPORT_RATE", default=_STRICT_ABUSE_RATE),
         # MCP read surface per-token rate limits (#1808 finding F4). These bound
         # token-authenticated reads on any McpReadableViewMixin view ONLY — human
         # JWT/Session traffic on the same views is unaffected (the throttles'

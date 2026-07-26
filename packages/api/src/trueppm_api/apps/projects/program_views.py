@@ -29,6 +29,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 
 from trueppm_api.apps.access.models import ProgramMembership
 from trueppm_api.apps.access.permissions import (
@@ -81,6 +82,56 @@ from trueppm_api.core.openapi import suppress_list_pagination
 # enough for "one sub-program per project" on a large program, but caps the
 # unbounded-empty-program creation vector.
 _MAX_SPLITS = 50
+
+
+class _SeedImporterThrottle(UserRateThrottle):
+    """Shared base for the two actions that run the seed importer (#2402).
+
+    ``import_seed`` and ``load_sample`` both call ``import_seed()``, by a wide
+    margin the most expensive write in the API. Each call hard-deletes the
+    caller's prior program carrying the same code (memberships → projects →
+    cascade over tasks, dependencies, sprints, risks, baselines) and rebuilds the
+    document synchronously inside one transaction: per-row saves with
+    ``simple_history`` rows attached, the v2 replay timeline, and the
+    forecast-history backfill. The bundled default sample alone costs ~3,700
+    sequential DB round-trips, and holds a ``select_for_update()`` throughout.
+
+    Left on the general ``user`` default of 1000/min a single authenticated
+    member could drive a thousand full teardown-and-rebuild cycles a minute —
+    the resource-exhaustion shape the ``monte_carlo`` scopes already guard
+    against, at a higher per-call cost. The two actions get *separate* buckets so
+    loading a demo never spends a user's real import allowance.
+
+    Subclasses ``UserRateThrottle`` (as ``ShareLinkMintThrottle`` does) rather
+    than ``ScopedRateThrottle`` deliberately: these are attached per-action
+    through the ``@action(throttle_classes=[…])`` kwarg, so the view carries no
+    ``throttle_scope`` attribute. ``ScopedRateThrottle.allow_request`` re-reads
+    the scope off the view and silently returns True when it finds none, which
+    would clobber a class-level ``scope`` and leave the endpoint unthrottled
+    while *looking* bounded. ``UserRateThrottle`` resolves the scope from the
+    class at construction and already keys the bucket per user.
+
+    ADR-0604's global kill switch neutralizes these scopes along with every other
+    one — it nulls each rate in ``DEFAULT_THROTTLE_RATES``, and a ``None`` rate
+    makes ``SimpleRateThrottle.allow_request`` return True immediately.
+    """
+
+
+class LoadSampleThrottle(_SeedImporterThrottle):
+    """Caps bundled-sample demo loads per account (#2402)."""
+
+    scope = "sample_load"
+
+
+class SeedImportThrottle(_SeedImporterThrottle):
+    """Caps caller-supplied seed imports per account (#2402).
+
+    Strictly cheaper to abuse than :class:`LoadSampleThrottle`: the payload is
+    caller-supplied, so the per-call cost is chosen by the attacker rather than
+    fixed by a bundled fixture.
+    """
+
+    scope = "seed_import"
 
 
 class LoadSampleResponseSerializer(serializers.Serializer[Any]):
@@ -297,7 +348,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         summary="Import a JSON seed bundle as a new program",
         responses={201: ProgramSerializer},
     )
-    @action(detail=False, methods=["post"], url_path="import")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="import",
+        throttle_classes=[SeedImportThrottle],
+    )
     def import_seed(self, request: Request) -> Response:
         """Import a JSON seed document, creating (or replacing) a program.
 
@@ -305,6 +361,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         becomes the program OWNER (same authorization as ``create`` — any
         authenticated user may create a program). ``create_users`` is forced off:
         importing a seed on a live instance must never mint arbitrary logins.
+
+        Rate-limited to the ``seed_import`` scope (:class:`SeedImportThrottle`),
+        which replaces the viewset's general ``user`` default: this runs the same
+        importer as ``load_sample`` — a program teardown plus a full synchronous
+        rebuild — on a payload the *caller* sizes, so an unbounded loop here is
+        the cheaper of the two exhaustion vectors (#2402).
 
         Permission parity (#1957): import stays ``IsAuthenticated`` (via the
         get_permissions default) deliberately, because program ``create`` is
@@ -747,13 +809,27 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         summary="Load a bundled sample program",
         responses={201: LoadSampleResponseSerializer},
     )
-    @action(detail=False, methods=["post"], url_path="load-sample")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="load-sample",
+        throttle_classes=[LoadSampleThrottle],
+    )
     def load_sample(self, request: Request) -> Response:
         """Load a bundled sample program — the "Load demo data" action (#375, #1054).
 
         Body: ``{"sample": "<key>"}`` (optional; defaults to the launch demo).
         The caller becomes OWNER (same authorization as ``create``). Demo
         persona accounts are created so the boards render fully.
+
+        Rate-limited to the ``sample_load`` scope (:class:`LoadSampleThrottle`),
+        which replaces the viewset's general ``user`` default: one call rebuilds
+        an entire program, so even a modest loop is abusive (#2402).
+
+        **Latency:** this runs the whole import synchronously — seconds, not
+        milliseconds, and proportional to the fixture. Clients must not apply a
+        short request timeout; the web client opts out of its 30 s default for
+        this call the same way it does for MSP import.
 
         The caller is then assigned the first open sprint's tasks (#1054) so a
         contributor who loads the demo from My Work sees their own work right

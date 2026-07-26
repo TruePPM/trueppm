@@ -66,9 +66,28 @@ describe('seed-io mutations invalidate the sidebar project list', () => {
     result.current.mutate(undefined);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(postMock).toHaveBeenCalledWith('/programs/load-sample/', {});
+    expect(postMock).toHaveBeenCalledWith('/programs/load-sample/', {}, { timeout: 0 });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['programs'] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
+  });
+
+  // Regression (#2402): the server runs the whole fixture import synchronously —
+  // a program teardown plus a multi-thousand-round-trip rebuild — which on modest
+  // self-hosted hardware can exceed the client's 30 s default. Without the opt-out
+  // the *first* action a new evaluator ever takes aborts client-side while the
+  // server keeps building the program, leaving them with an error and a program
+  // they cannot see.
+  it('useLoadSampleProgram opts out of the 30s client timeout', async () => {
+    const { result } = renderHook(() => useLoadSampleProgram(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate('aurora-mobile-app');
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(postMock).toHaveBeenCalledWith(
+      '/programs/load-sample/',
+      { sample: 'aurora-mobile-app' },
+      { timeout: 0 },
+    );
   });
 
   it('useImportProgramSeed invalidates both ["programs"] and ["projects"]', async () => {

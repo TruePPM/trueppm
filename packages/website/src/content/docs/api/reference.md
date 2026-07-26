@@ -204,6 +204,11 @@ A program is a container for related projects (see [Programs](/features/programs
 | GET | `/api/v1/programs/{id}/schedule/` | Program-true cross-project critical path — merges every member project's tasks and every accepted cross-project dependency into one CPM run, computed on read. Tasks in projects you cannot read are redacted to a minimal card (title + forecast dates only); links are flagged cross-project (any program member) |
 | POST | `/api/v1/programs/{id}/split/` | Split a program into sub-programs — **planned, not yet implemented** (returns `501`) |
 
+Both write endpoints run the importer **synchronously** — each rebuilds a whole
+program, so a call takes seconds rather than milliseconds and scales with the
+document. Allow a generous request timeout, and expect a `6/min` per-account
+scoped limit on each (see [Rate limiting](#rate-limiting) below).
+
 The import endpoint returns `201 Created` with the new program; it returns `400`
 with an `errors` array on a malformed or oversized seed document. The load-sample
 endpoint returns `201 Created` with a `{program, landing_project_id, sample_key}`
@@ -607,8 +612,9 @@ Both defaults are operator-configurable (`TRUEPPM_THROTTLE_ANON_RATE` and
   never rate limited, so Kubernetes liveness/readiness loops are not throttled.
 - **Scoped endpoints replace the default.** Endpoints with their own limit —
   login (`10/min`), token refresh (`60/min`), the resource catalog list
-  (`60/min` per user), Monte Carlo run (`10/min`), and others — carry only that
-  specific limit. Scoped limits do **not** stack on top of the general default.
+  (`60/min` per user), Monte Carlo run (`10/min`), seed import and demo-sample
+  load (`6/min` each, separate buckets), and others — carry only that specific
+  limit. Scoped limits do **not** stack on top of the general default.
 
 When a caller exceeds a limit the API responds with `429 Too Many Requests` and
 a `Retry-After` header giving the number of seconds to wait before retrying:

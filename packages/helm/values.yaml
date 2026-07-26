@@ -320,6 +320,17 @@ env:
   #   TRUEPPM_THROTTLE_SHARE_ACCESS_RATE (public GET, default 60/min)
   #   TRUEPPM_THROTTLE_SHARE_MINT_RATE   (Admin create, default 20/min)
   TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED: "true"
+  # Bundled demo-sample loader (#2402). POST /programs/load-sample/ tears down the
+  # caller's previous copy of the sample and re-imports the whole fixture
+  # synchronously — by a wide margin the most expensive single write in the API.
+  # This per-account cap keeps it from being looped into a resource-exhaustion
+  # vector. 6/min is ample for a person clicking "Load demo data" and trying a
+  # couple of samples; raise it only if you script demo environments.
+  TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE: "6/min"
+  # POST /programs/import/ runs that same importer on a caller-supplied payload,
+  # so it carries the same bound in its own bucket (loading a demo must not spend
+  # a user's import allowance). Raise if you bulk-migrate programs via the API.
+  TRUEPPM_THROTTLE_SEED_IMPORT_RATE: "6/min"
   # MCP administration controls (#2021, ADR-0497). TRUEPPM_MCP_ENABLED is the
   # instance-wide kill switch for read-only MCP (AI-agent) token access. "true"
   # (default) lets personal tokens carrying the mcp:read scope read the MCP

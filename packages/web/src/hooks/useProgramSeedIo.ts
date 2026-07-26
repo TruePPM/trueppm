@@ -124,6 +124,15 @@ export function useLoadSampleProgram(): UseMutationResult<
       const res = await apiClient.post<LoadSampleResult>(
         '/programs/load-sample/',
         sample ? { sample } : {},
+        // Opt out of the client's 30 s default (#2402). The server runs the
+        // whole fixture import synchronously — a program teardown plus a
+        // multi-thousand-round-trip rebuild — so this is a long user-initiated
+        // import in exactly the sense client.ts carves out for MSP import and
+        // export bundles. On modest self-hosted hardware it can exceed 30 s, and
+        // timing it out would abort the *first* thing a new evaluator ever
+        // clicks while the server keeps building the program anyway. The
+        // mutation's own pending state is the progress affordance.
+        { timeout: 0 },
       );
       return res.data;
     },
