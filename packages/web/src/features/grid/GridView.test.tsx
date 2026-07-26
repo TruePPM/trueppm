@@ -1,4 +1,7 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createMemoryRouter } from 'react-router';
+import { RouterProvider } from 'react-router/dom';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
@@ -152,6 +155,17 @@ vi.mock('@/hooks/useLabels', () => ({
   useLabels: () => ({ data: labelsMock }),
 }));
 
+// Owner roster for the Owner facet (#2387) — the project's resource pool, which
+// deliberately includes someone with no rows so the visible `0` is exercised.
+let resourcePoolMock = [
+  { resourceId: 'r1', resource: { name: 'Alice Smith' } },
+  { resourceId: 'r2', resource: { name: 'Bob Jones' } },
+  { resourceId: 'r3', resource: { name: 'Carol Nunes' } },
+];
+vi.mock('@/hooks/useProjectResourcePool', () => ({
+  useProjectResourcePool: () => ({ data: resourcePoolMock }),
+}));
+
 vi.mock('@/utils/exportCsv', () => ({
   exportTasksToCsv: (...args: unknown[]) => {
     exportTasksToCsv(...args);
@@ -197,6 +211,22 @@ vi.mock('@tanstack/react-virtual', () => ({
 async function renderGrid(initialEntries?: string[]) {
   const { GridView } = await import('./GridView');
   return renderWithRouter(<GridView />, initialEntries ? { initialEntries } : undefined);
+}
+
+/**
+ * Same render, but hands back the router so a test can read the query string.
+ * `window.location` is untouched by MemoryRouter, so asserting on it proves
+ * nothing — the router's own location is the observable.
+ */
+async function renderGridWithRouter(initialEntries: string[] = ['/']) {
+  const { GridView } = await import('./GridView');
+  const router = createMemoryRouter([{ path: '*', element: <GridView /> }], { initialEntries });
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+  return { search: () => router.state.location.search };
 }
 
 describe('GridView — methodology default', () => {
@@ -909,8 +939,12 @@ describe('GridView — label facet (#2383)', () => {
     // The regression this guards: adopting `?fl=` must not rewrite, redirect, or
     // invalidate a Grid link bookmarked before the facet existed.
     await renderGrid(['/projects/proj-1/grid?owner=Alice%20Smith&status=IN_PROGRESS']);
-    expect(await screen.findByText('Owner: Alice Smith')).toBeInTheDocument();
-    expect(screen.getByText('Status: In progress')).toBeInTheDocument();
+    // Assert on the chips' remove buttons, not the bare text: since #2387 the
+    // toolbar trigger reads "Status: In progress" too, so `getByText` would hit
+    // two nodes. `?owner=` here is a *name* (the pre-#2387 format) and must
+    // still resolve — the predicate matches resource id or name.
+    expect(await screen.findByLabelText('Remove Owner: Alice Smith filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Remove Status: In progress filter')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Label: any' })).toBeInTheDocument();
     expect(window.location.search).not.toContain('fl=');
   });
@@ -929,5 +963,127 @@ describe('GridView — label facet (#2383)', () => {
     await user.click(await screen.findByRole('button', { name: 'Label: none yet' }));
     expect(screen.getByText('No labels in this project yet')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open label settings' })).toBeInTheDocument();
+  });
+});
+
+describe('GridView — Owner and Status facets (#2387)', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    labelsMock = [
+      { id: 'l1', name: 'Needs review', color: 'teal', position: 0, serverVersion: 1, taskCount: 0 },
+      { id: 'l2', name: 'Blocked', color: 'rose', position: 1, serverVersion: 1, taskCount: 0 },
+    ];
+    resourcePoolMock = [
+      { resourceId: 'r1', resource: { name: 'Alice Smith' } },
+      { resourceId: 'r2', resource: { name: 'Bob Jones' } },
+      { resourceId: 'r3', resource: { name: 'Carol Nunes' } },
+    ];
+  });
+
+  it('renders all three facet triggers, left to right', async () => {
+    await renderGrid();
+    // The gap this issue closes: Owner and Status had working state, working
+    // predicates and removable chips, but no control to *set* them.
+    expect(await screen.findByRole('button', { name: 'Owner: any' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Status: any' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Label: any' })).toBeInTheDocument();
+  });
+
+  it('selecting an owner filters the rows and mirrors into ?owner=', async () => {
+    const user = userEvent.setup();
+    const { search } = await renderGridWithRouter();
+    await user.click(await screen.findByRole('button', { name: 'Owner: any' }));
+    await user.click(screen.getByRole('menuitemcheckbox', { name: /Alice Smith/ }));
+    await waitFor(() => expect(search()).toContain('owner=r1'));
+    // Alice is on Planning and Requirements; Design (Bob only) drops out.
+    expect(screen.getByText('Requirements')).toBeInTheDocument();
+    expect(screen.queryByText('Design')).not.toBeInTheDocument();
+  });
+
+  it('ORs within the Owner facet — two owners widen the result', async () => {
+    const user = userEvent.setup();
+    const { search } = await renderGridWithRouter();
+    await user.click(await screen.findByRole('button', { name: 'Owner: any' }));
+    await user.click(screen.getByRole('menuitemcheckbox', { name: /Alice Smith/ }));
+    await user.click(screen.getByRole('menuitemcheckbox', { name: /Bob Jones/ }));
+    // Comma-separated, in selection order — the same list format as `?fl=`.
+    await waitFor(() => expect(search()).toContain('owner=r1%2Cr2'));
+    // Both chips are present — one per value, so either can be dropped alone.
+    expect(screen.getByLabelText('Remove Owner: Alice Smith filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Remove Owner: Bob Jones filter')).toBeInTheDocument();
+  });
+
+  it('shows a visible 0 for a roster member with no rows here', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(await screen.findByRole('button', { name: 'Owner: any' }));
+    // Carol is on the project but owns none of the loaded tasks.
+    expect(screen.getByRole('menuitemcheckbox', { name: /Carol Nunes/ })).toHaveTextContent('0');
+  });
+
+  it('restores a multi-value ?owner= and ?status= from the URL', async () => {
+    await renderGrid(['/projects/proj-1/grid?owner=r1,r2&status=IN_PROGRESS,COMPLETE']);
+    expect(await screen.findByLabelText('Remove Owner: Alice Smith filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Remove Owner: Bob Jones filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Remove Status: In progress filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Remove Status: Done filter')).toBeInTheDocument();
+  });
+
+  it('drops an unrecognized ?status= value rather than rendering an unremovable chip', async () => {
+    await renderGrid(['/projects/proj-1/grid?status=IN_PROGRESS,CANCELLED']);
+    expect(await screen.findByLabelText('Remove Status: In progress filter')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Remove Status: CANCELLED/)).not.toBeInTheDocument();
+  });
+
+  it('opens one panel at a time — opening Status closes Owner', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(await screen.findByRole('button', { name: 'Owner: any' }));
+    expect(screen.getByRole('menu', { name: 'Filter by owner' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Status: any' }));
+    // No stacking: the Owner panel is gone, not merely behind the Status one.
+    expect(screen.queryByRole('menu', { name: 'Filter by owner' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: 'Filter by status' })).toBeInTheDocument();
+  });
+
+  it('lists the chips in toolbar order and clears them all at once', async () => {
+    const user = userEvent.setup();
+    const { search } = await renderGridWithRouter([
+      '/projects/proj-1/grid?owner=r1&status=IN_PROGRESS&fl=l1',
+    ]);
+    const removeLabels = (await screen.findAllByRole('button'))
+      .map((b) => b.getAttribute('aria-label'))
+      .filter((l): l is string => Boolean(l?.startsWith('Remove ')));
+    expect(removeLabels).toEqual([
+      'Remove Owner: Alice Smith filter',
+      'Remove Status: In progress filter',
+      'Remove filter: label Needs review',
+    ]);
+    await user.click(screen.getByRole('button', { name: 'Clear all' }));
+    // Every key is dropped, not merely emptied — an unfiltered grid has a clean URL.
+    await waitFor(() => expect(search()).not.toContain('owner='));
+    expect(search()).not.toContain('status=');
+    expect(search()).not.toContain('fl=');
+  });
+
+  it('names each facet and offers the most useful drop when nothing matches', async () => {
+    const user = userEvent.setup();
+    // Carol owns nothing and COMPLETE has rows, so the intersection is empty.
+    await renderGrid(['/projects/proj-1/grid?owner=r3&status=COMPLETE']);
+    expect(await screen.findByText(/No tasks match both filters/)).toBeInTheDocument();
+    // Each facet's standalone count is stated, so an empty intersection reads as
+    // an intersection rather than as a broken filter.
+    expect(screen.getByText(/Each filter has rows on its own/)).toBeInTheDocument();
+    // Dropping Owner recovers the COMPLETE rows; dropping Status recovers none,
+    // because Carol owns nothing. The offer is the one that actually helps.
+    await user.click(screen.getByRole('button', { name: /^Drop Owner:/ }));
+    expect(await screen.findByText('Requirements')).toBeInTheDocument();
+  });
+
+  it('keeps the plain single-facet empty state when only one filter is active', async () => {
+    await renderGrid(['/projects/proj-1/grid?owner=r3']);
+    expect(await screen.findByText('No tasks match these filters')).toBeInTheDocument();
+    expect(screen.queryByText(/Each filter has rows on its own/)).not.toBeInTheDocument();
   });
 });

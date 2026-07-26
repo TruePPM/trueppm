@@ -1,13 +1,24 @@
 import { taskMatchesLabels } from '@/components/filters/labelFilter';
+import { taskMatchesOwners } from '@/components/filters/ownerFilter';
+import { taskMatchesStatuses } from '@/components/filters/statusFilter';
 import type { Task, TaskStatus } from '@/types';
 
 /** Grid due-date filter. `overdue` mirrors the server's `tasks_late_count`. */
 export type DueFilter = 'all' | 'overdue';
 
+/**
+ * The Grid's active filter set. Owner, Status and Label are all multi-select
+ * (#2387): each is OR *within* itself and AND *across* the three, which is the
+ * combination the toolbar's three facets describe. Owner and Status were single
+ * values until #2387 — a one-value URL param parses to a one-item list, so every
+ * pre-existing `?owner=…&status=…` link resolves unchanged.
+ */
 export interface GridFilterState {
   search: string;
-  ownerFilter: string;
-  statusFilter: TaskStatus | '';
+  /** Selected owners (`?owner=`) — resource ids, or names from a legacy link. */
+  ownerIds: string[];
+  /** Selected statuses (`?status=`). */
+  statuses: TaskStatus[];
   dueFilter: DueFilter;
   /** Selected label ids (`?fl=`); OR within the facet, AND with everything else. */
   labelIds: string[];
@@ -41,25 +52,25 @@ export function isTaskOverdue(task: Pick<Task, 'finish' | 'status'>, today: Date
 export function matchesFilters(task: Task, filters: GridFilterState): boolean {
   const q = filters.search.toLowerCase();
   if (q && !task.name.toLowerCase().includes(q)) return false;
-  if (filters.ownerFilter && !task.assignees.some((a) => a.name === filters.ownerFilter))
-    return false;
-  if (filters.statusFilter && task.status !== filters.statusFilter) return false;
+  // Each facet ORs within itself; the three are ANDed here. All three use their
+  // own shared predicate so the Grid, the Backlog and (once #2384 lands) the
+  // Schedule cannot drift into different semantics for the same control.
+  if (!taskMatchesOwners(task, filters.ownerIds)) return false;
+  if (!taskMatchesStatuses(task, filters.statuses)) return false;
   if (filters.dueFilter === 'overdue' && !isTaskOverdue(task, new Date())) return false;
-  // Labels are ANDed with the other facets but ORed internally — the shared
-  // predicate keeps that semantic identical on every view (ADR-0620).
   if (!taskMatchesLabels(task, filters.labelIds)) return false;
   return true;
 }
 
 export function emptyFilters(): GridFilterState {
-  return { search: '', ownerFilter: '', statusFilter: '', dueFilter: 'all', labelIds: [] };
+  return { search: '', ownerIds: [], statuses: [], dueFilter: 'all', labelIds: [] };
 }
 
 export function hasAnyFilter(filters: GridFilterState): boolean {
   return Boolean(
     filters.search ||
-      filters.ownerFilter ||
-      filters.statusFilter ||
+      filters.ownerIds.length > 0 ||
+      filters.statuses.length > 0 ||
       filters.dueFilter !== 'all' ||
       filters.labelIds.length > 0,
   );

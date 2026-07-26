@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useCallback, useState, useMemo, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -30,6 +30,9 @@ import { matchesFilters, hasAnyFilter } from './filters';
 interface OutlineModeProps {
   filters: GridFilterState;
   onClearFilters: () => void;
+  /** Overrides the default filtered-empty state — the Grid supplies one
+   *  carrying the multi-facet diagnosis (#2387). */
+  filteredEmptyState?: ReactNode;
   /** Imperative trigger for "Expand all" — increments to force expand. */
   expandAllCounter: number;
   /** Imperative trigger for "Collapse all". */
@@ -60,7 +63,7 @@ function compareTasksByWbs(a: Task, b: Task): number {
  * descendant. Ancestors of matches stay visible to preserve tree integrity.
  */
 export function OutlineMode({
-  filters, onClearFilters, expandAllCounter, collapseAllCounter,
+  filters, onClearFilters, expandAllCounter, collapseAllCounter, filteredEmptyState,
 }: OutlineModeProps) {
   const projectId = useProjectId() ?? null;
   const { tasks, links } = useScheduleTasks();
@@ -349,7 +352,7 @@ export function OutlineMode({
   );
 
   if (visibleTasks.length === 0 && hasAnyFilter(filters)) {
-    return <GridFilteredEmptyState onClear={onClearFilters} />;
+    return filteredEmptyState ?? <GridFilteredEmptyState onClear={onClearFilters} />;
   }
 
   const tree = buildWbsTree(visibleTasks);
