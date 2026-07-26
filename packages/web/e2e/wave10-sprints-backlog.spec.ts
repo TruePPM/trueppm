@@ -5,6 +5,7 @@
  * grouped by board status with CP flags and the open-in-board link wired.
  */
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-sprints-backlog-00000000-0000-0000-0000-000000000030';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;
@@ -85,10 +86,46 @@ const PLANNED_SPRINT = {
 };
 
 const BACKLOG_TASKS = [
-  { id: 'task-1', short_id: 'A1', name: 'Calibrate sensors', wbs_path: '1.1', status: 'IN_PROGRESS', story_points: 5, is_critical: true, assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: 1 }] },
-  { id: 'task-2', short_id: 'A2', name: 'Wire telemetry channel', wbs_path: '1.2', status: 'IN_PROGRESS', story_points: 8, is_critical: false, assignments: [{ resource_id: 'r2', resource_name: 'Ben Lee', units: 1 }] },
-  { id: 'task-3', short_id: 'A3', name: 'Draft FAT report', wbs_path: '1.3', status: 'BACKLOG', story_points: 3, is_critical: false, assignments: [] },
-  { id: 'task-4', short_id: 'A4', name: 'Power supply review', wbs_path: '1.4', status: 'COMPLETE', story_points: 2, is_critical: false, assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: 0.5 }] },
+  {
+    id: 'task-1',
+    short_id: 'A1',
+    name: 'Calibrate sensors',
+    wbs_path: '1.1',
+    status: 'IN_PROGRESS',
+    story_points: 5,
+    is_critical: true,
+    assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: 1 }],
+  },
+  {
+    id: 'task-2',
+    short_id: 'A2',
+    name: 'Wire telemetry channel',
+    wbs_path: '1.2',
+    status: 'IN_PROGRESS',
+    story_points: 8,
+    is_critical: false,
+    assignments: [{ resource_id: 'r2', resource_name: 'Ben Lee', units: 1 }],
+  },
+  {
+    id: 'task-3',
+    short_id: 'A3',
+    name: 'Draft FAT report',
+    wbs_path: '1.3',
+    status: 'BACKLOG',
+    story_points: 3,
+    is_critical: false,
+    assignments: [],
+  },
+  {
+    id: 'task-4',
+    short_id: 'A4',
+    name: 'Power supply review',
+    wbs_path: '1.4',
+    status: 'COMPLETE',
+    story_points: 2,
+    is_critical: false,
+    assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: 0.5 }],
+  },
 ];
 
 // The full-Task project list (GET /tasks/?project=) that feeds useScheduleTasks.
@@ -120,6 +157,170 @@ function fullTaskShape(t: { id: string; name: string; wbs_path: string; status: 
 }
 const FULL_TASKS = BACKLOG_TASKS.map(fullTaskShape);
 
+/**
+ * Ambient reads the Sprints route makes beyond the sprint fixtures themselves
+ * (#2396) — shell chrome, the task drawer, and the sibling sprint panels.
+ *
+ * Shared by both setups rather than copy-pasted: the bug this fixes was an
+ * endpoint missing from ONE of them, and two hand-maintained lists drift apart
+ * again the moment a panel starts reading something new.
+ */
+async function setupAmbientReads(page: import('@playwright/test').Page) {
+  //
+  // Before #2396 this spec registered no catch-all, so every request below
+  // escaped to the preview server, came back 401, and tripped the
+  // session-expired modal — which then covered the page and swallowed every
+  // subsequent click. That is why the failures only appeared under parallel
+  // load: an unmocked request is always wrong, but it only *loses the race*
+  // when the machine is busy. Each is mocked with its real response shape
+  // (per the CLAUDE.md rule) rather than left to the catch-all, whose 404
+  // would put these panels in an error state the spec does not mean to assert.
+
+  // `?self=true` is a SEPARATE route from the bare members list: a glob ending
+  // in `/` does not match a query string, which is why the members mock above
+  // did not cover it.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/?*`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 'mem-1', role: 300, role_label: 'Scheduler' }]),
+    }),
+  );
+  // Only *tripped* signals are returned; an empty list fades the badge row.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/sprint-health/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ signals: [] }),
+    }),
+  );
+  await page.route(/\/api\/v1\/sprints\/[^/]+\/blocked\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ sprint_id: ACTIVE_SPRINT.id, count: 0, blocked: [] }),
+    }),
+  );
+  // Discriminated union on `gated` — the ungated branch must carry `points`.
+  await page.route(/\/api\/v1\/sprints\/[^/]+\/pulse-trend\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        gated: false,
+        points: [],
+        energy_declining: false,
+        my_response: null,
+      }),
+    }),
+  );
+  await page.route(/\/api\/v1\/sprints\/[^/]+\/retro-board\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ columns: [], items: [] }),
+    }),
+  );
+  // The hook maps 404 → null, which is the "no prior retro" state.
+  await page.route(/\/api\/v1\/sprints\/[^/]+\/retrospective\/prior\//, (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: '{"detail":"Not found."}',
+    }),
+  );
+  await page.route(/\/api\/v1\/sprints\/[^/]+\/daily-delta\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        blocker_summary: { impediment: 0, paused: 0 },
+        burndown_delta: null,
+        per_actor: [],
+        actor_aggregate: { actor_count: 0, completed_count: 0, moved_count: 0 },
+        sprint_load: { assigned_count: 0, unassigned_count: 0 },
+      }),
+    }),
+  );
+  await page.route('**/api/v1/me/timer/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ active: false }),
+    }),
+  );
+  await page.route('**/api/v1/me/work/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+        due_today_count: 0,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/programs/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  await page.route('**/api/v1/auth/me/pinned/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  // Recording a visit is fire-and-forget; the page does not read the result.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/visit/`, (route) =>
+    route.fulfill({ status: 204, body: '' }),
+  );
+  await page.route('**/api/v1/ws/ticket/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ticket: 'e2e' }),
+    }),
+  );
+  await page.route(/\/api\/v1\/projects\/[^/]+\/tasks\/[^/]+\/history\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  await page.route(/\/api\/v1\/(task-resources|project-resources|dependencies)\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  await page.route(/\/api\/v1\/projects\/[^/]+\/monte-carlo\/latest\//, (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: '{"detail":"Not found."}',
+    }),
+  );
+  // 204 is the documented "not yet answered" sentinel the hook maps to null.
+  await page.route(/\/api\/v1\/sprints\/[^/]+\/pulse\//, (route) =>
+    route.fulfill({ status: 204, body: '' }),
+  );
+  // A bare array of live rounds, not a paginated envelope.
+  await page.route(/\/api\/v1\/sprints\/[^/]+\/poker\//, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  await page.route('**/api/v1/me/notifications/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, results: [] }),
+    }),
+  );
+}
+
 async function setupCommon(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -139,7 +340,11 @@ async function setupCommon(page: import('@playwright/test').Page) {
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROJECT_DETAIL) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(PROJECT_DETAIL),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
     route.fulfill({
@@ -162,10 +367,15 @@ async function setupCommon(page: import('@playwright/test').Page) {
       body: JSON.stringify({
         members: [],
         totals: {
-          committed_hours: 0, available_hours: 0, ratio: 0, buffer_hours: 0,
-          label: 'on_track', pto_days: 0,
+          committed_hours: 0,
+          available_hours: 0,
+          ratio: 0,
+          buffer_hours: 0,
+          label: 'on_track',
+          pto_days: 0,
         },
-        working_days: 0, hours_per_day: 8,
+        working_days: 0,
+        hours_per_day: 8,
       }),
     }),
   );
@@ -175,9 +385,12 @@ async function setupCommon(page: import('@playwright/test').Page) {
       contentType: 'application/json',
       body: JSON.stringify({
         sprints: [],
-        rolling_avg_points: null, rolling_stdev_points: null,
-        forecast_range_low: null, forecast_range_high: null,
-        rolling_avg_tasks: null, rolling_stdev_tasks: null,
+        rolling_avg_points: null,
+        rolling_stdev_points: null,
+        forecast_range_low: null,
+        forecast_range_high: null,
+        rolling_avg_tasks: null,
+        rolling_stdev_tasks: null,
       }),
     }),
   );
@@ -198,7 +411,12 @@ async function setupCommon(page: import('@playwright/test').Page) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ count: FULL_TASKS.length, next: null, previous: null, results: FULL_TASKS }),
+      body: JSON.stringify({
+        count: FULL_TASKS.length,
+        next: null,
+        previous: null,
+        results: FULL_TASKS,
+      }),
     }),
   );
   // Specific match — sprint-filtered task list returns the populated backlog.
@@ -206,7 +424,12 @@ async function setupCommon(page: import('@playwright/test').Page) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ count: BACKLOG_TASKS.length, next: null, previous: null, results: BACKLOG_TASKS }),
+      body: JSON.stringify({
+        count: BACKLOG_TASKS.length,
+        next: null,
+        previous: null,
+        results: BACKLOG_TASKS,
+      }),
     }),
   );
 
@@ -218,24 +441,44 @@ async function setupCommon(page: import('@playwright/test').Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        task_count: 0, critical_path_count: 0, monte_carlo_p80: null,
-        at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
-        last_saved: null, recalculated_at: null,
+        task_count: 0,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
       }),
     }),
   );
   await page.route('**/api/v1/edition/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ edition: 'community' }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ edition: 'community' }),
+    }),
   );
   await page.route('**/api/v1/auth/me/', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ id: 'e2e-user', username: 'e2e', display_name: 'E2E', initials: 'E', email: 'e2e@example.com' }),
+      body: JSON.stringify({
+        id: 'e2e-user',
+        username: 'e2e',
+        display_name: 'E2E',
+        initials: 'E',
+        email: 'e2e@example.com',
+      }),
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'mem-1', role: 300 }]) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 'mem-1', role: 300 }]),
+    }),
   );
   await page.route(/\/api\/v1\/sprints\/.*\/retro\//, (route) =>
     route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"None"}' }),
@@ -243,7 +486,21 @@ async function setupCommon(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/me/active-sprints/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
+  await setupAmbientReads(page);
 }
+
+/**
+ * The catch-all is registered here, not inside the setup helpers, so it is the
+ * FIRST route in every test (#2396).
+ *
+ * Playwright runs the LAST-registered matching handler first. A catch-all is a
+ * fall-through guard and must therefore sit at the BOTTOM of the priority
+ * stack — registering it inside a setup helper that a test calls after its own
+ * routes would make it outrank the very mock the test depends on.
+ */
+test.beforeEach(async ({ page }) => {
+  await setupCatchAll(page);
+});
 
 test.describe('Wave 10 — Sprints backlog table', () => {
   test('renders grouped tasks with CP flags and open-in-board link', async ({ page }) => {
@@ -310,8 +567,7 @@ test.describe('Wave 10 — Sprints backlog table', () => {
         return {
           wrapClient: wrap.clientWidth,
           wrapScroll: wrap.scrollWidth,
-          pageOverflow:
-            document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         };
       });
     expect(metrics.pageOverflow).toBeLessThanOrEqual(1);
@@ -357,7 +613,11 @@ async function setupPlanned(page: import('@playwright/test').Page) {
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROJECT_DETAIL) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(PROJECT_DETAIL),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
     route.fulfill({
@@ -382,10 +642,15 @@ async function setupPlanned(page: import('@playwright/test').Page) {
       body: JSON.stringify({
         members: [],
         totals: {
-          committed_hours: 0, available_hours: 0, ratio: 0, buffer_hours: 0,
-          label: 'on_track', pto_days: 0,
+          committed_hours: 0,
+          available_hours: 0,
+          ratio: 0,
+          buffer_hours: 0,
+          label: 'on_track',
+          pto_days: 0,
         },
-        working_days: 0, hours_per_day: 8,
+        working_days: 0,
+        hours_per_day: 8,
       }),
     }),
   );
@@ -398,7 +663,11 @@ async function setupPlanned(page: import('@playwright/test').Page) {
   // so it must be mocked explicitly (the /tasks/ catch-all does not cover it);
   // an empty pool makes the lane render null.
   await page.route(`**/api/v1/projects/${PROJECT_ID}/retrospective/carryover/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/velocity/`, (route) =>
     route.fulfill({
@@ -406,9 +675,12 @@ async function setupPlanned(page: import('@playwright/test').Page) {
       contentType: 'application/json',
       body: JSON.stringify({
         sprints: [],
-        rolling_avg_points: null, rolling_stdev_points: null,
-        forecast_range_low: null, forecast_range_high: null,
-        rolling_avg_tasks: null, rolling_stdev_tasks: null,
+        rolling_avg_points: null,
+        rolling_stdev_points: null,
+        forecast_range_low: null,
+        forecast_range_high: null,
+        rolling_avg_tasks: null,
+        rolling_stdev_tasks: null,
       }),
     }),
   );
@@ -420,24 +692,44 @@ async function setupPlanned(page: import('@playwright/test').Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        task_count: 0, critical_path_count: 0, monte_carlo_p80: null,
-        at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
-        last_saved: null, recalculated_at: null,
+        task_count: 0,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
       }),
     }),
   );
   await page.route('**/api/v1/edition/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ edition: 'community' }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ edition: 'community' }),
+    }),
   );
   await page.route('**/api/v1/auth/me/', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ id: 'e2e-user', username: 'e2e', display_name: 'E2E', initials: 'E', email: 'e2e@example.com' }),
+      body: JSON.stringify({
+        id: 'e2e-user',
+        username: 'e2e',
+        display_name: 'E2E',
+        initials: 'E',
+        email: 'e2e@example.com',
+      }),
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'mem-1', role: 300 }]) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 'mem-1', role: 300 }]),
+    }),
   );
   await page.route(/\/api\/v1\/sprints\/.*\/retro\//, (route) =>
     route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"None"}' }),
@@ -445,10 +737,13 @@ async function setupPlanned(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/me/active-sprints/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
+  await setupAmbientReads(page);
 }
 
 test.describe('Wave 10 — Planned sprint backlog handoff (#1347)', () => {
-  test('offers a "Pull from backlog" link to the Product Backlog and navigates there', async ({ page }) => {
+  test('offers a "Pull from backlog" link to the Product Backlog and navigates there', async ({
+    page,
+  }) => {
     await setupPlanned(page);
     await page.goto(BASE_URL);
 

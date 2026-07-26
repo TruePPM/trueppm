@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 /**
  * E2E for the Schedule view backlog-promote feature (#318).
@@ -30,52 +31,114 @@ const FIXTURE_API_PROJECTS = [
  *  BACKLOG ideas (so the Backlog gutter section is populated). */
 const FIXTURE_API_TASKS = [
   {
-    id: 't1', wbs_path: '1', name: 'Design Sprint',
-    early_start: '2026-04-07', early_finish: '2026-04-21',
-    planned_start: '2026-04-07', duration: 14, percent_complete: 40,
-    is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'IN_PROGRESS',
-    actual_start: null, actual_finish: null, schedule_variance_days: null,
-    baseline_start: null, baseline_finish: null,
-    optimistic_duration: null, most_likely_duration: null, pessimistic_duration: null,
-    estimate_status: null, total_float: 5,
-    assignee_is_overallocated: false, assignments: [],
+    id: 't1',
+    wbs_path: '1',
+    name: 'Design Sprint',
+    early_start: '2026-04-07',
+    early_finish: '2026-04-21',
+    planned_start: '2026-04-07',
+    duration: 14,
+    percent_complete: 40,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'IN_PROGRESS',
+    actual_start: null,
+    actual_finish: null,
+    schedule_variance_days: null,
+    baseline_start: null,
+    baseline_finish: null,
+    optimistic_duration: null,
+    most_likely_duration: null,
+    pessimistic_duration: null,
+    estimate_status: null,
+    total_float: 5,
+    assignee_is_overallocated: false,
+    assignments: [],
   },
   {
-    id: 't2', wbs_path: '2', name: 'Wire Login Form',
-    early_start: null, early_finish: null,
-    planned_start: null, duration: 5, percent_complete: 0,
-    is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'NOT_STARTED',
-    actual_start: null, actual_finish: null, schedule_variance_days: null,
-    baseline_start: null, baseline_finish: null,
-    optimistic_duration: null, most_likely_duration: null, pessimistic_duration: null,
-    estimate_status: null, total_float: null,
-    assignee_is_overallocated: false, assignments: [],
+    id: 't2',
+    wbs_path: '2',
+    name: 'Wire Login Form',
+    early_start: null,
+    early_finish: null,
+    planned_start: null,
+    duration: 5,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'NOT_STARTED',
+    actual_start: null,
+    actual_finish: null,
+    schedule_variance_days: null,
+    baseline_start: null,
+    baseline_finish: null,
+    optimistic_duration: null,
+    most_likely_duration: null,
+    pessimistic_duration: null,
+    estimate_status: null,
+    total_float: null,
+    assignee_is_overallocated: false,
+    assignments: [],
   },
   {
-    id: 'bk1', wbs_path: '3', name: 'Spike Auth Provider',
-    early_start: null, early_finish: null,
-    planned_start: null, duration: 3, percent_complete: 0,
-    is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'BACKLOG', readiness: 'idea',
-    actual_start: null, actual_finish: null, schedule_variance_days: null,
-    baseline_start: null, baseline_finish: null,
-    optimistic_duration: null, most_likely_duration: null, pessimistic_duration: null,
-    estimate_status: null, total_float: null,
-    assignee_is_overallocated: false, assignments: [],
+    id: 'bk1',
+    wbs_path: '3',
+    name: 'Spike Auth Provider',
+    early_start: null,
+    early_finish: null,
+    planned_start: null,
+    duration: 3,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'BACKLOG',
+    readiness: 'idea',
+    actual_start: null,
+    actual_finish: null,
+    schedule_variance_days: null,
+    baseline_start: null,
+    baseline_finish: null,
+    optimistic_duration: null,
+    most_likely_duration: null,
+    pessimistic_duration: null,
+    estimate_status: null,
+    total_float: null,
+    assignee_is_overallocated: false,
+    assignments: [],
   },
   {
-    id: 'bk2', wbs_path: '4', name: 'Research Offline Sync',
-    early_start: null, early_finish: null,
-    planned_start: null, duration: 8, percent_complete: 0,
-    is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'BACKLOG', readiness: 'estimated',
-    actual_start: null, actual_finish: null, schedule_variance_days: null,
-    baseline_start: null, baseline_finish: null,
-    optimistic_duration: null, most_likely_duration: null, pessimistic_duration: null,
-    estimate_status: null, total_float: null,
-    assignee_is_overallocated: false, assignments: [],
+    id: 'bk2',
+    wbs_path: '4',
+    name: 'Research Offline Sync',
+    early_start: null,
+    early_finish: null,
+    planned_start: null,
+    duration: 8,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'BACKLOG',
+    readiness: 'estimated',
+    actual_start: null,
+    actual_finish: null,
+    schedule_variance_days: null,
+    baseline_start: null,
+    baseline_finish: null,
+    optimistic_duration: null,
+    most_likely_duration: null,
+    pessimistic_duration: null,
+    estimate_status: null,
+    total_float: null,
+    assignee_is_overallocated: false,
+    assignments: [],
   },
 ];
 
@@ -93,7 +156,8 @@ async function setupRoutes(page: import('@playwright/test').Page) {
 
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_API_PROJECTS }),
     }),
   );
@@ -102,25 +166,52 @@ async function setupRoutes(page: import('@playwright/test').Page) {
   );
   await page.route('**/api/v1/projects/*/status-summary/', (route) =>
     route.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({
-        task_count: FIXTURE_API_TASKS.length, critical_path_count: 0, monte_carlo_p80: null,
-        at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
-        last_saved: null, recalculated_at: null,
+        task_count: FIXTURE_API_TASKS.length,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
       }),
     }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
     route.fulfill({
-      status: 200, contentType: 'application/json',
-      body: JSON.stringify({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: FIXTURE_API_TASKS.length, complete_tasks: 0, next_milestone: null, team_utilization_pct: null, owner_name: null, start_date: '2026-01-01' }),
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schedule_health: 'unknown',
+        spi: null,
+        tasks_late_count: 0,
+        critical_task_count: 0,
+        total_tasks: FIXTURE_API_TASKS.length,
+        complete_tasks: 0,
+        next_milestone: null,
+        team_utilization_pct: null,
+        owner_name: null,
+        start_date: '2026-01-01',
+      }),
     }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/attention/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: [] }),
+    }),
   );
   // PATCH on a specific task is intercepted per-test where the body is asserted;
   // the catch-all returns the task list for GETs. This handler is registered
@@ -131,14 +222,189 @@ async function setupRoutes(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/tasks/**', (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
     return route.fulfill({
-      status: 200, contentType: 'application/json',
-      body: JSON.stringify({ count: FIXTURE_API_TASKS.length, next: null, previous: null, results: FIXTURE_API_TASKS }),
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        count: FIXTURE_API_TASKS.length,
+        next: null,
+        previous: null,
+        results: FIXTURE_API_TASKS,
+      }),
     });
   });
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+
+  // ── Ambient reads the Schedule route makes beyond the task fixtures (#2367) ──
+  //
+  // This spec previously registered no catch-all and let these escape to the
+  // preview server, which answered 401 and tripped the session-expired modal —
+  // a dialog that then covers the page and swallows every subsequent click.
+  // That is why it passed alone and failed under parallel load. Each is mocked
+  // with its real response shape rather than left to the catch-all's 404.
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'e2e-user',
+        username: 'e2e',
+        display_name: 'E2E',
+        initials: 'E',
+        email: 'e2e@example.com',
+      }),
+    }),
+  );
+  await page.route('**/api/v1/edition/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ edition: 'community' }),
+    }),
+  );
+  await page.route('**/api/v1/workspace/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        name: 'E2E Workspace',
+        subdomain: 'e2e',
+        timezone: '',
+        fiscal_year_start_month: 1,
+        fiscal_year_start_day: 1,
+        fiscal_year_start_display: 'January 1',
+        work_week: [true, true, true, true, true, false, false],
+        default_project_view: 'SCHEDULE',
+        allow_guests: false,
+        public_sharing: false,
+        public_sharing_override_policy: 'suggest',
+        iteration_label: 'Sprint',
+        iteration_label_override_policy: 'suggest',
+        mc_history_enabled: true,
+        mc_history_retention_cap: 50,
+        mc_history_attribution_audience: 'SCHEDULER_PLUS',
+        mc_history_override_policy: 'suggest',
+        task_duration_change_percent_policy: 'confirm',
+        task_duration_change_percent_override_policy: 'suggest',
+        estimation_scale: 'fibonacci',
+        methodology: 'HYBRID',
+        methodology_override_policy: 'suggest',
+        attachments_enabled: true,
+        allowed_attachment_types: [],
+        attachments_override_policy: 'suggest',
+        calendar: null,
+        calendar_override_policy: 'suggest',
+        logo_url: null,
+      }),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: FIXTURE_PROJECT_ID,
+        server_version: 1,
+        name: 'Schedule Fixture Project',
+        description: '',
+        start_date: '2026-04-01',
+        calendar: null,
+        program: null,
+        program_detail: null,
+        health: 'ON_TRACK',
+        methodology: 'HYBRID',
+        effective_methodology: 'HYBRID',
+        estimation_mode: 'open',
+        agile_features: true,
+      }),
+    }),
+  );
+  // `?self=true` needs its own route: a glob ending in `/` never matches a
+  // query string, so the bare members glob does not cover it.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/members/?*`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 'mem-1', role: 300, role_label: 'Scheduler' }]),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/members/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 'mem-1', role: 300, role_label: 'Scheduler' }]),
+    }),
+  );
+  for (const path of ['sprints', 'baselines', 'velocity']) {
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/${path}/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
+  }
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/monte-carlo/latest/`, (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: '{"detail":"Not found."}',
+    }),
+  );
+  // Fire-and-forget; the page never reads the result.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/visit/`, (route) =>
+    route.fulfill({ status: 204, body: '' }),
+  );
+  await page.route('**/api/v1/me/timer/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ active: false }),
+    }),
+  );
+  await page.route('**/api/v1/me/work/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+        due_today_count: 0,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/me/active-sprints/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  await page.route('**/api/v1/me/notifications/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, results: [] }),
+    }),
+  );
+  await page.route('**/api/v1/programs/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  await page.route('**/api/v1/auth/me/pinned/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  await page.route('**/api/v1/ws/ticket/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ticket: 'e2e' }),
     }),
   );
 }
@@ -153,8 +419,24 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
 // (a) Backlog section + drag-to-promote
 // ---------------------------------------------------------------------------
 
+/**
+ * The catch-all must be the FIRST route registered in each test (#2367).
+ *
+ * Playwright runs the LAST-registered matching handler first, so registering it
+ * inside `setupRoutes` — which several tests call *after* their own
+ * `**\/api\/v1\/tasks\/bk1\/` PATCH handler — makes the catch-all outrank the
+ * per-test mock and swallow the very request the test asserts on. A file-level
+ * `beforeEach` runs before any test body, which puts it at the bottom of the
+ * priority stack where a fall-through guard belongs.
+ */
+test.beforeEach(async ({ page }) => {
+  await setupCatchAll(page);
+});
+
 test.describe('Schedule backlog gutter section (#318)', () => {
-  test('backlog tasks appear in the Backlog section, To Do tasks in the To Do section', async ({ page }) => {
+  test('backlog tasks appear in the Backlog section, To Do tasks in the To Do section', async ({
+    page,
+  }) => {
     await gotoSchedule(page);
 
     const backlogSection = page.getByRole('group', { name: /Backlog, 2 items/i });
@@ -168,16 +450,24 @@ test.describe('Schedule backlog gutter section (#318)', () => {
     await expect(page.getByText('(3)')).toBeVisible();
   });
 
-  test('dragging a backlog chip onto the timeline promotes it and shows the success toast', async ({ page }) => {
+  test('dragging a backlog chip onto the timeline promotes it and shows the success toast', async ({
+    page,
+  }) => {
     let patchBody: Record<string, unknown> | null = null;
     await page.route('**/api/v1/tasks/bk1/', async (route) => {
       if (route.request().method() === 'PATCH') {
         patchBody = (await route.request().postDataJSON()) as Record<string, unknown>;
         await route.fulfill({
-          status: 200, contentType: 'application/json',
+          status: 200,
+          contentType: 'application/json',
           body: JSON.stringify({
-            id: 'bk1', name: 'Spike Auth Provider', project: FIXTURE_PROJECT_ID,
-            wbs_path: '3', duration: 3, status: 'NOT_STARTED', percent_complete: 0,
+            id: 'bk1',
+            name: 'Spike Auth Provider',
+            project: FIXTURE_PROJECT_ID,
+            wbs_path: '3',
+            duration: 3,
+            status: 'NOT_STARTED',
+            percent_complete: 0,
           }),
         });
       } else {
@@ -187,7 +477,9 @@ test.describe('Schedule backlog gutter section (#318)', () => {
 
     await gotoSchedule(page);
 
-    const chip = page.getByRole('group', { name: /Backlog, 2 items/i }).getByText('Spike Auth Provider');
+    const chip = page
+      .getByRole('group', { name: /Backlog, 2 items/i })
+      .getByText('Spike Auth Provider');
     const canvas = page.getByTestId('schedule-canvas-scroll');
     await expect(canvas).toBeVisible();
 
@@ -204,14 +496,20 @@ test.describe('Schedule backlog gutter section (#318)', () => {
     //   2) the drop indicator proves overCanvas + dropDate registered before release.
     await page.mouse.move(chipBox.x + chipBox.width / 2, chipBox.y + chipBox.height / 2);
     await page.mouse.down();
-    await page.mouse.move(chipBox.x + chipBox.width / 2 + 12, chipBox.y + chipBox.height / 2, { steps: 3 });
+    await page.mouse.move(chipBox.x + chipBox.width / 2 + 12, chipBox.y + chipBox.height / 2, {
+      steps: 3,
+    });
     await expect(page.getByTestId('schedule-drag-preview')).toBeVisible();
-    await page.mouse.move(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2, { steps: 8 });
+    await page.mouse.move(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2, {
+      steps: 8,
+    });
     await expect(page.getByTestId('schedule-drop-indicator')).toBeVisible();
     await page.mouse.up();
 
     // Success toast uses the fixed verb ("to To Do").
-    await expect(page.getByText(/Added 'Spike Auth Provider' to the sprint, starting/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/Added 'Spike Auth Provider' to the sprint, starting/)).toBeVisible(
+      { timeout: 5_000 },
+    );
 
     expect(patchBody).not.toBeNull();
     expect(patchBody!.status).toBe('NOT_STARTED');
@@ -224,16 +522,24 @@ test.describe('Schedule backlog gutter section (#318)', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Schedule "…" dialog (#318, rule 135)', () => {
-  test('opening the dialog from a backlog chip and confirming promotes the task', async ({ page }) => {
+  test('opening the dialog from a backlog chip and confirming promotes the task', async ({
+    page,
+  }) => {
     let patchBody: Record<string, unknown> | null = null;
     await page.route('**/api/v1/tasks/bk1/', async (route) => {
       if (route.request().method() === 'PATCH') {
         patchBody = (await route.request().postDataJSON()) as Record<string, unknown>;
         await route.fulfill({
-          status: 200, contentType: 'application/json',
+          status: 200,
+          contentType: 'application/json',
           body: JSON.stringify({
-            id: 'bk1', name: 'Spike Auth Provider', project: FIXTURE_PROJECT_ID,
-            wbs_path: '3', duration: 3, status: 'NOT_STARTED', percent_complete: 0,
+            id: 'bk1',
+            name: 'Spike Auth Provider',
+            project: FIXTURE_PROJECT_ID,
+            wbs_path: '3',
+            duration: 3,
+            status: 'NOT_STARTED',
+            percent_complete: 0,
           }),
         });
       } else {
@@ -250,13 +556,17 @@ test.describe('Schedule "…" dialog (#318, rule 135)', () => {
     // an unscoped getByRole('dialog') collides with on desktop viewports.
     const dialog = page.getByRole('dialog', { name: /to a sprint$/ });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText('This commits the idea from your backlog to a sprint')).toBeVisible();
+    await expect(
+      dialog.getByText('This commits the idea from your backlog to a sprint'),
+    ).toBeVisible();
 
     await dialog.getByLabel('Target date').fill('2026-06-15');
     await dialog.getByRole('button', { name: 'Add to sprint' }).click();
 
     await expect(dialog).not.toBeVisible();
-    await expect(page.getByText(/Added 'Spike Auth Provider' to the sprint, starting/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/Added 'Spike Auth Provider' to the sprint, starting/)).toBeVisible(
+      { timeout: 5_000 },
+    );
 
     expect(patchBody).toEqual({ planned_start: '2026-06-15', status: 'NOT_STARTED' });
   });
