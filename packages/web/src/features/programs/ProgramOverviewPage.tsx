@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router';
 import { apiClient } from '@/api/client';
 import { useProgram } from '@/hooks/useProgram';
 import { QueryErrorState } from '@/components/QueryErrorState';
+import { PinToggle } from '@/components/PinToggle';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 import { SampleDataBanner } from './SampleDataBanner';
 
@@ -380,6 +381,17 @@ export function ProgramOverviewPage() {
                 {program.code}
               </span>
             )}
+            {/* Beside the identity, not in an action cluster: pinning is about
+                *this* program rather than an operation on it, and the header has
+                no hover row to reveal from — hence the always-visible preset. */}
+            <PinToggle
+              kind="program"
+              id={program.id}
+              name={program.name}
+              pinned={program.is_pinned}
+              size="lg"
+              reveal="always"
+            />
           </div>
         </header>
       )}

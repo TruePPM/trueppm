@@ -29,7 +29,14 @@ const MOCK_ITEMS: CommandItem[] = [
     run: vi.fn(),
   },
   { id: 'jump:my-work', label: 'My Work', group: 'jump', tag: 'View', run: runMyWork },
-  { id: 'jump:program:apollo', label: 'Apollo', group: 'jump', tag: 'Program', run: runApollo },
+  {
+    id: 'jump:program:apollo',
+    label: 'Apollo',
+    group: 'jump',
+    tag: 'Program',
+    pinTarget: { kind: 'program', id: 'apollo', name: 'Apollo', pinned: false },
+    run: runApollo,
+  },
   {
     id: 'action:theme',
     label: 'Switch theme',
@@ -47,6 +54,13 @@ vi.mock('./useCommandItems', () => ({ useCommandItems: () => mockItems }));
 // off-project test overrides this per-case.
 const mockProjectId = vi.fn<() => string | undefined>(() => 'p1');
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => mockProjectId() }));
+
+// The pin accelerator (#2390) mutates directly from the palette; the spy stands
+// in for the shared mutation so no QueryClient is needed here.
+const togglePin = vi.fn();
+vi.mock('@/hooks/usePins', () => ({
+  useTogglePin: () => ({ mutate: togglePin, isPending: false }),
+}));
 
 function open() {
   useCommandPaletteStore.getState().setOpen(true);
@@ -314,5 +328,62 @@ describe('CommandPalette', () => {
     expect(
       screen.queryByText('Open a project to search its tasks and sprint.'),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('CommandPalette — the pin accelerator (#2390)', () => {
+  /**
+   * Highlight the pinnable "Apollo" row by filtering down to it — the query
+   * resets the selection to index 0, so this does not depend on group order.
+   */
+  function highlightOnly(query: string) {
+    const input = screen.getByRole('combobox');
+    fireEvent.change(input, { target: { value: query } });
+    return input;
+  }
+
+  it('toggles the highlighted row without closing the palette', () => {
+    open();
+    render(<CommandPalette />);
+    const input = highlightOnly('Apollo');
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Apollo');
+
+    fireEvent.keyDown(input, { key: 'p', altKey: true });
+    expect(togglePin).toHaveBeenCalledWith({
+      kind: 'program',
+      id: 'apollo',
+      name: 'Apollo',
+      next: true,
+    });
+    // Pinning several projects in one visit is the whole point of a keyboard path.
+    expect(useCommandPaletteStore.getState().open).toBe(true);
+  });
+
+  it('ignores a bare "p" so the search field can still be typed into', () => {
+    open();
+    render(<CommandPalette />);
+    const input = highlightOnly('Apollo');
+    fireEvent.keyDown(input, { key: 'p' });
+    expect(togglePin).not.toHaveBeenCalled();
+  });
+
+  it('does nothing on a row that names nothing pinnable', () => {
+    open();
+    render(<CommandPalette />);
+    const input = highlightOnly('theme');
+    fireEvent.keyDown(input, { key: 'p', altKey: true });
+    expect(togglePin).not.toHaveBeenCalled();
+  });
+
+  it('advertises the accelerator only while a pinnable row is highlighted', () => {
+    open();
+    render(<CommandPalette />);
+    // The hint is a <kbd> plus a bare text node in one <span>, so assert on the
+    // footer's composed text rather than trying to match a split node.
+    // A hint for a key that does nothing on this row is worse than no hint.
+    highlightOnly('theme');
+    expect(screen.getByRole('dialog').textContent).not.toContain('P pin');
+    highlightOnly('Apollo');
+    expect(screen.getByRole('dialog').textContent).toContain('P pin');
   });
 });

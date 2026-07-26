@@ -42,6 +42,8 @@ interface ApiProject {
   methodology?: Methodology;
   /** Optional program FK (ADR-0070). Null for standalone projects. */
   program?: string | null;
+  /** The requesting user's own pin (#2390). Absent on pre-0.4 fixtures. */
+  is_pinned?: boolean;
   /** PM/rollup health enum — mapped to the row's health dot. */
   health?: string;
   /** Count of non-deleted, not-yet-complete tasks (annotated on the list). */
@@ -75,6 +77,7 @@ function mapProject(p: ApiProject, index: number): Project {
     // pre-methodology behavior — all tabs visible).
     methodology: p.methodology ?? 'HYBRID',
     programId: p.program ?? null,
+    isPinned: p.is_pinned ?? false,
   };
 }
 

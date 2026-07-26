@@ -36,6 +36,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
   return {
     id: 'p-1',
     server_version: 1,
+    is_pinned: false,
     name: 'Phase 2',
     description: 'Q3 rebuild',
     code: '',
@@ -263,6 +264,116 @@ describe('ProgramListPage', () => {
         'Health (worst first)',
       );
       expect(localStorage.getItem('trueppm.programs.sort')).toBe('health');
+    });
+  });
+
+  describe('pinned grouping (#2390, design §5.2)', () => {
+    const PINNED_CHARLIE = [
+      makeProgram({ id: 'a', name: 'Alpha' }),
+      makeProgram({ id: 'b', name: 'Bravo' }),
+      makeProgram({ id: 'c', name: 'Charlie', is_pinned: true }),
+    ];
+
+    /** Like `renderPage`, but keeps the tree so a test can re-render with new data. */
+    function renderResortable(data: Program[]) {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      // A FRESH element each time — re-rendering the identical element object
+      // lets React bail out and the new mock data never reaches the page.
+      const tree = () => (
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <ProgramListPage />
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      usePrograms.mockReturnValue({ data, isLoading: false, error: null });
+      const view = render(tree());
+      return {
+        ...view,
+        // Re-render the SAME mounted page with a new program list, which is what
+        // an optimistic pin patch looks like from this component's perspective.
+        update(next: Program[]) {
+          usePrograms.mockReturnValue({ data: next, isLoading: false, error: null });
+          view.rerender(tree());
+        },
+      };
+    }
+
+    it('lifts pins into a labelled group above everything else', () => {
+      usePrograms.mockReturnValue({ data: PINNED_CHARLIE, isLoading: false, error: null });
+      renderPage();
+
+      // The heading carries the count AND restates that the chosen sort still
+      // applies inside it — without that, a card out of date order under a
+      // control reading "Recently active" looks like a broken sort.
+      expect(screen.getByRole('heading', { name: /Pinned · 1/ })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Everything else · 2/ })).toBeInTheDocument();
+      expect(screen.getAllByText(/sorted by recently active, like everything else/i)).toHaveLength(
+        2,
+      );
+      // Headings are presentational <li>s, so the list still counts 3 programs.
+      const grid = screen.getByRole('list', { name: 'Programs' });
+      expect(within(grid).getAllByRole('listitem')).toHaveLength(3);
+    });
+
+    it('shows no groups when nothing is pinned — an "Everything else" alone explains nothing', () => {
+      usePrograms.mockReturnValue({
+        data: [makeProgram({ id: 'a', name: 'Alpha' })],
+        isLoading: false,
+        error: null,
+      });
+      renderPage();
+      expect(screen.queryByRole('heading', { name: /Everything else/ })).not.toBeInTheDocument();
+    });
+
+    it('flattens to one honest list when "Pinned first" is switched off', async () => {
+      const user = userEvent.setup();
+      usePrograms.mockReturnValue({ data: PINNED_CHARLIE, isLoading: false, error: null });
+      renderPage();
+
+      await user.click(screen.getByRole('checkbox', { name: /Pinned first/i }));
+
+      expect(screen.queryByRole('heading', { name: /Pinned · / })).not.toBeInTheDocument();
+      // Pure sort order — Charlie returns to its alphabetical place, keeping its glyph.
+      const names = within(screen.getByRole('list', { name: 'Programs' }))
+        .getAllByRole('listitem')
+        .map((li) => li.textContent);
+      expect(names[0]).toContain('Alpha');
+      expect(names[2]).toContain('Charlie');
+      expect(localStorage.getItem('trueppm.programs.pinnedFirst')).toBe('false');
+    });
+
+    it('flattens the groups while searching, so pins never outrank relevance', async () => {
+      const user = userEvent.setup();
+      usePrograms.mockReturnValue({ data: PINNED_CHARLIE, isLoading: false, error: null });
+      renderPage();
+      expect(screen.getByRole('heading', { name: /Pinned · 1/ })).toBeInTheDocument();
+
+      await user.type(screen.getByRole('searchbox', { name: /Filter programs by name/i }), 'a');
+      await waitFor(() =>
+        expect(screen.queryByRole('heading', { name: /Pinned · / })).not.toBeInTheDocument(),
+      );
+    });
+
+    it('defers the move — a freshly-pinned card holds its place', () => {
+      const view = renderResortable([
+        makeProgram({ id: 'a', name: 'Alpha' }),
+        makeProgram({ id: 'b', name: 'Bravo' }),
+      ]);
+      // Nothing pinned yet, so no groups.
+      expect(screen.queryByRole('heading', { name: /Pinned · / })).not.toBeInTheDocument();
+
+      // Bravo is now pinned (the optimistic patch has landed).
+      view.update([
+        makeProgram({ id: 'a', name: 'Alpha' }),
+        makeProgram({ id: 'b', name: 'Bravo', is_pinned: true }),
+      ]);
+
+      // The card is marked, but it has NOT jumped into a Pinned group — a row
+      // that leaps out from under the cursor causes the next mis-click. The move
+      // lands on the next visit, or on the toast's "Re-sort now".
+      expect(screen.queryByRole('heading', { name: /Pinned · / })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Unpin Bravo' })).toBeInTheDocument();
     });
   });
 });

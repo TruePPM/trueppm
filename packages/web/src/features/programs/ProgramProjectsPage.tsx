@@ -7,6 +7,7 @@ import { NewProjectModal } from '@/features/shell/NewProjectModal';
 import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { AddProjectToProgramModal } from './AddProjectToProgramModal';
 import { RemoveFromProgramConfirmDialog } from './RemoveFromProgramConfirmDialog';
+import { PinToggle } from '@/components/PinToggle';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
@@ -210,7 +211,7 @@ export function ProgramProjectsPage() {
           {sortedProjects.map((p) => (
             <li
               key={p.id}
-              className="flex items-center gap-3 px-4 py-3 hover:bg-neutral-surface-raised"
+              className="group flex items-center gap-3 px-4 py-3 hover:bg-neutral-surface-raised"
             >
               <Link
                 to={`/projects/${p.id}/overview`}
@@ -243,6 +244,13 @@ export function ProgramProjectsPage() {
                   {p.atRiskCount} at risk
                 </span>
               )}
+              <PinToggle
+                kind="project"
+                id={p.id}
+                name={p.name}
+                pinned={p.isPinned ?? false}
+                size="sm"
+              />
               {isAdmin && (
                 <button
                   type="button"

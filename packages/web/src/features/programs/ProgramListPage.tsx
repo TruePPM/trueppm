@@ -1,7 +1,6 @@
-import { useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { usePrograms } from '@/hooks/usePrograms';
-import { useShellStore } from '@/stores/shellStore';
 import { EmptyState } from '@/components/EmptyState';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { SearchIcon } from '@/components/Icons';
@@ -15,10 +14,40 @@ import { MethodologyFilter, type MethodologyFilterValue } from './MethodologyFil
 import {
   PROGRAM_SORT_OPTIONS,
   filterAndSortPrograms,
+  readPinnedFirstPref,
   readProgramSortPref,
+  writePinnedFirstPref,
   writeProgramSortPref,
   type ProgramSortKey,
 } from './programListSort';
+
+/**
+ * One group heading inside the program grid (#2390, design §5.2).
+ *
+ * A real `<h2>` so "Pinned · 3" is reachable by screen-reader rotor, wrapped in a
+ * presentational `<li>` so it spans the grid without being counted as one of the
+ * programs in the list.
+ */
+function GroupHeading({
+  label,
+  count,
+  sortLabel,
+}: {
+  label: string;
+  count: number;
+  sortLabel: string;
+}) {
+  return (
+    <li role="presentation" className="col-span-full flex items-baseline gap-2 pt-1">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary">
+        {label} <span className="tppm-mono">· {count}</span>
+      </h2>
+      <span className="text-xs text-neutral-text-secondary">
+        sorted by {sortLabel.toLowerCase()}, like everything else
+      </span>
+    </li>
+  );
+}
 
 /**
  * /programs — list of programs the current user is a member of (ADR-0070).
@@ -28,41 +57,89 @@ import {
  * header toolbar with an inline name filter, a methodology facet, and a sort
  * control (issue #1796). Filter/sort run entirely client-side over the
  * already-fetched list (it is small and fully fetched — no server pagination);
- * the sort choice persists per-browser in localStorage. Order is deliberate:
- * pinned programs float to the top of every sort, then the chosen key.
+ * the sort choice persists per-browser in localStorage.
+ *
+ * Pinned programs are lifted into a labelled "Pinned · N" group above
+ * "Everything else · N" (#2390, design §5.2) rather than floated silently inside
+ * the sort, and that grouping is **deferred** — see `groupedPinnedIds` — so a
+ * card never leaps out from under the pointer that just pinned it.
  */
 export function ProgramListPage() {
   const { data: programs, isLoading, error, refetch } = usePrograms();
-  const pinnedProgramIds = useShellStore((s) => s.pinnedProgramIds);
+  // Pins are server-persisted per user (#2390) and ride along on each program
+  // row, so grouping reads them from the list itself rather than from a separate
+  // client store that could disagree with it.
+  const livePinnedIds = useMemo(
+    () => (programs ?? []).filter((p) => p.is_pinned).map((p) => p.id),
+    [programs],
+  );
   const [showCreate, setShowCreate] = useState(false);
   const [query, setQuery] = useState('');
   const [methodology, setMethodology] = useState<MethodologyFilterValue>('ALL');
   const [sortKey, setSortKey] = useState<ProgramSortKey>(() => readProgramSortPref());
+  const [pinnedFirst, setPinnedFirst] = useState<boolean>(() => readPinnedFirstPref());
   const navigate = useNavigate();
   const sortSelectId = useId();
+  const pinnedFirstId = useId();
+
+  /**
+   * Grouping membership is **deferred**, never live (design §5.2).
+   *
+   * `groupedPinnedIds` is seeded once when the list first arrives and then held
+   * still, so pinning a card marks it in place instead of teleporting it into
+   * the Pinned group — which would slide the next card under a pointer that is
+   * still traveling and turn every pin into a mis-click. The move lands on the
+   * next visit to this page (the component remounts and re-seeds) or immediately
+   * via the toast's "Re-sort now".
+   */
+  const [groupedPinnedIds, setGroupedPinnedIds] = useState<readonly string[]>(livePinnedIds);
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !programs) return;
+    seededRef.current = true;
+    setGroupedPinnedIds(livePinnedIds);
+  }, [programs, livePinnedIds]);
+
+  const resort = useCallback(() => setGroupedPinnedIds(livePinnedIds), [livePinnedIds]);
 
   const hasPrograms = !isLoading && !error && !!programs && programs.length > 0;
   const isEmpty = !isLoading && !error && programs && programs.length === 0;
 
   const visible = useMemo(
-    () =>
-      programs
-        ? filterAndSortPrograms(programs, {
-            query,
-            methodology,
-            sortKey,
-            pinnedIds: pinnedProgramIds,
-          })
-        : [],
-    [programs, query, methodology, sortKey, pinnedProgramIds],
+    () => (programs ? filterAndSortPrograms(programs, { query, methodology, sortKey }) : []),
+    [programs, query, methodology, sortKey],
   );
 
+  // Searching flattens the groups (design §4.5): relevance ranking must never be
+  // overridden by pin state mid-search.
   const hasActiveFilter = query.trim().length > 0 || methodology !== 'ALL';
+  const grouped = pinnedFirst && !hasActiveFilter;
+  const { pinnedVisible, restVisible } = useMemo(() => {
+    if (!grouped) return { pinnedVisible: [], restVisible: visible };
+    const ids = new Set(groupedPinnedIds);
+    return {
+      pinnedVisible: visible.filter((p) => ids.has(p.id)),
+      restVisible: visible.filter((p) => !ids.has(p.id)),
+    };
+  }, [grouped, visible, groupedPinnedIds]);
+
+  // An "Everything else" heading with nothing above it explains nothing, so the
+  // groups appear only once there is at least one pinned card to separate out.
+  const showGroups = grouped && pinnedVisible.length > 0;
+  const sortLabel = PROGRAM_SORT_OPTIONS.find((o) => o.value === sortKey)?.label ?? '';
+
   const noMatches = hasPrograms && visible.length === 0;
 
   function handleSortChange(next: ProgramSortKey) {
     setSortKey(next);
     writeProgramSortPref(next);
+  }
+
+  function handlePinnedFirstChange(next: boolean) {
+    setPinnedFirst(next);
+    writePinnedFirstPref(next);
+    // Turning grouping back on should reflect reality, not a stale snapshot.
+    if (next) resort();
   }
 
   function clearFilters() {
@@ -100,9 +177,27 @@ export function ProgramListPage() {
               resultCount={visible.length}
               totalCount={programs.length}
             />
+            {/* The escape hatch (design §5.2): grouping off returns one flat list
+                in pure sort order, pinned cards keeping their glyph. Sort and
+                grouping are independent controls — neither silently overrides
+                the other. */}
+            <label
+              htmlFor={pinnedFirstId}
+              className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-neutral-text-secondary"
+            >
+              <input
+                id={pinnedFirstId}
+                type="checkbox"
+                checked={pinnedFirst}
+                onChange={(e) => handlePinnedFirstChange(e.target.checked)}
+                className="h-4 w-4 rounded-control border-neutral-border text-brand-primary
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              />
+              <span className="whitespace-nowrap">Pinned first</span>
+            </label>
             <label
               htmlFor={sortSelectId}
-              className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-neutral-text-secondary"
+              className="flex shrink-0 items-center gap-1.5 text-xs text-neutral-text-secondary"
             >
               <span className="whitespace-nowrap">Sort</span>
               <select
@@ -122,9 +217,6 @@ export function ProgramListPage() {
             </label>
           </div>
           <MethodologyFilter value={methodology} onChange={setMethodology} />
-          {/* Deliberate default order is announced so the ordering never reads as
-              arbitrary (rule 6/7): pinned programs always lead. */}
-          <p className="text-xs text-neutral-text-secondary">Pinned programs shown first.</p>
         </div>
       )}
 
@@ -197,8 +289,28 @@ export function ProgramListPage() {
               />
             ) : (
               <ul aria-label="Programs" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {visible.map((p) => (
-                  <ProgramCard key={p.id} program={p} />
+                {/* Two labelled groups, not a silent float. Each heading carries
+                    its count AND restates that the chosen sort still applies
+                    inside it — without that, a 40m-ago card sitting below a
+                    3d-ago card under a control reading "Recently active" is
+                    indistinguishable from a broken sort. Headings live in
+                    presentational <li>s so the grid keeps one row track and the
+                    list keeps one accessible name. */}
+                {showGroups && (
+                  <GroupHeading label="Pinned" count={pinnedVisible.length} sortLabel={sortLabel} />
+                )}
+                {(showGroups ? pinnedVisible : []).map((p) => (
+                  <ProgramCard key={p.id} program={p} onResort={resort} />
+                ))}
+                {showGroups && (
+                  <GroupHeading
+                    label="Everything else"
+                    count={restVisible.length}
+                    sortLabel={sortLabel}
+                  />
+                )}
+                {restVisible.map((p) => (
+                  <ProgramCard key={p.id} program={p} onResort={grouped ? resort : undefined} />
                 ))}
               </ul>
             )}

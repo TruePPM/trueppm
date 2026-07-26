@@ -9,12 +9,15 @@
 /**
  * Result sections (ADR-0138, issue 647; `sprint` added issue 1594; `person` added
  * ADR-0401/#1940; `sprintTask` + `recent` added ADR-0508/#1557; `epic` + `story`
- * added ADR-0508 D4/#2103; `label` added #2334). `sprint` leads as the first-class
+ * added ADR-0508 D4/#2103; `label` added #2334; `pinned` added #2390). `sprint`
+ * leads as the first-class
  * "jump to current sprint" action; `sprintTask` (active-sprint tasks), `task` (all
  * other tasks), `label` (the project's label catalog) and `current` are Tier-2
  * (current project only); `person`, `epic`, and `story`
- * are global, query-gated cross-program searches; `recent` is the cold-only
- * recently-visited-projects strip; `settings` (added ADR-0606/#2319) is the
+ * are global, query-gated cross-program searches; `pinned` (the caller's own pins)
+ * and `recent` are the cold-only strips, pinned first — deliberate choice, since a
+ * pin is a standing intent and a recent visit is only an accident of history;
+ * `settings` (added ADR-0606/#2319) is the
  * query-only group of individual settings sections; the rest are Tier-1 (all
  * reachable projects) or global.
  */
@@ -27,12 +30,22 @@ export type CommandGroup =
   | 'person'
   | 'epic'
   | 'story'
+  | 'pinned'
   | 'recent'
   | 'jump'
   | 'settings'
   | 'backlog'
   | 'board'
   | 'action';
+
+/** A row that points at something pinnable, so the palette's pin accelerator can
+ *  toggle it in place without the user leaving the keyboard (#2390). */
+export interface PinTarget {
+  kind: 'project' | 'program';
+  id: string;
+  name: string;
+  pinned: boolean;
+}
 
 export interface CommandItem {
   /** Stable id for React keys and active-item tracking. */
@@ -51,6 +64,9 @@ export interface CommandItem {
   /** Hex color for a leading swatch (label rows, #2334). The name is always the
    *  primary text, so the swatch is decoration — color never carries meaning alone. */
   swatch?: string;
+  /** Present on rows naming a pinnable project or program (#2390). Drives the
+   *  in-place pin accelerator; absent rows simply ignore it. */
+  pinTarget?: PinTarget;
   /** Invoked when the item is chosen. */
   run: () => void;
 }

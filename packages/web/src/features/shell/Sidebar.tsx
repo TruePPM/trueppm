@@ -24,9 +24,12 @@ import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 import { useProject } from '@/hooks/useProject';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProgramId } from '@/hooks/useProgramId';
+import { usePinned } from '@/hooks/usePins';
+import type { PinnedItem } from '@/api/types';
 import { useEdition } from '@/hooks/useEdition';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { toast } from '@/components/Toast';
+import { PinToggle } from '@/components/PinToggle';
 import { AvatarInitials } from '@/components/AvatarInitials';
 import { modifierKeyLabel } from '@/lib/platform';
 import { initialsForUser, labelForUser } from '@/lib/userIdentity';
@@ -247,10 +250,6 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const { sidebarCollapsed, sidebarUserControlled, toggleSidebar, setSidebarCollapsed } =
     useShellStore();
   const sidebarWidth = useShellStore(selectSidebarWidth);
-  const pinned = useShellStore((s) => s.pinnedProjectIds);
-  const togglePin = useShellStore((s) => s.togglePin);
-  const pinnedPrograms = useShellStore((s) => s.pinnedProgramIds);
-  const togglePinProgram = useShellStore((s) => s.togglePinProgram);
   const expanded = useShellStore((s) => s.expandedProgramIds);
   const toggleProgram = useShellStore((s) => s.toggleProgram);
   const openPalette = useCommandPaletteStore((s) => s.setOpen);
@@ -314,21 +313,42 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
     return m;
   }, [projects]);
 
-  const pinnedProjects = useMemo(
-    () => pinned.map((id) => projectById.get(id)).filter((p): p is NonNullable<typeof p> => !!p),
-    [pinned, projectById],
-  );
   const programById = useMemo(() => {
     const m = new Map<string, NonNullable<typeof programs>[number]>();
     for (const prog of programs ?? []) m.set(prog.id, prog);
     return m;
   }, [programs]);
+
+  // Pins come from the server as their own list (#2390, ADR-0627) rather than
+  // being resolved by looking ids up in the loaded project/program lists. That
+  // lookup was silently lossy: a pinned project past the list page ceiling
+  // resolved to `undefined` and vanished from the rail with no indication that
+  // anything was missing. `/auth/me/pinned/` returns the display fields inline,
+  // so a pinned item renders whether or not it is on the current page.
+  const { data: pinnedItems, isLoading: pinsLoading, isError: pinsError } = usePinned();
   const pinnedProgramList = useMemo(
+    () => (pinnedItems ?? []).filter((i) => i.kind === 'program'),
+    [pinnedItems],
+  );
+  // Identity comes from the pins endpoint; health and the open-task count are
+  // enrichments from the already-loaded project list. A pinned project beyond
+  // the page ceiling still renders — it just shows a hollow 'unknown' dot and no
+  // count, which is the honest rendering of "we have the name but not the
+  // annotations" and matches how any un-annotated project row already behaves.
+  const pinnedProjects = useMemo(
     () =>
-      pinnedPrograms
-        .map((id) => programById.get(id))
-        .filter((p): p is NonNullable<typeof p> => !!p),
-    [pinnedPrograms, programById],
+      (pinnedItems ?? [])
+        .filter((i) => i.kind === 'project')
+        .map((i) => {
+          const loaded = projectById.get(i.id);
+          return {
+            id: i.id,
+            name: i.name,
+            healthState: (loaded?.healthState as HealthState | undefined) ?? 'unknown',
+            openTaskCount: loaded?.openTaskCount ?? null,
+          };
+        }),
+    [pinnedItems, projectById],
   );
   const hasPins = pinnedProgramList.length > 0 || pinnedProjects.length > 0;
   const orphanProjects = useMemo(() => (projects ?? []).filter((p) => !p.programId), [projects]);
@@ -393,16 +413,12 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
       programs={programs}
       projects={projects}
       expanded={expanded}
-      pinned={pinned}
-      pinnedPrograms={pinnedPrograms}
       orphanProjects={orphanProjects}
       projectsCount={projectsCount}
       countFor={countFor}
       go={go}
       dismissSwitcher={dismissSwitcher}
       toggleProgram={toggleProgram}
-      togglePin={togglePin}
-      togglePinProgram={togglePinProgram}
       openPalette={openPalette}
       setShowNewProgram={setShowNewProgram}
       setShowNewProject={setShowNewProject}
@@ -469,13 +485,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               ) : (
                 <PinnedTier
                   hasPins={hasPins}
+                  isLoading={pinsLoading}
+                  isError={pinsError}
                   pinnedProgramList={pinnedProgramList}
                   pinnedProjects={pinnedProjects}
+                  programById={programById}
                   hasProjects={(projects ?? []).length > 0}
                   loadingDemo={loadSample.isPending}
                   go={go}
-                  togglePin={togglePin}
-                  togglePinProgram={togglePinProgram}
                   setShowNewProject={setShowNewProject}
                   loadDemo={loadDemo}
                 />
@@ -524,6 +541,17 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
 
 type ProjectListItem = NonNullable<ReturnType<typeof useProjects>['data']>[number];
 type ProgramListItem = NonNullable<ReturnType<typeof usePrograms>['data']>[number];
+/**
+ * A pinned project as the rail renders it: identity from `/auth/me/pinned/`,
+ * health and count enriched from the loaded project list when it happens to be
+ * there (#2390).
+ */
+type PinnedProjectRow = {
+  id: string;
+  name: string;
+  healthState: HealthState;
+  openTaskCount: number | null;
+};
 type SidebarUser = Parameters<typeof labelForUser>[0];
 
 /** Brand mark + the desktop collapse control (≡ in the unified shell bar re-opens
@@ -687,57 +715,91 @@ function YouTier({
  *  zero-project first-run CTA, or the "pin something" hint. */
 function PinnedTier({
   hasPins,
+  isLoading,
+  isError,
   pinnedProgramList,
   pinnedProjects,
+  programById,
   hasProjects,
   loadingDemo,
   go,
-  togglePin,
-  togglePinProgram,
   setShowNewProject,
   loadDemo,
 }: {
   hasPins: boolean;
-  pinnedProgramList: ProgramListItem[];
-  pinnedProjects: ProjectListItem[];
+  isLoading: boolean;
+  isError: boolean;
+  pinnedProgramList: PinnedItem[];
+  pinnedProjects: PinnedProjectRow[];
+  programById: Map<string, ProgramListItem>;
   hasProjects: boolean;
   loadingDemo: boolean;
   go: (to: string) => void;
-  togglePin: (id: string) => void;
-  togglePinProgram: (id: string) => void;
   setShowNewProject: Dispatch<SetStateAction<boolean>>;
   loadDemo: () => void;
 }) {
   return (
     <>
       <h2 className={GROUP_LABEL}>Pinned</h2>
-      {hasPins ? (
+      {isLoading && !hasPins ? (
+        // Skeleton rows, not the "pin something" hint: showing the empty-state
+        // advice while the request is still in flight tells a user with pins
+        // that they have none, which is worse than a brief neutral placeholder.
+        <div aria-hidden="true" className="flex flex-col gap-1 px-3 py-2">
+          <div className="h-4 w-32 animate-pulse rounded bg-chrome-surface-raised" />
+          <div className="h-4 w-24 animate-pulse rounded bg-chrome-surface-raised" />
+        </div>
+      ) : isError && !hasPins ? (
+        // The rail is where the absence is noticed, so it owns the message —
+        // silently rendering "no pins" on a failed fetch is the "my pins
+        // disappeared" moment this feature exists to avoid.
+        <p role="status" className="px-3 py-2 text-xs text-chrome-text-secondary">
+          Couldn&rsquo;t load pins.
+        </p>
+      ) : hasPins ? (
         <>
           {/* Pinned programs first, then pinned projects — a flat jump
               list, not a tree. Items also keep their normal tree
               position; pinning adds a shortcut, it does not relocate. */}
-          {pinnedProgramList.map((prog) => (
-            <div key={prog.id} className={rowClass(false)}>
-              <ProgramIdentitySquare program={prog} size="xs-label" />
-              <button
-                type="button"
-                onClick={() => go(`/programs/${prog.id}/overview`)}
-                className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
-              >
-                {prog.name}
-              </button>
-              <PinToggle name={prog.name} pinned onToggle={() => togglePinProgram(prog.id)} />
-            </div>
-          ))}
+          {pinnedProgramList.map((prog) => {
+            // The identity square needs the full program row for its color and
+            // initials. A pinned program past the list page ceiling has no
+            // loaded row, so fall back to the pin's own name/code — the square
+            // degrades, the jump link does not.
+            const loaded = programById.get(prog.id);
+            return (
+              <div key={prog.id} className={rowClass(false)}>
+                <ProgramIdentitySquare
+                  program={loaded ?? { name: prog.name, code: prog.code ?? '', color: null }}
+                  size="xs-label"
+                />
+                <button
+                  type="button"
+                  onClick={() => go(`/programs/${prog.id}/overview`)}
+                  className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                >
+                  {prog.name}
+                </button>
+                <PinToggle
+                  kind="program"
+                  id={prog.id}
+                  name={prog.name}
+                  pinned
+                  size="sm"
+                tone="chrome"
+                />
+              </div>
+            );
+          })}
           {pinnedProjects.map((p) => (
             <ProjectRow
               key={p.id}
+              id={p.id}
               name={p.name}
-              health={(p.healthState as HealthState) ?? 'unknown'}
+              health={p.healthState}
               openTaskCount={p.openTaskCount}
               pinned
               onOpen={() => go(`/projects/${p.id}/overview`)}
-              onTogglePin={() => togglePin(p.id)}
             />
           ))}
         </>
@@ -768,7 +830,7 @@ function PinnedTier({
         </div>
       ) : (
         <p role="status" className="px-3 py-2 text-xs italic text-chrome-text-secondary">
-          Pin a program or project for quick access.
+          Pin a project from its Overview, or a program from the Programs list.
         </p>
       )}
     </>
@@ -982,16 +1044,12 @@ function BrowseContent({
   programs,
   projects,
   expanded,
-  pinned,
-  pinnedPrograms,
   orphanProjects,
   projectsCount,
   countFor,
   go,
   dismissSwitcher,
   toggleProgram,
-  togglePin,
-  togglePinProgram,
   openPalette,
   setShowNewProgram,
   setShowNewProject,
@@ -1001,16 +1059,12 @@ function BrowseContent({
   programs: ProgramListItem[] | undefined;
   projects: ProjectListItem[] | undefined;
   expanded: string[];
-  pinned: string[];
-  pinnedPrograms: string[];
   orphanProjects: ProjectListItem[];
   projectsCount: number | undefined;
   countFor: (programId: string) => number;
   go: (to: string) => void;
   dismissSwitcher: () => void;
   toggleProgram: (id: string) => void;
-  togglePin: (id: string) => void;
-  togglePinProgram: (id: string) => void;
   openPalette: (open: boolean) => void;
   setShowNewProgram: Dispatch<SetStateAction<boolean>>;
   setShowNewProject: Dispatch<SetStateAction<boolean>>;
@@ -1131,13 +1185,16 @@ function BrowseContent({
                 {prog.name}
               </button>
               {/* Count hides on hover so the pin toggle can overlay this slot. */}
-              <span className="tppm-mono shrink-0 text-xs text-chrome-text-secondary group-hover:hidden">
+              <span className="tppm-mono shrink-0 text-xs text-chrome-text-secondary md:group-hover:hidden">
                 {countFor(prog.id)}
               </span>
               <PinToggle
+                kind="program"
+                id={prog.id}
                 name={prog.name}
-                pinned={pinnedPrograms.includes(prog.id)}
-                onToggle={() => togglePinProgram(prog.id)}
+                pinned={prog.is_pinned ?? false}
+                size="sm"
+                tone="chrome"
               />
             </div>
             {isExpanded && (
@@ -1150,12 +1207,12 @@ function BrowseContent({
                   kids.map((p) => (
                     <ProjectRow
                       key={p.id}
+                      id={p.id}
                       name={p.name}
                       health={(p.healthState as HealthState) ?? 'unknown'}
                       openTaskCount={p.openTaskCount}
-                      pinned={pinned.includes(p.id)}
+                      pinned={p.isPinned ?? false}
                       onOpen={() => go(`/projects/${p.id}/overview`)}
-                      onTogglePin={() => togglePin(p.id)}
                     />
                   ))
                 )}
@@ -1172,12 +1229,12 @@ function BrowseContent({
           {orphanProjects.map((p) => (
             <ProjectRow
               key={p.id}
+              id={p.id}
               name={p.name}
               health={(p.healthState as HealthState) ?? 'unknown'}
               openTaskCount={p.openTaskCount}
-              pinned={pinned.includes(p.id)}
+              pinned={p.isPinned ?? false}
               onOpen={() => go(`/projects/${p.id}/overview`)}
-              onTogglePin={() => togglePin(p.id)}
             />
           ))}
         </>
@@ -1445,68 +1502,21 @@ function ProgramViewsTier({
   );
 }
 
-/**
- * Star pin toggle shared by program and project rows (issue #1682). The visible
- * 13px glyph stays dense, but the button carries a 44px touch target (negative
- * margins keep the row height unchanged) so it meets the mobile minimum. Reveals
- * on hover/focus; a pinned star stays visible (amber). `stopPropagation` +
- * `preventDefault` so toggling never navigates a surrounding link/row.
- */
-function PinToggle({
-  name,
-  pinned,
-  onToggle,
-}: {
-  name: string;
-  pinned: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        onToggle();
-        // `pinned` is the pre-toggle state, so the message reflects the result.
-        toast.info(pinned ? `Unpinned ${name}` : `Pinned ${name}`);
-      }}
-      aria-label={pinned ? `Unpin ${name}` : `Pin ${name}`}
-      aria-pressed={pinned}
-      title={pinned ? 'Unpin' : 'Pin'}
-      className="-my-2 -mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-control opacity-0 group-hover:opacity-100 focus:opacity-100 aria-pressed:opacity-100 focus:outline-none focus:ring-2 focus:ring-brand-primary"
-    >
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 16 16"
-        fill={pinned ? 'currentColor' : 'none'}
-        stroke="currentColor"
-        strokeWidth="1.4"
-        aria-hidden="true"
-        className={pinned ? 'text-semantic-at-risk' : 'text-chrome-text-secondary'}
-      >
-        <path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.8 4.2 13.3l.7-4.3-3.1-3 4.3-.6L8 1.5z" />
-      </svg>
-    </button>
-  );
-}
-
-/** One project row — health dot + name (opens overview) + open-task count + a ★ pin toggle. */
+/** One project row — health dot + name (opens overview) + open-task count + a pin toggle. */
 function ProjectRow({
+  id,
   name,
   health,
   openTaskCount,
   pinned,
   onOpen,
-  onTogglePin,
 }: {
+  id: string;
   name: string;
   health: HealthState;
   openTaskCount: number | null;
   pinned: boolean;
   onOpen: () => void;
-  onTogglePin: () => void;
 }) {
   return (
     <div className={rowClass(false)}>
@@ -1529,12 +1539,13 @@ function ProjectRow({
       {openTaskCount != null && openTaskCount > 0 && (
         <span
           aria-hidden="true"
-          className="tppm-mono shrink-0 text-xs text-chrome-text-secondary group-hover:hidden"
+          className="tppm-mono shrink-0 text-xs text-chrome-text-secondary md:group-hover:hidden"
         >
           {openTaskCount}
         </span>
       )}
-      <PinToggle name={name} pinned={pinned} onToggle={onTogglePin} />
+      <PinToggle kind="project" id={id} name={name} pinned={pinned} size="sm"
+                tone="chrome" />
     </div>
   );
 }

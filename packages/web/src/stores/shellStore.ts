@@ -8,14 +8,15 @@ import { create } from 'zustand';
  */
 export type ProjectScope = 'all' | 'none' | (string & {});
 
-// Persisted rail prefs (v2 left rail, ADR-0126): pinned project ids (Shortcuts)
-// and expanded program ids (the Programs tree). localStorage so a refresh keeps
-// the user's nav shape. Read defensively (private mode / SSR).
-const PINNED_KEY = 'trueppm.rail.pinned';
-// Pinned program ids (Shortcuts) — the program counterpart to PINNED_KEY. A pin is
-// a private, per-browser wayfinding convenience (issue #1682), so it stays
-// client-side localStorage like the project pin, not a synced server object.
-const PINNED_PROGRAMS_KEY = 'trueppm.rail.pinnedPrograms';
+// Persisted rail prefs (v2 left rail, ADR-0126): expanded program ids (the
+// Programs tree). localStorage so a refresh keeps the user's nav shape. Read
+// defensively (private mode / SSR).
+//
+// Project and program *pins* used to live here too. They moved to the server in
+// #2390 (ADR-0627) because a per-browser pin is not the same promise as a
+// per-user one: the same person on a laptop and a phone saw two different rails.
+// `usePins` now owns them; `usePinMigration` uploads whatever this store left in
+// localStorage once per device.
 const EXPANDED_KEY = 'trueppm.rail.expanded';
 // Per-user pinned mobile BottomNav views (issue 1591): view keys the user
 // promotes into the primary rail slots, ahead of the methodology defaults.
@@ -76,12 +77,6 @@ interface ShellState {
   setSidebarCollapsed: (collapsed: boolean, userControlled?: boolean) => void;
   projectScope: ProjectScope;
   setProjectScope: (scope: ProjectScope) => void;
-  /** Pinned project ids — the rail Pinned group (v2). Persisted. */
-  pinnedProjectIds: string[];
-  togglePin: (projectId: string) => void;
-  /** Pinned program ids — the rail Pinned group (issue #1682). Persisted. */
-  pinnedProgramIds: string[];
-  togglePinProgram: (programId: string) => void;
   /** Expanded program ids — the rail Programs tree (v2). Persisted. */
   expandedProgramIds: string[];
   toggleProgram: (programId: string) => void;
@@ -113,24 +108,6 @@ export const useShellStore = create<ShellState>()((set) => ({
   },
   projectScope: 'all',
   setProjectScope: (scope) => set({ projectScope: scope }),
-  pinnedProjectIds: readIds(PINNED_KEY),
-  togglePin: (projectId) =>
-    set((s) => {
-      const next = s.pinnedProjectIds.includes(projectId)
-        ? s.pinnedProjectIds.filter((id) => id !== projectId)
-        : [...s.pinnedProjectIds, projectId];
-      writeIds(PINNED_KEY, next);
-      return { pinnedProjectIds: next };
-    }),
-  pinnedProgramIds: readIds(PINNED_PROGRAMS_KEY),
-  togglePinProgram: (programId) =>
-    set((s) => {
-      const next = s.pinnedProgramIds.includes(programId)
-        ? s.pinnedProgramIds.filter((id) => id !== programId)
-        : [...s.pinnedProgramIds, programId];
-      writeIds(PINNED_PROGRAMS_KEY, next);
-      return { pinnedProgramIds: next };
-    }),
   expandedProgramIds: readIds(EXPANDED_KEY),
   toggleProgram: (programId) =>
     set((s) => {

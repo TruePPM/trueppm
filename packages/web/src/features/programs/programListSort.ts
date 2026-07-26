@@ -16,12 +16,14 @@ export const PROGRAM_SORT_OPTIONS: ReadonlyArray<{ value: ProgramSortKey; label:
   { value: 'health', label: 'Health (worst first)' },
 ];
 
-/** Deliberate default: recently active. Pinned programs float to the top of
- *  every sort (see {@link filterAndSortPrograms}) so the default reads as
- *  "pinned first, then recent activity" — the visible default the header labels. */
+/** Deliberate default: recently active. Pinned programs are lifted into their own
+ *  labelled group by the page (see `ProgramListPage`), not floated inside this
+ *  sort — so this function returns one honest ordering and the grouping stays
+ *  visible rather than implicit. */
 export const DEFAULT_PROGRAM_SORT: ProgramSortKey = 'recent';
 
 const SORT_PREF_KEY = 'trueppm.programs.sort';
+const PINNED_FIRST_PREF_KEY = 'trueppm.programs.pinnedFirst';
 
 /** Worst-first rank for the health sort. AUTO defers to the rollup and carries no
  *  per-card health, so it sorts last. */
@@ -56,6 +58,26 @@ export function writeProgramSortPref(key: ProgramSortKey): void {
   }
 }
 
+/** Whether pinned programs are lifted into their own group. Defaults to ON — the
+ *  grouping is the point of a pin — and is the escape hatch for anyone who wants
+ *  one flat list in pure sort order (design §5.2). */
+export function readPinnedFirstPref(): boolean {
+  try {
+    return localStorage.getItem(PINNED_FIRST_PREF_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+/** Persist the per-browser pinned-first preference. */
+export function writePinnedFirstPref(on: boolean): void {
+  try {
+    localStorage.setItem(PINNED_FIRST_PREF_KEY, on ? 'true' : 'false');
+  } catch {
+    // localStorage unavailable — keep the in-memory value only.
+  }
+}
+
 /** Case-insensitive substring match across the fields a user scans by: the
  *  program name, its short code, and its description. */
 function matchesQuery(program: Program, needle: string): boolean {
@@ -70,9 +92,6 @@ export interface ProgramFilterSortOptions {
    *  (the value the card badge displays). */
   methodology: MethodologyFilterValue;
   sortKey: ProgramSortKey;
-  /** Pinned program ids (client-side, from shellStore) — floated to the top of
-   *  every sort so a pin stays a durable wayfinding anchor. */
-  pinnedIds: readonly string[];
 }
 
 /**
@@ -80,13 +99,18 @@ export interface ProgramFilterSortOptions {
  * `Program[]` (the list is small and fully client-side — no server pagination), so
  * this is the single source of truth for both the rendered order and the vitest
  * coverage. Stable: ties fall back to name so the order never jitters between renders.
+ *
+ * Pins are deliberately **not** handled here. Floating them inside the sort made
+ * "Depot Electrification, 40m ago" render below "Northgate, 3d ago" under a
+ * control that plainly said *Recently active* — indistinguishable from a broken
+ * sort. `ProgramListPage` splits this one honest ordering into two labelled
+ * groups instead, so the same sort visibly applies within each.
  */
 export function filterAndSortPrograms(
   programs: readonly Program[],
-  { query, methodology, sortKey, pinnedIds }: ProgramFilterSortOptions,
+  { query, methodology, sortKey }: ProgramFilterSortOptions,
 ): Program[] {
   const needle = query.trim().toLowerCase();
-  const pinned = new Set(pinnedIds);
 
   const filtered = programs.filter((p) => {
     if (needle && !matchesQuery(p, needle)) return false;
@@ -98,11 +122,6 @@ export function filterAndSortPrograms(
     a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
 
   return [...filtered].sort((a, b) => {
-    // Pinned programs float to the top of every sort.
-    const aPinned = pinned.has(a.id) ? 1 : 0;
-    const bPinned = pinned.has(b.id) ? 1 : 0;
-    if (aPinned !== bPinned) return bPinned - aPinned;
-
     switch (sortKey) {
       case 'name':
         return byName(a, b);

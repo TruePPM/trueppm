@@ -1304,6 +1304,11 @@ TRUEPPM_MCP_ENABLED: bool = env.bool("TRUEPPM_MCP_ENABLED", default=True)
 # Max ACTIVE personal access tokens per user (ADR-0214). Bounds the blast radius of
 # a leaked account and keeps the /me/api-tokens/ list navigable.
 TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS: int = env.int("TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS", default=10)
+# Max pinned projects + programs per user (#2390, ADR-0627). A pin is a personal
+# wayfinding shortcut, so the cap exists to bound the row count and keep the rail
+# and /me/pinned/ navigable — not as a security control. Exceeding it is a 400
+# carrying `code: "pin_limit_reached"` so the client can say which limit was hit.
+TRUEPPM_MAX_USER_PINS: int = env.int("TRUEPPM_MAX_USER_PINS", default=100)
 # Token-issuance rate cap (req/min/user) on the mint endpoint (ADR-0068). Caps the
 # blast radius of a compromised admin session even when RBAC is satisfied.
 TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE: int = env.int("TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE", default=5)

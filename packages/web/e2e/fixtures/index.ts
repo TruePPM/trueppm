@@ -4,6 +4,8 @@ export { delayRoute, COLD_LOAD_DELAY_MS } from './cold-load';
 export {
   setupApiMocks,
   setupCatchAll,
+  setupPinned,
+  type PinnedFixture,
   type ApiMockOptions,
   type ProjectFixture,
   type UserFixture,

@@ -84,6 +84,7 @@ from trueppm_api.apps.access.services import transfer_project_ownership
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS_UNKNOWN
 from trueppm_api.apps.profiles.serializers import RecentProjectSerializer
+from trueppm_api.apps.profiles.services import annotate_is_pinned
 from trueppm_api.apps.projects.models import (
     _HISTORY_EXCLUDED_TASK,
     SCOPE_LEGACY_FULL,
@@ -215,6 +216,24 @@ from trueppm_api.core.openapi import suppress_list_pagination
 from trueppm_api.core.protect_conflict import describe_reference, protected_error_response
 
 logger = logging.getLogger(__name__)
+
+# Mandated by ADR-0627 §D1.1 and asserted by `test_pin_description_is_published`.
+# `pinned` carries the OPPOSITE privacy semantics elsewhere in this same API
+# (`TaskNote.pinned` and `TaskAttachment.is_pinned` are shared curation any
+# project writer may toggle), so an API or MCP consumer meeting this endpoint
+# first must be told explicitly which meaning applies here. Do not shorten this
+# to "Pin a project" — the contrast is the point.
+PIN_ENDPOINT_DESCRIPTION = (
+    "Pins or unpins this item **for the requesting user only**. A pin is a "
+    "private, per-user wayfinding preference: it is visible to nobody else, it "
+    "grants no access, and it changes nothing about the item itself. The "
+    "operation is idempotent and reversible — re-pinning is a no-op and "
+    "unpinning something that was never pinned succeeds. No endpoint reports "
+    "who pinned an item or how many users pinned it.\n\n"
+    "Note this is **not** the same concept as `TaskNote.pinned` or "
+    "`TaskAttachment.is_pinned`, which are *shared* curation that any project "
+    "writer may toggle and every project member can see."
+)
 
 # Allow-list pattern for the X-Source request header value (ADR-0065 Gap 2).
 # Lower-case ASCII letters and underscores, 1–64 chars. Any other input is
@@ -881,7 +900,9 @@ class ProjectViewSet(
                     filter=Q(tasks__is_deleted=False),
                 ),
             )
-        return qs
+        # `is_pinned` for THIS caller (#2390, ADR-0627). One Exists() probe over a
+        # partial unique index — no join, so it cannot inflate the aggregates above.
+        return annotate_is_pinned(qs, self.request.user, field="project")
 
     def perform_create(self, serializer: BaseSerializer[Project]) -> None:
         """Create the project and auto-assign the creator as Owner.
@@ -1664,6 +1685,49 @@ class ProjectViewSet(
             record_project_visit(request.user, project)
             return Response({"recorded": True}, status=status.HTTP_200_OK)
         return Response({"recorded": False}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Pin or unpin this project for the requesting user",
+        description=PIN_ENDPOINT_DESCRIPTION,
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="ProjectPinResponse",
+                fields={"is_pinned": serializers.BooleanField()},
+            ),
+            204: None,
+        },
+    )
+    @action(detail=True, methods=["post", "delete"], url_path="pin")
+    def pin(self, request: Request, pk: str | None = None) -> Response:
+        """Pin (POST) or unpin (DELETE) this project for the current user (#2390).
+
+        Any member who can read the project (Viewer+) may pin it — a pin grants
+        nothing and reveals nothing, so gating it above read access would be
+        theater. The write is scoped to ``request.user`` in the service layer;
+        there is no path by which a caller can pin on someone else's behalf.
+
+        Idempotent in both directions: re-pinning returns ``200`` unchanged and
+        unpinning something unpinned returns ``204`` rather than 404, so two of
+        the user's own tabs racing never surfaces as an error.
+        """
+        from trueppm_api.apps.profiles.services import PinLimitReached, set_pin
+
+        project = self.get_object()
+        if request.method == "DELETE":
+            set_pin(request.user, project=project, pinned=False)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        try:
+            set_pin(request.user, project=project, pinned=True)
+        except PinLimitReached as exc:
+            # Machine-readable `code` alongside `detail`: the client shows a
+            # limit-specific message, and string-matching a human sentence would
+            # break the moment the copy or the locale changes.
+            return Response(
+                {"detail": str(exc), "code": "pin_limit_reached"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"is_pinned": True}, status=status.HTTP_200_OK)
 
     # -- Composable working calendars (#906, ADR-0251) ----------------------
 

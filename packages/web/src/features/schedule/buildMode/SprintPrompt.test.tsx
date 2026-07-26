@@ -15,6 +15,7 @@ function agileProjectClient(): QueryClient {
   const project: ApiProjectDetail = {
     id: 'p1',
     server_version: 1,
+    is_pinned: false,
     name: 'Test Project',
     description: '',
     start_date: '2026-01-01',

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 
 import { useProjects } from '@/hooks/useProjects';
@@ -16,6 +16,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { WORKSPACE_ADMIN_ROLE } from '@/hooks/useIsWorkspaceAdmin';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useLabels } from '@/hooks/useLabels';
+import { usePinned, useTogglePin } from '@/hooks/usePins';
 import { useShellStore } from '@/stores/shellStore';
 import { useThemeStore, type Theme } from '@/stores/themeStore';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
@@ -23,7 +24,7 @@ import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import type { Methodology } from '@/types';
-import type { CommandItem } from './commandItems';
+import type { CommandItem, PinTarget } from './commandItems';
 import { buildOmniSearchItems } from './omniSearch';
 import { buildWorkspaceNavGroups } from '@/features/settings/workspace/workspaceNav';
 import { ME_SETTINGS_LINKS } from '@/features/me/MeSettingsSubNav';
@@ -56,6 +57,7 @@ type ProgramsData = ReturnType<typeof usePrograms>['data'];
 type ProjectItem = NonNullable<ProjectsData>[number];
 type PeopleData = ReturnType<typeof useResourceSearch>['data'];
 type RecentProjectsData = ReturnType<typeof useRecentProjects>['data'];
+type PinnedData = ReturnType<typeof usePinned>['data'];
 type CurrentUser = ReturnType<typeof useCurrentUser>['user'];
 type IterationLabel = ReturnType<typeof useIterationLabel>;
 type LabelsData = ReturnType<typeof useLabels>['data'];
@@ -212,6 +214,62 @@ function buildRecentItems(
   }));
 }
 
+// ---- Pinned (cold-only, the caller's own pins) -----------------------------
+// #2390, design §4.6. Sits ABOVE `recent` cold: a pin is a standing intent, a
+// recent visit is an accident of history. Reads the same `/auth/me/pinned/`
+// cache the rail does, so the two can never disagree. Deep-links to overview —
+// the one view every methodology has.
+function buildPinnedItems(pinnedEnabled: boolean, pinned: PinnedData, go: Go): CommandItem[] {
+  if (!pinnedEnabled) return [];
+  return (pinned ?? []).map((p) => ({
+    id: `pinned:${p.kind}:${p.id}`,
+    label: p.name,
+    group: 'pinned' as const,
+    tag: p.kind === 'program' ? 'Program' : 'Project',
+    detail: p.program_name ?? undefined,
+    keywords: `pinned pin ${p.code ?? ''} ${p.program_name ?? ''}`,
+    pinTarget: { kind: p.kind, id: p.id, name: p.name, pinned: true },
+    run: go(p.kind === 'program' ? `/programs/${p.id}/overview` : `/projects/${p.id}/overview`),
+  }));
+}
+
+// ---- Pin / unpin as searchable commands ------------------------------------
+// #2390, design §4.6: "the keyboard-only path that needs no glyph at all".
+// Query-gated — a cold palette listing an Unpin command for every project the
+// user can reach would bury the navigation it exists to provide.
+function buildPinActions(
+  enabled: boolean,
+  projects: ProjectsData,
+  programs: ProgramsData,
+  togglePin: (target: PinTarget) => void,
+  act: Act,
+): CommandItem[] {
+  if (!enabled) return [];
+  const targets: PinTarget[] = [
+    ...(projects ?? []).map((p) => ({
+      kind: 'project' as const,
+      id: p.id,
+      name: p.name,
+      pinned: p.isPinned ?? false,
+    })),
+    ...(programs ?? []).map((p) => ({
+      kind: 'program' as const,
+      id: p.id,
+      name: p.name,
+      pinned: p.is_pinned,
+    })),
+  ];
+  return targets.map((t) => ({
+    id: `action:pin:${t.kind}:${t.id}`,
+    label: `${t.pinned ? 'Unpin' : 'Pin'} ${t.name}`,
+    group: 'action' as const,
+    tag: 'Action',
+    keywords: `pin unpin pinned favorite ${t.name}`,
+    pinTarget: t,
+    run: act(() => togglePin(t)),
+  }));
+}
+
 // ---- Tier 1: Jump to (global) + always-findable Settings landings ----------
 function buildJumps(
   programs: ProgramsData,
@@ -238,6 +296,14 @@ function buildJumps(
       group: 'jump',
       tag: 'Program',
       keywords: program.code,
+      // Carries a pin target so the accelerator works on any navigable row, not
+      // only on rows that exist because they are pinned (#2390).
+      pinTarget: {
+        kind: 'program',
+        id: program.id,
+        name: program.name,
+        pinned: program.is_pinned,
+      },
       run: go(`/programs/${program.id}/overview`),
     });
   }
@@ -247,6 +313,12 @@ function buildJumps(
       label: project.name,
       group: 'jump',
       tag: 'Project',
+      pinTarget: {
+        kind: 'project',
+        id: project.id,
+        name: project.name,
+        pinned: project.isPinned ?? false,
+      },
       // Overview is the one view present for every methodology — a safe default.
       run: go(`/projects/${project.id}/overview`),
     });
@@ -487,6 +559,18 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
   const recentEnabled = enabled && trimmedQuery.length === 0;
   const { data: recentProjects } = useRecentProjects(recentEnabled);
 
+  // Pinned tier (#2390): cold-only like `recent`, reading the same cache the rail
+  // does. The mutation is shared too, so a pin made from the palette lands
+  // everywhere at once.
+  const pinnedEnabled = enabled && trimmedQuery.length === 0;
+  const { data: pinnedItems } = usePinned();
+  const togglePinMutation = useTogglePin();
+  const togglePin = useCallback(
+    (t: PinTarget) =>
+      togglePinMutation.mutate({ kind: t.kind, id: t.id, name: t.name, next: !t.pinned }),
+    [togglePinMutation],
+  );
+
   return useMemo(() => {
     // Wrap every action so the overlay closes first, then the effect runs; `go`
     // is `act` specialized to a route push.
@@ -535,12 +619,16 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     const epicItems = omniItems.filter((i) => i.group === 'epic');
     const storyItems = omniItems.filter((i) => i.group === 'story');
 
+    const pinnedRows = buildPinnedItems(pinnedEnabled, pinnedItems, go);
     const recentItems = buildRecentItems(recentEnabled, recentProjects, go);
     const isWorkspaceAdmin = (user?.workspace_role ?? -1) >= WORKSPACE_ADMIN_ROLE;
     const jumps = buildJumps(programs, projects, isWorkspaceAdmin, go);
     const settingsSections = buildSettingsSections(isWorkspaceAdmin, go);
     const { backlog, board } = buildBacklogAndBoard(projects, go);
-    const actions = buildActions(theme, setTheme, toggleSidebar, act);
+    const actions = [
+      ...buildActions(theme, setTheme, toggleSidebar, act),
+      ...buildPinActions(trimmedQuery.length > 0, projects, programs, togglePin, act),
+    ];
 
     // Order matches the palette's GROUP_ORDER so keyboard nav and the visual
     // sections agree.
@@ -553,6 +641,7 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
       ...peopleItems,
       ...epicItems,
       ...storyItems,
+      ...pinnedRows,
       ...recentItems,
       ...jumps,
       ...settingsSections,
@@ -570,6 +659,9 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     omniEnabled,
     recentProjects,
     recentEnabled,
+    pinnedItems,
+    pinnedEnabled,
+    togglePin,
     theme,
     setTheme,
     toggleSidebar,

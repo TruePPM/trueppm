@@ -236,6 +236,47 @@ export async function setupCatchAll(page: Page): Promise<void> {
   await page.route('**/api/v1/projects/health-summary/', (route) =>
     route.fulfill(jsonResponse([], 200)),
   );
+  // The rail's Pinned band reads this on every render (#2390). Default it to an
+  // empty list rather than letting the catch-all 404 it: a 404 puts the band in
+  // its "Couldn't load pins" error state in every spec that renders the rail off
+  // a project, which is both noise and a false failure signal. Specs that need
+  // seeded pins call `setupPinned` AFTER this so their route wins.
+  await page.route('**/api/v1/auth/me/pinned/', (route) => route.fulfill(jsonResponse([], 200)));
+}
+
+/** One entry of `GET /auth/me/pinned/` — the merged project+program wire shape. */
+export interface PinnedFixture {
+  kind: 'project' | 'program';
+  id: string;
+  name: string;
+  code?: string | null;
+  program_id?: string | null;
+  program_name?: string | null;
+  pinned_at?: string;
+}
+
+/**
+ * Seed the caller's pinned items (#2390).
+ *
+ * Pins moved from localStorage to the server, so a spec that needs the rail's
+ * Pinned band populated mocks this endpoint instead of calling
+ * `page.addInitScript` to write `trueppm.rail.pinned`.
+ */
+export async function setupPinned(page: Page, items: PinnedFixture[]): Promise<void> {
+  await page.route('**/api/v1/auth/me/pinned/', (route) =>
+    route.fulfill(
+      jsonResponse(
+        items.map((i) => ({
+          code: null,
+          program_id: null,
+          program_name: null,
+          pinned_at: '2026-01-01T00:00:00Z',
+          ...i,
+        })),
+        200,
+      ),
+    ),
+  );
 }
 
 /**
@@ -288,9 +329,7 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   // empty page. Specs exercising the tier override with page.route(...). Declared
   // explicitly (not left to the catch-all) so a data-driven palette query resolves
   // to the real {count,results} shape the hook expects.
-  await page.route('**/api/v1/me/search/**', (route) =>
-    route.fulfill(jsonResponse(paginated([]))),
-  );
+  await page.route('**/api/v1/me/search/**', (route) => route.fulfill(jsonResponse(paginated([]))));
 
   // ----- Project list -----
   await page.route('**/api/v1/projects/', (route) =>

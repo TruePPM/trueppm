@@ -18,6 +18,8 @@ export interface UngroupedProject {
   percentComplete: number | null;
   /** Active member count, or null when the API did not annotate it. */
   memberCount: number | null;
+  /** The requesting user's own pin (#2390). */
+  isPinned: boolean;
 }
 
 interface ApiUngroupedProject {
@@ -27,6 +29,7 @@ interface ApiUngroupedProject {
   health?: string;
   percent_complete?: number | null;
   member_count?: number | null;
+  is_pinned?: boolean;
 }
 
 /**
@@ -55,6 +58,7 @@ function mapUngrouped(p: ApiUngroupedProject): UngroupedProject {
     healthState: mapHealth(p.health),
     percentComplete: p.percent_complete ?? null,
     memberCount: p.member_count ?? null,
+    isPinned: p.is_pinned ?? false,
   };
 }
 
