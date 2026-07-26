@@ -78,7 +78,7 @@ async function seedAuthAndNavigate(page: import('@playwright/test').Page) {
   // issue #1111). Without this the bare GET /projects/:id/ falls through to the
   // preview proxy and ProjectShell renders its "not available" state, replacing
   // the roster page. Mock it with a HYBRID shape so the rail (and shell) resolve.
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) => {
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (route) => {
     if (route.request().method() === 'GET') {
       return route.fulfill({
         status: 200,
@@ -203,15 +203,15 @@ test('Cascade delete dialog appears when server returns 409', async ({ page }) =
   await seedAuthAndNavigate(page);
 
   // Override: first DELETE returns 409 with assignment count
-  await page.route(`**/api/v1/project-resources/pr-1/`, (route) => {
+  await page.route(`**/api/v1/project-resources/pr-1/`, async (route) => {
     if (route.request().method() === 'DELETE') {
-      route.fulfill({
+      await route.fulfill({
         status: 409,
         contentType: 'application/json',
         body: JSON.stringify({ detail: 'Resource has task assignments.', cascaded_assignment_count: 3 }),
       });
     } else {
-      route.continue();
+      await route.continue();
     }
   });
 
@@ -225,11 +225,11 @@ test('Cascade delete dialog appears when server returns 409', async ({ page }) =
 test('Cancel in cascade delete dialog dismisses it', async ({ page }) => {
   await seedAuthAndNavigate(page);
 
-  await page.route(`**/api/v1/project-resources/pr-1/`, (route) => {
+  await page.route(`**/api/v1/project-resources/pr-1/`, async (route) => {
     if (route.request().method() === 'DELETE') {
-      route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: 'Resource has task assignments.', cascaded_assignment_count: 2 }) });
+      await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: 'Resource has task assignments.', cascaded_assignment_count: 2 }) });
     } else {
-      route.continue();
+      await route.continue();
     }
   });
 

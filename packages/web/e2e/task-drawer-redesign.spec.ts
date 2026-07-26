@@ -541,7 +541,7 @@ test.describe('TaskDetailDrawer redesign — tabs', () => {
     let progressPatches = 0;
     page.on('request', (req) => {
       if (req.method() !== 'PATCH' || !/\/tasks\/[^/]+\//.test(req.url())) return;
-      let body: Record<string, unknown> | null = null;
+      let body: Record<string, unknown> | null;
       try {
         body = req.postDataJSON() as Record<string, unknown> | null;
       } catch {

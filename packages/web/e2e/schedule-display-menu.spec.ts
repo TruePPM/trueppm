@@ -14,6 +14,17 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * the other view untouched.
  */
 
+/**
+ * Shape of the persisted `trueppm.schedule.chartDisplay.v1` blob, as far as the
+ * assertions below read it. `JSON.parse` returns `any`, and these reads happen
+ * inside `page.evaluate`, so without a shape here the `any` would become the
+ * inferred return type of every one of those callbacks.
+ */
+interface ChartDisplayStore {
+  dependencyLinesVisible?: boolean;
+  taskNamePlacementByView?: { grid?: string; timeline?: string };
+}
+
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000001';
 
 const FIXTURE_API_PROJECTS = [
@@ -122,7 +133,8 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
       .poll(() =>
         page.evaluate(() => {
           const raw = localStorage.getItem('trueppm.schedule.chartDisplay.v1');
-          return raw ? JSON.parse(raw).dependencyLinesVisible : null;
+          const stored = raw ? (JSON.parse(raw) as ChartDisplayStore) : null;
+          return stored?.dependencyLinesVisible ?? null;
         }),
       )
       .toBe(false);
@@ -146,7 +158,8 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
       .poll(() =>
         page.evaluate(() => {
           const raw = localStorage.getItem('trueppm.schedule.chartDisplay.v1');
-          return raw ? JSON.parse(raw).taskNamePlacementByView?.timeline : null;
+          const stored = raw ? (JSON.parse(raw) as ChartDisplayStore) : null;
+          return stored?.taskNamePlacementByView?.timeline ?? null;
         }),
       )
       .toBe('left');
@@ -174,7 +187,8 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
       .poll(() =>
         page.evaluate(() => {
           const raw = localStorage.getItem('trueppm.schedule.chartDisplay.v1');
-          return raw ? JSON.parse(raw).taskNamePlacementByView : null;
+          const stored = raw ? (JSON.parse(raw) as ChartDisplayStore) : null;
+          return stored?.taskNamePlacementByView ?? null;
         }),
       )
       .toEqual({ grid: 'next', timeline: 'hidden' });

@@ -63,7 +63,7 @@ const SAVED_RETRO = {
 
 async function setupCommon(
   page: import('@playwright/test').Page,
-  retroPayload: unknown | null,
+  retroPayload: unknown,
 ) {
   await page.addInitScript(() => {
     localStorage.setItem(

@@ -171,11 +171,11 @@ test.describe('Schedule milestone toolbar — +Milestone (#340)', () => {
     // schedule-milestone-add.spec.ts.
     await page.goto(BASE_URL);
     let postCount = 0;
-    await page.route('**/api/v1/tasks/', (route) => {
+    await page.route('**/api/v1/tasks/', async (route) => {
       if (route.request().method() === 'POST') {
         postCount += 1;
       }
-      route.continue();
+      await route.continue();
     });
     await page.getByTestId('add-milestone-button').click();
     await expect(page.getByRole('dialog', { name: 'New milestone' })).toBeVisible();

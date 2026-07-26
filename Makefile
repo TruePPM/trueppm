@@ -138,7 +138,7 @@ scheduler-lint: ## Run the scheduler:lint CI job locally (ruff check + format --
 scheduler-typecheck: ## Run the scheduler:type-check CI job locally (mypy)
 	cd packages/scheduler && mypy
 
-web-lint: ## Run the web:lint CI job locally (eslint on packages/web/src)
+web-lint: ## Run the web:lint CI job locally (eslint on packages/web/src + e2e)
 	cd packages/web && npm run lint
 
 web-typecheck: ## Run the web:type-check CI job locally (tsc --noEmit)

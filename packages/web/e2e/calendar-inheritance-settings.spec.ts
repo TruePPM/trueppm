@@ -132,13 +132,13 @@ test.describe('Workspace working calendar', () => {
     await baseSetup(page);
 
     let patchBody: Record<string, unknown> | null = null;
-    await page.route('**/api/v1/workspace/', (r) => {
+    await page.route('**/api/v1/workspace/', async (r) => {
       if (r.request().method() === 'PATCH') {
         patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
-        r.fulfill(json(workspace({ calendar: CAL_A, calendar_override_policy: 'inherit' })));
+        await r.fulfill(json(workspace({ calendar: CAL_A, calendar_override_policy: 'inherit' })));
         return;
       }
-      r.fulfill(json(workspace()));
+      await r.fulfill(json(workspace()));
     });
 
     await page.goto('/settings/calendar');
@@ -173,13 +173,13 @@ test.describe('Program working calendar', () => {
     );
 
     let patchBody: Record<string, unknown> | null = null;
-    await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (r) => {
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, async (r) => {
       if (r.request().method() === 'PATCH') {
         patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
-        r.fulfill(json(program({ calendar: CAL_B, calendar_source: 'program', effective_calendar: effCal({ id: CAL_B, name: 'Delivery Team', working_days: 15, hours_per_day: 9 }) })));
+        await r.fulfill(json(program({ calendar: CAL_B, calendar_source: 'program', effective_calendar: effCal({ id: CAL_B, name: 'Delivery Team', working_days: 15, hours_per_day: 9 }) })));
         return;
       }
-      r.fulfill(json(program()));
+      await r.fulfill(json(program()));
     });
 
     await page.goto(`/programs/${PROGRAM_ID}/settings/calendar`);

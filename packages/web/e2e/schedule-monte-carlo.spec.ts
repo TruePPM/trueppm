@@ -335,12 +335,12 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
       timeout: 10_000,
     });
     await page.evaluate(() => {
-      const scroller = document.querySelector(
+      const scroller = document.querySelector<HTMLElement>(
         '[data-testid="schedule-canvas-scroll"]',
-      ) as HTMLElement | null;
-      const marker = document.querySelector('[data-testid="mc-marker-p80"]') as HTMLElement | null;
+      );
+      const marker = document.querySelector<HTMLElement>('[data-testid="mc-marker-p80"]');
       if (!scroller || !marker) return;
-      const viewportLeft = parseFloat(marker.style.left || '0');
+      const viewportLeft = Number.parseFloat(marker.style.left || '0');
       const canvasOriginX = viewportLeft + scroller.scrollLeft;
       scroller.scrollLeft = Math.max(0, canvasOriginX - scroller.clientWidth / 2);
     });

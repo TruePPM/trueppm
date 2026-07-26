@@ -52,7 +52,13 @@ const TASK = {
 };
 
 /** Install every mock the board page reads, plus a per-test PATCH handler. */
-async function setup(page: Page, patchHandler: (route: Route) => void): Promise<void> {
+async function setup(
+  page: Page,
+  // Returns a promise in every caller — a route handler that fulfills. Declaring
+  // it `=> void` let the fulfill float, so the response could land after the
+  // assertion that depends on it.
+  patchHandler: (route: Route) => Promise<void> | void,
+): Promise<void> {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -149,12 +155,12 @@ async function setup(page: Page, patchHandler: (route: Route) => void): Promise<
   // must come last to intercept PATCH /tasks/t1/ before the catch-all returns
   // a list shape. (Registering it first silently let the catch-all swallow the
   // PATCH — the 409/200 patchHandler never ran and the conflict path went untested.)
-  await page.route(`**/api/v1/tasks/${TASK.id}/`, (route) => {
+  await page.route(`**/api/v1/tasks/${TASK.id}/`, async (route) => {
     if (route.request().method() === 'PATCH') {
-      patchHandler(route);
+      await patchHandler(route);
       return;
     }
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(TASK),
@@ -263,11 +269,11 @@ test.describe('Sync conflict — field-level merge (#322)', () => {
     page,
   }) => {
     let calls = 0;
-    await setup(page, (route) => {
+    await setup(page, async (route) => {
       calls += 1;
       if (calls === 1) {
         // First save: overlapping conflict.
-        route.fulfill({
+        await route.fulfill({
           status: 409,
           contentType: 'application/json',
           body: JSON.stringify({
@@ -281,7 +287,7 @@ test.describe('Sync conflict — field-level merge (#322)', () => {
         });
       } else {
         // Retry after rebase: accepted.
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({ ...TASK, name: 'My edit', server_version: 7 }),

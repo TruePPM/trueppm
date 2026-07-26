@@ -128,10 +128,10 @@ test.describe('Project surface visibility settings', () => {
     await projectRoutes(page, { role: 300 }); // Admin
 
     let patchBody: Record<string, unknown> | null = null;
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
       if (r.request().method() === 'PATCH') {
         patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
-        r.fulfill(
+        await r.fulfill(
           json(
             projectDetail({
               show_reporting: false,
@@ -146,7 +146,7 @@ test.describe('Project surface visibility settings', () => {
         );
         return;
       }
-      r.fulfill(json(projectDetail()));
+      await r.fulfill(json(projectDetail()));
     });
 
     await page.goto(`/projects/${PROJECT_ID}/settings/surfaces`);

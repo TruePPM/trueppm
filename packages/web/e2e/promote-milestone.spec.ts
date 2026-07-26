@@ -191,14 +191,14 @@ test.describe('Promote to milestone (DA-02 / ADR-0106)', () => {
     await setupCommon(page);
 
     let promoteBody: Record<string, unknown> | null = null;
-    await page.route('**/api/v1/sprints/*/promote-to-milestone/', (route) => {
+    await page.route('**/api/v1/sprints/*/promote-to-milestone/', async (route) => {
       promoteBody = route.request().postDataJSON();
       const bound = {
         ...unboundSprint(),
         target_milestone: 'task-new',
         target_milestone_detail: { id: 'task-new', name: 'Customer Beta Gate', wbs_path: '1.3.1', finish: '2026-07-15' },
       };
-      route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(bound) });
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(bound) });
     });
 
     await page.goto(BASE_URL);

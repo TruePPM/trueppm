@@ -58,12 +58,12 @@ test.describe('StatusBar connection pill (#643)', () => {
 
     // Accept the first connection (client fires `open` → live); refuse every
     // reconnect so the pill escalates instead of bouncing back to Live.
-    await page.routeWebSocket('**/ws/v1/projects/**', (ws) => {
+    await page.routeWebSocket('**/ws/v1/projects/**', async (ws) => {
       connectCount += 1;
       if (connectCount === 1) {
         firstSocket = ws;
       } else {
-        ws.close();
+        await ws.close();
       }
     });
 

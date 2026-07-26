@@ -283,7 +283,7 @@ test.describe('Board viewability — bottom scroll breathing room (#1963)', () =
     // scrollable (#1963). The scroll container carries pb-6 (24px) so the
     // final lane always ends with a gap above the StatusBar.
     const paddingBottom = await page.getByTestId('board-scroll').evaluate(
-      (el) => parseFloat(getComputedStyle(el).paddingBottom),
+      (el) => Number.parseFloat(getComputedStyle(el).paddingBottom),
     );
     expect(paddingBottom).toBeGreaterThanOrEqual(24);
   });
@@ -305,7 +305,7 @@ test.describe('Board viewability — right scroll breathing room (#1972)', () =>
     // truncated, not scrollable (#1972). The scroll container carries pr-6
     // (24px) — the horizontal analog of the #1963 bottom gutter.
     const paddingRight = await page.getByTestId('board-scroll').evaluate(
-      (el) => parseFloat(getComputedStyle(el).paddingRight),
+      (el) => Number.parseFloat(getComputedStyle(el).paddingRight),
     );
     expect(paddingRight).toBeGreaterThanOrEqual(24);
   });

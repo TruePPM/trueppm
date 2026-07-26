@@ -52,10 +52,10 @@ test.describe('Role-context lens (ADR-0162)', () => {
     // so the new lens is reflected on refetch and survives a reload.
     let lens = 'unified';
     await page.route('**/api/v1/auth/me/', (route) => route.fulfill(json(userWithLens(lens))));
-    await page.route('**/api/v1/auth/me/profile/', (route) => {
+    await page.route('**/api/v1/auth/me/profile/', async (route) => {
       const body = route.request().postDataJSON() as { role_context?: string };
       if (body.role_context) lens = body.role_context;
-      route.fulfill(json({ default_landing: 'my_work', hidden_views: [], role_context: lens }));
+      await route.fulfill(json({ default_landing: 'my_work', hidden_views: [], role_context: lens }));
     });
 
     await page.goto('/me/settings/general');

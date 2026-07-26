@@ -115,9 +115,9 @@ test.describe('Workspace → Programs bulk matrix', () => {
     );
 
     let postBody: Record<string, unknown> | null = null;
-    await page.route('**/api/v1/programs/bulk-fields/', (r) => {
+    await page.route('**/api/v1/programs/bulk-fields/', async (r) => {
       postBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
-      r.fulfill(
+      await r.fulfill(
         json({
           updated: PROGRAMS.map((p) => ({ id: p.id, server_version: 2 })),
           fields: ['risk_slip_propagation'],

@@ -149,10 +149,10 @@ test.describe('Schedule "+ Milestone" dialog', () => {
     // Default tasks handler: GET returns the fixture list; POST returns a
     // generic milestone response. Per-test handlers register a more specific
     // route after this so they can capture or modify the create payload.
-    await page.route('**/api/v1/tasks/**', (route) => {
+    await page.route('**/api/v1/tasks/**', async (route) => {
       const method = route.request().method();
       if (method === 'GET') {
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
@@ -166,7 +166,7 @@ test.describe('Schedule "+ Milestone" dialog', () => {
       }
       if (method === 'POST') {
         const body = route.request().postDataJSON() as Record<string, unknown> | null;
-        route.fulfill({
+        await route.fulfill({
           status: 201,
           contentType: 'application/json',
           body: JSON.stringify({
@@ -184,7 +184,7 @@ test.describe('Schedule "+ Milestone" dialog', () => {
         return;
       }
       // PATCH / DELETE / etc — keep the proxy off the dead backend.
-      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
     });
     await gotoSchedule(page);
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
@@ -204,17 +204,17 @@ test.describe('Schedule "+ Milestone" dialog', () => {
 
   test('Esc closes the milestone dialog without creating anything', async ({ page }) => {
     let postCount = 0;
-    await page.route('**/api/v1/tasks/', (route) => {
+    await page.route('**/api/v1/tasks/', async (route) => {
       if (route.request().method() === 'POST') {
         postCount += 1;
-        route.fulfill({
+        await route.fulfill({
           status: 201,
           contentType: 'application/json',
           body: JSON.stringify({ id: 'should-not-happen' }),
         });
         return;
       }
-      route.continue();
+      await route.continue();
     });
     await page.getByRole('button', { name: 'Add new milestone (Cmd+M)' }).click();
     await expect(page.getByRole('dialog', { name: 'New milestone' })).toBeVisible();
@@ -225,10 +225,10 @@ test.describe('Schedule "+ Milestone" dialog', () => {
 
   test('submitting the dialog posts is_milestone:true with the chosen date', async ({ page }) => {
     let createPayload: Record<string, unknown> | null = null;
-    await page.route('**/api/v1/tasks/', (route) => {
+    await page.route('**/api/v1/tasks/', async (route) => {
       if (route.request().method() === 'POST') {
         createPayload = route.request().postDataJSON() as Record<string, unknown>;
-        route.fulfill({
+        await route.fulfill({
           status: 201,
           contentType: 'application/json',
           body: JSON.stringify({
@@ -245,7 +245,7 @@ test.describe('Schedule "+ Milestone" dialog', () => {
         });
         return;
       }
-      route.continue();
+      await route.continue();
     });
 
     await page.getByRole('button', { name: 'Add new milestone (Cmd+M)' }).click();

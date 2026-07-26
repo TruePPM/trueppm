@@ -188,9 +188,9 @@ test.describe('Load demo data', () => {
         }),
       }),
     );
-    await page.route('**/api/v1/programs/load-sample/', (r) => {
+    await page.route('**/api/v1/programs/load-sample/', async (r) => {
       sampleLoaded = true;
-      r.fulfill({ status: 201, contentType: 'application/json', body: pj(FIXTURE_LOAD_RESULT) });
+      await r.fulfill({ status: 201, contentType: 'application/json', body: pj(FIXTURE_LOAD_RESULT) });
     });
 
     await page.goto('/programs');

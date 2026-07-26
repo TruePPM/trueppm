@@ -58,11 +58,11 @@ test.describe('Timezone & date format preferences (ADR-0410)', () => {
     await page.route('**/api/v1/auth/me/', (route) =>
       route.fulfill(json(user(state.timezone, state.date_format))),
     );
-    await page.route('**/api/v1/auth/me/profile/', (route) => {
+    await page.route('**/api/v1/auth/me/profile/', async (route) => {
       const body = route.request().postDataJSON() as { timezone?: string; date_format?: string };
       if (body.timezone) state.timezone = body.timezone;
       if (body.date_format) state.date_format = body.date_format;
-      route.fulfill(json({ ...state, default_landing: 'my_work', hidden_views: [] }));
+      await route.fulfill(json({ ...state, default_landing: 'my_work', hidden_views: [] }));
     });
 
     await page.goto('/me/settings/general');
