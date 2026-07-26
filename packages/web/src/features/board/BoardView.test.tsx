@@ -661,10 +661,23 @@ describe('BoardView', () => {
     // The header's accessible name (its aria-label) names the over-limit state,
     // not just the inline WipBadge.
     expect(
-      screen.getByRole('heading', { name: /^IN PROGRESS, \d+ tasks?, over limit$/i }),
+      screen.getByRole('heading', {
+        name: /^IN PROGRESS, \d+ tasks?(?: on the board)?, over limit$/i,
+      }),
     ).toBeInTheDocument();
     // A column with no limit keeps the plain "label, N tasks" name.
-    expect(screen.getByRole('heading', { name: /^TO DO, \d+ tasks?$/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: /^TO DO, \d+ tasks?(?: on the board)?$/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('names the scope of a board-wide column count when swimlanes are on (#2427)', () => {
+    // The header count is board-wide and correct for the board, but it sits
+    // directly above lanes that each hold a share of it — so a bare "8" over a
+    // lane showing none reads as a lane count that disagrees with the lane.
+    // Naming the scope is what makes the number honest; the number is not wrong.
+    renderBoard();
+    expect(screen.getByRole('heading', { name: /TO DO, \d+ tasks? on the board/i })).toBeVisible();
   });
 
   it('renders the at-limit WIP chip when count equals the limit (#232)', () => {

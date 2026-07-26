@@ -414,6 +414,7 @@ function BoardDesktopGrid({
             columnWidths={columnWidths}
             totalByStatus={totalByStatus}
             myCountByStatus={myCountByStatus}
+            laneCount={lanes.length}
             showWip={showWip}
             trendSeriesByStatus={wipTrendSeriesByStatus}
             onToggleColumn={onToggleColumn}
