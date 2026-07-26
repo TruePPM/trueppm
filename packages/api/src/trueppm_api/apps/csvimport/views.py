@@ -199,6 +199,11 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
                 "task_count": len(parsed.project_data.tasks),
                 "resource_count": len(parsed.project_data.resources),
                 "row_errors": [e.as_dict() for e in parsed.row_errors],
+                # Split counts, not just a total: an operator deciding whether to
+                # commit needs to know how many rows would be *lost* separately
+                # from how many would land with a field defaulted.
+                "error_count": parsed.error_count,
+                "warning_count": parsed.warning_count,
                 "warnings": parsed.warnings,
                 "available_fields": field_choices(),
             },

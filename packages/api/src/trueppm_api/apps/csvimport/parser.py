@@ -83,14 +83,50 @@ class CsvImportError(Exception):
     """The upload is structurally unusable and no rows can be produced."""
 
 
+#: Severity is **declared per diagnostic code, not decided by control flow.**
+#:
+#: The distinction that matters to an operator is exactly one thing: *did the row
+#: survive?* A row dropped for having no name is a different event from a row that
+#: imported with its start date unset, and collapsing both into "7 problems" hides
+#: the only one that lost data. Keeping the mapping as a table rather than as
+#: branch structure means a reader can answer "what is fatal here?" by reading one
+#: dict, and the wizard can group by severity without re-deriving the rule.
+#:
+#: ``error``   — the row did **not** import.
+#: ``warning`` — the row imported; one field was dropped or defaulted.
+SEVERITY_BY_CODE: dict[str, str] = {
+    "missing_name": "error",
+    "bad_date": "warning",
+    "bad_duration": "warning",
+    "bad_percent": "warning",
+    "unknown_predecessor": "warning",
+    "self_dependency": "warning",
+    "finish_before_start": "warning",
+}
+
+#: Fallback for a code added without a severity. Warning, not error: a new check
+#: must not silently start dropping rows from the operator's point of view just
+#: because someone forgot the table.
+DEFAULT_SEVERITY = "warning"
+
+
 @dataclass
 class RowError:
-    """One recoverable, row-scoped problem. The row still imports without it."""
+    """One row-scoped diagnostic.
+
+    A ``warning`` row still imports, minus the offending field; an ``error`` row
+    did not import at all. Both ride back in the same list so the operator sees
+    one ordered account of what happened to their file.
+    """
 
     row: int
     column: str | None
     code: str
     message: str
+
+    @property
+    def severity(self) -> str:
+        return SEVERITY_BY_CODE.get(self.code, DEFAULT_SEVERITY)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -98,6 +134,7 @@ class RowError:
             "column": self.column,
             "code": self.code,
             "message": self.message,
+            "severity": self.severity,
         }
 
 
@@ -116,6 +153,16 @@ class ParseResult:
     total_rows: int = 0
     #: Data rows dropped because ``max_rows`` was reached.
     truncated_rows: int = 0
+
+    @property
+    def error_count(self) -> int:
+        """Diagnostics whose row did not import."""
+        return sum(1 for e in self.row_errors if e.severity == "error")
+
+    @property
+    def warning_count(self) -> int:
+        """Diagnostics whose row imported with a field dropped or defaulted."""
+        return sum(1 for e in self.row_errors if e.severity == "warning")
 
 
 # --- File readers --------------------------------------------------------

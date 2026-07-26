@@ -7,7 +7,12 @@ from __future__ import annotations
 
 import pytest
 
-from trueppm_api.apps.csvimport.parser import CsvImportError, parse_spreadsheet
+from trueppm_api.apps.csvimport.parser import (
+    SEVERITY_BY_CODE,
+    CsvImportError,
+    RowError,
+    parse_spreadsheet,
+)
 from trueppm_api.apps.csvimport.template import CSV_TEMPLATE
 
 from .fixtures import (
@@ -128,6 +133,48 @@ class TestRowLevelErrors:
         assert by_code["unknown_predecessor"].row == 5
         assert by_code["self_dependency"].row == 6
         assert by_code["missing_name"].row == 7
+
+    def test_severity_separates_dropped_rows_from_degraded_ones(self) -> None:
+        """The only distinction an operator needs: did the row survive?"""
+        result = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        by_code = {e.code: e for e in result.row_errors}
+        # The nameless row did not import at all.
+        assert by_code["missing_name"].severity == "error"
+        # These four rows imported, each minus one field.
+        for code in ("bad_date", "bad_duration", "unknown_predecessor", "self_dependency"):
+            assert by_code[code].severity == "warning", code
+
+    def test_counts_are_split_not_just_totalled(self) -> None:
+        result = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        assert result.error_count == 1
+        assert result.warning_count == 4
+        # The error count equals the number of rows that did NOT become tasks.
+        assert len(result.project_data.tasks) == result.total_rows - result.error_count
+
+    def test_severity_rides_in_the_serialized_payload(self) -> None:
+        result = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        assert all("severity" in e.as_dict() for e in result.row_errors)
+
+    def test_an_undeclared_code_defaults_to_warning_not_error(self) -> None:
+        """A new check must not silently start reading as data loss."""
+        err = RowError(row=2, column=None, code="brand_new_check", message="x")
+        assert err.severity == "warning"
+
+    def test_every_code_the_parser_emits_has_a_declared_severity(self) -> None:
+        """Guards the table against drifting behind the parser."""
+        emitted = set()
+        for fixture in (MESSY_CSV, REFERENCE_CSV):
+            emitted |= {e.code for e in parse_spreadsheet(fixture, "p.csv").row_errors}
+        emitted |= {
+            e.code
+            for e in parse_spreadsheet(
+                b"Name,Start,Finish\nT,2026-03-06,2026-03-02\n", "p.csv"
+            ).row_errors
+        }
+        emitted |= {
+            e.code for e in parse_spreadsheet(b"Name,% Complete\nT,abc\n", "p.csv").row_errors
+        }
+        assert emitted <= set(SEVERITY_BY_CODE), emitted - set(SEVERITY_BY_CODE)
 
     def test_errors_name_the_offending_column(self) -> None:
         result = parse_spreadsheet(MESSY_CSV, "plan.csv")

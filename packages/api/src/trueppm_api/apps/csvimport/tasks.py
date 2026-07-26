@@ -165,6 +165,8 @@ def import_csv(
 
         summary["row_errors"] = [e.as_dict() for e in parsed.row_errors]
         summary["row_error_count"] = len(parsed.row_errors)
+        summary["error_count"] = parsed.error_count
+        summary["warning_count"] = parsed.warning_count
         summary["rows_read"] = parsed.total_rows
         summary["rows_skipped"] = parsed.truncated_rows
         summary["warnings"] = list(parsed.warnings)

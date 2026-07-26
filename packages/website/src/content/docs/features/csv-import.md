@@ -159,14 +159,30 @@ reported against its row number — the same number you see in Excel's row gutte
 {
   "tasks_created": 5,
   "row_error_count": 2,
+  "error_count": 0,
+  "warning_count": 2,
   "row_errors": [
-    { "row": 3, "column": "Start", "code": "bad_date",
+    { "row": 3, "column": "Start", "code": "bad_date", "severity": "warning",
       "message": "Could not read 'not-a-date' as a date; the start was left unset." },
-    { "row": 5, "column": "Predecessors", "code": "unknown_predecessor",
+    { "row": 5, "column": "Predecessors", "code": "unknown_predecessor", "severity": "warning",
       "message": "Predecessor '99' does not match any row; the link was skipped." }
   ]
 }
 ```
+
+### Severity: did the row survive?
+
+Every diagnostic carries a `severity`, and it answers exactly one question:
+
+| Severity | Meaning |
+|---|---|
+| `warning` | The row **imported**, with one field dropped or defaulted — a bad date, an unreadable duration, a predecessor that matched nothing. |
+| `error` | The row **did not import** at all. Today the only cause is a row with no task name. |
+
+They are counted separately (`error_count` / `warning_count`) rather than totalled,
+because the two are not the same event: seven warnings means seven tasks landed slightly
+lossy, while one error means a row of your spreadsheet is simply not there. Both are
+returned by the preview endpoint too, so you can see the split **before** committing.
 
 Only a **structurally unusable** file fails outright: no header row, no column
 that could be the task name, unreadable bytes, or a cyclic predecessor column.
