@@ -91,7 +91,8 @@ the drawer groups everything about the task into four tabs:
   bar; Start, Finish, and Float re-compute the moment you commit. Milestones have
   no duration, and Viewers see it read-only.
 - **Subtasks** — the checklist breakdown, with a done/total count on the tab.
-- **Activity** — comments, the activity timeline, field history, and baseline.
+- **Activity** — notes, comments, an **All events** timeline (field changes plus
+  system recalculations and schedule, risk, time and attachment events), and baseline.
 - **Files** — attachments and external links.
 
 Most fields autosave the moment you change them — picking a status, nudging

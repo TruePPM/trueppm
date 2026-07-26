@@ -173,7 +173,7 @@ the thread's context survives.
 ## Comments
 
 The comment thread lives in the task drawer's **Activity** tab, alongside the
-activity timeline and field history. The composer is always
+**All events** timeline that merges field history with every other change. The composer is always
 visible at the bottom. Top-level comments support a single level of inline
 replies — click **↩ Reply** on any top-level row to open a scoped reply
 composer beneath it.

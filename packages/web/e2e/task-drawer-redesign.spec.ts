@@ -525,6 +525,14 @@ test.describe('TaskDetailDrawer redesign — tabs', () => {
       'aria-selected',
       'true',
     );
+    // #2448: it also opens the feed it navigated to. Every section on that tab
+    // starts collapsed (ADR-0050), so without this the button promising "view all
+    // activity" landed the user on four closed headers, none of which is even
+    // called Activity any more.
+    await expect(drawer.getByRole('button', { name: 'All events' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 
   test('critical task shows the CP marker in the schedule strip', async ({ page }) => {
@@ -638,23 +646,26 @@ test.describe('TaskDetailDrawer redesign — tab grouping', () => {
     await expect(drawer.getByRole('button', { name: 'External links' })).toBeVisible();
   });
 
-  test('Comments + Activity live under the Activity tab (History merged into Activity, #869)', async ({
+  test('Comments + All events live under the Activity tab (History merged into Activity, #869)', async ({
     page,
   }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await drawer.getByRole('tab', { name: 'Activity' }).click();
     await expect(drawer.getByRole('button', { name: 'Comments' })).toBeVisible();
-    await expect(drawer.getByRole('button', { name: 'Activity' })).toBeVisible();
-    // The former standalone History section is gone — its records now live in Activity.
+    await expect(drawer.getByRole('button', { name: 'All events' })).toBeVisible();
+    // The former standalone History section is gone — its records now live in All events.
     await expect(drawer.getByRole('button', { name: 'History' })).toHaveCount(0);
+    // #2448: no section header repeats the name of the tab containing it — the
+    // merged feed is "All events", so "Activity" resolves to the tab alone.
+    await expect(drawer.getByRole('button', { name: 'Activity' })).toHaveCount(0);
   });
 
-  test('Activity timeline surfaces merged events (schedule/risk/comment lifecycle)', async ({
+  test('All events timeline surfaces merged events (schedule/risk/comment lifecycle)', async ({
     page,
   }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await drawer.getByRole('tab', { name: 'Activity' }).click();
-    await drawer.getByRole('button', { name: 'Activity' }).click();
+    await drawer.getByRole('button', { name: 'All events' }).click();
     // Field-diff change renders inline (single-field duration change).
     await expect(drawer.getByText(/changed duration/i)).toBeVisible({ timeout: 5_000 });
     // #1883: schedule + risk streams now surface, and edited comments appear —
@@ -671,7 +682,7 @@ test.describe('TaskDetailDrawer redesign — tab grouping', () => {
   test('the recalc row links into the schedule', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await drawer.getByRole('tab', { name: 'Activity' }).click();
-    await drawer.getByRole('button', { name: 'Activity' }).click();
+    await drawer.getByRole('button', { name: 'All events' }).click();
     const link = drawer.getByRole('link', { name: /View in schedule/i });
     await expect(link).toBeVisible();
     await expect(link).toHaveAttribute('href', `/projects/${FIXTURE_PROJECT_ID}/schedule`);

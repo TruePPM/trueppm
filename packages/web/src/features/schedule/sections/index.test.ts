@@ -69,6 +69,18 @@ describe('registerOssDrawerSections — Activity section', () => {
     expect(activity!.priority).toBe(600);
   });
 
+  // #2448: the merged feed is titled "All events", not "Activity" — a section
+  // header must never repeat the name of the tab that contains it. The id stays
+  // `activity` (persisted open state + the Enterprise registry contract key).
+  it('the merged feed is titled "All events", never repeating its own tab name', () => {
+    const sections = registry.get('task_detail.section');
+    const activity = sections.find((s) => s.id === 'activity');
+    expect(activity!.title).toBe('All events');
+
+    const activityTabTitles = sections.filter((s) => s.tab === 'activity').map((s) => s.title);
+    expect(activityTabTitles).not.toContain('Activity');
+  });
+
   it('Activity section has no canRender gate (visible for all task types)', () => {
     const sections = registry.get('task_detail.section');
     const activity = sections.find((s) => s.id === 'activity');

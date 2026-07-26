@@ -26,6 +26,17 @@ import { fieldLabel, summaryVerb, isEmptyChange } from './activityFormat';
  * Description / Comments / Schedule / Risks / Time / Attachments) and a per-person
  * filter let a PM slice to just the events they care about. System events
  * (CPM recalcs, baseline drift) render under the "System" actor treatment.
+ *
+ * Header vs body vocabulary (#2448). The section header is "All events" — it names
+ * this feed's scope *relative to its siblings on the Activity tab*, where Comments
+ * holds only the discussion and this holds the superset. The body copy deliberately
+ * keeps saying "activity" ("No activity yet", "Couldn't load activity", "Filter
+ * activity by type/person"): those exact strings are shared with the two sibling
+ * feeds that are still *named* Activity — `ProjectActivityPage` and
+ * `BoardActivityPanel` — so translating only this one to "events" would split the
+ * app's domain noun three ways by surface. "Activity" stays the concept; "All
+ * events" is this section's position within a tab of that name. Do not mechanically
+ * rewrite one side to match the other; change all three feeds or none.
  */
 
 // ---------------------------------------------------------------------------
@@ -743,9 +754,12 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
         )}
       </div>
 
-      {/* Result count for assistive tech */}
+      {/* Result count for assistive tech. "activity events" was redundant (#2448);
+          the region this announces into is titled "All events". The remaining
+          "activity" wording in this file's empty/error/filter copy is deliberate —
+          see the note in the component docblock. */}
       <p className="sr-only" role="status" aria-live="polite">
-        {filtered.length} of {events.length} activity events shown
+        {filtered.length} of {events.length} events shown
       </p>
 
       {/* Timeline */}
