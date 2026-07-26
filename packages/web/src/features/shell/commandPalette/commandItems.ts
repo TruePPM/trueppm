@@ -9,9 +9,10 @@
 /**
  * Result sections (ADR-0138, issue 647; `sprint` added issue 1594; `person` added
  * ADR-0401/#1940; `sprintTask` + `recent` added ADR-0508/#1557; `epic` + `story`
- * added ADR-0508 D4/#2103). `sprint` leads as the first-class "jump to current
- * sprint" action; `sprintTask` (active-sprint tasks) and `task` (all other tasks)
- * and `current` are Tier-2 (current project only); `person`, `epic`, and `story`
+ * added ADR-0508 D4/#2103; `label` added #2334). `sprint` leads as the first-class
+ * "jump to current sprint" action; `sprintTask` (active-sprint tasks), `task` (all
+ * other tasks), `label` (the project's label catalog) and `current` are Tier-2
+ * (current project only); `person`, `epic`, and `story`
  * are global, query-gated cross-program searches; `recent` is the cold-only
  * recently-visited-projects strip; `settings` (added ADR-0606/#2319) is the
  * query-only group of individual settings sections; the rest are Tier-1 (all
@@ -21,6 +22,7 @@ export type CommandGroup =
   | 'sprint'
   | 'sprintTask'
   | 'task'
+  | 'label'
   | 'current'
   | 'person'
   | 'epic'
@@ -46,6 +48,9 @@ export interface CommandItem {
   keywords?: string;
   /** Marks an edition-gated destination so the UI can badge it. */
   gated?: boolean;
+  /** Hex color for a leading swatch (label rows, #2334). The name is always the
+   *  primary text, so the swatch is decoration — color never carries meaning alone. */
+  swatch?: string;
   /** Invoked when the item is chosen. */
   run: () => void;
 }

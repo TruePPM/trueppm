@@ -126,6 +126,14 @@ vi.mock('@/hooks/useIterationLabel', () => ({
   useIterationLabel: () => ({ singular: 'Sprint', plural: 'Sprints' }),
 }));
 
+// Label catalog tier (#2334). `labelsQuery` is a spy so the Tier-2 gating
+// argument (the project id, undefined while the palette is closed) is assertable.
+let labelCatalog: { id: string; name: string; color: string; taskCount: number }[] = [];
+const labelsQuery = vi.fn((_projectId?: string) => ({ data: labelCatalog }));
+vi.mock('@/hooks/useLabels', () => ({
+  useLabels: (projectId?: string) => labelsQuery(projectId),
+}));
+
 vi.mock('@/stores/themeStore', () => ({
   useThemeStore: (sel: (s: unknown) => unknown) => sel({ theme: 'dark', setTheme: vi.fn() }),
 }));
@@ -149,6 +157,7 @@ afterEach(() => {
   peopleResults = [];
   recentResults = [];
   omniResults = [];
+  labelCatalog = [];
   vi.clearAllMocks();
   canManage.mockImplementation((pid?: string) => !!pid);
   sprintTargets.mockImplementation((pid?: string) =>
@@ -516,5 +525,63 @@ describe('useCommandItems — tier assembly', () => {
     expect(items.get('task:ta')?.group).toBe('task');
     expect(items.get('task:tb')?.group).toBe('task');
     expect(result.current.some((i) => i.group === 'sprintTask')).toBe(false);
+  });
+
+  // ---- Labels tier (#2334) -------------------------------------------------
+  describe('label group', () => {
+    const CATALOG = [
+      { id: 'lab-1', name: 'Rework', color: '#B45309', taskCount: 12 },
+      { id: 'lab-2', name: 'Needs review', color: '#1D4ED8', taskCount: 1 },
+      { id: 'lab-3', name: 'Stale', color: '#6B7280', taskCount: 0 },
+    ];
+
+    it('deep-links a label into the Board with the ?fl= facet applied', () => {
+      labelCatalog = CATALOG;
+      const { result } = renderHook(() => useCommandItems(true, 'rew'));
+      const item = byId(result.current).get('label:lab-1');
+      expect(item?.group).toBe('label');
+      expect(item?.label).toBe('Rework');
+      expect(item?.tag).toBe('Label');
+      expect(item?.swatch).toBe('#B45309');
+      item?.run();
+      expect(navigate).toHaveBeenCalledWith('/projects/p1/board?fl=lab-1');
+    });
+
+    it('is query-gated — a cold palette lists no labels', () => {
+      labelCatalog = CATALOG;
+      const { result } = renderHook(() => useCommandItems(true, ''));
+      expect(result.current.some((i) => i.group === 'label')).toBe(false);
+    });
+
+    it('pluralizes the task count and still lists a zero-count label', () => {
+      labelCatalog = CATALOG;
+      const { result } = renderHook(() => useCommandItems(true, 'e'));
+      const items = byId(result.current);
+      expect(items.get('label:lab-1')?.detail).toBe('12 tasks');
+      expect(items.get('label:lab-2')?.detail).toBe('1 task');
+      // A label nothing carries is still reachable — the Board's own zero-match
+      // state is the honest answer, rather than the row silently vanishing.
+      expect(items.get('label:lab-3')?.detail).toBe('0 tasks');
+    });
+
+    it('is Tier-2: no labels off a project route, and the catalog is not fetched', () => {
+      labelCatalog = CATALOG;
+      currentId = undefined;
+      const { result } = renderHook(() => useCommandItems(true, 'rew'));
+      expect(result.current.some((i) => i.group === 'label')).toBe(false);
+      expect(labelsQuery).toHaveBeenCalledWith(undefined);
+    });
+
+    it('does not fetch the catalog while the palette is closed', () => {
+      labelCatalog = CATALOG;
+      renderHook(() => useCommandItems(false, 'rew'));
+      expect(labelsQuery).toHaveBeenCalledWith(undefined);
+    });
+
+    it('renders nothing when the project has no labels', () => {
+      labelCatalog = [];
+      const { result } = renderHook(() => useCommandItems(true, 'rew'));
+      expect(result.current.some((i) => i.group === 'label')).toBe(false);
+    });
   });
 });

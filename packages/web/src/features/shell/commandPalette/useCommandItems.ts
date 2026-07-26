@@ -15,6 +15,7 @@ import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { WORKSPACE_ADMIN_ROLE } from '@/hooks/useIsWorkspaceAdmin';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useLabels } from '@/hooks/useLabels';
 import { useShellStore } from '@/stores/shellStore';
 import { useThemeStore, type Theme } from '@/stores/themeStore';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
@@ -57,6 +58,7 @@ type PeopleData = ReturnType<typeof useResourceSearch>['data'];
 type RecentProjectsData = ReturnType<typeof useRecentProjects>['data'];
 type CurrentUser = ReturnType<typeof useCurrentUser>['user'];
 type IterationLabel = ReturnType<typeof useIterationLabel>;
+type LabelsData = ReturnType<typeof useLabels>['data'];
 
 // ---- Jump to current sprint (first-class, top-ranked) ----------------------
 // The issue 1594 headline action: one entry per team with a live ACTIVE sprint,
@@ -320,6 +322,39 @@ function buildSettingsSections(isWorkspaceAdmin: boolean, go: Go): CommandItem[]
   return settingsSections;
 }
 
+// ---- Tier 2: Labels (#2334) ------------------------------------------------
+// The project's label catalog as a query-gated group that deep-links into the
+// Board with the label facet pre-applied. Tier-2 by necessity, not by choice:
+// the catalog is only reachable as `GET /projects/{id}/labels/` (ADR-0400) —
+// there is no workspace-wide label endpoint — so a cross-project "tasks with
+// label X" view needs new API surface and is tracked separately (#2333).
+//
+// The Board is the only destination: it already parses `?fl=` today
+// (`boardFacets.PARAM_LABELS`) and BoardView lets a URL that carries facets win
+// over stored state, so no new filter plumbing is needed. Table/Grid and
+// Schedule label filtering land separately (#2383, #2384).
+function buildLabelItems(
+  enabled: boolean,
+  projectId: string | undefined,
+  labels: LabelsData,
+  go: Go,
+): CommandItem[] {
+  if (!enabled || !projectId || !labels) return [];
+  return labels.map((label) => ({
+    id: `label:${label.id}`,
+    label: label.name,
+    group: 'label' as const,
+    tag: 'Label',
+    // A zero-count label is still listed — hiding it would leave the user
+    // wondering why a label they know exists never appears; the Board's own
+    // zero-match state is the honest answer.
+    detail: label.taskCount === 1 ? '1 task' : `${label.taskCount} tasks`,
+    keywords: 'label tag filter',
+    swatch: label.color,
+    run: go(`/projects/${projectId}/board?fl=${encodeURIComponent(label.id)}`),
+  }));
+}
+
 // ---- Tier 1: Backlog + Board (global) --------------------------------------
 function buildBacklogAndBoard(
   projects: ProjectsData,
@@ -421,6 +456,10 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
   const canManageBacklog = useCanManageBacklog(tier2Id);
   const { user } = useCurrentUser();
   const iteration = useIterationLabel(tier2Id ?? null);
+  // Label catalog (#2334). Gated on `tier2Id` like every other Tier-2 read, so a
+  // closed palette or a non-project route never fetches it. Usually already warm
+  // from the Board, which reads the same `['labels', projectId]` cache key.
+  const { data: labels } = useLabels(tier2Id);
 
   const currentProject = useMemo(
     () => projects?.find((p) => p.id === currentProjectId) ?? null,
@@ -483,6 +522,8 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
       iteration,
       go,
     );
+    // Query-gated like the task/people tiers: a cold palette is not a label browser.
+    const labelItems = buildLabelItems(trimmedQuery.length > 0, tier2Id, labels, go);
     const peopleItems = buildPeopleItems(peopleEnabled, people, go);
 
     // ---- Epic / Story (global, query-gated cross-program omni-search) --------
@@ -507,6 +548,7 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
       ...sprintJumps,
       ...sprintTaskItems,
       ...taskItems,
+      ...labelItems,
       ...currentItems,
       ...peopleItems,
       ...epicItems,
@@ -534,6 +576,8 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     setOpen,
     openTask,
     tier2Id,
+    labels,
+    trimmedQuery,
     currentProject,
     tasks,
     activeSprint,

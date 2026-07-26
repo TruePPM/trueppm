@@ -64,6 +64,11 @@ is the fastest path to:
   project has an active sprint, that sprint's tasks get their own **Current sprint
   tasks** group with room for more results, so a search scoped to the sprint you're
   working in isn't cut short.
+- **Filter tasks by label** — on a project, type a label's name and a **Labels** group
+  offers it with its color swatch and how many tasks carry it. Pick one to land on the
+  Board with that label filter already applied, so "show me everything tagged *Rework*"
+  is two keystrokes rather than a hunt through the filter menu. Labels belong to a
+  project, so the group offers the current project's labels.
 - **Jump to a settings section** — start typing and a **Settings** group surfaces the
   exact section you want (type "smtp" for *Email & SMTP*, "oidc" for *Single sign-on*,
   "tokens" for your personal *API tokens*). Workspace sections appear for workspace
