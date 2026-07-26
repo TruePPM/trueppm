@@ -300,7 +300,7 @@ describe('ProgramRollupPage (settings)', () => {
     expect(savePolicyMutate).not.toHaveBeenCalled();
   });
 
-  it('loading state renders Loading… without crashing', () => {
+  it('loading state renders rule-248 skeleton ghosts without crashing', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
     useProgramRollupConfig.mockReturnValue({
       data: undefined,
@@ -309,7 +309,9 @@ describe('ProgramRollupPage (settings)', () => {
       refetch,
     });
     renderPage();
-    expect(screen.getAllByText(/Loading…/).length).toBeGreaterThan(0);
+    // Rule 248: named status nodes, never bare "Loading…" text (#2431).
+    expect(screen.getAllByRole('status', { name: /^Loading / }).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
   });
 
   it('error state shows Retry and refetches on click', async () => {

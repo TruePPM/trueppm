@@ -8,6 +8,7 @@ import {
 } from '@/hooks/useProjectNotificationPreferences';
 import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 const QUIET_FROM_OPTIONS = ['18:00', '19:00', '20:00', '21:00', '22:00'];
 const QUIET_UNTIL_OPTIONS = ['06:00', '07:00', '08:00', '09:00'];
@@ -51,7 +52,7 @@ export function ProjectNotificationsPage() {
           title="Notifications"
           subtitle="Per-project routing rules. Members can override these in their personal preferences."
         />
-        <div className="px-6 pb-8 text-[13px] text-neutral-text-secondary">Loading…</div>
+        <LoadingSkeleton label="Loading notification rules…" rows={4} className="px-6 pb-8" />
       </div>
     );
   }

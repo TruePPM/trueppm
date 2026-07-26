@@ -614,7 +614,8 @@ describe('ProjectWorkflowPage — PhaseRow interactions', () => {
     });
     renderPage();
     const region = screen.getByRole('region', { name: /Phases/i });
-    expect(within(region).getByText('Loading…')).toBeInTheDocument();
+    // Rule 248: a skeleton ghost with a named status node, never bare text (#2431).
+    expect(within(region).getByRole('status', { name: /Loading phases/i })).toBeInTheDocument();
   });
 });
 
@@ -728,7 +729,8 @@ describe('ProjectWorkflowPage — StatusRow interactions', () => {
     useBoardConfig.mockReturnValue({ columns: [], isLoading: true, save: boardSave });
     renderPage();
     const section = screen.getByRole('region', { name: /Statuses/i });
-    expect(within(section).getByText('Loading…')).toBeInTheDocument();
+    // Rule 248: a skeleton ghost with a named status node, never bare text (#2431).
+    expect(within(section).getByRole('status', { name: /Loading statuses/i })).toBeInTheDocument();
   });
 
   it('read-only viewers see the resolved default age, not an input', () => {

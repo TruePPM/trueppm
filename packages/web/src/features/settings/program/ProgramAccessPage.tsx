@@ -14,6 +14,7 @@ import { RolePicker } from '@/features/settings/members/RolePicker';
 import { ProgramMentionGroupsSection } from '@/features/settings/members/ProgramMentionGroupsSection';
 import { ROLE_OWNER } from '@/lib/roles';
 import type { ProgramMembership } from '@/api/types';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 const GRID = '1.8fr 1.2fr 130px 170px 88px';
 
@@ -230,13 +231,7 @@ export function ProgramAccessPage() {
 
         <div className="bg-neutral-surface-raised border-x border-b border-neutral-border rounded-b-card overflow-hidden">
           {isLoading && (
-            <div
-              aria-label="Loading members"
-              role="status"
-              className="px-4 py-6 text-xs text-neutral-text-secondary"
-            >
-              Loading…
-            </div>
+            <LoadingSkeleton label="Loading members" rows={4} className="px-4 py-6" />
           )}
           {isError && (
             <div role="alert" className="px-4 py-6 text-xs text-semantic-critical">

@@ -4,6 +4,7 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { Button } from '@/components/Button';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN } from '@/lib/roles';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import {
   useProgramExternalStakeholders,
   useProgramExternalStakeholderMutations,
@@ -144,13 +145,11 @@ export function ProgramStakeholdersPage() {
 
         <div className="bg-neutral-surface-raised border-x border-b border-neutral-border rounded-b-card overflow-hidden">
           {isLoading && (
-            <div
-              aria-label="Loading external stakeholders"
-              role="status"
-              className="px-4 py-6 text-xs text-neutral-text-secondary"
-            >
-              Loading…
-            </div>
+            <LoadingSkeleton
+              label="Loading external stakeholders"
+              rows={3}
+              className="px-4 py-6"
+            />
           )}
           {isError && (
             <div role="alert" className="px-4 py-6 text-xs text-semantic-critical">

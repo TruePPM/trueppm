@@ -6,6 +6,7 @@ import {
   useUpdateProgramPhaseGateConfig,
 } from '@/features/programs/hooks/useProgramPhaseGateConfig';
 import { ReadOnlyIndicator } from '@/features/settings/components/ReadOnlyIndicator';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 export interface PhaseGateConfigPanelProps {
   programId: string;
@@ -125,9 +126,7 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
           className="flex-1 overflow-y-auto px-5 py-4 space-y-4"
         >
           {isLoading && (
-            <div role="status" className="text-xs text-neutral-text-secondary">
-              Loading…
-            </div>
+            <LoadingSkeleton label="Loading phase gate…" rows={3} />
           )}
           {isError && (
             <div role="alert" className="text-xs text-semantic-critical">
