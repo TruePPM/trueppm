@@ -11,6 +11,12 @@
  * baseline is activated, then `baselined` — mirroring the server's
  * TaskSerializer.get_readiness, which only returns `baselined` under the
  * project's ACTIVE baseline.
+ *
+ * The board carries a second leaf pinned at `ready` because #2430 suppresses the
+ * readiness chip on a board where every card agrees — a uniform value distinguishes
+ * nothing and the accent bar already carries it. Without a differing sibling this
+ * board would be uniformly `estimated` before the capture and uniformly `baselined`
+ * after, so the chip under test would never render at all.
  */
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
@@ -75,6 +81,15 @@ function leafTask(readiness: 'estimated' | 'baselined') {
   };
 }
 
+/** Sibling leaf pinned at `ready` so board readiness is never uniform (see header). */
+const SIBLING_TASK = {
+  ...leafTask('estimated'),
+  id: 'tests',
+  wbs_path: '1.2',
+  name: 'Write Tests',
+  readiness: 'ready',
+};
+
 async function setup(page: Page) {
   // `activated` flips when the capture flow POSTs to the activate endpoint. The
   // stateful tasks route reads it so a post-activation refetch returns the
@@ -86,8 +101,8 @@ async function setup(page: Page) {
   await setupApiMocks(page, {
     projects: PROJECTS,
     projectId: PROJECT_ID,
-    tasks: [SUMMARY_TASK, leafTask('estimated')],
-    statusSummary: { task_count: 2 },
+    tasks: [SUMMARY_TASK, leafTask('estimated'), SIBLING_TASK],
+    statusSummary: { task_count: 3 },
   });
 
   // Stateful tasks GET (registered after setupApiMocks so it wins).
@@ -97,10 +112,10 @@ async function setup(page: Page) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          count: 2,
+          count: 3,
           next: null,
           previous: null,
-          results: [SUMMARY_TASK, leafTask(activated ? 'baselined' : 'estimated')],
+          results: [SUMMARY_TASK, leafTask(activated ? 'baselined' : 'estimated'), SIBLING_TASK],
         }),
       });
     }

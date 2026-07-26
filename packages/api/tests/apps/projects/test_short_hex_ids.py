@@ -326,6 +326,46 @@ def test_task_display_refs_are_read_only(
 
 
 @pytest.mark.django_db
+def test_qualified_id_costs_one_project_query_for_a_whole_list(project: Project) -> None:
+    """``qualified_id`` must not be one query per row on a list without ``select_related``.
+
+    Not every TaskSerializer caller selects ``project`` — the grooming board builds a
+    fresh serializer per row over a hand-assembled queryset — so reading ``obj.project``
+    for the code was an N+1 that only surfaced as a failing perf test. The code is
+    memoized on the shared context, so N rows of one project cost one lookup, not N.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+
+    project.code = "ENG"
+    project.save(update_fields=["code"])
+    for i in range(6):
+        Task.objects.create(project=project, name=f"T{i}", duration=1)
+
+    # Filtering by project does not populate the FK cache, so this mirrors a caller
+    # that never selected the relation. A fresh serializer per row over one shared
+    # context is the grooming board's exact shape.
+    tasks = list(Task.objects.filter(project=project).order_by("short_id"))
+    ctx: dict[str, object] = {}
+    with CaptureQueriesContext(connection) as captured:
+        refs = [TaskSerializer(t, context=ctx).data["qualified_id"] for t in tasks]
+
+    assert refs == [f"ENG-{i}" for i in range(1, 7)]
+    # Scoped to the code lookup this field owns — the broader per-row project load
+    # this bare queryset also provokes predates #2430 and does not fire on the real
+    # endpoints (their perf tests pin that separately).
+    code_lookups = [
+        q for q in captured.captured_queries if 'projects_project"."code" AS' in q["sql"]
+    ]
+    assert len(code_lookups) == 1, (
+        f"qualified_id N+1: {len(code_lookups)} code lookups for 6 tasks — "
+        "the memo must be shared across rows, not per serializer instance"
+    )
+
+
+@pytest.mark.django_db
 def test_task_display_ref_survives_a_non_hex_short_id(project: Project) -> None:
     """A hand-seeded / imported row must not blank its reference."""
     from trueppm_api.apps.projects.serializers import TaskSerializer

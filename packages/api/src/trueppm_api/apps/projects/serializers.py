@@ -2607,6 +2607,37 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             # rather than blanking the reference.
             return f"T-{raw}"
 
+    def _project_code(self, obj: Task) -> str:
+        """Owning project's code, without a query per row.
+
+        TaskSerializer is read by paths that do not all ``select_related("project")``
+        — the grooming board, for one, mirrors ``annotate_tasks_queryset``'s relation
+        set by hand — so touching ``obj.project`` directly is an N+1 on those. Use the
+        already-loaded relation when the caller did select it, and otherwise resolve
+        each distinct project's code once into a memo on the serializer *context*.
+
+        The memo belongs to the context rather than to ``self`` because the grooming
+        board builds a fresh ``TaskSerializer`` per row and shares one context dict
+        between them (``views.product_backlog``), so a per-instance memo would still
+        be one query per story. A context is per-request by construction, which is
+        also exactly as long as a project code can be trusted not to change.
+        """
+        if not obj.project_id:
+            return ""
+        loaded = obj._state.fields_cache.get("project")
+        if loaded is not None:
+            return loaded.code or ""
+        # DRF types `context` as a read-only Mapping, but it is the very dict the
+        # caller passed in — mutating it is how the memo outlives a single row.
+        context = cast("dict[str, Any]", self.context)
+        memo: dict[uuid.UUID, str] = context.setdefault("_task_project_codes", {})
+        if obj.project_id not in memo:
+            memo[obj.project_id] = (
+                Project.objects.filter(pk=obj.project_id).values_list("code", flat=True).first()
+                or ""
+            )
+        return memo[obj.project_id]
+
     def get_qualified_id(self, obj: Task) -> str:
         """Project-qualified task reference — ``ENG-2026-8`` (#2430).
 
@@ -2615,12 +2646,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         This is the field that keeps it, and the one board cards render. Falls back
         to the compact ``T-8`` form when the project has no code (it is optional,
         #520), so the reference is never empty just because a code is unset.
-
-        ``project`` is ``select_related`` on the TaskViewSet queryset, so this is
-        not an N+1.
         """
         display = self.get_short_id_display(obj)
-        code = obj.project.code if obj.project_id else ""
+        code = self._project_code(obj)
         return f"{code}-{display[2:]}" if code and display else display
 
     # Computed: actual_finish - early_finish in days.  Positive = late, negative = early.

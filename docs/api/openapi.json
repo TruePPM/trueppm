@@ -53711,7 +53711,7 @@
                     },
                     "qualified_id": {
                         "type": "string",
-                        "description": "Project-qualified task reference — ``ENG-2026-8`` (#2430).\n\nSettings → General collects a ``Project code`` whose own help text promises\nit is \"used as a prefix for task IDs and exports\" — a promise nothing kept.\nThis is the field that keeps it, and the one board cards render. Falls back\nto the compact ``T-8`` form when the project has no code (it is optional,\n#520), so the reference is never empty just because a code is unset.\n\n``project`` is ``select_related`` on the TaskViewSet queryset, so this is\nnot an N+1.",
+                        "description": "Project-qualified task reference — ``ENG-2026-8`` (#2430).\n\nSettings → General collects a ``Project code`` whose own help text promises\nit is \"used as a prefix for task IDs and exports\" — a promise nothing kept.\nThis is the field that keeps it, and the one board cards render. Falls back\nto the compact ``T-8`` form when the project has no code (it is optional,\n#520), so the reference is never empty just because a code is unset.",
                         "readOnly": true
                     },
                     "project": {
