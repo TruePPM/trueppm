@@ -68,6 +68,14 @@ dependencies = [
     # (scripts/export-openapi.sh) in one MR.
     "drf-spectacular[sidecar]==0.30.0",
     "jsonschema>=4.21,<5.0",
+    # MIT (sole transitive dep et-xmlfile is also MIT, zero deps, pure Python).
+    # Reads .xlsx uploads for spreadsheet import (#743, ADR-0632). Its two
+    # historical XXE CVEs were fixed in 2.4.2 (2017); since then it auto-enables
+    # defusedxml hardening whenever defusedxml is importable, which it is --
+    # already a direct dependency above. lxml is deliberately absent, so parsing
+    # runs on stdlib ElementTree under defusedxml. Note defusedxml does NOT bound
+    # decompression: the zip-bomb guard is ours, in csvimport/parser.py.
+    "openpyxl>=3.1,<4.0",
     # ISC (permissive, Apache-2.0 compatible). Pure-Python, no runtime transitive
     # deps. Live SPF/DKIM/DMARC TXT lookups for writable SMTP config (#712). Floor
     # at 2.8.0: 2.6.0+ fixes CVE-2023-29483 (stub-resolver forged-UDP DoS); 2.8.0
@@ -194,6 +202,11 @@ module = [
     # package in the shared-venv worktree layout (#712 deliverability check).
     "dns",
     "dns.*",
+    # openpyxl ships no py.typed marker (#743). Used only inside
+    # csvimport/parser.py behind a narrow read-only surface: load_workbook +
+    # iter_rows, whose values we immediately coerce to str.
+    "openpyxl",
+    "openpyxl.*",
     "trueppm_api.apps.scheduling.*",
     "trueppm_api.apps.sync.*",
 ]

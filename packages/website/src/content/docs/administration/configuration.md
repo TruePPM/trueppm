@@ -43,6 +43,9 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/canceled Celery task-run records to keep before the nightly purge. To disable, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window purges all rows on the next run. |
 | `MSPROJECT_MAX_UPLOAD_MB` | `50` | Per-file size cap for MS Project (`.mpp` / `.xml`) imports, in megabytes. See [MS Project import limit](#ms-project-import-limit) below. |
 | `JIRA_IMPORT_MAX_UPLOAD_MB` | `25` | Per-file size cap for [Jira XML](/features/jira-import/) imports, in megabytes. See [Jira import limit](#jira-import-limit) below. |
+| `CSV_IMPORT_MAX_UPLOAD_MB` | `10` | Per-file size cap for [CSV / Excel](/features/csv-import/) imports, in megabytes. See [CSV / Excel import limits](#csv--excel-import-limits) below. |
+| `CSV_IMPORT_MAX_ROWS` | `5000` | Maximum data rows a single CSV / Excel import may contain. Rows past the cap are reported back as skipped, not silently dropped. |
+| `CSV_IMPORT_MAX_UNCOMPRESSED_MB` | `100` | Decompression-bomb ceiling for `.xlsx` uploads: the maximum total *uncompressed* size the workbook may declare. |
 | `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | General default rate limit for **unauthenticated** requests, per client IP, in DRF `<count>/<period>` form (`period` is `sec`, `min`, `hour`, or `day`). Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_THROTTLE_USER_RATE` | `1000/min` | General default rate limit for an **authenticated** account, in DRF `<count>/<period>` form. Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_NUM_PROXIES` | `1` | Number of trusted reverse proxies in front of the API. Used to extract the real client IP for the **unauthenticated** rate limit from the `X-Forwarded-For` chain. The standard Helm chart runs a single ingress (`1`); set to your actual proxy depth, or `0` if the API is reached directly (uses `REMOTE_ADDR`). An incorrect value lets a client spoof its IP and evade the anon limit, so match it to your deployment. |
@@ -299,6 +302,49 @@ JIRA_IMPORT_MAX_UPLOAD_MB=40
 The Jira XML parse goes through `defusedxml` (no entity expansion, no
 external-entity resolution), so an XXE / billion-laughs payload is rejected at
 parse time — the same unconditional protection the MS Project importer has.
+
+## CSV / Excel import limits
+
+[CSV / Excel import](/features/csv-import/) is bounded on three axes, because
+size alone does not bound the work an upload creates:
+
+| Variable | Default | Unit | What it bounds |
+|----------|---------|------|----------------|
+| `CSV_IMPORT_MAX_UPLOAD_MB` | `10` | MB | Maximum size of a single `.csv` / `.xlsx` upload |
+| `CSV_IMPORT_MAX_ROWS` | `5000` | rows | Maximum data rows parsed from one file |
+| `CSV_IMPORT_MAX_UNCOMPRESSED_MB` | `100` | MB | Maximum *uncompressed* size an `.xlsx` may declare |
+
+The size cap is much lower than the MS Project one on purpose: a spreadsheet
+migration is a hand-maintained sheet, not a generated plan, and 10 MB is already
+far past what a real one weighs. Like the other importers, an upload is read
+fully into memory and stored base64-encoded in a single database row (about +33%)
+until it is processed.
+
+The **row cap is a separate limit for a reason**: a 10 MB CSV can encode well
+over a million short rows, and the parser builds one task object per row before
+anything is written. Rows past the cap are **reported back to the operator as
+skipped** rather than silently dropped, so an import is never quietly partial.
+
+```bash
+# Allow larger sheets. Keep the upload cap at or below
+# DATA_UPLOAD_MAX_MEMORY_SIZE (100 MB) and your nginx client_max_body_size,
+# or the request is rejected upstream before the importer sees it.
+CSV_IMPORT_MAX_UPLOAD_MB=25
+CSV_IMPORT_MAX_ROWS=20000
+```
+
+### Why `.xlsx` has a third limit
+
+An `.xlsx` file is a **zip archive of XML**. TruePPM parses it with `openpyxl`,
+which automatically enables `defusedxml` hardening (no entity expansion, no
+external-entity resolution) because `defusedxml` is installed — so XXE and
+billion-laughs payloads are rejected at parse time.
+
+That protection does **not** bound *decompression*. A 1 MB upload can inflate to
+gigabytes and exhaust worker memory while sitting comfortably inside the byte
+cap. Before parsing, TruePPM sums the sizes declared in the zip's central
+directory and rejects anything above `CSV_IMPORT_MAX_UNCOMPRESSED_MB`. The check
+reads no member data and runs before any XML parser is invoked.
 
 ## Monte Carlo simulation caps
 
