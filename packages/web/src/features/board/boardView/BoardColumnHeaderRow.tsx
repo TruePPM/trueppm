@@ -28,8 +28,13 @@ function headerTintClass(state: WipState): string {
  * name must carry it too so a screen reader hears "at/over limit" on the column
  * itself (#1033).
  */
-function headerAriaLabel(label: string, count: number, breach: WipState): string {
-  const plural = `${count} task${count !== 1 ? 's' : ''}`;
+function headerAriaLabel(label: string, count: number, breach: WipState, grouped: boolean): string {
+  // The count is board-wide. With swimlanes on, the header sits directly above
+  // lanes that each hold a share of it, so a bare "8 tasks" above a lane showing
+  // none reads as a lane count that disagrees with the lane (#2427). Naming the
+  // scope is what makes the number honest — the number itself is not wrong.
+  const scope = grouped ? ' on the board' : '';
+  const plural = `${count} task${count !== 1 ? 's' : ''}${scope}`;
   if (breach === 'over') return `${label}, ${plural}, over limit`;
   if (breach === 'at') return `${label}, ${plural}, at limit`;
   return `${label}, ${plural}`;
@@ -38,6 +43,8 @@ function headerAriaLabel(label: string, count: number, breach: WipState): string
 interface ColumnHeaderCellProps {
   col: HeaderColumn;
   count: number;
+  /** Swimlanes are on, so this board-wide count sits above lane-scoped content. */
+  grouped: boolean;
   showWip: boolean;
   trendSeries: number[];
   onCollapse: () => void;
@@ -47,6 +54,7 @@ interface ColumnHeaderCellProps {
 function ColumnHeaderCell({
   col,
   count,
+  grouped,
   showWip,
   trendSeries,
   onCollapse,
@@ -79,11 +87,20 @@ function ColumnHeaderCell({
       />
       <h2
         className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
-        aria-label={headerAriaLabel(col.label, count, breach)}
+        aria-label={headerAriaLabel(col.label, count, breach, grouped)}
       >
         {col.label}
       </h2>
-      <span className="text-xs text-neutral-text-disabled tppm-mono">{count}</span>
+      <span
+        className="text-xs text-neutral-text-disabled tppm-mono"
+        title={
+          grouped
+            ? `${count} across the whole board — each lane below holds a share of this.`
+            : undefined
+        }
+      >
+        {count}
+      </span>
       <span className="ml-auto flex items-center gap-1.5">
         {trend ? <WipTrendArrow trend={trend} /> : null}
         {breached && <WipBreachChip state={breach} />}
@@ -128,6 +145,11 @@ interface BoardColumnHeaderRowProps {
   columnWidths: Record<string, number>;
   totalByStatus: Record<TaskStatus, number>;
   myCountByStatus: Record<TaskStatus, number>;
+  /**
+   * Number of swimlanes below. Above 1 the board-wide counts in this row sit
+   * over lane-scoped content, so they name their scope (#2427).
+   */
+  laneCount?: number;
   showWip: boolean;
   trendSeriesByStatus: Partial<Record<TaskStatus, number[]>>;
   onToggleColumn: (status: TaskStatus) => void;
@@ -149,11 +171,13 @@ export function BoardColumnHeaderRow({
   columnWidths,
   totalByStatus,
   myCountByStatus,
+  laneCount = 1,
   showWip,
   trendSeriesByStatus,
   onToggleColumn,
   onResizeColumn,
 }: BoardColumnHeaderRowProps) {
+  const grouped = laneCount > 1;
   return (
     <div
       className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b-2 border-neutral-border bg-neutral-surface sticky top-0 z-10 w-max min-w-full"
@@ -188,6 +212,7 @@ export function BoardColumnHeaderRow({
             key={col.status}
             col={col}
             count={count}
+            grouped={grouped}
             showWip={showWip}
             trendSeries={trendSeriesByStatus[col.status] ?? []}
             onCollapse={() => onToggleColumn(col.status)}

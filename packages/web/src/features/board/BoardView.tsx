@@ -664,7 +664,17 @@ function BoardCellImpl({
       <div
         ref={setNodeRef}
         data-empty-cell="true"
-        className="flex items-center justify-center border-l border-neutral-border min-h-[2rem]"
+        // `self-start` is load-bearing (#2427). A grid cell stretches to its row
+        // by default, so in a lane made tall by one full column the empty
+        // siblings became full-height blank tracks with a lonely tick floating
+        // in the middle — on a project with several phases that pushes almost
+        // everything below the fold. Sizing the resting cell to its own content
+        // leaves the remainder as lane background instead of empty void.
+        //
+        // Only the RESTING cell shrinks: as soon as a drag starts
+        // `showRestingTick` is false and the full-height cell below renders, so
+        // the drop target is never smaller than the column it represents.
+        className="self-start flex items-center justify-center border-l border-neutral-border min-h-[2rem]"
       >
         <div aria-hidden="true" className="w-8 h-px bg-neutral-border" />
       </div>
