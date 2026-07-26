@@ -17,6 +17,7 @@
  */
 import type { Task } from '@/types';
 import { isTaskScheduled } from '@/lib/task';
+import { LABEL_PARAM } from '@/components/filters/labelFilter';
 
 /** Sentinel value in the assignee facet meaning "cards with no assignee". */
 export const UNASSIGNED = '__unassigned__';
@@ -203,7 +204,10 @@ export function collectLabelOptions(
 const PARAM_ASSIGNEES = 'fa';
 const PARAM_PRIORITY = 'fp';
 const PARAM_DUE = 'fd';
-const PARAM_LABELS = 'fl';
+// `fl` is imported, not re-declared: the Grid, the Product Backlog and (per
+// #2384) the Schedule all read the same key, so a second literal here would be a
+// place for the four views to drift apart (ADR-0620).
+const PARAM_LABELS = LABEL_PARAM;
 
 function splitParam(raw: string | null): string[] {
   if (!raw) return [];

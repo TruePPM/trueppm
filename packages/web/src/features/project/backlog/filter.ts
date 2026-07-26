@@ -14,6 +14,7 @@
  * cost the vertical scan the filter exists to shorten.
  */
 
+import { taskMatchesLabels } from '@/components/filters/labelFilter';
 import type { DorState, Task } from '@/types';
 import type { ProductBacklog } from './types';
 
@@ -24,12 +25,15 @@ export interface GroomingFilters {
   dorStates: DorState[];
   /** When true, keep only stories with no story-point estimate. */
   unestimatedOnly: boolean;
+  /** Multi-select label facet (OR within, AND with the rest); empty = any label. */
+  labelIds: string[];
 }
 
 export const EMPTY_GROOMING_FILTERS: GroomingFilters = {
   query: '',
   dorStates: [],
   unestimatedOnly: false,
+  labelIds: [],
 };
 
 /** Lowercase + strip diacritics so "Pólaris" matches "polaris". */
@@ -58,6 +62,9 @@ export function matchesFilters(story: Task, filters: GroomingFilters): boolean {
   if (filters.dorStates.length > 0 && !filters.dorStates.includes(story.dor ?? 'idea')) {
     return false;
   }
+  // Shared predicate so OR-within/AND-across reads identically on every view
+  // that offers the Label facet (ADR-0620).
+  if (!taskMatchesLabels(story, filters.labelIds)) return false;
   return matchesStorySearch(story, filters.query);
 }
 
@@ -71,7 +78,8 @@ export function isFilterActive(filters: GroomingFilters): boolean {
   return (
     filters.query.trim().length > 0 ||
     filters.dorStates.length > 0 ||
-    filters.unestimatedOnly
+    filters.unestimatedOnly ||
+    filters.labelIds.length > 0
   );
 }
 

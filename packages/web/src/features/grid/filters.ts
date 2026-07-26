@@ -1,3 +1,4 @@
+import { taskMatchesLabels } from '@/components/filters/labelFilter';
 import type { Task, TaskStatus } from '@/types';
 
 /** Grid due-date filter. `overdue` mirrors the server's `tasks_late_count`. */
@@ -8,6 +9,8 @@ export interface GridFilterState {
   ownerFilter: string;
   statusFilter: TaskStatus | '';
   dueFilter: DueFilter;
+  /** Selected label ids (`?fl=`); OR within the facet, AND with everything else. */
+  labelIds: string[];
 }
 
 /**
@@ -42,15 +45,22 @@ export function matchesFilters(task: Task, filters: GridFilterState): boolean {
     return false;
   if (filters.statusFilter && task.status !== filters.statusFilter) return false;
   if (filters.dueFilter === 'overdue' && !isTaskOverdue(task, new Date())) return false;
+  // Labels are ANDed with the other facets but ORed internally — the shared
+  // predicate keeps that semantic identical on every view (ADR-0620).
+  if (!taskMatchesLabels(task, filters.labelIds)) return false;
   return true;
 }
 
 export function emptyFilters(): GridFilterState {
-  return { search: '', ownerFilter: '', statusFilter: '', dueFilter: 'all' };
+  return { search: '', ownerFilter: '', statusFilter: '', dueFilter: 'all', labelIds: [] };
 }
 
 export function hasAnyFilter(filters: GridFilterState): boolean {
   return Boolean(
-    filters.search || filters.ownerFilter || filters.statusFilter || filters.dueFilter !== 'all',
+    filters.search ||
+      filters.ownerFilter ||
+      filters.statusFilter ||
+      filters.dueFilter !== 'all' ||
+      filters.labelIds.length > 0,
   );
 }

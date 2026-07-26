@@ -78,7 +78,7 @@ describe('matchesFilters', () => {
   it('keeps only unestimated stories when the toggle is on', () => {
     const est = story({ storyPoints: 5 });
     const unest = story({ storyPoints: null });
-    const f: GroomingFilters = { ...EMPTY_GROOMING_FILTERS, unestimatedOnly: true };
+    const f: GroomingFilters = { ...EMPTY_GROOMING_FILTERS, unestimatedOnly: true, labelIds: [] };
     expect(matchesFilters(est, f)).toBe(false);
     expect(matchesFilters(unest, f)).toBe(true);
   });
@@ -90,7 +90,7 @@ describe('matchesFilters', () => {
     const f: GroomingFilters = {
       query: 'telemetry',
       dorStates: ['refine'],
-      unestimatedOnly: true,
+      unestimatedOnly: true, labelIds: [],
     };
     expect(matchesFilters(a, f)).toBe(true);
     expect(matchesFilters(b, f)).toBe(false); // wrong DoR
@@ -109,7 +109,7 @@ describe('filterStories', () => {
       'y',
     ]);
     expect(
-      filterStories(set, { ...EMPTY_GROOMING_FILTERS, unestimatedOnly: true }).map((s) => s.id),
+      filterStories(set, { ...EMPTY_GROOMING_FILTERS, unestimatedOnly: true, labelIds: [] }).map((s) => s.id),
     ).toEqual(['y', 'z']);
     expect(
       filterStories(set, { ...EMPTY_GROOMING_FILTERS, dorStates: ['ready'] }).map((s) => s.id),
@@ -123,7 +123,7 @@ describe('isFilterActive', () => {
     expect(isFilterActive({ ...EMPTY_GROOMING_FILTERS, query: '  ' })).toBe(false);
     expect(isFilterActive({ ...EMPTY_GROOMING_FILTERS, query: 'x' })).toBe(true);
     expect(isFilterActive({ ...EMPTY_GROOMING_FILTERS, dorStates: ['ready'] })).toBe(true);
-    expect(isFilterActive({ ...EMPTY_GROOMING_FILTERS, unestimatedOnly: true })).toBe(true);
+    expect(isFilterActive({ ...EMPTY_GROOMING_FILTERS, unestimatedOnly: true, labelIds: [] })).toBe(true);
   });
 });
 
@@ -165,7 +165,7 @@ describe('filterBacklog / countStories', () => {
   it('drops epic groups with no surviving stories and filters the ungrouped bucket', () => {
     const { epics, ungrouped, matchCount } = filterBacklog(backlog, {
       ...EMPTY_GROOMING_FILTERS,
-      unestimatedOnly: true,
+      unestimatedOnly: true, labelIds: [],
     });
     // Only S2 (in EP1) and S4 (ungrouped) are unestimated; EP2 drops out entirely.
     expect(epics.map((g) => g.epic.id)).toEqual(['EP1']);
@@ -179,5 +179,41 @@ describe('filterBacklog / countStories', () => {
     expect(epics).toHaveLength(2);
     expect(ungrouped).toHaveLength(1);
     expect(matchCount).toBe(4);
+  });
+});
+
+describe('grooming label facet (#2383)', () => {
+  const story = (id: string, ...labelIds: string[]) =>
+    ({
+      id,
+      name: id,
+      dor: 'ready',
+      storyPoints: 3,
+      labels: labelIds.map((l) => ({ id: l, name: l, color: 'teal' })),
+    }) as unknown as Task;
+
+  const base = { ...EMPTY_GROOMING_FILTERS };
+
+  it('no selection is not an active filter', () => {
+    expect(isFilterActive(base)).toBe(false);
+    expect(matchesFilters(story('s1', 'l1'), base)).toBe(true);
+  });
+
+  it('a selection activates the filter bar', () => {
+    expect(isFilterActive({ ...base, labelIds: ['l1'] })).toBe(true);
+  });
+
+  it('ORs within the facet and excludes unlabelled stories', () => {
+    const filters = { ...base, labelIds: ['l1', 'l2'] };
+    expect(matchesFilters(story('s1', 'l1'), filters)).toBe(true);
+    expect(matchesFilters(story('s2', 'l2', 'l9'), filters)).toBe(true);
+    expect(matchesFilters(story('s3', 'l9'), filters)).toBe(false);
+    expect(matchesFilters(story('s4'), filters)).toBe(false);
+  });
+
+  it('ANDs with the readiness facet', () => {
+    const s = story('s5', 'l1');
+    expect(matchesFilters(s, { ...base, labelIds: ['l1'], dorStates: ['ready'] })).toBe(true);
+    expect(matchesFilters(s, { ...base, labelIds: ['l1'], dorStates: ['idea'] })).toBe(false);
   });
 });

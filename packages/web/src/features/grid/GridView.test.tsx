@@ -142,6 +142,16 @@ vi.mock('@/hooks/useSprints', () => ({
 }));
 
 const exportTasksToCsv = vi.fn();
+// Label catalog for the Label facet (#2383). Mutable so a test can present an
+// empty project without re-mocking the module.
+let labelsMock: { id: string; name: string; color: string; position: number; serverVersion: number; taskCount: number }[] = [
+  { id: 'l1', name: 'Needs review', color: 'teal', position: 0, serverVersion: 1, taskCount: 0 },
+  { id: 'l2', name: 'Blocked', color: 'rose', position: 1, serverVersion: 1, taskCount: 0 },
+];
+vi.mock('@/hooks/useLabels', () => ({
+  useLabels: () => ({ data: labelsMock }),
+}));
+
 vi.mock('@/utils/exportCsv', () => ({
   exportTasksToCsv: (...args: unknown[]) => {
     exportTasksToCsv(...args);
@@ -870,5 +880,54 @@ describe('GridView — role gating (#2145)', () => {
     await renderGrid();
     expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /\+ add task/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('GridView — label facet (#2383)', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    labelsMock = [
+      { id: 'l1', name: 'Needs review', color: 'teal', position: 0, serverVersion: 1, taskCount: 0 },
+      { id: 'l2', name: 'Blocked', color: 'rose', position: 1, serverVersion: 1, taskCount: 0 },
+    ];
+  });
+
+  it('renders the Label trigger in the toolbar', async () => {
+    await renderGrid();
+    expect(await screen.findByRole('button', { name: 'Label: any' })).toBeInTheDocument();
+  });
+
+  it('seeds the selection from ?fl= so a shared link restores it', async () => {
+    await renderGrid(['/projects/proj-1/grid?fl=l1']);
+    expect(await screen.findByRole('button', { name: /Label: Needs review/ })).toBeInTheDocument();
+    // The chip strip mounts for a label-only filter.
+    expect(screen.getByRole('button', { name: 'Remove filter: label Needs review' })).toBeInTheDocument();
+  });
+
+  it('is purely additive — an existing ?owner=&status= link is unaffected', async () => {
+    // The regression this guards: adopting `?fl=` must not rewrite, redirect, or
+    // invalidate a Grid link bookmarked before the facet existed.
+    await renderGrid(['/projects/proj-1/grid?owner=Alice%20Smith&status=IN_PROGRESS']);
+    expect(await screen.findByText('Owner: Alice Smith')).toBeInTheDocument();
+    expect(screen.getByText('Status: In progress')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Label: any' })).toBeInTheDocument();
+    expect(window.location.search).not.toContain('fl=');
+  });
+
+  it('ignores a ?fl= id the catalog no longer knows, rather than filtering everything out', async () => {
+    await renderGrid(['/projects/proj-1/grid?fl=deleted-label']);
+    // Trigger reports no *resolvable* selection and the rows are not emptied.
+    expect(await screen.findByRole('button', { name: 'Label: any' })).toBeInTheDocument();
+    expect(screen.getByText('Planning')).toBeInTheDocument();
+  });
+
+  it('offers the label-settings route when the project has no labels', async () => {
+    labelsMock = [];
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(await screen.findByRole('button', { name: 'Label: none yet' }));
+    expect(screen.getByText('No labels in this project yet')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open label settings' })).toBeInTheDocument();
   });
 });

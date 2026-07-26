@@ -18,7 +18,7 @@ const h = vi.hoisted(() => ({
   backlog: { isLoading: true, isError: false, data: undefined as ProductBacklog | undefined },
   canManage: true,
   planned: [] as Array<{ id: string; name: string }>,
-  filters: { query: '', dorStates: [] as string[], unestimatedOnly: false },
+  filters: { query: '', dorStates: [] as string[], unestimatedOnly: false, labelIds: [] as string[] },
   filterActive: false,
   intent: null as { kind: string; projectId: string } | null,
   autoRankPending: false,
@@ -109,6 +109,7 @@ vi.mock('./hooks/useGroomingFilters', () => ({
     setQuery: vi.fn(),
     toggleDor: vi.fn(),
     setUnestimatedOnly: vi.fn(),
+    setLabelIds: vi.fn(),
     reset: h.resetFilters,
   }),
 }));
@@ -276,7 +277,7 @@ beforeEach(() => {
   h.backlog = { isLoading: true, isError: false, data: undefined };
   h.canManage = true;
   h.planned = [];
-  h.filters = { query: '', dorStates: [], unestimatedOnly: false };
+  h.filters = { query: '', dorStates: [], unestimatedOnly: false, labelIds: [] };
   h.filterActive = false;
   h.intent = null;
   h.autoRankPending = false;
@@ -668,7 +669,7 @@ describe('Grooming filter states', () => {
   it('shows a no-results block that clears the filters', async () => {
     const user = userEvent.setup();
     h.filterActive = true;
-    h.filters = { query: 'zzz-no-match', dorStates: [], unestimatedOnly: false };
+    h.filters = { query: 'zzz-no-match', dorStates: [], unestimatedOnly: false, labelIds: [] };
     setData(makeBacklog());
     renderPage();
     expect(screen.getByText('No stories match your filters.')).toBeInTheDocument();
@@ -679,7 +680,7 @@ describe('Grooming filter states', () => {
 
   it('renders a read-only filtered epic view with the drag-disabled hint', () => {
     h.filterActive = true;
-    h.filters = { query: 'login', dorStates: [], unestimatedOnly: false };
+    h.filters = { query: 'login', dorStates: [], unestimatedOnly: false, labelIds: [] };
     setData(makeBacklog());
     renderPage();
     expect(
@@ -1100,7 +1101,7 @@ describe('Additional composition branches', () => {
   it('opens the epic drawer from a filtered read-only epic header', async () => {
     const user = userEvent.setup();
     h.filterActive = true;
-    h.filters = { query: 'login', dorStates: [], unestimatedOnly: false };
+    h.filters = { query: 'login', dorStates: [], unestimatedOnly: false, labelIds: [] };
     setData(makeBacklog());
     renderPage();
     await user.click(screen.getByRole('button', { name: 'epic-open-Auth epic' }));
@@ -1110,7 +1111,7 @@ describe('Additional composition branches', () => {
   it('opens the story drawer from a filtered read-only row', async () => {
     const user = userEvent.setup();
     h.filterActive = true;
-    h.filters = { query: 'login', dorStates: [], unestimatedOnly: false };
+    h.filters = { query: 'login', dorStates: [], unestimatedOnly: false, labelIds: [] };
     setData(makeBacklog());
     renderPage();
     await user.click(screen.getByRole('button', { name: 'Open story Login flow' }));
@@ -1120,7 +1121,7 @@ describe('Additional composition branches', () => {
   it('renders the No-epic section in a filtered read-only view when ungrouped matches', () => {
     h.filterActive = true;
     // "reset" matches only s3, which is ungrouped → the "No epic" read-only section renders.
-    h.filters = { query: 'reset', dorStates: [], unestimatedOnly: false };
+    h.filters = { query: 'reset', dorStates: [], unestimatedOnly: false, labelIds: [] };
     setData(makeBacklog());
     renderPage();
     expect(screen.getByText('No epic')).toBeInTheDocument();

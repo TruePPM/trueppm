@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { useSearchParams } from 'react-router';
+import type { ReactNode } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { canEditTask } from '@/lib/roles';
@@ -33,6 +34,17 @@ import {
 import { methodologyDefaultMode } from './methodologyDefaults';
 import { matchesFilters, type GridFilterState } from './filters';
 import { CheckIcon } from '@/components/Icons';
+import { LabelFacet } from '@/components/filters/LabelFacet';
+import {
+  LABEL_PARAM,
+  countTasksByLabel,
+  parseLabelIds,
+  pruneUnknownLabelIds,
+  serializeLabelIds,
+} from '@/components/filters/labelFilter';
+import { useLabels } from '@/hooks/useLabels';
+import { useFilterAnnouncement } from '@/hooks/useFilterAnnouncement';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 type DeletePhase = 'idle' | 'confirming' | 'deleting';
 
@@ -114,6 +126,7 @@ export function GridView() {
   // URL-authoritative pattern. `?task=` (the open drawer, #2031) rides the same
   // params object.
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   // Filter state — search, owner, status, due. Seeded from the URL; owner+status
   // also set programmatically; the chip strip exposes the active set with × to
@@ -124,6 +137,11 @@ export function GridView() {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>(
     () => (searchParams.get('status') as TaskStatus | null) ?? '',
   );
+  // Label facet (`?fl=`, ADR-0620). The param name is the Board's, adopted
+  // verbatim so one bookmark format works on every view — and this is purely
+  // additive: an existing `?owner=…&status=…` link with no `fl` is untouched.
+  const [labelIds, setLabelIds] = useState(() => parseLabelIds(searchParams.get(LABEL_PARAM)));
+  const labelTriggerRef = useRef<HTMLButtonElement>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Mirror the applied filters into the URL. Empty values drop their key so a
@@ -140,11 +158,12 @@ export function GridView() {
         setParam('q', search);
         setParam('owner', ownerFilter);
         setParam('status', statusFilter);
+        setParam(LABEL_PARAM, serializeLabelIds(labelIds));
         return next;
       },
       { replace: true },
     );
-  }, [search, ownerFilter, statusFilter, setSearchParams]);
+  }, [search, ownerFilter, statusFilter, labelIds, setSearchParams]);
 
   // `?due=overdue` deep-link — the Overview "Tasks late" card drills in here so
   // the count it shows and the rows the grid shows use the same late definition
@@ -172,9 +191,42 @@ export function GridView() {
   }, [overdue]);
   const effectiveMode: GridMode = overdue && !manualModeSinceDrill ? 'flat' : mode;
 
+  // The project's label catalog drives the facet's option list (every label,
+  // including ones on no loaded row — decision 2). Counts are computed over the
+  // loaded rows, not read from the catalog's server-side `taskCount`, so the
+  // number answers "how many rows *here*" and a visible 0 is truthful.
+  const { data: labelCatalog } = useLabels(projectId ?? undefined);
+  const labels = useMemo(() => labelCatalog ?? [], [labelCatalog]);
+  const labelCounts = useMemo(
+    () =>
+      countTasksByLabel(
+        tasks ?? [],
+        labels.map((l) => l.id),
+      ),
+    [tasks, labels],
+  );
+
+  // A label deleted while a `?fl=` link still names it must not silently filter
+  // everything out. Prune at the point of *application* only — the stored/URL
+  // value is left alone so a shared link stays diagnosable.
+  const appliedLabelIds = useMemo(
+    () =>
+      pruneUnknownLabelIds(
+        labelIds,
+        labels.map((l) => l.id),
+      ),
+    [labelIds, labels],
+  );
+
   const filters: GridFilterState = useMemo(
-    () => ({ search, ownerFilter, statusFilter, dueFilter: overdue ? 'overdue' : 'all' }),
-    [search, ownerFilter, statusFilter, overdue],
+    () => ({
+      search,
+      ownerFilter,
+      statusFilter,
+      dueFilter: overdue ? 'overdue' : 'all',
+      labelIds: appliedLabelIds,
+    }),
+    [search, ownerFilter, statusFilter, overdue, appliedLabelIds],
   );
 
   // Open a task's detail in the app-wide drawer (mounted in AppShell) when a
@@ -218,12 +270,15 @@ export function GridView() {
     searchTimer.current = setTimeout(() => setSearch(v), 250);
   };
 
+  // "Clear all" — every facet, labels included, so the strip unmounts entirely
+  // and reclaims its row-2 height.
   const handleClearFilters = () => {
     setSearch('');
     setSearchDraft('');
     setOwnerFilter('');
     setStatusFilter('');
     setOverdue(false);
+    setLabelIds([]);
   };
 
   // Imperative expand-all / collapse-all signal for OutlineMode.
@@ -307,6 +362,28 @@ export function GridView() {
     if (!tasks) return 0;
     return tasks.filter((t) => matchesFilters(t, filters)).length;
   }, [tasks, filters]);
+
+  // Active label chips for the strip, in selection order. Built from the *applied*
+  // ids so a `?fl=` naming a deleted label does not render a nameless chip.
+  const labelChips = useMemo(
+    () =>
+      appliedLabelIds.flatMap((id) => {
+        const label = labels.find((l) => l.id === id);
+        return label
+          ? [{ id, name: label.name, color: label.color, count: labelCounts[id] ?? 0 }]
+          : [];
+      }),
+    [appliedLabelIds, labels, labelCounts],
+  );
+
+  // Announce the outcome once the user stops clicking, not once per selection.
+  const online = useOnlineStatus();
+  const labelNames = labelChips.map((c) => c.name).join(', ');
+  const announcement = useFilterAnnouncement(
+    appliedLabelIds.length > 0 && tasks
+      ? `${filteredCount} of ${tasks.length} rows match ${labelNames}`
+      : '',
+  );
 
   const exportFilteredTasks = useCallback(() => {
     if (!tasks) return;
@@ -460,14 +537,41 @@ export function GridView() {
         onCollapseAll={() => setCollapseAllCounter((c) => c + 1)}
         onCsvExport={exportFilteredTasks}
         canExport={filteredCount > 0}
+        labelFacet={
+          <LabelFacet
+            triggerRef={labelTriggerRef}
+            labels={labels}
+            counts={labelCounts}
+            selected={labelIds}
+            onChange={setLabelIds}
+            onOpenLabelSettings={
+              projectId ? () => void navigate(`/projects/${projectId}/settings/labels`) : undefined
+            }
+          />
+        }
         canEdit={canEdit}
       />
+
+      {/* Polite live region for the filter outcome. Rendered unconditionally so
+          the node exists before the first announcement — a live region added to
+          the DOM at the same moment it gains text is not reliably announced. */}
+      <span aria-live="polite" className="sr-only">
+        {announcement}
+      </span>
 
       <ChipStrip
         search={search}
         ownerFilter={ownerFilter}
         statusFilter={statusFilter}
         overdue={overdue}
+        labelChips={labelChips}
+        onRemoveLabel={(id) => setLabelIds((prev) => prev.filter((v) => v !== id))}
+        labelTriggerRef={labelTriggerRef}
+        note={
+          !online && appliedLabelIds.length > 0 && tasks
+            ? `Offline — filtering the ${tasks.length} rows already loaded`
+            : undefined
+        }
         onRemove={(key) => {
           if (key === 'search') {
             setSearch('');
@@ -578,6 +682,12 @@ interface ToolbarProps {
   onCollapseAll: () => void;
   onCsvExport: () => void;
   canExport: boolean;
+  /**
+   * The Label facet trigger, injected rather than constructed here so the
+   * Toolbar stays presentational and the facet's catalog/count wiring lives with
+   * the rest of the filter state.
+   */
+  labelFacet?: ReactNode;
   /** Member+ may author (#2145). Below it, the select-all box, bulk Delete, and
    *  the +Task / +Child create buttons are suppressed — a Viewer never sees a
    *  destructive bulk flow that 403s per task. */
@@ -609,6 +719,7 @@ function Toolbar({
   onCollapseAll,
   onCsvExport,
   canExport,
+  labelFacet,
   canEdit,
 }: ToolbarProps) {
   if (deletePhase !== 'idle') {
@@ -690,6 +801,10 @@ function Toolbar({
           "
         />
       </div>
+
+      {/* Label facet sits with the search field as the filter cluster, and reads
+          left→right in the same order the chip strip below lists them. */}
+      {labelFacet}
 
       {supportsBulkSelect && (
         // Same WCAG 2.5.8 treatment as the per-row select box (TaskRow): a

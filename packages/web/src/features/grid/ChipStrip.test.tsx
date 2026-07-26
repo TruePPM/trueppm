@@ -59,3 +59,131 @@ describe('ChipStrip', () => {
     expect(screen.getByText('Status: UNKNOWN')).toBeInTheDocument();
   });
 });
+
+describe('ChipStrip — label chips (#2383)', () => {
+  const chips = [
+    { id: 'l1', name: 'Needs review', color: 'teal', count: 18 },
+    { id: 'l2', name: 'Blocked', color: 'rose', count: 4 },
+  ];
+
+  it('renders a chip per selected label with its name and count', () => {
+    render(
+      <ChipStrip
+        search=""
+        ownerFilter=""
+        statusFilter=""
+        overdue={false}
+        labelChips={chips}
+        onRemove={vi.fn()}
+        onRemoveLabel={vi.fn()}
+      />,
+    );
+    // Name is always present next to the swatch — colour is never the only cue.
+    expect(screen.getByText(/Needs review/)).toBeInTheDocument();
+    expect(screen.getByText(/Blocked/)).toBeInTheDocument();
+    expect(screen.getByText('18')).toBeInTheDocument();
+  });
+
+  it('mounts the strip for a label filter even with no other facet set', () => {
+    const { container } = render(
+      <ChipStrip
+        search=""
+        ownerFilter=""
+        statusFilter=""
+        overdue={false}
+        labelChips={chips}
+        onRemove={vi.fn()}
+      />,
+    );
+    expect(container.firstChild).not.toBeNull();
+  });
+
+  it('each ✕ removes only its own label', () => {
+    const onRemoveLabel = vi.fn();
+    render(
+      <ChipStrip
+        search=""
+        ownerFilter=""
+        statusFilter=""
+        overdue={false}
+        labelChips={chips}
+        onRemove={vi.fn()}
+        onRemoveLabel={onRemoveLabel}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Remove filter: label Blocked' }));
+    expect(onRemoveLabel).toHaveBeenCalledWith('l2');
+    expect(onRemoveLabel).toHaveBeenCalledTimes(1);
+  });
+
+  it('Delete on a focused ✕ removes too', () => {
+    const onRemoveLabel = vi.fn();
+    render(
+      <ChipStrip
+        search=""
+        ownerFilter=""
+        statusFilter=""
+        overdue={false}
+        labelChips={chips}
+        onRemove={vi.fn()}
+        onRemoveLabel={onRemoveLabel}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Remove filter: label Needs review' }), {
+      key: 'Delete',
+    });
+    expect(onRemoveLabel).toHaveBeenCalledWith('l1');
+  });
+
+  it('re-seats focus on the next chip after a removal', () => {
+    render(
+      <ChipStrip
+        search=""
+        ownerFilter=""
+        statusFilter=""
+        overdue={false}
+        labelChips={chips}
+        onRemove={vi.fn()}
+        onRemoveLabel={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Remove filter: label Needs review' }));
+    expect(screen.getByRole('button', { name: 'Remove filter: label Blocked' })).toHaveFocus();
+  });
+
+  it('returns focus to the facet trigger when the last chip goes', () => {
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    render(
+      <ChipStrip
+        search=""
+        ownerFilter=""
+        statusFilter=""
+        overdue={false}
+        labelChips={[chips[0]]}
+        onRemove={vi.fn()}
+        onRemoveLabel={vi.fn()}
+        labelTriggerRef={{ current: trigger }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Remove filter: label Needs review' }));
+    expect(trigger).toHaveFocus();
+  });
+
+  it('renders the offline note ahead of the chips', () => {
+    render(
+      <ChipStrip
+        search=""
+        ownerFilter=""
+        statusFilter=""
+        overdue={false}
+        labelChips={chips}
+        note="Offline — filtering the 214 rows already loaded"
+        onRemove={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText('Offline — filtering the 214 rows already loaded'),
+    ).toBeInTheDocument();
+  });
+});
