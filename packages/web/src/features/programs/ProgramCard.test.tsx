@@ -189,11 +189,29 @@ describe('ProgramCard pin toggle (#1682, server-persisted #2390)', () => {
     renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization', is_pinned: true }));
     const toggle = screen.getByRole('button', { name: 'Unpin Phase 2 Modernization' });
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    // Deliberately NOT `text-semantic-at-risk` (#2390): amber is a reserved
-    // health hue, and a pinned star next to an At-risk chip would read as a
-    // status. State is carried by fill + ink weight + aria-pressed, never hue.
+    // Deliberately NOT a health hue (#2390): `--brand-primary` and
+    // `--semantic-on-track` are the same token value, so a brand-filled pin would
+    // read as "On track" right next to the card's own health dot. State is
+    // carried by fill + ink weight + aria-pressed, never hue.
     const glyph = toggle.querySelector('svg');
     expect(glyph).not.toHaveClass('text-semantic-at-risk');
+    expect(glyph).not.toHaveClass('text-semantic-on-track');
     expect(glyph).toHaveClass('text-neutral-text-primary');
+  });
+
+  // Scanning two dozen cards, an 18px corner glyph disappears. The border is the
+  // group cue; the glyph is only the control (design §4.3). Safe as a hue here in
+  // a way the glyph is not: health on this card is a dot plus a word, and nothing
+  // else uses a tinted border.
+  it('marks a pinned card with an accent border — the glyph is too small to group by', () => {
+    renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization', is_pinned: true }));
+    expect(screen.getByRole('link')).toHaveClass('border-brand-primary/40');
+  });
+
+  it('leaves an unpinned card on the plain border', () => {
+    renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization', is_pinned: false }));
+    const link = screen.getByRole('link');
+    expect(link).toHaveClass('border-neutral-border');
+    expect(link).not.toHaveClass('border-brand-primary/40');
   });
 });

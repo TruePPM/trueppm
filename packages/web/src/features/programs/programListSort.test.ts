@@ -61,7 +61,6 @@ describe('filterAndSortPrograms', () => {
       query: '',
       methodology: 'ALL',
       sortKey: 'recent',
-      pinnedIds: [],
     });
     expect(ids(out)).toEqual(['b', 'a', 'c']);
   });
@@ -71,7 +70,6 @@ describe('filterAndSortPrograms', () => {
       query: '',
       methodology: 'ALL',
       sortKey: 'name',
-      pinnedIds: [],
     });
     expect(ids(out)).toEqual(['a', 'b', 'c']);
   });
@@ -81,20 +79,23 @@ describe('filterAndSortPrograms', () => {
       query: '',
       methodology: 'ALL',
       sortKey: 'health',
-      pinnedIds: [],
     });
     expect(ids(out)).toEqual(['b', 'c', 'a']);
   });
 
-  it('floats pinned programs to the top of every sort', () => {
-    const out = filterAndSortPrograms(ALL, {
+  it('is pin-agnostic — the chosen sort is the only thing that moves a row', () => {
+    // Charlie IS pinned, and still sorts last alphabetically. Floating pins
+    // inside the sort was the old behavior and it read as a broken sort: a row
+    // jumped the queue with nothing on screen to explain why. `ProgramListPage`
+    // lifts pins into a labelled group instead (#2390, design §5.2), so this
+    // function returns one honest ordering.
+    const pinnedCharlie = { ...charlie, is_pinned: true };
+    const out = filterAndSortPrograms([alpha, bravo, pinnedCharlie], {
       query: '',
       methodology: 'ALL',
       sortKey: 'name',
-      pinnedIds: ['c'],
     });
-    // Charlie pinned → leads even though it is last alphabetically.
-    expect(ids(out)).toEqual(['c', 'a', 'b']);
+    expect(ids(out)).toEqual(['a', 'b', 'c']);
   });
 
   it('filters by name (case-insensitive substring)', () => {
@@ -102,7 +103,6 @@ describe('filterAndSortPrograms', () => {
       query: 'brav',
       methodology: 'ALL',
       sortKey: 'recent',
-      pinnedIds: [],
     });
     expect(ids(out)).toEqual(['b']);
   });
@@ -114,7 +114,6 @@ describe('filterAndSortPrograms', () => {
           query: 'CHR',
           methodology: 'ALL',
           sortKey: 'recent',
-          pinnedIds: [],
         }),
       ),
     ).toEqual(['c']);
@@ -124,7 +123,6 @@ describe('filterAndSortPrograms', () => {
           query: 'billing',
           methodology: 'ALL',
           sortKey: 'recent',
-          pinnedIds: [],
         }),
       ),
     ).toEqual(['a']);
@@ -135,7 +133,6 @@ describe('filterAndSortPrograms', () => {
       query: '',
       methodology: 'AGILE',
       sortKey: 'recent',
-      pinnedIds: [],
     });
     expect(ids(out)).toEqual(['b']);
   });
@@ -145,7 +142,6 @@ describe('filterAndSortPrograms', () => {
       query: 'a',
       methodology: 'WATERFALL',
       sortKey: 'recent',
-      pinnedIds: [],
     });
     expect(ids(out)).toEqual(['a']);
   });
@@ -155,7 +151,6 @@ describe('filterAndSortPrograms', () => {
       query: 'zzz-no-such-program',
       methodology: 'ALL',
       sortKey: 'recent',
-      pinnedIds: [],
     });
     expect(out).toEqual([]);
   });
@@ -166,7 +161,6 @@ describe('filterAndSortPrograms', () => {
       query: '',
       methodology: 'ALL',
       sortKey: 'name',
-      pinnedIds: [],
     });
     expect(ids(input)).toEqual(['a', 'b', 'c']);
   });

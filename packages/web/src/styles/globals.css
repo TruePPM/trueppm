@@ -467,6 +467,20 @@
     animation: checkpop 220ms cubic-bezier(.34, 1.56, .64, 1);
   }
 
+  /* Pin created (#2390, ADR-0627) — the glyph pops once when a pin is ADDED.
+     Unpinning deliberately has no scale, only the color/fill fade: removing a
+     thing should not draw the eye back to the spot it left. Applied under
+     `motion-safe:` at the call site (rule 70 motion contract), so no @media
+     guard is needed here. */
+  @keyframes pin-pop {
+    0%   { transform: scale(1);    }
+    45%  { transform: scale(1.14); }
+    100% { transform: scale(1);    }
+  }
+  .animate-pin-pop {
+    animation: pin-pop 180ms cubic-bezier(.34, 1.56, .64, 1);
+  }
+
   /* Global toast entrance (v2 fluidity, ADR-0126) — the toast rises + fades in
      from below. v2 timing: 240ms on the brand ease. motion-safe at the class
      layer (rule 70), so no @media guard is needed here. */

@@ -249,7 +249,7 @@ export function ProgramProjectsPage() {
                 id={p.id}
                 name={p.name}
                 pinned={p.isPinned ?? false}
-                placement="row"
+                size="sm"
               />
               {isAdmin && (
                 <button

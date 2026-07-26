@@ -261,7 +261,7 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
     await expect(rail).toBeVisible({ timeout: 10_000 });
 
     // Programs live in the Tier-3 Browse switcher; open it, then pin the program
-    // header's ★ toggle (hover-revealed; Playwright hovers as part of click).
+    // header's pin toggle (hover-revealed; Playwright hovers as part of click).
     await rail.getByRole('button', { name: 'Browse projects and programs' }).click();
     await rail.getByRole('button', { name: 'Pin Atlas Program' }).click();
 

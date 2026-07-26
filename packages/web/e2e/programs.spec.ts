@@ -875,23 +875,40 @@ test.describe('Programs — directory filter & sort (#1796)', () => {
   });
 });
 
-test.describe('Programs — mobile touch affordances (#1802)', () => {
-  // The card pin star reveals on hover/focus on desktop, but a phone has no
-  // hover — below `md` it must be always-visible (max-md:opacity-100) so an
-  // unpinned program's pin affordance is discoverable by touch.
-  test('pin star is visible without hover below md', async ({ page }) => {
+test.describe('Programs — mobile touch affordances (#1802, #2390)', () => {
+  // Reveal is a POINTER CAPABILITY, not a breakpoint (#2390, design §3.4).
+  // `hasTouch` + `isMobile` are what make `(pointer: coarse)` / `(hover: none)`
+  // actually match — a bare `setViewportSize` leaves Chromium on a fine pointer,
+  // so the old viewport-only version of this test would have passed against a
+  // `md:`-gated reveal that is broken on every real tablet.
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test('an UNPINNED pin renders at 60% on a coarse pointer — enough to invite a tap', async ({
+    page,
+  }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
-    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/programs');
 
     const pin = page.getByRole('button', { name: `Pin ${FIXTURE_PROGRAM.name}` });
     await expect(pin).toBeVisible();
-    // A 44px hit target that is actually opaque on a phone (not opacity-0).
-    await expect(pin).toHaveCSS('opacity', '1');
+    // Not opacity-0 (untappable) and deliberately not 1 either: a dozen fully-lit
+    // pins would out-shout the program names they sit beside.
+    await expect(pin).toHaveCSS('opacity', '0.6');
     const box = await pin.boundingBox();
     expect(box).not.toBeNull();
     expect(box!.width).toBeGreaterThanOrEqual(44);
     expect(box!.height).toBeGreaterThanOrEqual(44);
+  });
+
+  test('a PINNED pin stays at full strength — a pin you cannot see cannot be undone', async ({
+    page,
+  }) => {
+    await setup(page, { existingPrograms: [{ ...FIXTURE_PROGRAM, is_pinned: true }] });
+    await page.goto('/programs');
+
+    const pin = page.getByRole('button', { name: `Unpin ${FIXTURE_PROGRAM.name}` });
+    await expect(pin).toBeVisible();
+    await expect(pin).toHaveCSS('opacity', '1');
   });
 });
 

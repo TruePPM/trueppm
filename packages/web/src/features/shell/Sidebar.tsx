@@ -785,7 +785,8 @@ function PinnedTier({
                   id={prog.id}
                   name={prog.name}
                   pinned
-                  placement="rail"
+                  size="sm"
+                tone="chrome"
                 />
               </div>
             );
@@ -1192,7 +1193,8 @@ function BrowseContent({
                 id={prog.id}
                 name={prog.name}
                 pinned={prog.is_pinned ?? false}
-                placement="rail"
+                size="sm"
+                tone="chrome"
               />
             </div>
             {isExpanded && (
@@ -1500,7 +1502,7 @@ function ProgramViewsTier({
   );
 }
 
-/** One project row — health dot + name (opens overview) + open-task count + a ★ pin toggle. */
+/** One project row — health dot + name (opens overview) + open-task count + a pin toggle. */
 function ProjectRow({
   id,
   name,
@@ -1542,7 +1544,8 @@ function ProjectRow({
           {openTaskCount}
         </span>
       )}
-      <PinToggle kind="project" id={id} name={name} pinned={pinned} placement="rail" />
+      <PinToggle kind="project" id={id} name={name} pinned={pinned} size="sm"
+                tone="chrome" />
     </div>
   );
 }

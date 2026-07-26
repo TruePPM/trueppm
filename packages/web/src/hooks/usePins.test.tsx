@@ -19,6 +19,8 @@ const postMock = vi.fn();
 const deleteMock = vi.fn();
 const toastInfo = vi.fn();
 const toastError = vi.fn();
+const toastAction = vi.fn();
+const toastDismiss = vi.fn();
 
 vi.mock('@/api/client', () => ({
   apiClient: {
@@ -35,8 +37,21 @@ vi.mock('@/components/Toast', () => ({
     error: (...a: unknown[]) => {
       toastError(...a);
     },
+    action: (...a: unknown[]) => {
+      toastAction(...a);
+      return 'toast-id';
+    },
+    dismiss: (...a: unknown[]) => {
+      toastDismiss(...a);
+    },
   },
 }));
+
+/** The action object handed to `toast.action` for the most recent call. */
+function lastToastAction(): { label: string; onClick: () => void } {
+  const call = toastAction.mock.calls.at(-1);
+  return call?.[1] as { label: string; onClick: () => void };
+}
 
 function makeWrapper(qc: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -154,15 +169,121 @@ describe('useTogglePin — failure handling', () => {
     });
   });
 
-  it('falls back to a generic retry message for an unrecognized failure', async () => {
+  it('falls back to a generic message plus Retry for an unrecognized failure', async () => {
     postMock.mockRejectedValue(new Error('network'));
     const qc = newClient();
     const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
     act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true }));
 
     await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith("Couldn't pin Alpha — try again.");
+      expect(toastAction).toHaveBeenCalledWith(
+        "Couldn't pin Alpha — try again.",
+        expect.objectContaining({ label: 'Retry' }),
+        expect.objectContaining({ variant: 'error' }),
+      );
     });
+  });
+
+  it('offers NO retry on the cap — the one failure retrying cannot fix', async () => {
+    postMock.mockRejectedValue({
+      response: { status: 400, data: { code: 'pin_limit_reached' } },
+    });
+    const qc = newClient();
+    const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
+    act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    // A Retry button here would invite the user to hammer a guaranteed failure.
+    expect(toastAction).not.toHaveBeenCalled();
+  });
+});
+
+describe('useTogglePin — the Undo toast', () => {
+  it('offers Undo, and undoing re-enters with the inverse state', async () => {
+    postMock.mockResolvedValue({ data: {} });
+    deleteMock.mockResolvedValue({ data: {} });
+    const qc = newClient();
+    const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
+    act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true }));
+
+    await waitFor(() =>
+      expect(toastAction).toHaveBeenCalledWith(
+        'Pinned Alpha',
+        expect.objectContaining({ label: 'Undo' }),
+        expect.anything(),
+      ),
+    );
+
+    act(() => lastToastAction().onClick());
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/projects/p1/pin/'));
+  });
+
+  it('does not toast the undo itself — two toasts each undoing the other never ends', async () => {
+    postMock.mockResolvedValue({ data: {} });
+    deleteMock.mockResolvedValue({ data: {} });
+    const qc = newClient();
+    const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
+    act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true }));
+    await waitFor(() => expect(toastAction).toHaveBeenCalledTimes(1));
+
+    act(() => lastToastAction().onClick());
+    await waitFor(() => expect(deleteMock).toHaveBeenCalled());
+    expect(toastAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces the previous pin toast so Undo always means the newest pin', async () => {
+    postMock.mockResolvedValue({ data: {} });
+    const qc = newClient();
+    const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
+    act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true }));
+    await waitFor(() => expect(toastAction).toHaveBeenCalledTimes(1));
+    act(() => result.current.mutate({ kind: 'project', id: 'p2', name: 'Beta', next: true }));
+    await waitFor(() => expect(toastAction).toHaveBeenCalledTimes(2));
+
+    expect(toastDismiss).toHaveBeenCalledWith('toast-id');
+  });
+
+  it('offers "Re-sort now" instead of Undo where the list held its order', async () => {
+    postMock.mockResolvedValue({ data: {} });
+    const onResort = vi.fn();
+    const qc = newClient();
+    const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
+    act(() =>
+      result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true, onResort }),
+    );
+
+    await waitFor(() =>
+      expect(toastAction).toHaveBeenCalledWith(
+        "Pinned Alpha — it'll move to the top next time",
+        expect.objectContaining({ label: 'Re-sort now' }),
+        expect.anything(),
+      ),
+    );
+    act(() => lastToastAction().onClick());
+    expect(onResort).toHaveBeenCalled();
+  });
+
+  it('keeps Undo — not Re-sort — when UNpinning from a grouped list', async () => {
+    deleteMock.mockResolvedValue({ data: {} });
+    const qc = newClient();
+    const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
+    act(() =>
+      result.current.mutate({
+        kind: 'project',
+        id: 'p1',
+        name: 'Alpha',
+        next: false,
+        onResort: vi.fn(),
+      }),
+    );
+
+    await waitFor(() =>
+      expect(toastAction).toHaveBeenCalledWith(
+        'Unpinned Alpha',
+        expect.objectContaining({ label: 'Undo' }),
+        expect.anything(),
+      ),
+    );
   });
 });
 
@@ -178,13 +299,19 @@ describe('useTogglePin — toast timing', () => {
     const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
     act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true }));
 
-    // Optimistic phase: the star has already flipped, but claiming "Pinned
+    // Optimistic phase: the pin has already flipped, but claiming "Pinned
     // Alpha" here would be followed by "Couldn't pin Alpha" on failure — two
     // contradictory messages stacked in the same live region.
-    expect(toastInfo).not.toHaveBeenCalled();
+    expect(toastAction).not.toHaveBeenCalled();
 
     act(() => resolvePost({ data: {} }));
-    await waitFor(() => expect(toastInfo).toHaveBeenCalledWith('Pinned Alpha'));
+    await waitFor(() =>
+      expect(toastAction).toHaveBeenCalledWith(
+        'Pinned Alpha',
+        expect.anything(),
+        expect.anything(),
+      ),
+    );
   });
 
   it('says "Unpinned" when removing', async () => {
@@ -192,7 +319,13 @@ describe('useTogglePin — toast timing', () => {
     const qc = newClient();
     const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
     act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: false }));
-    await waitFor(() => expect(toastInfo).toHaveBeenCalledWith('Unpinned Alpha'));
+    await waitFor(() =>
+      expect(toastAction).toHaveBeenCalledWith(
+        'Unpinned Alpha',
+        expect.anything(),
+        expect.anything(),
+      ),
+    );
     expect(deleteMock).toHaveBeenCalledWith('/projects/p1/pin/');
   });
 });

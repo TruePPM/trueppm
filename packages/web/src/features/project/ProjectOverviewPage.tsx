@@ -243,7 +243,8 @@ function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
               id={projectId}
               name={project.name}
               pinned={project.is_pinned}
-              placement="header"
+              size="lg"
+              reveal="always"
             />
           )}
           <button

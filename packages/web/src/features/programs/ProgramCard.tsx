@@ -6,6 +6,9 @@ import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 
 interface Props {
   program: Program;
+  /** Passed through to the pin toggle by list surfaces that group pinned cards
+   *  and hold their order steady across a pin — see `ProgramListPage`. */
+  onResort?: () => void;
 }
 
 /**
@@ -50,7 +53,7 @@ function roleChipClasses(role: number | null): string {
  * Methodology, project count, and member count render in `tppm-mono` so the
  * row reads consistently with other count surfaces in the app.
  */
-export function ProgramCard({ program }: Props) {
+export function ProgramCard({ program, onResort }: Props) {
   const health = program.health !== 'AUTO' ? HEALTH_DOT[program.health] : null;
   const targetLabel = program.target_date ? fmtUtcShort(program.target_date) : null;
   // The whole card is a single <Link>, so its aria-label REPLACES the inner text
@@ -69,12 +72,21 @@ export function ProgramCard({ program }: Props) {
       <Link
         to={`/programs/${program.id}/projects`}
         aria-label={ariaLabel}
-        className="flex h-full flex-col gap-2 rounded-card border border-neutral-border bg-neutral-surface p-4
+        // A pinned card also takes an accent border (design §4.3): scanning 24
+        // cards, a 18px corner glyph is too small to group by, so the border is
+        // the group cue and the glyph is only the control. Safe as a hue here in
+        // a way the glyph is not — health on this card is a dot plus a word, and
+        // nothing else uses a tinted border, so there is no status to confuse it
+        // with.
+        className={`flex h-full flex-col gap-2 rounded-card border bg-neutral-surface p-4
           transition-[transform,border-color] duration-fast ease-brand
-          hover:border-brand-primary/40 motion-safe:hover:-translate-y-px
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          motion-safe:hover:-translate-y-px
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+          ${program.is_pinned ? 'border-brand-primary/40' : 'border-neutral-border hover:border-brand-primary/40'}`}
       >
-        <div className="flex items-start gap-2.5">
+        {/* Right padding reserves the pin's corner so a two-line program name —
+            or a wide "Project Manager" role chip — never runs under it. */}
+        <div className="flex items-start gap-2.5 pr-9">
           <ProgramIdentitySquare program={program} size="lg" showLabel />
           <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
             <h2 className="min-w-0 truncate text-sm font-semibold text-neutral-text-primary">
@@ -108,15 +120,17 @@ export function ProgramCard({ program }: Props) {
         </div>
       </Link>
       {/* Pin toggle is a Link SIBLING (not nested — a button inside an anchor is
-          invalid) positioned over the free bottom-right corner so it never
-          collides with the top-right role chip. */}
+          invalid), corner-anchored inside the card's padding box per design
+          §4.3. The title row's `pr-9` above is what keeps it clear of the name
+          and the role chip. */}
       <PinToggle
         kind="program"
         id={program.id}
         name={program.name}
         pinned={program.is_pinned}
-        placement="row"
-        className="absolute bottom-1.5 right-1.5 z-10"
+        size="md"
+        onResort={onResort}
+        className="absolute right-1.5 top-1.5 z-10"
       />
     </li>
   );

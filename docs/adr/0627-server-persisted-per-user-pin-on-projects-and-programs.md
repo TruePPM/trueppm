@@ -525,6 +525,170 @@ server-only, overlapping, failure-keeps-keys, cap-400-keeps-keys, sentinel-short
 **Landing behavior is unchanged.** A pin must not rewrite where `/` sends you — that is
 `UserProfile.default_landing` (ADR-0129), a separate explicit preference.
 
+---
+
+## Design revision (2026-07-26) — D11–D15
+
+A full visual design for the pin system landed after D1–D10 were written
+(`Pin System.html`, Claude Design project `e01d4825`). It agrees with the data model,
+the privacy shape, and the surface list, and **supersedes** the "no user-visible churn"
+framing of D8 and the Context note that put the glyph out of scope. These five decisions
+record where the design won, and the one place it could not be followed literally.
+
+### D11 — Glyph: a map pin, not a star
+
+**Superseded:** Context correction #2 ("the glyph is unchanged by this ADR").
+
+The design is categorical: *"never star, never favourite, never bookmark"*, on the grounds
+that a star reads as **rate this** to half an audience and **favorite** to the other half,
+while a pin is spatial — *hold this where I can see it* — which is exactly what the rail
+group does.
+
+D1 kept the **word** "Pin" and D1.1 accepted the resulting collision. Shipping a star-shaped
+glyph under that word was the weakest part of the compromise: the noun, the verb, the group
+heading, the endpoint, and the toast all said *pin* while the picture said *star*.
+
+Adopted: the design's teardrop map pin at 16/18/20px, filled with a knocked-out hole when
+pinned and stroked when not. Two collisions were checked before adopting it:
+
+- **`Icons.tsx::PinIcon` is a thumbtack**, used for `TaskNote.pinned` / `TaskAttachment.is_pinned`
+  / mobile-nav view pins. A teardrop map pin is plainly a different shape, so D1.1's
+  *shared vs private* distinction now has a visual carrier it did not have before.
+- **`★` is already spoken for** elsewhere in the app — the board lens banner, the CalmToolbar,
+  and `SprintClosedOutcome`'s demo-ready marker. Leaving the pin as a star kept a fourth
+  meaning on one glyph.
+
+The hole is a genuine `fill-rule="evenodd"` knock-out over a single path, not a
+background-colored dot, so it inherits the row, the hover plate, and the focus ring with no
+color to keep in sync.
+
+### D12 — Pinned ink stays **neutral**; the design's brand accent is not adoptable here
+
+**The one place the design is not followed literally.** It specifies the pinned glyph in
+`--brand-primary` (`#1C6B3A` light / `#7DD3A8` dark). In this token set that is not available
+as an accent, because:
+
+```
+--brand-primary:      49 111 87    /* light */      --semantic-on-track: 49 111 87
+--brand-primary:      102 185 152  /* dark  */      --semantic-on-track: 102 185 152
+```
+
+`globals.css:112,130` and `:118,137` — **the same value**. A brand-filled pin therefore renders
+in precisely the "On track" health hue, and it lands next to health in both places it is most
+used: beside the health chip on the Project Overview header, and beside the health dot on every
+rail row. A pinned at-risk project would show an orange dot and a green pin on one line.
+
+The design's own rule settles it — *"No colour-only difference — the glyph fill changes too, so
+it survives greyscale and colour-blind vision"* — so hue is decorative here by the design's own
+construction, and dropping it costs nothing the design relies on. State is carried by fill
+(solid vs outline), ink weight (primary vs secondary), and `aria-pressed`.
+
+The **card accent border** in §4.3 *is* adopted in brand: a border is not confusable with a
+health dot, health on that card is a dot plus a word, and nothing else on it uses a tinted
+border. Tested by `PinToggle.test.tsx` ("the pinned pin is not a status") and
+`ProgramCard.test.tsx`.
+
+> If the brand accent is wanted later, it needs a pin-specific token that is provably distinct
+> from `--semantic-on-track` in both themes — not a reuse of `--brand-primary`.
+
+### D13 — Reveal is a pointer **capability**, not a breakpoint
+
+**Supersedes D10's** "port `ProgramCard`'s `max-md:opacity-100` onto `PinToggle`".
+
+`max-md:` fixes phones and leaves the actual gap open: a tablet and a Windows touch laptop are
+both **wider** than `md` and neither fires `:hover`, so an unpinned toggle stayed at
+`opacity-0` there — a first pin could not be created at all, only found by a lucky tap on an
+invisible 44px box. The old E2E guard (`programs.spec.ts`, "pin star is visible without hover
+below md") resized the viewport but left Chromium on a *fine* pointer, so it would have passed
+against exactly the bug it was meant to catch.
+
+Adopted, in the design's precedence order:
+
+1. **Pinned is always full strength** — a pin you cannot see is a pin you cannot undo.
+2. **Unpinned + coarse pointer → 60%, always rendered** (`@media (hover:none),(pointer:coarse)`).
+   Not 100%: a dozen fully-lit pins out-shout the names beside them.
+3. **Unpinned + fine pointer → hover-revealed**, and on `:focus` regardless of hover.
+4. **Never `display:none`** — opacity only, so the control keeps its box, tab order, and
+   screen-reader presence at all times.
+
+Rules 1–2 are resolved in **JS from the `pinned` prop**, not by stacking `aria-pressed:` over a
+media variant: those are equal-specificity in Tailwind and their order is an implementation
+detail of the generator, not something to bet the touch path on.
+
+Also from the design, same decision: **44×44 at every size** (the header was `md:h-7 md:w-7` —
+a 28px target, a straight 2.5.5 violation), an **inset** focus ring so a 44px control in a 36px
+dense row cannot clip it, and the `sm` size painting a 36px plate while a `before:inset-[-4px]`
+bleed restores the 44px target (rule 211 / #2207 — `min-w` would reflow the row).
+
+The design's *last-input-type* subscription for hybrid touch laptops is **not** implemented:
+it assumes a tracker this codebase does not have (`useIsCoarsePointer` is a live matchMedia
+subscription, not an input-event history). The CSS capability query covers every device that
+reports coarse; a mouse-and-touch hybrid still gets the hover-reveal. Filed as follow-up.
+
+### D14 — The toast carries **Undo**; ordering defers instead of floating
+
+**Supersedes D7 rule 3** ("pinned float to the top of every sort"), which shipped as a silent
+partition plus the static sentence *"Pinned programs shown first."*
+
+Two defects the design names, both real here:
+
+1. **A silent float reads as a broken sort.** "Depot Electrification, 40m ago" rendering below
+   "Northgate, 3d ago" under a control that plainly says *Recently active* is
+   indistinguishable from a bug. Adopted: two labelled groups — `Pinned · 3` /
+   `Everything else · 9` — each heading carrying its count *and* restating that the chosen
+   sort still applies inside it. Real `<h2>`s in presentational `<li>`s, so the grid keeps one
+   row track and the list keeps one accessible name and one item count.
+2. **Live re-ordering makes every pin feel like a mistake.** Adopted: grouping membership is
+   seeded once per mount and then **held still**. Pinning marks the card in place; the move
+   lands on the next visit or immediately via **"Re-sort now"** in the toast.
+
+`filterAndSortPrograms` loses its `pinnedIds` parameter entirely — grouping supersedes it, and
+leaving a dead float in a pure sort function invites it to be re-enabled by accident.
+
+**Toasts** gain the design's §5.3 shape: `Pinned {name}` / `Unpinned {name}` with **Undo**;
+`Pinned {name} — it'll move to the top next time` with **Re-sort now** on a grouped list;
+`Couldn't pin {name}` with **Retry**. 6s, 10s on a coarse pointer. **One pin toast at a time** —
+a second replaces the first, so the Undo on screen always belongs to the newest pin rather than
+to whichever of four identical buttons the user guesses at.
+
+Two deliberate exceptions: the undo of a pin is **silent** (two toasts each offering to undo
+the other never terminates), and the **cap error gets no Retry** — it is the one failure
+retrying cannot fix.
+
+**A "Pinned first" toggle** persists per browser (`trueppm.programs.pinnedFirst`, default on)
+and is the escape hatch: off returns one flat list in pure sort order with pinned cards keeping
+their glyph. Sort and grouping are independent controls; neither silently overrides the other.
+Searching flattens the groups so relevance is never overridden by pin state mid-search.
+
+### D15 — ⌘K: a Pinned strip, pin commands, and `⌥P` — **not** a bare `P`
+
+D10 anticipated this row; the design specifies it. Adopted:
+
+- A **`pinned` group leading `recent`** in the cold (empty-query) palette, hidden the moment a
+  query is typed. Pinned leads because a pin is a standing intent the user declared and a
+  recent visit is only where they happened to be.
+- **`Pin {name}` / `Unpin {name}` as searchable commands**, query-gated — cold, an Unpin command
+  for every reachable project would bury the navigation the palette exists to provide.
+- An **in-place accelerator** on the highlighted row that does not close the palette, so
+  pinning several projects in one visit is one keyboard sequence.
+
+**The accelerator is `⌥P`/`Alt+P`, not the design's bare `P`.** Focus lives in the palette's
+search input by construction, so an unmodified letter has to type — a bare `P` would either
+break search or silently not fire. `⌘P`/`Ctrl+P` is Print. `Alt` is the one modifier that is
+neither browser-reserved nor already bound in this dialog. The footer advertises the key only
+while the highlighted row is actually pinnable; a hint for a key that does nothing is worse
+than no hint.
+
+### Deferred from the design — filed, not dropped
+
+| Design section | Why deferred |
+|---|---|
+| §4.1 manual drag order inside the rail group (`position` column) | New nullable column + migration + a drag-and-drop surface. Independent of everything above; `pinned_at desc` is the design's own documented fallback |
+| §4.5 location-picker pinned group + `indicatorOnly` | There is no "Move task to project" picker with pinned grouping in the tree today; adding the prop now would ship an API with no call site |
+| §5.3 bulk-pin summary toast ("Pinned 4 projects · Undo") | No multi-select on any pinnable surface yet |
+| §7.1 offline queue in IndexedDB | Contradicts **D3** (pins are deliberately outside the sync delta). The shipped behavior — an explicit "you're offline" toast — is the D3-consistent one; revisit only if D3 is revisited |
+| §3.4 last-input-type subscription (hybrid touch laptops) | Needs an input-history tracker the codebase does not have — see D13 |
+
 ## Alternatives Considered
 
 | Option | Pros | Cons |
@@ -547,8 +711,10 @@ server-only, overlapping, failure-keeps-keys, cap-400-keeps-keys, sentinel-short
 
 - Pins follow the user across browsers and devices, and are a first-class API fact — an MCP
   client can finally answer *"what are my pinned programs?"* (ADR-0599 satisfied).
-- **Zero user-visible churn.** No copy, glyph, aria-label, toast, heading, doc, or E2E
-  assertion changes — users of the current build see the same words for the same concept.
+- **Zero *vocabulary* churn.** No copy, aria-label, or heading changes — the noun, the verb,
+  the group, and the endpoint all still say *pin*. (The **glyph** does change, star → map pin,
+  per D11; that is a picture change, not a rename, and it makes the word and the icon agree
+  for the first time.)
 - `is_pinned` costs one `Exists()` per list query on an index that already exists for the unique
   constraint — no N+1, no new query class.
 - `shellStore` sheds two persisted collections and gets closer to its ADR-0127 charter

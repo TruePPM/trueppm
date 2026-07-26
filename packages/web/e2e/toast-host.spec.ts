@@ -11,7 +11,7 @@ import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 const PROJECT_ID = 'e2e-toast-00000000-0000-0000-0000-000000001225';
 
 // A standalone project (no `program`) renders in the rail's Tier-3 Browse
-// switcher "Projects" list, so its ★ pin control is reachable once the switcher
+// switcher "Projects" list, so its pin control is reachable once the switcher
 // is opened, without expanding a program tree.
 const FIXTURE_PROJECTS = [
   {
@@ -40,7 +40,7 @@ test.describe('global toast host (#1225)', () => {
     const rail = page.getByRole('complementary', { name: 'Primary navigation' });
     await expect(rail).toBeVisible({ timeout: 10_000 });
 
-    // The standalone project's ★ pin control lives in the Tier-3 Browse switcher
+    // The standalone project's pin control lives in the Tier-3 Browse switcher
     // (#1642); open it, then pin (hover-revealed; Playwright hovers as part of
     // click). Pinning is an app-wide action.
     await rail.getByRole('button', { name: 'Browse projects and programs' }).click();
@@ -49,5 +49,40 @@ test.describe('global toast host (#1225)', () => {
 
     // The global toast announces the result bottom-center, politely.
     await expect(page.getByText('Pinned Toast Demo Project')).toBeVisible();
+  });
+
+  test('the pin toast carries a working Undo (#2390)', async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
+
+    // Record both directions: Undo must issue the DELETE that reverses the POST,
+    // not merely flip the glyph back in the cache.
+    const writes: string[] = [];
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/pin/`, (route) => {
+      writes.push(route.request().method());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    const rail = page.getByRole('complementary', { name: 'Primary navigation' });
+    await expect(rail).toBeVisible({ timeout: 10_000 });
+    await rail.getByRole('button', { name: 'Browse projects and programs' }).click();
+    await rail.getByRole('button', { name: 'Pin Toast Demo Project' }).click();
+
+    await expect(page.getByText('Pinned Toast Demo Project')).toBeVisible();
+    await page.getByRole('button', { name: /Undo pinning Toast Demo Project/i }).click();
+
+    // Unpinning is not destructive and never asks for confirmation — the Undo is
+    // the whole safety net, so it has to actually reach the server.
+    await expect.poll(() => writes).toEqual(['POST', 'DELETE']);
+
+    // The toast sits outside the Browse popover, so clicking Undo dismisses it;
+    // re-open to confirm the row itself went back to "Pin", not just the network.
+    await rail.getByRole('button', { name: 'Browse projects and programs' }).click();
+    await expect(rail.getByRole('button', { name: 'Pin Toast Demo Project' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
   });
 });

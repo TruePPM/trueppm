@@ -60,7 +60,7 @@ function UngroupedRow({
           id={project.id}
           name={project.name}
           pinned={project.isPinned}
-          placement="row"
+          size="sm"
         />
         <button
           type="button"

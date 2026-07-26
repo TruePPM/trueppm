@@ -8,7 +8,8 @@ import {
 import { createPortal } from 'react-dom';
 
 import { SearchIcon } from '@/components/Icons';
-import { modifierKeyLabel } from '@/lib/platform';
+import { altKeyLabel, modifierKeyLabel } from '@/lib/platform';
+import { useTogglePin } from '@/hooks/usePins';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
@@ -24,6 +25,7 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
   person: 'People',
   epic: 'Epics',
   story: 'Stories',
+  pinned: 'Pinned',
   recent: 'Recent',
   jump: 'Jump to',
   settings: 'Settings',
@@ -37,8 +39,9 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
 // (#2334) sits with them so every task-finding result reads as one block before
 // `current` (in-context role targets), then the query-gated global searches — `person`
 // (people), `epic` + `story` (cross-program Epic/Story omni-search, ADR-0508 D4) —
-// sit above `recent` (cold-only recently-visited projects, ADR-0508) and the global
-// navigation.
+// sit above the two cold-only strips and the global navigation. `pinned` (#2390)
+// leads `recent`: a pin is a standing intent the user declared, a recent visit is
+// only where they happened to be, so an empty query opens on Pinned then Recent.
 const GROUP_ORDER: CommandItem['group'][] = [
   'sprint',
   'sprintTask',
@@ -48,6 +51,7 @@ const GROUP_ORDER: CommandItem['group'][] = [
   'person',
   'epic',
   'story',
+  'pinned',
   'recent',
   'jump',
   'settings',
@@ -333,6 +337,9 @@ export function CommandPalette() {
   // Escape is routed here (the hook stopPropagation's it), so the input's
   // onKeyDown no longer handles Escape — avoids a rule-204 double-fire.
   const trapRef = useFocusTrap<HTMLDivElement>(open, () => setOpen(false));
+  // Shared with every other pin surface, so a pin made here lands in the rail,
+  // the header, and the cards without a refetch.
+  const togglePin = useTogglePin();
 
   // Build live items only while open so the Tier-2 detail queries stay inert; the
   // query drives the server-side people tier (ADR-0401).
@@ -418,6 +425,25 @@ export function CommandPalette() {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       activeItem?.run();
+    } else if (e.altKey && (e.key === 'p' || e.key === 'P')) {
+      // Pin/unpin the highlighted row in place — the keyboard-only path that
+      // needs no glyph at all (#2390, design §4.6).
+      //
+      // The design draws this accelerator as a bare `P`. It cannot be bare here:
+      // focus lives in the search input by construction, so an unmodified letter
+      // has to type. `Alt`/`⌥` is the one modifier that is neither browser-
+      // reserved (⌘P / Ctrl+P is Print) nor already bound in this dialog.
+      const target = activeItem?.pinTarget;
+      if (!target) return;
+      e.preventDefault();
+      // Deliberately does NOT close the palette: pinning several projects in one
+      // visit is the whole point of a keyboard path.
+      togglePin.mutate({
+        kind: target.kind,
+        id: target.id,
+        name: target.name,
+        next: !target.pinned,
+      });
     }
   };
 
@@ -505,6 +531,14 @@ export function CommandPalette() {
               ? 'open in drawer'
               : 'open'}
           </span>
+          {/* Only advertised while the highlighted row can actually be pinned —
+              a hint for a key that does nothing here is worse than no hint. */}
+          {activeItem?.pinTarget && (
+            <span>
+              <kbd className="tppm-mono">{altKeyLabel()}P</kbd>{' '}
+              {activeItem.pinTarget.pinned ? 'unpin' : 'pin'}
+            </span>
+          )}
           <span className="ml-auto tppm-mono">{modifierKeyLabel()}K</span>
         </div>
       </div>

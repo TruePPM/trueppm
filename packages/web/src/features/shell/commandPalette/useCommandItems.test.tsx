@@ -56,6 +56,16 @@ vi.mock('@/hooks/useRecentProjects', () => ({
   useRecentProjects: (enabled?: boolean) => recentSearch(enabled),
 }));
 
+// Pinned tier (#2390). Default to no pins; a test sets `pinnedResults` + a cold
+// (empty) query to assert the pinned items. `togglePin` is a spy so the palette's
+// pin/unpin commands can be asserted without a live mutation.
+let pinnedResults: import('@/api/types').PinnedItem[] = [];
+const togglePin = vi.fn();
+vi.mock('@/hooks/usePins', () => ({
+  usePinned: () => ({ data: pinnedResults }),
+  useTogglePin: () => ({ mutate: togglePin, isPending: false }),
+}));
+
 // Deterministic relative-time so the recent detail line is stable in assertions.
 vi.mock('@/lib/formatRelative', () => ({ formatRelative: () => '2h ago' }));
 
@@ -158,6 +168,7 @@ afterEach(() => {
   recentResults = [];
   omniResults = [];
   labelCatalog = [];
+  pinnedResults = [];
   vi.clearAllMocks();
   canManage.mockImplementation((pid?: string) => !!pid);
   sprintTargets.mockImplementation((pid?: string) =>
@@ -468,6 +479,83 @@ describe('useCommandItems — tier assembly', () => {
     expect(navigate).toHaveBeenCalledWith('/projects/p1/overview');
     // The hook was gated ON only because the query is empty (cold).
     expect(recentSearch).toHaveBeenCalledWith(true);
+  });
+
+  it('lists the caller\'s pins cold, ABOVE Recent', () => {
+    pinnedResults = [
+      {
+        kind: 'project',
+        id: 'p9',
+        name: 'Harbor Point',
+        code: 'HP',
+        program_id: 'prog1',
+        program_name: 'Platform',
+        pinned_at: 'z',
+      },
+    ];
+    recentResults = [
+      { id: 'p1', name: 'Atlas', program_id: 'prog1', program_name: 'Platform', visited_at: 'x' },
+    ];
+    const { result } = renderHook(() => useCommandItems(true, '')); // cold
+    const items = result.current;
+    const harbor = byId(items).get('pinned:project:p9');
+    expect(harbor?.group).toBe('pinned');
+    expect(harbor?.tag).toBe('Project');
+    expect(harbor?.detail).toBe('Platform');
+    // A pin is a standing intent; a recent visit is only where the user happened
+    // to be. The declared one leads.
+    expect(items.findIndex((i) => i.group === 'pinned')).toBeLessThan(
+      items.findIndex((i) => i.group === 'recent'),
+    );
+    harbor?.run();
+    expect(navigate).toHaveBeenCalledWith('/projects/p9/overview');
+  });
+
+  it('drops the Pinned strip once a query is typed', () => {
+    pinnedResults = [
+      {
+        kind: 'program',
+        id: 'g9',
+        name: 'Port Modernization',
+        code: null,
+        program_id: null,
+        program_name: null,
+        pinned_at: 'z',
+      },
+    ];
+    const { result } = renderHook(() => useCommandItems(true, 'port'));
+    expect(result.current.some((i) => i.group === 'pinned')).toBe(false);
+  });
+
+  it('exposes Pin/Unpin as searchable commands, but only once a query is typed', () => {
+    // Cold, an Unpin command for every reachable project would bury the
+    // navigation the palette exists to provide.
+    const cold = renderHook(() => useCommandItems(true, ''));
+    expect(cold.result.current.some((i) => i.id.startsWith('action:pin:'))).toBe(false);
+
+    const { result } = renderHook(() => useCommandItems(true, 'atlas'));
+    const cmd = byId(result.current).get('action:pin:project:p1');
+    expect(cmd?.label).toBe('Pin Atlas');
+    expect(cmd?.group).toBe('action');
+    cmd?.run();
+    expect(togglePin).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'project', id: 'p1', next: true }),
+    );
+  });
+
+  it('carries a pin target on navigable project and program rows', () => {
+    const { result } = renderHook(() => useCommandItems(true, ''));
+    const items = byId(result.current);
+    expect(items.get('jump:project:p1')?.pinTarget).toEqual({
+      kind: 'project',
+      id: 'p1',
+      name: 'Atlas',
+      pinned: false,
+    });
+    expect(items.get('jump:program:prog1')?.pinTarget).toMatchObject({
+      kind: 'program',
+      id: 'prog1',
+    });
   });
 
   it('drops Recent and gates its fetch OFF once a query is typed', () => {

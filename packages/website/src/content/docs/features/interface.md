@@ -130,13 +130,34 @@ away regardless of how many you can see.
 
 Pin from any of these:
 
-- the **star in the Project Overview header**, beside the project's actions;
-- the **star beside a program's name** on its Overview;
-- the **star in the corner of a program card** on the Programs directory;
-- the **project and program rows** in the sidebar's Browse switcher.
+- the **pin in the Project Overview header**, beside the project's actions;
+- the **pin beside a program's name** on its Overview;
+- the **pin in the top corner of a program card** on the Programs directory;
+- the **project and program rows** in the sidebar's Browse switcher;
+- the command palette — <kbd>Cmd</kbd>+<kbd>K</kbd> (<kbd>Ctrl</kbd>+<kbd>K</kbd> on
+  Windows and Linux) opens on your pins, and typing a name offers **Pin** and
+  **Unpin** as commands. <kbd>Alt</kbd>+<kbd>P</kbd> pins or unpins the highlighted
+  row without closing the palette.
 
-Click the star again to unpin. Pinned programs also float to the top of the
-Programs directory ahead of whichever sort you have chosen.
+Select the pin again to unpin. Every confirmation carries **Undo** for a few
+seconds, so nothing here is a one-way door.
+
+On a touch device the pin is always visible — you do not need to hover to find it.
+On a mouse, an unpinned row reveals its pin as you hover, and keyboard focus
+reveals it too.
+
+### Where pinned items appear
+
+On the Programs directory, pins are lifted into their own **Pinned** group above
+**Everything else**. Each heading names its count and confirms that whichever sort
+you chose still applies inside the group — pinning changes the grouping, never the
+sort. Turn the **Pinned first** checkbox off for one flat list in pure sort order,
+with pinned cards keeping their mark. Searching flattens the groups, so a pin never
+outranks a better text match.
+
+A newly pinned card **stays where it is** rather than jumping to the top under your
+cursor. It moves into the Pinned group the next time you open the page, or straight
+away if you choose **Re-sort now** in the confirmation.
 
 :::note[Ships in 0.4]
 Pins are saved to **your account**, so they follow you between your laptop, a

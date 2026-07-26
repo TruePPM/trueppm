@@ -5,9 +5,11 @@
  * user across devices. Nothing here reads or writes another user's pins — the
  * collection endpoint is self-scoped and takes no user parameter.
  */
+import { useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { toast } from '@/components/Toast';
+import type { ToastAction } from '@/components/Toast/toastStore';
 import type { PinnedItem } from '@/api/types';
 
 export const PINNED_KEY = ['me', 'pinned'] as const;
@@ -37,10 +39,47 @@ function pinUrl(kind: PinKind, id: string): string {
 interface TogglePinVars {
   kind: PinKind;
   id: string;
-  /** Used verbatim in both toasts. */
+  /** Used verbatim in every toast. */
   name: string;
   /** The state being moved *to*. */
   next: boolean;
+  /**
+   * Set by the Undo path so undoing a pin does not itself raise an Undo toast —
+   * two toasts, each offering to undo the other, is a loop with no exit.
+   */
+  silent?: boolean;
+  /**
+   * Supplied by list surfaces that hold their row order steady after a pin
+   * (ADR-0627 §D14). When present, the confirmation toast offers "Re-sort now"
+   * instead of "Undo", because on those surfaces the interesting next action is
+   * *applying* the deferred move.
+   */
+  onResort?: () => void;
+}
+
+/** Design §5.3: 6s, stretched on a coarse pointer where the button is a thumb
+ *  away rather than a cursor away. */
+function toastDwellMs(): number {
+  const coarse =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches;
+  return coarse ? 10_000 : 6_000;
+}
+
+/**
+ * One pin toast at a time.
+ *
+ * Pins are fast and often repeated — pinning four projects in a row would
+ * otherwise stack four Undo toasts whose buttons all look identical and each
+ * undo a different thing. The newest replaces its predecessor, so the Undo on
+ * screen always belongs to the pin the user just made.
+ */
+let lastPinToastId: string | null = null;
+
+function pushPinToast(message: string, action: ToastAction): void {
+  if (lastPinToastId) toast.dismiss(lastPinToastId);
+  lastPinToastId = toast.action(message, action, { durationMs: toastDwellMs() });
 }
 
 /**
@@ -53,13 +92,20 @@ interface TogglePinVars {
  *
  * All three cache families are patched, not just the pins collection: each
  * toggle reads its own `pinned` prop from its surface's own payload (a project
- * or program row), so patching only the collection would leave the star the user
+ * or program row), so patching only the collection would leave the pin the user
  * just clicked unmoved.
  */
 export function useTogglePin() {
   const qc = useQueryClient();
 
-  return useMutation({
+  // Undo and Retry both re-enter this same mutation from inside its own
+  // callbacks, which cannot see the mutation object being defined. The ref is
+  // read at click time — long after it has been filled in below — so the
+  // indirection costs nothing and keeps one code path for all three entries.
+  const reenterRef = useRef<(vars: TogglePinVars) => void>(() => {});
+  const undo = (vars: TogglePinVars) => reenterRef.current(vars);
+
+  const mutation = useMutation({
     mutationFn: async ({ kind, id, next }: TogglePinVars) => {
       const url = pinUrl(kind, id);
       if (next) await apiClient.post(url);
@@ -100,7 +146,27 @@ export function useTogglePin() {
     },
 
     onSuccess: (_data, vars) => {
-      toast.info(vars.next ? `Pinned ${vars.name}` : `Unpinned ${vars.name}`);
+      // An undo confirms itself by the glyph flipping back; a toast about a
+      // toast is noise.
+      if (vars.silent) return;
+
+      // Pinned onto a surface that is holding its order steady: the useful next
+      // action is applying the move, not reversing it (design §5.2/§5.3).
+      if (vars.next && vars.onResort) {
+        pushPinToast(`Pinned ${vars.name} — it'll move to the top next time`, {
+          label: 'Re-sort now',
+          onClick: vars.onResort,
+        });
+        return;
+      }
+
+      pushPinToast(vars.next ? `Pinned ${vars.name}` : `Unpinned ${vars.name}`, {
+        label: 'Undo',
+        ariaLabel: vars.next ? `Undo pinning ${vars.name}` : `Undo unpinning ${vars.name}`,
+        onClick: () => {
+          undo({ ...vars, next: !vars.next, silent: true, onResort: undefined });
+        },
+      });
     },
 
     onError: (err: unknown, vars, snapshot) => {
@@ -110,7 +176,18 @@ export function useTogglePin() {
         for (const [key, data] of snapshot.lists) qc.setQueryData(key, data);
         qc.setQueryData(detailKey, snapshot.detail);
       }
-      toast.error(pinErrorMessage(err, vars));
+      // The cap is the one failure retrying cannot fix — offering Retry there
+      // would invite the user to hammer a button that is guaranteed to fail.
+      const message = pinErrorMessage(err, vars);
+      if (extractErrorCode(err) === 'pin_limit_reached') {
+        toast.error(message);
+        return;
+      }
+      toast.action(
+        message,
+        { label: 'Retry', onClick: () => undo(vars) },
+        { variant: 'error', durationMs: toastDwellMs() },
+      );
     },
 
     onSettled: (_data, _err, vars) => {
@@ -120,6 +197,9 @@ export function useTogglePin() {
       void qc.invalidateQueries({ queryKey: detailKey });
     },
   });
+
+  reenterRef.current = (vars) => mutation.mutate(vars);
+  return mutation;
 }
 
 /**

@@ -389,7 +389,8 @@ export function ProgramOverviewPage() {
               id={program.id}
               name={program.name}
               pinned={program.is_pinned}
-              placement="header"
+              size="lg"
+              reveal="always"
             />
           </div>
         </header>
