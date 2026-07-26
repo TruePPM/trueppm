@@ -8,6 +8,25 @@ file, the same format the [sample projects](/getting-started/sample-projects/)
 ship in. Use it to back up your work, move it between instances, or hand it to a
 developer to edit and re-import.
 
+## Which format for which job
+
+TruePPM writes three kinds of file, and they are not interchangeable.
+
+| You want to… | Use | Why |
+|---|---|---|
+| Back up, archive, or move a project between instances | **JSON seed** (below) | The only format that carries a whole program |
+| Do all of that *plus* attachments, time entries, and history | **Export bundle** (below) | The seed plus every sidecar, in one `.tar.gz` |
+| Hand someone a table, or work in a spreadsheet | **[CSV](/features/csv-import-export/)** | One flat list — never a backup |
+| Open the schedule in Microsoft Project | **[MS Project XML](/features/msproject-import-export/)** | The MSPDI interchange format |
+
+The rule behind the table: **the JSON seed is the fidelity format, CSV is the
+tabular format.** A CSV holds one flat list with no version and no way to
+represent a project, so it is never a backup and never the input to a restore.
+
+The normative contract for all of this — column sets, limits, error handling, and
+what each surface guarantees — is the
+[data interchange specification](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/specs/data-interchange.spec.md).
+
 ## Export a program
 
 ### Web
@@ -181,6 +200,38 @@ bucket/prefix hosting these archives must not be publicly readable. TruePPM neve
 emits a public URL for them, but the storage backend's own ACL is your
 responsibility.
 
+## Encryption and integrity checks
+
+**Exported files are not encrypted, and they carry no checksum.** That is a
+deliberate position for this release, not an oversight — but you should plan
+around it rather than discover it.
+
+What does protect an artifact today:
+
+- generating one is **Admin-only**;
+- downloading always goes through the **authenticated API** — never a raw or
+  presigned storage URL;
+- the download link **expires after a few days**, and a nightly job purges expired
+  artifacts (see [retention](/administration/retention/));
+- artifacts live in **your** object storage, under a prefix you are responsible for
+  keeping private.
+
+What that leaves to you: an export sitting in object storage is readable by anyone
+who can read that bucket, and it contains member and resource **email addresses**
+plus, at the Admin tier, team-private story points and velocity. If you move an
+export offsite — to a laptop, a backup service, a ticket attachment — encrypt it
+yourself at that point, and treat it as you would any file containing contact
+information.
+
+Two capabilities are planned for **0.5**:
+
+| Planned | What it will add | Issue |
+|---|---|---|
+| **Integrity manifest** | A SHA-256 digest for every file inside a bundle plus one over the manifest, surfaced on download and verified on import — so you can prove an archive is intact before restoring from it | [#2399](https://gitlab.com/trueppm/trueppm/-/issues/2399) |
+| **Optional encryption** | Opt-in encryption of the artifact at generation time, with a passphrase or a recipient key that TruePPM never stores | [#2400](https://gitlab.com/trueppm/trueppm/-/issues/2400) |
+
+Both land in 0.5 — plan around their absence until then.
+
 ## Round-trip guarantee
 
 Export is deterministic: exporting a program, re-importing the result into a
@@ -188,6 +239,25 @@ clean database, and exporting again produces a **byte-identical** file. This is
 what makes the format safe to edit by hand — export, change the JSON, re-import.
 Re-import is idempotent (a program with the same slug is replaced, not
 duplicated), so you can iterate without piling up copies.
+
+### What "re-import" does — and does not — mean
+
+Re-import **reconstructs** a program; it does not **restore** one in place.
+
+- Every object is created fresh, with **new internal IDs**. References inside the
+  file resolve by slug and WBS path, not by ID, so the structure comes back intact
+  — but the objects are new objects.
+- A program whose slug matches an existing one is **replaced wholesale**, not
+  merged field by field. There is no way to import only the fields that changed.
+- Importing a **project** export creates a *new single-project program*, because
+  the seed format always describes a program. It does not put the project back
+  into its original parent program.
+- Because of that, cross-project dependencies pointing at a sibling project are
+  omitted from a single-project export — the sibling isn't in the file.
+
+Importing in a way that updates the same objects in place, preserving their IDs,
+is planned for 0.5
+([issue #1959](https://gitlab.com/trueppm/trueppm/-/issues/1959)).
 
 ## What is and isn't exported
 

@@ -7,6 +7,15 @@ This page is for developers authoring or modifying a bundled sample, or building
 an importer that targets the canonical format. If you just want to load or
 export demo data, see [Sample projects & JSON import/export](/getting-started/sample-projects/).
 
+:::note[The seed is the normalization target]
+Every importer normalizes to this format rather than writing to the database
+directly — that is what keeps one validation pass and one round-trip guarantee in
+front of every ingress path. The contract around the schema (fidelity tiers,
+identity model, limits, error model, and how CSV differs) is the
+[data interchange specification](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/specs/data-interchange.spec.md)
+and [ADR-0634](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0634-file-interchange-contract-json-seed-and-csv.md).
+:::
+
 ## The format
 
 One seed document describes one program and all of its projects. The JSON

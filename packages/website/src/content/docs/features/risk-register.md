@@ -99,6 +99,8 @@ Every risk receives a project-scoped short ID (e.g. `R-00000003`) that shares th
 
 Export the full register to CSV from the **Export CSV** toolbar action. The file carries every column shown in the table: ID, title, status, category, response, probability, impact, severity, owner, mitigation due date, trigger, contingency, and description.
 
+The risk register is the one surface where CSV export and import are true counterparts — see [CSV import & export](/features/csv-import-export/) for the file format, the limits, and the Excel gotchas that apply to every TruePPM CSV.
+
 :::note[Added in 0.3]
 Risk-register CSV import landed in 0.3.
 :::
