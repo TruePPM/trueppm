@@ -99,9 +99,40 @@ describe('ScheduleForecastBar', () => {
     expect(screen.getByText(/P80: Nov 3 \(\+29d\)/)).toBeInTheDocument();
   });
 
-  it('omits the (+Nd) delta when no CPM finish is known', () => {
+  it('reads the CPM baseline from the run payload even without the prop (#2426)', () => {
+    // The payload's `cpmFinish` is the server-owned source of truth (#987), so a
+    // missing prop is not a reason to drop the delta — and the dashed reference
+    // chip means the baseline date is on screen wherever the delta renders.
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    expect(screen.getByText(/P80: Nov 3 \(\+29d\)/)).toBeInTheDocument();
+    expect(screen.getByText('CPM: Oct 5')).toBeInTheDocument();
+  });
+
+  it('omits the delta entirely when no CPM finish is known anywhere', () => {
+    // Never a delta without its baseline: with no spine to measure from, the
+    // percentile chips stand alone rather than showing an unanchored number.
+    mockResult = {
+      data: { ...FIXTURE_MC_RESULT, cpmFinish: null },
+      isLoading: false,
+      error: null,
+    };
     renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
     expect(screen.getByText(/P80: Nov 3$/)).toBeInTheDocument();
+    expect(screen.queryByText(/CPM:/)).not.toBeInTheDocument();
+  });
+
+  it('collapses a degenerate run to one chip that names its own baseline (#2426)', () => {
+    // Three identical percentile chips imply a spread the run does not have.
+    mockResult = {
+      data: { ...FIXTURE_MC_RESULT, p50: '2026-10-06', p80: '2026-10-06', p95: '2026-10-06' },
+      isLoading: false,
+      error: null,
+    };
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    expect(screen.getByText(/^Forecast: Oct 6 · \+29d vs CPM \(Oct 5\)$/)).toBeInTheDocument();
+    expect(screen.queryByText(/P50:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/P80:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/P95:/)).not.toBeInTheDocument();
   });
 
   it('exposes Rerun and Details as distinct affordances', () => {

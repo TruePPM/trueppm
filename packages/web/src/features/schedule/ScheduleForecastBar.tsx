@@ -3,7 +3,7 @@ import type { Task } from '@/types';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
 import { formatRelative } from '@/lib/formatRelative';
-import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { useForecastPresentation } from './useForecastPresentation';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
 import { SensitivityList } from './SensitivityList';
 import { MonteCarloDetailPanel } from './MonteCarloDetailPanel';
@@ -149,41 +149,6 @@ function ForecastEmptyState({
   );
 }
 
-interface ForecastChip {
-  label: string;
-  iso: string;
-  border: string;
-  text: string;
-  suffix: string;
-}
-
-/** P50/P80/P95 chip descriptors; P80 carries the server-owned (+Nd) risk suffix. */
-function buildForecastChips(result: MonteCarloResult, showDelta: boolean): ForecastChip[] {
-  return [
-    {
-      label: 'P50',
-      iso: result.p50,
-      border: 'border-semantic-on-track/40',
-      text: 'text-semantic-on-track',
-      suffix: '',
-    },
-    {
-      label: 'P80',
-      iso: result.p80,
-      border: 'border-semantic-at-risk/40',
-      text: 'text-semantic-at-risk',
-      suffix: showDelta ? ` (+${result.deltaVsCpm.p80}d)` : '',
-    },
-    {
-      label: 'P95',
-      iso: result.p95,
-      border: 'border-semantic-critical/40',
-      text: 'text-semantic-critical',
-      suffix: '',
-    },
-  ];
-}
-
 /**
  * The single, consolidated Monte Carlo forecast surface for the Schedule view
  * (ADR-0144, web rule 189). Replaces the former two-surface split — the top
@@ -199,17 +164,13 @@ function buildForecastChips(result: MonteCarloResult, showDelta: boolean): Forec
  * Expanded, it shows the histogram, the sensitivity tornado, and the run-history
  * disclosure. All forecast dates route through `lib/formatUtcDate`.
  */
-export function ScheduleForecastBar({
-  projectId,
-  tasks,
-  cpmFinish,
-  mutationVersion = 0,
-}: Props) {
+export function ScheduleForecastBar({ projectId, tasks, cpmFinish, mutationVersion = 0 }: Props) {
   const { data: result, isLoading, error, refetch } = useMonteCarloResult(projectId);
   const runMc = useRunMonteCarlo(projectId);
   const [expanded, setExpanded] = useState(readExpanded);
   const [detailOpen, setDetailOpen] = useState(false);
   const isRecomputing = useForecastStaleness(mutationVersion, result, runMc.isPending);
+  const forecast = useForecastPresentation(result, cpmFinish);
 
   function toggle() {
     setExpanded((prev) => {
@@ -233,19 +194,11 @@ export function ScheduleForecastBar({
     );
   }
 
-  // Server-computed P80 risk premium vs the CPM finish (issue 987). Gated on a known
-  // CPM finish so the chip's "(+Nd)" suffix only appears when the deterministic
-  // spine exists; the value itself is read from the server, not recomputed.
-  const showDelta =
-    Boolean(cpmFinish) && typeof result.deltaVsCpm.p80 === 'number' && result.deltaVsCpm.p80 > 0;
-
   const topDriver = result.sensitivity
     .map((s) => tasks.find((t) => t.id === s.taskId)?.name)
     .find((name): name is string => Boolean(name));
 
   const panelId = 'schedule-forecast-panel';
-
-  const chips = buildForecastChips(result, showDelta);
 
   return (
     <>
@@ -272,16 +225,20 @@ export function ScheduleForecastBar({
             <span>Forecast</span>
           </button>
 
-          {/* P50/P80/P95 chips — rendered ONCE (rule 189). P80 is the commit,
-              accented; (+Nd) is the server-owned risk delta vs the CPM spine. */}
+          {/* Chips — rendered ONCE (rule 189), and derived once by
+              useForecastPresentation so this row can never contradict the
+              histogram or the Overview tile about the same run (#2426). A
+              degenerate run collapses to a single chip that names its own
+              baseline; a real spread renders P50/P80/P95 plus a dashed CPM
+              reference chip, so a delta never appears without the date it is
+              measured from. */}
           <div className="flex items-center gap-1.5">
-            {chips.map(({ label, iso, border, text, suffix }) => (
+            {forecast.chips.map((chip) => (
               <span
-                key={label}
-                className={`text-xs font-medium px-1.5 py-0.5 rounded-chip border ${border} ${text} bg-transparent whitespace-nowrap`}
+                key={chip.key}
+                className={`text-xs font-medium px-1.5 py-0.5 rounded-chip border ${chip.dashed ? 'border-dashed' : ''} ${chip.border} ${chip.textClass} bg-transparent whitespace-nowrap`}
               >
-                {label}: {fmtUtcShort(iso)}
-                {suffix}
+                {chip.text}
               </span>
             ))}
           </div>

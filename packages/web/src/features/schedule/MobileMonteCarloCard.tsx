@@ -1,16 +1,8 @@
 import { useState } from 'react';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
+import { useForecastPresentation } from './useForecastPresentation';
 import { MonteCarloSheet } from './MonteCarloSheet';
-
-/** Format an ISO date as "MMM D" in en-US (e.g. "Nov 3"). */
-function formatShortDate(iso: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(iso));
-}
 
 interface Props {
   projectId?: string;
@@ -31,15 +23,14 @@ export function MobileMonteCarloCard({ projectId }: Props) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const { data: result, isLoading } = useMonteCarloResult(projectId);
   const runMc = useRunMonteCarlo(projectId);
+  // Called before the early returns below — hooks cannot be conditional, and the
+  // derivation is a no-op (`notRun`, empty chips) while `result` is undefined.
+  const forecast = useForecastPresentation(result);
 
   if (!result) {
     // No project context yet — render nothing rather than a CTA that cannot fire.
     if (!projectId) return null;
-    const ctaLabel = runMc.isPending
-      ? 'Running…'
-      : runMc.isError
-        ? 'Try again'
-        : 'Run Monte Carlo';
+    const ctaLabel = runMc.isPending ? 'Running…' : runMc.isError ? 'Try again' : 'Run Monte Carlo';
     return (
       <button
         type="button"
@@ -77,10 +68,7 @@ export function MobileMonteCarloCard({ projectId }: Props) {
       <button
         type="button"
         onClick={() => setSheetOpen(true)}
-        aria-label={
-          `Monte Carlo confidence: P50 ${result.p50}, P80 ${result.p80}, P95 ${result.p95}. ` +
-          'Tap for distribution detail.'
-        }
+        aria-label={`Monte Carlo confidence: ${forecast.chips.map((c) => c.text).join(', ')}. Tap for distribution detail.`}
         className="md:hidden flex items-center gap-2 w-full min-h-11 px-4 py-2
           border-t border-neutral-border bg-neutral-surface-raised
           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
@@ -89,29 +77,24 @@ export function MobileMonteCarloCard({ projectId }: Props) {
         <span className="text-xs font-medium text-neutral-text-secondary tracking-wide uppercase">
           MC
         </span>
-        <span
-          className="inline-flex items-center px-1.5 py-0.5 rounded-chip border border-semantic-on-track/60 text-xs font-medium text-semantic-on-track bg-transparent"
-        >
-          P50: {formatShortDate(result.p50)}
-        </span>
-        <span
-          className="inline-flex items-center px-1.5 py-0.5 rounded-chip border border-semantic-at-risk/80 text-xs font-medium text-semantic-at-risk bg-transparent"
-        >
-          P80: {formatShortDate(result.p80)}
-        </span>
-        <span
-          className="inline-flex items-center px-1.5 py-0.5 rounded-chip border border-semantic-critical/60 text-xs font-medium text-semantic-critical bg-transparent"
-        >
-          P95: {formatShortDate(result.p95)}
-        </span>
+        {/* Same chip vocabulary as the desktop bar, derived by the same hook
+            (#2426, web-rule 22b) — a degenerate run collapses to one chip here
+            too, and the CPM baseline stays a chip in the stack rather than a
+            tooltip, because there is no hover on a phone. */}
+        {forecast.chips.map((chip) => (
+          <span
+            key={chip.key}
+            className={`inline-flex items-center px-1.5 py-0.5 rounded-chip border ${chip.dashed ? 'border-dashed' : ''} ${chip.border} ${chip.textClass} text-xs font-medium bg-transparent`}
+          >
+            {chip.text}
+          </span>
+        ))}
         <span className="ml-auto text-xs text-neutral-text-secondary" aria-hidden="true">
           Detail ›
         </span>
       </button>
 
-      {sheetOpen && (
-        <MonteCarloSheet result={result} onClose={() => setSheetOpen(false)} />
-      )}
+      {sheetOpen && <MonteCarloSheet result={result} onClose={() => setSheetOpen(false)} />}
     </>
   );
 }

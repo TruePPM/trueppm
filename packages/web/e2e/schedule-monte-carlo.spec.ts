@@ -478,6 +478,30 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await expect(bar.getByText(/Add PERT estimates/i)).toHaveCount(0);
   });
 
+  test('a degenerate run collapses to one chip that names its baseline (#2426)', async ({
+    page,
+  }) => {
+    // Every trial returned the same date. Three identical percentile chips would
+    // imply a spread the run does not have, and the +Nd delta would be measured
+    // against a CPM finish that appeared nowhere on screen.
+    await gotoScheduleWithMC(page, {
+      ...FIXTURE_MC_RESULT,
+      p50: '2026-12-10',
+      p80: '2026-12-10',
+      p95: '2026-12-10',
+    });
+
+    const bar = page.getByRole('region', { name: 'Schedule forecast' });
+    await expect(bar.getByText('Forecast: Dec 10 · +10d vs CPM (Nov 30)')).toBeVisible({
+      timeout: 10_000,
+    });
+    // The percentile keys are suppressed, not zeroed — "P80" on a single-value
+    // result is a claim about a distribution.
+    await expect(bar.getByText(/^P50:/)).toHaveCount(0);
+    await expect(bar.getByText(/^P80:/)).toHaveCount(0);
+    await expect(bar.getByText(/^P95:/)).toHaveCount(0);
+  });
+
   test('the percentiles render on exactly one surface (rule 189)', async ({ page }) => {
     await gotoScheduleWithMC(page);
     // The whole point of ADR-0144: no second copy of the percentile chips. The
