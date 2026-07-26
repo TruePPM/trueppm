@@ -13,11 +13,13 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
     localStorage.clear();
   });
 
-  it('defaults to Grid hidden, Timeline next-to-bar, everything else visible', () => {
+  it('defaults to Grid hidden, Timeline aligned-left, everything else visible', () => {
+    // Neither default is a free-floating on-bar label: nothing measures those
+    // against the arrows and bars they overdraw (#2422).
     const { result } = renderHook(() => useScheduleChartPrefs());
     expect(result.current.prefs).toEqual({
       dependencyLinesVisible: true,
-      taskNamePlacementByView: { grid: 'hidden', timeline: 'next' },
+      taskNamePlacementByView: { grid: 'hidden', timeline: 'left' },
       progressPillsVisible: true,
     });
   });
@@ -65,8 +67,8 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
     });
   });
 
-  describe('legacy scalar migration (#2097 → #2107)', () => {
-    it('seeds both views from a legacy scalar placement', () => {
+  describe('legacy scalar migration (#2097 → #2107, narrowed #2422)', () => {
+    it('seeds Timeline from a legacy scalar but leaves Grid on its own default', () => {
       localStorage.setItem(
         KEY,
         JSON.stringify({
@@ -76,20 +78,37 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
         }),
       );
       const { result } = renderHook(() => useScheduleChartPrefs());
-      // An existing user who never touched the control keeps `next` in both
-      // views — no surprise behavior change on upgrade.
+      // The scalar was chosen when one value governed both views. Carrying it
+      // into Grid is what kept the redundant on-bar label — and its collisions —
+      // alive for every account that had ever opened the Schedule, which is why
+      // the defect was still reproducible long after #2107 shipped. Grid loses
+      // nothing by ignoring it: the task table carries every name.
       expect(result.current.prefs.taskNamePlacementByView).toEqual({
-        grid: 'next',
+        grid: 'hidden',
         timeline: 'next',
       });
     });
 
-    it('coerces a legacy `left` scalar to Grid `hidden` while keeping Timeline `left`', () => {
+    it('keeps a legacy `left` scalar on Timeline, with Grid on its default', () => {
       localStorage.setItem(KEY, JSON.stringify({ taskNamePlacement: 'left' }));
       const { result } = renderHook(() => useScheduleChartPrefs());
       expect(result.current.prefs.taskNamePlacementByView).toEqual({
         grid: 'hidden',
         timeline: 'left',
+      });
+    });
+
+    it('still honours an explicit per-view Grid choice over the default', () => {
+      // Narrowing the *legacy* path must not stop a user who deliberately turned
+      // on-bar names back on in Grid from keeping them.
+      localStorage.setItem(
+        KEY,
+        JSON.stringify({ taskNamePlacementByView: { grid: 'next', timeline: 'next' } }),
+      );
+      const { result } = renderHook(() => useScheduleChartPrefs());
+      expect(result.current.prefs.taskNamePlacementByView).toEqual({
+        grid: 'next',
+        timeline: 'next',
       });
     });
   });
@@ -109,7 +128,7 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
     const { result } = renderHook(() => useScheduleChartPrefs());
     expect(result.current.prefs.taskNamePlacementByView).toEqual({
       grid: 'hidden',
-      timeline: 'next',
+      timeline: 'left',
     });
   });
 
@@ -121,7 +140,7 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
     const { result } = renderHook(() => useScheduleChartPrefs());
     expect(result.current.prefs.taskNamePlacementByView).toEqual({
       grid: 'hidden',
-      timeline: 'next',
+      timeline: 'left',
     });
   });
 });
