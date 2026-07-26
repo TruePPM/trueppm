@@ -10,6 +10,11 @@ vi.mock('react-router', () => ({ useNavigate: () => navigate }));
 
 let currentId: string | undefined = 'p1';
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => currentId }));
+// The palette gates its "Report a bug" action on the workspace setting (#2392);
+// stub it so these tier-assembly tests need no QueryClient.
+vi.mock('@/features/settings/hooks/useWorkspaceSettings', () => ({
+  useWorkspaceSettings: () => ({ data: { feedbackEnabled: true }, isLoading: false }),
+}));
 
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({

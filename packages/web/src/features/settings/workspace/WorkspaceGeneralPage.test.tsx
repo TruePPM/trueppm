@@ -36,6 +36,8 @@ const WS: WorkspaceSettings = {
   methodology: 'HYBRID',
   methodologyOverridePolicy: 'suggest',
   attachmentsEnabled: true,
+  feedbackEnabled: true,
+  feedbackUrl: '',
   allowedAttachmentTypes: ['application/pdf'],
   attachmentsOverridePolicy: 'suggest',
   calendar: null,

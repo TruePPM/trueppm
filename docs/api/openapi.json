@@ -42236,10 +42236,18 @@
                 "properties": {
                     "edition": {
                         "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    },
+                    "build_sha": {
+                        "type": "string"
                     }
                 },
                 "required": [
-                    "edition"
+                    "build_sha",
+                    "edition",
+                    "version"
                 ]
             },
             "EndTypeEnum": {
@@ -47793,6 +47801,22 @@
                     },
                     "calendar_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "feedback_enabled": {
+                        "type": "boolean"
+                    },
+                    "feedback_url": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "uri",
+                                "maxLength": 200
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     }
                 }
             },
@@ -57136,6 +57160,22 @@
                     },
                     "calendar_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "feedback_enabled": {
+                        "type": "boolean"
+                    },
+                    "feedback_url": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "uri",
+                                "maxLength": 200
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     },
                     "logo_url": {
                         "type": "string",

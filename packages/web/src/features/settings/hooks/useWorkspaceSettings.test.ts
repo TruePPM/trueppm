@@ -73,6 +73,8 @@ const EXPECTED: WorkspaceSettings = {
   methodology: 'HYBRID',
   methodologyOverridePolicy: 'suggest',
   attachmentsEnabled: true,
+  feedbackEnabled: true,
+  feedbackUrl: '',
   allowedAttachmentTypes: ['application/pdf', 'image/png'],
   attachmentsOverridePolicy: 'suggest',
   calendar: 'cal-1',

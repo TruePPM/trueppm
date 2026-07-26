@@ -5,6 +5,9 @@ export type Edition = 'community' | 'enterprise';
 
 interface EditionResponse {
   edition: Edition;
+  /** Build identity (#2392); absent on a pre-0.4 server. */
+  version?: string;
+  build_sha?: string;
 }
 
 /**
@@ -25,7 +28,7 @@ export function useEdition(): { edition: Edition; isLoading: boolean } {
     queryKey: ['edition'],
     queryFn: async () => {
       const res = await axios.get<EditionResponse>('/api/v1/edition/');
-      return res.data.edition;
+      return res.data;
     },
     staleTime: Infinity,
     // Disable refetch-on-window-focus — edition is immutable within a session.
@@ -33,7 +36,38 @@ export function useEdition(): { edition: Edition; isLoading: boolean } {
   });
 
   return {
-    edition: data ?? 'community',
+    edition: data?.edition ?? 'community',
     isLoading,
+  };
+}
+
+export interface BuildInfo {
+  edition: Edition;
+  version: string;
+  buildSha: string;
+}
+
+/**
+ * Build identity for a bug report (#2392).
+ *
+ * Shares the `['edition']` query — the endpoint is already fetched once at
+ * startup and cached for the session, so naming the build costs no extra
+ * request. A server older than 0.4 omits the fields; "unknown" is a more honest
+ * value in a report than a version the client guessed.
+ */
+export function useBuildInfo(): BuildInfo {
+  const { data } = useQuery({
+    queryKey: ['edition'],
+    queryFn: async () => {
+      const res = await axios.get<EditionResponse>('/api/v1/edition/');
+      return res.data;
+    },
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+  return {
+    edition: data?.edition ?? 'community',
+    version: data?.version ?? 'unknown',
+    buildSha: data?.build_sha ?? '',
   };
 }

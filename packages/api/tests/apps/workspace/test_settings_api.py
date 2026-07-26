@@ -160,3 +160,66 @@ def test_non_admin_cannot_patch_fiscal(member: object) -> None:
     resp = _client(member).patch(URL, {"fiscal_year_start_month": 7}, format="json")
     assert resp.status_code == 403
     assert Workspace.load().fiscal_year_start_month == 1
+
+
+# ---------------------------------------------------------------------------
+# In-product feedback / report-a-bug control (#2392)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_feedback_defaults_to_shown_with_no_stored_url(member: object) -> None:
+    """The default URL is resolved client-side, never stored.
+
+    Storing today's tracker URL in every workspace row would freeze it there —
+    an operator who never touched the setting could not be moved off it by an
+    upgrade. Empty means "use the built-in default".
+    """
+    resp = _client(member).get(URL)
+    assert resp.data["feedback_enabled"] is True
+    assert resp.data["feedback_url"] == ""
+
+
+@pytest.mark.django_db
+def test_admin_can_repoint_the_tracker(admin: object) -> None:
+    resp = _client(admin).patch(
+        URL, {"feedback_url": "https://helpdesk.internal/new"}, format="json"
+    )
+    assert resp.status_code == 200
+    assert resp.data["feedback_url"] == "https://helpdesk.internal/new"
+
+
+@pytest.mark.django_db
+def test_admin_can_hide_the_control_entirely(admin: object) -> None:
+    """A locked-down install hides the affordance rather than disabling it."""
+    resp = _client(admin).patch(URL, {"feedback_enabled": False}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["feedback_enabled"] is False
+
+
+@pytest.mark.django_db
+def test_non_admin_cannot_change_the_feedback_settings(member: object) -> None:
+    resp = _client(member).patch(URL, {"feedback_enabled": False}, format="json")
+    assert resp.status_code in (403, 405)
+    # And the stored value is untouched.
+    assert _client(member).get(URL).data["feedback_enabled"] is True
+
+
+@pytest.mark.django_db
+def test_feedback_url_must_be_a_url(admin: object) -> None:
+    resp = _client(admin).patch(URL, {"feedback_url": "not a url"}, format="json")
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_edition_endpoint_publishes_build_identity() -> None:
+    """A bug report has to name the exact build it came from (#2392).
+
+    Unauthenticated, like the rest of this endpoint — the shell reads it before
+    login, and build identity is not a secret.
+    """
+    resp = APIClient().get("/api/v1/edition/")
+    assert resp.status_code == 200
+    assert resp.data["edition"] in ("community", "enterprise")
+    assert "version" in resp.data
+    assert "build_sha" in resp.data

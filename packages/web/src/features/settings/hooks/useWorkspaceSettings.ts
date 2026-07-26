@@ -40,6 +40,8 @@ interface WorkspaceSettingsRaw {
   methodology: ProgramMethodology;
   methodology_override_policy: MethodologyOverridePolicy;
   attachments_enabled: boolean;
+  feedback_enabled?: boolean;
+  feedback_url?: string;
   allowed_attachment_types: string[];
   attachments_override_policy: 'inherit' | 'suggest' | 'enforce';
   calendar: string | null;
@@ -73,6 +75,10 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     methodology: raw.methodology,
     methodologyOverridePolicy: raw.methodology_override_policy,
     attachmentsEnabled: raw.attachments_enabled,
+    // #2392. Optional on the wire so a pre-0.4 server does not break the page;
+    // absent reads as "enabled with the built-in tracker", which is the default.
+    feedbackEnabled: raw.feedback_enabled ?? true,
+    feedbackUrl: raw.feedback_url ?? '',
     allowedAttachmentTypes: raw.allowed_attachment_types,
     attachmentsOverridePolicy: raw.attachments_override_policy,
     calendar: raw.calendar,
