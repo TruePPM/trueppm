@@ -12,7 +12,7 @@
  * Not the same concept as the thumbtack `PinIcon` used for notes, attachments,
  * and mobile-nav views — those are *shared*. Different glyph, different meaning.
  */
-import { useRef } from 'react';
+import { useRef, type MouseEvent } from 'react';
 import { useTogglePin, type PinKind } from '@/hooks/usePins';
 import { toast } from '@/components/Toast';
 
@@ -64,7 +64,7 @@ export function PinToggle({ kind, id, name, pinned, placement, className }: PinT
   const inFlightRef = useRef(false);
   const { box, glyph } = PLACEMENT[placement];
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = (e: MouseEvent) => {
     // The rail row and the program card are both links; a pin must not navigate.
     e.stopPropagation();
     e.preventDefault();

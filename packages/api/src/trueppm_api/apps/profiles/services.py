@@ -26,10 +26,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from django.conf import settings
-from django.db.models import Max
+from django.db.models import Max, QuerySet
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.profiles.models import (
@@ -428,7 +428,10 @@ def set_pin(user: Any, *, project: Any = None, program: Any = None, pinned: bool
     return True
 
 
-def annotate_is_pinned(queryset: Any, user: Any, *, field: str = "project") -> Any:
+_QS = TypeVar("_QS", bound=QuerySet[Any, Any])
+
+
+def annotate_is_pinned(queryset: _QS, user: Any, *, field: str = "project") -> _QS:
     """Annotate ``is_pinned`` for ``user`` onto a Project or Program queryset.
 
     The subquery is bound to ``user`` **positionally** — it is a closed-over

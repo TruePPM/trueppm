@@ -56,6 +56,8 @@ describe('useUngroupedProjects', () => {
       healthState: 'at-risk',
       percentComplete: 38.4,
       memberCount: 4,
+      // Absent on the wire row → not pinned (#2390).
+      isPinned: false,
     });
   });
 
