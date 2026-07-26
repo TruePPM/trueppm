@@ -38,6 +38,7 @@ const FIXTURE_PROGRAM = {
   my_role_label: 'Program Admin',
   project_count: 0,
   member_count: 1,
+  is_pinned: false,
 };
 
 const FIXTURE_MEMBERSHIP = {
