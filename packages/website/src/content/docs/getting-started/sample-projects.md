@@ -173,7 +173,9 @@ See the [evaluation guide](/getting-started/evaluation-guide/) for the persona
 sign-in walkthrough.
 
 Or over the API: `POST /api/v1/programs/load-sample/` (any authenticated user;
-the caller becomes the program owner).
+the caller becomes the program owner). Loading a sample builds the whole program
+in one synchronous request, so it takes seconds and is capped at six loads per
+minute per account — set a generous client timeout, and do not poll it.
 
 ## Import a seed file
 

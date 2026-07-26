@@ -1880,10 +1880,44 @@ api:fuzz:
     # The fuzzer signs in once to mint a token; relax the per-account login
     # throttle so token exchange isn't rate-limited (as web:integration, #1717).
     TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE: "1000/min"
+    # Disable ALL API rate limiting so the fuzzer exercises views instead of the
+    # throttle (#2402, ADR-0604 — as perf:load). The job drives ~4,800 req/min
+    # from a single account (4 workers x 30 examples x ~557 operations), against a
+    # "user" bucket of 1000/min. Once that bucket drains it stays drained and DRF
+    # short-circuits in initial(), so the view, serializer, and DB are never
+    # touched. In the 2026-07-26 nightly that was 25,596 of 45,912 responses —
+    # 56% of the run — and it fell hardest on exactly what the job exists to
+    # test: POST /tasks/{id}/split/, POST /projects/{id}/archive/,
+    # PUT /tasks/{id}/ and the other mutations, plus the tightly-scoped
+    # security-sensitive endpoints (password_reset 5/min, invite_resend 5/min,
+    # monte_carlo_whatif 6/min) which exhaust their buckets within the first
+    # example or two and spend the remaining ~28 returning 429. Safe here for the
+    # same reason as perf:load: an ephemeral CI container on dev settings, torn
+    # down after the run. The two-key acknowledgment is required in every
+    # environment — see trueppm_api.core.ratelimit.
+    #
+    # Expect the job to run materially longer than the ~830 s it took while more
+    # than half its requests were being rejected at the throttle — that is the
+    # point, and `timeout` below bounds it.
+    TRUEPPM_RATE_LIMIT_ENABLED: "false"
+    TRUEPPM_RATE_LIMIT_DISABLE_ACK: "i-understand-this-disables-abuse-protection"
     # Hypothesis examples per operation. ~550 operations, so 30/op is a
     # substantial nightly pass without running for hours.
     FUZZ_MAX_EXAMPLES: "30"
+    # Per-request read timeout for the Schemathesis client (#2402). The default
+    # 10 s is below the honest latency of the API's slowest legitimate operation:
+    # POST /programs/load-sample/ imports an entire bundled fixture synchronously
+    # (~3.4 s and ~3,700 sequential DB round-trips locally for the default
+    # sample, several times that on a shared runner, and serialized further by
+    # the select_for_update() the four workers contend on). Below this the job
+    # reports "Network Error / Read timed out" — an `error`, indistinguishable in
+    # the JUnit report from a real defect. 60 s keeps genuinely-hung operations
+    # detectable while letting slow-but-correct ones return.
+    FUZZ_REQUEST_TIMEOUT: "60"
     PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  # Bound the run now that the throttle no longer accidentally brakes it. Well
+  # above the observed duration; a breach means something is genuinely wedged.
+  timeout: 90m
   before_script:
     - *retry-fn
     # Image bakes scheduler[dev] + api[dev]; re-link editable + add the fuzz
@@ -1918,6 +1952,7 @@ api:fuzz:
       --url http://127.0.0.1:8000
       --checks not_a_server_error,response_schema_conformance
       --max-examples "$FUZZ_MAX_EXAMPLES"
+      --request-timeout "$FUZZ_REQUEST_TIMEOUT"
       --header "Authorization: Bearer $FUZZ_TOKEN"
       --workers 4
       --suppress-health-check=filter_too_much
