@@ -23,16 +23,17 @@ import { ProgramIntegrationsPage } from './program/ProgramIntegrationsPage';
 import { ProgramAttachmentsPage } from './program/ProgramAttachmentsPage';
 import { ProgramArchivePage } from './program/ProgramArchivePage';
 import {
-  OverviewIcon,
-  WbsIcon,
+  FolderIcon,
   ResourcesIcon,
   BarChartIcon,
   SprintIcon,
   RiskIcon,
   SettingsIcon,
-  ExternalLinkIcon,
   WarningIcon,
-  GanttIcon,
+  CalendarIcon,
+  LockIcon,
+  PaperclipIcon,
+  PlugIcon,
 } from '@/components/Icons';
 
 function NavIcon({ children }: { children: ReactNode }) {
@@ -60,31 +61,16 @@ function programHealthDot(health?: ProgramHealth): 'onTrack' | 'atRisk' | 'criti
  * /programs/:programId/settings; sub-slugs redirect to `#<slug>`. Sections are
  * reused unchanged inside anchored `<SettingsSection>` regions.
  */
-export function ProgramSettingsPage() {
-  const { programId } = useParams<{ programId: string }>();
-  const { data: program } = useProgram(programId);
-  const { data: programs } = usePrograms();
-  const { data: projects } = useProjects();
-  // The Workspace scope tab links to `/settings`, which RequireWorkspaceAdmin
-  // bounces a non-workspace-admin away from (#2012). Disable the tab (rather than
-  // render a dead link) when the user is positively not a workspace admin.
-  const isWorkspaceAdmin = useIsWorkspaceAdmin();
-
-  if (!programId) return null;
-
-  // Project scope prefers a project belonging to THIS program, else any (issue 776).
-  const projectTarget =
-    projects?.find((p) => p.programId === programId)?.id ?? projects?.[0]?.id ?? null;
-
-  // Sibling-program switcher options (issue 776).
-  const contextOptions: SettingsContextOption[] = (programs ?? []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    health: programHealthDot(p.health),
-    to: `/programs/${p.id}/settings`,
-  }));
-
-  const navGroups: SettingsNavGroup[] = [
+/**
+ * The program settings rail (issue 2425).
+ *
+ * Lifted out of the component so the glyph-uniqueness invariant can be asserted
+ * directly on the data. A repeated glyph inside one group is negative information:
+ * it teaches the eye to stop scanning the column, which costs the rows whose icon
+ * does mean something.
+ */
+export function buildProgramSettingsNav(): SettingsNavGroup[] {
+  return [
     {
       label: 'Program',
       items: [
@@ -94,7 +80,7 @@ export function ProgramSettingsPage() {
           keywords: 'name description code program',
           icon: (
             <NavIcon>
-              <OverviewIcon aria-hidden="true" />
+              <SettingsIcon aria-hidden="true" />
             </NavIcon>
           ),
         },
@@ -104,7 +90,7 @@ export function ProgramSettingsPage() {
           keywords: 'member projects add remove grouping',
           icon: (
             <NavIcon>
-              <WbsIcon aria-hidden="true" />
+              <FolderIcon aria-hidden="true" />
             </NavIcon>
           ),
         },
@@ -114,7 +100,7 @@ export function ProgramSettingsPage() {
           keywords: 'members permissions roles visibility rbac',
           icon: (
             <NavIcon>
-              <ResourcesIcon aria-hidden="true" />
+              <LockIcon aria-hidden="true" />
             </NavIcon>
           ),
         },
@@ -124,7 +110,7 @@ export function ProgramSettingsPage() {
           keywords: 'sponsors contacts external people governance',
           icon: (
             <NavIcon>
-              <ExternalLinkIcon aria-hidden="true" />
+              <ResourcesIcon aria-hidden="true" />
             </NavIcon>
           ),
         },
@@ -154,7 +140,7 @@ export function ProgramSettingsPage() {
           keywords: 'holidays working days hours timezone',
           icon: (
             <NavIcon>
-              <GanttIcon aria-hidden="true" />
+              <CalendarIcon aria-hidden="true" />
             </NavIcon>
           ),
         },
@@ -179,7 +165,7 @@ export function ProgramSettingsPage() {
           keywords: 'files uploads storage size limit',
           icon: (
             <NavIcon>
-              <ExternalLinkIcon aria-hidden="true" />
+              <PaperclipIcon aria-hidden="true" />
             </NavIcon>
           ),
         },
@@ -189,7 +175,7 @@ export function ProgramSettingsPage() {
           keywords: 'jira gitlab connect external source',
           icon: (
             <NavIcon>
-              <SettingsIcon aria-hidden="true" />
+              <PlugIcon aria-hidden="true" />
             </NavIcon>
           ),
         },
@@ -211,6 +197,33 @@ export function ProgramSettingsPage() {
       ],
     },
   ];
+}
+
+export function ProgramSettingsPage() {
+  const { programId } = useParams<{ programId: string }>();
+  const { data: program } = useProgram(programId);
+  const { data: programs } = usePrograms();
+  const { data: projects } = useProjects();
+  // The Workspace scope tab links to `/settings`, which RequireWorkspaceAdmin
+  // bounces a non-workspace-admin away from (#2012). Disable the tab (rather than
+  // render a dead link) when the user is positively not a workspace admin.
+  const isWorkspaceAdmin = useIsWorkspaceAdmin();
+
+  if (!programId) return null;
+
+  // Project scope prefers a project belonging to THIS program, else any (issue 776).
+  const projectTarget =
+    projects?.find((p) => p.programId === programId)?.id ?? projects?.[0]?.id ?? null;
+
+  // Sibling-program switcher options (issue 776).
+  const contextOptions: SettingsContextOption[] = (programs ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    health: programHealthDot(p.health),
+    to: `/programs/${p.id}/settings`,
+  }));
+
+  const navGroups: SettingsNavGroup[] = buildProgramSettingsNav();
 
   return (
     <SettingsShell

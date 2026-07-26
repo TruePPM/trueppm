@@ -1172,18 +1172,137 @@ export function RadioDotIcon({ className, ...rest }: IconProps) {
   );
 }
 
-/** Label / tag — the program label view (#2333). Functional glyph, never an emoji. */
+/**
+ * Price-tag outline with a stroked eyelet — the Labels settings row (issue 2425).
+ *
+ * The eyelet is stroked rather than filled: a filled dot of this radius closes up
+ * into a blob at the 16px rail size, and the row then reads as a generic marker.
+ */
 export function TagIcon({ className, ...rest }: IconProps) {
   return (
     <svg
       width="16"
       height="16"
       viewBox="0 0 16 16"
-      fill="currentColor"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       className={className}
       {...rest}
     >
-      <path d="M7.6 1.5H3a1.5 1.5 0 0 0-1.5 1.5v4.6a1.5 1.5 0 0 0 .44 1.06l5.4 5.4a1.5 1.5 0 0 0 2.12 0l4.6-4.6a1.5 1.5 0 0 0 0-2.12l-5.4-5.4A1.5 1.5 0 0 0 7.6 1.5zM5 6a1.25 1.25 0 1 1 0-2.5A1.25 1.25 0 0 1 5 6z" />
+      <path d="M7.73 2.53H3.47a.93.93 0 0 0-.93.93v4.27c0 .27.13.47.27.67l5.2 5.2c.4.4 1 .4 1.33 0l4.27-4.27c.4-.4.4-1 0-1.33l-5.2-5.2a.93.93 0 0 0-.67-.27Z" />
+      <circle cx="5.4" cy="5.4" r=".93" />
+    </svg>
+  );
+}
+
+/**
+ * Struck-through eye — the Signal privacy settings row (issue 2425).
+ *
+ * Never tint this red. Signal privacy is a setting a team opts into, not an alarm
+ * state; a critical tint would make a deliberate configuration read as a fault.
+ */
+export function EyeOffIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M6.87 4.53A6.6 6.6 0 0 1 8 4.4c3.73 0 6 3.6 6 3.6a11.6 11.6 0 0 1-1.73 2.07" />
+      <path d="M4.4 5.27C2.8 6.33 2 8 2 8s2.27 3.6 6 3.6c1.07 0 2-.27 2.8-.67" />
+      <path d="M6.6 6.6a2 2 0 0 0 2.8 2.8" />
+      <path d="M2.8 2.8 13.2 13.2" />
+    </svg>
+  );
+}
+
+/**
+ * Framed panel with a tab bar and one divider — the Surfaces settings row (issue 2425).
+ *
+ * Deliberately asymmetric so it does not read as BoardIcon, whose three equal
+ * columns mean "kanban board" elsewhere in the product.
+ */
+export function LayoutIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <rect x="2.27" y="2.93" width="11.47" height="10.13" rx="1.33" />
+      <path d="M2.27 6.27h11.47M6.4 6.27v6.8" />
+    </svg>
+  );
+}
+
+/**
+ * Two-prong plug — the Integrations settings row (issue 2425).
+ *
+ * The prong gap is held wide enough that the two strokes stay separable at 16px;
+ * a tighter gap fills in and the glyph reads as a solid block.
+ */
+export function PlugIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M6 2.27v2.87M10 2.27v2.87" />
+      <path d="M4.4 5.13h7.2v1.93a3.6 3.6 0 0 1-7.2 0V5.13Z" />
+      <path d="M8 10.67v3.07" />
+    </svg>
+  );
+}
+
+/**
+ * Three linked nodes — the Sharing settings row (issue 2425).
+ *
+ * A share *network*, not an arrow leaving a box: sharing grants access inside
+ * TruePPM, so ExternalLinkIcon (which means "this leaves the app") is wrong here.
+ */
+export function ShareIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <circle cx="11.87" cy="3.87" r="1.53" />
+      <circle cx="4.13" cy="8" r="1.53" />
+      <circle cx="11.87" cy="12.13" r="1.53" />
+      <path d="M5.53 7.27 10.47 4.67M5.53 8.73 10.47 11.33" />
     </svg>
   );
 }
