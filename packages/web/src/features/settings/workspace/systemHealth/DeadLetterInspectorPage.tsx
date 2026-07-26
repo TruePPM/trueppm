@@ -323,7 +323,7 @@ function DetailPane({ id }: { id: string }) {
 
   if (isLoading) {
     return (
-      <LoadingSkeleton label="Loading dead-letter entries…" rows={5} className="flex-1 p-4" />
+      <LoadingSkeleton label="Loading task details…" rows={5} className="flex-1 p-4" />
     );
   }
 
