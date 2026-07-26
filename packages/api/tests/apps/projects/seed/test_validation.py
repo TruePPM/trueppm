@@ -15,6 +15,7 @@ import pytest
 from trueppm_api.apps.projects.seed import (
     SUPPORTED_MAJORS,
     SeedValidationError,
+    inspect_seed,
     validate_seed,
 )
 
@@ -467,3 +468,114 @@ def test_deepcopy_base_is_independent() -> None:
     b = copy.deepcopy(a)
     a["accounts"].append({"slug": "x", "username": "x"})
     assert b["accounts"] != a["accounts"]
+
+
+# --- inspect_seed: the non-raising dry-run form (#2418) ---------------------
+
+
+def test_inspect_valid_seed_reports_valid() -> None:
+    report = inspect_seed(_valid_seed())
+    assert report.valid is True
+    assert report.errors == []
+
+
+def test_inspect_never_raises_on_a_bad_document() -> None:
+    """Totality is the contract — the caller needs diagnostics precisely when
+    the document is bad."""
+    for payload in (None, [], "nope", 42, {}, {"schema_version": "9.0"}):
+        report = inspect_seed(payload)
+        assert report.valid is False
+        assert report.errors
+
+
+def test_inspect_echoes_the_claimed_shape() -> None:
+    report = inspect_seed(_valid_seed())
+    assert report.schema_version == "1.0"
+    assert report.program_slug == "atlas"
+    assert report.program_name == "Atlas Platform Launch"
+    assert report.project_count == 2
+    assert report.resource_count == 2
+    assert report.task_count > 0
+
+
+def test_inspect_echoes_the_claimed_shape_of_an_invalid_document() -> None:
+    """The echo is read defensively — it is most useful on a file that failed."""
+    seed = _valid_seed()
+    del seed["schema_version"]
+    seed["projects"][0]["tasks"][0]["assignee"] = "ghost"
+    report = inspect_seed(seed)
+    assert report.valid is False
+    assert report.schema_version is None
+    assert report.program_slug == "atlas"
+    assert report.project_count == 2
+
+
+def test_inspect_survives_a_program_of_the_wrong_type() -> None:
+    report = inspect_seed({"schema_version": "1.0", "program": "not-an-object", "projects": {}})
+    assert report.valid is False
+    assert report.program_slug is None
+    assert report.project_count == 0
+
+
+def test_missing_version_reports_every_other_problem_too() -> None:
+    """The bug this issue names: a version-less document used to report one
+    problem and hide the other twenty (#2418)."""
+    seed = _valid_seed()
+    del seed["schema_version"]
+    seed["projects"][0]["tasks"][0]["assignee"] = "ghost"
+    seed["accounts"].append({"slug": "alex", "username": "dup"})
+
+    report = inspect_seed(seed)
+
+    joined = "\n".join(report.errors)
+    assert "$.schema_version: required and missing" in joined
+    assert "ghost" in joined, joined
+    assert "duplicate slug" in joined, joined
+
+
+def test_missing_version_is_reported_exactly_once() -> None:
+    """The structural pass runs against an injected version, so the schema's own
+    required-property error cannot double up on the specific one."""
+    seed = _valid_seed()
+    del seed["schema_version"]
+    report = inspect_seed(seed)
+    version_errors = [e for e in report.errors if "schema_version" in e]
+    assert version_errors == ["$.schema_version: required and missing"]
+
+
+def test_missing_version_does_not_mutate_the_caller_payload() -> None:
+    """The injected version lives in a shallow copy — an operator's parsed
+    document must come back out the way it went in."""
+    seed = _valid_seed()
+    del seed["schema_version"]
+    inspect_seed(seed)
+    assert "schema_version" not in seed
+
+
+def test_unsupported_major_stops_at_the_version() -> None:
+    """No defensible schema to substitute — checking a 9.x document against the
+    v2 schema would bury the one diagnostic that matters."""
+    seed = _valid_seed()
+    seed["schema_version"] = "9.0"
+    seed["projects"][0]["tasks"][0]["assignee"] = "ghost"
+    report = inspect_seed(seed)
+    assert len(report.errors) == 1
+    assert "unsupported version" in report.errors[0]
+
+
+def test_non_string_version_is_unsupported_not_a_crash() -> None:
+    seed = _valid_seed()
+    seed["schema_version"] = 2
+    report = inspect_seed(seed)
+    assert report.valid is False
+    assert "unsupported version" in "\n".join(report.errors)
+
+
+def test_validate_seed_still_raises_everything_inspect_reports() -> None:
+    """``validate_seed`` is now a wrapper; the importer's contract is unchanged."""
+    seed = _valid_seed()
+    del seed["schema_version"]
+    report = inspect_seed(seed)
+    with pytest.raises(SeedValidationError) as exc:
+        validate_seed(seed)
+    assert exc.value.errors == report.errors

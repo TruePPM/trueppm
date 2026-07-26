@@ -1248,6 +1248,15 @@ REST_FRAMEWORK = {
         # allowance — importing a handful of program bundles in a sitting is
         # normal; sixty a minute is not.
         "seed_import": env("TRUEPPM_THROTTLE_SEED_IMPORT_RATE", default=_STRICT_ABUSE_RATE),
+        # Seed dry run (#2418). POST /programs/import/validate/ parses and
+        # JSON-Schema-checks a caller-sized document but writes nothing, so it
+        # costs CPU proportional to the payload and none of the teardown-rebuild
+        # that makes seed_import expensive — a looser bound is right. It gets its
+        # own bucket rather than sharing seed_import's for a usability reason as
+        # much as a cost one: the whole point of a dry run is to iterate on a file
+        # until it passes, and spending the real import allowance to do that would
+        # lock an operator out of the import their fixed file just earned.
+        "seed_validate": env("TRUEPPM_THROTTLE_SEED_VALIDATE_RATE", default=_MODERATE_RATE),
         # MCP read surface per-token rate limits (#1808 finding F4). These bound
         # token-authenticated reads on any McpReadableViewMixin view ONLY — human
         # JWT/Session traffic on the same views is unaffected (the throttles'

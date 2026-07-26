@@ -193,6 +193,7 @@ A program is a container for related projects (see [Programs](/features/programs
 | GET | `/api/v1/programs/samples/` | List the bundled samples available to the demo loader |
 | POST | `/api/v1/programs/load-sample/` | Load a bundled sample program (the in-app "Load demo data" action); body `{"sample": "<key>"}` |
 | POST | `/api/v1/programs/import/` | Import a JSON seed document as a new program (raw JSON body or multipart `file` upload); caller becomes Owner |
+| POST | `/api/v1/programs/import/validate/` | **Dry run** — validate a JSON seed document and return every diagnostic, **persisting nothing**. Same request shapes and permissions as `import/`. An invalid document is `200 {"valid": false, "errors": [...]}`, not a `400`: the request succeeded, the document is what failed. Also echoes the schema version, program slug/name, and project/task/resource counts the file claims, so you can confirm you grabbed the right file before running the destructive import |
 | GET | `/api/v1/programs/{id}/export/` | Download the program as a canonical JSON seed file (`Content-Disposition: attachment`) |
 | GET | `/api/v1/programs/{id}/rollup-config/` | Read the program rollup KPIs config (enabled KPIs + aggregation policy) |
 | PATCH | `/api/v1/programs/{id}/rollup-config/` | Update the program rollup KPIs config (Admin only) |

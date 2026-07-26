@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from dataclasses import asdict, dataclass
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -23,7 +24,12 @@ from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    inline_serializer,
+)
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -133,6 +139,96 @@ class SeedImportThrottle(_SeedImporterThrottle):
     """
 
     scope = "seed_import"
+
+
+@dataclass(frozen=True)
+class _SeedPayloadProblem:
+    """A request-level reason a seed body could not be read at all (#2418).
+
+    Distinguished from a *document* problem, which is what validation reports.
+    ``is_document_level`` marks the case the dry run answers with ``200
+    {valid: false}`` rather than a 400: unparseable JSON is a fact about the
+    file the operator handed us, and telling them so is the entire job of a dry
+    run. An oversize upload is a fact about the *request* and stays a 400 on
+    both paths — we never read it, so we have nothing to diagnose.
+    """
+
+    detail: str
+    is_document_level: bool
+
+
+def _read_seed_payload(request: Request) -> tuple[Any, _SeedPayloadProblem | None]:
+    """Read a seed document from a multipart ``file`` or a raw JSON body.
+
+    Shared by the real import and the dry run so the two cannot drift on the
+    upload ceiling or the accepted request shapes — a dry run whose parse rules
+    differ from the import's would answer a question nobody asked.
+    """
+    from django.conf import settings
+
+    upload = request.FILES.get("file")
+    if upload is None:
+        return request.data, None
+
+    # Bound the in-memory parse: an authenticated user must not be able
+    # to exhaust memory with a giant upload (mirrors the MSP importer).
+    max_bytes = settings.SEED_MAX_UPLOAD_MB * 1024 * 1024
+    if upload.size is not None and upload.size > max_bytes:
+        return None, _SeedPayloadProblem(
+            detail=f"Seed file too large. Maximum: {settings.SEED_MAX_UPLOAD_MB} MB.",
+            is_document_level=False,
+        )
+    try:
+        return json.loads(upload.read().decode("utf-8")), None
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return None, _SeedPayloadProblem(
+            detail=f"Uploaded file is not valid JSON: {exc}",
+            is_document_level=True,
+        )
+
+
+class SeedValidateThrottle(UserRateThrottle):
+    """Caps seed dry runs per account (#2418).
+
+    Deliberately *not* a :class:`_SeedImporterThrottle` subclass: the dry run
+    never reaches the importer, so it carries none of the teardown-and-rebuild
+    cost that bucket exists to bound. It still needs a bound of its own —
+    JSON-Schema validation is CPU proportional to a caller-sized document — but
+    a looser one, and in a separate bucket so iterating on a file until it
+    validates cannot exhaust the allowance for importing the file that finally
+    passes.
+    """
+
+    scope = "seed_validate"
+
+
+# Response envelope for the seed dry run (#2418).
+#
+# ``valid`` is the answer; ``errors`` is the complete JSON-path-anchored
+# diagnostic list (empty when valid). The remaining fields echo what the
+# *document claims to be*, so an operator can confirm they grabbed the right
+# file before pointing a wipe-then-recreate import (ADR-0109) at a live program
+# slug — they are read defensively and may be ``null`` on a document too
+# malformed to state them.
+#
+# Declared via ``inline_serializer`` rather than a Serializer subclass because
+# the envelope's ``errors`` key would shadow ``Serializer.errors``, the base
+# property DRF uses to report validation failures. This serializer only ever
+# describes a response shape — it is never instantiated to validate input — but
+# a field named after a base-class property is a trap for whoever tries later.
+SEED_VALIDATE_RESPONSE = inline_serializer(
+    "SeedValidateResponse",
+    {
+        "valid": serializers.BooleanField(),
+        "errors": serializers.ListField(child=serializers.CharField()),
+        "schema_version": serializers.CharField(allow_null=True),
+        "program_slug": serializers.CharField(allow_null=True),
+        "program_name": serializers.CharField(allow_null=True),
+        "project_count": serializers.IntegerField(),
+        "task_count": serializers.IntegerField(),
+        "resource_count": serializers.IntegerField(),
+    },
+)
 
 
 class LoadSampleResponseSerializer(serializers.Serializer[Any]):
@@ -348,6 +444,67 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
+        summary="Dry-run: validate a JSON seed bundle without importing it",
+        description=(
+            "Runs the full seed validator — JSON-Schema conformance, referential "
+            "integrity, node budgets, three-point estimate ordering — and returns "
+            "every diagnostic it finds. **Persists nothing.**\n\n"
+            'A document that fails validation is `200 {"valid": false}`, not a '
+            "`400`: the request succeeded, the *document* is what failed, and the "
+            "caller needs the diagnostics either way. A `400` here means the "
+            "request itself was unusable (upload over the size ceiling).\n\n"
+            "Same authorization as `POST /programs/import/` — a dry run parses an "
+            "untrusted document and is not a lighter-privilege surface."
+        ),
+        responses={200: SEED_VALIDATE_RESPONSE},
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="import/validate",
+        throttle_classes=[SeedValidateThrottle],
+    )
+    def validate_import(self, request: Request) -> Response:
+        """Validate a seed document and report every problem, importing nothing.
+
+        The CSV importer has had a preview endpoint since #743; the JSON seed
+        has had an equally good validator with no way to run it. That asymmetry
+        matters because ``import_seed`` is wipe-then-recreate on the program
+        slug (ADR-0109) — an operator pointing it at a live slug could not
+        answer *"will this file be accepted?"* without committing to the
+        destructive operation first (#2418).
+
+        Persisting nothing is the contract, and it is structural rather than
+        merely intended: this calls ``inspect_seed``, a pure function in a
+        module that never imports the ORM, and never reaches the importer.
+
+        Permission parity with ``import_seed`` is deliberate — both fall through
+        to the ``get_permissions`` ``IsAuthenticated`` default. A dry run parses
+        the same untrusted document under the same authorization; the only thing
+        it withholds is the write.
+        """
+        from trueppm_api.apps.projects.seed import SeedReport, inspect_seed
+
+        payload, problem = _read_seed_payload(request)
+        if problem is not None and not problem.is_document_level:
+            return Response({"detail": problem.detail}, status=status.HTTP_400_BAD_REQUEST)
+        if problem is not None:
+            report = SeedReport(
+                valid=False,
+                errors=[f"$: {problem.detail}"],
+                schema_version=None,
+                program_slug=None,
+                program_name=None,
+                project_count=0,
+                task_count=0,
+                resource_count=0,
+            )
+        else:
+            report = inspect_seed(payload)
+
+        return Response(asdict(report), status=status.HTTP_200_OK)
+
+    @extend_schema(
         summary="Import a JSON seed bundle as a new program",
         responses={201: ProgramSerializer},
     )
@@ -377,30 +534,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         caller, touching no existing data. Import is not tightened beyond create;
         if create ever becomes workspace-gated, this action must move with it.
         """
-        from django.conf import settings
-
         from trueppm_api.apps.projects.seed import SeedValidationError
         from trueppm_api.apps.projects.seed import import_seed as run_import
 
-        upload = request.FILES.get("file")
-        if upload is not None:
-            # Bound the in-memory parse: an authenticated user must not be able
-            # to exhaust memory with a giant upload (mirrors the MSP importer).
-            max_bytes = settings.SEED_MAX_UPLOAD_MB * 1024 * 1024
-            if upload.size is not None and upload.size > max_bytes:
-                return Response(
-                    {"detail": f"Seed file too large. Maximum: {settings.SEED_MAX_UPLOAD_MB} MB."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            try:
-                payload = json.loads(upload.read().decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                return Response(
-                    {"detail": "Uploaded file is not valid JSON."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        else:
-            payload = request.data
+        payload, problem = _read_seed_payload(request)
+        if problem is not None:
+            return Response({"detail": problem.detail}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             program = run_import(payload, owner=request.user, create_users=False)

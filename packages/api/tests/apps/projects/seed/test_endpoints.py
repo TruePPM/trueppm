@@ -24,6 +24,7 @@ pytestmark = pytest.mark.django_db
 User = get_user_model()
 
 IMPORT_URL = "/api/v1/programs/import/"
+VALIDATE_URL = "/api/v1/programs/import/validate/"
 
 
 def _client(user: Any) -> APIClient:
@@ -97,6 +98,80 @@ def test_import_does_not_mint_users(user: Any) -> None:
     _client(user).post(IMPORT_URL, data=_seed(), format="json")
     assert not User.objects.filter(username="seed-alex").exists()
     assert Task.objects.get(name="Build auth").assignee is None
+
+
+# --- dry run (#2418) -------------------------------------------------------
+
+
+def test_validate_requires_auth() -> None:
+    """A dry run parses an untrusted document — not a lighter-privilege surface."""
+    resp = APIClient().post(VALIDATE_URL, data=_seed(), format="json")
+    assert resp.status_code in (401, 403)
+
+
+def test_validate_accepts_a_good_seed(user: Any) -> None:
+    resp = _client(user).post(VALIDATE_URL, data=_seed(), format="json")
+    assert resp.status_code == 200, resp.content
+    assert resp.data["valid"] is True
+    assert resp.data["errors"] == []
+
+
+def test_validate_echoes_what_the_file_claims_to_be(user: Any) -> None:
+    """The operator has to be able to confirm they grabbed the right file."""
+    resp = _client(user).post(VALIDATE_URL, data=_seed(), format="json")
+    assert resp.data["schema_version"] == _seed()["schema_version"]
+    assert resp.data["program_slug"] == "atlas"
+    assert resp.data["project_count"] == 2
+    assert resp.data["task_count"] > 0
+
+
+def test_validate_reports_invalid_as_200_not_400(user: Any) -> None:
+    """The request succeeded; the *document* is what failed (#2418)."""
+    seed = _seed()
+    seed["projects"][0]["tasks"][0]["assignee"] = "ghost"
+    resp = _client(user).post(VALIDATE_URL, data=seed, format="json")
+    assert resp.status_code == 200, resp.content
+    assert resp.data["valid"] is False
+    assert any("ghost" in e for e in resp.data["errors"])
+
+
+def test_validate_persists_nothing(user: Any) -> None:
+    """Asserted, not assumed — the whole premise of the endpoint."""
+    before = Program.objects.count()
+    resp = _client(user).post(VALIDATE_URL, data=_seed(), format="json")
+    assert resp.status_code == 200
+    assert resp.data["valid"] is True
+    assert not Program.objects.filter(code="atlas").exists()
+    assert Program.objects.count() == before
+
+
+def test_validate_multipart_file(user: Any) -> None:
+    upload = SimpleUploadedFile(
+        "atlas.json", json.dumps(_seed()).encode("utf-8"), content_type="application/json"
+    )
+    resp = _client(user).post(VALIDATE_URL, data={"file": upload}, format="multipart")
+    assert resp.status_code == 200, resp.content
+    assert resp.data["valid"] is True
+
+
+def test_validate_reports_unparseable_file_as_a_document_problem(user: Any) -> None:
+    """Telling the operator their file is not JSON is the job, not a 400."""
+    upload = SimpleUploadedFile("bad.json", b"{not json", content_type="application/json")
+    resp = _client(user).post(VALIDATE_URL, data={"file": upload}, format="multipart")
+    assert resp.status_code == 200, resp.content
+    assert resp.data["valid"] is False
+    assert any("not valid JSON" in e for e in resp.data["errors"])
+
+
+def test_validate_rejects_oversized_file_as_a_request_problem(user: Any, settings: Any) -> None:
+    """An upload we never read has no diagnostics to give — that stays a 400."""
+    settings.SEED_MAX_UPLOAD_MB = 0
+    upload = SimpleUploadedFile(
+        "big.json", json.dumps(_seed()).encode("utf-8"), content_type="application/json"
+    )
+    resp = _client(user).post(VALIDATE_URL, data={"file": upload}, format="multipart")
+    assert resp.status_code == 400
+    assert "too large" in resp.data["detail"]
 
 
 def test_project_export_round_trips_through_program_import(user: Any) -> None:
