@@ -42,7 +42,12 @@ function CardIdentityRow({
 }) {
   const streamKey = task.parentEpic ?? task.parentId ?? null;
   const streamColor = streamKey ? phaseColor(streamKey) : null;
-  if (streamColor === null && !task.shortId && task.storyPoints == null) return null;
+  // Prefer the project-qualified reference ("ENG-2026-8"), then the compact one
+  // ("T-8"). Never the raw `shortId`: the stored value is zero-padded hex, so the
+  // card used to read "0000000A" — an internal identifier leaking into the UI,
+  // and not the project-code prefix Settings → General promises (#2430).
+  const taskRef = task.qualifiedId ?? task.shortIdDisplay ?? null;
+  if (streamColor === null && !taskRef && task.storyPoints == null) return null;
   return (
     <div className="flex items-center gap-1.5 mt-1 min-w-0">
       {streamColor !== null && (
@@ -53,9 +58,12 @@ function CardIdentityRow({
           aria-hidden="true"
         />
       )}
-      {task.shortId && (
-        <span className="tppm-mono text-xs text-neutral-text-secondary truncate">
-          {task.shortId}
+      {taskRef && (
+        <span
+          className="tppm-mono text-xs text-neutral-text-secondary truncate"
+          aria-label={`Task reference ${taskRef}`}
+        >
+          {taskRef}
         </span>
       )}
       {task.storyPoints != null && (
@@ -101,6 +109,8 @@ interface CardFullBodyProps {
   onShowRisks?: (task: Task) => void;
   onChainHoverEnter: () => void;
   onChainHoverLeave: () => void;
+  /** Board-wide verdict from `readinessIsInformative` (#2430). */
+  showReadiness?: boolean;
 }
 
 /**
@@ -117,6 +127,7 @@ export function CardFullBody({
   onShowRisks,
   onChainHoverEnter,
   onChainHoverLeave,
+  showReadiness = true,
 }: CardFullBodyProps) {
   // Worst-offender peek (issue 1305): on touch (no hover) the primary badge toggles
   // the full chip set open; `peekOpen` keeps it open after blur/un-hover. Desktop
@@ -143,8 +154,11 @@ export function CardFullBody({
 
   return (
     <div className="pl-2.5 pr-2.5 pt-2.5 pb-2.5">
-      {/* Readiness chip — top-left (issue 179) */}
-      {task.readiness && (
+      {/* Readiness chip — top-left (issue 179). Suppressed board-wide when every
+          visible card shares one readiness value: a chip true of everything on
+          screen conveys nothing, and it costs a line of the card's scarcest
+          resource (#2430). */}
+      {task.readiness && showReadiness && (
         <div className="mb-1.5">
           <ReadinessChip readiness={task.readiness} />
         </div>

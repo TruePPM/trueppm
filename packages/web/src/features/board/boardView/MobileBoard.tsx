@@ -31,6 +31,8 @@ interface MobileBoardProps {
   showEvm: EvmMode;
   showCost: boolean;
   customFieldDefs: ProjectCustomField[];
+  /** Board-wide readiness-chip gate (#2430). */
+  showReadiness: boolean;
   scopeActions: BoardCardScopeActions;
   readOnly: boolean;
   /** Facet-filter match set (issue 1091) — null when no facet active. */
@@ -74,6 +76,7 @@ export function MobileBoard({
   showEvm,
   showCost,
   customFieldDefs,
+  showReadiness,
   scopeActions,
   readOnly,
   wipTrendSeriesByStatus,
@@ -216,6 +219,7 @@ export function MobileBoard({
                       showEvm={showEvm}
                       showCost={showCost}
                       customFieldDefs={customFieldDefs}
+                      showReadiness={showReadiness}
                       scopeActions={scopeActions}
                       readOnly={readOnly}
                     />

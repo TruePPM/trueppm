@@ -186,7 +186,7 @@ export interface Task {
   labels?: TaskLabel[];
   /**
    * ISO date-time when the task entered its current status column.
-   * Used to compute entry stamps ("Entered at 72% · 3d ago") on board cards.
+   * Used to compute the board card's dwell line ("3d in this column · 72% done").
    * Absent until the API backfills the field (issue #130).
    */
   statusEnteredAt?: string;
@@ -310,8 +310,21 @@ export interface Task {
   notes: string;
   /** True for tasks created via the drawer subtask action (ADR-0060 #308). */
   isSubtask?: boolean;
-  /** 8-hex-digit project-scoped ID (ADR-0016 / issue #50). Rendered as the task's short reference. */
+  /**
+   * Raw 8-hex-digit project-scoped sequence (ADR-0016 / issue #50) — the stored
+   * identity. **Do not render it**: it reads as an internal identifier
+   * (`00000008`, `0000000A`) rather than "the eighth task" (#2430). Use
+   * `qualifiedId` (preferred) or `shortIdDisplay`, both server-formatted.
+   */
   shortId?: string;
+  /** Server-formatted compact task reference, e.g. `"T-8"` (#2430). */
+  shortIdDisplay?: string;
+  /**
+   * Server-formatted project-qualified task reference, e.g. `"ENG-2026-8"` —
+   * honoring the project code Settings → General promises prefixes task IDs.
+   * Falls back to the compact form when the project has no code (#2430).
+   */
+  qualifiedId?: string;
   /** Sprint scope-change audit rows — populated when subtasks are added to an in-sprint task (ADR-0060). */
   sprintScopeChanges?: Array<{
     /** ADR-0102: scope-change row id — targets the single accept/reject

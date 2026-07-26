@@ -2562,6 +2562,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     baseline_start = serializers.DateField(read_only=True, allow_null=True)
     baseline_finish = serializers.DateField(read_only=True, allow_null=True)
 
+    # Human task reference (#2430). Server-owned for the same reason the risk
+    # equivalents are (#929): the display form must not be re-derived by each
+    # client. See the getters below.
+    short_id_display = serializers.SerializerMethodField()
+    qualified_id = serializers.SerializerMethodField()
+
     # Freshness signal (ADR-0143, #740): timestamp of the most recent non-deleted
     # TaskNote. Fed by the `latest_note_at` annotation in annotate_tasks_queryset;
     # `default=None` keeps it safe on bare-instance serialization paths.
@@ -2574,6 +2580,48 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # correct working-day count, not the inflated calendar span. Never persisted —
     # ``duration`` remains the stored field; this is popped in ``validate()``.
     planned_finish = serializers.DateField(required=False, allow_null=True, write_only=True)
+
+    def get_short_id_display(self, obj: Task) -> str:
+        """Compact, in-project task reference — ``T-8`` (#2430).
+
+        ``short_id`` is stored as 8-character uppercase hex (``_next_short_id``
+        formats ``object_sequence`` as ``{seq:08X}``), which leaked onto board cards
+        as ``00000008`` / ``0000000A`` — a zero-padded hex string that reads as an
+        internal identifier, not as "the eighth task". Decode the sequence back to
+        the integer it always was and render it unpadded, so task 10 reads ``T-10``
+        rather than ``0000000A``.
+
+        Server-owned so web, mobile, and MCP all render the same reference. #929
+        learned this the hard way on risks: three web formatters independently
+        mis-parsed the hex scheme and collapsed every risk to ``R-0000``. The stored
+        value is unchanged — this is a display projection, so there is no migration
+        and existing ids keep their identity.
+        """
+        raw = obj.short_id
+        if not raw:
+            return ""
+        try:
+            return f"T-{int(raw, 16)}"
+        except ValueError:
+            # Not parseable as hex (hand-seeded or imported row) — surface it as-is
+            # rather than blanking the reference.
+            return f"T-{raw}"
+
+    def get_qualified_id(self, obj: Task) -> str:
+        """Project-qualified task reference — ``ENG-2026-8`` (#2430).
+
+        Settings → General collects a ``Project code`` whose own help text promises
+        it is "used as a prefix for task IDs and exports" — a promise nothing kept.
+        This is the field that keeps it, and the one board cards render. Falls back
+        to the compact ``T-8`` form when the project has no code (it is optional,
+        #520), so the reference is never empty just because a code is unset.
+
+        ``project`` is ``select_related`` on the TaskViewSet queryset, so this is
+        not an N+1.
+        """
+        display = self.get_short_id_display(obj)
+        code = obj.project.code if obj.project_id else ""
+        return f"{code}-{display[2:]}" if code and display else display
 
     # Computed: actual_finish - early_finish in days.  Positive = late, negative = early.
     schedule_variance_days = serializers.SerializerMethodField()
@@ -2734,6 +2782,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "id",
             "server_version",
             "short_id",
+            "short_id_display",
+            "qualified_id",
             "project",
             "name",
             "assignee",
@@ -2840,6 +2890,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "id",
             "server_version",
             "short_id",
+            "short_id_display",
+            "qualified_id",
             "early_start",
             "early_finish",
             "late_start",

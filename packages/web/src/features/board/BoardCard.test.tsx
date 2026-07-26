@@ -93,6 +93,7 @@ function renderCard(props: Partial<ComponentProps<typeof BoardCard>>) {
         showCost={props.showCost}
         onCardClick={props.onCardClick}
         scopeActions={props.scopeActions}
+        showReadiness={props.showReadiness}
       />
     </Wrapper>,
   );
@@ -172,14 +173,14 @@ describe('BoardCard', () => {
   it('renders the entry stamp with non-stalled styling at <= 3 days', () => {
     const enteredAt = new Date('2026-01-13T12:00:00Z').toISOString(); // 2 days ago
     renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt } });
-    expect(screen.getByText(/Entered at 60% · 2d ago/)).toBeInTheDocument();
+    expect(screen.getByText(/2d in this column · 60% done/)).toBeInTheDocument();
     expect(screen.queryByText(/stalled/)).not.toBeInTheDocument();
   });
 
-  it('renders "1d ago" when entered exactly 1 day ago', () => {
+  it('renders "1d in this column" when entered exactly 1 day ago', () => {
     const enteredAt = new Date('2026-01-14T12:00:00Z').toISOString();
     renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt } });
-    expect(screen.getByText(/Entered at 60% · 1d ago/)).toBeInTheDocument();
+    expect(screen.getByText(/1d in this column · 60% done/)).toBeInTheDocument();
   });
 
   it('marks the entry stamp as stalled when > 3 days and progress < 100', () => {
@@ -188,9 +189,9 @@ describe('BoardCard', () => {
     expect(screen.getByText(/— stalled/)).toBeInTheDocument();
   });
 
-  it('does NOT show the entry stamp when statusEnteredAt is undefined', () => {
+  it('does NOT show the dwell line when statusEnteredAt is undefined', () => {
     renderCard({ task: baseTask });
-    expect(screen.queryByText(/Entered at/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/in this column/)).not.toBeInTheDocument();
   });
 
   it('honors the isStalled override prop over the derived value', () => {
@@ -199,9 +200,9 @@ describe('BoardCard', () => {
     renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt }, isStalled: true });
     // The stamp text itself only includes "— stalled" when the derived value
     // says stalled; the override propagates to the BoardProgressRing visual
-    // state. We assert the stamp body still reads "1d ago" and the override
-    // does not crash rendering.
-    expect(screen.getByText(/Entered at 60% · 1d ago/)).toBeInTheDocument();
+    // state. We assert the dwell body still reads "1d in this column" and the
+    // override does not crash rendering.
+    expect(screen.getByText(/1d in this column · 60% done/)).toBeInTheDocument();
   });
 
   it('renders stalled from the server is_stalled verdict even when clock dwell is short (#992)', () => {
@@ -214,13 +215,13 @@ describe('BoardCard', () => {
     expect(screen.getByText(/— stalled/)).toBeInTheDocument();
   });
 
-  it('uses the server dwell_days for the entry-stamp age label (#992)', () => {
+  it('uses the server dwell_days for the dwell label (#992)', () => {
     // Clock delta is 1 day, but the server dwell fact is 9 days — the label reads 9d.
     const enteredAt = new Date('2026-01-14T12:00:00Z').toISOString();
     renderCard({
       task: { ...baseTask, statusEnteredAt: enteredAt, isStalled: false, dwellDays: 9 },
     });
-    expect(screen.getByText(/· 9d ago/)).toBeInTheDocument();
+    expect(screen.getByText(/9d in this column/)).toBeInTheDocument();
   });
 
   it('shows the "Move to Done?" nudge when progress is 100% and status is not COMPLETE', () => {
@@ -328,6 +329,26 @@ describe('BoardCard', () => {
     renderCard({ task: baseTask }); // no readiness field
     expect(screen.queryByText('idea')).not.toBeInTheDocument();
     expect(screen.queryByText('estimated')).not.toBeInTheDocument();
+  });
+
+  // #2430 — a chip true of every card on screen conveys nothing. BoardView decides
+  // board-wide (readinessIsInformative) and passes the verdict down; the card just
+  // honors it, staying unaware of board-view state.
+  it('suppresses the readiness chip when the board says it is uninformative', () => {
+    renderCard({ task: { ...baseTask, readiness: 'baselined' }, showReadiness: false });
+    expect(screen.queryByText('baselined')).not.toBeInTheDocument();
+  });
+
+  it('renders the readiness chip when the board says it distinguishes cards', () => {
+    renderCard({ task: { ...baseTask, readiness: 'baselined' }, showReadiness: true });
+    expect(screen.getByText('baselined')).toBeInTheDocument();
+  });
+
+  it('defaults to showing the chip for callers with no board context', () => {
+    // The drag overlay and standalone renders pass no verdict; the chip's own
+    // task.readiness guard is still the gate there.
+    renderCard({ task: { ...baseTask, readiness: 'ready' } });
+    expect(screen.getByText('ready')).toBeInTheDocument();
   });
 
   // ---------------------------------------------------------------------------
@@ -1211,9 +1232,46 @@ describe('BoardCard', () => {
 });
 
 describe('BoardCard v2 identity meta (issue 1230)', () => {
-  it('renders the visible short id on the card face', () => {
-    renderCard({ task: { ...baseTask, shortId: 'a1b2c3d4' } });
-    expect(screen.getByText('a1b2c3d4')).toBeInTheDocument();
+  // #2430 — the card used to render the raw zero-padded hex `shortId`
+  // ("00000008", "0000000A"), an internal identifier leaking into the UI. It now
+  // renders the server-formatted reference, preferring the project-qualified form
+  // that honors the code Settings → General promises prefixes task IDs.
+  it('renders the project-qualified task reference on the card face', () => {
+    renderCard({
+      task: {
+        ...baseTask,
+        shortId: '00000008',
+        shortIdDisplay: 'T-8',
+        qualifiedId: 'ENG-2026-8',
+      },
+    });
+    expect(screen.getByText('ENG-2026-8')).toBeInTheDocument();
+    expect(screen.getByLabelText('Task reference ENG-2026-8')).toBeInTheDocument();
+  });
+
+  it('falls back to the compact reference when the project has no code', () => {
+    renderCard({ task: { ...baseTask, shortId: '0000000A', shortIdDisplay: 'T-10' } });
+    expect(screen.getByText('T-10')).toBeInTheDocument();
+  });
+
+  it('never renders the raw zero-padded hex short id', () => {
+    renderCard({
+      task: {
+        ...baseTask,
+        shortId: '0000000A',
+        shortIdDisplay: 'T-10',
+        qualifiedId: 'ENG-2026-10',
+      },
+    });
+    expect(screen.queryByText('0000000A')).not.toBeInTheDocument();
+  });
+
+  it('omits the reference entirely when the server sent no display form', () => {
+    // A pre-#2430 payload carries only the raw hex — better to show nothing than
+    // to show an internal identifier.
+    renderCard({ task: { ...baseTask, shortId: '0000000A' } });
+    expect(screen.queryByText('0000000A')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^T-/)).not.toBeInTheDocument();
   });
 
   it('renders a story-points pill with an accessible label', () => {
@@ -1229,7 +1287,7 @@ describe('BoardCard v2 identity meta (issue 1230)', () => {
 
   it('renders a stream color tag keyed to the epic when present', () => {
     const { container } = renderCard({
-      task: { ...baseTask, parentEpic: 'epic-1', shortId: 'aa11bb22' },
+      task: { ...baseTask, parentEpic: 'epic-1', shortIdDisplay: 'T-42' },
     });
     // The stream dot is a decorative colored node with a "Stream" title.
     const dot = container.querySelector('span[title="Stream"]');

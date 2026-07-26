@@ -74,6 +74,7 @@ import { useWorkshopSocket } from '@/hooks/useWorkshopSocket';
 import { useCreateTask, useUpdateTask } from '@/hooks/useTaskMutations';
 import type { ApiSprint, Task, TaskStatus } from '@/types';
 import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
+import { readinessIsInformative } from './card/cardFormat';
 import { useBoardOffline } from './offline/useBoardOffline';
 import { LaneMeta } from './LaneMeta';
 import { PhaseMilestoneRail } from './PhaseMilestoneRail';
@@ -401,6 +402,8 @@ interface BoardCellProps {
   showEvm: EvmMode;
   showCost: boolean;
   customFieldDefs: ProjectCustomField[];
+  /** Board-wide readiness-chip gate (#2430) — false when the chip is universal. */
+  showReadiness: boolean;
   /** Sprint scope-injection accept/reject affordance (ADR-0102). */
   scopeActions: BoardCardScopeActions;
   /** Closed-sprint read-only (#1141): disables drag on every card in the cell. */
@@ -615,6 +618,7 @@ function BoardCellImpl({
   showEvm,
   showCost,
   customFieldDefs,
+  showReadiness,
   scopeActions,
   readOnly = false,
   facetMatchIds,
@@ -718,6 +722,7 @@ function BoardCellImpl({
               showEvm={showEvm}
               showCost={showCost}
               customFieldDefs={customFieldDefs}
+              showReadiness={showReadiness}
               scopeActions={scopeActions}
               readOnly={readOnly}
             />
@@ -805,6 +810,8 @@ interface PhaseLaneProps {
   showEvm: EvmMode;
   showCost: boolean;
   customFieldDefs: ProjectCustomField[];
+  /** Board-wide readiness-chip gate (#2430) — false when the chip is universal. */
+  showReadiness: boolean;
   /** Sprint scope-injection accept/reject affordance (ADR-0102). */
   scopeActions: BoardCardScopeActions;
   /** Closed-sprint read-only (#1141): disables drag-to-assign on every card. */
@@ -1006,6 +1013,7 @@ function PhaseLaneImpl({
   showEvm,
   showCost,
   customFieldDefs,
+  showReadiness,
   scopeActions,
   readOnly = false,
   workshop = false,
@@ -1176,6 +1184,7 @@ function PhaseLaneImpl({
               showEvm={showEvm}
               showCost={showCost}
               customFieldDefs={customFieldDefs}
+              showReadiness={showReadiness}
               scopeActions={scopeActions}
               readOnly={readOnly}
               cellCap={cellCap}
@@ -1968,6 +1977,15 @@ export function BoardView() {
     for (const opt of labelOptions) m.set(opt.id, opt.name);
     return m;
   }, [labelOptions]);
+  // Readiness chip gate (#2430): the chip is a *comparative* signal, so it is
+  // suppressed board-wide when every visible card carries the same readiness —
+  // a `baselined` chip on all of them is noise, not information. Decided here
+  // (not in the card) so BoardCard stays unaware of board-view state, mirroring
+  // the `cardCustomFieldDefs` contract.
+  const showReadinessOnCards = useMemo(
+    () => readinessIsInformative(committedTasks),
+    [committedTasks],
+  );
   const facetMatchIds = useMemo(() => {
     if (!facetsActive) return null;
     const now = new Date();
@@ -2757,6 +2775,7 @@ export function BoardView() {
     showEvm: evmMode,
     showCost,
     customFieldDefs: cardCustomFieldDefs,
+    showReadiness: showReadinessOnCards,
     scopeActions,
     readOnly,
     workshop: workshopMode,
@@ -3024,6 +3043,7 @@ export function BoardView() {
             showEvm={evmMode}
             showCost={showCost}
             cardCustomFieldDefs={cardCustomFieldDefs}
+            showReadiness={showReadinessOnCards}
             scopeActions={scopeActions}
             readOnly={readOnly}
             facetMatchIds={facetMatchIds}
