@@ -141,7 +141,15 @@ class PinnedItemSerializer(serializers.Serializer[Any]):
     teammate, which ADR-0627 §D5 forecloses.
     """
 
-    kind = serializers.ChoiceField(choices=["project", "program"])
+    # Plain CharField (not ChoiceField), matching the same decision on
+    # `UnifiedSearchResultSerializer.kind`: a ChoiceField emits a `KindEnum`
+    # component that collides with the existing AssetItem `kind` (file/link) and
+    # makes drf-spectacular rename BOTH — silently turning the long-stable
+    # `KindEnum` into `AssetItemKindEnum` and breaking every generated client
+    # that referenced it. The two values live in `help_text` instead.
+    kind = serializers.CharField(
+        help_text="Pinned target: 'project' or 'program'.",
+    )
     id = serializers.CharField()
     name = serializers.CharField()
     # Programs carry a short code; projects do not.

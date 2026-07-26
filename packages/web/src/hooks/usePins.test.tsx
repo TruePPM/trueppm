@@ -11,14 +11,31 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { usePinned, useTogglePin, PINNED_KEY } from './usePins';
-import { apiClient } from '@/api/client';
-import { toast } from '@/components/Toast';
+
+// Hoisted fns rather than `vi.mocked(apiClient.post)` at each assertion: passing
+// a bare object method to `expect` trips @typescript-eslint/unbound-method.
+const getMock = vi.fn();
+const postMock = vi.fn();
+const deleteMock = vi.fn();
+const toastInfo = vi.fn();
+const toastError = vi.fn();
 
 vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
+  apiClient: {
+    get: (...a: unknown[]) => getMock(...a) as Promise<unknown>,
+    post: (...a: unknown[]) => postMock(...a) as Promise<unknown>,
+    delete: (...a: unknown[]) => deleteMock(...a) as Promise<unknown>,
+  },
 }));
 vi.mock('@/components/Toast', () => ({
-  toast: { info: vi.fn(), error: vi.fn() },
+  toast: {
+    info: (...a: unknown[]) => {
+      toastInfo(...a);
+    },
+    error: (...a: unknown[]) => {
+      toastError(...a);
+    },
+  },
 }));
 
 function makeWrapper(qc: QueryClient) {
@@ -37,9 +54,9 @@ beforeEach(() => {
 
 describe('usePinned', () => {
   it('returns the pinned list', async () => {
-    vi.mocked(apiClient.get).mockResolvedValue({
+    getMock.mockResolvedValue({
       data: [{ kind: 'project', id: 'p1', name: 'Alpha' }],
-    } as never);
+    });
     const qc = newClient();
     const { result } = renderHook(() => usePinned(), { wrapper: makeWrapper(qc) });
     await waitFor(() => expect(result.current.data).toHaveLength(1));
@@ -50,9 +67,9 @@ describe('usePinned', () => {
     // `{count, results}`. Letting that reach `.filter` in the rail throws inside
     // the root error boundary and blanks the whole app, which then surfaces as
     // an unrelated flake somewhere else entirely.
-    vi.mocked(apiClient.get).mockResolvedValue({
+    getMock.mockResolvedValue({
       data: { count: 0, next: null, previous: null, results: [] },
-    } as never);
+    });
     const qc = newClient();
     const { result } = renderHook(() => usePinned(), { wrapper: makeWrapper(qc) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -62,7 +79,7 @@ describe('usePinned', () => {
 
 describe('useTogglePin — optimistic cache patching', () => {
   it('patches the camelCase `{items}` envelope used by useProjects', async () => {
-    vi.mocked(apiClient.post).mockResolvedValue({ data: {} } as never);
+    postMock.mockResolvedValue({ data: {} });
     const qc = newClient();
     // This is the real shape of the ['projects'] cache: a mapped domain object
     // behind an envelope, NOT an array of wire rows.
@@ -78,7 +95,7 @@ describe('useTogglePin — optimistic cache patching', () => {
   });
 
   it('patches the snake_case program detail entry under the LIST key prefix', async () => {
-    vi.mocked(apiClient.post).mockResolvedValue({ data: {} } as never);
+    postMock.mockResolvedValue({ data: {} });
     const qc = newClient();
     // Program detail is ['programs', id] — a prefix-extension of the list key,
     // not ['program', id]. Deriving it as [kind, id] misses this entirely.
@@ -94,7 +111,7 @@ describe('useTogglePin — optimistic cache patching', () => {
   });
 
   it('inserts newest-first into the pinned collection', async () => {
-    vi.mocked(apiClient.post).mockResolvedValue({ data: {} } as never);
+    postMock.mockResolvedValue({ data: {} });
     const qc = newClient();
     qc.setQueryData(PINNED_KEY, [{ kind: 'project', id: 'old', name: 'Older' }]);
 
@@ -110,7 +127,7 @@ describe('useTogglePin — optimistic cache patching', () => {
 
 describe('useTogglePin — failure handling', () => {
   it('rolls the optimistic patch back when the write fails', async () => {
-    vi.mocked(apiClient.post).mockRejectedValue(new Error('boom'));
+    postMock.mockRejectedValue(new Error('boom'));
     const qc = newClient();
     qc.setQueryData(['projects'], { items: [{ id: 'p1', isPinned: false }], count: 1 });
 
@@ -123,7 +140,7 @@ describe('useTogglePin — failure handling', () => {
   });
 
   it('names the cap explicitly, keyed on the machine code not the sentence', async () => {
-    vi.mocked(apiClient.post).mockRejectedValue({
+    postMock.mockRejectedValue({
       response: { status: 400, data: { code: 'pin_limit_reached', detail: 'anything at all' } },
     });
     const qc = newClient();
@@ -131,20 +148,20 @@ describe('useTogglePin — failure handling', () => {
     act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith(
+      expect(toastError).toHaveBeenCalledWith(
         "You've pinned 100 items — unpin one to add another.",
       );
     });
   });
 
   it('falls back to a generic retry message for an unrecognized failure', async () => {
-    vi.mocked(apiClient.post).mockRejectedValue(new Error('network'));
+    postMock.mockRejectedValue(new Error('network'));
     const qc = newClient();
     const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
     act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Couldn't pin Alpha — try again.");
+      expect(toastError).toHaveBeenCalledWith("Couldn't pin Alpha — try again.");
     });
   });
 });
@@ -152,7 +169,7 @@ describe('useTogglePin — failure handling', () => {
 describe('useTogglePin — toast timing', () => {
   it('does NOT toast success until the server confirms', async () => {
     let resolvePost: (v: unknown) => void = () => {};
-    vi.mocked(apiClient.post).mockReturnValue(
+    postMock.mockReturnValue(
       new Promise((res) => {
         resolvePost = res;
       }) as never,
@@ -164,18 +181,18 @@ describe('useTogglePin — toast timing', () => {
     // Optimistic phase: the star has already flipped, but claiming "Pinned
     // Alpha" here would be followed by "Couldn't pin Alpha" on failure — two
     // contradictory messages stacked in the same live region.
-    expect(toast.info).not.toHaveBeenCalled();
+    expect(toastInfo).not.toHaveBeenCalled();
 
     act(() => resolvePost({ data: {} }));
-    await waitFor(() => expect(toast.info).toHaveBeenCalledWith('Pinned Alpha'));
+    await waitFor(() => expect(toastInfo).toHaveBeenCalledWith('Pinned Alpha'));
   });
 
   it('says "Unpinned" when removing', async () => {
-    vi.mocked(apiClient.delete).mockResolvedValue({ data: {} } as never);
+    deleteMock.mockResolvedValue({ data: {} });
     const qc = newClient();
     const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
     act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: false }));
-    await waitFor(() => expect(toast.info).toHaveBeenCalledWith('Unpinned Alpha'));
-    expect(apiClient.delete).toHaveBeenCalledWith('/projects/p1/pin/');
+    await waitFor(() => expect(toastInfo).toHaveBeenCalledWith('Unpinned Alpha'));
+    expect(deleteMock).toHaveBeenCalledWith('/projects/p1/pin/');
   });
 });

@@ -3,13 +3,15 @@ import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ProgramCard } from './ProgramCard';
-import { apiClient } from '@/api/client';
 import type { Program } from '@/api/types';
 
+// Hoisted fns — `expect(postMock)` trips @typescript-eslint/unbound-method.
+const postMock = vi.fn();
+const deleteMock = vi.fn();
 vi.mock('@/api/client', () => ({
   apiClient: {
-    post: vi.fn().mockResolvedValue({ data: {} }),
-    delete: vi.fn().mockResolvedValue({ data: {} }),
+    post: (...a: unknown[]) => postMock(...a) as Promise<unknown>,
+    delete: (...a: unknown[]) => deleteMock(...a) as Promise<unknown>,
   },
 }));
 
@@ -153,7 +155,8 @@ describe('ProgramCard health + target date (#560)', () => {
 
 describe('ProgramCard pin toggle (#1682, server-persisted #2390)', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    postMock.mockReset().mockResolvedValue({ data: {} });
+    deleteMock.mockReset().mockResolvedValue({ data: {} });
   });
 
   it('renders a pin toggle that is a Link SIBLING (not nested in the anchor)', () => {
@@ -168,7 +171,7 @@ describe('ProgramCard pin toggle (#1682, server-persisted #2390)', () => {
     renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization' }));
     fireEvent.click(screen.getByRole('button', { name: 'Pin Phase 2 Modernization' }));
     await waitFor(() => {
-      expect(apiClient.post).toHaveBeenCalledWith('/programs/p-1/pin/');
+      expect(postMock).toHaveBeenCalledWith('/programs/p-1/pin/');
     });
     // The pin is server state now; nothing is persisted per-browser.
     expect(localStorage.getItem('trueppm.rail.pinnedPrograms')).toBeNull();
@@ -178,7 +181,7 @@ describe('ProgramCard pin toggle (#1682, server-persisted #2390)', () => {
     renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization', is_pinned: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Unpin Phase 2 Modernization' }));
     await waitFor(() => {
-      expect(apiClient.delete).toHaveBeenCalledWith('/programs/p-1/pin/');
+      expect(deleteMock).toHaveBeenCalledWith('/programs/p-1/pin/');
     });
   });
 

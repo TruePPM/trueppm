@@ -7,9 +7,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { uploadLegacyPins } from './usePinMigration';
-import { apiClient } from '@/api/client';
 
-vi.mock('@/api/client', () => ({ apiClient: { post: vi.fn() } }));
+// Hoisted fn — `expect(postMock)` would trip
+// @typescript-eslint/unbound-method on the bare object method.
+const postMock = vi.fn();
+vi.mock('@/api/client', () => ({
+  apiClient: { post: (...a: unknown[]) => postMock(...a) as Promise<unknown> },
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -17,12 +21,12 @@ beforeEach(() => {
 
 describe('uploadLegacyPins', () => {
   it('POSTs every local id, projects and programs alike', async () => {
-    vi.mocked(apiClient.post).mockResolvedValue({ data: {} } as never);
+    postMock.mockResolvedValue({ data: {} });
     const result = await uploadLegacyPins(['p1', 'p2'], ['g1']);
 
-    expect(apiClient.post).toHaveBeenCalledWith('/projects/p1/pin/');
-    expect(apiClient.post).toHaveBeenCalledWith('/projects/p2/pin/');
-    expect(apiClient.post).toHaveBeenCalledWith('/programs/g1/pin/');
+    expect(postMock).toHaveBeenCalledWith('/projects/p1/pin/');
+    expect(postMock).toHaveBeenCalledWith('/projects/p2/pin/');
+    expect(postMock).toHaveBeenCalledWith('/programs/g1/pin/');
     expect(result).toMatchObject({ migrated: 3, failed: false, capped: false });
   });
 
@@ -30,7 +34,7 @@ describe('uploadLegacyPins', () => {
     // The project was deleted or access was lost while the device sat idle.
     // Reporting `failed` would keep the sentinel unstamped and retry these two
     // dead ids on every single app load, forever.
-    vi.mocked(apiClient.post)
+    postMock
       .mockRejectedValueOnce({ response: { status: 404 } })
       .mockRejectedValueOnce({ response: { status: 403 } });
 
@@ -39,7 +43,7 @@ describe('uploadLegacyPins', () => {
   });
 
   it('reports `failed` for a transient error so the keys are NOT cleared', async () => {
-    vi.mocked(apiClient.post).mockRejectedValue({ response: { status: 500 } });
+    postMock.mockRejectedValue({ response: { status: 500 } });
     const result = await uploadLegacyPins(['p1'], []);
     expect(result.failed).toBe(true);
     expect(result.migrated).toBe(0);
@@ -48,11 +52,11 @@ describe('uploadLegacyPins', () => {
   it('reports `capped` separately and keeps going', async () => {
     // Hitting the cap is not a failure of the run — the remaining ids should
     // still be attempted, and the user gets one explanatory toast.
-    vi.mocked(apiClient.post)
+    postMock
       .mockRejectedValueOnce({
         response: { status: 400, data: { code: 'pin_limit_reached' } },
       })
-      .mockResolvedValueOnce({ data: {} } as never);
+      .mockResolvedValueOnce({ data: {} });
 
     const result = await uploadLegacyPins(['over', 'under'], []);
     expect(result.capped).toBe(true);
@@ -62,7 +66,7 @@ describe('uploadLegacyPins', () => {
 
   it('is a no-op with no ids', async () => {
     const result = await uploadLegacyPins([], []);
-    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(postMock).not.toHaveBeenCalled();
     expect(result.migrated).toBe(0);
   });
 });

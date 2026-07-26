@@ -90,7 +90,6 @@ describe('PinToggle — interaction', () => {
   it('does not navigate the row or card it sits inside', () => {
     const onNavigate = vi.fn();
     render(
-      // eslint-disable-next-line jsx-a11y/anchor-is-valid
       <a href="/somewhere" onClick={onNavigate}>
         <span>Alpha</span>
         <PinToggle kind="project" id="p1" name="Alpha" pinned={false} placement="row" />
