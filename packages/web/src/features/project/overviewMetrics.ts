@@ -35,6 +35,16 @@ export interface OverviewMetric {
   to?: string;
   /** Noun completing the card's `aria-label` action, e.g. "overdue tasks". */
   toLabel?: string;
+  /**
+   * The metric is configured but not computable — the API said so and named a
+   * reason, which the page renders in `sub`. Drives rule 119's muted treatment
+   * (dashed border, disabled-tone value) so a blank card reads as "can't be
+   * computed yet" rather than as broken.
+   *
+   * Distinct from a real zero: `0%` utilization is a genuine reading and stays
+   * un-muted (#2428).
+   */
+  muted?: boolean;
 }
 
 export type OverviewMetricKey =
@@ -100,4 +110,24 @@ export function rankOverviewMetrics(metrics: OverviewMetric[]): OverviewMetric[]
 export function focusHeading(focus: OverviewMetric[]): string {
   const hasProblem = focus.some((m) => m.variant === 'at-risk' || m.variant === 'critical');
   return hasProblem ? 'Needs attention' : 'Project health';
+}
+
+/**
+ * Pick the heading for the demoted secondary strip (#2429).
+ *
+ * The strip used to read "More metrics" — the absence of a label. Everything not
+ * in the top three was dumped into an unnamed bucket, so the header did no work
+ * and the cards had to be read individually to learn what they were collectively
+ * about.
+ *
+ * It cannot be named by *subject*, because it has none: the strip is
+ * `ranked.slice(3)`, so which metrics land in it changes with severity. A fixed
+ * label like "Trajectory" would be a lie the moment a fourth metric goes
+ * critical. What the strip reliably *is* is the lower-severity tail — so, exactly
+ * like {@link focusHeading}, the heading states that verdict and stays true for
+ * every ranking. A user can then predict what a new card here would be about.
+ */
+export function secondaryHeading(secondary: OverviewMetric[]): string {
+  const hasProblem = secondary.some((m) => m.variant === 'at-risk' || m.variant === 'critical');
+  return hasProblem ? 'Also needs attention' : 'Holding steady';
 }

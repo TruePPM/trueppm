@@ -85,6 +85,38 @@ Separately, if a resource's committed allocation across active tasks exceeds the
 units, the assignment comes back with an **overallocation** warning. Both checks are
 **soft** — they inform the assigner but never block the assignment, so you stay in control.
 
+## Team utilization on the project Overview
+
+The project Overview carries a **Team utilization** KPI card: this week's committed
+load as a percentage of the team's working capacity. It is computed from the same
+calendar-aware engine as the resource heatmap — hours per day × units × working
+days, with a resource's own calendar winning over the project's — so the Overview
+card and the heatmap cannot disagree about how loaded a team is.
+
+Two details are worth knowing:
+
+- **The window is the current week (Monday–Sunday).** The card answers "how loaded
+  is this team *now*", so work scheduled for next month does not raise it. A
+  project-lifetime average would read as calm straight through a crunch week.
+- **Everyone measured counts on both sides.** The population is the project roster
+  plus anyone holding an assignment this week. A rostered person with no
+  assignments is idle capacity and lowers the percentage; someone assigned without
+  being on the roster still brings their own capacity, so they cannot show up as a
+  phantom overallocation. A per-project **capacity override** on the roster wins
+  over the resource's default max units.
+
+**0%** is a real reading — it means nobody is allocated this week. When the ratio
+is genuinely undefined the card is muted and says why, rather than showing a blank:
+
+| The card says | It means |
+| --- | --- |
+| `Needs people on the project roster` | The project has no roster and no assignments, so there is nothing to measure. |
+| `Roster has no working hours this week` | Everyone on the roster is at zero capacity, or every calendar is closed for the whole week. |
+
+Clicking the card opens the Team view, which is available to the **Scheduler** role
+and above; for a Member or Viewer the card is a static read rather than a link into
+a permission error.
+
 ## What a resource manager can do today
 
 1. Maintain the Workspace resource catalog (name, email, role, capacity, calendar).
@@ -93,7 +125,8 @@ units, the assignment comes back with an **overallocation** warning. Both checks
 4. Assign resources to tasks at fractional capacity.
 5. Define per-task skill requirements and see skill-fit on assignment.
 6. See overallocation warnings when someone is overcommitted.
-7. View project utilization across the team.
+7. View project utilization across the team, on the resource heatmap and as a
+   this-week percentage on the project Overview.
 8. See, from a resource's card, every task they are assigned to across all
    projects — grouped by project, read-only (ships in 0.4).
 9. Deactivate and restore resources; remove them from a roster (cascading task

@@ -15860,7 +15860,8 @@
                                                 "name": "Beta",
                                                 "date": "2026-03-01"
                                             },
-                                            "team_utilization_pct": null,
+                                            "team_utilization_pct": 82.5,
+                                            "team_utilization_reason": null,
                                             "owner_name": "Sarah Chen",
                                             "open_risk_count": 4,
                                             "high_risk_count": 1,

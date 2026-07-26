@@ -30,6 +30,7 @@ import { CheckIcon } from '@/components/Icons';
 import {
   rankOverviewMetrics,
   focusHeading,
+  secondaryHeading,
   type OverviewMetric,
 } from '@/features/project/overviewMetrics';
 
@@ -46,6 +47,13 @@ interface OverviewData {
   complete_tasks: number;
   next_milestone: { id: string; name: string; date: string; percent_complete: number } | null;
   team_utilization_pct: number | null;
+  /**
+   * Machine-readable cause when `team_utilization_pct` is null (rule 119). Server
+   * owns this vocabulary — see `utilization.TEAM_UTILIZATION_*`. Optional for
+   * backwards-compat with an API that predates it; a computable 0 carries no
+   * reason, because "nobody is allocated" is a real reading.
+   */
+  team_utilization_reason?: 'no_roster' | 'no_capacity' | null;
   owner_name: string | null;
   start_date: string;
   // Risk summary used by the "Open risks" KPI card and risk register summary section.
@@ -307,6 +315,11 @@ interface KpiCardProps {
   to?: string;
   /** Destination noun for the interactive card's `aria-label`. */
   toLabel?: string;
+  /**
+   * The metric is configured but not computable. Rule 119's treatment: dashed
+   * border and a disabled-tone value, with the reason carried in `sub`.
+   */
+  muted?: boolean;
 }
 
 function KpiCard({
@@ -318,13 +331,16 @@ function KpiCard({
   prominent = false,
   to,
   toLabel,
+  muted = false,
 }: KpiCardProps) {
-  const valueColor = {
-    'on-track': 'text-semantic-on-track',
-    'at-risk': 'text-semantic-at-risk',
-    critical: 'text-semantic-critical',
-    neutral: 'text-neutral-text-primary',
-  }[variant];
+  const valueColor = muted
+    ? 'text-neutral-text-disabled'
+    : {
+        'on-track': 'text-semantic-on-track',
+        'at-risk': 'text-semantic-at-risk',
+        critical: 'text-semantic-critical',
+        neutral: 'text-neutral-text-primary',
+      }[variant];
 
   // `container-type: inline-size` + `cqi` units make the value font scale with the
   // card's own width rather than the viewport, so long values (milestone names,
@@ -338,7 +354,8 @@ function KpiCard({
     ? 'text-[clamp(1.125rem,9cqi,1.875rem)]'
     : 'text-[clamp(0.875rem,7cqi,1.5rem)]';
 
-  const baseClass = `flex flex-col gap-1 ${padding} rounded-card border border-neutral-border bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]`;
+  const border = muted ? 'border-dashed border-neutral-border' : 'border-neutral-border';
+  const baseClass = `flex flex-col gap-1 ${padding} rounded-card border ${border} bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]`;
 
   const body = (
     <>
@@ -934,6 +951,34 @@ function buildOpenRisksMetric(
 }
 
 // ── Team utilization ───────────────────────────────────────────────────────
+
+/**
+ * Plain-language reason a utilization ratio is undefined, keyed by the server's
+ * machine code (rule 119 — the raw code never reaches the DOM).
+ *
+ * The wording names the *remedy*, not the internal state: a PM reading a blank
+ * card wants to know what to do about it.
+ */
+const UTILIZATION_REASON_LABEL: Record<
+  NonNullable<NonNullable<OverviewData['team_utilization_reason']>>,
+  string
+> = {
+  no_roster: 'Needs people on the project roster',
+  no_capacity: 'Roster has no working hours this week',
+};
+
+/**
+ * Reason sentence for a blank utilization card, or a generic fallback.
+ *
+ * The server owns this vocabulary and may add a code before the web package
+ * ships a matching label, so an unrecognized code degrades to a generic sentence
+ * rather than rendering `undefined` — or, worse, the raw code (rule 119).
+ */
+function utilizationReasonLabel(reason: OverviewData['team_utilization_reason']): string {
+  if (!reason) return 'Not available yet';
+  return UTILIZATION_REASON_LABEL[reason] ?? 'Not available yet';
+}
+
 function buildUtilizationMetric(
   overview: OverviewData | undefined,
   base: string | undefined,
@@ -942,11 +987,28 @@ function buildUtilizationMetric(
   const util = overview?.team_utilization_pct;
   const utilVariant: OverviewMetric['variant'] =
     util == null ? 'neutral' : util > 100 ? 'critical' : util >= 85 ? 'at-risk' : 'on-track';
+
+  // Rule 119: a card that cannot be computed renders muted *with a reason*, never
+  // as a bare em-dash — a blank card leaves the PM unable to tell "no one is
+  // allocated" from "this is broken" (#2428). Only distinguish those once the
+  // overview has actually loaded; the pre-load placeholder set is not a verdict.
+  if (overview && util == null) {
+    return {
+      key: 'team_utilization',
+      label: 'Team utilization',
+      value: '—',
+      sub: utilizationReasonLabel(overview.team_utilization_reason),
+      variant: 'neutral',
+      muted: true,
+      // A metric with no value has nothing to drill into (rule 172).
+    };
+  }
+
   return {
     key: 'team_utilization',
     label: 'Team utilization',
     value: util != null ? `${Math.round(util)}%` : '—',
-    sub: util != null ? 'of capacity' : undefined,
+    sub: util != null ? 'of capacity this week' : undefined,
     variant: utilVariant,
     // The Team/Resources view is role-gated to SCHEDULER+ (rule 94), so only
     // link it when the viewer can actually see it — a Member/Viewer gets a
@@ -1133,6 +1195,7 @@ function OverviewKpiSection({
               title={m.title}
               to={m.to}
               toLabel={m.toLabel}
+              muted={m.muted}
               prominent
             />
           ))}
@@ -1145,7 +1208,7 @@ function OverviewKpiSection({
             id="overview-secondary-heading"
             className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3"
           >
-            More metrics
+            {secondaryHeading(secondary)}
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {secondary.map((m) => (
@@ -1158,6 +1221,7 @@ function OverviewKpiSection({
                 title={m.title}
                 to={m.to}
                 toLabel={m.toLabel}
+                muted={m.muted}
               />
             ))}
           </div>

@@ -8478,6 +8478,14 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
     the current CPM output stored on Task rows — no additional DB schema is
     needed.
 
+    ``team_utilization_pct`` is this week's load-vs-capacity ratio, computed by
+    ``utilization.compute_team_utilization``.  When the ratio is undefined the
+    percent is ``None`` and ``team_utilization_reason`` carries a machine-readable
+    cause (``no_roster`` / ``no_capacity``) so the client can explain the blank
+    rather than guess at it (rule 119, #2428).  A computable ``0.0`` is a real
+    reading, not a reason: "nobody is allocated" and "this is broken" must not
+    render identically.
+
     Performance target: ≤ 200 ms at p95 for 500 tasks.  Implemented using
     a single annotated queryset per metric; no N+1 queries.
 
@@ -8502,7 +8510,8 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
                             "total_tasks": 48,
                             "complete_tasks": 19,
                             "next_milestone": {"id": "…", "name": "Beta", "date": "2026-03-01"},
-                            "team_utilization_pct": None,
+                            "team_utilization_pct": 82.5,
+                            "team_utilization_reason": None,
                             "owner_name": "Sarah Chen",
                             "open_risk_count": 4,
                             "high_risk_count": 1,
@@ -8667,6 +8676,19 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
             u = owner_membership.user
             owner_name = u.get_full_name() or u.username
 
+        # ── Team utilization (current week) ────────────────────────────────
+        # The card asks "how loaded is this team *now*", so the window is the
+        # ISO week containing today rather than the whole project span — a
+        # project-lifetime average would read as calm all the way through a
+        # crunch week. Delegates to the same calendar-aware engine the resource
+        # heatmap uses, so the two surfaces cannot disagree (#2428).
+        from trueppm_api.apps.projects.utilization import compute_team_utilization
+
+        week_start = today - datetime.timedelta(days=today.weekday())
+        team_utilization = compute_team_utilization(
+            project, week_start, week_start + datetime.timedelta(days=6)
+        )
+
         return Response(
             {
                 "schedule_health": health,
@@ -8676,8 +8698,10 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
                 "total_tasks": total,
                 "complete_tasks": complete,
                 "next_milestone": next_milestone,
-                # Populated by the resource utilisation module when it extends this endpoint.
-                "team_utilization_pct": None,
+                "team_utilization_pct": team_utilization["pct"],
+                # Machine-readable cause when the ratio is undefined (rule 119); the
+                # web package maps it to a sentence. `None` whenever `pct` is set.
+                "team_utilization_reason": team_utilization["reason"],
                 "owner_name": owner_name,
                 "open_risk_count": open_risk_count,
                 "high_risk_count": high_risk_count,
