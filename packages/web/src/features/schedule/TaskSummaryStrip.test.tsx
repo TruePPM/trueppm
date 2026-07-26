@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { TaskSummaryStrip } from './TaskSummaryStrip';
 import type { Task } from '@/types';
 
@@ -25,10 +25,33 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('TaskSummaryStrip', () => {
-  it('shows the status label as text, not color alone', () => {
-    render(<TaskSummaryStrip task={makeTask({ status: 'IN_PROGRESS' })} />);
-    const status = screen.getByRole('group', { name: 'Status' });
-    expect(within(status).getByText('In progress')).toBeInTheDocument();
+  describe('read/edit split (#2424)', () => {
+    it('does not render Status, Finish or Float — each is edited or computed below', () => {
+      // The rule: the strip is the READ surface, the sections below are the EDIT
+      // surface, and a value belongs to exactly one. Status is a select ~150px
+      // down; Finish and Float are in the Schedule grid.
+      render(<TaskSummaryStrip task={makeTask({ status: 'IN_PROGRESS', totalFloat: 5 })} />);
+      expect(screen.queryByRole('group', { name: 'Status' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'Finish' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'Target finish' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'Float' })).not.toBeInTheDocument();
+      expect(screen.queryByText('In progress')).not.toBeInTheDocument();
+      expect(screen.queryByText('5d float')).not.toBeInTheDocument();
+    });
+
+    it('declares itself read only', () => {
+      render(<TaskSummaryStrip task={makeTask()} />);
+      expect(screen.getByText('read only')).toBeInTheDocument();
+    });
+
+    it('keeps only the values carried nowhere else in the drawer', () => {
+      // WBS lives in the drawer header and recent changes in DrawerRecentActivity
+      // directly above, so re-rendering either here would be a new duplicate.
+      render(<TaskSummaryStrip task={makeTask({ wbs: '1.1' })} />);
+      expect(screen.getByRole('group', { name: 'Owner' })).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'Baseline' })).toBeInTheDocument();
+      expect(screen.queryByText('1.1')).not.toBeInTheDocument();
+    });
   });
 
   it('renders the owner name and Unassigned fallback', () => {
@@ -42,37 +65,60 @@ describe('TaskSummaryStrip', () => {
   it('shows an over-allocation note with an accessible reason', () => {
     render(<TaskSummaryStrip task={makeTask({ assigneeIsOverallocated: true })} />);
     expect(screen.getByText('over-allocated')).toBeInTheDocument();
-    expect(
-      screen.getByRole('note', { name: /Jane Smith is over-allocated/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('note', { name: /Jane Smith is over-allocated/ })).toBeInTheDocument();
   });
 
-  it('formats the finish date UTC-pinned and labels it Target finish when critical', () => {
-    render(<TaskSummaryStrip task={makeTask({ finish: '2026-04-20', isCritical: true })} />);
-    // Labeled "Target finish" (not "Finish") on a critical task.
-    expect(screen.getByRole('group', { name: 'Target finish' })).toBeInTheDocument();
-    expect(screen.getByText('Apr 20')).toBeInTheDocument();
+  describe('baseline chip', () => {
+    it('pairs its tint with a signed day count, never color alone', () => {
+      render(
+        <TaskSummaryStrip
+          task={makeTask({ finish: '2026-04-24', baselineFinish: '2026-04-20' })}
+        />,
+      );
+      expect(screen.getByText('+4d')).toBeInTheDocument();
+    });
+
+    it('says so in words when the task is on baseline', () => {
+      render(
+        <TaskSummaryStrip
+          task={makeTask({ finish: '2026-04-20', baselineFinish: '2026-04-20' })}
+        />,
+      );
+      expect(screen.getByText('On baseline')).toBeInTheDocument();
+    });
+
+    it('reads "No baseline" when the task is not baselined', () => {
+      render(<TaskSummaryStrip task={makeTask({ baselineFinish: undefined })} />);
+      expect(screen.getByText('No baseline')).toBeInTheDocument();
+    });
   });
 
-  it('shows the Critical flag with its word (not color alone) and hides the float chip', () => {
-    render(<TaskSummaryStrip task={makeTask({ isCritical: true, totalFloat: 0 })} />);
-    expect(screen.getByText(/Critical · 0d float/)).toBeInTheDocument();
-    expect(screen.queryByText('0d float')).not.toBeInTheDocument();
-  });
+  describe('FLAGS band', () => {
+    it('does not render at all when there are no flags', () => {
+      // Not an empty band, not a "No flags" placeholder, no reserved height.
+      render(<TaskSummaryStrip task={makeTask({ totalFloat: 5 })} />);
+      expect(screen.queryByRole('group', { name: 'Flags' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Flags')).not.toBeInTheDocument();
+    });
 
-  it('shows the float chip when not critical', () => {
-    render(<TaskSummaryStrip task={makeTask({ isCritical: false, totalFloat: 5 })} />);
-    expect(screen.getByText('5d float')).toBeInTheDocument();
-  });
+    it('shows a Blocked flag from a human blocker reason', () => {
+      render(<TaskSummaryStrip task={makeTask({ blockedReason: 'waiting on legal' })} />);
+      expect(screen.getByRole('group', { name: 'Flags' })).toBeInTheDocument();
+      expect(screen.getByText('Blocked')).toBeInTheDocument();
+    });
 
-  it('shows a Blocked flag from a human blocker reason', () => {
-    render(<TaskSummaryStrip task={makeTask({ blockedReason: 'waiting on legal' })} />);
-    expect(screen.getByText('Blocked')).toBeInTheDocument();
-  });
+    it('raises negative float as a real flag', () => {
+      // The one float value that IS an exception: the task is already behind the
+      // date the plan needs it to hold.
+      render(<TaskSummaryStrip task={makeTask({ totalFloat: -3 })} />);
+      expect(screen.getByText('Negative float -3d')).toBeInTheDocument();
+    });
 
-  it('renders an em dash for an unscheduled finish', () => {
-    render(<TaskSummaryStrip task={makeTask({ finish: '' })} />);
-    const finish = screen.getByRole('group', { name: 'Finish' });
-    expect(within(finish).getByText('—')).toBeInTheDocument();
+    it('does not treat plain positive float or critical-path membership as flags', () => {
+      // Float is a metric every task has; the Schedule strip carries its own
+      // critical banner. Either here would be a third copy.
+      render(<TaskSummaryStrip task={makeTask({ isCritical: true, totalFloat: 0 })} />);
+      expect(screen.queryByRole('group', { name: 'Flags' })).not.toBeInTheDocument();
+    });
   });
 });
