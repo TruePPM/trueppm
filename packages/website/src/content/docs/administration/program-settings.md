@@ -105,6 +105,15 @@ controls how the member projects' health combines into the single program health
 shown when General → Health is set to **Auto**. Editing the rollup config
 requires the program Admin role. See [Program rollup](/features/settings/program-rollup/).
 
+Three of those signals have no data source yet and are **shown but locked**:
+**Cost variance (CV)** and **Budget utilization** need project cost data, and
+**P80 date** needs stored Monte Carlo runs. Their switches cannot be turned on,
+and each row states why — enabling one would have saved a KPI that could never
+render a value. They unlock automatically once the backing data lands; no
+setting changes on your side. If a program enabled one of these before they were
+locked, the switch stays available to turn **off** so you can clear it, and the
+overview shows a dash with the reason instead of a number.
+
 ## Cadence
 
 The **Cadence** section defines the program's recurring ceremonies — meeting

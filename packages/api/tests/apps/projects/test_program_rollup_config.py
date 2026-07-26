@@ -299,6 +299,91 @@ def test_patch_creates_history_row(owner: object, hybrid_program: Program) -> No
 
 
 # ---------------------------------------------------------------------------
+# Unavailable-KPI advertisement (#2404)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_get_advertises_unavailable_kpis(owner: object, hybrid_program: Program) -> None:
+    """The picker needs a server fact for which toggles cannot produce a value.
+
+    Without this the settings page offered all ten KPIs as live and a saved
+    ``p80_completion`` silently rendered nothing forever (#2404).
+    """
+    resp = _client(owner).get(_url(hybrid_program))
+    assert resp.status_code == 200
+    assert resp.data["unavailable_kpis"] == {
+        "cost_variance": "no_cost_data",
+        "budget_utilization": "no_cost_data",
+        "p80_completion": "no_montecarlo_store",
+    }
+
+
+@pytest.mark.django_db
+def test_unavailable_kpis_matches_the_rollup_engine(owner: object, hybrid_program: Program) -> None:
+    """The advertised set must be the same map the rollup itself branches on.
+
+    A drift here is the original defect in reverse: the picker would enable a
+    KPI the engine still reports as ``{"available": false}``.
+    """
+    from trueppm_api.apps.projects.program_rollup import DEFERRED_KPI_REASONS
+
+    resp = _client(owner).get(_url(hybrid_program))
+    assert resp.data["unavailable_kpis"] == DEFERRED_KPI_REASONS
+
+
+@pytest.mark.django_db
+def test_unavailable_kpis_is_read_only(owner: object, hybrid_program: Program) -> None:
+    """A caller cannot mark a KPI available by PATCHing the advertisement."""
+    resp = _client(owner).patch(
+        _url(hybrid_program),
+        {"unavailable_kpis": {}},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["unavailable_kpis"] != {}
+
+
+@pytest.mark.django_db
+def test_patch_still_accepts_an_already_stored_unavailable_kpi(
+    owner: object, hybrid_program: Program
+) -> None:
+    """Existing configs must degrade cleanly, not 400 (#2404 acceptance).
+
+    The web client PATCHes the whole ``enabled_kpis`` array when any one switch
+    moves. A program that enabled ``p80_completion`` before the picker locked it
+    would therefore replay it on every unrelated edit — rejecting deferred KPIs
+    on write would turn a stale config into a hard error on an unrelated change.
+    """
+    hybrid_program.rollup_enabled_kpis = ["schedule_health", "p80_completion"]
+    hybrid_program.save(update_fields=["rollup_enabled_kpis"])
+
+    resp = _client(owner).patch(
+        _url(hybrid_program),
+        {"enabled_kpis": ["schedule_health", "p80_completion", "critical_tasks"]},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["enabled_kpis"] == ["schedule_health", "p80_completion", "critical_tasks"]
+
+
+@pytest.mark.django_db
+def test_rollup_reports_stored_unavailable_kpi_as_unavailable(
+    owner: object, hybrid_program: Program
+) -> None:
+    """The overview keeps explaining the blank rather than fabricating a value."""
+    hybrid_program.rollup_enabled_kpis = ["p80_completion"]
+    hybrid_program.save(update_fields=["rollup_enabled_kpis"])
+
+    resp = _client(owner).get(f"/api/v1/programs/{hybrid_program.pk}/rollup/")
+    assert resp.status_code == 200
+    assert resp.data["kpis"]["p80_completion"] == {
+        "available": False,
+        "reason": "no_montecarlo_store",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Authentication
 # ---------------------------------------------------------------------------
 

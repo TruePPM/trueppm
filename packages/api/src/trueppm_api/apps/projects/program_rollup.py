@@ -52,7 +52,15 @@ from trueppm_api.apps.projects.models import (
 
 # KPIs without a per-project source yet (ADR-0088). The reason string is stable
 # so the web layer and #673's preview can branch on it.
-_DEFERRED_REASONS = {
+#
+# This map is the single source of truth for "can this KPI ever produce a value
+# today?" and is published on the rollup-config endpoint as ``unavailable_kpis``
+# (#2404). It has to be a *server* fact rather than a hard-coded client list:
+# the settings picker offered all ten toggles as if they were live, so enabling
+# one of these three saved a config that could never render — a control that
+# lies. When #753 (Monte Carlo store) and #754 (cost/EVM model) land, deleting
+# the corresponding entry here is the only change needed to light the toggle up.
+DEFERRED_KPI_REASONS = {
     RollupKpi.COST_VARIANCE.value: "no_cost_data",
     RollupKpi.BUDGET_UTILIZATION.value: "no_cost_data",
     RollupKpi.P80_COMPLETION.value: "no_montecarlo_store",
@@ -114,8 +122,8 @@ def compute_program_rollup(program: Program) -> dict[str, Any]:
 
     kpis: dict[str, dict[str, Any]] = {}
     for kpi in enabled:
-        if kpi in _DEFERRED_REASONS:
-            kpis[kpi] = {"available": False, "reason": _DEFERRED_REASONS[kpi]}
+        if kpi in DEFERRED_KPI_REASONS:
+            kpis[kpi] = {"available": False, "reason": DEFERRED_KPI_REASONS[kpi]}
         elif kpi == RollupKpi.SCHEDULE_HEALTH.value:
             kpis[kpi] = {
                 "available": True,

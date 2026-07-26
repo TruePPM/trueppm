@@ -2022,10 +2022,19 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
 class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
     """GET/PATCH payload for ``/api/v1/programs/{id}/rollup-config/`` (ADR-0169).
 
-    Both fields are partial-updatable. ``enabled_kpis`` is validated against
-    the closed ``RollupKpi`` enum — unknown identifiers raise 400 rather than
-    being silently dropped, which would leave the UI and the server in
+    Both writable fields are partial-updatable. ``enabled_kpis`` is validated
+    against the closed ``RollupKpi`` enum — unknown identifiers raise 400 rather
+    than being silently dropped, which would leave the UI and the server in
     different states.
+
+    ``unavailable_kpis`` is read-only and publishes which enum members cannot
+    produce a value yet, so the picker can disable them instead of offering a
+    switch that does nothing (#2404). It is deliberately *not* enforced on write:
+    a program whose stored ``enabled_kpis`` already contains a deferred KPI must
+    keep round-tripping its own config (the client PATCHes the whole array when
+    toggling any other KPI), so rejecting those values here would turn a stale
+    config into a hard 400 on an unrelated edit. The rollup itself already
+    degrades cleanly, returning ``{"available": false, "reason": ...}``.
     """
 
     # Hard caps on shape (security M1): list length is bounded by the closed
@@ -2043,16 +2052,40 @@ class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
         source="rollup_aggregation_policy",
         choices=[],  # populated in __init__ to avoid import-cycle at class build
     )
+    unavailable_kpis = serializers.SerializerMethodField()
 
     class Meta:
         model = Program
-        fields = ["enabled_kpis", "aggregation_policy"]
+        fields = ["enabled_kpis", "aggregation_policy", "unavailable_kpis"]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         from trueppm_api.apps.projects.models import AggregationPolicy
 
         self.fields["aggregation_policy"].choices = AggregationPolicy.choices  # type: ignore[attr-defined]
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+            "description": (
+                "KPI identifier → stable machine reason it cannot produce a value yet "
+                "(e.g. no_cost_data, no_montecarlo_store). Same reason strings the "
+                "/rollup/ response returns for a deferred KPI. Empty once every KPI "
+                "has a backing source."
+            ),
+        }
+    )
+    def get_unavailable_kpis(self, obj: Program) -> dict[str, str]:
+        """KPI → reason for every enum member with no backing data source yet.
+
+        Program-independent today (the gaps are missing subsystems, not missing
+        per-program data), but exposed per-program so it can become conditional
+        later without a breaking client change.
+        """
+        from trueppm_api.apps.projects.program_rollup import DEFERRED_KPI_REASONS
+
+        return dict(DEFERRED_KPI_REASONS)
 
     def validate_enabled_kpis(self, value: list[str]) -> list[str]:
         from trueppm_api.apps.projects.models import RollupKpi

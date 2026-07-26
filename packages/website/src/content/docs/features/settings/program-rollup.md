@@ -54,6 +54,22 @@ Ten KPIs can be enabled. The page groups them into three sections for scannabili
 
 Only enabled KPIs appear on the program overview and its rollup tiles. KPI toggles save **optimistically** — the switch flips immediately, and rapid changes are batched into a single save.
 
+### KPIs that are not available yet
+
+Three of the KPIs above have no backing data source in this release and are **shown but locked** in the picker:
+
+| KPI | Locked because | Reason code |
+|-----|----------------|-------------|
+| Cost variance (CV) | Needs project cost data | `no_cost_data` |
+| Budget utilization | Needs project cost data | `no_cost_data` |
+| P80 completion date | Needs stored Monte Carlo runs | `no_montecarlo_store` |
+
+Their switches cannot be turned **on** — enabling one would save a KPI that could never render a value. Each row states why, and `GET /api/v1/programs/{id}/rollup-config/` returns the same set as `unavailable_kpis` (an identifier → reason-code map) so any API client can render the same explanation instead of hard-coding the list. The map is empty once every KPI has a source.
+
+A KPI that is already enabled — because it was switched on earlier, or because the methodology defaults below seeded it — stays switchable **off** so you can clear it. Until you do, the overview shows a dash with the reason rather than a fabricated number: `GET /rollup/` returns `{"available": false, "reason": "..."}` for it.
+
+The methodology defaults deliberately still seed these KPIs where they fit the methodology. That is forward-looking rather than an oversight: the intent ("this program should show cost variance") is recorded now, and the tile starts rendering on its own once the backing data lands — no settings change and no migration.
+
 The KPI set is deliberately closed: the API rejects unknown identifiers rather than silently dropping them. Three KPIs that touched team-boundary or aggregation-correctness concerns (team velocity, scope-change count, resource utilization) were excluded during design review — see ADR-0169 for the reasoning.
 
 ## Methodology-aware defaults

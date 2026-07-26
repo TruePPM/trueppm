@@ -53,6 +53,13 @@ function defaultConfig(overrides: Partial<ProgramRollupConfig> = {}): ProgramRol
   return {
     enabled_kpis: ['schedule_health', 'p80_completion'],
     aggregation_policy: 'worst',
+    // The real server always advertises these three (#2404). Note the default
+    // config also has p80_completion already enabled — the stale-config case.
+    unavailable_kpis: {
+      cost_variance: 'no_cost_data',
+      budget_utilization: 'no_cost_data',
+      p80_completion: 'no_montecarlo_store',
+    },
     ...overrides,
   };
 }
@@ -367,5 +374,114 @@ describe('ProgramRollupPage (settings)', () => {
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole('radio', { name: /Average/ }));
     expect(within(preview).getByText(/Save the policy to see it reflected/i)).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Unavailable KPIs (#2404) — a switch that cannot produce a value must not
+  // be switchable on.
+  // -------------------------------------------------------------------------
+
+  describe('unavailable KPIs (#2404)', () => {
+    beforeEach(() => {
+      useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_ADMIN } });
+    });
+
+    it('locks an unavailable KPI that is off and explains why', async () => {
+      const user = userEvent.setup();
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig({ enabled_kpis: ['schedule_health'] }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      renderPage();
+
+      const cv = screen.getByRole('switch', { name: 'Cost variance (CV)' });
+      expect(cv).toHaveAttribute('aria-checked', 'false');
+      expect(cv).toHaveAttribute('aria-disabled', 'true');
+      // Both cost KPIs share the reason, so this is intentionally an AllBy.
+      expect(screen.getAllByText(/needs project cost data to roll up/i)).toHaveLength(2);
+
+      // Clicking must not fire the PATCH — the defect was that it saved fine
+      // and then rendered nothing, forever.
+      await user.click(cv);
+      expect(toggleMutate).not.toHaveBeenCalled();
+      expect(cv).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('describes the locked switch to assistive tech via aria-describedby', () => {
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig({ enabled_kpis: ['schedule_health'] }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      renderPage();
+
+      const bu = screen.getByRole('switch', { name: 'Budget utilization' });
+      const describedBy = bu.getAttribute('aria-describedby');
+      expect(describedBy).toBeTruthy();
+      // Must not dangle: the id has to resolve to the rendered explanation.
+      expect(document.getElementById(describedBy as string)).toHaveTextContent(
+        /needs project cost data/i,
+      );
+    });
+
+    it('still lets an admin switch OFF an unavailable KPI that is already enabled', async () => {
+      const user = userEvent.setup();
+      useProgramRollupConfig.mockReturnValue({
+        // Stale config from before the picker was locked.
+        data: defaultConfig({ enabled_kpis: ['schedule_health', 'p80_completion'] }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      renderPage();
+
+      const p80 = screen.getByRole('switch', { name: 'P80 completion date' });
+      expect(p80).toHaveAttribute('aria-checked', 'true');
+      expect(p80).not.toHaveAttribute('aria-disabled');
+      expect(screen.getByText(/It is enabled but shows no value on the overview/i)).toBeVisible();
+
+      await user.click(p80);
+      await waitFor(() => expect(toggleMutate).toHaveBeenCalledTimes(1), { timeout: 1000 });
+      expect(toggleMutate.mock.calls[0][0]).toEqual(['schedule_health']);
+    });
+
+    it('leaves available KPIs untouched', async () => {
+      const user = userEvent.setup();
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig({ enabled_kpis: ['schedule_health'] }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      renderPage();
+
+      const atRisk = screen.getByRole('switch', { name: 'At-risk tasks' });
+      expect(atRisk).not.toHaveAttribute('aria-disabled');
+      await user.click(atRisk);
+      await waitFor(() => expect(toggleMutate).toHaveBeenCalledTimes(1), { timeout: 1000 });
+      expect(toggleMutate.mock.calls[0][0]).toEqual(['schedule_health', 'at_risk_tasks']);
+    });
+
+    it('treats a response without unavailable_kpis as all-available', async () => {
+      const user = userEvent.setup();
+      useProgramRollupConfig.mockReturnValue({
+        // A server predating #2404 (or a cached payload) omits the key.
+        data: { enabled_kpis: ['schedule_health'], aggregation_policy: 'worst' },
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      renderPage();
+
+      const cv = screen.getByRole('switch', { name: 'Cost variance (CV)' });
+      expect(cv).not.toHaveAttribute('aria-disabled');
+      expect(screen.queryByText(/Not yet available/i)).not.toBeInTheDocument();
+      await user.click(cv);
+      await waitFor(() => expect(toggleMutate).toHaveBeenCalledTimes(1), { timeout: 1000 });
+      expect(toggleMutate.mock.calls[0][0]).toEqual(['schedule_health', 'cost_variance']);
+    });
   });
 });
