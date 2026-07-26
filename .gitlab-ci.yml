@@ -1913,11 +1913,23 @@ api:fuzz:
     # reports "Network Error / Read timed out" — an `error`, indistinguishable in
     # the JUnit report from a real defect. 60 s keeps genuinely-hung operations
     # detectable while letting slow-but-correct ones return.
+    #
+    # UNIT: seconds. Schemathesis changed `--request-timeout` from milliseconds
+    # (v3) to seconds (v4); the `schemathesis>=4.0,<5.0` pin in
+    # packages/api/pyproject.toml is what makes this 60 s and not 60 ms. If that
+    # ceiling is ever raised, re-check the unit — the wrong one fails silently as
+    # a flood of spurious timeout `error`s rather than as a config error.
     FUZZ_REQUEST_TIMEOUT: "60"
     PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-  # Bound the run now that the throttle no longer accidentally brakes it. Well
-  # above the observed duration; a breach means something is genuinely wedged.
-  timeout: 90m
+  # Bound the run now that the throttle no longer accidentally brakes it. The
+  # 2026-07-26 run took ~830 s while 56% of its requests bounced off a drained
+  # bucket; executing those for real should land near ~40 min, so 55m is headroom
+  # rather than a target. Deliberately under the project's own 60-minute
+  # `build_timeout` — a job timeout ABOVE the project ceiling only takes effect
+  # through runner `maximum_timeout` precedence, and no runner on this project
+  # sets one, so staying below sidesteps the question entirely. If a future run
+  # legitimately needs longer, raise the project timeout first, then this.
+  timeout: 55m
   before_script:
     - *retry-fn
     # Image bakes scheduler[dev] + api[dev]; re-link editable + add the fuzz

@@ -58,6 +58,13 @@ def _patch_rate(
     Set on the subclass, not on ``SimpleRateThrottle``, so the general anon/user
     buckets are untouched. A plain ``override_settings`` would not work: DRF binds
     ``THROTTLE_RATES`` at import, so it never reaches the already-bound class.
+
+    Caveat worth knowing: the subclasses only *inherit* ``THROTTLE_RATES``, so
+    monkeypatch's undo re-sets it as an explicit attribute on the subclass, which
+    then shadows the inherited one for the rest of the session. Harmless — the
+    restored value is the same object DRF bound at import — but it does mean a
+    later ``override_settings(REST_FRAMEWORK=…)`` test could not reach these two
+    classes. Use this helper rather than adding a second patching idiom.
     """
     monkeypatch.setattr(
         throttle,
@@ -137,25 +144,37 @@ def test_throttle_is_per_account_not_global(
     )
 
 
-def test_operator_kill_switch_neutralizes_this_throttle(
-    client: APIClient, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("throttle", "url", "body"),
+    [
+        (LoadSampleThrottle, LOAD_SAMPLE_URL, {"sample": CHEAPEST_SAMPLE}),
+        (SeedImportThrottle, IMPORT_URL, None),
+    ],
+    ids=["load-sample", "import"],
+)
+def test_operator_kill_switch_neutralizes_these_throttles(
+    client: APIClient,
+    monkeypatch: pytest.MonkeyPatch,
+    throttle: type[LoadSampleThrottle] | type[SeedImportThrottle],
+    url: str,
+    body: dict[str, Any] | None,
 ) -> None:
     """A ``None`` rate must disable the cap outright (ADR-0604).
 
     ``apply_rate_limit_disable`` empties ``DEFAULT_THROTTLE_CLASSES`` and nulls
-    every rate — it never names individual classes, so this throttle is covered
-    only because it resolves its rate through ``THROTTLE_RATES``. The nightly
-    ``api:fuzz`` job depends on that: it sets the kill switch precisely so the
-    fuzzer exercises views instead of throttles. Re-implementing this as one of
-    the Redis-backed ``BaseThrottle`` classes would silently keep throttling
-    (those need the ``@bypass_when_disabled`` decorator instead), and the fuzz
-    job would quietly go back to testing the rate limiter.
+    every rate — it never names individual classes, so these throttles are covered
+    only because they resolve their rate through ``THROTTLE_RATES``. The nightly
+    ``api:fuzz`` job depends on BOTH being neutralized: it sets the kill switch
+    precisely so the fuzzer exercises views instead of throttles. Re-implementing
+    either as one of the Redis-backed ``BaseThrottle`` classes would silently keep
+    throttling (those need the ``@bypass_when_disabled`` decorator instead), and
+    the fuzz job would quietly go back to testing the rate limiter.
     """
-    _patch_rate(monkeypatch, None)
+    _patch_rate(monkeypatch, None, throttle)
     cache.clear()
 
     statuses = [
-        client.post(LOAD_SAMPLE_URL, {"sample": CHEAPEST_SAMPLE}, format="json").status_code
+        client.post(url, body if body is not None else _seed(), format="json").status_code
         for _ in range(3)
     ]
 
