@@ -7,12 +7,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="TruePPM — Project, Program, and Portfolio Management" />
     <meta name="theme-color" content="#1B2A4A" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- Space Grotesk = display/wordmark (brand v1.0); Inter = UI/body; JetBrains Mono = data. -->
+    <!-- Space Grotesk = display/wordmark (brand v1.0); Inter = UI/body; JetBrains Mono = data.
+         Self-hosted from /fonts (#2419) — declared in src/styles/fonts.css, never from a
+         font CDN. A self-hosted, air-gapped-capable product does not get to phone home,
+         and a network-restricted install must not silently fall back to substitute
+         typography. Preload the two faces above the fold (UI body text and the wordmark's
+         Latin slice) so the swap-in is imperceptible now that no `preconnect` is warming
+         a remote host. Enforced by e2e/self-hosted-fonts.spec.ts. -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
+      rel="preload"
+      href="/fonts/inter-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/space-grotesk-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
     />
     <title>TruePPM</title>
     <!-- Blocking theme init — apply .dark before first paint to prevent flash.
