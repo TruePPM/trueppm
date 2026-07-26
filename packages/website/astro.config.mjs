@@ -399,6 +399,7 @@ export default defineConfig({
           label: "API",
           items: [
             { slug: "api/reference" },
+            { slug: "api/errors" },
             { slug: "api/stability" },
             { slug: "api/websockets" },
             { slug: "api/idempotency" },

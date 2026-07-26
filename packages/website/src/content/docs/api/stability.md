@@ -25,7 +25,9 @@ The **stable, integrator-facing surface** is:
   and present in the published [OpenAPI schema](/api/reference/#interactive-schema).
 - The request and response **field names, types, and semantics** described in
   that schema.
-- HTTP [status codes](/api/reference/#status-codes) and error-body shape.
+- HTTP [status codes](/api/reference/#status-codes) and error-body shape,
+  including every machine-readable `code` enumerated in
+  [Errors and status codes](/api/errors/).
 - Authentication flows (JWT, project-scoped API tokens) and the
   [rate-limiting contract](/api/reference/#rate-limiting).
 - The WebSocket channels and event envelopes in the

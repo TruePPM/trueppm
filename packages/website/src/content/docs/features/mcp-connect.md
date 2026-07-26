@@ -64,6 +64,13 @@ Install the server first (or use the [Docker image](/administration/mcp-server/#
 pip install trueppm-mcp        # or: uv tool install trueppm-mcp
 ```
 
+:::note[Not using a Python client?]
+The package is Python, but the protocol is not. For a TypeScript, Go, or Rust
+agent, see the [raw HTTP quickstart](/administration/mcp-server/#quickstart-for-non-python-clients-raw-http)
+— a worked `curl` transcript that connects, lists tools, calls a read tool, and
+reads the `why` provenance block off the response.
+:::
+
 ### Claude Desktop
 
 Edit `claude_desktop_config.json` (Claude Desktop → Settings → Developer → Edit
