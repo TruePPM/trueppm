@@ -82,6 +82,10 @@ import { BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { CalmToolbar } from './CalmToolbar';
 import { BoardFilterControl, BoardFilterChips } from './BoardFilterControl';
+import { DeletedLabelNotice } from './DeletedLabelNotice';
+import { missingLabelIds } from './savedViewSummary';
+import { useLabels } from '@/hooks/useLabels';
+import { useBoardSavedViews } from '@/hooks/useBoardSavedViews';
 import {
   EMPTY_FACETS,
   matchesFacets,
@@ -1965,6 +1969,19 @@ export function BoardView() {
     return ids;
   }, [facetsActive, committedTasks, facetFilters]);
   const { facetMatchCount, facetZeroMatch } = facetMatchSummary(facetsActive, facetMatchIds);
+
+  // A saved view can outlive a label it filters on (#2394): #2385 made the
+  // label filter persist, so deleting the label afterwards leaves a dangling id
+  // that silently widens the board. Resolve against the project's label CATALOG,
+  // never the card-derived `labelNameById` — that map omits live labels no
+  // visible card carries, so it cannot tell "deleted" from "unused".
+  const { data: labelCatalog } = useLabels(projectId ?? undefined);
+  const { views: savedViews, update: updateSavedView } = useBoardSavedViews(projectId ?? null);
+  const activeSavedView = savedViews.find((v) => v.id === activeViewId) ?? null;
+  const danglingLabelIds = useMemo(
+    () => missingLabelIds(activeSavedView?.config, labelCatalog),
+    [activeSavedView, labelCatalog],
+  );
   const facetCount = activeFacetCount(facetFilters);
 
   // Announce filter changes to assistive tech (issue 1091 AC; the issue 1033 aria
@@ -2901,6 +2918,24 @@ export function BoardView() {
               }
             }}
           />
+          {activeSavedView && danglingLabelIds.length > 0 && (
+            <DeletedLabelNotice
+              projectId={projectId}
+              viewId={activeSavedView.id}
+              viewName={activeSavedView.name}
+              config={activeSavedView.config}
+              missingIds={danglingLabelIds}
+              matchCount={facetMatchCount}
+              totalCount={committedTasks.length}
+              isRepairing={updateSavedView.isPending}
+              onRepair={(config) => {
+                updateSavedView.mutate(
+                  { id: activeSavedView.id, config },
+                  { onSuccess: (view) => applyViewConfig(view.config, view.id) },
+                );
+              }}
+            />
+          )}
           {/* Active-filter chip bar (issue 1091) — keeps the facet lens
               inescapable when the popover is closed; each chip removes its facet. */}
           <BoardFilterChips

@@ -55,6 +55,36 @@ Assigning a label to a task is a task edit: a member can label the tasks they ca
 
 Project **admins** curate the catalog from **Settings → Labels**: rename, recolor, reorder, and delete. Renaming or recoloring a label updates every card that carries it. Deleting a label removes it from every task it was on.
 
+## Labels in saved board views
+
+A saved board view remembers its label filter along with the rest of its
+filters, and the views menu shows what each view actually filters **before** you
+open it — owner and priority counts, plus each label's color swatch and name.
+Picking a saved view is a decision, not a guess followed by an undo.
+
+Because a label can be deleted after a view was saved, a view can end up
+pointing at a label that no longer exists. TruePPM does not quietly drop that
+filter and return more rows than the view promises. Instead:
+
+- the label appears as a struck-through **tombstone** in the menu, so the view
+  is visibly incomplete from the list;
+- opening the view shows a notice that names the consequence in the units on
+  screen — `31 of 214 rows · label filter not applied` — and confirms your other
+  filters are unchanged;
+- you can **remove that filter from the view**, **create a replacement label**,
+  or **keep it for now**. Keeping it changes nothing: the view is left exactly as
+  saved, so it can still be repaired later, by you or by a teammate.
+
+A deleted label's *name* is not shown, because it is genuinely gone — the label
+catalog does not serve deleted entries. A saved view can also carry a label from
+a project you cannot see; that renders as the same anonymous tombstone, and
+TruePPM will not resolve its name.
+
+:::note[Ships in 0.4]
+Persisting a label filter in a saved view, and the tombstone and repair flow
+above, ship in 0.4.
+:::
+
 ## Color and accessibility
 
 A label's color is chosen from a fixed **8-color palette** (slate, teal, purple, blue, rose, amber, green, cyan). Each color renders as a theme-aware pill that meets WCAG 2.1 AA contrast in both light and dark mode, and every pill carries a leading color dot alongside its always-visible name — so color is never the only way to tell labels apart.
