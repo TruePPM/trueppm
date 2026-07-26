@@ -1,0 +1,142 @@
+# Isolated capacity-test stack (#2391).
+#
+# Deliberately NOT the dev stack: this runs `settings.prod` with DEBUG=False and
+# the shipped image's default CMD (a single uvicorn process, no --reload), so the
+# numbers describe what an operator actually deploys rather than a dev server.
+#
+# Everything is namespaced under the `trueppm-capacity` project with its own
+# volumes and host ports, so it never touches the dev stack's database.
+#
+#   docker compose -f packages/api/perf/capacity/docker-compose.capacity.yml up -d
+#   docker compose -f packages/api/perf/capacity/docker-compose.capacity.yml down -v
+#
+# Ports: API 28000, Postgres 25432 (dev stack keeps 8000/5432).
+#
+# The secrets below are throwaway values for a local, disposable stack that is
+# never exposed off-host. Do not copy them into any real deployment.
+
+name: trueppm-capacity
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: trueppm
+      POSTGRES_USER: trueppm
+      POSTGRES_PASSWORD: capacity
+    # Defaults tuned off the 8 GiB Docker VM this envelope was measured on, so
+    # the database is not the accidental bottleneck. Recorded in the results
+    # metadata — a different host needs these re-stated, not silently inherited.
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=1GB
+      -c effective_cache_size=3GB
+      -c work_mem=16MB
+      -c maintenance_work_mem=256MB
+    volumes:
+      - capacity_pgdata:/var/lib/postgresql/data
+    ports:
+      - "25432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trueppm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api-init:
+    image: trueppm-api:local
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py create_admin"
+    environment: &api_env
+      DATABASE_URL: postgres://trueppm:capacity@db:5432/trueppm
+      REDIS_URL: redis://valkey:6379
+      DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
+      # 50 chars — clears the strong-key boot guard (#566).
+      SECRET_KEY: capacity-envelope-throwaway-key-not-for-any-deploy
+      ALLOWED_HOSTS: "localhost,127.0.0.1,api"
+      # Fernet key for the integration-PAT boot guard (#1002). Supplied from the
+      # environment rather than committed — a literal 32-byte base64 key in a
+      # tracked file is a secret-scanner finding regardless of how throwaway it
+      # is, and the same `${VAR:?message}` pattern already guards the real
+      # secrets in docker-compose.prod.yml. Generate one with:
+      #   export CAPACITY_INTEGRATION_KEY=$(python3 -c \
+      #     'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')
+      INTEGRATION_ENCRYPTION_KEY: ${CAPACITY_INTEGRATION_KEY:?generate one — see the comment above}
+      # Single-node local stack: attachments on local disk and an unencrypted
+      # in-network DB link are the documented opt-outs (#775, #1550).
+      TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE: "true"
+      TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
+      TRUEPPM_ADMIN_PASSWORD_FILE: /tmp/trueppm_admin_password
+      TRUEPPM_ADMIN_PASSWORD: capacity-admin-pw
+      DJANGO_SUPERUSER_EMAIL: admin@trueppm.local
+      STATIC_ROOT: /app/staticfiles
+      DJANGO_LOG_LEVEL: WARNING
+    depends_on:
+      db:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+
+  api:
+    image: trueppm-api:local
+    # No command override: this is the image's shipped CMD — one uvicorn
+    # process. That single process is itself a headline constraint of the
+    # envelope, so overriding it here would measure a stack nobody runs.
+    environment: *api_env
+    ports:
+      - "28000:8000"
+    depends_on:
+      api-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  # One-off seeder, run on demand:
+  #   docker compose -f <this file> run --rm seeder \
+  #     python manage.py seed_capacity --tasks 4000 --reset
+  #
+  # Mounts the working tree so `seed_capacity` can be iterated without an image
+  # rebuild. Seeding is not a measured path — the `api` service above deliberately
+  # has NO source mount, so every number in the envelope comes from the packaged
+  # code exactly as shipped.
+  seeder:
+    image: trueppm-api:local
+    profiles: ["tools"]
+    environment:
+      <<: *api_env
+      PYTHONPATH: /app/src
+    volumes:
+      - ../../src:/app/src:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  celery:
+    image: trueppm-api:local
+    command:
+      ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=warning", "--concurrency=2"]
+    environment: *api_env
+    depends_on:
+      api-init:
+        condition: service_completed_successfully
+
+volumes:
+  capacity_pgdata:
