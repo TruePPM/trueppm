@@ -69,7 +69,7 @@ export function FeedbackDialog({ onClose }: FeedbackDialogProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="feedback-title"
-        className="w-full max-w-lg rounded-card border border-neutral-border bg-neutral-surface p-4 shadow-lg"
+        className="w-full max-w-lg rounded-card border border-neutral-border bg-neutral-surface p-4 shadow-pop"
       >
         <h2 id="feedback-title" className="text-sm font-semibold text-neutral-text-primary">
           Report a bug or send feedback
