@@ -381,6 +381,7 @@ def test_post_defaults_missing_filter_facets_to_empty(pm_client, project):
     assert data["filter_assignees"] == []
     assert data["filter_priority"] == []
     assert data["filter_due"] == []
+    assert data["filter_labels"] == []
 
 
 def test_post_rejects_invalid_priority_facet(pm_client, project):
@@ -426,16 +427,16 @@ def test_post_dedupes_filter_facet_values(pm_client, project):
 
 
 def test_post_stamps_current_schema_version(pm_client, project):
-    """A fresh write is born at schema_version=2 (#1918 bumped the surface)."""
+    """A fresh write is born at schema_version=3 (#2385 bumped the surface)."""
     resp = pm_client.post(
         _url(project.pk),
         {"name": "Versioned", "config": VALID_CONFIG},
         format="json",
     )
     assert resp.status_code == 201
-    assert resp.json()["schema_version"] == 2
+    assert resp.json()["schema_version"] == 3
     view = BoardSavedView.objects.get(pk=resp.json()["id"])
-    assert view.schema_version == 2
+    assert view.schema_version == 3
 
 
 def test_get_upgrades_a_stale_v1_row_on_read(pm_client, pm, project):
@@ -455,10 +456,11 @@ def test_get_upgrades_a_stale_v1_row_on_read(pm_client, pm, project):
     resp = pm_client.get(_url(project.pk))
     assert resp.status_code == 200
     data = next(v for v in resp.json() if v["id"] == str(view.pk))
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == 3
     assert data["config"]["filter_assignees"] == []
     assert data["config"]["filter_priority"] == []
     assert data["config"]["filter_due"] == []
+    assert data["config"]["filter_labels"] == []
     # The stored row itself is untouched by a read (upgrade happens in the
     # response only) — this is a read-time projection, not a write-on-read.
     view.refresh_from_db()
@@ -475,7 +477,7 @@ def test_patch_with_config_stamps_current_schema_version(pm_client, project, sav
     )
     assert resp.status_code == 200
     saved_view.refresh_from_db()
-    assert saved_view.schema_version == 2
+    assert saved_view.schema_version == 3
     assert saved_view.config["filter_priority"] == ["high"]
 
 
@@ -508,3 +510,113 @@ def test_patch_name_only_does_not_bump_schema_version(pm_client, project):
     resp = pm_client.get(_url(project.pk))
     data = next(v for v in resp.json() if v["id"] == str(stale.pk))
     assert data["config"]["filter_assignees"] == []
+
+
+# ---------------------------------------------------------------------------
+# Label facet persistence (#2385) — config.filter_labels
+#
+# Before this fix every layer failed open: the client typed `filters` as
+# FacetFilters (which includes labels) but the wire type and mappers omitted
+# them, and validate_config returned a three-key whitelist that silently dropped
+# filter_labels. A user set a label filter, saved the view, reopened it, and the
+# filter was gone with no message. These tests pin the round-trip shut.
+# ---------------------------------------------------------------------------
+
+
+def test_post_round_trips_filter_labels(pm_client, project):
+    """The regression guard for the data-loss bug: a saved label filter survives."""
+    config = {**VALID_CONFIG, "filter_labels": ["lbl-a", "lbl-b"]}
+    resp = pm_client.post(
+        _url(project.pk),
+        {"name": "Labeled view", "config": config},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert resp.json()["config"]["filter_labels"] == ["lbl-a", "lbl-b"]
+
+
+def test_filter_labels_survives_post_then_get(pm_client, project):
+    """Round-trip through the DB, not just the create response.
+
+    The create response could echo a value the write path never persisted, so
+    the acceptance criterion is explicitly a POST followed by an independent GET.
+    """
+    config = {**VALID_CONFIG, "filter_labels": ["lbl-a"]}
+    created = pm_client.post(
+        _url(project.pk),
+        {"name": "Labeled view", "config": config},
+        format="json",
+    )
+    assert created.status_code == 201
+    view_id = created.json()["id"]
+
+    resp = pm_client.get(_url(project.pk))
+    assert resp.status_code == 200
+    data = next(v for v in resp.json() if v["id"] == view_id)
+    assert data["config"]["filter_labels"] == ["lbl-a"]
+
+    # And it is genuinely on the row, not reconstructed by the read migration.
+    assert BoardSavedView.objects.get(pk=view_id).config["filter_labels"] == ["lbl-a"]
+
+
+def test_post_keeps_label_ids_that_no_longer_exist(pm_client, project):
+    """A deleted label's id must survive in the stored config.
+
+    Deliberately *not* validated against the Label table: the client needs the
+    dangling id to render the deleted-label tombstone and offer repair. Dropping
+    it server-side would silently rewrite the user's saved view — the same
+    fail-open behavior this issue fixes.
+    """
+    config = {**VALID_CONFIG, "filter_labels": ["00000000-0000-0000-0000-000000000000"]}
+    resp = pm_client.post(
+        _url(project.pk),
+        {"name": "Ghost label", "config": config},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert resp.json()["config"]["filter_labels"] == ["00000000-0000-0000-0000-000000000000"]
+
+
+def test_post_rejects_non_string_label_facet(pm_client, project):
+    """Label ids are opaque (no enum) but must still be a list of strings."""
+    bad = {**VALID_CONFIG, "filter_labels": [42]}
+    resp = pm_client.post(
+        _url(project.pk),
+        {"name": "Bad labels", "config": bad},
+        format="json",
+    )
+    assert resp.status_code == 400
+
+
+def test_post_dedupes_filter_labels(pm_client, project):
+    config = {**VALID_CONFIG, "filter_labels": ["lbl-a", "lbl-a", "lbl-b"]}
+    resp = pm_client.post(
+        _url(project.pk),
+        {"name": "Dup labels", "config": config},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert resp.json()["config"]["filter_labels"] == ["lbl-a", "lbl-b"]
+
+
+def test_patch_can_clear_filter_labels(pm_client, project):
+    """Removing every label from a saved view persists as an empty list.
+
+    Guards the inverse of the original bug — a cleared filter must not read back
+    as the previous selection because the key was omitted rather than emptied.
+    """
+    created = pm_client.post(
+        _url(project.pk),
+        {"name": "Clearable", "config": {**VALID_CONFIG, "filter_labels": ["lbl-a"]}},
+        format="json",
+    )
+    view_id = created.json()["id"]
+
+    resp = pm_client.patch(
+        _url(project.pk, view_id),
+        {"config": {**VALID_CONFIG, "filter_labels": []}},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.json()["config"]["filter_labels"] == []
+    assert BoardSavedView.objects.get(pk=view_id).config["filter_labels"] == []

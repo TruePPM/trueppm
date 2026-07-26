@@ -62,6 +62,7 @@ interface ApiViewConfig {
   filter_assignees?: string[];
   filter_priority?: string[];
   filter_due?: string[];
+  filter_labels?: string[];
 }
 
 interface ApiSavedView {
@@ -100,9 +101,10 @@ function fromApi(v: ApiSavedView): BoardSavedView {
         assignees: c.filter_assignees ?? [],
         priority: (c.filter_priority ?? []) as PriorityBand[],
         due: (c.filter_due ?? []) as DueWindow[],
-        // Label facet persistence in saved views is a follow-up (#278); a loaded
-        // view carries no label filter yet, so default to none.
-        labels: [],
+        // A view saved before #2385 has no `filter_labels` key at all (the v2→v3
+        // migration backfills it, but the `??` keeps a hand-rolled or offline
+        // payload from producing `undefined` and blowing up the facet).
+        labels: c.filter_labels ?? [],
       },
     },
     schemaVersion: version,
@@ -125,6 +127,7 @@ function toApiConfig(config: BoardViewConfig): ApiViewConfig {
     filter_assignees: filters.assignees,
     filter_priority: filters.priority,
     filter_due: filters.due,
+    filter_labels: filters.labels,
   };
 }
 
