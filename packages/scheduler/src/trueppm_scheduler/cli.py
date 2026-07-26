@@ -37,7 +37,11 @@ def _cmd_schedule(args: argparse.Namespace) -> None:
         return
 
     print(f"\nProject: {project.name}")
-    print(f"Start:   {result.project_start}  Finish: {result.project_finish}\n")
+    print(f"Start:   {result.project_start}  Finish: {result.project_finish}")
+    # The finish is the deterministic earliest-feasible date, not a commitment
+    # date. Saying so here is the only chance a CLI user gets to learn it before
+    # pasting the number into a status report.
+    print("         (earliest feasible — run 'monte-carlo' for confidence dates)\n")
     header = f"{'ID':<20} {'Name':<30} {'ES':<12} {'EF':<12} {'LS':<12} {'LF':<12} {'TF':>4}  CP"
     print(header)
     print("-" * len(header))
@@ -71,9 +75,18 @@ def _cmd_monte_carlo(args: argparse.Namespace) -> None:
         return
 
     print(f"\nMonte Carlo — {result.runs:,} runs  ({project.name})\n")
-    print(f"  P50 (median):  {result.p50}")
-    print(f"  P80:           {result.p80}")
-    print(f"  P95:           {result.p95}")
+    print(f"  P50 (median):  {result.p50}   midpoint — even odds, not a commitment")
+    print(f"  P80:           {result.p80}   ← commit to this date")
+    print(f"  P95:           {result.p95}   external or contractual deadlines")
+    # A collapsed distribution is a correct result (nothing in the plan varies),
+    # but reads as a broken simulation unless it says so — the same reason the
+    # web forecast bar carries a diagnostic for this case.
+    if result.p50 == result.p80 == result.p95:
+        print(
+            "\n  Every run finished on the same date: no task carries a "
+            "three-point\n  estimate, so the simulation has no uncertainty to "
+            "model and collapsed\n  onto the deterministic CPM finish."
+        )
 
 
 def main() -> None:

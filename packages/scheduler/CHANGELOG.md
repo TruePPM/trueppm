@@ -15,6 +15,29 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.4.0b1`).
 
 ## [Unreleased]
 
+### Changed
+
+- `schedule` CLI output now labels the project finish as the earliest feasible
+  date and points at `monte-carlo` for confidence dates.
+- `monte-carlo` CLI output now carries the reading of each percentile (P50 is a
+  midpoint, P80 is the commitment date, P95 is for external deadlines), and
+  explains a collapsed distribution — every run finishing on the same date
+  because no task carries a three-point estimate — rather than printing three
+  identical dates with no comment. `--json` output is unchanged.
+
+### Documentation
+
+- New README section **Interpreting the output**: `schedule()` returns a
+  deterministic, optimistic single date; `monte_carlo()` returns the
+  distribution it sits in. Previously the package documented the mechanics of
+  both passes but never their relationship.
+- Renamed the README's `Monte Carlo determinism` section to
+  **Reproducibility (seeded runs)**. It describes seeded repeatability, but was
+  the package's only heading containing "determinism" — the word readers search
+  for when they want the single-date-vs-distribution distinction.
+- `schedule()`, `monte_carlo()`, and `MonteCarloResult` docstrings now state how
+  their output should be read.
+
 ## [0.4.0b1] - 2026-07-18
 
 ### Added
