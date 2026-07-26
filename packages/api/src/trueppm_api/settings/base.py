@@ -91,6 +91,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.history",
     "trueppm_api.apps.msproject",
     "trueppm_api.apps.jiraimport",
+    "trueppm_api.apps.csvimport",
     "trueppm_api.apps.webhooks",
     "trueppm_api.apps.taskruns",
     "trueppm_api.apps.workshops",
@@ -393,6 +394,14 @@ CELERY_BEAT_SCHEDULE = {
     # recovers orphaned dispatched rows (worker died mid-import).
     "drain-jira-import-queue": {
         "task": "jira.drain_import_queue",
+        "schedule": 30.0,
+    },
+    # CSV/Excel import drain: dispatches pending CsvImportRequest rows every 30 s
+    # and recovers orphaned dispatched rows (worker died mid-import). Kept
+    # separate from the MSP and Jira drains per ADR-0259/ADR-0632 so no drain has
+    # to branch on file type.
+    "drain-csv-import-queue": {
+        "task": "csv.drain_import_queue",
         "schedule": 30.0,
     },
     # Sprint close drain: dispatches pending SprintCloseRequest rows every 30 s.
@@ -978,6 +987,25 @@ IMPORT_BULK_BATCH_SIZE: int = env.int("IMPORT_BULK_BATCH_SIZE", default=500)
 # stdout and abort past this many bytes. 512 MB is generous headroom for a
 # legitimate 50 MB .mpp (MSPDI XML is ~5-10x the binary) while still bounded.
 MPXJ_MAX_OUTPUT_MB: int = env.int("MPXJ_MAX_OUTPUT_MB", default=512)
+
+# Per-file cap for CSV/Excel imports (#743). Much lower than the MS Project
+# ceiling on purpose: a spreadsheet migration is a hand-maintained sheet, not a
+# generated plan, and 10 MB is already far past what any real one weighs. The
+# same base64-in-a-DB-row cost applies (~+33%).
+CSV_IMPORT_MAX_UPLOAD_MB: int = env.int("CSV_IMPORT_MAX_UPLOAD_MB", default=10)
+
+# Max data rows a single CSV/Excel import may contain (#743). The byte cap alone
+# is not enough — a 10 MB CSV can encode well over a million short rows, and the
+# parser builds one TaskData per row before anything is written. Rows past the
+# cap are reported back as `truncated_rows` rather than silently dropped.
+CSV_IMPORT_MAX_ROWS: int = env.int("CSV_IMPORT_MAX_ROWS", default=5_000)
+
+# Decompression-bomb ceiling for .xlsx uploads (#743). An .xlsx is a zip of XML:
+# openpyxl inherits XXE hardening from defusedxml automatically, but nothing in
+# that stack bounds the *inflated* size, so a 1 MB upload can expand to
+# gigabytes and OOM the worker. The parser sums the zip central directory's
+# declared sizes — cheap, and before any XML is touched — and rejects above this.
+CSV_IMPORT_MAX_UNCOMPRESSED_MB: int = env.int("CSV_IMPORT_MAX_UNCOMPRESSED_MB", default=100)
 
 # JVM max-heap (-Xmx) for the MPXJ subprocess (#1722). Bounding the JVM heap is a
 # second line of defense: even if MPXJ tries to build a giant in-memory model
@@ -1638,7 +1666,13 @@ SPECTACULAR_SETTINGS = {
             "description": "Workspace-scoped Assets feed: file/URL attachments and task links "
             "aggregated across every project the caller can read.",
         },
-        {"name": "import-export", "description": "MS Project import/export and data exports."},
+        {
+            "name": "import-export",
+            "description": (
+                "File import and export: MS Project, Jira XML, CSV/Excel spreadsheets, "
+                "import templates, and data exports."
+            ),
+        },
         {"name": "webhooks", "description": "Outbound webhook subscriptions."},
         {
             "name": "sync",

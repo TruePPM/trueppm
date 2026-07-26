@@ -379,6 +379,7 @@ export default defineConfig({
                 { slug: "features/msproject-import-export" },
                 { slug: "features/csv-import-export" },
                 { slug: "features/jira-import" },
+                { slug: "features/csv-import" },
               ],
             },
             {

@@ -3567,6 +3567,45 @@
                 }
             }
         },
+        "/api/v1/import-templates/csv/": {
+            "get": {
+                "operationId": "v1_import_templates_csv_retrieve",
+                "description": "Download the known-good CSV template.\n\nAuthenticated but not project-scoped: the template is static content with no\ncustomer data in it, and the wizard links it from step 1 before a project\ncontext necessarily exists.",
+                "summary": "Download a known-good CSV import template",
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "text/csv template file."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/integrations/projects/{project_pk}/git-automation/": {
             "get": {
                 "operationId": "v1_integrations_projects_git_automation_retrieve",
@@ -19762,6 +19801,223 @@
                     }
                 },
                 "summary": "Retrieve summary"
+            }
+        },
+        "/api/v1/projects/{project_pk}/import/csv/": {
+            "post": {
+                "operationId": "v1_projects_import_csv_create",
+                "description": "Upload and import a CSV/Excel spreadsheet into an existing project.\n\nRequires the Scheduler role. The import runs asynchronously through the\ntransactional outbox; the 202 response carries ``import_request_id`` — not a\nCelery task id, which does not exist until the on_commit dispatch fires\n(ADR-0632 decision 6).",
+                "summary": "Import a CSV/Excel spreadsheet into an existing project",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "string",
+                                "format": "binary"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Import queued; body is {\"detail\", \"queued\", \"import_request_id\"}."
+                    },
+                    "400": {
+                        "description": "Missing or invalid upload (wrong type/too large)."
+                    },
+                    "403": {
+                        "description": "Caller lacks the Scheduler role on the project."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/import/csv/{id}/": {
+            "get": {
+                "operationId": "v1_projects_import_csv_retrieve",
+                "description": "Poll one import's outbox row for its terminal state and summary.\n\nThis is what makes an async failure visible on the Schedule that launched it\n(#2151): the wizard polls here after its 202 rather than for a Celery task\nid that the outbox never produces synchronously.",
+                "summary": "Status and result summary of one CSV/Excel import",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "{\"status\", \"filename\", \"summary\", \"requested_at\"}."
+                    },
+                    "403": {
+                        "description": "Caller lacks the Scheduler role on the project."
+                    },
+                    "404": {
+                        "description": "No such import for this project."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/import/csv/preview/": {
+            "post": {
+                "operationId": "v1_projects_import_csv_preview_create",
+                "description": "Parse a spreadsheet and return the detected mapping — persisting nothing.\n\nSynchronous and stateless by design (ADR-0632 decision 5): the wizard holds\nthe mapping in client state, so a retry after a failed commit replays it\nwithout any server-side draft to resume or expire.",
+                "summary": "Preview a CSV/Excel import: detected column mapping and sample rows",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "string",
+                                "format": "binary"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Detected mapping, first 10 parsed rows, row-level warnings and the field catalog for the wizard's dropdown. Nothing is persisted."
+                    },
+                    "400": {
+                        "description": "Missing, oversized, or unreadable upload."
+                    },
+                    "403": {
+                        "description": "Caller lacks the Scheduler role on the project."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/v1/projects/{project_pk}/import/jira/": {
@@ -56549,7 +56805,7 @@
         },
         {
             "name": "import-export",
-            "description": "MS Project import/export and data exports."
+            "description": "File import and export: MS Project, Jira XML, CSV/Excel spreadsheets, import templates, and data exports."
         },
         {
             "name": "webhooks",

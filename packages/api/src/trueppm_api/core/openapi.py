@@ -53,6 +53,7 @@ _TOP_TAG: dict[str, str] = {
     "dependencies": "tasks",
     "edition": "meta",
     "health": "meta",
+    "import-templates": "import-export",
     "readyz": "meta",
     "integrations": "integrations",
     "me": "me",
