@@ -39,6 +39,14 @@ class TaskData:
     pessimistic_duration_days: int | None = None
     predecessor_links: list[PredecessorLinkData] = field(default_factory=list)
     resource_assignments: list[AssignmentData] = field(default_factory=list)
+    # Label *names* (not slugs or ids) this task carries, in first-seen order
+    # (ADR-0400, #2406). Deliberately names: the parser that fills this cannot
+    # see the database, so resolving a name to a catalog entry — matching an
+    # existing one case-insensitively, or creating it — belongs to
+    # ``import_project``. Populated by the CSV/Excel adapter today; the Jira
+    # adapter's components/labels, dropped since #743, are the obvious next
+    # producer.
+    labels: list[str] = field(default_factory=list)
 
 
 @dataclass

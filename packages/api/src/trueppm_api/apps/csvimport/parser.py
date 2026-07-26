@@ -32,7 +32,12 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
-from trueppm_api.apps.csvimport.mapping import ColumnMapping, detect_mapping, missing_required
+from trueppm_api.apps.csvimport.mapping import (
+    ColumnMapping,
+    detect_mapping,
+    indexes_by_field,
+    missing_required,
+)
 from trueppm_api.apps.msproject.dataclasses import (
     AssignmentData,
     PredecessorLinkData,
@@ -43,6 +48,18 @@ from trueppm_api.apps.msproject.dataclasses import (
 
 #: How many parsed rows the preview endpoint echoes back to the wizard.
 SAMPLE_ROW_COUNT = 10
+
+#: Ceiling on distinct labels one import may mint, and on labels per task. A
+#: label column is free text under the operator's control, so an accidental
+#: mapping (a Notes column landing on `labels`) would otherwise mint one catalog
+#: entry per row. Both caps degrade by *dropping the excess with a warning*
+#: rather than failing the import — the tasks are still worth having (#2406).
+MAX_IMPORT_LABELS = 100
+MAX_LABELS_PER_TASK = 20
+
+#: `Label.name` is a CharField(max_length=50); a longer value is truncated
+#: rather than dropped so the label still lands on the task.
+LABEL_NAME_MAX_LENGTH = 50
 
 _CSV_EXTENSIONS = {"csv", "tsv", "txt"}
 _XLSX_EXTENSIONS = {"xlsx", "xlsm"}
@@ -435,7 +452,7 @@ def parse_spreadsheet(
             "Rename a column to 'Name' or 'Task', or map one explicitly."
         )
 
-    by_field = {m.field: m.index for m in mapping if m.field}
+    by_field = indexes_by_field(mapping)
     data_rows = rows[1:]
 
     truncated = 0
@@ -462,6 +479,7 @@ def parse_spreadsheet(
     _build_tasks(result, data_rows, by_field)
     _resolve_predecessors(result, data_rows, by_field)
     _build_resources(result, data_rows, by_field)
+    _build_labels(result, data_rows, by_field)
 
     result.project_data.warnings = list(result.warnings)
     return result
@@ -481,17 +499,40 @@ def _cell(row: list[Any], index: int | None) -> str:
     return str(row[index])
 
 
+def _one(by_field: dict[str, list[int]], field: str) -> int:
+    """The single column supplying ``field``.
+
+    ``by_field`` is a list per field so that a ``multi`` field's extra columns
+    cannot be silently dropped by a scalar lookup. Every single-valued read goes
+    through here, which makes "this field is one-to-one" an explicit claim at
+    the call site rather than an assumption baked into the container's shape.
+
+    Only call for a field known to be present — callers gate on
+    ``field in by_field`` exactly as they did when this was a scalar map.
+    """
+    return by_field[field][0]
+
+
+def _split_values(raw: str) -> list[str]:
+    """Split one cell into its values on the shared ``, ; /`` convention.
+
+    Same separators the resource column has always used, so a sheet author who
+    learned the convention in one place does not have to relearn it.
+    """
+    return [part.strip() for part in re.split(r"[,;/]", raw) if part.strip()]
+
+
 def _build_tasks(
     result: ParseResult,
     data_rows: list[list[Any]],
-    by_field: dict[str, int],
+    by_field: dict[str, list[int]],
 ) -> None:
     """Turn each data row into a ``TaskData``, recording per-field failures."""
-    name_index = by_field["name"]
+    name_index = _one(by_field, "name")
 
     # Resolve the date convention once, over every date cell in the file, so a
     # single unambiguous row (13/04) settles the whole import.
-    date_indices = [by_field[f] for f in ("planned_start", "planned_finish") if f in by_field]
+    date_indices = [_one(by_field, f) for f in ("planned_start", "planned_finish") if f in by_field]
     raw_dates = [_cell(row, i) for row in data_rows for i in date_indices]
     day_first = _prefers_day_first(raw_dates)
     if date_indices and any(_SLASH_DATE_RE.match(d.strip()) for d in raw_dates):
@@ -522,7 +563,7 @@ def _build_tasks(
         task.outline_level = _indent_level(raw_name)
 
         if has_wbs_column:
-            wbs_raw = _cell(row, by_field["wbs"]).strip()
+            wbs_raw = _cell(row, _one(by_field, "wbs")).strip()
             if wbs_raw:
                 _apply_wbs(task, wbs_raw)
 
@@ -530,12 +571,12 @@ def _build_tasks(
         _apply_dates(task, row, by_field, result, row_number, day_first)
         _apply_percent(task, row, by_field, result, row_number)
 
-        if "milestone" in by_field and _parse_bool(_cell(row, by_field["milestone"])):
+        if "milestone" in by_field and _parse_bool(_cell(row, _one(by_field, "milestone"))):
             task.is_milestone = True
         if task.duration_days == 0:
             task.is_milestone = True
         if "notes" in by_field:
-            task.notes = _cell(row, by_field["notes"]).strip()[:2000]
+            task.notes = _cell(row, _one(by_field, "notes")).strip()[:2000]
 
         tasks.append(task)
 
@@ -557,13 +598,13 @@ def _apply_wbs(task: TaskData, wbs_raw: str) -> None:
 def _apply_duration(
     task: TaskData,
     row: list[Any],
-    by_field: dict[str, int],
+    by_field: dict[str, list[int]],
     result: ParseResult,
     row_number: int,
 ) -> None:
     if "duration" not in by_field:
         return
-    raw = _cell(row, by_field["duration"])
+    raw = _cell(row, _one(by_field, "duration"))
     if not raw.strip():
         return
     value = _parse_duration(raw)
@@ -571,7 +612,7 @@ def _apply_duration(
         result.row_errors.append(
             RowError(
                 row_number,
-                result.headers[by_field["duration"]],
+                result.headers[_one(by_field, "duration")],
                 "bad_duration",
                 f"Could not read '{raw.strip()}' as a duration; defaulted to 1 day.",
             )
@@ -581,7 +622,7 @@ def _apply_duration(
         result.row_errors.append(
             RowError(
                 row_number,
-                result.headers[by_field["duration"]],
+                result.headers[_one(by_field, "duration")],
                 "bad_duration",
                 f"Negative duration '{raw.strip()}'; defaulted to 1 day.",
             )
@@ -593,34 +634,34 @@ def _apply_duration(
 def _apply_dates(
     task: TaskData,
     row: list[Any],
-    by_field: dict[str, int],
+    by_field: dict[str, list[int]],
     result: ParseResult,
     row_number: int,
     day_first: bool,
 ) -> None:
     start = finish = None
     if "planned_start" in by_field:
-        raw = _cell(row, by_field["planned_start"])
+        raw = _cell(row, _one(by_field, "planned_start"))
         if raw.strip():
             start = _parse_date(raw, day_first)
             if start is None:
                 result.row_errors.append(
                     RowError(
                         row_number,
-                        result.headers[by_field["planned_start"]],
+                        result.headers[_one(by_field, "planned_start")],
                         "bad_date",
                         f"Could not read '{raw.strip()}' as a date; the start was left unset.",
                     )
                 )
     if "planned_finish" in by_field:
-        raw = _cell(row, by_field["planned_finish"])
+        raw = _cell(row, _one(by_field, "planned_finish"))
         if raw.strip():
             finish = _parse_date(raw, day_first)
             if finish is None:
                 result.row_errors.append(
                     RowError(
                         row_number,
-                        result.headers[by_field["planned_finish"]],
+                        result.headers[_one(by_field, "planned_finish")],
                         "bad_date",
                         f"Could not read '{raw.strip()}' as a date; the finish was left unset.",
                     )
@@ -639,7 +680,7 @@ def _apply_dates(
             result.row_errors.append(
                 RowError(
                     row_number,
-                    result.headers[by_field["planned_finish"]],
+                    result.headers[_one(by_field, "planned_finish")],
                     "finish_before_start",
                     "Finish is before start; duration defaulted to 1 day.",
                 )
@@ -651,13 +692,13 @@ def _apply_dates(
 def _apply_percent(
     task: TaskData,
     row: list[Any],
-    by_field: dict[str, int],
+    by_field: dict[str, list[int]],
     result: ParseResult,
     row_number: int,
 ) -> None:
     if "percent_complete" not in by_field:
         return
-    raw = _cell(row, by_field["percent_complete"])
+    raw = _cell(row, _one(by_field, "percent_complete"))
     if not raw.strip():
         return
     value = _parse_percent(raw)
@@ -665,7 +706,7 @@ def _apply_percent(
         result.row_errors.append(
             RowError(
                 row_number,
-                result.headers[by_field["percent_complete"]],
+                result.headers[_one(by_field, "percent_complete")],
                 "bad_percent",
                 f"Could not read '{raw.strip()}' as a percentage; treated as 0%.",
             )
@@ -677,7 +718,7 @@ def _apply_percent(
 def _resolve_predecessors(
     result: ParseResult,
     data_rows: list[list[Any]],
-    by_field: dict[str, int],
+    by_field: dict[str, list[int]],
 ) -> None:
     """Attach FS/SS/FF/SF links, quarantining refs that do not resolve.
 
@@ -685,12 +726,17 @@ def _resolve_predecessors(
     one (how MS Project and Asana CSV exports encode dependencies), and against
     1-based row position otherwise. Both are tried for every reference, so a
     file that mixes the two still resolves.
+
+    ``predecessors`` is a ``multi`` field (#2406): an MS Project export spreads
+    dependencies across ``Predecessor 1``, ``Predecessor 2``, … and every one of
+    them is a real link. Each mapped column is read, and a row error names the
+    column the bad token actually came from rather than the first one.
     """
-    if "predecessors" not in by_field:
+    indexes = by_field.get("predecessors", [])
+    if not indexes:
         return
 
     tasks = result.project_data.tasks
-    column = result.headers[by_field["predecessors"]]
 
     # Map every usable handle -> uid. Row position is registered first so an
     # explicit ID column overrides it on collision (the ID is the stronger claim).
@@ -698,7 +744,7 @@ def _resolve_predecessors(
     for position, task in enumerate(tasks, start=1):
         by_handle[str(position)] = task.uid
     if "external_id" in by_field:
-        id_index = by_field["external_id"]
+        id_index = _one(by_field, "external_id")
         # data_rows and tasks diverge when a row was dropped for a missing name,
         # so walk the tasks and re-read the row each one came from via its uid.
         for task in tasks:
@@ -708,35 +754,45 @@ def _resolve_predecessors(
 
     for task in tasks:
         row_number = task.uid + 1
-        raw = _cell(data_rows[task.uid - 1], by_field["predecessors"]).strip()
-        if not raw:
-            continue
-        for token in re.split(r"[,;]", raw):
-            if not token.strip():
+        seen: set[tuple[int, str, int]] = set()
+        for index in indexes:
+            column = result.headers[index]
+            raw = _cell(data_rows[task.uid - 1], index).strip()
+            if not raw:
                 continue
-            link = _parse_predecessor(token, by_handle)
-            if link is None:
-                result.row_errors.append(
-                    RowError(
-                        row_number,
-                        column,
-                        "unknown_predecessor",
-                        f"Predecessor '{token.strip()}' does not match any row; "
-                        "the link was skipped.",
+            for token in re.split(r"[,;]", raw):
+                if not token.strip():
+                    continue
+                link = _parse_predecessor(token, by_handle)
+                if link is None:
+                    result.row_errors.append(
+                        RowError(
+                            row_number,
+                            column,
+                            "unknown_predecessor",
+                            f"Predecessor '{token.strip()}' does not match any row; "
+                            "the link was skipped.",
+                        )
                     )
-                )
-                continue
-            if link.predecessor_uid == task.uid:
-                result.row_errors.append(
-                    RowError(
-                        row_number,
-                        column,
-                        "self_dependency",
-                        "A task cannot depend on itself; the link was skipped.",
+                    continue
+                if link.predecessor_uid == task.uid:
+                    result.row_errors.append(
+                        RowError(
+                            row_number,
+                            column,
+                            "self_dependency",
+                            "A task cannot depend on itself; the link was skipped.",
+                        )
                     )
-                )
-                continue
-            task.predecessor_links.append(link)
+                    continue
+                # Two columns naming the same predecessor is a union, not two
+                # edges — the importer would otherwise create a duplicate
+                # Dependency row for one real relationship.
+                key = (link.predecessor_uid, link.dep_type, link.lag_days)
+                if key in seen:
+                    continue
+                seen.add(key)
+                task.predecessor_links.append(link)
 
 
 def _parse_predecessor(token: str, by_handle: dict[str, int]) -> PredecessorLinkData | None:
@@ -756,10 +812,73 @@ def _parse_predecessor(token: str, by_handle: dict[str, int]) -> PredecessorLink
     )
 
 
+def _build_labels(
+    result: ParseResult,
+    data_rows: list[list[Any]],
+    by_field: dict[str, list[int]],
+) -> None:
+    """Attach label names to each task, unioned across every mapped column.
+
+    ``labels`` is a ``multi`` field (#2406): a sheet routinely carries `Tags`,
+    `Component` and `Team`, all of which are labels. Every mapped column is
+    read and the values unioned onto the task.
+
+    Names are deduplicated case-insensitively — first-seen spelling wins, both
+    within a task and across the file — so an import cannot mint `Safety`
+    alongside an existing `safety`. The parser only produces *names*; matching
+    them against the project's existing catalog is the importer's job, since
+    only it can see the database.
+    """
+    indexes = by_field.get("labels", [])
+    if not indexes:
+        return
+
+    # File-wide canonical spelling per lowercased name, so two tasks spelling a
+    # label differently still land on one catalog entry.
+    canonical: dict[str, str] = {}
+    truncated = False
+
+    for task in result.project_data.tasks:
+        row = data_rows[task.uid - 1]
+        seen: set[str] = set()
+        dropped = 0
+        for index in indexes:
+            for raw_name in _split_values(_cell(row, index)):
+                name = raw_name[:LABEL_NAME_MAX_LENGTH]
+                truncated = truncated or len(raw_name) > LABEL_NAME_MAX_LENGTH
+                key = name.lower()
+                if key in seen:
+                    continue
+                if key not in canonical and len(canonical) >= MAX_IMPORT_LABELS:
+                    dropped += 1
+                    continue
+                if len(seen) >= MAX_LABELS_PER_TASK:
+                    dropped += 1
+                    continue
+                seen.add(key)
+                task.labels.append(canonical.setdefault(key, name))
+        if dropped:
+            result.row_errors.append(
+                RowError(
+                    task.uid + 1,
+                    result.headers[indexes[0]],
+                    "too_many_labels",
+                    f"{dropped} label(s) on this row were skipped; an import is capped at "
+                    f"{MAX_IMPORT_LABELS} distinct labels and {MAX_LABELS_PER_TASK} per task.",
+                )
+            )
+
+    if truncated:
+        result.warnings.append(
+            f"Some label names were longer than {LABEL_NAME_MAX_LENGTH} characters "
+            "and were shortened."
+        )
+
+
 def _build_resources(
     result: ParseResult,
     data_rows: list[list[Any]],
-    by_field: dict[str, int],
+    by_field: dict[str, list[int]],
 ) -> None:
     """Collect distinct assignee names and attach one assignment per task.
 
@@ -775,7 +894,7 @@ def _build_resources(
     uid_by_key: dict[str, int] = {}
 
     for task in result.project_data.tasks:
-        raw = _cell(data_rows[task.uid - 1], by_field["resource"]).strip()
+        raw = _cell(data_rows[task.uid - 1], _one(by_field, "resource")).strip()
         if not raw:
             continue
         for part in re.split(r"[,;/]", raw):

@@ -137,5 +137,87 @@ class TestOverrides:
 class TestFieldChoices:
     def test_catalog_is_serializable_and_flags_the_required_field(self) -> None:
         choices = field_choices()
-        assert {"field": "name", "label": "Task name", "required": True} in choices
-        assert all(set(c) == {"field", "label", "required"} for c in choices)
+        # `multi` joined the catalog in #2406 so the wizard can render the Labels
+        # card as an additive list rather than a single-select.
+        assert {
+            "field": "name",
+            "label": "Task name",
+            "required": True,
+            "multi": False,
+        } in choices
+        assert all(set(c) == {"field", "label", "required", "multi"} for c in choices)
+
+
+class TestLabelsField:
+    """`labels` was absent from the alias table entirely — a sheet's Tags column
+    imported silently unmapped (#2406)."""
+
+    @pytest.mark.parametrize(
+        "header",
+        ["Labels", "Label", "Tags", "Tag", "Category", "Component", "Stream", "Workstream"],
+    )
+    def test_label_headers_map(self, header: str) -> None:
+        [mapping] = detect_mapping([header])
+        assert mapping.field == "labels", mapping
+
+    def test_labels_is_offered_to_the_wizard(self) -> None:
+        by_field = {c["field"]: c for c in field_choices()}
+        assert by_field["labels"]["label"] == "Labels"
+        assert by_field["labels"]["required"] is False
+
+    @pytest.mark.parametrize("header", ["Percentage", "Stage", "Vantage"])
+    def test_short_alias_does_not_claim_a_header_that_merely_contains_it(self, header: str) -> None:
+        """ "tag" is a substring of "Percentage" and "Stage". Fuzzy-matching it
+        would quietly route a percentage column into labels, so it is exact-only."""
+        [mapping] = detect_mapping([header])
+        assert mapping.field != "labels", mapping
+
+
+class TestMultiColumnFields:
+    def test_two_label_columns_both_map(self) -> None:
+        mappings = detect_mapping(["Name", "Tags", "Component"])
+        assert [m.field for m in mappings] == ["name", "labels", "labels"]
+        assert all(m.confidence != "duplicate" for m in mappings)
+
+    def test_two_predecessor_columns_both_map(self) -> None:
+        """An MS Project export spreads dependencies across numbered columns."""
+        mappings = detect_mapping(["Name", "Predecessor 1", "Predecessor 2"])
+        assert [m.field for m in mappings] == ["name", "predecessors", "predecessors"]
+
+    def test_a_second_name_column_is_still_a_duplicate(self) -> None:
+        """The multi flag is opt-in per field, not a global relaxation — two
+        name columns is a mistake, not a union."""
+        mappings = detect_mapping(["Task Name", "Title"])
+        assert mappings[0].field == "name"
+        assert mappings[1].field is None
+        assert mappings[1].confidence == "duplicate"
+
+    def test_single_valued_fields_still_reject_duplicates(self) -> None:
+        mappings = detect_mapping(["Name", "Start", "Begin", "Owner", "Assignee"])
+        fields = [m.field for m in mappings]
+        assert fields.count("planned_start") == 1
+        assert fields.count("resource") == 1
+        assert [m.confidence for m in mappings].count("duplicate") == 2
+
+    def test_field_choices_marks_the_multi_fields(self) -> None:
+        by_field = {c["field"]: c for c in field_choices()}
+        assert by_field["labels"]["multi"] is True
+        assert by_field["predecessors"]["multi"] is True
+        assert by_field["name"]["multi"] is False
+
+    def test_overrides_can_pin_several_columns_to_labels(self) -> None:
+        mappings = detect_mapping(
+            ["Name", "Team", "Squad"],
+            overrides={"Team": "labels", "Squad": "labels"},
+        )
+        assert [m.field for m in mappings] == ["name", "labels", "labels"]
+        assert [m.confidence for m in mappings[1:]] == ["override", "override"]
+
+    def test_overrides_still_reject_a_duplicate_single_valued_field(self) -> None:
+        mappings = detect_mapping(
+            ["Name", "Alpha", "Beta"],
+            overrides={"Alpha": "notes", "Beta": "notes"},
+        )
+        assert mappings[1].field == "notes"
+        assert mappings[2].field is None
+        assert mappings[2].confidence == "duplicate"

@@ -21,15 +21,17 @@ CSV_TEMPLATE = """\
 # Duration is in working days. Dates are YYYY-MM-DD.
 # Predecessors reference the ID column: "3" is finish-to-start on task 3,
 # "3FS+2d" adds 2 days of lag, and "5SS" starts with task 5.
-ID,WBS,Name,Duration,Start,Finish,% Complete,Assignee,Predecessors,Notes
-1,1,Discovery,,2026-09-01,,,,,Phase
-2,1.1,Stakeholder interviews,5,2026-09-01,,100,A. Rivera,,
-3,1.2,Requirements draft,8,,,60,A. Rivera,2,
-4,2,Build,,,,,,,Phase
-5,2.1,Data model,10,,,0,J. Chen,3,
-6,2.2,API endpoints,15,,,0,J. Chen,5SS,Can start with the data model
-7,2.3,Web UI,12,,,0,P. Osei,5,
-8,3,Launch readiness,,,,,,,Phase
-9,3.1,Cutover rehearsal,2,,,0,P. Osei,"6,7",
-10,3.2,Go live,0,,,0,,9FS+2d,Milestone
+# Labels accept several values in one cell, separated by , ; or / — and you can
+# map more than one column to Labels if your sheet spreads them out.
+ID,WBS,Name,Duration,Start,Finish,% Complete,Assignee,Predecessors,Labels,Notes
+1,1,Discovery,,2026-09-01,,,,,,Phase
+2,1.1,Stakeholder interviews,5,2026-09-01,,100,A. Rivera,,discovery,
+3,1.2,Requirements draft,8,,,60,A. Rivera,2,discovery,
+4,2,Build,,,,,,,,Phase
+5,2.1,Data model,10,,,0,J. Chen,3,backend,
+6,2.2,API endpoints,15,,,0,J. Chen,5SS,backend,Can start with the data model
+7,2.3,Web UI,12,,,0,P. Osei,5,frontend,
+8,3,Launch readiness,,,,,,,,Phase
+9,3.1,Cutover rehearsal,2,,,0,P. Osei,"6,7","launch; ops",
+10,3.2,Go live,0,,,0,,9FS+2d,launch,Milestone
 """
