@@ -128,6 +128,11 @@ const ProgramBacklogPage = lazy(() =>
     default: m.ProgramBacklogPage,
   })),
 );
+const ProgramLabelsPage = lazy(() =>
+  import('@/features/programs/ProgramLabelsPage').then((m) => ({
+    default: m.ProgramLabelsPage,
+  })),
+);
 const ProgramOverviewPage = lazy(() =>
   import('@/features/programs/ProgramOverviewPage').then((m) => ({
     default: m.ProgramOverviewPage,
@@ -871,6 +876,15 @@ export const router = createBrowserRouter([
                       </Suspense>
                     ),
                     handle: { title: 'Program Backlog' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'labels',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramLabelsPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Program Labels' } satisfies RouteHandle,
                   },
                   {
                     path: 'projects',

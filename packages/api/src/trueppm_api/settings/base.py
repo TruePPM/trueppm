@@ -1794,6 +1794,14 @@ SPECTACULAR_SETTINGS = {
         # field; pin to model-prefixed names so drf-spectacular does not rename the
         # existing stable enums (same regression class as ScopeChangeStatus above).
         "TaskTypeEnum": "trueppm_api.apps.projects.models.TaskType",
+        # ADR-0638 (#2333): the program label view adds a second serializer
+        # exposing Task.status, which was enough for drf-spectacular to stop
+        # resolving the stable `TaskStatusEnum` and emit a hashed
+        # `Status3ebEnum` in its place — renaming the component on every
+        # *existing* task endpoint, i.e. a breaking change to generated clients
+        # for a purely additive read view. Same regression class as the entries
+        # above (project_drf_enum_name_collision); pin it.
+        "TaskStatusEnum": "trueppm_api.apps.projects.models.TaskStatus",
         "DorStateEnum": "trueppm_api.apps.projects.models.DorState",
         "PrioritizationModelEnum": "trueppm_api.apps.projects.models.PrioritizationModel",
         # ADR-0078 (#927): TeamMembership.role (member|admin) is a second "role"

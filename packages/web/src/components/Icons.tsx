@@ -1171,3 +1171,19 @@ export function RadioDotIcon({ className, ...rest }: IconProps) {
     </svg>
   );
 }
+
+/** Label / tag — the program label view (#2333). Functional glyph, never an emoji. */
+export function TagIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      {...rest}
+    >
+      <path d="M7.6 1.5H3a1.5 1.5 0 0 0-1.5 1.5v4.6a1.5 1.5 0 0 0 .44 1.06l5.4 5.4a1.5 1.5 0 0 0 2.12 0l4.6-4.6a1.5 1.5 0 0 0 0-2.12l-5.4-5.4A1.5 1.5 0 0 0 7.6 1.5zM5 6a1.25 1.25 0 1 1 0-2.5A1.25 1.25 0 0 1 5 6z" />
+    </svg>
+  );
+}

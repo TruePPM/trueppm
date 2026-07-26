@@ -27,6 +27,10 @@ from trueppm_api.apps.projects.poker_views import (
     PokerVoteView,
     SprintPokerView,
 )
+from trueppm_api.apps.projects.program_label_views import (
+    ProgramLabelCatalogView,
+    ProgramLabelTaskViewSet,
+)
 from trueppm_api.apps.projects.program_views import ProgramViewSet
 from trueppm_api.apps.projects.share_views import (
     ProjectShareLinkListCreateView,
@@ -905,5 +909,19 @@ urlpatterns = [
         "programs/<program_pk>/backlog-items/<pk>/pull/",
         BacklogItemViewSet.as_view({"post": "pull"}),
         name="program-backlog-items-pull",
+    ),
+    # Program-scoped cross-project label view (ADR-0638, #2333). The program is a
+    # PATH segment on purpose: an omittable ?program= filter would let the same
+    # read fan out across every program the caller belongs to, which is the
+    # Enterprise portfolio shape.
+    path(
+        "programs/<program_pk>/label-tasks/",
+        ProgramLabelTaskViewSet.as_view({"get": "list"}),
+        name="program-label-tasks",
+    ),
+    path(
+        "programs/<program_pk>/label-catalog/",
+        ProgramLabelCatalogView.as_view(),
+        name="program-label-catalog",
     ),
 ]
