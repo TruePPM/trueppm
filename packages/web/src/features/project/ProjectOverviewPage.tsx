@@ -10,6 +10,7 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN, ROLE_OWNER, ROLE_SCHEDULER } from '@/lib/roles';
 import { apiClient } from '@/api/client';
 import { QueryErrorState } from '@/components/QueryErrorState';
+import { PinToggle } from '@/components/PinToggle';
 import type { PaginatedResponse, ProjectHealth } from '@/api/types';
 import type { MonteCarloResult } from '@/types';
 import { UpdateStatusDialog } from '@/features/project/UpdateStatusDialog';
@@ -231,6 +232,20 @@ function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
           </span>
         )}
         <div className="flex items-center gap-3 ml-auto">
+          {/* Pin leads the action cluster: it is the only control here that is
+              about *this* project rather than an operation on it, and it is the
+              one a user reaches for repeatedly. Rendered only once the project
+              query resolves — a toggle whose `pinned` state is a guess would
+              flip under the user on first paint. */}
+          {project && (
+            <PinToggle
+              kind="project"
+              id={projectId}
+              name={project.name}
+              pinned={project.is_pinned}
+              placement="header"
+            />
+          )}
           <button
             type="button"
             disabled

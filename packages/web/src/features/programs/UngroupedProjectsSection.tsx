@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { HealthState } from '@/types';
 import { useUngroupedProjects, type UngroupedProject } from '@/hooks/useUngroupedProjects';
 import { MoveToProgramModal } from './MoveToProgramModal';
+import { PinToggle } from '@/components/PinToggle';
 
 /** Health dot color + screen-reader label (rule 6: dot is aria-hidden, state is
  * also conveyed as text; rule 7: semantic health tokens). */
@@ -21,7 +22,7 @@ function UngroupedRow({
 }) {
   const health = HEALTH[project.healthState];
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-sm">
+    <li className="group flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-sm">
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className={`h-2 w-2 shrink-0 rounded-full ${health.dot}`} aria-hidden="true" />
         <span className="sr-only">{health.label}.</span>
@@ -49,15 +50,28 @@ function UngroupedRow({
 
       <span className="shrink-0 text-xs text-neutral-text-disabled">Standalone project</span>
 
-      <button
-        type="button"
-        onClick={() => onMove(project)}
-        className="ml-auto h-9 shrink-0 rounded-control border border-neutral-border px-3 text-xs font-medium text-neutral-text-primary
+      {/* The only list surface that reaches a standalone project, so it is the
+          only place one can be pinned from a list. Wrapped with the Move action
+          so `ml-auto` still pushes a single cluster right rather than splitting
+          the two controls to opposite ends of a wrapped row. */}
+      <span className="ml-auto flex shrink-0 items-center gap-2">
+        <PinToggle
+          kind="project"
+          id={project.id}
+          name={project.name}
+          pinned={project.isPinned}
+          placement="row"
+        />
+        <button
+          type="button"
+          onClick={() => onMove(project)}
+          className="h-9 shrink-0 rounded-control border border-neutral-border px-3 text-xs font-medium text-neutral-text-primary
           hover:bg-neutral-surface-raised
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-      >
-        Move to program
-      </button>
+        >
+          Move to program
+        </button>
+      </span>
     </li>
   );
 }

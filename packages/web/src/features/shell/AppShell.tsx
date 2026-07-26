@@ -16,6 +16,7 @@ import { CommandPalette } from './commandPalette/CommandPalette';
 import { useCommandPaletteHotkey } from './commandPalette/useCommandPaletteHotkey';
 import { useSidebarCollapseHotkey } from './useSidebarCollapseHotkey';
 import { SettingsHotkey } from './useSettingsHotkey';
+import { PinMigration } from './PinMigration';
 import { useHelpShortcut } from '@/hooks/useHelpShortcut';
 import { useShortcutsModalStore } from '@/stores/shortcutsModalStore';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
@@ -94,6 +95,9 @@ export function AppShell() {
       <DisplayFormatSync />
       {/* ⌘,/Ctrl+, → Settings (role-aware). Inside the provider — reads useCurrentUser (#2298). */}
       <SettingsHotkey />
+      {/* One-time upload of this device's legacy localStorage pins (#2390).
+          Inside the provider — it invalidates the pins query (#2298). */}
+      <PinMigration />
       <div className="flex flex-col h-screen overflow-hidden">
         {/* Skip link (WCAG 2.4.1 Bypass Blocks) — first focusable element; lets
             keyboard users jump past the sidebar/topbar straight to content. */}

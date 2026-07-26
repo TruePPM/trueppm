@@ -40,6 +40,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
   return {
     id: 'p-1',
     server_version: 1,
+    is_pinned: false,
     name: 'Phase 2 Modernization',
     description: 'Q3 platform rebuild',
     code: 'PH2',

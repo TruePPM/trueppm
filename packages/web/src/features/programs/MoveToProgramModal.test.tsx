@@ -18,6 +18,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
   return {
     id: 'p-1',
     server_version: 1,
+    is_pinned: false,
     name: 'Artemis',
     description: '',
     code: '',

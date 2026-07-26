@@ -1,5 +1,11 @@
 import { test, expect, type Page } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll, type ProjectFixture } from './fixtures';
+import {
+  setupAuth,
+  setupApiMocks,
+  setupCatchAll,
+  setupPinned,
+  type ProjectFixture,
+} from './fixtures';
 
 /**
  * Left-rail 3-tier restructure E2E (#1642).
@@ -117,12 +123,12 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
   });
 
   test('off a project the rail shows the pinned band, not view groups', async ({ page }) => {
-    // Pin the project so the off-project tier has a row to show (the rail
-    // persists pins under `trueppm.rail.pinned` as a bare id array).
-    await page.addInitScript((id: string) => {
-      localStorage.setItem('trueppm.rail.pinned', JSON.stringify([id]));
-    }, PROJECT_ID);
     await setup(page);
+    // Pin the project so the off-project tier has a row to show. Pins are server
+    // state as of #2390 — seeded through the endpoint, not localStorage.
+    await setupPinned(page, [
+      { kind: 'project', id: PROJECT_ID, name: 'Rail Restructure Project' },
+    ]);
     await page.goto('/me/work');
 
     // The rail (complementary landmark) renders the pinned band off a project.
@@ -162,9 +168,7 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
 
     const rail = railOf(page);
     await expect(rail).toBeVisible({ timeout: 10_000 });
-    await expect(
-      rail.getByRole('link', { name: 'Notifications, 4 unread' }),
-    ).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Notifications, 4 unread' })).toBeVisible();
 
     // Simulate the count clearing (all read) and re-navigate to force a refetch;
     // the badge disappears and the row falls back to the bare "Notifications" name.
@@ -192,6 +196,8 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
   });
 
   test('pins a PROGRAM from the Browse switcher into the Pinned band (#1682)', async ({ page }) => {
+    const PROGRAM_ID = 'e2e-prog-00000000-0000-0000-0000-000000001682';
+    let pinnedNow = false;
     await setup(page);
     // usePrograms reads GET /programs/ — the base fixture leaves it empty, so
     // mock one program the switcher can render a pin toggle for.
@@ -205,7 +211,7 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
           previous: null,
           results: [
             {
-              id: 'e2e-prog-00000000-0000-0000-0000-000000001682',
+              id: PROGRAM_ID,
               name: 'Atlas Program',
               code: 'ATL',
               color: null,
@@ -213,9 +219,40 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
               methodology: 'HYBRID',
               project_count: 0,
               member_count: 1,
+              is_pinned: pinnedNow,
             },
           ],
         }),
+      }),
+    );
+
+    // Pins are server state (#2390), so the mock must BE stateful: the toggle
+    // POSTs, then `onSettled` refetches both the program list and the pins
+    // collection. A stateless mock would answer the refetch with the pre-click
+    // world and visibly un-pin the item the user just pinned.
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/pin/`, (route) => {
+      pinnedNow = route.request().method() === 'POST';
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+    await page.route('**/api/v1/auth/me/pinned/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          pinnedNow
+            ? [
+                {
+                  kind: 'program',
+                  id: PROGRAM_ID,
+                  name: 'Atlas Program',
+                  code: 'ATL',
+                  program_id: null,
+                  program_name: null,
+                  pinned_at: '2026-01-01T00:00:00Z',
+                },
+              ]
+            : [],
+        ),
       }),
     );
     await page.goto('/me/work');

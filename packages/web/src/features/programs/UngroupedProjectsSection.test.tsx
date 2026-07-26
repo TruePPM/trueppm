@@ -19,6 +19,12 @@ vi.mock('@/hooks/useProgramMutations', () => ({
   useAssignProjectToProgram: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+// The row pin toggle (#2390) owns its own mutation; stub it so these tests stay
+// about the list, not about react-query wiring.
+vi.mock('@/hooks/usePins', () => ({
+  useTogglePin: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 function makeProject(overrides: Partial<UngroupedProject> = {}): UngroupedProject {
   return {
     id: 'pr-1',
@@ -27,6 +33,7 @@ function makeProject(overrides: Partial<UngroupedProject> = {}): UngroupedProjec
     healthState: 'on-track',
     percentComplete: 38,
     memberCount: 4,
+    isPinned: false,
     ...overrides,
   };
 }
@@ -47,8 +54,20 @@ describe('UngroupedProjectsSection', () => {
   it('renders a header, count pill, and one row per standalone project', () => {
     useUngroupedProjects.mockReturnValue({
       data: [
-        makeProject({ id: 'a', name: 'Neptune Cryo Rig', code: 'NEP', percentComplete: 38, memberCount: 4 }),
-        makeProject({ id: 'b', name: 'Cedar Heights', code: 'CED', percentComplete: 88, memberCount: 2 }),
+        makeProject({
+          id: 'a',
+          name: 'Neptune Cryo Rig',
+          code: 'NEP',
+          percentComplete: 38,
+          memberCount: 4,
+        }),
+        makeProject({
+          id: 'b',
+          name: 'Cedar Heights',
+          code: 'CED',
+          percentComplete: 88,
+          memberCount: 2,
+        }),
       ],
       isLoading: false,
       error: null,

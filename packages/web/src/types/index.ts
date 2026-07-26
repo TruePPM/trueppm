@@ -518,6 +518,14 @@ export interface Project {
    */
   programId: string | null;
   /**
+   * Whether the *requesting user* has pinned this project (#2390, ADR-0627).
+   *
+   * Self-scoped: it is this viewer's own preference and never reports anyone
+   * else's. Optional because several list shapes (the program-projects matrix,
+   * older fixtures) do not annotate it; treat absent as not pinned.
+   */
+  isPinned?: boolean;
+  /**
    * Inheritance fields populated only by the program-projects endpoint for the
    * bulk-edit matrix (issue 1233); undefined on the other project-list shapes. The
    * `effective_*` reads are server-resolved (ADR-0107/0116); `iterationLabel` is the

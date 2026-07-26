@@ -1,14 +1,23 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ProgramCard } from './ProgramCard';
-import { useShellStore } from '@/stores/shellStore';
+import { apiClient } from '@/api/client';
 import type { Program } from '@/api/types';
+
+vi.mock('@/api/client', () => ({
+  apiClient: {
+    post: vi.fn().mockResolvedValue({ data: {} }),
+    delete: vi.fn().mockResolvedValue({ data: {} }),
+  },
+}));
 
 function makeProgram(overrides: Partial<Program> = {}): Program {
   return {
     id: 'p-1',
     server_version: 1,
+    is_pinned: false,
     name: 'Phase 2 Modernization',
     description: 'Q3 rebuild',
     code: '',
@@ -69,12 +78,15 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
 }
 
 function renderCard(program: Program) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
-      <ul>
-        <ProgramCard program={program} />
-      </ul>
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <ul>
+          <ProgramCard program={program} />
+        </ul>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -139,10 +151,9 @@ describe('ProgramCard health + target date (#560)', () => {
   });
 });
 
-describe('ProgramCard pin toggle (#1682)', () => {
+describe('ProgramCard pin toggle (#1682, server-persisted #2390)', () => {
   beforeEach(() => {
-    localStorage.clear();
-    useShellStore.setState({ pinnedProgramIds: [] });
+    vi.clearAllMocks();
   });
 
   it('renders a pin toggle that is a Link SIBLING (not nested in the anchor)', () => {
@@ -153,21 +164,33 @@ describe('ProgramCard pin toggle (#1682)', () => {
     expect(toggle.closest('a')).toBeNull();
   });
 
-  it('pins the program and reflects the pressed state (amber, "Unpin …")', () => {
+  it('POSTs the pin rather than writing to localStorage (#2390)', async () => {
     renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization' }));
     fireEvent.click(screen.getByRole('button', { name: 'Pin Phase 2 Modernization' }));
-    expect(useShellStore.getState().pinnedProgramIds).toEqual(['p-1']);
-    const toggle = screen.getByRole('button', { name: 'Unpin Phase 2 Modernization' });
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    expect(toggle.querySelector('svg')).toHaveClass('text-semantic-at-risk');
+    await waitFor(() => {
+      expect(apiClient.post).toHaveBeenCalledWith('/programs/p-1/pin/');
+    });
+    // The pin is server state now; nothing is persisted per-browser.
+    expect(localStorage.getItem('trueppm.rail.pinnedPrograms')).toBeNull();
   });
 
-  it('shows the pressed state when the program is already pinned', () => {
-    useShellStore.setState({ pinnedProgramIds: ['p-1'] });
-    renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization' }));
-    expect(screen.getByRole('button', { name: 'Unpin Phase 2 Modernization' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+  it('DELETEs when unpinning an already-pinned program', async () => {
+    renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization', is_pinned: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin Phase 2 Modernization' }));
+    await waitFor(() => {
+      expect(apiClient.delete).toHaveBeenCalledWith('/programs/p-1/pin/');
+    });
+  });
+
+  it('reflects the pressed state from the server field, in NEUTRAL ink', () => {
+    renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization', is_pinned: true }));
+    const toggle = screen.getByRole('button', { name: 'Unpin Phase 2 Modernization' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    // Deliberately NOT `text-semantic-at-risk` (#2390): amber is a reserved
+    // health hue, and a pinned star next to an At-risk chip would read as a
+    // status. State is carried by fill + ink weight + aria-pressed, never hue.
+    const glyph = toggle.querySelector('svg');
+    expect(glyph).not.toHaveClass('text-semantic-at-risk');
+    expect(glyph).toHaveClass('text-neutral-text-primary');
   });
 });

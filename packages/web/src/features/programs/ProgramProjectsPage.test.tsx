@@ -8,11 +8,19 @@ import type { Project } from '@/types';
 const useProgram = vi.fn();
 const useProgramProjects = vi.fn();
 const refetchProjects = vi.fn();
-const removeMutateAsync = vi.fn<(args: { projectId: string; programId: string | null }) => Promise<unknown>>();
+const removeMutateAsync =
+  vi.fn<(args: { projectId: string; programId: string | null }) => Promise<unknown>>();
 
 vi.mock('@/hooks/useProgram', () => ({
   useProgram: () => useProgram() as { data: unknown },
 }));
+
+// The row pin toggle (#2390) owns its own mutation; stub it so these tests stay
+// about the list, not about react-query wiring.
+vi.mock('@/hooks/usePins', () => ({
+  useTogglePin: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 vi.mock('@/hooks/useProgramProjects', () => ({
   useProgramProjects: () =>
     useProgramProjects() as {
@@ -77,7 +85,9 @@ describe('ProgramProjectsPage rollup surfacing (#560)', () => {
   });
 
   it('omits the target line when the program has no target date', () => {
-    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: 0, target_date: null } });
+    useProgram.mockReturnValue({
+      data: { id: 'prog-1', name: 'Riverside', my_role: 0, target_date: null },
+    });
     renderPage();
     expect(screen.queryByText(/Target/)).not.toBeInTheDocument();
   });

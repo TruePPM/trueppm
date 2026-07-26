@@ -111,6 +111,15 @@ export interface ApiProjectDetail {
    */
   board_cadence: BoardCadence;
   /**
+   * Whether **the requesting user** has pinned this project (#2390, ADR-0627).
+   * A pin is private: this answers "did I pin it" and there is no field or
+   * endpoint anywhere that answers "who pinned it" or "how many pinned it".
+   *
+   * Not the same concept as `TaskNote.pinned` / `TaskAttachment.is_pinned`,
+   * which are shared curation any project writer may toggle.
+   */
+  is_pinned: boolean;
+  /**
    * Default RBAC role (ADR-0363, #157) applied when a member is added without an
    * explicit role. A convenience default only — no lock/enforcement. One of the
    * `ROLE_*` ordinals below Owner. `default_member_role_label` is the read-only

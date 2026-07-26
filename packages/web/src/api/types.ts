@@ -257,6 +257,13 @@ export interface TaskDurationChangeEvent {
 export interface Program {
   id: string;
   server_version: number;
+  /**
+   * Whether **the requesting user** has pinned this program (#2390, ADR-0627).
+   * Private to its owner: answers "did I pin it", never "who pinned it".
+   * Distinct from `TaskNote.pinned` / `TaskAttachment.is_pinned`, which are
+   * shared curation any project writer may toggle.
+   */
+  is_pinned: boolean;
   name: string;
   description: string;
   /** Optional short code; empty string when unset. */
@@ -724,4 +731,24 @@ export interface AgentAction {
   record_hash: string;
   summary: string;
   occurred_at: string;
+}
+
+
+/**
+ * One entry from `GET /auth/me/pinned/` — the caller's own pinned items,
+ * projects and programs merged, most recently pinned first (#2390, ADR-0627).
+ *
+ * `pinned_at` is exposed here and nowhere else: a recency timestamp on a shared
+ * payload is what would let a pin be read as an engagement signal.
+ */
+export interface PinnedItem {
+  kind: 'project' | 'program';
+  id: string;
+  name: string;
+  /** Programs carry a short code; projects do not. */
+  code: string | null;
+  /** Parent program of a pinned project — null for a program or a standalone project. */
+  program_id: string | null;
+  program_name: string | null;
+  pinned_at: string;
 }

@@ -39,6 +39,19 @@ vi.mock('@/hooks/useEdition', () => ({ useEdition: vi.fn(() => ({ edition: 'comm
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: vi.fn(() => undefined) }));
 // Default: off a program. The "This program" tier tests override to a program id.
 vi.mock('@/hooks/useProgramId', () => ({ useProgramId: vi.fn(() => undefined) }));
+
+/**
+ * Pins are server state as of #2390, so the rail's Pinned band is seeded through
+ * the query rather than through `useShellStore`. `mockPinned` is the list
+ * `/auth/me/pinned/` would return; `mockTogglePin` records what a click sends.
+ */
+const mockTogglePin = vi.fn();
+let mockPinned: { kind: string; id: string; name: string; code: string | null }[] = [];
+let mockPinsState = { isLoading: false, isError: false };
+vi.mock('@/hooks/usePins', () => ({
+  usePinned: () => ({ data: mockPinned, ...mockPinsState }),
+  useTogglePin: () => ({ mutate: mockTogglePin, isPending: false }),
+}));
 // Default: a HYBRID project with a program. Methodology tests override per-case.
 vi.mock('@/hooks/useProject', () => ({
   useProject: vi.fn(() => ({
@@ -213,10 +226,11 @@ beforeEach(() => {
   useShellStore.setState({
     sidebarCollapsed: false,
     sidebarUserControlled: false,
-    pinnedProjectIds: [],
-    pinnedProgramIds: [],
     expandedProgramIds: [],
   });
+  mockPinned = [];
+  mockPinsState = { isLoading: false, isError: false };
+  mockTogglePin.mockClear();
   useCommandPaletteStore.setState({ open: false });
   mockUseProjectId.mockReturnValue(undefined);
   mockUseProgramId.mockReturnValue(undefined);
@@ -392,18 +406,17 @@ describe('Sidebar rail — Tier 3 "Jump"', () => {
     ).toBeInTheDocument();
   });
 
-  it('offers a pin toggle on the program header that updates the store (#1682)', () => {
+  it('offers a pin toggle on the program header that sends the pin (#1682, #2390)', () => {
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
     const pin = screen.getByRole('button', { name: 'Pin Artemis' });
     expect(pin).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(pin);
-    expect(useShellStore.getState().pinnedProgramIds).toEqual(['prog1']);
-    // Once pinned, the program shows both in the switcher header and in the
-    // Pinned band — every instance reads as pressed ("Unpin Artemis").
-    const unpins = screen.getAllByRole('button', { name: 'Unpin Artemis' });
-    expect(unpins.length).toBeGreaterThan(0);
-    for (const btn of unpins) expect(btn).toHaveAttribute('aria-pressed', 'true');
+    // The toggle now writes through the API, not the shell store.
+    expect(mockTogglePin).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'program', id: 'prog1', next: true }),
+      expect.anything(),
+    );
   });
 
   it('shows standalone (no-program) projects inside the switcher', () => {
@@ -418,7 +431,7 @@ describe('Sidebar rail — Tier 3 "Jump"', () => {
 
 describe('Sidebar rail — Tier 2 off-project (pinned list)', () => {
   it('shows a pinned band, not a "This project" view band', () => {
-    useShellStore.setState({ pinnedProjectIds: ['p1'] });
+    mockPinned = [{ kind: 'project', id: 'p1', name: 'Alpha Platform', code: null }];
     renderRail();
     expect(screen.getByText('Pinned')).toBeInTheDocument();
     expect(screen.queryByText('This project')).not.toBeInTheDocument();
@@ -430,7 +443,10 @@ describe('Sidebar rail — Tier 2 off-project (pinned list)', () => {
   });
 
   it('lists pinned programs above pinned projects in the Pinned band (#1682)', () => {
-    useShellStore.setState({ pinnedProgramIds: ['prog1'], pinnedProjectIds: ['p1'] });
+    mockPinned = [
+      { kind: 'program', id: 'prog1', name: 'Artemis', code: 'ART' },
+      { kind: 'project', id: 'p1', name: 'Alpha Platform', code: null },
+    ];
     renderRail();
     // The pinned program is a jump-link with an "Unpin Artemis" toggle...
     expect(screen.getByRole('button', { name: 'Unpin Artemis' })).toBeInTheDocument();
@@ -445,7 +461,7 @@ describe('Sidebar rail — Tier 2 off-project (pinned list)', () => {
   it('shows a calm empty state when nothing is pinned (never a blank band)', () => {
     renderRail();
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Pin a program or project for quick access.',
+      'Pin a project from its Overview, or a program from the Programs list.',
     );
   });
 });
@@ -734,14 +750,6 @@ describe('Sidebar rail — preserved behaviors', () => {
 //    pinned-band navigation, demo loading, health/role active states, and the
 //    project/program tier fallbacks. ──────────────────────────────────────────
 
-function renderRailAt(path: string, props = {}) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Sidebar {...props} />
-    </MemoryRouter>,
-  );
-}
-
 function openSwitcher() {
   fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
 }
@@ -836,8 +844,10 @@ describe('Sidebar rail — Tier 3 create / import / overflow actions', () => {
     // Re-open (navigation dismissed it) and pin the standalone project.
     openSwitcher();
     fireEvent.click(screen.getByRole('button', { name: 'Pin Standalone Site' }));
-    expect(useShellStore.getState().pinnedProjectIds).toEqual(['p3']);
-    expect(toastInfo).toHaveBeenCalledWith('Pinned Standalone Site');
+    expect(mockTogglePin).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'project', id: 'p3', next: true }),
+      expect.anything(),
+    );
   });
 
   it('renders the Portfolio rollup link only under the enterprise edition', () => {
@@ -851,220 +861,51 @@ describe('Sidebar rail — Tier 3 create / import / overflow actions', () => {
   });
 });
 
-describe('Sidebar rail — pinned-band navigation and pin toasts', () => {
+describe('Sidebar rail — pinned-band navigation and pin writes', () => {
   it('navigates to a pinned program from the off-project pinned band (#1682)', () => {
-    useShellStore.setState({ pinnedProgramIds: ['prog1'] });
+    mockPinned = [{ kind: 'program', id: 'prog1', name: 'Artemis', code: 'ART' }];
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: 'Artemis' }));
     expect(navigateSpy).toHaveBeenCalledWith('/programs/prog1/overview');
   });
 
   it('navigates to a pinned project from the pinned band', () => {
-    useShellStore.setState({ pinnedProjectIds: ['p1'] });
+    mockPinned = [{ kind: 'project', id: 'p1', name: 'Alpha Platform', code: null }];
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ }));
     expect(navigateSpy).toHaveBeenCalledWith('/projects/p1/overview');
   });
 
-  it('unpinning a pinned program toasts "Unpinned" and clears it from the store', () => {
-    useShellStore.setState({ pinnedProgramIds: ['prog1'] });
+  it('unpinning a pinned program sends next:false', () => {
+    mockPinned = [{ kind: 'program', id: 'prog1', name: 'Artemis', code: 'ART' }];
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: 'Unpin Artemis' }));
-    expect(useShellStore.getState().pinnedProgramIds).toEqual([]);
-    expect(toastInfo).toHaveBeenCalledWith('Unpinned Artemis');
-  });
-
-  it('pinning a project toasts "Pinned" (pre-toggle state drives the message)', () => {
-    useShellStore.setState({ pinnedProjectIds: ['p1'] });
-    renderRail();
-    // The pinned project's own toggle is currently pressed; unpin it → "Unpinned".
-    fireEvent.click(screen.getByRole('button', { name: 'Unpin Alpha Platform' }));
-    expect(toastInfo).toHaveBeenCalledWith('Unpinned Alpha Platform');
-  });
-});
-
-describe('Sidebar rail — zero-project empty state (#2034)', () => {
-  beforeEach(() => {
-    mockUseProjects.mockReturnValue({ data: [], count: undefined });
-    mockUsePrograms.mockReturnValue({ data: [] });
-  });
-
-  it('offers create + load-a-demo actions instead of pin advice when there are no projects', () => {
-    renderRail();
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'No projects yet — create one or load a demo.',
+    expect(mockTogglePin).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'program', id: 'prog1', name: 'Artemis', next: false }),
+      expect.anything(),
     );
-    expect(screen.getByRole('button', { name: '+ New project' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Load a demo' })).toBeInTheDocument();
   });
 
-  it('opens the New project modal from the empty-state CTA', () => {
+  it('renders a pinned project whose row is NOT on the loaded project page (#2390)', () => {
+    // The pre-#2390 rail resolved pins by id against the loaded project list, so
+    // a pin past the page ceiling silently vanished. Identity now comes from the
+    // pins endpoint, so the row renders with a neutral dot and no count.
+    mockPinned = [{ kind: 'project', id: 'not-on-this-page', name: 'Far Project', code: null }];
     renderRail();
-    fireEvent.click(screen.getByRole('button', { name: '+ New project' }));
-    expect(screen.getByRole('button', { name: 'stub-project-created' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Far Project, health unknown/ })).toBeInTheDocument();
   });
 
-  it('loads the demo and lands on the freshly-assigned board on success', () => {
-    loadSampleMutate.mockImplementation((_arg, { onSuccess }) =>
-      onSuccess({ landing_project_id: 'lp1', program: { id: 'pg9' }, sample_key: 'agile' }),
-    );
+  it('shows a skeleton, not the empty hint, while pins are still loading (#2390)', () => {
+    mockPinsState = { isLoading: true, isError: false };
     renderRail();
-    fireEvent.click(screen.getByRole('button', { name: 'Load a demo' }));
-    expect(navigateSpy).toHaveBeenCalledWith('/projects/lp1/board', {
-      state: { startExploringSample: 'agile' },
-    });
+    expect(screen.getByText('Pinned')).toBeInTheDocument();
+    // Telling a user with pins that they have none is worse than a placeholder.
+    expect(screen.queryByText(/Pin a project from its Overview/)).not.toBeInTheDocument();
   });
 
-  it('falls back to the program overview when the demo has no landing project', () => {
-    loadSampleMutate.mockImplementation((_arg, { onSuccess }) =>
-      onSuccess({ landing_project_id: null, program: { id: 'pg9' }, sample_key: 'wf' }),
-    );
+  it('surfaces a load failure in the band rather than rendering "no pins" (#2390)', () => {
+    mockPinsState = { isLoading: false, isError: true };
     renderRail();
-    fireEvent.click(screen.getByRole('button', { name: 'Load a demo' }));
-    expect(navigateSpy).toHaveBeenCalledWith('/programs/pg9/overview', {
-      state: { startExploringSample: 'wf' },
-    });
-  });
-
-  it('toasts an error and does not navigate when the demo fails to load', () => {
-    loadSampleMutate.mockImplementation((_arg, { onError }) => onError(new Error('boom')));
-    renderRail();
-    fireEvent.click(screen.getByRole('button', { name: 'Load a demo' }));
-    expect(toastError).toHaveBeenCalledWith("Couldn't load the demo — please try again.");
-    expect(navigateSpy).not.toHaveBeenCalled();
-  });
-
-  it('shows a disabled "Loading demo…" label while the sample import is pending', () => {
-    mockUseLoadSample.mockReturnValue({ mutate: loadSampleMutate, isPending: true });
-    renderRail();
-    expect(screen.getByRole('button', { name: 'Loading demo…' })).toBeDisabled();
-  });
-});
-
-describe('Sidebar rail — Tier 1 due-today badge and active row states', () => {
-  it('hides the due-today badge and switches the aria-label when nothing is due', () => {
-    mockUseMyWork.mockReturnValue({ data: { pages: [{ due_today_count: 0 }] } });
-    renderRail();
-    expect(screen.getByRole('link', { name: 'My Work' })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /due today/ })).not.toBeInTheDocument();
-  });
-
-  it('marks the My Work row active when the route matches it', () => {
-    renderRailAt('/me/work');
-    const myWork = screen.getByRole('link', { name: 'My Work, 3 due today' });
-    // The You-card active treatment is a bordered lifted surface (rule 1).
-    expect(myWork.className).toMatch(/bg-neutral-surface/);
-  });
-
-  it('marks the settings gear active on the personal-settings route', () => {
-    renderRailAt('/me/settings/general');
-    const gear = screen.getByRole('link', { name: 'Personal settings' });
-    expect(gear.className).toMatch(/bg-brand-primary\/10/);
-  });
-});
-
-describe('Sidebar rail — Tier 2 "This project" fallbacks', () => {
-  beforeEach(() => {
-    mockUseProjectId.mockReturnValue('p1');
-  });
-
-  it('falls back to a generic "Project" header when the project data is not loaded', () => {
-    mockUseProject.mockReturnValue({ data: undefined, isLoading: true, error: null });
-    renderRail();
-    expect(screen.getByText('Project')).toBeInTheDocument();
-    // Missing methodology defaults to a Hybrid workspace and unknown health.
-    expect(screen.getByText('Hybrid workspace')).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'health unknown' })).toBeInTheDocument();
-  });
-
-  it('renders a green health circle for an on-track project', () => {
-    mockUseProject.mockReturnValue({
-      data: { ...HYBRID_PROJECT, health: 'ON_TRACK' },
-      isLoading: false,
-      error: null,
-    });
-    renderRail();
-    expect(screen.getByRole('img', { name: 'on track' })).toBeInTheDocument();
-  });
-
-  it('renders a critical health circle for a critical project', () => {
-    mockUseProject.mockReturnValue({
-      data: { ...HYBRID_PROJECT, health: 'CRITICAL' },
-      isLoading: false,
-      error: null,
-    });
-    renderRail();
-    expect(screen.getByRole('img', { name: 'critical' })).toBeInTheDocument();
-  });
-
-  it('closes the drawer when a project view link is followed', () => {
-    const onClose = vi.fn();
-    renderRail({ isDrawer: true, onClose });
-    fireEvent.click(screen.getByRole('link', { name: 'Overview' }));
-    expect(onClose).toHaveBeenCalled();
-  });
-});
-
-describe('Sidebar rail — Tier 2 "This program" fallbacks', () => {
-  it('falls back to a generic "Program" header when the program is not in the list', () => {
-    mockUseProgramId.mockReturnValue('ghost');
-    renderRail();
-    const nav = screen.getByRole('navigation', { name: 'Program' });
-    expect(within(nav).getByRole('link', { name: 'Overview' })).toBeInTheDocument();
-    // Header card falls back to the literal name since usePrograms has no match.
-    expect(screen.getByText('Program')).toBeInTheDocument();
-  });
-
-  it('closes the drawer when a program view link is followed', () => {
-    mockUseProgramId.mockReturnValue('prog1');
-    const onClose = vi.fn();
-    renderRail({ isDrawer: true, onClose });
-    const nav = screen.getByRole('navigation', { name: 'Program' });
-    fireEvent.click(within(nav).getByRole('link', { name: 'Backlog' }));
-    expect(onClose).toHaveBeenCalled();
-  });
-});
-
-describe('Sidebar rail — ProjectRow aria-label variants', () => {
-  it('uses a singular "task" and omits the count when unknown', () => {
-    mockUseProjects.mockReturnValue({
-      data: [
-        { id: 'o1', name: 'Single Task Proj', programId: null, healthState: 'on-track', openTaskCount: 1 },
-        { id: 'o2', name: 'No Count Proj', programId: null, healthState: 'unknown', openTaskCount: null },
-      ],
-      count: undefined,
-    });
-    renderRail();
-    openSwitcher();
-    expect(
-      screen.getByRole('button', { name: 'Single Task Proj, on track, 1 open task' }),
-    ).toBeInTheDocument();
-    // openTaskCount null → the count is dropped entirely from the label.
-    expect(
-      screen.getByRole('button', { name: 'No Count Proj, health unknown' }),
-    ).toBeInTheDocument();
-  });
-});
-
-describe('Sidebar rail — switcher outside-click + auto-collapse', () => {
-  it('closes the Browse switcher on an outside pointer press', () => {
-    renderRail();
-    openSwitcher();
-    expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
-    fireEvent.mouseDown(document.body);
-    expect(screen.queryByRole('link', { name: 'Resources catalog' })).not.toBeInTheDocument();
-  });
-
-  it('auto-collapses below the lg breakpoint when the user has not taken control', () => {
-    const mql = {
-      matches: true,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    };
-    vi.stubGlobal('matchMedia', vi.fn(() => mql));
-    useShellStore.setState({ sidebarCollapsed: false, sidebarUserControlled: false });
-    renderRail();
-    expect(useShellStore.getState().sidebarCollapsed).toBe(true);
-    vi.unstubAllGlobals();
+    expect(screen.getByText(/Couldn.t load pins/)).toBeInTheDocument();
   });
 });

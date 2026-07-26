@@ -122,6 +122,39 @@ your rollups, reports, or exports, and it only ever tailors *your own* view, not
 teammate's. See [View focus](/features/view-focus/) for the role-based lens that
 re-orders and re-points these surfaces for you.
 
+## Pinned projects and programs
+
+Pin the projects and programs you return to daily and they collect in a **Pinned**
+group at the top of the sidebar, so the handful you actually work on are one click
+away regardless of how many you can see.
+
+Pin from any of these:
+
+- the **star in the Project Overview header**, beside the project's actions;
+- the **star beside a program's name** on its Overview;
+- the **star in the corner of a program card** on the Programs directory;
+- the **project and program rows** in the sidebar's Browse switcher.
+
+Click the star again to unpin. Pinned programs also float to the top of the
+Programs directory ahead of whichever sort you have chosen.
+
+:::note[Ships in 0.4]
+Pins are saved to **your account**, so they follow you between your laptop, a
+second browser, and any other device you sign in on. Before 0.4 a pin lived only
+in the browser that set it. Pins already on a device are moved to your account
+automatically the first time you open the app after upgrading — there is nothing
+to re-pin.
+:::
+
+A pin is **private to you**. It is a personal shortcut, not a signal about the
+project: pinning grants no access, changes nothing for anyone else, and no screen,
+export, or API response tells another person what you have pinned or how many
+people pinned a given project. Teammates cannot see your pins, and you cannot see
+theirs.
+
+You can pin up to 100 items. Past that, unpin something before adding another —
+the app says so plainly rather than silently dropping the new pin.
+
 ## Role-based landing
 
 Opening a project lands you on the view that matches your **View focus** lens — a

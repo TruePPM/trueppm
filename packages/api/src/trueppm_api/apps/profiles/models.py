@@ -196,3 +196,97 @@ class ProjectVisit(models.Model):
 
     def __str__(self) -> str:
         return f"ProjectVisit({self.user_id} → {self.project_id} @ {self.visited_at:%Y-%m-%d})"
+
+
+class UserPin(models.Model):
+    """A project or program one user has pinned for quick access (#2390, ADR-0627).
+
+    A pin is **private to its owner**. It is a personal wayfinding marker, not
+    collaborative domain data and not a signal about the pinned entity — nothing
+    in the API answers "who pinned this" or "how many people pinned this", and
+    :attr:`pinned_at` is exposed only on the owner's own ``GET /me/pinned/``.
+    That restraint is deliberate: a per-user marker readable by a PM or admin
+    becomes an engagement metric by accretion ("she hasn't pinned the client
+    project in weeks"), which is precisely the surveillance surface ADR-0627 §D5
+    exists to foreclose.
+
+    **Naming caveat (ADR-0627 §D1.1).** ``pinned`` carries the *opposite* privacy
+    semantics elsewhere in this same schema: ``TaskNote.pinned`` and
+    ``TaskAttachment.is_pinned`` are **shared** curation any project writer may
+    toggle. The two meanings never meet on one resource, and this one is enforced
+    owner-only, but do not reason by analogy from those fields when extending
+    this model — adding ``pinned_by`` or ``pin_count`` here would be a privacy
+    regression, and requires a superseding ADR rather than a convention appeal.
+
+    Exactly one of :attr:`project` / :attr:`program` is set, enforced by a
+    database CheckConstraint. This mirrors the explicit-nullable-FK pattern used
+    by ``Webhook`` and ``ApiToken`` (ADR-0076) rather than a GenericForeignKey,
+    which this codebase does not use anywhere (ADR-0075).
+
+    Deliberately **not** part of the offline sync delta (ADR-0142): the delta is
+    project-scoped while a pin is user-scoped and spans both entity kinds, the
+    same reasoning that kept ``UserProfile`` and ``ProjectVisit`` out. Unpinning
+    is a hard delete — there is no tombstone, and therefore no unpin *history* to
+    mine.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="pins",
+    )
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="pins",
+        null=True,
+        blank=True,
+    )
+    program = models.ForeignKey(
+        "projects.Program",
+        on_delete=models.CASCADE,
+        related_name="pins",
+        null=True,
+        blank=True,
+    )
+    pinned_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the user pinned this item. Never exposed on a shared payload.",
+    )
+
+    class Meta:
+        verbose_name = "user pin"
+        verbose_name_plural = "user pins"
+        constraints = [
+            models.CheckConstraint(
+                # Exactly one target. A row with both or neither is meaningless
+                # and would make the `is_pinned` annotation ambiguous.
+                condition=(
+                    models.Q(project__isnull=False, program__isnull=True)
+                    | models.Q(project__isnull=True, program__isnull=False)
+                ),
+                name="ck_userpin_project_xor_program",
+            ),
+            # Partial uniques rather than one composite: a NULL target column
+            # would make a plain UniqueConstraint non-enforcing (NULL != NULL in
+            # SQL), so each kind gets its own. They double as the covering
+            # indexes the `is_pinned` Exists() subquery probes.
+            models.UniqueConstraint(
+                fields=["user", "project"],
+                condition=models.Q(project__isnull=False),
+                name="uq_userpin_user_project",
+            ),
+            models.UniqueConstraint(
+                fields=["user", "program"],
+                condition=models.Q(program__isnull=False),
+                name="uq_userpin_user_program",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["user", "-pinned_at"], name="userpin_user_recent_idx"),
+        ]
+
+    def __str__(self) -> str:
+        target = self.project_id or self.program_id
+        return f"UserPin({self.user_id} → {target})"

@@ -1,7 +1,6 @@
 import { useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { usePrograms } from '@/hooks/usePrograms';
-import { useShellStore } from '@/stores/shellStore';
 import { EmptyState } from '@/components/EmptyState';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { SearchIcon } from '@/components/Icons';
@@ -33,7 +32,13 @@ import {
  */
 export function ProgramListPage() {
   const { data: programs, isLoading, error, refetch } = usePrograms();
-  const pinnedProgramIds = useShellStore((s) => s.pinnedProgramIds);
+  // Pins are server-persisted per user (#2390) and ride along on each program
+  // row, so the pinned-first ordering reads them from the list itself rather
+  // than from a separate client store that could disagree with it.
+  const pinnedProgramIds = useMemo(
+    () => (programs ?? []).filter((p) => p.is_pinned).map((p) => p.id),
+    [programs],
+  );
   const [showCreate, setShowCreate] = useState(false);
   const [query, setQuery] = useState('');
   const [methodology, setMethodology] = useState<MethodologyFilterValue>('ALL');

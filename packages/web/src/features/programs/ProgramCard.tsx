@@ -1,8 +1,7 @@
 import { Link } from 'react-router';
 import type { Program, ProgramHealth } from '@/api/types';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
-import { useShellStore } from '@/stores/shellStore';
-import { toast } from '@/components/Toast';
+import { PinToggle } from '@/components/PinToggle';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 
 interface Props {
@@ -52,8 +51,6 @@ function roleChipClasses(role: number | null): string {
  * row reads consistently with other count surfaces in the app.
  */
 export function ProgramCard({ program }: Props) {
-  const pinned = useShellStore((s) => s.pinnedProgramIds.includes(program.id));
-  const togglePinProgram = useShellStore((s) => s.togglePinProgram);
   const health = program.health !== 'AUTO' ? HEALTH_DOT[program.health] : null;
   const targetLabel = program.target_date ? fmtUtcShort(program.target_date) : null;
   // The whole card is a single <Link>, so its aria-label REPLACES the inner text
@@ -112,35 +109,15 @@ export function ProgramCard({ program }: Props) {
       </Link>
       {/* Pin toggle is a Link SIBLING (not nested — a button inside an anchor is
           invalid) positioned over the free bottom-right corner so it never
-          collides with the top-right role chip. Reveals on card hover/focus on
-          desktop; always visible below `md` (touch has no hover — rule 247); a
-          pinned star stays visible (amber). 44px touch target. */}
-      <button
-        type="button"
-        onClick={() => {
-          togglePinProgram(program.id);
-          toast.info(pinned ? `Unpinned ${program.name}` : `Pinned ${program.name}`);
-        }}
-        aria-label={pinned ? `Unpin ${program.name}` : `Pin ${program.name}`}
-        aria-pressed={pinned}
-        title={pinned ? 'Unpin' : 'Pin'}
-        className="absolute bottom-1.5 right-1.5 z-10 flex h-11 w-11 items-center justify-center rounded-control
-          opacity-0 max-md:opacity-100 group-hover:opacity-100 focus:opacity-100 aria-pressed:opacity-100
-          hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary"
-      >
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 16 16"
-          fill={pinned ? 'currentColor' : 'none'}
-          stroke="currentColor"
-          strokeWidth="1.4"
-          aria-hidden="true"
-          className={pinned ? 'text-semantic-at-risk' : 'text-neutral-text-secondary'}
-        >
-          <path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.8 4.2 13.3l.7-4.3-3.1-3 4.3-.6L8 1.5z" />
-        </svg>
-      </button>
+          collides with the top-right role chip. */}
+      <PinToggle
+        kind="program"
+        id={program.id}
+        name={program.name}
+        pinned={program.is_pinned}
+        placement="row"
+        className="absolute bottom-1.5 right-1.5 z-10"
+      />
     </li>
   );
 }

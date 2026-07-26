@@ -127,3 +127,27 @@ class RecentProjectSerializer(serializers.Serializer[Any]):
 
     def get_program_name(self, visit: Any) -> str | None:
         return visit.project.program.name if visit.project.program_id else None
+
+
+class PinnedItemSerializer(serializers.Serializer[Any]):
+    """One entry in ``GET /auth/me/pinned/`` — a project or a program (#2390).
+
+    A merged shape rather than two lists: the rail renders one flat jump group,
+    and ``kind`` is what the client switches on for the route and the glyph.
+
+    ``pinned_at`` appears on this serializer and nowhere else. It is the caller's
+    own timestamp on their own pin; putting it on a shared Project/Program
+    payload would make "she hasn't pinned it in weeks" expressible to a
+    teammate, which ADR-0627 §D5 forecloses.
+    """
+
+    kind = serializers.ChoiceField(choices=["project", "program"])
+    id = serializers.CharField()
+    name = serializers.CharField()
+    # Programs carry a short code; projects do not.
+    code = serializers.CharField(allow_null=True)
+    # Parent program of a pinned project, for the "Program › Project" breadcrumb.
+    # Null on a pinned program (it has no parent) and on a standalone project.
+    program_id = serializers.CharField(allow_null=True)
+    program_name = serializers.CharField(allow_null=True)
+    pinned_at = serializers.DateTimeField()

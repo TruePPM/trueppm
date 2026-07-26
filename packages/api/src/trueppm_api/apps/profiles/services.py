@@ -365,3 +365,93 @@ def _landing_from_role_policy(user: Any, enterprise: bool, max_role: Any) -> Lan
 
     #    Contributor (MEMBER / VIEWER) → My Work.
     return Landing("my_work", MY_WORK_PATH, "role_policy")
+
+
+# ---------------------------------------------------------------------------
+# Per-user pins (#2390, ADR-0627)
+# ---------------------------------------------------------------------------
+
+
+class PinLimitReached(Exception):
+    """Raised when a pin would exceed ``TRUEPPM_MAX_USER_PINS`` for this user.
+
+    Carries the cap so the view can name the actual limit in its message rather
+    than hardcoding a number that an operator may have overridden.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        super().__init__(f"User has reached the maximum of {limit} pinned items.")
+
+
+def set_pin(user: Any, *, project: Any = None, program: Any = None, pinned: bool) -> bool:
+    """Pin or unpin one project *or* one program for ``user``.
+
+    Returns whether the pin exists after the call, so the caller can echo the
+    resulting state without a second query. Idempotent in both directions: a
+    repeated pin is a no-op that still reports ``True``, and unpinning something
+    that was never pinned reports ``False`` rather than 404 — a pin is a personal
+    preference, and making its absence an error would surface a race between two
+    of the user's own tabs as a failure.
+
+    The cap is checked only when *adding*, and only when the row does not already
+    exist, so a user sitting exactly at the limit can still unpin and re-pin.
+
+    Scoped entirely to ``user``; there is no code path here that reads or writes
+    another user's pins (ADR-0627 §D5).
+    """
+    from django.conf import settings
+
+    from trueppm_api.apps.profiles.models import UserPin
+
+    if (project is None) == (program is None):
+        raise ValueError("set_pin requires exactly one of project= or program=")
+
+    target = {"project": project} if project is not None else {"program": program}
+
+    if not pinned:
+        UserPin.objects.filter(user=user, **target).delete()
+        return False
+
+    existing = UserPin.objects.filter(user=user, **target).first()
+    if existing is not None:
+        return True
+
+    limit = settings.TRUEPPM_MAX_USER_PINS
+    if UserPin.objects.filter(user=user).count() >= limit:
+        raise PinLimitReached(limit)
+
+    # get_or_create rather than create: two concurrent pins of the same target
+    # (double-click, or two tabs) would otherwise race past the `existing` check
+    # into an IntegrityError on the partial unique constraint.
+    UserPin.objects.get_or_create(user=user, **target)
+    return True
+
+
+def annotate_is_pinned(queryset: Any, user: Any, *, field: str = "project") -> Any:
+    """Annotate ``is_pinned`` for ``user`` onto a Project or Program queryset.
+
+    The subquery is bound to ``user`` **positionally** — it is a closed-over
+    value, not a request parameter — which is the structural reason this
+    annotation can answer "did *I* pin this" and can never be coerced into
+    answering "did someone else pin this" (ADR-0627 §D5). Any future change that
+    threads a caller-supplied user id in here is a privacy regression and needs a
+    superseding ADR.
+
+    ``field`` selects which FK on ``UserPin`` to match — ``"project"`` or
+    ``"program"``. Both are covered by a partial unique index, so the Exists()
+    probe is an index lookup rather than a scan.
+    """
+    from django.db.models import BooleanField, Exists, OuterRef, Value
+
+    from trueppm_api.apps.profiles.models import UserPin
+
+    if not getattr(user, "is_authenticated", False):
+        # Anonymous reads (public share links) never carry a pin state.
+        return queryset.annotate(is_pinned=Value(False, output_field=BooleanField()))
+
+    return queryset.annotate(
+        is_pinned=Exists(
+            UserPin.objects.filter(user=user, **{field: OuterRef("pk")}),
+        )
+    )

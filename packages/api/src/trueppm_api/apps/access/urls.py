@@ -13,7 +13,7 @@ from trueppm_api.apps.access.views import (
     UserDefinedMentionGroupViewSet,
     UserSearchView,
 )
-from trueppm_api.apps.profiles.views import MyProfileView
+from trueppm_api.apps.profiles.views import MyPinnedView, MyProfileView
 
 _members = ProjectMembershipViewSet.as_view(
     {
@@ -96,6 +96,7 @@ _program_external_stakeholder_detail = ExternalStakeholderViewSet.as_view(
 urlpatterns = [
     path("auth/me/", MeView.as_view(), name="auth-me"),
     path("auth/me/profile/", MyProfileView.as_view(), name="auth-me-profile"),
+    path("auth/me/pinned/", MyPinnedView.as_view(), name="auth-me-pinned"),
     path("users/search/", UserSearchView.as_view(), name="user-search"),
     path(
         "projects/<uuid:project_pk>/members/",

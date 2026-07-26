@@ -376,6 +376,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # branch (#960) for the sidebar row badge. ``None`` on unannotated paths
     # (retrieve/create) so no per-row query is triggered.
     open_task_count = serializers.SerializerMethodField()
+    is_pinned = serializers.SerializerMethodField()
     # Per-project overdue / at-risk task counts (#560) — annotated only on the
     # program-projects list branch (``GET /programs/{id}/projects/``) so the
     # Projects tab reads like a standup dashboard. ``None`` on every other path
@@ -609,6 +610,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "member_count",
             "percent_complete",
             "open_task_count",
+            "is_pinned",
             "overdue_count",
             "at_risk_count",
             # Caller's own role on this project (ADR-0186 §F, #504). Read-only,
@@ -737,6 +739,27 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         tasks. Rounded to one decimal for display stability."""
         value = getattr(obj, "percent_complete", None)
         return round(value, 1) if value is not None else None
+
+    def get_is_pinned(self, obj: Any) -> bool:
+        """Whether **the requesting user** has pinned this (#2390, ADR-0627).
+
+        Bound positionally to ``request.user`` by the viewset's ``Exists()``
+        annotation — there is no parameter, and no code path, by which a caller
+        can ask whether *someone else* pinned it. That is the whole privacy
+        design: this field can answer "did I pin it", never "who pinned it" or
+        "how many pinned it" (ADR-0627 §D5). ``pinned_at`` is deliberately absent
+        here and lives only on the owner's own ``GET /me/pinned/``, because a
+        recency timestamp on a shared payload is what would make "she hasn't
+        pinned it in weeks" expressible.
+
+        Note this is the *opposite* privacy semantics from ``TaskNote.pinned`` /
+        ``TaskAttachment.is_pinned``, which are shared curation any project
+        writer may toggle (ADR-0627 §D1.1). Do not reason by analogy between them.
+
+        Defaults to ``False`` rather than ``None`` when unannotated: a missing
+        annotation should render an unpinned star, not a broken toggle.
+        """
+        return bool(getattr(obj, "is_pinned", False))
 
     def get_open_task_count(self, obj: Project) -> int | None:
         """Count of non-deleted, not-yet-COMPLETE tasks — annotated only on the
@@ -1441,6 +1464,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
 
     my_role = serializers.SerializerMethodField()
     my_role_label = serializers.SerializerMethodField()
+    is_pinned = serializers.SerializerMethodField()
     project_count = serializers.IntegerField(read_only=True, default=0)
     member_count = serializers.IntegerField(read_only=True, default=0)
     # True when the program is bundled demo data (any project is_sample). Backed
@@ -1594,6 +1618,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "updated_at",
             "my_role",
             "my_role_label",
+            "is_pinned",
             "project_count",
             "member_count",
             "is_sample",
@@ -1656,6 +1681,15 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "mc_history_attribution_audience": {"allow_blank": False},
             "allowed_attachment_types": {"allow_empty": True},
         }
+
+    def get_is_pinned(self, obj: Program) -> bool:
+        """Whether the requesting user has pinned this program (#2390, ADR-0627).
+
+        Same privacy contract as ``ProjectSerializer.get_is_pinned``: bound
+        positionally to ``request.user`` via the viewset annotation, so it can
+        answer "did I pin it" and never "who pinned it".
+        """
+        return bool(getattr(obj, "is_pinned", False))
 
     def get_my_role(self, obj: Program) -> int | None:
         # The viewset attaches ``_my_role`` to each instance (annotated on the
