@@ -1,41 +1,30 @@
 import type { ReactNode } from 'react';
-import type { Task, TaskStatus } from '@/types';
+import type { Task } from '@/types';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { TaskFlagsSection } from './TaskFlagsSection';
 
 /**
- * At-a-glance summary strip for the task-detail drawer (#2315, Task-Detail
- * Drawer v2). The "spine" of the redesign: one compact, labeled band at the top
- * of the Details tab carrying the facts every persona opens a task for — status,
- * owner, finish, and the risk flags (blocked / critical / float). It is pure
- * presentation over existing `Task` fields; the schedule *detail* (Start /
- * Finish / Duration / Float grid, the no-committed-start advisory) stays in
- * `TaskScheduleStrip` (#2312), which this sits above.
+ * At-a-glance summary strip for the task-detail drawer (#2315, revised #2424).
  *
- * Color is never the only signal (web-rules 6/7/120): every status dot and every
- * flag chip is paired with its word.
+ * The strip is the drawer's **read** surface; the sections below it are the
+ * **edit** surface, and a value belongs to exactly one of them (#2424). Anything
+ * editable is not here; anything here is not editable here.
+ *
+ * That rule is why Status and Finish left: both were rendered again as controls
+ * roughly 150px below, and nothing in the layout said which copy was
+ * authoritative, so both read as inputs and whichever the user did not touch
+ * looked stale for a frame. Float left for the same reason — it lives in the
+ * Schedule grid, where the other computed schedule values are.
+ *
+ * What stays is what is carried nowhere else in the drawer: the owner, and the
+ * baseline comparison. WBS and recent changes are deliberately NOT here even
+ * though they are read-only — the drawer header already renders the WBS code and
+ * `DrawerRecentActivity` sits directly above this strip, so adding them would
+ * reintroduce exactly the duplication this change removes.
+ *
+ * Color is never the only signal (web-rules 6/7/120): the variance chip pairs its
+ * tint with a signed day count.
  */
-
-/** Status label + dot health color. Color reinforces the always-present word. */
-const STATUS_META: Record<TaskStatus, { label: string; dot: string }> = {
-  BACKLOG: { label: 'Backlog', dot: 'bg-neutral-text-disabled' },
-  NOT_STARTED: { label: 'Not started', dot: 'bg-neutral-text-disabled' },
-  IN_PROGRESS: { label: 'In progress', dot: 'bg-neutral-text-primary' },
-  REVIEW: { label: 'In review', dot: 'bg-semantic-at-risk' },
-  ON_HOLD: { label: 'On hold', dot: 'bg-neutral-text-disabled' },
-  COMPLETE: { label: 'Complete', dot: 'bg-semantic-on-track' },
-};
-
-/** Format an ISO calendar date ("2026-07-23" → "Jul 23"), UTC-pinned so the
- *  rendered day never drifts by a viewer's timezone offset (web-rule 257). */
-function formatFinish(iso: string): string {
-  const d = new Date(iso + 'T00:00:00Z');
-  const currentYear = new Date().getUTCFullYear();
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    ...(d.getUTCFullYear() === currentYear ? {} : { year: 'numeric' }),
-    timeZone: 'UTC',
-  });
-}
 
 /** Derive initials from a display name ("Jane Smith" → "JS"). */
 function initials(name: string): string {
@@ -45,23 +34,41 @@ function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+/** Finish-vs-baseline variance in whole days, or null when either end is absent. */
+function computeVariance(task: Task): number | null {
+  if (!task.finish || !task.baselineFinish) return null;
+  return Math.round(
+    (new Date(task.finish + 'T00:00:00Z').getTime() -
+      new Date(task.baselineFinish + 'T00:00:00Z').getTime()) /
+      86_400_000,
+  );
+}
+
+/** Signed day label for a variance ("+2d" / "-1d" / "On baseline"). */
+function varianceLabel(variance: number): string {
+  if (variance > 0) return `+${variance}d`;
+  if (variance < 0) return `${variance}d`;
+  return 'On baseline';
+}
+
+/** Tint for a variance: sage on or ahead of baseline, amber for a short slip, red beyond. */
+function varianceClass(variance: number): string {
+  if (variance <= 0)
+    return 'border-semantic-on-track/40 bg-semantic-on-track-bg text-semantic-on-track';
+  if (variance <= 3)
+    return 'border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk';
+  return 'border-semantic-critical/40 bg-semantic-critical-bg text-semantic-critical';
+}
+
 function Overline({ children }: { children: ReactNode }) {
   return (
-    <div className="text-xs font-semibold uppercase tracking-wider text-neutral-text-secondary mb-1">
+    <div className="text-xs font-semibold uppercase tracking-[.06em] text-neutral-text-secondary mb-1">
       {children}
     </div>
   );
 }
 
-function Cell({
-  label,
-  first,
-  children,
-}: {
-  label: string;
-  first?: boolean;
-  children: ReactNode;
-}) {
+function Cell({ label, first, children }: { label: string; first?: boolean; children: ReactNode }) {
   return (
     <div
       role="group"
@@ -74,14 +81,23 @@ function Cell({
   );
 }
 
+function BaselineCell({ task }: { task: Task }) {
+  const variance = computeVariance(task);
+  if (variance === null) {
+    return <span className="text-sm text-neutral-text-secondary">No baseline</span>;
+  }
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-chip border text-xs font-semibold ${varianceClass(variance)}`}
+      title={`Baseline finish ${fmtUtcShort(task.baselineFinish)}`}
+    >
+      <span className="tppm-mono">{varianceLabel(variance)}</span>
+    </span>
+  );
+}
+
 export function TaskSummaryStrip({ task }: { task: Task }) {
-  const meta = STATUS_META[task.status] ?? STATUS_META.NOT_STARTED;
   const owner = task.assignees?.[0];
-  const hasSchedule = !!task.finish;
-  const isCritical = task.isCritical;
-  // Human blocker flag (blockedReason) OR dependency-readiness blocked (isBlocked).
-  const blocked = !!task.blockedReason || !!task.isBlocked;
-  const float = task.totalFloat;
 
   return (
     <div
@@ -89,16 +105,19 @@ export function TaskSummaryStrip({ task }: { task: Task }) {
       aria-label="Task summary"
       className="rounded-card border border-neutral-border bg-neutral-surface overflow-hidden"
     >
-      {/* primary facts */}
-      <div className="flex flex-wrap">
-        <Cell label="Status" first>
-          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-neutral-text-primary">
-            <span className={`w-2 h-2 rounded-full shrink-0 ${meta.dot}`} aria-hidden="true" />
-            {meta.label}
-          </span>
-        </Cell>
+      {/* The pill states the contract the strip now keeps: everything below this
+          header is a read of a value that is edited somewhere else. */}
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-neutral-border bg-neutral-surface-sunken">
+        <span className="text-xs font-semibold uppercase tracking-[.06em] text-neutral-text-secondary">
+          At a glance
+        </span>
+        <span className="inline-flex items-center px-1.5 py-px rounded-chip text-xs font-medium text-neutral-text-secondary border border-neutral-border">
+          read only
+        </span>
+      </div>
 
-        <Cell label="Owner">
+      <div className="flex flex-wrap">
+        <Cell label="Owner" first>
           {owner ? (
             <span className="inline-flex items-center gap-1.5 min-w-0">
               <span
@@ -128,49 +147,12 @@ export function TaskSummaryStrip({ task }: { task: Task }) {
           )}
         </Cell>
 
-        <Cell label={isCritical ? 'Target finish' : 'Finish'}>
-          {hasSchedule ? (
-            <span className="tppm-mono text-sm font-semibold text-neutral-text-primary">
-              {formatFinish(task.finish)}
-            </span>
-          ) : (
-            <span className="text-sm text-neutral-text-disabled">—</span>
-          )}
+        <Cell label="Baseline">
+          <BaselineCell task={task} />
         </Cell>
       </div>
 
-      {/* flags row — color is never the only signal (rule 6/120): word + chip */}
-      <div
-        className={`flex items-center gap-2 flex-wrap px-3 py-2 border-t border-neutral-border ${
-          blocked || isCritical ? 'bg-semantic-critical-bg' : 'bg-neutral-surface-sunken'
-        }`}
-      >
-        <span className="text-xs font-semibold uppercase tracking-wider text-neutral-text-secondary mr-0.5">
-          Flags
-        </span>
-        {blocked && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-semibold text-white bg-semantic-critical">
-            Blocked
-          </span>
-        )}
-        {isCritical ? (
-          <span
-            className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-semibold
-              border border-semantic-critical/40 bg-semantic-critical-bg text-semantic-critical"
-            title="On the critical path — slipping this moves the project finish."
-          >
-            Critical · 0d float
-          </span>
-        ) : (
-          float !== null &&
-          float !== undefined && (
-            <span className="tppm-mono text-xs text-neutral-text-secondary">{float}d float</span>
-          )
-        )}
-        {!blocked && !isCritical && (float === null || float === undefined) && (
-          <span className="text-xs text-neutral-text-disabled">None</span>
-        )}
-      </div>
+      <TaskFlagsSection task={task} />
     </div>
   );
 }

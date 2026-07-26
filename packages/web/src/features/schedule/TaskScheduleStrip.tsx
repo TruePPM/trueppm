@@ -292,9 +292,7 @@ function ComputedStartValue({ iso }: { iso: string }) {
       className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5"
       title="Auto-calculated by the scheduler (CPM) — not a committed start."
     >
-      <span className="border-b border-dotted border-neutral-text-disabled">
-        {formatDate(iso)}
-      </span>
+      <span className="border-b border-dotted border-neutral-text-disabled">{formatDate(iso)}</span>
       <span
         aria-hidden="true"
         className="rounded-chip px-1 py-px text-xs leading-tight tracking-wider uppercase bg-semantic-at-risk-bg text-semantic-at-risk"
@@ -353,15 +351,37 @@ function StripFrame({
 
         {durationCell}
 
-        <Cell label="Float" critical={task.isCritical} last>
+        {/* Float is a computed metric, not a flag (#2424): it has a home here, beside
+            the other server-computed schedule values, and carries the same `computed`
+            qualifier the Start cell uses (web-rule 276) so it never reads as editable.
+            Negative float is the one value that IS an exception — it turns the cell
+            critical and raises a real flag in the drawer's FLAGS band. */}
+        <Cell
+          label="Float"
+          critical={task.isCritical || (typeof float === 'number' && float < 0)}
+          last
+        >
           {float === null || float === undefined ? (
             dash
-          ) : task.isCritical ? (
-            <span title="This task is on the critical path — a delay here delays the project end date">
-              {float}d · CP
-            </span>
           ) : (
-            `${float}d`
+            <span className="inline-flex flex-wrap items-center gap-1">
+              <span
+                title={
+                  task.isCritical
+                    ? 'This task is on the critical path — a delay here delays the project end date'
+                    : undefined
+                }
+              >
+                {float}d{task.isCritical ? ' · CP' : ''}
+              </span>
+              <span
+                className="rounded-chip px-1 py-px text-xs uppercase bg-neutral-surface-sunken text-neutral-text-secondary font-normal"
+                aria-hidden="true"
+              >
+                computed
+              </span>
+              <span className="sr-only"> (computed)</span>
+            </span>
           )}
         </Cell>
       </div>

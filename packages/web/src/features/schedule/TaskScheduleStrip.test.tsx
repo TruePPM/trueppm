@@ -289,13 +289,32 @@ describe('TaskScheduleStrip', () => {
       // #2379 — the design's visible qualifier. The chip is aria-hidden so the
       // sr-only "(computed, not committed)" stays the single accessible channel
       // (web-rule 216); assert the visible text and the hidden-from-AT state.
+      // Scoped to the Start cell: since #2424 the Float cell carries its own
+      // `computed` chip, so an unscoped query matches two nodes.
       const { rerender } = render(<TaskScheduleStrip task={flagged()} />);
-      const chip = screen.getByText('computed');
+      const chip = within(screen.getByRole('group', { name: 'Start' })).getByText('computed');
       expect(chip).toBeInTheDocument();
       expect(chip).toHaveAttribute('aria-hidden', 'true');
       // Committed start → plain date, no chip.
       rerender(<TaskScheduleStrip task={makeTask({ plannedStart: '2026-01-13' })} />);
-      expect(screen.queryByText('computed')).not.toBeInTheDocument();
+      expect(
+        within(screen.getByRole('group', { name: 'Start' })).queryByText('computed'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('marks Float as computed and turns the cell critical on negative float (#2424)', () => {
+      // Float is a metric, not a flag — it belongs beside the other server-computed
+      // schedule values and must not read as editable. Negative float is the
+      // exception the FLAGS band raises separately.
+      const { rerender } = render(<TaskScheduleStrip task={makeTask({ totalFloat: 5 })} />);
+      const float = screen.getByRole('group', { name: 'Float' });
+      expect(within(float).getByText('computed')).toHaveAttribute('aria-hidden', 'true');
+      expect(within(float).getByText('5d')).toBeInTheDocument();
+
+      rerender(<TaskScheduleStrip task={makeTask({ totalFloat: -3 })} />);
+      const negative = screen.getByRole('group', { name: 'Float' });
+      expect(within(negative).getByText('-3d')).toBeInTheDocument();
+      expect(negative.querySelector('.text-semantic-critical')).not.toBeNull();
     });
 
     it('never marks a milestone Date as computed', () => {
