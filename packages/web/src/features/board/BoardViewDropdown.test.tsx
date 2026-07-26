@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BoardViewDropdown } from './BoardViewDropdown';
 import * as savedViewsHook from '@/hooks/useBoardSavedViews';
+import * as labelsHook from '@/hooks/useLabels';
 import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
 
 const DEFAULT_CONFIG: BoardViewConfig = {
@@ -36,12 +37,32 @@ function renderDropdown(overrides: Partial<ComponentProps<typeof BoardViewDropdo
 }
 
 beforeEach(() => {
+  // The saved-view meta line resolves label ids against the project catalog
+  // (#2394) — never the board's card-derived name map.
+  vi.spyOn(labelsHook, 'useLabels').mockReturnValue({
+    data: [
+      {
+        id: 'l-live',
+        name: 'Needs review',
+        color: 'amber',
+        position: 0,
+        serverVersion: 1,
+        taskCount: 3,
+      },
+    ],
+  } as unknown as ReturnType<typeof labelsHook.useLabels>);
   vi.spyOn(savedViewsHook, 'useBoardSavedViews').mockReturnValue({
     views: [],
     isLoading: false,
-    create: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['create'],
-    update: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['update'],
-    remove: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['remove'],
+    create: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+      typeof savedViewsHook.useBoardSavedViews
+    >['create'],
+    update: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+      typeof savedViewsHook.useBoardSavedViews
+    >['update'],
+    remove: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+      typeof savedViewsHook.useBoardSavedViews
+    >['remove'],
   });
 });
 
@@ -113,9 +134,15 @@ describe('BoardViewDropdown', () => {
         },
       ],
       isLoading: false,
-      create: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['create'],
-      update: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['update'],
-      remove: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['remove'],
+      create: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['create'],
+      update: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['update'],
+      remove: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['remove'],
     });
     renderDropdown({ currentUserId: 'user-1' });
     fireEvent.click(screen.getByRole('button', { name: /board view/i }));
@@ -137,17 +164,20 @@ describe('BoardViewDropdown', () => {
         },
       ],
       isLoading: false,
-      create: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['create'],
-      update: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['update'],
-      remove: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['remove'],
+      create: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['create'],
+      update: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['update'],
+      remove: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['remove'],
     });
     const { onApply } = renderDropdown({ currentUserId: 'user-1' });
     fireEvent.click(screen.getByRole('button', { name: /board view/i }));
     fireEvent.click(screen.getByText('Sprint 7'));
-    expect(onApply).toHaveBeenCalledWith(
-      expect.objectContaining({ showCost: true }),
-      'sv-1',
-    );
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ showCost: true }), 'sv-1');
   });
 
   it('shows save view input after clicking "Save current view…"', () => {
@@ -163,9 +193,15 @@ describe('BoardViewDropdown', () => {
     vi.spyOn(savedViewsHook, 'useBoardSavedViews').mockReturnValue({
       views: [],
       isLoading: false,
-      create: { mutate: mutateMock, isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['create'],
-      update: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['update'],
-      remove: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>['remove'],
+      create: { mutate: mutateMock, isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['create'],
+      update: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['update'],
+      remove: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['remove'],
     });
     renderDropdown();
     fireEvent.click(screen.getByRole('button', { name: /board view/i }));
@@ -178,5 +214,65 @@ describe('BoardViewDropdown', () => {
         expect.any(Object),
       );
     });
+  });
+});
+
+describe('saved-view meta line (#2394, frame D1)', () => {
+  function withView(labels: string[]) {
+    vi.spyOn(savedViewsHook, 'useBoardSavedViews').mockReturnValue({
+      views: [
+        {
+          id: 'v1',
+          name: 'Q3 triage',
+          config: {
+            ...DEFAULT_CONFIG,
+            filters: { assignees: ['a', 'b'], priority: ['high'], due: [], labels },
+          },
+          schemaVersion: 3,
+          createdBy: null,
+          serverVersion: 1,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      isLoading: false,
+      create: { mutate: vi.fn(), isPending: false },
+      update: { mutate: vi.fn(), isPending: false },
+      remove: { mutate: vi.fn(), isPending: false },
+    } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>);
+  }
+
+  it('shows what the view filters BEFORE it is opened', async () => {
+    withView(['l-live']);
+    renderDropdown();
+    fireEvent.click(screen.getByRole('button', { name: /Board view/ }));
+
+    await waitFor(() => expect(screen.getByText('Owner: 2')).toBeInTheDocument());
+    expect(screen.getByText('Priority: High')).toBeInTheDocument();
+    // The label appears by NAME with its swatch, not as a bare id.
+    expect(screen.getByText('Needs review')).toBeInTheDocument();
+  });
+
+  it('tombstones a label the catalog no longer has', async () => {
+    withView(['l-live', 'l-gone']);
+    renderDropdown();
+    fireEvent.click(screen.getByRole('button', { name: /Board view/ }));
+
+    await waitFor(() => expect(screen.getByTestId('deleted-label-l-gone')).toBeInTheDocument());
+    // Anonymous by construction: the catalog omits deleted rows, and resolving
+    // the name any wider would leak across projects.
+    expect(screen.getByText('Deleted label')).toBeInTheDocument();
+  });
+
+  it('carries the same content in the accessible name of the row', async () => {
+    withView(['l-gone']);
+    renderDropdown();
+    fireEvent.click(screen.getByRole('button', { name: /Board view/ }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('menuitem', { name: /Q3 triage.*1 deleted label, not applied/ }),
+      ).toBeInTheDocument(),
+    );
   });
 });

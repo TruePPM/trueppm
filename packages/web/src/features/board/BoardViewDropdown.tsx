@@ -6,8 +6,16 @@
  * state as a named view or delete views they created (or if Scheduler role).
  */
 import { type MouseEvent, useEffect, useRef, useState } from 'react';
-import { useBoardSavedViews, type BoardSavedView, type BoardViewConfig } from '@/hooks/useBoardSavedViews';
+import {
+  useBoardSavedViews,
+  type BoardSavedView,
+  type BoardViewConfig,
+} from '@/hooks/useBoardSavedViews';
 import { CheckIcon } from '@/components/Icons';
+import { useLabels } from '@/hooks/useLabels';
+import { labelDotStyle } from '@/lib/labelColors';
+import { DeletedLabelChip } from '@/components/filters/DeletedLabelChip';
+import { savedViewAriaLabel, summarizeSavedView } from './savedViewSummary';
 
 // ---------------------------------------------------------------------------
 // Built-in views
@@ -113,6 +121,43 @@ function SaveViewModal({ onSave, onCancel, isSaving }: SaveViewModalProps) {
   );
 }
 
+/**
+ * The filter summary under a saved view's name (#2394, frame D1).
+ *
+ * Without it, choosing a saved view is a guess: the name is whatever the author
+ * typed, and the only way to learn what "Q3 triage" filters is to apply it and
+ * read the chips. The line is aria-hidden — the row's own accessible name
+ * carries the same content as text, so announcing it twice would make every
+ * arrow-key step through the menu twice as long.
+ */
+function SavedViewMeta({ summary }: { summary: ReturnType<typeof summarizeSavedView> }) {
+  if (summary.isEmpty) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] font-normal
+        text-neutral-text-secondary"
+    >
+      {summary.segments.map((seg, i) => (
+        <span key={seg}>
+          {i > 0 && <span className="mr-1.5">·</span>}
+          {seg}
+        </span>
+      ))}
+      {summary.labels.map((l) =>
+        l.name === null ? (
+          <DeletedLabelChip key={l.id} id={l.id} variant="menu" />
+        ) : (
+          <span key={l.id} className="inline-flex items-center gap-1">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={labelDotStyle(l.color)} />
+            {l.name}
+          </span>
+        ),
+      )}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // BoardViewDropdown
 // ---------------------------------------------------------------------------
@@ -137,6 +182,13 @@ export function BoardViewDropdown({
   const [showSave, setShowSave] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { views, create, remove } = useBoardSavedViews(projectId || null);
+  // The project's label catalog — the ONLY source used to resolve a saved
+  // view's label ids to names. Deliberately not the board's card-derived
+  // `labelNameById`: that map omits live labels no visible card carries, so it
+  // cannot tell "deleted" from "unused" (see savedViewSummary).
+  const { data: labelCatalog } = useLabels(projectId || undefined);
+
+  const summaryOf = (sv: BoardSavedView) => summarizeSavedView(sv.config, labelCatalog);
 
   const activeBuiltin = BUILTIN_VIEWS.find((v) => v.id === activeViewId);
   const activeSaved = views.find((v) => v.id === activeViewId);
@@ -166,7 +218,7 @@ export function BoardViewDropdown({
           setShowSave(false);
           setOpen(false);
         },
-      }
+      },
     );
   }
 
@@ -181,21 +233,25 @@ export function BoardViewDropdown({
     'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary ' +
     'focus:outline-none inline-flex items-center gap-1';
 
-  const activeClass =
-    'border-brand-primary/40 bg-brand-primary/5 text-brand-primary';
+  const activeClass = 'border-brand-primary/40 bg-brand-primary/5 text-brand-primary';
 
   return (
     <div ref={containerRef} className="relative">
       <button
         type="button"
-        onClick={() => { setOpen((v) => !v); setShowSave(false); }}
+        onClick={() => {
+          setOpen((v) => !v);
+          setShowSave(false);
+        }}
         aria-haspopup="menu"
         aria-expanded={open}
         className={`${btnClass} ${activeViewId ? activeClass : ''}`}
         aria-label={`Board view: ${activeLabel}`}
       >
         {activeLabel}
-        <span aria-hidden="true" className="text-neutral-text-disabled">▾</span>
+        <span aria-hidden="true" className="text-neutral-text-disabled">
+          ▾
+        </span>
       </button>
 
       {open && !showSave && (
@@ -235,11 +291,18 @@ export function BoardViewDropdown({
               className={[
                 'w-full text-left px-3 py-1.5 text-xs flex items-center justify-between gap-2',
                 'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:outline-none',
-                activeViewId === bv.id ? 'text-brand-primary font-medium' : 'text-neutral-text-primary',
+                activeViewId === bv.id
+                  ? 'text-brand-primary font-medium'
+                  : 'text-neutral-text-primary',
               ].join(' ')}
             >
               <span>{bv.label}</span>
-              {activeViewId === bv.id && <CheckIcon className="text-brand-primary inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />}
+              {activeViewId === bv.id && (
+                <CheckIcon
+                  className="text-brand-primary inline-block h-3 w-3 align-[-0.125em]"
+                  aria-hidden="true"
+                />
+              )}
             </button>
           ))}
 
@@ -251,24 +314,30 @@ export function BoardViewDropdown({
                 Saved views
               </p>
               {views.map((sv) => (
-                <div
-                  key={sv.id}
-                  className="flex items-center group"
-                >
+                <div key={sv.id} className="flex items-center group">
                   <button
                     type="button"
                     role="menuitem"
                     onClick={() => handleSelectSaved(sv)}
+                    aria-label={savedViewAriaLabel(sv.name, summaryOf(sv))}
                     className={[
-                      'flex-1 text-left px-3 py-1.5 text-xs flex items-center gap-2',
+                      'flex-1 text-left px-3 py-1.5 text-xs flex flex-col items-stretch',
                       'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:outline-none',
-                      activeViewId === sv.id ? 'text-brand-primary font-medium' : 'text-neutral-text-primary',
+                      activeViewId === sv.id
+                        ? 'text-brand-primary font-medium'
+                        : 'text-neutral-text-primary',
                     ].join(' ')}
                   >
-                    <span className="truncate">{sv.name}</span>
-                    {activeViewId === sv.id && (
-                      <CheckIcon className="text-brand-primary ml-auto inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
-                    )}
+                    <span className="flex items-center gap-2">
+                      <span className="truncate">{sv.name}</span>
+                      {activeViewId === sv.id && (
+                        <CheckIcon
+                          className="text-brand-primary ml-auto inline-block h-3 w-3 align-[-0.125em]"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </span>
+                    <SavedViewMeta summary={summaryOf(sv)} />
                   </button>
                   {/* Delete — shown on hover; always visible for creator */}
                   {(sv.createdBy === currentUserId || !sv.createdBy) && (
