@@ -4,7 +4,7 @@ description: Preliminary hardware sizing best-guesses for 50, 100, and 200 concu
 ---
 
 :::caution[Preliminary best-guesses — not benchmarked guarantees]
-These numbers are **preliminary best-guesses, not benchmarked guarantees.** TruePPM has no published load-testing data yet, and autoscaling plus large-scale hardening are on the pre-1.0 roadmap. Treat every figure on this page as a starting point to **load-test against your own workload**, and validate before committing budget or hardware.
+These numbers are **preliminary best-guesses, not benchmarked guarantees.** TruePPM has no published load-testing data yet, and large-scale hardening is on the pre-1.0 roadmap. Treat every figure on this page as a starting point to **load-test against your own workload**, and validate before committing budget or hardware.
 :::
 
 This page offers rough sizing guidance for self-hosted deployments at three scales. Because there is no benchmark data behind these figures yet, they are derived from the shipped Helm defaults and the shape of the workload — not from measured capacity. Expect to adjust them once you have run TruePPM against your real schedules.
@@ -106,7 +106,8 @@ These defaults are tuned for evaluation, not scale. At every tier above:
 
 - The **bundled PostgreSQL and Valkey sub-charts are dev/demo only** — single replica, small PVCs, and a non-persistent Valkey that loses in-flight Celery tasks on restart. Use a **managed PostgreSQL** (RDS, CloudSQL, etc.) and **managed Redis** instead.
 - **File attachments default to the local filesystem** and are lost on pod restart. Set `TRUEPPM_DEFAULT_FILE_STORAGE` to an S3-compatible or MinIO backend.
-- There is **no Horizontal Pod Autoscaler** — scale replicas manually. HPA is on the pre-1.0 roadmap.
+- The **Horizontal Pod Autoscaler is off by default**, not absent. The chart ships an `autoscaling/v2` HPA for the API tier (and optionally the worker tier) behind `autoscaling.enabled`; the defaults scale the API between 2 and 6 replicas at 75% CPU utilization. It is opt-in because an HPA overrides the static `replicaCount` and **requires `metrics-server`** (or a custom metrics adapter) to be installed in the cluster. Without it, scale replicas manually. See the [values reference](/administration/helm-values/) for the full key list.
+- **Autoscale the API tier; keep the worker tier on fixed replicas.** The `--concurrency` pinning advice above and a CPU-utilization HPA are two different answers to the same load, and following both naively double-counts: the HPA adds worker pods while each pod's concurrency is already pinned to its CPU limit, so a Monte Carlo burst can multiply total in-flight tasks well past what the database connection ceiling tolerates. Until worker autoscaling keys off queue depth rather than CPU, the safe posture is `autoscaling.enabled=true` with `autoscaling.worker.enabled=false` — HPA for request-serving traffic, fixed replicas plus pinned concurrency for the CPU-bound queue.
 
 ## Per-tier recommendation summary
 
