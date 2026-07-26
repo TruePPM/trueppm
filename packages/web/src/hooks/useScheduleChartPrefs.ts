@@ -27,21 +27,23 @@ export interface ScheduleChartPrefs {
   /**
    * Where on-bar task names render (or `hidden`), independent per view (#2107).
    * Grid defaults to `hidden` — the task table already carries every name, so
-   * the on-bar label is redundant ink. Timeline defaults to `next` — the table
-   * is hidden, so the canvas label is the only carrier of task identity.
+   * the on-bar label is redundant ink. Timeline defaults to `left` — the table
+   * is hidden, so the canvas must carry task identity, but a free-floating
+   * on-bar label has no collision avoidance against arrows or its neighbours,
+   * whereas the aligned-left gutter sidesteps collision by construction (#2422).
    */
   taskNamePlacementByView: TaskNamePlacementByView;
   /** Show/hide the on-bar progress % pills. */
   progressPillsVisible: boolean;
 }
 
-// New-user defaults (#2107): Grid hides the redundant on-bar name; Timeline
-// keeps it next to the bar. Existing users' single scalar is migrated onto both
-// views (see loadPrefs), so this `hidden` Grid default is only ever seen by a
-// brand-new user with no stored preference.
+// Defaults (#2107, revised #2422): Grid hides the redundant on-bar name; Timeline
+// renders it in the aligned-left gutter. Both defaults exist to keep free-floating
+// on-bar labels off the canvas, because nothing measures them against the arrows
+// and bars they are drawn over — see the placement note on ScheduleChartPrefs.
 const DEFAULT_PLACEMENT_BY_VIEW: TaskNamePlacementByView = {
   grid: 'hidden',
-  timeline: 'next',
+  timeline: 'left',
 };
 
 const DEFAULT_PREFS: ScheduleChartPrefs = {
@@ -73,13 +75,19 @@ function loadPrefs(): ScheduleChartPrefs {
     if (!raw) return defaults();
     const parsed = JSON.parse(raw) as Record<string, unknown>;
 
-    // Placement: prefer the per-view shape (#2107); otherwise fall back to the
-    // legacy global scalar (#2097) seeded into *both* views. Either source is
-    // then coerced against its view's allow-list, so a legacy `left` resolves to
-    // grid `hidden` (Grid has no gutter) while keeping timeline `left`.
+    // Placement: prefer the per-view shape (#2107). The legacy global scalar
+    // (#2097) seeds **Timeline only** — deliberately not Grid (#2422).
+    //
+    // That scalar was chosen when one value governed both views, so a user who
+    // had ever looked at the Timeline carried `next` into Grid and kept the
+    // redundant on-bar label the per-view default was introduced to remove. It
+    // is why the collisions were still reproducible in Grid on a real account
+    // long after #2107 shipped: the new Grid default only ever reached users who
+    // had never opened the Schedule. Grid falls through to its own default and
+    // loses nothing — the task table carries every name either way.
     const byView = parsed.taskNamePlacementByView as Partial<TaskNamePlacementByView> | undefined;
     const legacyScalar = parsed.taskNamePlacement;
-    const gridSource = byView?.grid ?? legacyScalar;
+    const gridSource = byView?.grid;
     const timelineSource = byView?.timeline ?? legacyScalar;
 
     return {
