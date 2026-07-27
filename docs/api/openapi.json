@@ -12321,6 +12321,75 @@
                 }
             }
         },
+        "/api/v1/programs/import/validate/": {
+            "post": {
+                "operationId": "v1_programs_import_validate_create",
+                "description": "Runs the full seed validator — JSON-Schema conformance, referential integrity, node budgets, three-point estimate ordering — and returns every diagnostic it finds. **Persists nothing.**\n\nA document that fails validation is `200 {\"valid\": false}`, not a `400`: the request succeeded, the *document* is what failed, and the caller needs the diagnostics either way. A `400` here means the request itself was unusable (upload over the size ceiling).\n\nSame authorization as `POST /programs/import/` — a dry run parses an untrusted document and is not a lighter-privilege surface.",
+                "summary": "Dry-run: validate a JSON seed bundle without importing it",
+                "tags": [
+                    "import-export"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SeedValidateResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/programs/load-sample/": {
             "post": {
                 "operationId": "v1_programs_load_sample_create",
@@ -15791,7 +15860,8 @@
                                                 "name": "Beta",
                                                 "date": "2026-03-01"
                                             },
-                                            "team_utilization_pct": null,
+                                            "team_utilization_pct": 82.5,
+                                            "team_utilization_reason": null,
                                             "owner_name": "Sarah Chen",
                                             "open_risk_count": 4,
                                             "high_risk_count": 1,
@@ -42166,10 +42236,18 @@
                 "properties": {
                     "edition": {
                         "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    },
+                    "build_sha": {
+                        "type": "string"
                     }
                 },
                 "required": [
-                    "edition"
+                    "build_sha",
+                    "edition",
+                    "version"
                 ]
             },
             "EndTypeEnum": {
@@ -47723,6 +47801,22 @@
                     },
                     "calendar_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "feedback_enabled": {
+                        "type": "boolean"
+                    },
+                    "feedback_url": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "uri",
+                                "maxLength": 200
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     }
                 }
             },
@@ -52107,6 +52201,51 @@
                 "type": "string",
                 "description": "* `legacy:full` - legacy:full\n* `mcp:read` - mcp:read"
             },
+            "SeedValidateResponse": {
+                "type": "object",
+                "properties": {
+                    "valid": {
+                        "type": "boolean"
+                    },
+                    "errors": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "schema_version": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "program_slug": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "program_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "project_count": {
+                        "type": "integer"
+                    },
+                    "task_count": {
+                        "type": "integer"
+                    },
+                    "resource_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "errors",
+                    "program_name",
+                    "program_slug",
+                    "project_count",
+                    "resource_count",
+                    "schema_version",
+                    "task_count",
+                    "valid"
+                ]
+            },
             "ShareLink": {
                 "type": "object",
                 "description": "Read serializer for a share link in the management list.\n\nDeliberately omits ``token_hash`` (secret) — the raw token is only ever\nreturned once, in the create response, via ``ShareLinkCreateResponseSerializer``.",
@@ -53565,6 +53704,16 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "short_id_display": {
+                        "type": "string",
+                        "description": "Compact, in-project task reference — ``T-8`` (#2430).\n\n``short_id`` is stored as 8-character uppercase hex (``_next_short_id``\nformats ``object_sequence`` as ``{seq:08X}``), which leaked onto board cards\nas ``00000008`` / ``0000000A`` — a zero-padded hex string that reads as an\ninternal identifier, not as \"the eighth task\". Decode the sequence back to\nthe integer it always was and render it unpadded, so task 10 reads ``T-10``\nrather than ``0000000A``.\n\nServer-owned so web, mobile, and MCP all render the same reference. #929\nlearned this the hard way on risks: three web formatters independently\nmis-parsed the hex scheme and collapsed every risk to ``R-0000``. The stored\nvalue is unchanged — this is a display projection, so there is no migration\nand existing ids keep their identity.",
+                        "readOnly": true
+                    },
+                    "qualified_id": {
+                        "type": "string",
+                        "description": "Project-qualified task reference — ``ENG-2026-8`` (#2430).\n\nSettings → General collects a ``Project code`` whose own help text promises\nit is \"used as a prefix for task IDs and exports\" — a promise nothing kept.\nThis is the field that keeps it, and the one board cards render. Falls back\nto the compact ``T-8`` form when the project has no code (it is optional,\n#520), so the reference is never empty just because a code is unset.",
+                        "readOnly": true
+                    },
                     "project": {
                         "type": "string",
                         "format": "uuid"
@@ -54109,10 +54258,12 @@
                     "predecessor_count",
                     "prioritization_score",
                     "project",
+                    "qualified_id",
                     "readiness",
                     "schedule_variance_days",
                     "server_version",
                     "short_id",
+                    "short_id_display",
                     "spi",
                     "spi_band",
                     "sprint_pending",
@@ -57021,6 +57172,22 @@
                     },
                     "calendar_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "feedback_enabled": {
+                        "type": "boolean"
+                    },
+                    "feedback_url": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "uri",
+                                "maxLength": 200
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     },
                     "logo_url": {
                         "type": "string",

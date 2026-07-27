@@ -1,0 +1,94 @@
+{
+  "gates": {
+    "p95_ms": 2000.0,
+    "error_rate": 0.01,
+    "control_p95_ms": 150.0
+  },
+  "host": {
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "cpu_count": 10,
+    "load_avg_at_finish": [
+      8.96,
+      9.15,
+      11.91
+    ],
+    "note": "Shared developer workstation, not an idle host. Every step carries its own control measurement and load average; steps flagged `contaminated` were measured while the host was busy and must not be published as capacity numbers."
+  },
+  "git_sha": "89fc5137f387f8a526cf3c55d6b3d89156b8d2fd",
+  "base_url": "http://127.0.0.1:28000",
+  "dimensions": [
+    {
+      "dimension": "dependency_edges",
+      "description": "Fixed 4000-task project re-seeded at rising edge:task ratios. Measures the dependency list read at each density.",
+      "steps": [
+        {
+          "step": "1.0x",
+          "label": "~4000 edges (1.0x)",
+          "n": 25,
+          "p50_ms": 58.5,
+          "p95_ms": 146.3,
+          "p99_ms": 172.9,
+          "max_ms": 172.9,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 22.0,
+          "load_avg": 7.12,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": "1.5x",
+          "label": "~6000 edges (1.5x)",
+          "n": 25,
+          "p50_ms": 58.6,
+          "p95_ms": 118.3,
+          "p99_ms": 224.4,
+          "max_ms": 224.4,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 56.0,
+          "load_avg": 7.57,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": "2.0x",
+          "label": "~8000 edges (2.0x)",
+          "n": 25,
+          "p50_ms": 58.6,
+          "p95_ms": 129.8,
+          "p99_ms": 133.8,
+          "max_ms": 133.8,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 16.9,
+          "load_avg": 9.98,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": "3.0x",
+          "label": "~12000 edges (3.0x)",
+          "n": 25,
+          "p50_ms": 70.3,
+          "p95_ms": 153.1,
+          "p99_ms": 164.6,
+          "max_ms": 164.6,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 16.6,
+          "load_avg": 8.96,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        }
+      ],
+      "ceiling": null,
+      "constraint": "CPM is O(V+E); edge count drives recompute more than task count"
+    }
+  ]
+}

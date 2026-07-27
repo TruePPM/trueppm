@@ -103,10 +103,12 @@ beforeEach(() => {
 describe('ProjectOverviewPage', () => {
   it('renders the focus + secondary KPI sections as landmarks', async () => {
     renderPage();
-    // Default fixture has at-risk metrics (1 late, 1 high risk) → heading reads
-    // "Needs attention"; the secondary strip heading is "More metrics" (#1191).
+    // Default fixture has at-risk metrics (1 late, 1 high risk) → the focus heading
+    // reads "Needs attention" (#1191). Every metric demoted to the secondary strip
+    // is neutral or on-track, so its heading reads "Holding steady" (#2429) — the
+    // strip is named by its severity verdict, not by the residual "More metrics".
     expect(await screen.findByRole('region', { name: /needs attention/i })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: /more metrics/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /holding steady/i })).toBeInTheDocument();
   });
 
   it('renders burn-up chart section', () => {
@@ -1151,5 +1153,79 @@ describe('first-run handoff — zero-task Overview (#2048)', () => {
     renderPage();
     await screen.findByRole('heading', { name: /add your first task/i });
     expect(screen.queryByRole('button', { name: /invite teammates/i })).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Team utilization card — rule 119 muted treatment + reason line (#2428)
+// ---------------------------------------------------------------------------
+
+describe('ProjectOverviewPage — team utilization (#2428)', () => {
+  /** Re-point the overview endpoint at a utilization-specific payload. */
+  function withUtilization(overrides: Record<string, unknown>) {
+    mockedGet.mockImplementation((url: string) => {
+      const header = headerHookResponse(url);
+      if (header) return Promise.resolve(header);
+      if (url.endsWith('/overview/'))
+        return Promise.resolve({ data: { ...OVERVIEW_RESPONSE, ...overrides } });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+  }
+
+  it('renders a plain-language reason instead of a bare em-dash', async () => {
+    // The bug: value "—" with an empty sub slot, while both neighbouring cards
+    // carried one — leaving the user unable to tell "no one is allocated" from
+    // "this is broken".
+    withUtilization({ team_utilization_pct: null, team_utilization_reason: 'no_roster' });
+    renderPage();
+    expect(await screen.findByText('Needs people on the project roster')).toBeInTheDocument();
+  });
+
+  it('never renders the raw machine reason code', async () => {
+    withUtilization({ team_utilization_pct: null, team_utilization_reason: 'no_capacity' });
+    renderPage();
+    expect(await screen.findByText('Roster has no working hours this week')).toBeInTheDocument();
+    expect(screen.queryByText('no_capacity')).not.toBeInTheDocument();
+  });
+
+  it('falls back to a generic sentence for a reason code it does not know', async () => {
+    // The server owns this vocabulary and may add a code before the web package
+    // ships a label for it — that must not render `undefined` or the raw code.
+    withUtilization({ team_utilization_pct: null, team_utilization_reason: 'no_such_reason' });
+    renderPage();
+    expect(await screen.findByText('Not available yet')).toBeInTheDocument();
+    expect(screen.queryByText('no_such_reason')).not.toBeInTheDocument();
+  });
+
+  it('a real 0% is a value, not an unavailable card', async () => {
+    // "Nobody is allocated this week" is a meaningful answer and must read as a
+    // number — telling it apart from an undefined ratio is the point of #2428.
+    withUtilization({ team_utilization_pct: 0, team_utilization_reason: null });
+    renderPage();
+    expect(await screen.findByText('0%')).toBeInTheDocument();
+    expect(screen.getByText('of capacity this week')).toBeInTheDocument();
+    expect(screen.queryByText('Needs people on the project roster')).not.toBeInTheDocument();
+  });
+
+  it('gives an unavailable card the rule-119 dashed border and no drill-down', async () => {
+    withUtilization({ team_utilization_pct: null, team_utilization_reason: 'no_roster' });
+    renderPage();
+    const reason = await screen.findByText('Needs people on the project roster');
+    const card = reason.closest('div');
+    expect(card?.className).toContain('border-dashed');
+    // Rule 172: a metric with no value has nothing to drill into, so the card is
+    // a static read rather than a Link.
+    expect(reason.closest('a')).toBeNull();
+  });
+
+  it('renders a computed percent as a live value with a drill-down for Scheduler+', async () => {
+    withUtilization({ team_utilization_pct: 92.4, team_utilization_reason: null });
+    renderPage();
+    expect(await screen.findByText('92%')).toBeInTheDocument();
+    expect(screen.getByText('of capacity this week')).toBeInTheDocument();
   });
 });

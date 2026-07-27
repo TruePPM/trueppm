@@ -328,6 +328,20 @@ class Workspace(models.Model):
         default=TermOverridePolicy.SUGGEST,
     )
 
+    # In-product feedback / report-a-bug link (#2392).
+    #
+    # A LINK, never a beacon: nothing is transmitted by rendering the control or
+    # by opening it. The client assembles a prefilled URL the user reads and
+    # edits before choosing to submit it, so a self-hosted (or air-gapped)
+    # instance never phones home as a side effect of the feature existing.
+    #
+    # `feedback_url` empty means "use the built-in public tracker" — storing the
+    # default here instead would freeze today's URL into every existing
+    # workspace row, so an operator who never touched the setting could not be
+    # moved off it by an upgrade.
+    feedback_enabled = models.BooleanField(default=True)
+    feedback_url = models.URLField(blank=True, default="")
+
     # Workspace-wide default working calendar (ADR-0441, #1987) — the root of the
     # Project → Program → Workspace → system-default inheritance chain. NULL = fall
     # through to the system default (Mon-Fri/8h/UTC); we do not seed a system-default

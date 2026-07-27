@@ -11,6 +11,9 @@ import { setupCatchAll } from './fixtures';
  *   - calm path: an all-healthy project → heading "Project health", the
  *     schedule card leads (intrinsic priority), the secondary strip is present.
  *
+ * Both strips name their own severity verdict (#2429), so the region locators
+ * below track the derived heading rather than a fixed label.
+ *
  * Every endpoint the Overview page's hooks read is mocked with its real
  * response shape (#1190 lesson): a catch-all list shape would crash the
  * object-shaped /overview/ read and tear the page out from under the spec.
@@ -171,8 +174,10 @@ test.describe('Overview risk-ranked focus cards (#1191)', () => {
     await setupRoutes(page, FIXTURE_OVERVIEW_AT_RISK);
     await page.goto(`/projects/${PROJECT_ID}/overview`);
 
-    // Page-rendered signal: the focus region with the alarmed heading.
-    const focus = page.getByRole('region', { name: /needs attention/i });
+    // Page-rendered signal: the focus region with the alarmed heading. Exact —
+    // a demoted problem names the secondary strip "Also needs attention", which
+    // a substring match would collide with (#2429).
+    const focus = page.getByRole('region', { name: 'Needs attention', exact: true });
     await expect(focus).toBeVisible({ timeout: 10_000 });
 
     // Three focus cards lead the page with their plain-language values.
@@ -180,8 +185,11 @@ test.describe('Overview risk-ranked focus cards (#1191)', () => {
     await expect(focus.getByText('of 20 tasks')).toBeVisible();
     await expect(focus.getByText('2 high')).toBeVisible();
 
-    // The secondary strip is present and holds the demoted metrics.
-    const secondary = page.getByRole('region', { name: /more metrics/i });
+    // The secondary strip is present and holds the demoted metrics. Its heading
+    // states the severity verdict for what was demoted (#2429): here the tail is
+    // the two neutral cards plus a healthy utilization, so it reads calm even
+    // though the focus row is alarmed.
+    const secondary = page.getByRole('region', { name: 'Holding steady' });
     await expect(secondary).toBeVisible();
     await expect(secondary.getByText('Next milestone')).toBeVisible();
 
@@ -197,7 +205,7 @@ test.describe('Overview risk-ranked focus cards (#1191)', () => {
     await page.goto(`/projects/${PROJECT_ID}/overview`);
 
     // Calm heading — no red/amber alarm wording.
-    const focus = page.getByRole('region', { name: /project health/i });
+    const focus = page.getByRole('region', { name: 'Project health' });
     await expect(focus).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('region', { name: /needs attention/i })).toHaveCount(0);
 
@@ -205,7 +213,8 @@ test.describe('Overview risk-ranked focus cards (#1191)', () => {
     await expect(focus.getByText('Schedule health')).toBeVisible();
     await expect(focus.getByText('On schedule')).toBeVisible();
 
-    // The secondary strip is still present (only 3 items, always visible).
-    await expect(page.getByRole('region', { name: /more metrics/i })).toBeVisible();
+    // The secondary strip is still present (only 3 items, always visible) and,
+    // with nothing demoted in trouble, names itself calm (#2429).
+    await expect(page.getByRole('region', { name: 'Holding steady' })).toBeVisible();
   });
 });

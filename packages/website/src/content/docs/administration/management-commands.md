@@ -120,6 +120,30 @@ user-facing guide.
   the program subtree idempotently on the program slug. `--create-users` mints any
   accounts the seed references that do not yet exist (intended for local demos,
   not production).
+- **`import_seed <path> --check`** — validates the file and reports every problem
+  **without importing it**. Writes nothing, exits `0` when the document is valid
+  and `1` when it is not, so it can gate a CI job. Because a real import is
+  wipe-then-recreate on the program slug, this is how you answer *"will this be
+  accepted?"* before pointing a destructive operation at a live program. Output
+  leads with what the file claims to be — schema version, program name and slug,
+  and the project / task / resource counts — then lists each diagnostic anchored
+  to its JSON path:
+
+  ```console
+  $ python manage.py import_seed atlas.json --check
+  Checked atlas.json
+    schema_version: 2.0
+    program:        Atlas Platform Launch
+    slug:           atlas
+    contents:       3 project(s), 214 task(s), 9 resource(s)
+
+    $.projects[0].tasks[2].predecessors[0]: unknown task ref 'design'
+  CommandError: Invalid seed document: 1 problem found.
+  ```
+
+  Needs no superuser, so it works on a fresh instance before the first import.
+  The same check is available over the API as
+  `POST /api/v1/programs/import/validate/`.
 - **`export_program <slug> [--out <path>]`** — exports a program (matched by
   `Program.code`) to the canonical JSON seed format, to `--out` or stdout. The
   output round-trips: re-importing it reproduces the program.

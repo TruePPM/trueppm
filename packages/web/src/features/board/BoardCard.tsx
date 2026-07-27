@@ -74,6 +74,7 @@ function BoardCardImpl(props: BoardCardProps) {
     scopeActions,
     readOnly = false,
     customFieldDefs,
+    showReadiness = true,
   } = props;
 
   const view = useBoardCardView(props);
@@ -223,6 +224,7 @@ function BoardCardImpl(props: BoardCardProps) {
           task={task}
           view={view}
           customFieldDefs={customFieldDefs}
+          showReadiness={showReadiness}
           overallocByResource={overallocByResource}
           onShowDeps={onShowDeps}
           onShowRisks={onShowRisks}

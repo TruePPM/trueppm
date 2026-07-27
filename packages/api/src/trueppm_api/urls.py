@@ -48,7 +48,16 @@ def health(_request: Request) -> Response:
         "Django setting. No authentication required. The React shell calls this once "
         "at startup to decide the post-login redirect target (ADR-0029, ADR-0030)."
     ),
-    responses={200: inline_serializer("EditionResponse", {"edition": serializers.CharField()})},
+    responses={
+        200: inline_serializer(
+            "EditionResponse",
+            {
+                "edition": serializers.CharField(),
+                "version": serializers.CharField(),
+                "build_sha": serializers.CharField(allow_blank=True),
+            },
+        )
+    },
     auth=[],
     tags=["meta"],
 )
@@ -62,7 +71,16 @@ def edition(request: Request) -> Response:
     The value is controlled by the TRUEPPM_EDITION Django setting, which the
     enterprise Helm chart sets to "enterprise".
     """
-    return Response({"edition": settings.TRUEPPM_EDITION})
+    return Response(
+        {
+            "edition": settings.TRUEPPM_EDITION,
+            # Build identity (#2392): a bug report has to name the exact build it
+            # came from, and this is the one endpoint the shell already calls at
+            # startup without auth. `build_sha` is empty on a source checkout.
+            "version": settings.TRUEPPM_VERSION,
+            "build_sha": settings.TRUEPPM_BUILD_SHA,
+        }
+    )
 
 
 # Versioned prefix every app router mounts under.

@@ -16,6 +16,8 @@ TruePPM ships as pre-built Docker images and a Python package on PyPI. Starting 
 | [Single server](#single-server-with-docker-compose) | Production without Kubernetes |
 | [Scheduler library](#scheduler-library-only) | Embedding the CPM engine in your own app |
 
+Before you put a real program on it, read the **[tested scale envelope](/administration/sizing/#tested-envelope)** — what 0.4 has actually been measured to hold, which dimensions are explicitly untested, and the issue behind each ceiling. The short version: a project stays comfortable in the Schedule view up to roughly **1,000 tasks** in 0.4.
+
 ---
 
 ## Docker Compose

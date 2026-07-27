@@ -100,4 +100,15 @@ export interface BoardCardProps {
    * array so `React.memo` is not defeated; empty/undefined renders no field band.
    */
   customFieldDefs?: ProjectCustomField[];
+  /**
+   * Whether the readiness chip carries signal on this board (#2430). Decided
+   * board-wide by `readinessIsInformative` and applied upstream — BoardView
+   * passes `false` when every visible card shares one readiness value, so the
+   * card stays unaware of board-view state (same contract as
+   * {@link BoardCardProps.customFieldDefs}).
+   *
+   * Defaults to `true` for callers with no board context (the drag overlay,
+   * standalone renders) — the chip's own `task.readiness` guard still applies.
+   */
+  showReadiness?: boolean;
 }

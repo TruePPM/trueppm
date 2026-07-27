@@ -27,9 +27,13 @@ The legacy `ON_HOLD` status is kept for data compatibility with pre-0.1 projects
 
 Each card shows:
 
-- **Task name** and WBS short ID
+- **Task name** and **task reference** — `ENG-2026-8`, using the **Project code** from
+  Settings → General as the prefix. Without a code it reads `T-8`. The reference is
+  formatted server-side, so the web app, the mobile app, a PDF export, and an MCP client
+  all show the same string.
 - **Assignee avatars** (up to three, with +N overflow)
-- **Readiness chip** — `idea` / `estimated` / `ready` / `baselined`
+- **Readiness chip** — `idea` / `estimated` / `ready` / `baselined`, shown only when the
+  board holds more than one readiness value (see [Readiness states](#readiness-states))
 - **Risk badge** — count of linked active risks, colored by max severity
 - **Blocked indicator** — shown when any predecessor is not yet `COMPLETE`
 - **Sprint chip** — when the task is committed to a sprint
@@ -177,6 +181,12 @@ Readiness is computed server-side from the task's data, resolved in this order (
 
 The readiness chip drives the card's left accent bar color (overridden by `isCritical` → red).
 
+Readiness is a **comparative** signal, so the chip is hidden when every card on the board
+shares the same state — the steady state of any project past planning is "everything is
+`baselined`", and a chip that is true of all of it tells you nothing while costing a line on
+every card. The chip returns the moment two states are in play. The left accent bar still
+carries readiness either way, and the state is always in the card's detail view.
+
 ## WIP overload
 
 When a column exceeds its configured WIP limit, the column header turns amber and a warning badge appears. See [WIP Overload](/features/wip-overload/) for details.
@@ -213,7 +223,11 @@ Switching cadence is **non-destructive** — an in-flight sprint is preserved, n
 
 ### Aging cards
 
-Each working column can carry an **aging threshold** in days, configured per column in **Workflow & fields** (Scheduler+). When a card sits in its column longer than that threshold it gets a calm "aging" badge showing its dwell time — a quiet nudge that work is stalling. The signal is board-local: it's visible to everyone on the board but is never rolled up into a program or portfolio metric. Leave a column's threshold blank to use the built-in default for that status.
+Each working column can carry an **aging threshold** in days, configured per column in **Workflow & fields** (Scheduler+). When a card sits in its column longer than that threshold it gets a calm "aging" badge showing its dwell time — a quiet nudge that work is stalling.
+
+Every card with a recorded column-entry time carries a **dwell line** reading
+`4d in this column · 60% done` (or `Moved here today` on the day it lands). The progress
+clause is omitted at 0% and at 100% — a card in Done saying "100% done" adds nothing. The signal is board-local: it's visible to everyone on the board but is never rolled up into a program or portfolio metric. Leave a column's threshold blank to use the built-in default for that status.
 
 ## Mobile
 

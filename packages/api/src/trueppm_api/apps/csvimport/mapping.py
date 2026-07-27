@@ -34,6 +34,20 @@ class FieldSpec:
     label: str
     required: bool
     aliases: tuple[str, ...]
+    #: When True the field is *not* consumed on match, so several columns can
+    #: claim it and the parser unions their values. Correct only for fields that
+    #: are naturally many — a sheet routinely carries `Tags`, `Component` and
+    #: `Team` that should all become labels, or `Predecessor 1`/`Predecessor 2`
+    #: from an MS Project export. Everything else keeps exactly-one behavior and
+    #: today's `duplicate` reporting: two `Name` columns is a mistake, not a
+    #: union (#2406).
+    multi: bool = False
+    #: Aliases that match only in the exact tier, never as a fuzzy substring.
+    #: For a short alias the substring tier is actively harmful — "tag" is
+    #: contained in "Percentage" and "Stage", so a fuzzy "tag" would quietly
+    #: route a percentage column into labels. Listing it here keeps `Tags` an
+    #: exact hit while `Percentage` stays unmapped.
+    exact_only: tuple[str, ...] = ()
 
 
 # The #111 alias table. Order matters: `detect_mapping` assigns each column to
@@ -97,6 +111,9 @@ TARGET_FIELDS: tuple[FieldSpec, ...] = (
         label="Predecessors",
         required=False,
         aliases=("predecessor", "dependson", "depends", "dependency", "blockedby", "after"),
+        # An MS Project CSV export splits dependencies across `Predecessor 1`,
+        # `Predecessor 2`, … — all of them are real links (#2406).
+        multi=True,
     ),
     FieldSpec(
         field="milestone",
@@ -109,6 +126,19 @@ TARGET_FIELDS: tuple[FieldSpec, ...] = (
         label="Notes",
         required=False,
         aliases=("note", "description", "comment", "detail", "remark"),
+    ),
+    # Declared last on purpose. Its aliases are the loosest in the table
+    # ("category", "component", "stream" are all plausible substrings of another
+    # column's header), and `detect_mapping` assigns each column to the first
+    # field it matches — so every more specific field gets its claim in first.
+    FieldSpec(
+        field="labels",
+        label="Labels",
+        required=False,
+        aliases=("label", "tag", "category", "component", "stream", "workstream"),
+        # A sheet's `Tags`, `Component` and `Team` columns are all labels.
+        multi=True,
+        exact_only=("tag",),
     ),
 )
 
@@ -142,6 +172,21 @@ _NORMALIZED_ALIASES: dict[str, tuple[str, ...]] = {
     for spec in TARGET_FIELDS
 }
 
+# The subset of each field's aliases eligible for the fuzzy substring tier. An
+# alias listed in ``exact_only`` is withheld here so it can still win an exact
+# match while never claiming a header that merely contains it.
+_FUZZY_ALIASES: dict[str, tuple[str, ...]] = {
+    spec.field: tuple(
+        alias
+        for alias in _NORMALIZED_ALIASES[spec.field]
+        if alias not in {normalize_header(a) for a in spec.exact_only}
+    )
+    for spec in TARGET_FIELDS
+}
+
+#: Fields that accept several source columns (``FieldSpec.multi``).
+MULTI_FIELDS: frozenset[str] = frozenset(s.field for s in TARGET_FIELDS if s.multi)
+
 
 @dataclass(frozen=True)
 class ColumnMapping:
@@ -159,7 +204,11 @@ class ColumnMapping:
 
 
 def _match_field(key: str, taken: set[str]) -> tuple[str | None, str]:
-    """Resolve one normalized header key to a field, skipping already-taken ones."""
+    """Resolve one normalized header key to a field, skipping already-taken ones.
+
+    A ``multi`` field is never in ``taken`` (the callers do not add it), so it
+    stays claimable by any number of columns.
+    """
     if not key:
         return None, "none"
 
@@ -173,7 +222,7 @@ def _match_field(key: str, taken: set[str]) -> tuple[str | None, str]:
     for spec in TARGET_FIELDS:
         if spec.field in taken:
             continue
-        for alias in _NORMALIZED_ALIASES[spec.field]:
+        for alias in _FUZZY_ALIASES[spec.field]:
             if len(alias) >= 3 and alias in key:
                 return spec.field, "fuzzy"
 
@@ -195,14 +244,22 @@ def detect_mapping(
             source of valid names and a stale client should not 500 the import.
 
     Returns:
-        One ``ColumnMapping`` per column, in column order. A field is claimed by
-        at most one column; a second column matching a claimed field is reported
-        with ``confidence="duplicate"`` and ``field=None`` so the operator can
-        see *why* it was dropped rather than watching it silently vanish.
+        One ``ColumnMapping`` per column, in column order. A single-valued field
+        is claimed by at most one column; a second column matching a claimed
+        field is reported with ``confidence="duplicate"`` and ``field=None`` so
+        the operator can see *why* it was dropped rather than watching it
+        silently vanish. A ``multi`` field (``labels``, ``predecessors``) is
+        never consumed, so every column claiming it maps and the parser unions
+        their values (#2406).
     """
     overrides = overrides or {}
     result: list[ColumnMapping] = []
     taken: set[str] = set()
+
+    def claim(field: str) -> None:
+        """Consume a field so no later column can consume it — unless it is multi."""
+        if field not in MULTI_FIELDS:
+            taken.add(field)
 
     # Pass 1 -- honor explicit overrides so they cannot be pre-empted by an
     # auto-detected column further left claiming the same field.
@@ -218,7 +275,7 @@ def detect_mapping(
             continue
         resolved[index] = (field, "override" if field else "none")
         if field:
-            taken.add(field)
+            claim(field)
 
     # Pass 2 -- auto-detect everything the caller did not pin.
     for index, header in enumerate(headers):
@@ -227,7 +284,7 @@ def detect_mapping(
         key = normalize_header(header)
         field, confidence = _match_field(key, taken)
         if field:
-            taken.add(field)
+            claim(field)
         elif key and _matches_any_alias(key):
             # It *would* have matched, but the field was already claimed.
             confidence = "duplicate"
@@ -241,10 +298,10 @@ def detect_mapping(
 
 def _matches_any_alias(key: str) -> bool:
     """True when ``key`` matches some field's alias, ignoring what is taken."""
-    for aliases in _NORMALIZED_ALIASES.values():
+    for field, aliases in _NORMALIZED_ALIASES.items():
         if key in aliases:
             return True
-        if any(len(alias) >= 3 and alias in key for alias in aliases):
+        if any(len(alias) >= 3 and alias in key for alias in _FUZZY_ALIASES[field]):
             return True
     return False
 
@@ -255,6 +312,28 @@ def missing_required(mappings: list[ColumnMapping]) -> list[str]:
     return [f for f in REQUIRED_FIELDS if f not in mapped]
 
 
+def indexes_by_field(mappings: list[ColumnMapping]) -> dict[str, list[int]]:
+    """Invert the mapping into ``{field: [column index, ...]}`` in column order.
+
+    Uniformly a list even for single-valued fields, so a caller cannot reach a
+    ``multi`` field's columns through an accessor that silently drops all but
+    one — the type is what forces every read site to decide (#2406).
+    """
+    by_field: dict[str, list[int]] = {}
+    for m in mappings:
+        if m.field:
+            by_field.setdefault(m.field, []).append(m.index)
+    return by_field
+
+
 def field_choices() -> list[dict[str, object]]:
-    """Serializable field catalog for the wizard's per-column dropdown."""
-    return [{"field": s.field, "label": s.label, "required": s.required} for s in TARGET_FIELDS]
+    """Serializable field catalog for the wizard's per-column dropdown.
+
+    ``multi`` tells the wizard which cards accept more than one source column,
+    so frame 2.1 can render the Labels card as an additive list rather than a
+    single-select that appears broken when a second column is chosen.
+    """
+    return [
+        {"field": s.field, "label": s.label, "required": s.required, "multi": s.multi}
+        for s in TARGET_FIELDS
+    ]

@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, type RefObject } from 'react';
 import { NavLink, useNavigate } from 'react-router';
+import { useWorkspaceSettings } from '@/features/settings/hooks/useWorkspaceSettings';
+import { useFeedbackStore } from '@/stores/feedbackStore';
 import { useAuthStore } from '@/stores/authStore';
 import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
@@ -29,6 +31,8 @@ interface MenuContentProps {
   email: string | undefined;
   onSignOut: () => void;
   onOpenShortcuts: () => void;
+  /** Opens the feedback dialog (#2392); absent when the operator disabled it. */
+  onOpenFeedback?: () => void;
   onClose: () => void;
   /** true for mobile bottom sheet (52px row height); false for desktop (36px). */
   isMobile: boolean;
@@ -50,6 +54,7 @@ function MenuContent({
   email,
   onSignOut,
   onOpenShortcuts,
+  onOpenFeedback,
   onClose,
   isMobile,
   projectId,
@@ -210,6 +215,23 @@ function MenuContent({
       >
         Keyboard shortcuts
       </button>
+
+      {/* Report a bug / send feedback (#2392) — grouped with the other help
+          affordances. Omitted entirely when the operator disabled it, rather
+          than shown disabled: a locked-down install should not advertise a
+          route it has closed. */}
+      {onOpenFeedback && (
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            onOpenFeedback();
+          }}
+          className={`${rowInteractive} w-full text-left text-sm text-neutral-text-primary`}
+        >
+          Report a bug
+        </button>
+      )}
 
       {/* Divider */}
       <div className="mx-4 border-t border-neutral-border" aria-hidden="true" />
@@ -392,6 +414,13 @@ export function UserMenu() {
   // Client-side identity fallback (display_name → username → email local-part).
   // The chip must never degrade to a literal "?" nor a generic "User menu" — a
   // "?" top-right reads as Help, not "your account" (#1792).
+  // The feedback control is operator-controlled (#2392): `feedback_enabled`
+  // false hides it entirely. Default to shown while the setting loads — the
+  // dialog itself sends nothing, so an optimistic render costs nothing.
+  const { data: workspaceSettings } = useWorkspaceSettings();
+  const openFeedback = useFeedbackStore((s) => s.setOpen);
+  const feedbackAvailable = workspaceSettings?.feedbackEnabled !== false;
+
   const avatarInitials = initialsForUser(user);
   const accessibleName = accountAccessibleName(user);
 
@@ -401,6 +430,7 @@ export function UserMenu() {
     email: user?.email,
     onSignOut: handleSignOut,
     onOpenShortcuts: openShortcutsModal,
+    onOpenFeedback: feedbackAvailable ? () => openFeedback(true) : undefined,
     onClose: close,
     projectId,
     // Strict `!== false`: keep the row visible while the role signal loads and
@@ -484,6 +514,7 @@ export function UserMenu() {
           </>
         )}
       </div>
+
     </>
   );
 }

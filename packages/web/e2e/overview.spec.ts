@@ -242,8 +242,12 @@ test.describe('Project overview page', () => {
     // Wait for the ranked KPI focus section (#1191). Its heading is calm-aware
     // ("Project health" before data / when all-neutral, "Needs attention" once
     // an at-risk metric loads), so gate on the always-present secondary strip
-    // heading instead — it renders as soon as the page mounts and never changes.
-    await expect(page.getByRole('region', { name: /more metrics/i })).toBeVisible({
+    // instead — it renders as soon as the page mounts. Since #2429 that strip's
+    // heading is also severity-derived, so match either verdict rather than a
+    // fixed string.
+    await expect(
+      page.getByRole('region', { name: /holding steady|also needs attention/i }),
+    ).toBeVisible({
       timeout: 10_000,
     });
   });
@@ -330,8 +334,11 @@ test.describe('Project overview page', () => {
     const health = page.getByRole('region', { name: /project health/i });
     await expect(health.getByRole('status')).toContainText("Couldn't load project health.");
     await expect(health.getByRole('button', { name: 'Retry' })).toBeVisible();
-    // The fabricated "More metrics" strip is gone — that was the swallowed-error bug.
-    await expect(page.getByRole('region', { name: /more metrics/i })).toHaveCount(0);
+    // The fabricated secondary strip is gone — that was the swallowed-error bug.
+    // Its heading is severity-derived since #2429, so match either verdict.
+    await expect(
+      page.getByRole('region', { name: /holding steady|also needs attention/i }),
+    ).toHaveCount(0);
   });
 
   test('project header shows health badge and project name', async ({ page }) => {
@@ -521,5 +528,33 @@ test.describe('Project overview page', () => {
     await expect(link).toHaveAttribute('href', /\/tasks\/m1$/);
     await link.click();
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/tasks/m1`));
+  });
+
+  // Rule 119 (#2428): a metric the API cannot compute renders muted *with a
+  // reason*, never as a bare em-dash — otherwise "no one is allocated" and "this
+  // is broken" look identical. Re-routes /overview/ and reloads; the later
+  // registration wins under Playwright's LIFO precedence.
+  test('an uncomputable Team utilization card explains itself instead of showing a bare dash', async ({
+    page,
+  }) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...FIXTURE_OVERVIEW,
+          team_utilization_pct: null,
+          team_utilization_reason: 'no_roster',
+        }),
+      }),
+    );
+    await page.reload();
+
+    await expect(page.getByText('Team utilization')).toBeVisible();
+    // The human sentence, driven by the machine code through a lookup map.
+    await expect(page.getByText('Needs people on the project roster')).toBeVisible();
+    // Never the raw code, and no drill-down on a valueless card (rule 172).
+    await expect(page.getByText('no_roster')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /team utilization/i })).toHaveCount(0);
   });
 });

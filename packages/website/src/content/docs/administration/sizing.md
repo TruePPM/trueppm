@@ -3,11 +3,73 @@ title: Deployment Sizing
 description: Preliminary hardware sizing best-guesses for 50, 100, and 200 concurrent users.
 ---
 
-:::caution[Preliminary best-guesses — not benchmarked guarantees]
-These numbers are **preliminary best-guesses, not benchmarked guarantees.** TruePPM has no published load-testing data yet, and large-scale hardening is on the pre-1.0 roadmap. Treat every figure on this page as a starting point to **load-test against your own workload**, and validate before committing budget or hardware.
+:::caution[Hardware sizing below is still a best-guess]
+The **[Tested envelope](#tested-envelope)** section immediately below reports *measured* data-shape limits. Everything after it — the CPU/RAM/replica tiers — remains a **preliminary best-guess, not a benchmarked guarantee.** Large-scale hardening is on the pre-1.0 roadmap. Treat every hardware figure on this page as a starting point to **load-test against your own workload** before committing budget.
 :::
 
-This page offers rough sizing guidance for self-hosted deployments at three scales. Because there is no benchmark data behind these figures yet, they are derived from the shipped Helm defaults and the shape of the workload — not from measured capacity. Expect to adjust them once you have run TruePPM against your real schedules.
+This page has two halves. The **tested envelope** states what the 0.4 beta has actually been measured to hold and names the constraint that sets each ceiling. The **sizing tiers** that follow are derived from the shipped Helm defaults and the shape of the workload, not from measured capacity — adjust them once you have run TruePPM against your real schedules.
+
+## Tested envelope
+
+Measured for **0.4 beta**, on **2026-07-26**, against commit `89fc5137f`.
+
+These are the numbers TruePPM has been *tested* to hold. They are not the maximum it can hold, and they are not a promise about your hardware. Where a ceiling is set by known, already-triaged work, that issue is named — so you can judge whether your shape of project sits near an edge.
+
+### Method
+
+Measured with the capacity harness in [`packages/api/perf/capacity/`](https://gitlab.com/trueppm/trueppm/-/tree/main/packages/api/perf/capacity), which you can re-run yourself. It steps load up until the **first sustained breach** rather than driving a fixed profile, where a breach is **p95 > 2 s** or an **error rate > 1%**. 2 s is the "still usable" line for opening a schedule.
+
+The stack under test is an isolated Docker Compose stack running `settings.prod` with `DEBUG=False` and the **shipped image's default command** — which is a *single uvicorn process*. That single process is itself one of the constraints below.
+
+**Hardware:** Apple M1 Max, 10 cores (8 performance / 2 efficiency), 32 GiB RAM, macOS 26.5.1; Docker Desktop allocated 10 CPUs and 7.75 GiB. Postgres 16 with `shared_buffers=1GB`, `effective_cache_size=3GB`, `max_connections=200`.
+
+This is a **single-node developer-class machine**, which is deliberately close to what a 0.4 beta self-hoster actually runs — not a tuned multi-node production cluster. A dedicated server will do better; a small VPS will do worse.
+
+### What was measured
+
+| Dimension | Tested to | Measured p95 | What sets the ceiling |
+|---|---|---|---|
+| **Tasks per project** — one page of the task list | **4,000 tasks** | 0.35 s @ 500 · 0.57 s @ 1k · 1.19 s @ 2k · **1.99 s @ 4k** · breaches at 8k (8.3 s) | Page-bounded, so it degrades gently. 4,000 sits *on* the 2 s gate — treat 2,000 as the comfortable figure |
+| **Whole-project load** — every page, what the Schedule fetches before drawing a bar | **1,000 tasks** | 0.22 s @ 100 · 0.50 s @ 250 · 0.96 s @ 500 · **1.85 s @ 1k** · breaches at 2k (**60 s**) | [#2277](https://gitlab.com/trueppm/trueppm/-/issues/2277) — the Schedule loads the entire project into memory via `fetchAllPagesParallel`; there is no windowing |
+| **Dependency edges per project** | **12,000 edges** on a 4,000-task project | 0.12–0.15 s, flat — **no breach found** | Not the binding constraint at this scale. Untested above 12,000 |
+| **Projects per workspace / total tasks** | **50 projects · 50,000 tasks** | 0.04–0.06 s, flat — **no breach found** | The project-list N+1 ([#1482](https://gitlab.com/trueppm/trueppm/-/issues/1482)) does not bite at this scale. Untested above 50 projects |
+
+**Two things in this table matter more than the rest.**
+
+**The Schedule is the binding constraint, not the database.** A project holds several thousand tasks comfortably while you page through a list, and a workspace absorbs 50,000 tasks without noticing. But when the **Schedule** opens a project the client pulls *every* page, and that is a far lower ceiling. If you work in the Gantt, plan against **~1,000 tasks per project** in 0.4 — not 4,000.
+
+**Past that point it is a cliff, not a slope.** Whole-project load goes from **1.85 s at 1,000 tasks to 60 s at 2,000** — a 32× jump for a 2× increase in data. Doubling from a comfortable project does not get you a slow project; it gets you one that reads as hung. That non-linearity is the single most important thing to know before committing a large plan to 0.4, and it is why [#2277](https://gitlab.com/trueppm/trueppm/-/issues/2277) is named rather than buried.
+
+### What was explicitly *not* measured
+
+These are **untested**, not unbounded. Do not read silence as a guarantee.
+
+| Dimension | Status |
+|---|---|
+| **Concurrent authenticated users** | **Not measured.** Three runs of the identical single-reader step returned 90 s, 12 s and 3 s for a read the task sweep measured at 1.3 s. The spread is contention on a shared developer workstation, and a ceiling asserted from it would be invented. Needs a quiet, dedicated host. Note that the shipped image runs **one uvicorn process**, so throughput scales by replica count — and [#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275) (`ATOMIC_REQUESTS` with no connection pooler) is the expected first constraint |
+| **Concurrent WebSocket connections per project** | **Not measured.** See [#2339](https://gitlab.com/trueppm/trueppm/-/issues/2339) — reconnect-storm scaling is a known open question |
+| **Monte Carlo iterations at the task ceiling** | **Not measured.** [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) — Monte Carlo runs on the request thread, so it is bounded by your gateway timeout before anything else |
+| **Import size (rows)** | **Not measured here.** The 10 MB / 5,000-row limit claimed for CSV/Excel import is enforced at the parser, not derived from this run — see [#743](https://gitlab.com/trueppm/trueppm/-/issues/743) |
+| **Board rendering at scale** | **Not measured.** [#1538](https://gitlab.com/trueppm/trueppm/-/issues/1538) / [#2340](https://gitlab.com/trueppm/trueppm/-/issues/2340) — the board renders every card with no virtualization |
+| **Gantt interaction at scale** | **Not measured.** [#1540](https://gitlab.com/trueppm/trueppm/-/issues/1540) / [#1587](https://gitlab.com/trueppm/trueppm/-/issues/1587) — O(N) hit-test per `pointermove` |
+| **Sustained multi-day / multi-user soak** | **Not measured.** Every figure above is a point-in-time read sweep |
+
+### Fidelity caveats
+
+The seeded database is written with `bulk_create`, so it carries **no `django-simple-history` rows** and leaves `server_version` at 0. Neither is read by a schedule or task-list request, so read latency is unaffected — but **on-disk size and sync-delta timings would understate** an organically grown database. Generated dependencies are strictly forward-linked, which is tidier than a real plan's topology.
+
+### Re-running this
+
+The numbers carry the version they were measured against so they can be compared next release:
+
+```bash
+docker compose -f packages/api/perf/capacity/docker-compose.capacity.yml up -d
+python packages/api/perf/capacity/run_capacity.py --dimension all \
+  --out packages/api/perf/capacity/results
+docker compose -f packages/api/perf/capacity/docker-compose.capacity.yml down -v
+```
+
+Raw results, including the per-step host load average and noise-control readings, are committed under `packages/api/perf/capacity/results/`.
 
 ## "Users" means concurrent active users
 

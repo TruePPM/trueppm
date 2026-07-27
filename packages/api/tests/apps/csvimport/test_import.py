@@ -17,7 +17,14 @@ from trueppm_api.apps.csvimport.models import CsvImportRequest, CsvImportStatus
 from trueppm_api.apps.csvimport.parser import parse_spreadsheet
 from trueppm_api.apps.csvimport.views import _require_project_scheduler
 from trueppm_api.apps.msproject.importer import import_project
-from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    Dependency,
+    Label,
+    Project,
+    Task,
+    TaskLabel,
+)
 from trueppm_api.apps.resources.models import Resource
 from trueppm_api.apps.scheduling.graph_guard import (
     InfeasibleGraphError,
@@ -25,7 +32,14 @@ from trueppm_api.apps.scheduling.graph_guard import (
 )
 from trueppm_api.apps.scheduling.tasks import _run_schedule
 
-from .fixtures import CYCLIC_CSV, INDENTED_CSV, REFERENCE_CSV, build_xlsx
+from .fixtures import (
+    CYCLIC_CSV,
+    INDENTED_CSV,
+    LABELS_CSV,
+    MULTI_PREDECESSOR_CSV,
+    REFERENCE_CSV,
+    build_xlsx,
+)
 
 
 @pytest.fixture
@@ -521,3 +535,95 @@ class TestTemplateEndpoint:
     def test_template_requires_authentication(self) -> None:
         r = APIClient().get("/api/v1/import-templates/csv/")
         assert r.status_code in (401, 403)
+
+
+# --- labels (#2406, ADR-0400) ----------------------------------------------
+
+
+def _import_labels_csv(project: Project, csv: bytes = LABELS_CSV) -> dict:
+    data = parse_spreadsheet(csv, "labels.csv").project_data
+    return import_project(str(project.pk), data)
+
+
+def test_labels_are_created_and_attached(project: Project) -> None:
+    summary = _import_labels_csv(project)
+
+    assert summary["labels_created"] == 5  # safety, rework, Civil, permit, Structural
+    assert set(Label.objects.filter(project=project).values_list("name", flat=True)) == {
+        "safety",
+        "rework",
+        "Civil",
+        "permit",
+        "Structural",
+    }
+    survey = Task.objects.get(project=project, name="Site survey")
+    assert set(survey.labels.values_list("name", flat=True)) == {"safety", "rework", "Civil"}
+
+
+def test_a_task_with_no_labels_gets_none(project: Project) -> None:
+    _import_labels_csv(project)
+    assert Task.objects.get(project=project, name="Fit-out").labels.count() == 0
+
+
+def test_existing_catalog_entries_are_matched_case_insensitively(project: Project) -> None:
+    """An import must reuse `safety` rather than minting `Safety` beside it."""
+    existing = Label.objects.create(project=project, name="Safety")
+
+    summary = _import_labels_csv(project)
+
+    assert summary["labels_matched"] == 1
+    assert Label.objects.filter(project=project, name__iexact="safety").count() == 1
+    survey = Task.objects.get(project=project, name="Site survey")
+    # The curated catalog spelling wins over the spreadsheet's.
+    assert existing in survey.labels.all()
+
+
+def test_labels_are_scoped_to_the_target_project(project: Project, calendar: Calendar) -> None:
+    """`Label` is project-scoped — a same-named label elsewhere is not a match."""
+    other = Project.objects.create(name="Other", start_date=date(2026, 1, 5), calendar=calendar)
+    Label.objects.create(project=other, name="safety")
+
+    _import_labels_csv(project)
+
+    assert Label.objects.filter(project=project, name="safety").exists()
+    assert Label.objects.filter(project=other, name="safety").count() == 1
+
+
+def test_re_import_is_idempotent(project: Project) -> None:
+    """Re-running the same file must not duplicate catalog entries or links."""
+    _import_labels_csv(project)
+    before_labels = Label.objects.filter(project=project).count()
+    before_links = TaskLabel.objects.filter(task__project=project).count()
+
+    # wipe_existing mirrors the create-from-import path (ADR-0092); the labels
+    # survive because the catalog is project-scoped, not task-scoped.
+    data = parse_spreadsheet(LABELS_CSV, "labels.csv").project_data
+    import_project(str(project.pk), data, wipe_existing=True)
+
+    assert Label.objects.filter(project=project).count() == before_labels
+    assert TaskLabel.objects.filter(task__project=project).count() == before_links
+
+
+def test_new_labels_get_distinguishable_colors(project: Project) -> None:
+    """A wall of the default color makes the pill row useless."""
+    _import_labels_csv(project)
+    colors = list(Label.objects.filter(project=project).values_list("color", flat=True))
+    assert len(set(colors)) > 1
+
+
+def test_a_file_with_no_label_column_creates_no_labels(project: Project) -> None:
+    data = parse_spreadsheet(REFERENCE_CSV, "ref.csv").project_data
+    summary = import_project(str(project.pk), data)
+    assert summary["labels_created"] == 0
+    assert not Label.objects.filter(project=project).exists()
+
+
+def test_multi_column_predecessors_create_both_dependencies(project: Project) -> None:
+    data = parse_spreadsheet(MULTI_PREDECESSOR_CSV, "preds.csv").project_data
+    import_project(str(project.pk), data)
+
+    build = Task.objects.get(project=project, name="Build")
+    assert Dependency.objects.filter(successor=build).count() == 2
+    # The same ref repeated across two columns is one relationship, not two.
+    inspect = Task.objects.get(project=project, name="Inspect")
+    assert Dependency.objects.filter(successor=inspect).count() == 1

@@ -56,6 +56,7 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_THROTTLE_SHARE_MINT_RATE` | `20/min` | Rate limit for an Admin minting public board links, per account, in DRF `<count>/<period>` form. |
 | `TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE` | `6/min` | Rate limit for loading a bundled demo sample (`POST /programs/load-sample/`), per account, in DRF `<count>/<period>` form. Each call rebuilds an entire program — a teardown of the caller's previous copy plus a full fixture import, run synchronously — so the cap is deliberately tight. Ample for a person clicking **Load demo data** and trying a couple of samples; raise it only if you are scripting demo environments. |
 | `TRUEPPM_THROTTLE_SEED_IMPORT_RATE` | `6/min` | Rate limit for importing a JSON seed bundle (`POST /programs/import/`), per account, in DRF `<count>/<period>` form. Runs the same synchronous importer as the demo loader above, on a payload the caller supplies. Separate bucket, so loading a demo does not spend an import allowance. Raise it if you bulk-migrate programs through the API. |
+| `TRUEPPM_THROTTLE_SEED_VALIDATE_RATE` | `20/min` | Rate limit for the seed **dry run** (`POST /programs/import/validate/`), per account, in DRF `<count>/<period>` form. Looser than the import bucket because the dry run never reaches the importer — it parses and validates, then writes nothing. Separate bucket for a usability reason as much as a cost one: iterating on a file until it validates must not spend the allowance for importing the file that finally passes. |
 | `TRUEPPM_THROTTLE_MCP_READ_RATE` | `120/min` | Baseline rate limit for **API-token** reads on the [MCP read surface](/features/mcp-server/), per token, in DRF `<count>/<period>` form. Does not affect human session/JWT traffic. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
 | `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE` | `12/min` | Tighter rate limit stacked on the four **compute-heavy** MCP tools (what-if, latest Monte Carlo, forecast, sprint-forecast), per token, in DRF `<count>/<period>` form. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
 | `TRUEPPM_MCP_ENABLED` | `true` | Instance-wide kill switch for [MCP (AI-agent) token access](/features/mcp-server/). When `false`, every `mcp:read` token read is denied (`403`) across the whole instance — even for tokens that already exist — while human session/JWT traffic on the same endpoints is unaffected. The operator lever for "no agent access on this instance, period." See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
@@ -395,6 +396,57 @@ talk to the API:
 | `CSP_CONNECT_SRC` | The Content-Security-Policy `connect-src` defaults to `'self' wss:`. With the SPA on a different origin, the browser blocks XHR / WebSocket connections to the API origin. | `'self' https://api.example.com wss://api.example.com` — add the API origin and its `wss://` origin. |
 
 Also set `CSRF_TRUSTED_ORIGINS` (above) for any split-origin deploy.
+
+## In-product feedback ("Report a bug")
+
+TruePPM shows a **Report a bug** entry in the account menu and the command
+palette. Choosing it opens a dialog containing the exact text that would be
+submitted; the user can edit it, then continue to your tracker in a new tab.
+
+**It is a link, not a beacon.** TruePPM sends nothing on this path. Rendering the
+control makes no network request, opening the dialog makes no network request,
+and there is no background telemetry attached to it. The context travels only as
+query parameters in a URL the user can read before submitting, and the link
+carries `rel="noopener noreferrer"` so the tracker is not even handed the page
+URL the user came from.
+
+**What is included** — the minimum that makes a report actionable:
+
+- the TruePPM version, edition, and build SHA;
+- the *screen* the user was on, as a route shape (`/projects/:id/board`);
+- the browser's user-agent string.
+
+**What is not included** — and cannot be, by construction:
+
+- any workspace, program, project, task, or user identifier;
+- the user's name or email address;
+- any query string, search term, or filter value;
+- any schedule, comment, or attachment content.
+
+Identifiers are stripped from the route before the body is assembled: the query
+string and fragment are dropped entirely, and any path segment that looks like an
+identifier is replaced with `:id`.
+
+Two settings, under **Settings → System → Feedback** (workspace admin only):
+
+| Setting | Default | Effect |
+|---|---|---|
+| **Report a bug control** | Shown | Hides the entry entirely — from the account menu *and* the command palette — when set to Hidden. A locked-down install does not advertise a route it has closed. |
+| **Tracker URL** | *(blank)* | Where the control points. Blank means the public TruePPM issue tracker. Set it to your own tracker or helpdesk to keep reports internal. |
+
+The default tracker URL is **not stored** in the database. A blank value means
+"use the built-in default", so an operator who never touched the setting follows
+the default wherever it moves in a future release, rather than being pinned to
+whatever it was at install time.
+
+The prefilled title and description are passed as `issue[title]` and
+`issue[description]` query parameters (GitLab's new-issue form). A tracker that
+does not understand them ignores them and simply opens its own blank form, so
+repointing at an arbitrary helpdesk URL still works.
+
+:::note[Ships in 0.4]
+The in-product feedback control and both settings above ship in 0.4.
+:::
 
 ## First user setup
 

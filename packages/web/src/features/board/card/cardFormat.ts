@@ -12,8 +12,23 @@ export function initials(name: string): string {
 }
 
 /**
- * Format an entry-stamp line and compute dwell time.
+ * Format the dwell line and compute dwell time.
  * Returns daysAgo for use by the SLA aging indicator (issue 192).
+ *
+ * The line used to read `Entered at 100% · 42d ago`, which was not parseable
+ * without knowing the data model (#2430): "entered" referred to the *column*, the
+ * percentage was the task's *current* progress rather than its progress on entry,
+ * and "42d ago" dated an event the reader could not name. Three facts, none of
+ * them stated.
+ *
+ * It now reads in outcome language — `42d in this column · 60% done` — leading
+ * with the fact the board is actually for (how long this has sat where it is) and
+ * naming the percentage. "This column" rather than the status name: the column
+ * header is directly above the card, so the reference is unambiguous and needs no
+ * extra data threaded in.
+ *
+ * The progress clause is omitted at 0% (nothing to report) and at 100% (a card
+ * that is done says so by sitting in Done; "100% done" is a tautology there).
  */
 export function entryStamp(task: Task): {
   text: string;
@@ -31,20 +46,60 @@ export function entryStamp(task: Task): {
   const enteredMs = new Date(task.statusEnteredAt).getTime();
   const derivedDays = Math.floor((Date.now() - enteredMs) / 86_400_000);
   const daysAgo = task.dwellDays ?? derivedDays;
-  const daysLabel = daysAgo === 1 ? '1d ago' : `${daysAgo}d ago`;
+  // "today" rather than "0d": a card that landed this morning has not spent a
+  // measurable span here, and "0d in this column" reads like a broken counter.
+  const dwellLabel =
+    daysAgo === 0 ? 'Moved here today' : `${daysAgo}d in this column`;
 
   // COMPLETE implies 100% regardless of the stored progress value, so the
-  // entry stamp matches the column it lives in.  Stalled is also a no-op on
+  // dwell line matches the column it lives in.  Stalled is also a no-op on
   // DONE — a card sitting in DONE for weeks isn't "stalled," it's finished.
   const effectiveProgress = task.status === 'COMPLETE' ? 100 : task.progress;
   const isStalled =
     task.isStalled ?? (task.status !== 'COMPLETE' && daysAgo > 3 && effectiveProgress < 100);
 
+  const progressClause =
+    effectiveProgress > 0 && effectiveProgress < 100 ? ` · ${effectiveProgress}% done` : '';
+
   return {
-    text: `Entered at ${effectiveProgress}% · ${daysLabel}${isStalled ? ' — stalled' : ''}`,
+    text: `${dwellLabel}${progressClause}${isStalled ? ' — stalled' : ''}`,
     isStalled,
     daysAgo,
   };
+}
+
+/**
+ * Does the readiness chip carry any signal across this set of cards? (#2430)
+ *
+ * Readiness is a *comparative* signal: it earns its line of scarce card height
+ * only by distinguishing one card from another. On a board where every task is
+ * `baselined` — the steady state of any project past planning — a `baselined`
+ * chip on every card is pure noise, and it is the least actionable of the four
+ * states (rule 107). So the chip renders only once the board holds more than one
+ * distinct readiness value.
+ *
+ * Decided board-wide rather than per card, and applied upstream in `BoardView`
+ * (mirroring how `customFieldDefs` is gated, web-rule 271) so the card itself
+ * stays unaware of board-view state.
+ *
+ * Summary rows are excluded: they are structure, not work, and a lone
+ * differently-ready summary must not resurrect the chip on every leaf card.
+ *
+ * @param tasks The board's committed (visible) task set.
+ * @returns True when at least two distinct readiness values are present.
+ */
+export function readinessIsInformative(
+  tasks: ReadonlyArray<Pick<Task, 'readiness' | 'isSummary'>>,
+): boolean {
+  const seen = new Set<string>();
+  for (const t of tasks) {
+    if (t.isSummary) continue;
+    if (!t.readiness) continue;
+    seen.add(t.readiness);
+    // Two distinct values is all it takes — stop scanning a 500-card board.
+    if (seen.size > 1) return true;
+  }
+  return false;
 }
 
 /** Format a currency value compactly (e.g. 125000 → "$125K"). */

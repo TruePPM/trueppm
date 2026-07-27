@@ -153,6 +153,8 @@ export function buildWorkspaceNavGroups({ linked }: { linked: boolean }): Settin
         // on the consolidated page (#2298); still discoverable in the rail by name.
         { id: 'observability', label: 'Observability',     to: anchor('observability'), keywords: 'otlp telemetry traces metrics opentelemetry otel export exporter endpoint collector grafana prometheus logs spans monitoring', icon: <NavIcon><ObservabilityNavIcon /></NavIcon> },
         { id: 'retention',     label: 'Retention & purge', to: anchor('retention'),     keywords: 'gdpr purge data retention compliance delete audit residency privacy erasure ccpa dsar', icon: <NavIcon><ClockIcon aria-hidden="true" /></NavIcon> },
+        // #2392 — operator control over the in-product report-a-bug affordance.
+        { id: 'feedback',      label: 'Feedback',          to: anchor('feedback'),      keywords: 'report a bug support issue tracker helpdesk contact problem', icon: <NavIcon><ShieldNavIcon /></NavIcon> },
         { id: 'trash',         label: 'Trash',             to: anchor('trash'),         keywords: 'deleted restore recover recycle bin', icon: <NavIcon><RetentionNavIcon /></NavIcon> },
       ],
     },

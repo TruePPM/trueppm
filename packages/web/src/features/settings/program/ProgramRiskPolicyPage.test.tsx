@@ -277,7 +277,7 @@ describe('ProgramRiskPolicyPage (settings)', () => {
     expect(useSettingsSaveStore.getState().apiReady).toBe(false);
   });
 
-  it('loading state renders Loading… without crashing', () => {
+  it('loading state renders a rule-248 skeleton ghost without crashing', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
     useProgramRiskPolicy.mockReturnValue({
       data: undefined,
@@ -286,7 +286,9 @@ describe('ProgramRiskPolicyPage (settings)', () => {
       refetch,
     });
     renderPage();
-    expect(screen.getByText(/Loading…/)).toBeInTheDocument();
+    // Rule 248: a skeleton ghost with a named status node, never bare text (#2431).
+    expect(screen.getByRole('status', { name: /Loading risk policy/i })).toBeInTheDocument();
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
   });
 
   it('error state shows Retry and refetches on click', async () => {

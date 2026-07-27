@@ -74,7 +74,8 @@ describe('ProjectGuardrailsPage', () => {
       update: { mutate: vi.fn(), isPending: false },
     });
     renderPage();
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    // Rule 248: a skeleton ghost with a named status node, never bare text (#2431).
+    expect(screen.getByRole('status', { name: /Loading guardrails/i })).toBeInTheDocument();
   });
 
   it('renders the rule matrix with outcome-language copy (no WBS jargon)', () => {

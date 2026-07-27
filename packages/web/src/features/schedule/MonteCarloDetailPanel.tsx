@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { MonteCarloResult, Task } from '@/types';
+import { ForecastBasisHelp } from './ForecastBasisHelp';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
 import { SensitivityList } from './SensitivityList';
 import { fmtUtcShort, fmtUtcLong } from '@/lib/formatUtcDate';
@@ -116,10 +117,15 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-border shrink-0">
         <div>
-          <h2 className="text-sm font-semibold text-neutral-text-primary">Monte Carlo forecast</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-sm font-semibold text-neutral-text-primary">Monte Carlo forecast</h2>
+            {/* The panel is the only surface that names the deterministic finish,
+                so it is where the CPM-vs-simulation explanation belongs (#2439). */}
+            <ForecastBasisHelp />
+          </div>
           {cpmFinish && (
             <p className="text-xs text-neutral-text-secondary mt-0.5">
-              CPM finish: {fmtUtcLong(cpmFinish)}
+              Computed (CPM) finish: {fmtUtcLong(cpmFinish)}
             </p>
           )}
         </div>
@@ -149,8 +155,11 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
         {/* Risk delta vs CPM */}
         {cpmFinish && (
           <section>
+            {/* "Risk delta vs deterministic finish" (#2439) — "deterministic"
+                was the app's only use of the word, unexplained, on the one
+                surface a user reaches after already running a simulation. */}
             <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
-              Risk delta vs deterministic finish
+              Added time vs the computed finish
             </h3>
             {p50Delta !== null && <DeltaRow label="P50 (50% confidence)" delta={p50Delta} />}
             {p80Delta !== null && <DeltaRow label="P80 (80% confidence)" delta={p80Delta} />}

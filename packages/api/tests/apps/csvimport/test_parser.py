@@ -20,7 +20,9 @@ from .fixtures import (
     DAY_FIRST_CSV,
     EMPTY_CSV,
     INDENTED_CSV,
+    LABELS_CSV,
     MESSY_CSV,
+    MULTI_PREDECESSOR_CSV,
     NO_NAME_COLUMN_CSV,
     REFERENCE_CSV,
     SEMICOLON_CSV,
@@ -381,3 +383,81 @@ class TestOverridesReachTheParser:
         )
         assert _names(result) == ["Design"]
         assert result.project_data.tasks[0].duration_days == 3
+
+
+class TestLabels:
+    """`labels` was not a mappable field at all — a Tags column imported
+    silently unmapped, landing the spreadsheet migrator in a project where
+    every 0.4 label feature is empty (#2406)."""
+
+    def test_tags_column_becomes_labels(self) -> None:
+        result = parse_spreadsheet(LABELS_CSV, "labels.csv")
+        by_name = {t.name: t for t in result.project_data.tasks}
+        assert by_name["Fit-out"].labels == []
+        assert "safety" in by_name["Site survey"].labels
+
+    def test_two_label_columns_are_unioned_onto_the_task(self) -> None:
+        result = parse_spreadsheet(LABELS_CSV, "labels.csv")
+        by_name = {t.name: t for t in result.project_data.tasks}
+        assert by_name["Site survey"].labels == ["safety", "rework", "Civil"]
+
+    def test_cells_split_on_the_shared_separators(self) -> None:
+        """Same `, ; /` convention the resource column has always used."""
+        result = parse_spreadsheet(LABELS_CSV, "labels.csv")
+        by_name = {t.name: t for t in result.project_data.tasks}
+        assert by_name["Foundation pour"].labels == ["safety", "permit", "Civil"]
+
+    def test_case_variants_collapse_to_the_first_spelling(self) -> None:
+        """An import must not mint `SAFETY` alongside the `safety` it just saw."""
+        result = parse_spreadsheet(LABELS_CSV, "labels.csv")
+        by_name = {t.name: t for t in result.project_data.tasks}
+        assert by_name["Steel erection"].labels == ["safety", "Structural"]
+
+    def test_a_task_repeating_a_label_across_columns_gets_it_once(self) -> None:
+        csv = b"Name,Tags,Component\nA,shared,Shared\n"
+        result = parse_spreadsheet(csv, "dup.csv")
+        assert result.project_data.tasks[0].labels == ["shared"]
+
+    def test_long_names_are_truncated_with_a_warning(self) -> None:
+        csv = b"Name,Tags\nA," + b"x" * 80 + b"\n"
+        result = parse_spreadsheet(csv, "long.csv")
+        assert len(result.project_data.tasks[0].labels[0]) == 50
+        assert any("shortened" in w for w in result.warnings)
+
+    def test_distinct_label_count_is_capped(self) -> None:
+        """A Notes column accidentally mapped to labels would otherwise mint one
+        catalog entry per row."""
+        rows = b"".join(f"T{i},label-{i}\n".encode() for i in range(150))
+        result = parse_spreadsheet(b"Name,Tags\n" + rows, "many.csv")
+        distinct = {name for t in result.project_data.tasks for name in t.labels}
+        assert len(distinct) == 100
+        assert any(e.code == "too_many_labels" for e in result.row_errors)
+
+    def test_no_label_column_leaves_tasks_unlabeled(self) -> None:
+        result = parse_spreadsheet(REFERENCE_CSV, "ref.csv")
+        assert all(t.labels == [] for t in result.project_data.tasks)
+
+    def test_template_carries_a_labels_column(self) -> None:
+        """The template is a worked example; it has to demonstrate the field."""
+        result = parse_spreadsheet(CSV_TEMPLATE.encode(), "template.csv")
+        by_name = {t.name: t for t in result.project_data.tasks}
+        assert by_name["Cutover rehearsal"].labels == ["launch", "ops"]
+
+
+class TestMultiColumnPredecessors:
+    def test_both_predecessor_columns_are_read(self) -> None:
+        result = parse_spreadsheet(MULTI_PREDECESSOR_CSV, "preds.csv")
+        by_name = {t.name: t for t in result.project_data.tasks}
+        assert sorted(link.predecessor_uid for link in by_name["Build"].predecessor_links) == [1, 2]
+
+    def test_the_same_ref_in_two_columns_is_one_link(self) -> None:
+        """Two columns naming the same predecessor is a union, not two edges."""
+        result = parse_spreadsheet(MULTI_PREDECESSOR_CSV, "preds.csv")
+        by_name = {t.name: t for t in result.project_data.tasks}
+        assert len(by_name["Inspect"].predecessor_links) == 1
+
+    def test_a_row_error_names_the_column_the_token_came_from(self) -> None:
+        csv = b"ID,Name,Predecessor 1,Predecessor 2\n1,A,,\n2,B,1,nope\n"
+        result = parse_spreadsheet(csv, "preds.csv")
+        [error] = [e for e in result.row_errors if e.code == "unknown_predecessor"]
+        assert error.column == "Predecessor 2"

@@ -1,0 +1,293 @@
+"""Seed a synthetic program at a chosen scale for capacity testing (issue #2391).
+
+Usage::
+
+    python manage.py seed_capacity --projects 1 --tasks 4000 --edge-ratio 1.2
+    python manage.py seed_capacity --reset
+
+Distinct from ``load_sample_project`` and ``seed_demo_project``, which load a
+*fixed-size* curated fixture for evaluation. This command generates an
+arbitrarily large, structurally realistic program so the published scale
+envelope can be measured to first sustained breach rather than to a fixed load.
+
+**Not a demo seed.** The rows are synthetic filler; names are generated. Its only
+job is to put a defensible shape of data behind the API at a known size.
+
+Fidelity caveats — these are stated in the published envelope, not hidden here:
+
+* Rows are written with ``bulk_create``, so per-row ``save()`` side effects are
+  skipped: no ``django-simple-history`` rows, and ``server_version`` stays 0.
+  A schedule read does not touch either, so read latency is unaffected — but
+  on-disk size and any sync-delta measurement will understate an organically
+  grown database.
+* Dependencies are generated strictly forward (a lower task index always
+  precedes a higher one), which is acyclic by construction. Real programs
+  contain the same edge types but a messier topology.
+"""
+
+from __future__ import annotations
+
+import random
+from datetime import date
+from typing import Any
+
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
+
+from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.projects.models import Dependency, Program, Project, Task
+
+User = get_user_model()
+
+CAPACITY_PROGRAM_CODE = "CAPACITY"
+CAPACITY_OWNER_EMAIL = "capacity@trueppm.local"
+CAPACITY_OWNER_PASSWORD = "capacity-load-driver"
+
+# Fixed seed so two runs of the same size produce the same graph — a capacity
+# number that moves between runs must be the code changing, not the fixture.
+RANDOM_SEED = 23910
+
+
+class Command(BaseCommand):
+    help = "Generate a synthetic program at a chosen scale for capacity testing."
+
+    def add_arguments(self, parser: Any) -> None:
+        parser.add_argument("--projects", type=int, default=1, help="Projects to create.")
+        parser.add_argument(
+            "--tasks", type=int, default=1000, help="Tasks per project (not the total)."
+        )
+        parser.add_argument(
+            "--edge-ratio",
+            type=float,
+            default=1.0,
+            help=(
+                "Dependency edges per task. 1.0 is a single chain; above 1.0 adds "
+                "forward cross-links. CPM cost is edge-driven, so this is the "
+                "dimension that moves recompute time."
+            ),
+        )
+        parser.add_argument(
+            "--breadth",
+            type=int,
+            default=12,
+            help="Children per WBS summary row — sets how deep the hierarchy runs.",
+        )
+        parser.add_argument(
+            "--reset",
+            action="store_true",
+            help="Delete the existing capacity program first (leaves other data alone).",
+        )
+
+    def handle(self, *args: Any, **options: Any) -> None:
+        projects: int = options["projects"]
+        tasks_per_project: int = options["tasks"]
+        edge_ratio: float = options["edge_ratio"]
+        breadth: int = options["breadth"]
+
+        if tasks_per_project < 1 or projects < 1:
+            raise CommandError("--projects and --tasks must both be >= 1.")
+        if edge_ratio < 0:
+            raise CommandError("--edge-ratio must be >= 0.")
+
+        rng = random.Random(RANDOM_SEED)
+        owner = self._resolve_owner()
+
+        if options["reset"]:
+            self._reset(owner)
+
+        program = self._build_program(owner)
+
+        total_tasks = 0
+        total_edges = 0
+        for index in range(projects):
+            created_tasks, created_edges = self._build_project(
+                program=program,
+                owner=owner,
+                index=index,
+                task_count=tasks_per_project,
+                edge_ratio=edge_ratio,
+                breadth=breadth,
+                rng=rng,
+            )
+            total_tasks += created_tasks
+            total_edges += created_edges
+            self.stdout.write(
+                f"  project {index + 1}/{projects}: {created_tasks} tasks, {created_edges} edges"
+            )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Seeded {projects} project(s), {total_tasks} tasks, "
+                f"{total_edges} dependency edges under program "
+                f"{program.code} ({program.id})."
+            )
+        )
+
+    # ──────────────────────────────────────────────────────────────────
+    # Build steps
+    # ──────────────────────────────────────────────────────────────────
+
+    def _resolve_owner(self) -> Any:
+        """The account the load driver authenticates as.
+
+        The password is fixed and weak on purpose: this command only ever runs
+        against a disposable local capacity stack that is torn down with
+        ``down -v``. It must never be pointed at a real deployment — hence the
+        dedicated ``capacity@trueppm.local`` identity rather than reusing an
+        existing superuser.
+        """
+        owner = User.objects.filter(email=CAPACITY_OWNER_EMAIL).first()
+        if owner is None:
+            owner = User.objects.create_user(
+                username=CAPACITY_OWNER_EMAIL,
+                email=CAPACITY_OWNER_EMAIL,
+                password=CAPACITY_OWNER_PASSWORD,
+            )
+        else:
+            # Held to the configured validators like any other credential: the
+            # constant is weak by design but must still clear the project's bar,
+            # so weakening it later fails here rather than silently shipping.
+            validate_password(CAPACITY_OWNER_PASSWORD, user=owner)
+            owner.set_password(CAPACITY_OWNER_PASSWORD)
+            owner.save(update_fields=["password"])
+        return owner
+
+    def _reset(self, owner: Any) -> None:
+        """Hard-delete the capacity program's *projects*, so a co-resident dev DB survives.
+
+        Deleting the Program alone is not enough and silently does the wrong
+        thing: ``Project.program`` is nullable, so the projects survive as
+        orphans and the next seed stacks on top of them — every subsequent
+        measurement then runs against more data than its label claims.
+        Memberships are cleared first because ``ProjectMembership.project`` is
+        ``on_delete=PROTECT``; tasks and dependencies cascade from Project.
+        """
+        program = Program.objects.filter(code=CAPACITY_PROGRAM_CODE).first()
+        if program is None:
+            self.stdout.write("reset: no prior capacity program")
+            return
+
+        project_ids = list(Project.objects.filter(program=program).values_list("pk", flat=True))
+        if not project_ids:
+            self.stdout.write("reset: capacity program had no projects")
+            return
+
+        ProjectMembership.objects.filter(project_id__in=project_ids).delete()
+        deleted, _ = Project.objects.filter(pk__in=project_ids).delete()
+        self.stdout.write(
+            f"reset: removed {len(project_ids)} prior capacity project(s) ({deleted} rows)"
+        )
+
+        # A reset that quietly under-deletes invalidates every number that
+        # follows, so prove it rather than assume it.
+        remaining = Project.objects.filter(program=program).count()
+        if remaining:
+            raise CommandError(f"reset failed: {remaining} capacity project(s) still present")
+
+    def _build_program(self, owner: Any) -> Program:
+        # ``Program.code`` is deliberately non-unique at the DB level (#2025), so
+        # this lookup cannot be constraint-backed.
+        # get-or-create-ok: local capacity harness, fixed constant code, single-writer CLI
+        program, _ = Program.objects.get_or_create(
+            code=CAPACITY_PROGRAM_CODE,
+            defaults={"name": "Capacity envelope"},
+        )
+        return program
+
+    @transaction.atomic
+    def _build_project(
+        self,
+        *,
+        program: Program,
+        owner: Any,
+        index: int,
+        task_count: int,
+        edge_ratio: float,
+        breadth: int,
+        rng: random.Random,
+    ) -> tuple[int, int]:
+        project = Project.objects.create(
+            name=f"Capacity project {index + 1}",
+            start_date=date(2026, 1, 5),
+            program=program,
+            lead=owner,
+            code=f"CAP{index + 1:03d}",
+        )
+        # The load driver authenticates as this user, so the membership is what
+        # makes every measured read reach a 200 rather than a 403.
+        ProjectMembership.objects.get_or_create(
+            project=project, user=owner, defaults={"role": Role.OWNER}
+        )
+
+        tasks = self._make_tasks(project, task_count, breadth, rng)
+        Task.objects.bulk_create(tasks, batch_size=1000)
+
+        # bulk_create bypassed save(), which is what normally advances the
+        # per-project short_id counter — reconcile it so any task created through
+        # the API afterwards does not collide with a seeded short_id.
+        Project.objects.filter(pk=project.pk).update(object_sequence=task_count)
+
+        edges = self._make_edges(tasks, edge_ratio, rng)
+        Dependency.objects.bulk_create(edges, batch_size=1000, ignore_conflicts=True)
+
+        return len(tasks), len(edges)
+
+    def _make_tasks(
+        self, project: Project, count: int, breadth: int, rng: random.Random
+    ) -> list[Task]:
+        """Build a WBS-shaped task list: every `breadth`-th row is a summary parent."""
+        tasks: list[Task] = []
+        for i in range(count):
+            # "1.4.7" style ltree path — depth grows as the index climbs, so a
+            # large project has a genuinely deep tree rather than a flat list.
+            major = i // (breadth * breadth) + 1
+            minor = (i // breadth) % breadth + 1
+            leaf = i % breadth + 1
+            wbs = f"{major}.{minor}.{leaf}"
+            tasks.append(
+                Task(
+                    project=project,
+                    name=f"Capacity task {i + 1}",
+                    short_id=f"{i + 1:08X}",
+                    wbs_path=wbs,
+                    duration=rng.randint(1, 15),
+                    percent_complete=0.0,
+                )
+            )
+        return tasks
+
+    def _make_edges(
+        self, tasks: list[Task], edge_ratio: float, rng: random.Random
+    ) -> list[Dependency]:
+        """Forward-only edges: a chain, plus cross-links to reach the target ratio.
+
+        Forward-only (predecessor index < successor index) makes the graph acyclic
+        by construction, so the seed can never trip the engine's cycle detection.
+        """
+        edges: list[Dependency] = []
+        if len(tasks) < 2:
+            return edges
+
+        # The spine: every task depends on the one before it.
+        for i in range(1, len(tasks)):
+            edges.append(Dependency(predecessor=tasks[i - 1], successor=tasks[i], dep_type="FS"))
+
+        target = int(len(tasks) * edge_ratio)
+        extra = max(0, target - len(edges))
+        for _ in range(extra):
+            successor_idx = rng.randrange(1, len(tasks))
+            # Reach back up to 50 rows, so cross-links stay local rather than
+            # spanning the whole project — closer to how real plans are wired.
+            predecessor_idx = max(0, successor_idx - rng.randint(2, 50))
+            if predecessor_idx >= successor_idx:
+                continue
+            edges.append(
+                Dependency(
+                    predecessor=tasks[predecessor_idx],
+                    successor=tasks[successor_idx],
+                    dep_type=rng.choice(["FS", "SS", "FF"]),
+                )
+            )
+        return edges

@@ -56,6 +56,8 @@ interface BoardBodyProps {
   showEvm: EvmMode;
   showCost: boolean;
   cardCustomFieldDefs: ProjectCustomField[];
+  /** Board-wide readiness-chip gate (#2430). */
+  showReadiness: boolean;
   scopeActions: BoardCardScopeActions;
   readOnly: boolean;
   facetMatchIds: Set<string> | null;
@@ -128,6 +130,7 @@ export function BoardBody(props: BoardBodyProps) {
     showEvm,
     showCost,
     cardCustomFieldDefs,
+    showReadiness,
     scopeActions,
     readOnly,
     facetMatchIds,
@@ -214,6 +217,7 @@ export function BoardBody(props: BoardBodyProps) {
           showEvm={showEvm}
           showCost={showCost}
           customFieldDefs={cardCustomFieldDefs}
+          showReadiness={showReadiness}
           scopeActions={scopeActions}
           readOnly={readOnly}
           wipTrendSeriesByStatus={wipTrendSeriesByStatus}
@@ -288,6 +292,7 @@ type BoardDesktopGridProps = Omit<
   | 'showEvm'
   | 'showCost'
   | 'cardCustomFieldDefs'
+  | 'showReadiness'
   | 'scopeActions'
   | 'facetMatchIds'
 > & { showBacklogRail: boolean };

@@ -19,14 +19,17 @@ class TestEditionEndpoint:
         client = APIClient()
         r = client.get("/api/v1/edition/")
         assert r.status_code == 200
-        assert r.data == {"edition": "community"}
+        # Assert the field, not the whole payload: the endpoint also carries
+        # build identity (#2392), and an exact-equality assertion here would
+        # fail every time a field is added rather than when the edition breaks.
+        assert r.data["edition"] == "community"
 
     def test_returns_enterprise_when_setting_overridden(self) -> None:
         client = APIClient()
         with override_settings(TRUEPPM_EDITION="enterprise"):
             r = client.get("/api/v1/edition/")
         assert r.status_code == 200
-        assert r.data == {"edition": "enterprise"}
+        assert r.data["edition"] == "enterprise"
 
     def test_no_authentication_required(self) -> None:
         """Unauthenticated requests must succeed — the endpoint is public."""

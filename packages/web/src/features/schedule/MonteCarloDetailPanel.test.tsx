@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { MonteCarloDetailPanel } from './MonteCarloDetailPanel';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
@@ -116,7 +117,58 @@ describe('MonteCarloDetailPanel', () => {
       />,
     );
     const desktopPanel = screen.getByTestId('mc-detail-panel');
-    expect(within(desktopPanel).getByText(/Risk delta vs deterministic finish/i)).toBeInTheDocument();
+    expect(within(desktopPanel).getByText(/Added time vs the computed finish/i)).toBeInTheDocument();
+  });
+
+  // #2439 — the app showed hard CPM dates everywhere and never said they are a
+  // single optimistic point. The panel is where that gets explained.
+  describe('forecast-basis explainer', () => {
+    function renderPanel() {
+      return render(
+        <MonteCarloDetailPanel
+          result={FIXTURE_MC_RESULT}
+          cpmFinish="2026-10-05"
+          tasks={[]}
+          isOpen
+          onClose={() => {}}
+        />,
+      );
+    }
+
+    it('labels the header date as computed rather than a bare "CPM finish"', () => {
+      renderPanel();
+      const desktopPanel = screen.getByTestId('mc-detail-panel');
+      expect(within(desktopPanel).getByText(/Computed \(CPM\) finish:/i)).toBeInTheDocument();
+    });
+
+    it('offers a closed help trigger beside the panel title', () => {
+      renderPanel();
+      const trigger = screen.getAllByRole('button', { name: /About the How to read these dates options/i })[0];
+      expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('explains CPM-vs-simulation and links to the docs when opened', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(
+        screen.getAllByRole('button', { name: /About the How to read these dates options/i })[0],
+      );
+
+      const dialog = await screen.findByRole('dialog', { name: /How to read these dates/i });
+      // The CPM date is named as one optimistic point, not a commitment.
+      expect(within(dialog).getByText(/earliest everything can finish/i)).toBeInTheDocument();
+      // P80 is named as the commit date, and P50 explicitly as not one.
+      expect(within(dialog).getByText(/This is the date to commit to/i)).toBeInTheDocument();
+      expect(within(dialog).getByText(/a midpoint, not a promise/i)).toBeInTheDocument();
+      // web-rule 212 — docs.trueppm.com, never an in-app /docs/... path.
+      const link = within(dialog).getByRole('link', { name: /Interpreting the forecast/i });
+      expect(link).toHaveAttribute(
+        'href',
+        'https://docs.trueppm.com/features/monte-carlo/#interpreting-results',
+      );
+      expect(link).toHaveAttribute('target', '_blank');
+    });
   });
 
   it('omits risk delta section when cpmFinish is null', () => {
@@ -129,7 +181,7 @@ describe('MonteCarloDetailPanel', () => {
         onClose={() => {}}
       />,
     );
-    expect(screen.queryByText(/Risk delta vs deterministic finish/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Added time vs the computed finish/i)).not.toBeInTheDocument();
   });
 
   it('shows P80 delta as positive days when P80 is later than CPM finish', () => {

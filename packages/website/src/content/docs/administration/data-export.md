@@ -285,6 +285,38 @@ the app). Treat exported files as you would any file containing contact
 information. **No passwords, tokens, or internal IDs are ever exported.**
 :::
 
+## Check a file before you import it
+
+Importing a seed is **wipe-then-recreate on the program slug**: if the document
+names a slug that matches a live program, that program's subtree is deleted and
+rebuilt. The whole operation runs in one transaction, so a document that fails
+validation rolls back cleanly and changes nothing — but you should not have to
+find out at commit time.
+
+Both import paths have a dry run that validates the file and reports every
+problem while writing nothing:
+
+```console
+$ python manage.py import_seed atlas.json --check
+```
+
+```console
+$ curl -X POST https://your-instance/api/v1/programs/import/validate/ \
+    -H "Authorization: Bearer $TOKEN" -F file=@atlas.json
+```
+
+The response echoes what the file claims to be — schema version, program name
+and slug, and the project / task / resource counts — so you can confirm you
+grabbed the right file, followed by every diagnostic anchored to its JSON path.
+
+A document that fails validation comes back as `200` with `"valid": false` and
+the diagnostics, not as an error status: the request succeeded, the *document*
+is what failed, and you need the diagnostics either way. A `400` here means the
+request itself was unusable — an upload over the size ceiling. The command's
+equivalent is its exit code: `0` when valid, `1` when not.
+
+The dry run requires the same permissions as the real import.
+
 ## User accounts on import
 
 The import counterpart (`import_seed` / `POST /api/v1/programs/import/`) decides

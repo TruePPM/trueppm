@@ -228,6 +228,11 @@ is no outbox and no partial-write window.
   program never persists.
 - The import endpoint honors `Idempotency-Key` (ADR-0170) so a retried upload collapses
   rather than duplicating.
+- **There is no row-level / node-level tier, by design.** Unlike CSV (§5.8), a seed
+  document never imports partially: a single bad reference fails the whole file. A seed
+  is machine-generated and self-describing, so a malformed one is not messy input — it
+  is not the document it claims to be. See
+  [§6.6](#66-one-diagnostic-shape-two-strictness-policies).
 
 ### 4.9 RBAC tier
 
@@ -407,7 +412,9 @@ indistinguishable from a successful one, and the user finds out weeks later.
 
 ### 5.8 Error model
 
-Two levels, mirroring §4.8:
+Two levels. The **file-level** tier mirrors §4.8; the **row-level** tier below has no
+counterpart there, because the JSON seed is deliberately fatal-only — see
+[§6.6](#66-one-diagnostic-shape-two-strictness-policies).
 
 **File-level** → `400`, nothing persisted. Causes: undecodable bytes, empty file, missing
 required column (`Title` for risks; the name column for tasks), row count over the limit.
@@ -541,6 +548,36 @@ file over the row or size limit is rejected with a `400` naming the limit and su
 a split — never partially processed, because a silently truncated import looks exactly
 like a successful one.
 
+### 6.6 One diagnostic *shape*; two strictness *policies*
+
+The two formats emit the **same shape** of diagnostic and apply **deliberately opposite
+defaults** about what is fatal. Both halves of that sentence are load-bearing, and the
+second one is the one that gets "fixed" by mistake.
+
+| | JSON seed | CSV |
+|---|---|---|
+| What it is | machine-generated, self-describing | hand-maintained, lossy by construction |
+| Row/node-level degradation | **none** — every problem is fatal | **expected** — errors skip a row, warnings coerce a value |
+| Partial success | impossible by design | the common case (§5.8) |
+
+**Why JSON is fatal-only.** A seed document declares its own `schema_version` and is
+produced by an exporter, not typed by a person. A dangling task reference is not a messy
+cell — it means the file is not what it claims to be. Degrading would let a seed import
+"successfully" minus some dependencies, which destroys the ADR-0109 byte-identical
+round-trip guarantee: the whole reason the JSON seed is the fidelity format is that it is
+all-or-nothing.
+
+**Why CSV degrades.** A real spreadsheet has bad cells in it. Rejecting a 4,000-row sheet
+over one unparseable date would make spreadsheet import useless, and spreadsheet import is
+the migration path for teams whose plan currently lives in Excel (#111) — the single
+largest source of new users. Degrading per row is not leniency; it is the feature.
+
+**So:** do not "harmonize" these. The asymmetry is a decision about what each format *is*,
+not drift between two implementations. What must stay identical is the diagnostic
+**shape** — a stable machine-readable code, a location, a severity, and a human-readable
+message — so one client can render a report from either importer without knowing which
+produced it (#2420).
+
 ---
 
 ## 7. Conformance register
@@ -553,6 +590,9 @@ fixed inside a docs change.
 | `riskExport.ts` | Writes humanized dates (`Jun 9, 2026`) instead of ISO, and humanized enum labels instead of stored values. `risk_import.py`'s three-format date fallback exists solely to read this. | #2401 |
 | `exportCsv.ts` | Header spellings do not match the #743 importer's alias table, so the export is not readable by the import shipping beside it. (The computed/derived columns are **conformant** — this is a legitimate T0 surface, §5.6.2.) | #2401 |
 | Task CSV import ↔ export | Not inverses (§5.10.2). Correct as specified for 0.4; promoting the export to T1 is a scoped follow-up. | #2401 |
+| JSON seed validator | Emits unstructured `list[str]` diagnostics. No machine-readable code, no severity field, and the JSON path is embedded in the message prose rather than carried as a location — so a client cannot group or filter them the way it can CSV's (§6.6). | #2420 |
+| JSON seed import | No dry-run counterpart to CSV's `/import/csv/preview/`. The validation exists and is thorough; there is no way to run it without committing to the import. | #2418 |
+| JSON seed validator | Short-circuits on the `schema_version` checks, so a document missing its version reports one problem and hides the rest. §6.6 requires reporting the full set in one pass. | #2418 |
 | All seed/bundle artifacts | No integrity manifest. | #2399 |
 | All seed/bundle artifacts | No encryption at rest. | #2400 |
 | All import surfaces | No T2 identity-preserving path. | #1959 |
@@ -568,9 +608,27 @@ lands.
 | Release | Change |
 |---|---|
 | **0.3 and earlier** (shipped) | JSON seed v1/v2 export + program import; async project and program bundles; risk CSV import/export; MS Project XML both directions |
-| **0.4** (underway) | Task CSV/Excel **import** with preview and fuzzy column mapping (#111 → #743 API, #746 wizard). Artifacts remain unencrypted and unchecksummed — stated posture, §6.4 |
-| **0.5** (planned) | Identity-preserving round trip, T2 (#1959) · integrity manifest (#2399) · optional artifact encryption (#2400) · CSV exporter conformance (#2401) |
-| **0.6** (planned) | Multi-format import breadth — Jira, Asana, Monday, Wrike, ClickUp, Trello, Notion, Linear, Basecamp (epic #624), each normalizing to the canonical JSON seed of §4 rather than inventing a persistence path |
+| **0.4** (underway) | Task CSV/Excel **import** with preview and fuzzy column mapping (#111 → #743 API, #746 wizard) · JSON seed dry-run validation (#2418). Artifacts remain unencrypted and unchecksummed — stated posture, §6.4 |
+| **0.5** (planned) | Identity-preserving round trip, T2 (#1959) · integrity manifest (#2399) · optional artifact encryption (#2400) · CSV exporter conformance (#2401) · shared diagnostic model across both importers, §6.6 (#2420) |
+| **0.6** (planned) | Multi-format import breadth — Jira, Asana, Monday, Wrike, ClickUp, Trello, Notion, Linear, Basecamp (epic #624), each normalizing to one of the two shared interchange targets rather than inventing a persistence path (see below) |
+
+**Two normalization targets, split by what the import creates.** Epic #624 states that
+every importer normalizes to the canonical JSON seed. That is accurate for importers that
+**create a program from a file**, and inaccurate for importers that land in an **existing
+project** — which is what the shipped MS Project and Jira adapters do, and what CSV does
+(ADR-0632). Those normalize to the `ProjectData` interchange dataclass and persist through
+`msproject.importer.import_project`. The constraint #624 actually cares about — *no
+platform-specific persistence path* — is satisfied either way; what varies is which of the
+two shared targets an adapter feeds:
+
+| The import… | Normalizes to | Persists via |
+|---|---|---|
+| creates a program from a document | canonical JSON seed (§4) | `import_seed` |
+| lands in an existing project | `ProjectData` | `import_project` |
+
+Routing an into-existing-project import through the seed pipeline would be actively
+unsafe: seed import is program-scoped wipe-then-recreate on the program slug (§3, T1), so
+importing a spreadsheet into a live program would delete that program's other projects.
 
 The 0.6 line is the reason §4 matters beyond export: the canonical seed is the
 **normalization target** every future importer converts *to*. An importer that writes

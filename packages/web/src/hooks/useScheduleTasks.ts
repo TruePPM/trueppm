@@ -136,8 +136,13 @@ export interface ApiTask {
     scope_change_sprint_id?: string | null;
     sprint_count: number;
   } | null;
-  // 8-hex-digit project-scoped ID (ADR-0016 / issue #50).
+  // 8-hex-digit project-scoped ID (ADR-0016 / issue #50). Stored identity, not a
+  // display string — render the two server-formatted fields below (#2430).
   short_id?: string;
+  /** Server-formatted compact reference, e.g. "T-8" (#2430). */
+  short_id_display?: string;
+  /** Server-formatted project-qualified reference, e.g. "ENG-2026-8" (#2430). */
+  qualified_id?: string;
   assignments?: Array<{
     resource_id: string;
     resource_name: string;
@@ -374,6 +379,10 @@ export function mapTask(t: ApiTask): Task {
     })),
     milestoneRollup: t.milestone_rollup ?? null,
     shortId: t.short_id,
+    // Server-formatted references (#2430) — the raw hex `short_id` must never be
+    // rendered. Optional so pre-#2430 fixtures/payloads stay valid.
+    shortIdDisplay: t.short_id_display,
+    qualifiedId: t.qualified_id,
     // Product backlog & scoring (ADR-0105). Absent on legacy/non-agile payloads.
     taskType: t.type ?? undefined,
     governanceClass: t.governance_class ?? undefined,

@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures';
+import { delayRoute } from './fixtures/cold-load';
 
 /**
  * Program Settings → External stakeholders E2E (#1658, ADR-0264).
@@ -219,5 +220,25 @@ test.describe('Program Settings → External stakeholders', () => {
 
     await expect(page.getByText('Jane Client')).toHaveCount(0);
     await expect(page.getByText('No external stakeholders yet.')).toBeVisible();
+  });
+
+  // Rule 248 covers chunk- and query-loading alike (#2431): the loading state is a
+  // skeleton ghost, never a bare "Loading…" text line. `delayRoute` forces the cold
+  // path so the assertion is deterministic rather than racing a warm query cache.
+  test('the loading state is a skeleton ghost, not a bare "Loading…" line', async ({ page }) => {
+    await setup(page, { stakeholders: [stakeholderFixture()] });
+    await delayRoute(page, `**/api/v1/programs/${PROGRAM_ID}/external-stakeholders/`);
+
+    await page.goto(`/programs/${PROGRAM_ID}/settings/stakeholders`);
+
+    // The named status node is what the wait-for-paint idiom gates on.
+    const skeleton = page.getByRole('status', { name: /Loading external stakeholders/i });
+    await expect(skeleton).toBeVisible();
+    // The forbidden shape: a visible bare "Loading…" string anywhere on the page.
+    await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
+
+    // …and the skeleton detaches once the delayed read lands.
+    await expect(skeleton).toHaveCount(0);
+    await expect(page.getByText('Jane Client')).toBeVisible();
   });
 });

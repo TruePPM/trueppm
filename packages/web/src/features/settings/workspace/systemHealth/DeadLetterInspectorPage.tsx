@@ -30,6 +30,7 @@ import {
 } from '@/hooks/useFailedTaskActions';
 import { DeadLetterActionDialog, type DeadLetterActionKind } from './DeadLetterActionDialog';
 import { formatAge } from './formatAge';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 /** Statuses an operator can requeue (matches the server's actionable set). */
 const REQUEUEABLE_STATUSES: ReadonlySet<FailedTaskStatus> = new Set<FailedTaskStatus>([
@@ -322,9 +323,7 @@ function DetailPane({ id }: { id: string }) {
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[13px] text-neutral-text-secondary motion-safe:animate-pulse">
-        Loading…
-      </div>
+      <LoadingSkeleton label="Loading task details…" rows={5} className="flex-1 p-4" />
     );
   }
 

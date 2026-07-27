@@ -31,6 +31,8 @@ interface WorkspaceSettingsPatchRaw {
   allow_guests?: boolean;
   public_sharing?: boolean;
   public_sharing_override_policy?: 'inherit' | 'suggest' | 'enforce';
+  feedback_enabled?: boolean;
+  feedback_url?: string;
   iteration_label?: string;
   iteration_label_override_policy?: 'inherit' | 'suggest' | 'enforce';
   mc_history_enabled?: boolean;
@@ -82,6 +84,8 @@ const FIELD_MAP: ReadonlyArray<[keyof WorkspaceSettingsPatch, keyof WorkspaceSet
   ['attachmentsOverridePolicy', 'attachments_override_policy'],
   ['calendar', 'calendar'],
   ['calendarOverridePolicy', 'calendar_override_policy'],
+  ['feedbackEnabled', 'feedback_enabled'],
+  ['feedbackUrl', 'feedback_url'],
 ];
 
 function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {

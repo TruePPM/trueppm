@@ -19,6 +19,14 @@ This capability is rare in open-source P3M tools. The sections below document
 exactly how it works so you can trust the numbers and explain them to
 stakeholders.
 
+:::tip[Coming from the Schedule view?]
+[How to read these dates](/features/schedule/#how-to-read-these-dates) is the
+one-screen version: the bars on the Schedule are the deterministic CPM
+schedule, this page is the confidence band around it. Jump straight to
+[Interpreting results](#interpreting-results) if you already know the
+difference and just want the guidance.
+:::
+
 ## How to use it
 
 ### Step 1 — Add three-point estimates to tasks

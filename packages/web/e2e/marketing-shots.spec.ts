@@ -293,9 +293,13 @@ test.describe('Marketing snapshots — desktop', () => {
 
   test('01 — Overview', async ({ page }) => {
     await page.goto(`/projects/${PROJECT_ID}/overview`);
-    // "More metrics" is the unique KPI region heading (avoids the two "Needs
-    // attention" headings — main panel + my-tasks side panel — colliding).
-    await expect(page.getByRole('heading', { name: 'More metrics' })).toBeVisible({ timeout: 15_000 });
+    // "Holding steady" is the unique KPI region heading (avoids the two "Needs
+    // attention" headings — main panel + my-tasks side panel — colliding). Since
+    // #2429 the secondary strip is named by its severity verdict; every metric this
+    // fixture demotes there is neutral or on-track, so it reads "Holding steady".
+    await expect(page.getByRole('heading', { name: 'Holding steady' })).toBeVisible({
+      timeout: 15_000,
+    });
     // Let charts/badges settle.
     await page.waitForTimeout(600);
     await page.screenshot({ path: path.join(OUT, 'trueppm-01-overview.png'), fullPage: false });

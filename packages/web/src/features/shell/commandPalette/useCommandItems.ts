@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router';
 
 import { useProjects } from '@/hooks/useProjects';
@@ -28,6 +28,8 @@ import type { CommandItem, PinTarget } from './commandItems';
 import { buildOmniSearchItems } from './omniSearch';
 import { buildWorkspaceNavGroups } from '@/features/settings/workspace/workspaceNav';
 import { ME_SETTINGS_LINKS } from '@/features/me/MeSettingsSubNav';
+import { useFeedbackStore } from '@/stores/feedbackStore';
+import { useWorkspaceSettings } from '@/features/settings/hooks/useWorkspaceSettings';
 
 const THEME_CYCLE: Record<Theme, Theme> = { light: 'dark', dark: 'auto', auto: 'light' };
 
@@ -465,6 +467,7 @@ function buildActions(
   setTheme: (theme: Theme) => void,
   toggleSidebar: () => void,
   act: Act,
+  openFeedback: (() => void) | null,
 ): CommandItem[] {
   return [
     {
@@ -483,6 +486,20 @@ function buildActions(
       keywords: 'collapse expand rail',
       run: act(toggleSidebar),
     },
+    // Omitted entirely when the operator disabled the control (#2392) — the
+    // palette must not offer a route a locked-down install has closed.
+    ...(openFeedback
+      ? [
+          {
+            id: 'action:report-bug',
+            label: 'Report a bug',
+            group: 'action' as const,
+            tag: 'Action',
+            keywords: 'feedback report a bug support issue problem',
+            run: act(openFeedback),
+          },
+        ]
+      : []),
   ];
 }
 
@@ -513,6 +530,16 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
   const toggleSidebar = useShellStore((s) => s.toggleSidebar);
+  // Same operator gate as the user-menu row (#2392): when feedback is disabled
+  // the palette offers nothing, rather than a dead entry.
+  const setFeedbackOpen = useFeedbackStore((s) => s.setOpen);
+  const { data: workspaceSettings } = useWorkspaceSettings();
+  const openFeedback =
+    workspaceSettings?.feedbackEnabled !== false ? () => setFeedbackOpen(true) : null;
+  // Held in a ref so the items memo does not rebuild on every render just
+  // because this closure is new each time; the store setter is stable.
+  const openFeedbackRef = useRef(openFeedback);
+  openFeedbackRef.current = openFeedback;
   const setOpen = useCommandPaletteStore((s) => s.setOpen);
   const openTask = useTaskDrawerStore((s) => s.openTask);
 
@@ -626,7 +653,7 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     const settingsSections = buildSettingsSections(isWorkspaceAdmin, go);
     const { backlog, board } = buildBacklogAndBoard(projects, go);
     const actions = [
-      ...buildActions(theme, setTheme, toggleSidebar, act),
+      ...buildActions(theme, setTheme, toggleSidebar, act, openFeedbackRef.current),
       ...buildPinActions(trimmedQuery.length > 0, projects, programs, togglePin, act),
     ];
 
