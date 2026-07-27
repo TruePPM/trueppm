@@ -81,7 +81,7 @@ must stay **future-tense** in any doc reference, since `$MILESTONE` has not ship
 ### 1b. Milestone issues (what's already tracked)
 
 ```bash
-glab issue list --repo trueppm/trueppm --state opened --milestone "$MILESTONE" --per-page 100 --output json 2>/dev/null \
+glab issue list --repo trueppm/trueppm --milestone "$MILESTONE" --per-page 100 -O json 2>/dev/null \
   | python3 -c "
 import json,sys
 for i in json.load(sys.stdin):
@@ -101,7 +101,7 @@ glab api "projects/trueppm%2Ftrueppm/issues?scope=all&milestone=$MILESTONE&state
 Prior `/pre-release` and `/voc-audit` runs file 🟡 findings against future milestones.
 Pull anything already aimed at `$MILESTONE` so the plan accounts for it:
 ```bash
-glab issue list --repo trueppm/trueppm --state opened --label "$MILESTONE" --per-page 50 2>/dev/null | head -40
+glab issue list --repo trueppm/trueppm --label "$MILESTONE" --per-page 50 2>/dev/null | head -40
 ```
 
 ### 1d. Personas (who each theme serves)

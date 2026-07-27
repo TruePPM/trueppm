@@ -141,10 +141,26 @@ Once all persona sub-agents return, **deduplicate first, then search**. Personas
 Then for each merged finding, query GitLab in `all` state (open and closed) using 2–3 keywords drawn from the finding (file/feature stem, the verb of the missing capability, the affected entity):
 
 ```bash
-glab issue list --repo trueppm/trueppm --state all --search "<keyword>" 2>/dev/null | head -20
+glab issue list --repo trueppm/trueppm -A --search "<keyword>" 2>/dev/null | head -20
 ```
 
-Multi-faceted findings (e.g. "the settings shell lacks audit trail for role changes") need more than one search — run one query per facet.
+Multi-faceted findings (e.g. "the settings shell lacks audit trail for role changes") need more than one query — run one search per facet.
+
+**Separate real reports from modeled findings as you go.** An issue filed from a real
+user's words (in-product feedback via #2392, a self-hoster's bug report, a demo
+conversation) is evidence of a different kind from an issue filed off a persona panel —
+including this one. When a search returns a match, note which it is:
+
+```bash
+# Issues originating from real users, not from a simulated panel
+glab issue list --repo trueppm/trueppm -A --label "user-report" --search "<keyword>" 2>/dev/null | head -20
+```
+
+A finding this panel raised that a real user *also* raised is a **corroborated** finding
+and should be labeled and prioritized as such. A finding that matches only other
+`voc-audit`-labeled issues is **not** corroborated — it is the same model agreeing with
+itself, and reporting it as convergent evidence is the specific error this skill must
+not make. Say "raised again by the panel", never "confirmed by users".
 
 For each finding, assign one of these tracking states:
 
@@ -162,6 +178,12 @@ Print this format to the user. Lead with the selection rationale so the user can
 
 ```
 ## VoC Audit Report — $SURFACE — <date>
+
+> **Simulated panel — not user research.** Findings below come from modeled personas
+> (`.claude/personas.md`), not from users. Rows marked **corroborated** additionally
+> match a real user report and are cited; every other row is a hypothesis about what
+> users would say. See `.claude/persona-calibration.md` for how well this panel has
+> predicted reality so far.
 
 ### Surface reviewed
 - Description: $SURFACE
@@ -257,9 +279,62 @@ Most voc-audit findings should land as GitLab issues, not as skill changes. Upda
 
 ---
 
+## Step 9 — Calibration pass (`--calibrate`)
+
+This is the step that makes the persona model falsifiable. Run it **once per release
+cycle that reached real users**, not per surface. Invoke as `/voc-audit --calibrate` with
+no surface argument — this is the one mode where a surface is not required, because the
+subject is the panel itself rather than any shipped screen.
+
+Skip it, with a one-line note, if no real user signal arrived during the cycle. Do not
+manufacture an entry from an empty cycle.
+
+### 9a — Gather the cycle's real signal
+
+```bash
+# Everything real users said this cycle
+glab issue list --repo trueppm/trueppm --label "user-report" -A -P 100
+
+# Everything the panel predicted this cycle
+glab issue list --repo trueppm/trueppm --label "voc-audit" -A -P 100
+```
+
+### 9b — Score three buckets
+
+- **Hits** — a panel 🔴/🟡 that a real report independently matches. Cite both issue
+  numbers. Only findings that carried a falsification line are scoreable; record any
+  that did not as `unscoreable`, which counts against the panel.
+- **Misses** — a real report no persona raised. Read each one and decide: does it reveal
+  a gap in a persona definition (amend `personas.md` and say so), or is it knowingly out
+  of model? Misses are the highest-value rows here.
+- **False alarms** — a panel 🔴 whose falsification condition was met. Note which persona
+  raised it; repeated false alarms on a topic reduce that persona's weight on that topic
+  in future `/voc` runs (see `/voc` Step 0).
+
+### 9c — Append to the ledger
+
+Append one cycle entry to `.claude/persona-calibration.md` in the format that file
+defines. Rules that file enforces and this step must respect:
+
+- Grounding tiers in `personas.md` may **only** be raised by a cited entry here
+- Misses stay in the ledger permanently, even after the persona is amended
+- Never backfill or re-score a previous cycle with hindsight
+- Carry forward the survivorship-bias caveat: silent evaluators who left are invisible
+  to this method, so every hit rate is an upper bound
+
+### 9d — Report honestly
+
+Lead the calibration report with the miss count, not the hit count. A panel that scored
+6 hits and 14 misses did not perform well, and a report ordered by hits will read as
+though it did.
+
+---
+
 ## What voc-audit does **not** do
 
 - Evaluate unmerged specs — use `/voice-of-customer` against the spec
+- **Treat agreement between two simulated panels as corroboration** — only a real user report corroborates a modeled finding
+- **Raise a persona's grounding tier** outside a Step 9 ledger entry with a citation
 - Audit the codebase for bugs, perf issues, or security gaps — those have dedicated skills
 - File issues without explicit user approval — every mutation is opt-in
 - Re-flag the same finding across runs — track declined findings as `(declined <date>)` and demote on the next pass

@@ -155,6 +155,61 @@ Two independent implementations of the scheduling engine — the Python library 
 Rust engine compiled to WebAssembly for offline recompute — are held in conformance
 against shared fixtures, so offline results match server results.
 
+## Who decides what gets built
+
+Everything above is about whether the code works. A separate half of the harness decides
+what gets written in the first place, and it deserves the same scrutiny — arguably more,
+because its failure modes are quieter. A test suite that is wrong goes red. A product
+process that is wrong just produces confident, well-tested software nobody asked for.
+
+That half is also AI-run: design review, UX review, security, RBAC, performance, and
+migration gates are agent passes over the diff, defined in `.claude/skills/` and readable
+in the repository alongside the code. Two properties of it are worth stating plainly,
+because a reader should not have to discover them.
+
+### The customer panel is simulated
+
+Feature work is reviewed by a "voice of customer" panel of ten personas — a project
+manager, a PMO director, a self-hosting operator, and so on. **None of them is a real
+person, and none was derived from an interview, a survey, or a usability session.** They
+are composite hypotheses written from domain knowledge of the P3M market, and they are
+labeled as such in `.claude/personas.md`, where every persona currently carries grounding
+tier **T0: modeled, no contact with a real user of this product.**
+
+Using modeled personas before launch is reasonable — there is no alternative when the
+user count is zero, and arguing a feature from a specific point of view beats arguing it
+from the builder's own. Presenting the result as customer research would not be
+reasonable, so the harness makes that hard: panel output carries a provenance banner,
+every blocker must state the real-world observation that would refute it, and the panel
+average is explicitly barred from authorizing a shipping decision. A high score is
+treated as a warning that the panel may be restating its own brief, not as a green light.
+
+The honest summary is that **the product decisions behind this beta were made without
+users.** 0.4 will be the first release to reach any, and from that point a calibration
+pass reconciles what the panel predicted against what users actually report, recorded in
+`.claude/persona-calibration.md`: hits, misses, and false alarms, with misses reported
+first. A persona's grounding tier can only be raised there, by citing a specific real
+report. Those hit rates will be an upper bound — people who evaluate TruePPM, find it
+unsuitable, and leave without saying anything are invisible to the method, and they are
+exactly the group the personas are most likely to be wrong about.
+
+### Gate yield is measured, so gates can be removed
+
+A review gate that runs on every change and never finds anything looks like diligence and
+behaves like tax. It is also invisible to the obvious metric: measuring how often a gate
+is *skipped* says nothing about a gate that always runs and always passes.
+
+So merge requests carry a machine-readable ledger of which gates ran and how many
+findings each produced — including, and especially, the zeros. A gate at zero yield over
+enough runs is a gate whose scope should narrow. This has already retired real ceremony:
+architecture and UX-design review were dropped from routine settings sub-page work after
+they were found to be producing nothing on that class of change. The measurement exists
+so that finding is a table rather than a year of accumulated habit.
+
+The obvious limitation: the ledger is self-reported by the agent that ran the gate. It is
+honest-effort data, not instrumentation, and it cannot detect a gate whose findings were
+real but recorded as none.
+
 ## The limits
 
 Any page like this that lists only strengths is marketing. These are the current gaps,
@@ -180,6 +235,16 @@ stated because an evaluator will find them anyway and should find them here firs
   push the reported number below the enforced floor. The two compensating gates
   described above exist precisely because that base configuration is a compromise. It
   is honest debt, not a solved problem.
+- **No feature in this release was validated with a real user.** The persona panel
+  described above is simulated, every persona is grounding tier T0, and the calibration
+  ledger that will score it against reality is empty because there is nothing yet to
+  score. The engineering evidence on this page is strong; the product evidence is a set
+  of stated, falsifiable assumptions. Do not read the first as support for the second.
+- **The process gates are weaker evidence than the code gates.** Everything in the first
+  table is enforced by CI and fails a pipeline. The design, UX, and review gates are
+  agent passes with a documented fast path and a documented skip, and their yield is
+  self-reported. They are a discipline, not a mechanism, and a discipline is only as good
+  as the last time it was checked.
 - **This is alpha software.** The latest tagged release is `0.3.0-alpha.3`, and 0.4 is
   planned as the first beta. A rigorous harness is not the same as a mature product,
   and nothing on this page should be read as claiming otherwise.
@@ -202,6 +267,11 @@ make pre-push
 
 # The harness's own gates — and their tests
 ls packages/web/scripts/
+
+# The process half: the review gates, the personas, and their calibration record
+ls .claude/skills/
+cat .claude/personas.md
+cat .claude/persona-calibration.md
 
 # Count what exists
 find packages/api/tests packages/scheduler/tests -name 'test_*.py' | wc -l
