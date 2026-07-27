@@ -81,7 +81,12 @@ from trueppm_api.apps.projects.serializers import (
     ProgramSerializer,
     ProjectSerializer,
 )
-from trueppm_api.apps.projects.views import PIN_ENDPOINT_DESCRIPTION, DirectoryPagination
+from trueppm_api.apps.projects.views import (
+    PIN_ENDPOINT_DESCRIPTION,
+    PIN_LIMIT_RESPONSE,
+    PROGRAM_PIN_RESPONSE,
+    DirectoryPagination,
+)
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
 from trueppm_api.core.openapi import suppress_list_pagination
 
@@ -554,6 +559,41 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
+        summary="Pin or unpin this program for the requesting user",
+        description=PIN_ENDPOINT_DESCRIPTION,
+        request=None,
+        responses={
+            200: PROGRAM_PIN_RESPONSE,
+            204: None,
+            400: OpenApiResponse(
+                response=PIN_LIMIT_RESPONSE,
+                description="Pin limit reached (`code: pin_limit_reached`).",
+            ),
+        },
+    )
+    @action(detail=True, methods=["post", "delete"], url_path="pin")
+    def pin(self, request: Request, pk: str | None = None) -> Response:
+        """Pin (POST) or unpin (DELETE) this program for the current user (#2390).
+
+        Any member who can read the program may pin it — a pin grants nothing
+        and reveals nothing. Scoped to ``request.user``; see ADR-0627 §D5.
+        """
+        from trueppm_api.apps.profiles.services import PinLimitReached, set_pin
+
+        program = self.get_object()
+        if request.method == "DELETE":
+            set_pin(request.user, program=program, pinned=False)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        try:
+            set_pin(request.user, program=program, pinned=True)
+        except PinLimitReached as exc:
+            return Response(
+                {"detail": str(exc), "code": "pin_limit_reached"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"is_pinned": True}, status=status.HTTP_200_OK)
+
+    @extend_schema(
         methods=["GET"],
         summary="Export the program as a downloadable JSON seed file",
         responses={
@@ -590,38 +630,6 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             ),
         },
     )
-    @extend_schema(
-        summary="Pin or unpin this program for the requesting user",
-        description=PIN_ENDPOINT_DESCRIPTION,
-        request=None,
-        responses={
-            200: OpenApiResponse(description="Pinned. Body carries `is_pinned: true`."),
-            204: OpenApiResponse(description="Unpinned."),
-            400: OpenApiResponse(description="Pin limit reached (`code: pin_limit_reached`)."),
-        },
-    )
-    @action(detail=True, methods=["post", "delete"], url_path="pin")
-    def pin(self, request: Request, pk: str | None = None) -> Response:
-        """Pin (POST) or unpin (DELETE) this program for the current user (#2390).
-
-        Any member who can read the program may pin it — a pin grants nothing
-        and reveals nothing. Scoped to ``request.user``; see ADR-0627 §D5.
-        """
-        from trueppm_api.apps.profiles.services import PinLimitReached, set_pin
-
-        program = self.get_object()
-        if request.method == "DELETE":
-            set_pin(request.user, program=program, pinned=False)
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        try:
-            set_pin(request.user, program=program, pinned=True)
-        except PinLimitReached as exc:
-            return Response(
-                {"detail": str(exc), "code": "pin_limit_reached"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        return Response({"is_pinned": True}, status=status.HTTP_200_OK)
-
     @action(detail=True, methods=["get", "post"], url_path="export")
     def export(self, request: Request, pk: str | None = None) -> HttpResponse:
         """GET: synchronous JSON seed (#616). POST: queue the async bundle (#1958).
