@@ -1401,76 +1401,100 @@ export class GanttEngineImpl implements GanttEngine {
   };
 
   private readonly _onPointerMove = (e: PointerEvent): void => {
-    // ── Two-finger pinch zoom (#2160, rule 66) ────────────────────────────
-    // Recompute the finger span each frame and set pxPerDay from the ratio to
-    // the span captured at gesture start — absolute, not incremental, so the
-    // zoom never drifts. The pinch midpoint anchors the zoom (rule 128) so the
-    // date under the fingers stays put.
-    if (e.pointerType === 'touch' && this._activeTouches.has(e.pointerId)) {
-      this._activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (this._pinch && this._activeTouches.size >= 2) {
-        const [a, b] = [...this._activeTouches.values()];
-        const dist = Math.hypot(a.x - b.x, a.y - b.y);
-        if (dist > 0 && this._pinch.startDist > 0) {
-          e.preventDefault();
-          const midX = (a.x + b.x) / 2;
-          const factor = dist / this._pinch.startDist;
-          this.setPxPerDay(this._pinch.startPxPerDay * factor, { clientX: midX });
-        }
-        return;
-      }
-    }
+    // Gesture precedence, first claimant wins: pinch > pan > drag-to-link > bar
+    // drag / hover. Each stage returns true when it consumed the event.
+    if (this._handlePinchMove(e)) return;
+    if (this._handlePanMove(e)) return;
+    if (this._handleLinkDragMove(e)) return;
+    this._handleDragOrHoverMove(e);
+  };
 
-    // ── Pan move (#491) ───────────────────────────────────────────────────
-    // Direct 1:1 manipulation on both axes. Dragging content right (positive
-    // dx) reveals earlier dates, so scrollLeft decreases by dx; same for dy.
-    // Clamp to [0, max] on each axis (rule 129). The vertical scroll change
-    // flows back to the task-list via the container's scroll event → the
-    // ScheduleView scroll-sync handler (taskListScrollRef), so no extra wiring
-    // is needed here.
+  /**
+   * Two-finger pinch zoom (#2160, rule 66).
+   *
+   * Recomputes the finger span each frame and sets pxPerDay from the ratio to the
+   * span captured at gesture start — absolute, not incremental, so the zoom never
+   * drifts. The pinch midpoint anchors the zoom (rule 128) so the date under the
+   * fingers stays put.
+   *
+   * A touch that is not part of an active pinch still updates its recorded position,
+   * then falls through so a single-finger touch pan keeps working.
+   */
+  private _handlePinchMove(e: PointerEvent): boolean {
+    if (e.pointerType !== 'touch' || !this._activeTouches.has(e.pointerId)) return false;
+    this._activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!this._pinch || this._activeTouches.size < 2) return false;
+
+    const [a, b] = [...this._activeTouches.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    if (dist > 0 && this._pinch.startDist > 0) {
+      e.preventDefault();
+      const midX = (a.x + b.x) / 2;
+      const factor = dist / this._pinch.startDist;
+      this.setPxPerDay(this._pinch.startPxPerDay * factor, { clientX: midX });
+    }
+    return true;
+  }
+
+  /**
+   * Pan move (#491) — direct 1:1 manipulation on both axes.
+   *
+   * Dragging content right (positive dx) reveals earlier dates, so scrollLeft
+   * decreases by dx; same for dy. Clamped to [0, max] per axis (rule 129). The
+   * vertical change flows back to the task list through the container's scroll event
+   * → ScheduleView's scroll-sync handler, so no extra wiring is needed here.
+   */
+  private _handlePanMove(e: PointerEvent): boolean {
     const panDelta = this._panFSM.move(e.clientX, e.clientY);
-    if (panDelta) {
-      const maxLeft = Math.max(0, (this._scales?.totalWidth ?? 0) - this._viewportWidth);
-      const maxTop = Math.max(0, this._container.scrollHeight - this._container.clientHeight);
-      this._container.scrollLeft = Math.min(maxLeft, Math.max(0, this._scrollLeft - panDelta.dx));
-      this._container.scrollTop = Math.min(maxTop, Math.max(0, this._scrollTop - panDelta.dy));
-      return;
+    if (!panDelta) return false;
+    const maxLeft = Math.max(0, (this._scales?.totalWidth ?? 0) - this._viewportWidth);
+    const maxTop = Math.max(0, this._container.scrollHeight - this._container.clientHeight);
+    this._container.scrollLeft = Math.min(maxLeft, Math.max(0, this._scrollLeft - panDelta.dx));
+    this._container.scrollTop = Math.min(maxTop, Math.max(0, this._scrollTop - panDelta.dy));
+    return true;
+  }
+
+  /**
+   * Drag-to-link move (#1666).
+   *
+   * While the link FSM owns the gesture it fully consumes pointermove — the bar drag
+   * FSM never sees it. The valid target is the hit-index zone under the pointer that
+   * is not the source; it drives the crosshair / not-allowed cursor and the preview
+   * repaint each frame.
+   */
+  private _handleLinkDragMove(e: PointerEvent): boolean {
+    if (this._linkFSM.state === 'IDLE') return false;
+
+    const { x: lx, y: ly } = this._pointerToCanvas(e);
+    if (this._linkFSM.onPointerMove(lx, ly) === 'none') {
+      // Armed but below threshold — keep the crosshair, wait for the drag.
+      this._ixCanvas.style.cursor = 'crosshair';
+      return true;
     }
 
-    // ── Drag-to-link move (#1666) ─────────────────────────────────────────
-    // While the link FSM owns the gesture it fully consumes pointermove — the
-    // bar drag FSM never sees it. Compute the current valid target from the
-    // hit index each frame (any bar that is not the source) and drive the
-    // crosshair / not-allowed cursor + preview repaint.
-    if (this._linkFSM.state !== 'IDLE') {
-      const { x: lx, y: ly } = this._pointerToCanvas(e);
-      const res = this._linkFSM.onPointerMove(lx, ly);
-      if (res !== 'none') {
-        const zone = this._hitIndex ? this._hitIndex.query(lx, ly, false) : null;
-        const sourceId = this._linkFSM.context.sourceId;
-        if (zone && zone.taskId !== sourceId) {
-          this._linkFSM.setTarget(zone.taskId, {
-            left: zone.barLeft,
-            right: zone.barRight,
-            top: zone.barTop,
-            bottom: zone.barBottom,
-          });
-          this._ixCanvas.style.cursor = 'crosshair';
-        } else {
-          this._linkFSM.setTarget(null, null);
-          // Over the source bar itself → not-allowed (self-link is rejected);
-          // over empty space → keep the crosshair (still hunting for a target).
-          this._ixCanvas.style.cursor =
-            zone && zone.taskId === sourceId ? 'not-allowed' : 'crosshair';
-        }
-        this._requestRepaint();
-      } else {
-        // Armed but below threshold — keep the crosshair, wait for the drag.
-        this._ixCanvas.style.cursor = 'crosshair';
-      }
-      return;
+    const zone = this._hitIndex ? this._hitIndex.query(lx, ly, false) : null;
+    const sourceId = this._linkFSM.context.sourceId;
+    if (zone && zone.taskId !== sourceId) {
+      this._linkFSM.setTarget(zone.taskId, {
+        left: zone.barLeft,
+        right: zone.barRight,
+        top: zone.barTop,
+        bottom: zone.barBottom,
+      });
+      this._ixCanvas.style.cursor = 'crosshair';
+    } else {
+      this._linkFSM.setTarget(null, null);
+      // Over the source bar itself → not-allowed (self-link is rejected);
+      // over empty space → keep the crosshair (still hunting for a target).
+      this._ixCanvas.style.cursor =
+        zone && zone.taskId === sourceId ? 'not-allowed' : 'crosshair';
     }
+    this._requestRepaint();
+    return true;
+  }
 
+  /** Bar drag/resize in flight, or plain hover when the drag FSM has not moved. */
+  private _handleDragOrHoverMove(e: PointerEvent): void {
     const { x, y } = this._pointerToCanvas(e);
     const result = this._dragFSM.onPointerMove(x, y);
     if (result !== 'none') {
@@ -1481,46 +1505,57 @@ export class GanttEngineImpl implements GanttEngine {
     }
 
     if (result === 'none' || result === 'started') {
-      // Update hover cursor when not dragging
-      if (this._hitIndex && this._scales) {
-        const isTouch = e.pointerType === 'touch';
-        const canvasX = e.clientX - this._ixCanvas.getBoundingClientRect().left + this._scrollLeft;
-        const canvasY = e.clientY - this._ixCanvas.getBoundingClientRect().top + this._scrollTop;
-        this._hoverZone = this._hitIndex.query(canvasX, canvasY, isTouch);
-        this._updateCursor(this._hoverZone);
-        // Emit task-hover transitions so React-side useDependencyHover can
-        // recompute the chain (#475). Coalesced to taskId changes only —
-        // pointermove fires dozens of times per row but the chain only needs
-        // to refresh when the underlying task changes.
-        const hoveredTaskId = this._hoverZone?.taskId ?? null;
-        if (hoveredTaskId !== this._lastHoveredTaskId) {
-          this._lastHoveredTaskId = hoveredTaskId;
-          this._emit('task-hover', { taskId: hoveredTaskId });
-        }
-      }
+      this._updateHoverZone(e);
       return;
     }
+    this._emitBarDragMove(x); // result === 'moved'
+  }
 
-    // result === 'moved'
+  /** Hover cursor + coalesced `task-hover` emission while not dragging. */
+  private _updateHoverZone(e: PointerEvent): void {
+    if (!this._hitIndex || !this._scales) return;
+    // One getBoundingClientRect for both axes — this runs on every pointermove.
+    const rect = this._ixCanvas.getBoundingClientRect();
+    this._hoverZone = this._hitIndex.query(
+      e.clientX - rect.left + this._scrollLeft,
+      e.clientY - rect.top + this._scrollTop,
+      e.pointerType === 'touch',
+    );
+    this._updateCursor(this._hoverZone);
+
+    // Emit task-hover transitions so React-side useDependencyHover can
+    // recompute the chain (#475). Coalesced to taskId changes only —
+    // pointermove fires dozens of times per row but the chain only needs
+    // to refresh when the underlying task changes.
+    const hoveredTaskId = this._hoverZone?.taskId ?? null;
+    if (hoveredTaskId !== this._lastHoveredTaskId) {
+      this._lastHoveredTaskId = hoveredTaskId;
+      this._emit('task-hover', { taskId: hoveredTaskId });
+    }
+  }
+
+  /** Emit the move/resize delta for the bar drag the FSM is running. */
+  private _emitBarDragMove(x: number): void {
     const { taskId, isDragType } = this._dragFSM.context;
     if (!taskId || !this._scales) return;
 
-    if (isDragType === 'move') {
-      const snappedX = snapToDayBoundary(x - this._dragOffsetX, this._scales);
-      // Only emit when the snapped start date actually changes. The visual drag
-      // shadow is repainted from the FSM's raw currentX above (via
-      // _requestRepaint), so suppressing a same-day emit never stutters the bar —
-      // it only spares useDragCpm/the worker a redundant CPM recompute (#1524).
-      if (snappedX !== this._lastEmittedDragX) {
-        this._lastEmittedDragX = snappedX;
-        this._emit('drag-task-move', { id: taskId, left: snappedX });
-      }
-      this._updateCursor({ type: 'bar' } as HitZone);
-    } else {
+    if (isDragType !== 'move') {
       this._emit('resize-task-move', { id: taskId, right: x });
       this._updateCursor({ type: 'resize' } as HitZone);
+      return;
     }
-  };
+
+    const snappedX = snapToDayBoundary(x - this._dragOffsetX, this._scales);
+    // Only emit when the snapped start date actually changes. The visual drag
+    // shadow is repainted from the FSM's raw currentX above (via
+    // _requestRepaint), so suppressing a same-day emit never stutters the bar —
+    // it only spares useDragCpm/the worker a redundant CPM recompute (#1524).
+    if (snappedX !== this._lastEmittedDragX) {
+      this._lastEmittedDragX = snappedX;
+      this._emit('drag-task-move', { id: taskId, left: snappedX });
+    }
+    this._updateCursor({ type: 'bar' } as HitZone);
+  }
 
   /**
    * Begin a two-finger pinch (#2160). Cancels whatever the first finger was
