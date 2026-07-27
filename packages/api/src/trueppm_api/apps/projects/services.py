@@ -1563,91 +1563,139 @@ def sprint_outcome_payload(sprint: Any, request: Any) -> dict[str, Any]:
     not yet decided). ``outcome_recorded`` is False for sprints closed before #982
     shipped (no SprintTaskOutcome rows) so the client can say so honestly.
     """
-    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.projects.models import SprintState
+    from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
+
+    is_closed = sprint.state == SprintState.COMPLETED
+    velocity_readable = can_read_signal(request, sprint.project_id, "velocity")
+
+    outcome_recorded, didnt_ship = _didnt_ship_rows(
+        sprint, is_closed=is_closed, velocity_readable=velocity_readable
+    )
+
+    return {
+        "sprint_id": str(sprint.pk),
+        "state": sprint.state,
+        "provisional": not is_closed,
+        "outcome_recorded": outcome_recorded,
+        "name": sprint.name,
+        "start_date": sprint.start_date.isoformat(),
+        "finish_date": sprint.finish_date.isoformat(),
+        "closed_at": sprint.closed_at.isoformat() if sprint.closed_at else None,
+        "goal": sprint.goal,
+        "goal_outcome": sprint.goal_outcome,
+        "commitment": _commitment_block(sprint),
+        "velocity": _velocity_block(sprint) if velocity_readable else None,
+        "didnt_ship": didnt_ship,
+        "didnt_ship_summary": _didnt_ship_summary(didnt_ship, velocity_readable=velocity_readable),
+        "retro_summary": _retro_summary_block(sprint, request),
+        "review": _sprint_review_block(
+            sprint, is_closed=is_closed, velocity_readable=velocity_readable
+        ),
+        # Realized milestone slip (#1098) — only on the CLOSED card; the
+        # "what did this sprint do to my date" question resolves at close.
+        "milestone_slip": _milestone_slip_for_sprint(sprint) if is_closed else None,
+    }
+
+
+def _didnt_ship_rows(
+    sprint: Any, *, is_closed: bool, velocity_readable: bool
+) -> tuple[bool, list[dict[str, Any]]]:
+    """The "what didn't ship" list (#982), plus whether outcomes were recorded.
+
+    A CLOSED sprint reads its snapshotted ``SprintTaskOutcome`` rows; ACTIVE/PLANNED
+    derive a *provisional* list from the currently-incomplete tasks, whose disposition
+    is not decided until close.
+
+    ``outcome_recorded`` is False for sprints closed before #982 shipped (no outcome
+    rows at all), so the client can say so honestly rather than imply an empty sprint.
+
+    Privacy (ADR-0104): when the requester may not read velocity, each row's
+    ``story_points`` is nulled — titles, counts, and dispositions stay.
+    """
     from trueppm_api.apps.projects.models import (
-        SprintRetro,
-        SprintState,
         SprintTaskDisposition,
         SprintTaskOutcome,
         Task,
         TaskStatus,
     )
-    from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
 
-    is_closed = sprint.state == SprintState.COMPLETED
-    provisional = not is_closed
-    velocity_readable = can_read_signal(request, sprint.project_id, "velocity")
-
-    # --- didn't-ship list ---------------------------------------------------
-    outcome_recorded = False
-    didnt_ship: list[dict[str, Any]] = []
-    if is_closed:
-        rows = list(SprintTaskOutcome.objects.filter(sprint=sprint).select_related("next_sprint"))
-        outcome_recorded = len(rows) > 0
-        for r in rows:
-            if r.disposition == SprintTaskDisposition.COMPLETED:
-                continue
-            didnt_ship.append(
-                {
-                    "task_id": str(r.task_id) if r.task_id else None,
-                    "task_short_id": r.task_short_id,
-                    "task_title": r.task_title,
-                    "story_points": r.story_points if velocity_readable else None,
-                    "final_status": r.final_status,
-                    "disposition": r.disposition,
-                    "next_sprint_id": str(r.next_sprint_id) if r.next_sprint_id else None,
-                    "next_sprint_name": r.next_sprint.name if r.next_sprint else None,
-                    "was_pending": r.was_pending,
-                }
-            )
-    else:
+    if not is_closed:
         # Provisional: current incomplete tasks; disposition is decided at close.
-        for t in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False).exclude(
-            status=TaskStatus.COMPLETE
-        ):
-            didnt_ship.append(
-                {
-                    "task_id": str(t.pk),
-                    "task_short_id": f"T-{t.short_id}" if t.short_id else "",
-                    "task_title": t.name,
-                    "story_points": t.story_points if velocity_readable else None,
-                    "final_status": t.status,
-                    "disposition": None,  # not decided until close
-                    "next_sprint_id": None,
-                    "next_sprint_name": None,
-                    "was_pending": t.sprint_pending,
-                }
+        provisional_rows = [
+            {
+                "task_id": str(t.pk),
+                "task_short_id": f"T-{t.short_id}" if t.short_id else "",
+                "task_title": t.name,
+                "story_points": t.story_points if velocity_readable else None,
+                "final_status": t.status,
+                "disposition": None,  # not decided until close
+                "next_sprint_id": None,
+                "next_sprint_name": None,
+                "was_pending": t.sprint_pending,
+            }
+            for t in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False).exclude(
+                status=TaskStatus.COMPLETE
             )
+        ]
+        return False, provisional_rows
 
-    summary = {
-        "carried_count": sum(
-            1 for d in didnt_ship if d["disposition"] == SprintTaskDisposition.CARRIED
-        ),
-        "carried_points": sum(
-            d["story_points"] or 0
-            for d in didnt_ship
-            if d["disposition"] == SprintTaskDisposition.CARRIED
-        )
-        if velocity_readable
-        else None,
-        "dropped_count": sum(
-            1 for d in didnt_ship if d["disposition"] == SprintTaskDisposition.DROPPED
-        ),
-        "dropped_points": sum(
-            d["story_points"] or 0
-            for d in didnt_ship
-            if d["disposition"] == SprintTaskDisposition.DROPPED
-        )
-        if velocity_readable
-        else None,
+    rows = list(SprintTaskOutcome.objects.filter(sprint=sprint).select_related("next_sprint"))
+    didnt_ship = [
+        {
+            "task_id": str(r.task_id) if r.task_id else None,
+            "task_short_id": r.task_short_id,
+            "task_title": r.task_title,
+            "story_points": r.story_points if velocity_readable else None,
+            "final_status": r.final_status,
+            "disposition": r.disposition,
+            "next_sprint_id": str(r.next_sprint_id) if r.next_sprint_id else None,
+            "next_sprint_name": r.next_sprint.name if r.next_sprint else None,
+            "was_pending": r.was_pending,
+        }
+        for r in rows
+        if r.disposition != SprintTaskDisposition.COMPLETED
+    ]
+    return len(rows) > 0, didnt_ship
+
+
+def _didnt_ship_summary(
+    didnt_ship: list[dict[str, Any]], *, velocity_readable: bool
+) -> dict[str, Any]:
+    """Carried/dropped counts and point totals.
+
+    Counts always render; the point totals are nulled when velocity is gated, so the
+    suppressed total can't be reconstructed by summing the line items (ADR-0104).
+    """
+    from trueppm_api.apps.projects.models import SprintTaskDisposition
+
+    def _count(disposition: str) -> int:
+        return sum(1 for d in didnt_ship if d["disposition"] == disposition)
+
+    def _points(disposition: str) -> int | None:
+        if not velocity_readable:
+            return None
+        return sum(d["story_points"] or 0 for d in didnt_ship if d["disposition"] == disposition)
+
+    return {
+        "carried_count": _count(SprintTaskDisposition.CARRIED),
+        "carried_points": _points(SprintTaskDisposition.CARRIED),
+        "dropped_count": _count(SprintTaskDisposition.DROPPED),
+        "dropped_points": _points(SprintTaskDisposition.DROPPED),
     }
 
-    # --- commitment (always; completion ratios are the carve-out) -----------
+
+def _commitment_block(sprint: Any) -> dict[str, Any]:
+    """Commitment aggregates — always rendered.
+
+    The completion ratios are the "milestone-health %" carve-out from the ADR-0104
+    velocity gate: they stay visible even when the point figures behind them do not.
+    """
     committed_p = sprint.committed_points
     completed_p = sprint.completed_points
     committed_t = sprint.committed_task_count
     completed_t = sprint.completed_task_count
-    commitment = {
+    return {
         "committed_points": committed_p,
         "committed_task_count": committed_t,
         "completed_points": completed_p,
@@ -1660,68 +1708,50 @@ def sprint_outcome_payload(sprint: Any, request: Any) -> dict[str, Any]:
         else None,
     }
 
-    # --- velocity block (ADR-0104 gated) ------------------------------------
-    velocity_block: dict[str, Any] | None = None
-    if velocity_readable:
-        snapshot_list = list(sprint.burn_snapshots.all().order_by("snapshot_date"))
-        burn = compute_sprint_burn_status(sprint, snapshot_list)
-        summary_v = velocity_summary(sprint.project_id)
-        entry = next((e for e in summary_v["sprints"] if e["id"] == str(sprint.pk)), None)
-        velocity_block = {
-            "completed_points": completed_p,
-            "velocity_delta_points": entry["delta_vs_prior_points"] if entry else None,
-            "rolling_avg_points": summary_v["rolling_avg_points"],
-            "burn_status": burn["burn_status"],
-            "trend_points": burn["trend_points"],
-            "projected_finish_date": burn["projected_finish_date"],
-        }
 
-    # --- retro summary (free-text gated by RetroVisibility) ------------------
-    retro_summary: dict[str, Any] | None = None
-    retro = SprintRetro.objects.filter(sprint=sprint).prefetch_related("action_items").first()
-    if retro is not None:
-        membership = None
-        user = getattr(request, "user", None)
-        if user is not None and getattr(user, "is_authenticated", False):
-            membership = ProjectMembership.objects.filter(
-                project_id=sprint.project_id, user=user
-            ).first()
-        caller_role = membership.role if membership else None
-        # ADR-0071 §3: notes readable to PROJECT-visibility for any member, or to
-        # MEMBER+ when TEAM_ONLY. Counts are always visible.
-        from trueppm_api.apps.projects.models import RetroVisibility
-
-        can_read_notes = retro.team_visibility == RetroVisibility.PROJECT or (
-            caller_role is not None and caller_role >= Role.MEMBER
-        )
-        retro_summary = {
-            "retro_id": str(retro.pk),
-            "action_item_count": sum(1 for i in retro.action_items.all() if not i.is_deleted),
-            "has_notes": bool(retro.notes) and can_read_notes,
-        }
-
+def _velocity_block(sprint: Any) -> dict[str, Any]:
+    """Velocity delta + burn status. Callers gate this on ``can_read_signal`` (ADR-0104)."""
+    snapshot_list = list(sprint.burn_snapshots.all().order_by("snapshot_date"))
+    burn = compute_sprint_burn_status(sprint, snapshot_list)
+    summary_v = velocity_summary(sprint.project_id)
+    entry = next((e for e in summary_v["sprints"] if e["id"] == str(sprint.pk)), None)
     return {
-        "sprint_id": str(sprint.pk),
-        "state": sprint.state,
-        "provisional": provisional,
-        "outcome_recorded": outcome_recorded,
-        "name": sprint.name,
-        "start_date": sprint.start_date.isoformat(),
-        "finish_date": sprint.finish_date.isoformat(),
-        "closed_at": sprint.closed_at.isoformat() if sprint.closed_at else None,
-        "goal": sprint.goal,
-        "goal_outcome": sprint.goal_outcome,
-        "commitment": commitment,
-        "velocity": velocity_block,
-        "didnt_ship": didnt_ship,
-        "didnt_ship_summary": summary,
-        "retro_summary": retro_summary,
-        "review": _sprint_review_block(
-            sprint, is_closed=is_closed, velocity_readable=velocity_readable
-        ),
-        # Realized milestone slip (#1098) — only on the CLOSED card; the
-        # "what did this sprint do to my date" question resolves at close.
-        "milestone_slip": _milestone_slip_for_sprint(sprint) if is_closed else None,
+        "completed_points": sprint.completed_points,
+        "velocity_delta_points": entry["delta_vs_prior_points"] if entry else None,
+        "rolling_avg_points": summary_v["rolling_avg_points"],
+        "burn_status": burn["burn_status"],
+        "trend_points": burn["trend_points"],
+        "projected_finish_date": burn["projected_finish_date"],
+    }
+
+
+def _retro_summary_block(sprint: Any, request: Any) -> dict[str, Any] | None:
+    """Retro counts, with the free-text flag behind the RetroVisibility gate.
+
+    ADR-0071 §3: notes are readable at PROJECT visibility for any member, or to
+    MEMBER+ when TEAM_ONLY. Counts are always visible.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.projects.models import RetroVisibility, SprintRetro
+
+    retro = SprintRetro.objects.filter(sprint=sprint).prefetch_related("action_items").first()
+    if retro is None:
+        return None
+
+    membership = None
+    user = getattr(request, "user", None)
+    if user is not None and getattr(user, "is_authenticated", False):
+        membership = ProjectMembership.objects.filter(
+            project_id=sprint.project_id, user=user
+        ).first()
+    caller_role = membership.role if membership else None
+    can_read_notes = retro.team_visibility == RetroVisibility.PROJECT or (
+        caller_role is not None and caller_role >= Role.MEMBER
+    )
+    return {
+        "retro_id": str(retro.pk),
+        "action_item_count": sum(1 for i in retro.action_items.all() if not i.is_deleted),
+        "has_notes": bool(retro.notes) and can_read_notes,
     }
 
 
@@ -1741,108 +1771,33 @@ def _sprint_review_block(
     candidates) and ``demo_list`` the team-curated walkthrough (closed only — a
     provisional sprint has no outcome rows to flag yet).
     """
-    from trueppm_api.apps.projects.models import (
-        AcceptanceCriterion,
-        SprintTaskDisposition,
-        SprintTaskOutcome,
-        Task,
-        TaskStatus,
-    )
+    from trueppm_api.apps.projects.models import SprintTaskDisposition
 
-    entries: list[dict[str, Any]] = []
-    if is_closed:
-        for r in SprintTaskOutcome.objects.filter(sprint=sprint):
-            entries.append(
-                {
-                    # The SprintTaskOutcome row PK — the toggle-demo endpoint key.
-                    # None for provisional (no row yet → demo curation is closed-only).
-                    "outcome_id": str(r.id),
-                    "task_id": r.task_id,
-                    "short_id": r.task_short_id,
-                    "title": r.task_title,
-                    "points": r.story_points,
-                    "demo_ready": r.demo_ready,
-                    "demo_order": r.demo_order,
-                    "presenter": r.presenter,
-                    "review_note": r.review_note,
-                    "flagged_to_backlog": r.flagged_to_backlog_task_id is not None,
-                    "disposition": r.disposition,
-                    "shipped": r.disposition == SprintTaskDisposition.COMPLETED,
-                }
-            )
-    else:
-        for t in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False):
-            entries.append(
-                {
-                    "outcome_id": None,
-                    "task_id": t.pk,
-                    "short_id": f"T-{t.short_id}" if t.short_id else "",
-                    "title": t.name,
-                    "points": t.story_points,
-                    "demo_ready": False,  # no outcome row pre-close; curate at review
-                    "demo_order": 0,
-                    "presenter": "",
-                    "review_note": "",
-                    "flagged_to_backlog": False,
-                    "disposition": None,
-                    "shipped": t.status == TaskStatus.COMPLETE,
-                }
-            )
+    entries = _review_entries(sprint, is_closed=is_closed)
+    accept, unmet = _acceptance_by_task(entries)
 
-    # Per-task acceptance (current met/total) + the list of *unmet* criteria names
-    # in one query — no N+1 over the set. The unmet list powers the #1131
-    # click-through ("which criterion failed?") on a criteria-incomplete story;
-    # ordered by AcceptanceCriterion.position so the disclosure reads in author order.
-    task_ids = [e["task_id"] for e in entries if e["task_id"]]
-    accept: dict[Any, dict[str, int]] = {}
-    unmet: dict[Any, list[dict[str, Any]]] = {}
-    if task_ids:
-        for ac in AcceptanceCriterion.objects.filter(
-            task_id__in=task_ids, is_deleted=False
-        ).order_by("position"):
-            d = accept.setdefault(ac.task_id, {"met": 0, "total": 0})
-            d["total"] += 1
-            if ac.met:
-                d["met"] += 1
-            else:
-                unmet.setdefault(ac.task_id, []).append({"id": str(ac.id), "text": ac.text})
-
-    accepted_count = not_accepted_count = no_criteria_count = 0
+    tally = {"accepted": 0, "not_accepted": 0, "no_criteria": 0}
     accepted_points = not_accepted_points = 0
     shipped: list[dict[str, Any]] = []
     demo_entries: list[dict[str, Any]] = []
+
     for e in entries:
         a = accept.get(e["task_id"]) if e["task_id"] else None
         met, total = (a["met"], a["total"]) if a else (0, 0)
         pts = e["points"] or 0
         if total == 0:
-            no_criteria_count += 1
+            tally["no_criteria"] += 1
         elif met == total:
-            accepted_count += 1
+            tally["accepted"] += 1
             accepted_points += pts
         else:
-            not_accepted_count += 1
+            tally["not_accepted"] += 1
             not_accepted_points += pts
         if e["shipped"]:
             shipped.append(
-                {
-                    "outcome_id": e["outcome_id"],  # toggle-demo key (null if provisional)
-                    "task_id": str(e["task_id"]) if e["task_id"] else None,
-                    "task_short_id": e["short_id"],
-                    "task_title": e["title"],
-                    "story_points": e["points"] if velocity_readable else None,
-                    "acceptance": {"met": met, "total": total},
-                    # #1131: the specific unmet criteria (names only) for the
-                    # disclosure; empty when fully accepted or no criteria.
-                    "unmet_criteria": unmet.get(e["task_id"], []) if e["task_id"] else [],
-                    # #1131 contributor note + #1132 carry-forward flag.
-                    "review_note": e["review_note"],
-                    "flagged_to_backlog": e["flagged_to_backlog"],
-                    "demo_ready": e["demo_ready"],
-                    # #1130: per-story demo curation (order + presenter).
-                    "demo_order": e["demo_order"],
-                    "presenter": e["presenter"],
-                }
+                _shipped_entry(
+                    e, met=met, total=total, unmet=unmet, velocity_readable=velocity_readable
+                )
             )
         if e["demo_ready"]:
             demo_entries.append(e)
@@ -1850,39 +1805,141 @@ def _sprint_review_block(
     # #1130: order the demo walkthrough by demo_order (0 = unset sorts last but
     # stable), then short_id for a deterministic tie-break.
     demo_entries.sort(key=lambda e: (e["demo_order"] or 10**9, e["short_id"]))
-    demo_list = [e["short_id"] for e in demo_entries]
 
     # #1129: committed-at-planning → shipped COUNT delta. Counts are ceremony-critical
     # and ALWAYS visible — the team knows what it committed, so this line is NOT behind
-    # the ADR-0104 velocity/points gate (only points stay gated). For a CLOSED sprint
-    # committed = snapshotted committed_task_count (the at-activation commitment);
-    # shipped = completed outcome rows; carried = CARRIED-disposition outcome rows.
-    # For a provisional sprint derive sensible live counts from the current task set.
-    if is_closed:
-        committed_count = sprint.committed_task_count
-        shipped_count = sum(1 for e in entries if e["shipped"])
-        carried_count = sum(1 for e in entries if e["disposition"] == SprintTaskDisposition.CARRIED)
-    else:
-        committed_count = sprint.committed_task_count
-        shipped_count = sum(1 for e in entries if e["shipped"])
-        # Disposition isn't decided until close; the live incomplete set isn't yet
-        # "carried" vs "dropped", so omit carried gracefully (null) on a provisional.
-        carried_count = None
+    # the ADR-0104 velocity/points gate (only points stay gated). Disposition isn't
+    # decided until close, so the live incomplete set of a provisional sprint isn't yet
+    # "carried" vs "dropped" — carried is omitted gracefully (null) there.
     commitment_block = {
-        "committed_count": committed_count,
-        "shipped_count": shipped_count,
-        "carried_count": carried_count,
+        "committed_count": sprint.committed_task_count,
+        "shipped_count": sum(1 for e in entries if e["shipped"]),
+        "carried_count": sum(
+            1 for e in entries if e["disposition"] == SprintTaskDisposition.CARRIED
+        )
+        if is_closed
+        else None,
     }
 
     return {
-        "accepted_count": accepted_count,
-        "not_accepted_count": not_accepted_count,
-        "no_criteria_count": no_criteria_count,
+        "accepted_count": tally["accepted"],
+        "not_accepted_count": tally["not_accepted"],
+        "no_criteria_count": tally["no_criteria"],
         "accepted_points": accepted_points if velocity_readable else None,
         "not_accepted_points": not_accepted_points if velocity_readable else None,
         "shipped": shipped,
-        "demo_list": demo_list,
+        "demo_list": [e["short_id"] for e in demo_entries],
         "commitment": commitment_block,
+    }
+
+
+def _review_entries(sprint: Any, *, is_closed: bool) -> list[dict[str, Any]]:
+    """The review's membership set, normalized to one shape.
+
+    A closed sprint reads its ``SprintTaskOutcome`` rows; a provisional one reads the
+    live committed task set. ``outcome_id`` is the toggle-demo endpoint key and is
+    ``None`` for provisional entries — there is no row yet, so demo curation is
+    closed-only.
+    """
+    from trueppm_api.apps.projects.models import (
+        SprintTaskDisposition,
+        SprintTaskOutcome,
+        Task,
+        TaskStatus,
+    )
+
+    if is_closed:
+        return [
+            {
+                "outcome_id": str(r.id),
+                "task_id": r.task_id,
+                "short_id": r.task_short_id,
+                "title": r.task_title,
+                "points": r.story_points,
+                "demo_ready": r.demo_ready,
+                "demo_order": r.demo_order,
+                "presenter": r.presenter,
+                "review_note": r.review_note,
+                "flagged_to_backlog": r.flagged_to_backlog_task_id is not None,
+                "disposition": r.disposition,
+                "shipped": r.disposition == SprintTaskDisposition.COMPLETED,
+            }
+            for r in SprintTaskOutcome.objects.filter(sprint=sprint)
+        ]
+    return [
+        {
+            "outcome_id": None,
+            "task_id": t.pk,
+            "short_id": f"T-{t.short_id}" if t.short_id else "",
+            "title": t.name,
+            "points": t.story_points,
+            "demo_ready": False,  # no outcome row pre-close; curate at review
+            "demo_order": 0,
+            "presenter": "",
+            "review_note": "",
+            "flagged_to_backlog": False,
+            "disposition": None,
+            "shipped": t.status == TaskStatus.COMPLETE,
+        }
+        for t in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False)
+    ]
+
+
+def _acceptance_by_task(
+    entries: list[dict[str, Any]],
+) -> tuple[dict[Any, dict[str, int]], dict[Any, list[dict[str, Any]]]]:
+    """Per-task acceptance (met/total) and the *unmet* criteria names, in one query.
+
+    No N+1 over the set. The unmet list powers the #1131 click-through ("which
+    criterion failed?") on a criteria-incomplete story; ordered by
+    ``AcceptanceCriterion.position`` so the disclosure reads in author order.
+    """
+    from trueppm_api.apps.projects.models import AcceptanceCriterion
+
+    accept: dict[Any, dict[str, int]] = {}
+    unmet: dict[Any, list[dict[str, Any]]] = {}
+    task_ids = [e["task_id"] for e in entries if e["task_id"]]
+    if not task_ids:
+        return accept, unmet
+
+    for ac in AcceptanceCriterion.objects.filter(task_id__in=task_ids, is_deleted=False).order_by(
+        "position"
+    ):
+        d = accept.setdefault(ac.task_id, {"met": 0, "total": 0})
+        d["total"] += 1
+        if ac.met:
+            d["met"] += 1
+        else:
+            unmet.setdefault(ac.task_id, []).append({"id": str(ac.id), "text": ac.text})
+    return accept, unmet
+
+
+def _shipped_entry(
+    e: dict[str, Any],
+    *,
+    met: int,
+    total: int,
+    unmet: dict[Any, list[dict[str, Any]]],
+    velocity_readable: bool,
+) -> dict[str, Any]:
+    """One row of the shipped/demo-candidate list."""
+    return {
+        "outcome_id": e["outcome_id"],  # toggle-demo key (null if provisional)
+        "task_id": str(e["task_id"]) if e["task_id"] else None,
+        "task_short_id": e["short_id"],
+        "task_title": e["title"],
+        "story_points": e["points"] if velocity_readable else None,
+        "acceptance": {"met": met, "total": total},
+        # #1131: the specific unmet criteria (names only) for the disclosure;
+        # empty when fully accepted or no criteria.
+        "unmet_criteria": unmet.get(e["task_id"], []) if e["task_id"] else [],
+        # #1131 contributor note + #1132 carry-forward flag.
+        "review_note": e["review_note"],
+        "flagged_to_backlog": e["flagged_to_backlog"],
+        "demo_ready": e["demo_ready"],
+        # #1130: per-story demo curation (order + presenter).
+        "demo_order": e["demo_order"],
+        "presenter": e["presenter"],
     }
 
 
@@ -3178,33 +3235,65 @@ def _assemble_milestone_rollup(
     so the two paths cannot drift. See ``compute_milestone_rollup_payload`` for the
     state-by-state contribution rules.
     """
-    from trueppm_api.apps.projects.models import SprintState
-
     if not targeting:
         return None
 
-    committed_points = 0
-    committed_tasks = 0
-    completed_points = 0
-    completed_tasks = 0
-    latest_active_planned_finish: Any = None
-    scope_changed = False
-    # The ACTIVE sprint whose scope diverged — lets a milestone-surface chip open
-    # the scope-change drawer for the right sprint (#550) without a second lookup.
-    scope_change_sprint_id: Any = None
-    binding_drifted = False
+    totals = _rollup_totals(targeting, current_committed_by_sprint, live_completed_by_sprint)
+    percent_complete, rollup_basis = _rollup_basis(totals)
+
+    latest_finish = totals["latest_active_planned_finish"]
+    variance_days = (
+        (latest_finish - milestone.early_finish).days
+        if latest_finish is not None and milestone.early_finish is not None
+        else None
+    )
+    scope_change_sprint_id = totals["scope_change_sprint_id"]
+
+    return {
+        "percent_complete": percent_complete,
+        "rollup_basis": rollup_basis,
+        "variance_days": variance_days,
+        "sprint_scope_changed": totals["scope_changed"],
+        "scope_change_sprint_id": (str(scope_change_sprint_id) if scope_change_sprint_id else None),
+        "binding_drifted": totals["binding_drifted"],
+        "sprint_count": len(targeting),
+    }
+
+
+def _rollup_totals(
+    targeting: list[Any],
+    current_committed_by_sprint: dict[Any, int],
+    live_completed_by_sprint: dict[Any, tuple[int, int]],
+) -> dict[str, Any]:
+    """Fold every targeting sprint into the rollup's numerators and flags.
+
+    CANCELLED sprints are skipped entirely — they contribute to neither the
+    denominator nor the numerator. ``sprint_count`` still counts them (computed by the
+    caller from ``len(targeting)``) because the milestone-detail UI surfaces the total
+    link count regardless of state: a PM needs to see "5 sprints linked, 1 cancelled"
+    without a second query.
+    """
+    from trueppm_api.apps.projects.models import SprintState
+
+    totals: dict[str, Any] = {
+        "committed_points": 0,
+        "committed_tasks": 0,
+        "completed_points": 0,
+        "completed_tasks": 0,
+        "latest_active_planned_finish": None,
+        "scope_changed": False,
+        # The ACTIVE sprint whose scope diverged — lets a milestone-surface chip open
+        # the scope-change drawer for the right sprint (#550) without a second lookup.
+        "scope_change_sprint_id": None,
+        "binding_drifted": False,
+    }
 
     for sprint in targeting:
-        # CANCELLED sprints are skipped entirely — they contribute nothing
-        # to the denominator OR numerator. ``sprint_count`` still includes
-        # them in the count because the milestone-detail UI surfaces total
-        # link count regardless of state (PMs need to see "5 sprints linked,
-        # 1 cancelled" without a second query).
         if sprint.state == SprintState.CANCELLED:
             continue
 
-        committed_points += sprint.committed_points or 0
-        committed_tasks += sprint.committed_task_count or 0
+        totals["committed_points"] += sprint.committed_points or 0
+        totals["committed_tasks"] += sprint.committed_task_count or 0
 
         # Current accepted (pending-excluded) committed points, pre-aggregated by
         # _sprint_rollup_aggregates. Defaults to 0 for a sprint with no committed
@@ -3215,75 +3304,60 @@ def _assemble_milestone_rollup(
 
         # ADR-0106 §1 — binding drift vs the baseline captured at promote time.
         # Distinct from ``scope_changed`` (which diffs against the *activation*
-        # snapshot): a sprint can be promoted while PLANNED, before any
-        # activation snapshot exists, so drift has its own baseline.
+        # snapshot): a sprint can be promoted while PLANNED, before any activation
+        # snapshot exists, so drift has its own baseline.
         if (
             sprint.binding_committed_snapshot is not None
             and current_committed != sprint.binding_committed_snapshot
         ):
-            binding_drifted = True
+            totals["binding_drifted"] = True
 
         if sprint.state == SprintState.COMPLETED:
             # Closed: use the immutable snapshot.
-            completed_points += sprint.completed_points or 0
-            completed_tasks += sprint.completed_task_count or 0
-        elif sprint.state == SprintState.ACTIVE:
+            totals["completed_points"] += sprint.completed_points or 0
+            totals["completed_tasks"] += sprint.completed_task_count or 0
+            continue
+
+        if sprint.state == SprintState.ACTIVE:
             # Live: count current COMPLETE tasks; the snapshot only fires on close.
             # ADR-0102 §2: pending injections are already excluded by the
             # sprint_pending=False filter in _sprint_rollup_aggregates, so a pending
             # task neither inflates the numerator nor trips ``scope_changed``.
             live_points, live_count = live_completed_by_sprint.get(sprint.pk, (0, 0))
-            completed_points += live_points
-            completed_tasks += live_count
+            totals["completed_points"] += live_points
+            totals["completed_tasks"] += live_count
 
-            # Scope-change detection: compare current ACCEPTED backlog points to
-            # the activation-time snapshot. Diverges when the PM adds or removes
+            # Scope-change detection: compare current ACCEPTED backlog points to the
+            # activation-time snapshot. Diverges when the PM adds or removes
             # *accepted* tasks after activation.
             if sprint.committed_points is not None and current_committed != sprint.committed_points:
-                scope_changed = True
-                scope_change_sprint_id = sprint.pk
+                totals["scope_changed"] = True
+                totals["scope_change_sprint_id"] = sprint.pk
 
-            if sprint.finish_date is not None and (
-                latest_active_planned_finish is None
-                or sprint.finish_date > latest_active_planned_finish
-            ):
-                latest_active_planned_finish = sprint.finish_date
-        elif sprint.state == SprintState.PLANNED:
-            # Denominator-only contribution — no completed work yet.
-            if sprint.finish_date is not None and (
-                latest_active_planned_finish is None
-                or sprint.finish_date > latest_active_planned_finish
-            ):
-                latest_active_planned_finish = sprint.finish_date
+        # ACTIVE and PLANNED both push out the planned-finish horizon; PLANNED is a
+        # denominator-only contribution with no completed work yet.
+        if sprint.state in (SprintState.ACTIVE, SprintState.PLANNED) and _is_later(
+            sprint.finish_date, totals["latest_active_planned_finish"]
+        ):
+            totals["latest_active_planned_finish"] = sprint.finish_date
 
-    # Rollup basis: prefer points, fall back to task count, otherwise N/A.
-    percent_complete: float | None
-    rollup_basis: str
-    if committed_points > 0:
-        percent_complete = min(100.0, round((completed_points / committed_points) * 100, 2))
-        rollup_basis = "points"
-    elif committed_tasks > 0:
-        percent_complete = min(100.0, round((completed_tasks / committed_tasks) * 100, 2))
-        rollup_basis = "tasks"
-    else:
-        percent_complete = None
-        rollup_basis = "none"
+    return totals
 
-    variance_days: int | None
-    if latest_active_planned_finish is not None and milestone.early_finish is not None:
-        variance_days = (latest_active_planned_finish - milestone.early_finish).days
-    else:
-        variance_days = None
 
-    return {
-        "percent_complete": percent_complete,
-        "rollup_basis": rollup_basis,
-        "variance_days": variance_days,
-        "sprint_scope_changed": scope_changed,
-        "scope_change_sprint_id": (str(scope_change_sprint_id) if scope_change_sprint_id else None),
-        "binding_drifted": binding_drifted,
-        "sprint_count": len(targeting),
-    }
+def _is_later(candidate: Any, current: Any) -> bool:
+    """Whether ``candidate`` is a real date that beats ``current`` (None = unset)."""
+    return candidate is not None and (current is None or candidate > current)
+
+
+def _rollup_basis(totals: dict[str, Any]) -> tuple[float | None, str]:
+    """Prefer a points-based rollup, fall back to task count, otherwise N/A."""
+    if totals["committed_points"] > 0:
+        ratio = totals["completed_points"] / totals["committed_points"]
+        return min(100.0, round(ratio * 100, 2)), "points"
+    if totals["committed_tasks"] > 0:
+        ratio = totals["completed_tasks"] / totals["committed_tasks"]
+        return min(100.0, round(ratio * 100, 2)), "tasks"
+    return None, "none"
 
 
 def batch_compute_milestone_rollups(milestones: Any) -> dict[Any, dict[str, Any] | None]:
@@ -4904,7 +4978,6 @@ def flow_metrics(project_id: str | uuid.UUID, *, window_days: int = 90) -> dict[
     The historical distributions are team-private (ADR-0130 D4): the view gates them
     under the ``flow_metrics`` signal and empties the arrays for a below-tier reader.
     """
-    import numpy as np
 
     from trueppm_api.apps.projects.models import Task
 
@@ -4945,81 +5018,147 @@ def flow_metrics(project_id: str | uuid.UUID, *, window_days: int = 90) -> dict[
     for row in rows:
         by_task.setdefault(row["id"], []).append(row)
 
-    cycle_days: list[float] = []
-    lead_days: list[float] = []
-    bulk_moved_count = 0
-    backdated_count = 0
-    missing_transition_count = 0
+    timings, integrity = _flow_timings(by_task, window_start, window_end, tz)
+
+    completions = [
+        r["history_date"].astimezone(tz).date()
+        for task_rows in by_task.values()
+        for r in _completion_rows(task_rows, window_start, window_end)
+    ]
+
+    return {
+        "window_days": window_days,
+        "since": since_date.isoformat(),
+        "until": until_date.isoformat(),
+        "cycle_time": _percentiles(timings["cycle"]),
+        "lead_time": _percentiles(timings["lead"]),
+        "cfd": _cumulative_flow(by_task, since_date, until_date, tz),
+        "throughput": _weekly_throughput(completions, since=since_date, until=until_date),
+        "data_integrity": integrity,
+        "flow_metrics_suppressed": False,
+    }
+
+
+def _percentiles(values: list[float]) -> dict[str, int | None]:
+    """p50/p80/p95 in whole days, or all-``None`` for an empty distribution."""
+    import numpy as np
+
+    if not values:
+        return {"p50": None, "p80": None, "p95": None}
+    arr = np.asarray(values, dtype=float)
+    return {
+        "p50": round(float(np.percentile(arr, 50))),
+        "p80": round(float(np.percentile(arr, 80))),
+        "p95": round(float(np.percentile(arr, 95))),
+    }
+
+
+def _task_flow_timing(
+    task_rows: list[dict[str, Any]],
+    window_start: datetime,
+    window_end: datetime,
+    tz: Any,
+) -> dict[str, Any]:
+    """Replay one task's history into its cycle/lead times and integrity flags.
+
+    Returns ``backdated``, and — only when the task transitioned into COMPLETE
+    in-window — ``lead``, plus either ``cycle`` or a ``bulk_moved`` /
+    ``missing_transition`` flag explaining why cycle time could not be derived.
+    """
+    first_in_progress: datetime | None = None
+    completed_at: datetime | None = None
+    prev_status: str | None = None
+    prev_history_id: int | None = None
+    board_entry: datetime = task_rows[0]["history_date"]
+    actual_finish_at_complete: date | None = None
+    backdated = False
+
+    for r in task_rows:
+        status = r["status"]
+        hist_date = r["history_date"]
+        # Backdated edit: rows are date-ordered, so a later-inserted row (larger
+        # history_id) appearing before an earlier-inserted one means a row was
+        # stamped earlier than its true insertion time (clock skew / manual
+        # backfill). Flag the task once — its replay ordering can't be trusted.
+        hid = r["history_id"]
+        if prev_history_id is not None and hid < prev_history_id:
+            backdated = True
+        if first_in_progress is None and status == "IN_PROGRESS":
+            first_in_progress = hist_date
+        # Only count the *transition* into COMPLETE that happened in-window.
+        if (
+            status == "COMPLETE"
+            and prev_status != "COMPLETE"
+            and window_start <= hist_date <= window_end
+        ):
+            completed_at = hist_date
+            actual_finish_at_complete = r["actual_finish"]
+        prev_status = status
+        prev_history_id = hid
+
+    timing: dict[str, Any] = {"backdated": backdated}
+    if completed_at is None:
+        return timing  # task did not reach COMPLETE in the window
+
+    # Lead time: board entry → completion. Always available for a completed task.
+    timing["lead"] = max(0.0, (completed_at - board_entry).total_seconds() / 86400.0)
+
+    # Cycle time: first IN_PROGRESS entry → completion. Fallback to actual_finish
+    # when the card never recorded an IN_PROGRESS row (bulk move / direct jump):
+    # treat actual_finish as the start-of-work proxy. If neither exists the task
+    # is missing the transition the cycle-time math needs.
+    if first_in_progress is not None and first_in_progress <= completed_at:
+        timing["cycle"] = (completed_at - first_in_progress).total_seconds() / 86400.0
+    elif actual_finish_at_complete is not None:
+        start_dt = datetime.combine(actual_finish_at_complete, datetime.min.time(), tzinfo=tz)
+        timing["cycle"] = max(0.0, (completed_at - start_dt).total_seconds() / 86400.0)
+        timing["bulk_moved"] = True  # jumped to COMPLETE without an IN_PROGRESS row
+    else:
+        timing["missing_transition"] = True
+    return timing
+
+
+def _flow_timings(
+    by_task: dict[Any, list[dict[str, Any]]],
+    window_start: datetime,
+    window_end: datetime,
+    tz: Any,
+) -> tuple[dict[str, list[float]], dict[str, int]]:
+    """Accumulate every task's cycle/lead times and the aggregate integrity counts.
+
+    ``data_integrity`` is aggregate-only by design (ADR-0130) — **never per-person**
+    — so a consumer can caveat the numbers without the figures becoming a report card.
+    """
+    cycle: list[float] = []
+    lead: list[float] = []
+    integrity = {"bulk_moved_count": 0, "backdated_count": 0, "missing_transition_count": 0}
 
     for task_rows in by_task.values():
-        first_in_progress: datetime | None = None
-        completed_at: datetime | None = None
-        prev_status: str | None = None
-        prev_history_id: int | None = None
-        board_entry: datetime = task_rows[0]["history_date"]
-        actual_finish_at_complete: date | None = None
-        saw_complete_transition = False
-        task_backdated = False
+        timing = _task_flow_timing(task_rows, window_start, window_end, tz)
+        if timing["backdated"]:
+            integrity["backdated_count"] += 1
+        if "lead" not in timing:
+            continue
+        lead.append(timing["lead"])
+        if "cycle" in timing:
+            cycle.append(timing["cycle"])
+        if timing.get("bulk_moved"):
+            integrity["bulk_moved_count"] += 1
+        if timing.get("missing_transition"):
+            integrity["missing_transition_count"] += 1
 
-        for r in task_rows:
-            status = r["status"]
-            hist_date = r["history_date"]
-            # Backdated edit: rows are date-ordered, so a later-inserted row (larger
-            # history_id) appearing before an earlier-inserted one means a row was
-            # stamped earlier than its true insertion time (clock skew / manual
-            # backfill). Flag the task once — its replay ordering can't be trusted.
-            hid = r["history_id"]
-            if prev_history_id is not None and hid < prev_history_id:
-                task_backdated = True
-            if first_in_progress is None and status == "IN_PROGRESS":
-                first_in_progress = hist_date
-            # Only count the *transition* into COMPLETE that happened in-window.
-            if (
-                status == "COMPLETE"
-                and prev_status != "COMPLETE"
-                and window_start <= hist_date <= window_end
-            ):
-                completed_at = hist_date
-                actual_finish_at_complete = r["actual_finish"]
-                saw_complete_transition = True
-            prev_status = status
-            prev_history_id = hid
+    return {"cycle": cycle, "lead": lead}, integrity
 
-        if task_backdated:
-            backdated_count += 1
 
-        if not saw_complete_transition or completed_at is None:
-            continue  # task did not reach COMPLETE in the window
+def _cumulative_flow(
+    by_task: dict[Any, list[dict[str, Any]]], since_date: date, until_date: date, tz: Any
+) -> list[dict[str, Any]]:
+    """Daily per-status counts across the window (the CFD).
 
-        # Lead time: board entry → completion. Always available for a completed task.
-        lead_days.append(max(0.0, (completed_at - board_entry).total_seconds() / 86400.0))
-
-        # Cycle time: first IN_PROGRESS entry → completion. Fallback to actual_finish
-        # when the card never recorded an IN_PROGRESS row (bulk move / direct jump):
-        # treat actual_finish as the start-of-work proxy. If neither exists the task
-        # is missing the transition the cycle-time math needs.
-        if first_in_progress is not None and first_in_progress <= completed_at:
-            cycle_days.append((completed_at - first_in_progress).total_seconds() / 86400.0)
-        elif actual_finish_at_complete is not None:
-            start_dt = datetime.combine(actual_finish_at_complete, datetime.min.time(), tzinfo=tz)
-            cycle_days.append(max(0.0, (completed_at - start_dt).total_seconds() / 86400.0))
-            bulk_moved_count += 1  # jumped to COMPLETE without an IN_PROGRESS row
-        else:
-            missing_transition_count += 1
-
-    def _pcts(values: list[float]) -> dict[str, int | None]:
-        if not values:
-            return {"p50": None, "p80": None, "p95": None}
-        arr = np.asarray(values, dtype=float)
-        return {
-            "p50": round(float(np.percentile(arr, 50))),
-            "p80": round(float(np.percentile(arr, 80))),
-            "p95": round(float(np.percentile(arr, 95))),
-        }
-
-    # CFD: for each day in the window, count tasks per canonical status using each
-    # task's latest in-window-or-earlier state (mirrors burn_series' replay). Rows
-    # are oldest-first, so we scan once per day keeping the last applicable row.
+    For each day, each task contributes its latest state at or before end-of-day —
+    mirroring ``burn_series``' replay. Rows are oldest-first, so one scan per day
+    keeping the last applicable row suffices.
+    """
     cfd: list[dict[str, Any]] = []
     for day in _date_range_inclusive(since_date, until_date):
         end_of_day = datetime.combine(day, datetime.max.time(), tzinfo=tz)
@@ -5039,29 +5178,7 @@ def flow_metrics(project_id: str | uuid.UUID, *, window_days: int = 90) -> dict[
             if folded is not None:
                 counts[folded] += 1
         cfd.append({"date": day.isoformat(), "counts": counts})
-
-    completions = [
-        r["history_date"].astimezone(tz).date()
-        for task_rows in by_task.values()
-        for r in _completion_rows(task_rows, window_start, window_end)
-    ]
-    throughput = _weekly_throughput(completions, since=since_date, until=until_date)
-
-    return {
-        "window_days": window_days,
-        "since": since_date.isoformat(),
-        "until": until_date.isoformat(),
-        "cycle_time": _pcts(cycle_days),
-        "lead_time": _pcts(lead_days),
-        "cfd": cfd,
-        "throughput": throughput,
-        "data_integrity": {
-            "bulk_moved_count": bulk_moved_count,
-            "backdated_count": backdated_count,
-            "missing_transition_count": missing_transition_count,
-        },
-        "flow_metrics_suppressed": False,
-    }
+    return cfd
 
 
 def _completion_rows(
