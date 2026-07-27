@@ -7,7 +7,7 @@
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { DeletedLabelNotice } from './DeletedLabelNotice';
+import { DeletedLabelNotice, dismissKeyFor, isNoticeDismissed } from './DeletedLabelNotice';
 import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
 
 const createLabelMutate = vi.fn();
@@ -139,5 +139,35 @@ describe('DeletedLabelNotice — "Keep for now" is non-destructive', () => {
     // silently inherited by an old "keep".
     renderNotice({ missingIds: ['gone-2'] });
     expect(screen.getByTestId('deleted-label-notice')).toBeInTheDocument();
+  });
+});
+
+describe('dismissKeyFor — a canonical key, not an alphabetical list (#2456)', () => {
+  it('is order-independent, which is the only reason it sorts at all', () => {
+    expect(dismissKeyFor('v1', ['b', 'a'])).toBe(dismissKeyFor('v1', ['a', 'b']));
+  });
+
+  it('does not fold case, so two distinct ids never collapse to one key', () => {
+    // `localeCompare` is case-insensitive at the primary strength; a comparator
+    // that folded case could order these two sets identically.
+    expect(dismissKeyFor('v1', ['B', 'a'])).not.toBe(dismissKeyFor('v1', ['b', 'A']));
+  });
+
+  it('sorts by code unit — the ordering a persisted key can rely on', () => {
+    // Uppercase first is the code-unit answer; collation would put 'a' first,
+    // and a locale or ICU change could flip it under an already-stored key.
+    expect(dismissKeyFor('v1', ['a', 'B'])).toBe('v1:B,a');
+  });
+
+  it('still separates views that lost the same labels', () => {
+    expect(dismissKeyFor('v1', ['a'])).not.toBe(dismissKeyFor('v2', ['a']));
+  });
+
+  it('round-trips through isNoticeDismissed regardless of input order', () => {
+    localStorage.setItem(
+      'trueppm.board.deletedLabelNotice.dismissed',
+      JSON.stringify([dismissKeyFor('v1', ['gone-2', 'gone-1'])]),
+    );
+    expect(isNoticeDismissed('v1', ['gone-1', 'gone-2'])).toBe(true);
   });
 });
