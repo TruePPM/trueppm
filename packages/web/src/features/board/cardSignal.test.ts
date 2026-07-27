@@ -141,3 +141,33 @@ describe('classifyCardSignal (#1305)', () => {
     expect(cardSignalToneClass('at-risk')).toContain('text-semantic-at-risk');
   });
 });
+
+describe('signal glyphs are house SVG components, not emoji (#1749)', () => {
+  const CASES: { name: string; input: CardSignalInput; icon: string }[] = [
+    { name: 'blocked', input: { ...ON_TRACK, isBlocked: true }, icon: 'BanIcon' },
+    {
+      name: 'stale',
+      input: { ...ON_TRACK, isAging: true, isStalled: true, daysAgo: 6 },
+      icon: 'BoltIcon',
+    },
+    { name: 'critical path', input: { ...ON_TRACK, showCriticalState: true }, icon: 'FlagIcon' },
+    { name: 'behind on EVM', input: { ...ON_TRACK, spiBand: 'behind' }, icon: 'TrendDownIcon' },
+  ];
+
+  it.each(CASES)('$name resolves to the $icon component', ({ input, icon }) => {
+    const signal = classifyCardSignal(input);
+    expect(signal).not.toBeNull();
+    // A function, never a string: an emoji renders at the mercy of the platform
+    // font, which is the whole defect #1749 closes.
+    expect(typeof signal?.Icon).toBe('function');
+    expect(signal?.Icon.name).toBe(icon);
+  });
+
+  it('every tier pairs its icon with a visible label (rule 12 — never glyph-only meaning)', () => {
+    for (const { input } of CASES) {
+      const signal = classifyCardSignal(input);
+      expect(signal?.label.trim()).not.toBe('');
+      expect(signal?.srText.trim()).not.toBe('');
+    }
+  });
+});

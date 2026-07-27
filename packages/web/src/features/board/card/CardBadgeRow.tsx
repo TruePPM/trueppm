@@ -60,6 +60,8 @@ export function CardBadgeRow({
 }: CardBadgeRowProps) {
   if (!hasBadgeRowContent(view, task)) return null;
   const { cardSignal } = view;
+  // Capitalized binding so JSX resolves it as a component, not an element.
+  const SignalIcon = cardSignal?.Icon;
   return (
     <div className="flex items-center gap-1 mt-1.5 flex-wrap">
       {view.isPending && <PendingAcceptanceChip explainer={view.pendingExplainer} />}
@@ -80,7 +82,7 @@ export function CardBadgeRow({
                   focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
                   ${cardSignalToneClass(cardSignal.tone)}`}
         >
-          <span aria-hidden="true">{cardSignal.glyph}</span>
+          {SignalIcon && <SignalIcon aria-hidden="true" className="h-3 w-3 shrink-0" />}
           <span>{cardSignal.label}</span>
         </button>
       ) : (
