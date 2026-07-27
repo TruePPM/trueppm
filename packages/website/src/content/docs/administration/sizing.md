@@ -62,7 +62,14 @@ The seeded database is written with `bulk_create`, so it carries **no `django-si
 
 The numbers carry the version they were measured against so they can be compared next release:
 
+The stack takes its two secrets from the environment rather than from committed defaults, so mint a throwaway pair first — they are discarded with the stack:
+
 ```bash
+export CAPACITY_INTEGRATION_KEY=$(python3 -c \
+  'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')
+export TRUEPPM_CAPACITY_PASSWORD=$(python3 -c \
+  'import secrets; print(secrets.token_urlsafe(16))')
+
 docker compose -f packages/api/perf/capacity/docker-compose.capacity.yml up -d
 python packages/api/perf/capacity/run_capacity.py --dimension all \
   --out packages/api/perf/capacity/results

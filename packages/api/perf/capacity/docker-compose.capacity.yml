@@ -77,8 +77,15 @@ services:
       TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE: "true"
       TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
       TRUEPPM_ADMIN_PASSWORD_FILE: /tmp/trueppm_admin_password
-      TRUEPPM_ADMIN_PASSWORD: capacity-admin-pw
       DJANGO_SUPERUSER_EMAIL: admin@trueppm.local
+      # The load driver's login, read by `seed_capacity` (which creates the
+      # account) and by run_capacity.py (which authenticates as it). Supplied
+      # from the environment for the same reason as the Fernet key above — a
+      # fixed password for a real, loginable account is a secret-scanner finding
+      # in a tracked file however disposable this stack is (#2457). Mint one:
+      #   export TRUEPPM_CAPACITY_PASSWORD=$(python3 -c \
+      #     'import secrets; print(secrets.token_urlsafe(16))')
+      TRUEPPM_CAPACITY_PASSWORD: ${TRUEPPM_CAPACITY_PASSWORD:?mint one — see the comment above}
       STATIC_ROOT: /app/staticfiles
       DJANGO_LOG_LEVEL: WARNING
     depends_on:
