@@ -2528,70 +2528,127 @@ def _lag_term(delta_arr: np.ndarray, anchor: np.ndarray) -> np.ndarray:
     return np.asarray(delta_arr[idx], dtype=np.float64)
 
 
-def _completed_offsets(
-    t: Task, calendar: Calendar, offset_of: dict[date, int], wd_index: list[date]
-) -> tuple[float, float]:
-    """Constant (ES, exclusive-EF) offset pair for a completed task (ADR-0136).
+def _completed_dates(t: Task, calendar: Calendar, project_start: date) -> tuple[date, date]:
+    """The VERBATIM ``(early_start, early_finish)`` ``_forward_pass`` gives a completed task.
 
-    Mirrors the three completed-task branches of ``_forward_pass`` (issue #1565) so
-    ``schedule()`` and ``monte_carlo()`` agree on every combination of actuals, not
-    only when ``actual_finish`` is set:
+    This is the single source of truth both engines' completed-task handling reads
+    from, so Monte Carlo can no longer drift from ``schedule()`` on the arithmetic
+    itself (#2460/#2461). It reproduces the three completed-task branches of
+    ``_forward_pass`` (ADR-0136, issue #1565) exactly, in scalar ``date`` space —
+    crucially including the *non-working* dates the working-day offset index cannot
+    represent:
 
-    1. ``actual_finish`` recorded: the finish is truth; the start is the recorded
-       ``actual_start`` if present, else a full duration back from the finish. The
-       exclusive-EF offset is snapped to the working-day index (``fin_off + 1`` off
-       the previous working day) so it anchors FS/SS successors exactly as
-       ``_forward_pass`` does — there a weekend ``actual_finish`` pushes an FS
-       successor to ``next_working_day(actual_finish + 1)`` all the same. What the
-       working-day offset cannot carry is a *non-working* ``actual_finish`` itself:
-       ``_forward_pass`` keeps it VERBATIM (``early_finish = actual_finish``,
-       ADR-0136 "actuals are truth"), so the caller records the raw recorded date in
-       ``completed_finish_override`` and ``_offset_to_date`` restores it for the
-       terminal project-completion date — otherwise a Saturday finish would report
-       the project ending the previous Friday (#1929/#1830).
+    1. ``actual_finish`` recorded: the finish is truth, kept verbatim even on a
+       weekend. The start is the recorded ``actual_start`` if present, else a **full
+       duration** back from the finish (``_start_from_finish``).
     2. Only ``actual_start`` recorded (e.g. a REVIEW task — done, awaiting sign-off):
        the full duration lays forward from the known start.
     3. No actuals at all (``percent_complete >= 100`` alone): the full duration lays
-       forward from the *un-floored* project start — ``wd_index[0]``/offset 0, the
-       same ``start_base`` anchor ``_forward_pass`` uses for this case. Unlike
-       ``_forward_pass``, this does not additionally fold in
-       predecessor/``planned_start`` constraints: those can vary per Monte Carlo run,
-       which would break the constant-offset pin this fast path relies on, so a
-       completed task chained after an unresolved predecessor is out of scope here
-       (an inherently anomalous data state — a completed task is not expected to
-       depend on incomplete work).
+       forward from the *un-floored* project start, the same ``start_base`` anchor
+       ``_forward_pass`` uses for this case. Unlike ``_forward_pass``, this does not
+       additionally fold in predecessor/``planned_start`` constraints: those can vary
+       per Monte Carlo run, which would break the constant pin this fast path relies
+       on, so a completed task chained after an unresolved predecessor stays out of
+       scope (an inherently anomalous data state — a completed task is not expected
+       to depend on incomplete work).
     """
     full_days = t.duration.days
     if t.actual_finish is not None:
-        fin_wd = _prev_working_day(t.actual_finish, calendar)
-        fin_off = offset_of.get(fin_wd)
-        if fin_off is None:
-            ef_off = 0.0 if fin_wd < wd_index[0] else float(len(wd_index) - 1)
-        else:
-            ef_off = float(fin_off + 1)  # exclusive EF: one past the inclusive last day
-        if t.actual_start is not None:
-            st_wd = _next_working_day(t.actual_start, calendar)
-            st_off = offset_of.get(st_wd)
-            es_off = (
-                float(st_off)
-                if st_off is not None
-                else (0.0 if st_wd < wd_index[0] else float(len(wd_index) - 1))
-            )
-            es_off = min(es_off, ef_off)
-        else:
-            es_off = max(0.0, ef_off - 1.0)
-        return es_off, ef_off
-    if t.actual_start is not None:
-        st_wd = _next_working_day(t.actual_start, calendar)
-        st_off = offset_of.get(st_wd)
-        es_off = (
-            float(st_off)
-            if st_off is not None
-            else (0.0 if st_wd < wd_index[0] else float(len(wd_index) - 1))
+        # A full duration back, NOT one day back: the previous offset-space pin used
+        # ``ef_off - 1`` regardless of duration, so an n-day completed task with no
+        # recorded start had its start pinned n-1 working days late and mis-anchored
+        # every SS/SF successor (#2460). The API deliberately leaves ``actual_start``
+        # null on a straight-to-COMPLETE transition, so this is the common shape.
+        start = (
+            t.actual_start
+            if t.actual_start is not None
+            else _start_from_finish(t.actual_finish, full_days, calendar)
         )
-        return es_off, es_off + float(full_days)
-    # No actuals: full duration anchored at the un-floored project start.
-    return 0.0, float(full_days)
+        return start, t.actual_finish
+    if t.actual_start is not None:
+        return t.actual_start, _finish_from_start(t.actual_start, full_days, calendar)
+    base = _next_working_day(project_start, calendar)
+    return base, _finish_from_start(base, full_days, calendar)
+
+
+def _index_offset(d: date, offset_of: dict[date, int], wd_index: list[date]) -> float:
+    """Working-day offset of ``d``, clamped to the index when it falls outside."""
+    off = offset_of.get(d)
+    if off is not None:
+        return float(off)
+    return 0.0 if d < wd_index[0] else float(len(wd_index) - 1)
+
+
+def _completed_offsets(
+    es_date: date,
+    ef_date: date,
+    calendar: Calendar,
+    offset_of: dict[date, int],
+    wd_index: list[date],
+) -> tuple[float, float]:
+    """Constant (ES, exclusive-EF) offset pin for a completed task's own columns.
+
+    Derived from the verbatim dates :func:`_completed_dates` resolved, so the pin can
+    only ever be the offset-space *projection* of what ``schedule()`` computed —
+    never independently-derived arithmetic that could disagree with it.
+
+    A non-working verbatim date has no offset (the index holds working days only) and
+    snaps to the nearest one here. That loss is deliberate and no longer observable:
+    successors of a completed task read a precomputed scalar constraint rather than
+    these offsets (:func:`_completed_edge_constraints`), and the terminal project
+    finish is floored at the verbatim date by :func:`_offset_to_date`. So the snap
+    now affects nothing a caller can see.
+    """
+    ef_off = _index_offset(_prev_working_day(ef_date, calendar), offset_of, wd_index) + 1.0
+    es_off = min(_index_offset(_next_working_day(es_date, calendar), offset_of, wd_index), ef_off)
+    return es_off, ef_off
+
+
+def _completed_edge_constraints(
+    g: nx.DiGraph[str],
+    completed_dates: dict[str, tuple[date, date]],
+    calendar: Calendar,
+    offset_of: dict[date, int],
+    wd_index: list[date],
+) -> dict[tuple[str, str], tuple[bool, float]]:
+    """Constant ``(is_ef_constraint, offset)`` a completed predecessor imposes per edge.
+
+    A completed task's dates are fixed across every run, so the constraint each of its
+    outgoing links imposes is a constant — and computing it here, in scalar ``date``
+    space with the *verbatim* dates, is what lets Monte Carlo agree with
+    ``_forward_pass`` on a non-working actual (#2461).
+
+    The vectorised path could not: it anchors on the predecessor's working-day offset
+    and applies the lag through :func:`_build_lag_delta`, so a weekend
+    ``actual_finish`` was silently read as the preceding Friday and any non-zero lag
+    (or any SS/SF link, which anchors on the start) landed a working day off. The
+    formulas below are the FS/SS/FF/SF branches of :func:`_forward_pass` verbatim;
+    FF/SF produce an *inclusive* constraint date, so ``+ 1`` converts it to the
+    exclusive-EF offset space the Monte Carlo pass works in.
+    """
+    constraints: dict[tuple[str, str], tuple[bool, float]] = {}
+    for u, v, data in g.edges(data=True):
+        if u not in completed_dates or v in completed_dates:
+            # A completed successor is pinned and skips network logic entirely
+            # (mirroring _forward_pass), so an edge into one imposes nothing.
+            continue
+        dep: Dependency = data["dep"]
+        pred_es, pred_ef = completed_dates[u]
+        if dep.dep_type == DependencyType.FS:
+            imposed = _next_working_day(
+                _safe_offset(pred_ef, timedelta(days=1) + dep.lag), calendar
+            )
+            constraints[(u, v)] = (False, _index_offset(imposed, offset_of, wd_index))
+        elif dep.dep_type == DependencyType.SS:
+            imposed = _advance_calendar_days(pred_es, dep.lag, calendar)
+            constraints[(u, v)] = (False, _index_offset(imposed, offset_of, wd_index))
+        elif dep.dep_type == DependencyType.FF:
+            imposed = _advance_calendar_days(pred_ef, dep.lag, calendar)
+            constraints[(u, v)] = (True, _index_offset(imposed, offset_of, wd_index) + 1.0)
+        else:  # SF
+            imposed = _advance_calendar_days(pred_es, dep.lag, calendar)
+            constraints[(u, v)] = (True, _index_offset(imposed, offset_of, wd_index) + 1.0)
+    return constraints
 
 
 def _mc_progress_state(
@@ -2604,16 +2661,18 @@ def _mc_progress_state(
     dict[str, float],
     float,
     dict[str, tuple[float, float]],
-    dict[int, date],
+    dict[str, tuple[date, date]],
     dict[str, float],
 ]:
     """Precompute the per-run-invariant floors and progress pins (ADR-0132/0136).
 
-    Returns ``(snet_floor, status_floor, completed_offsets, completed_finish_override,
+    Returns ``(snet_floor, status_floor, completed_offsets, completed_dates,
     elapsed_days)``. Completed tasks are pinned to a constant offset pair (not
-    re-sampled); in-progress tasks record their fixed elapsed portion so only the
-    remaining work carries uncertainty; SNET pins and the data date floor every
-    not-yet-finished task. None of these vary across runs, so they are computed once.
+    re-sampled) and carry their verbatim ``(early_start, early_finish)`` dates for
+    the scalar constraint/floor paths; in-progress tasks record their fixed elapsed
+    portion so only the remaining work carries uncertainty; SNET pins and the data
+    date floor every not-yet-finished task. None of these vary across runs, so they
+    are computed once.
     """
     # planned_start (SNET) floors, mirroring the deterministic forward pass (#1068):
     # a pinned task may not start before its pin regardless of network logic. A pin
@@ -2634,35 +2693,21 @@ def _mc_progress_state(
         sd_off = offset_of.get(snapped_sd)
         status_floor = float(sd_off) if sd_off is not None else float(len(wd_index) - 1)
 
-    completed_offsets: dict[str, tuple[float, float]] = {
-        t.id: _completed_offsets(t, calendar, offset_of, wd_index)
+    # The verbatim dates schedule() gives each completed task. Everything downstream
+    # that must agree with schedule() — the successor constraints, the terminal
+    # finish floor — is derived from THESE, in scalar date space, rather than
+    # re-derived in offset space where a non-working date cannot be represented
+    # (#2460/#2461).
+    completed_dates: dict[str, tuple[date, date]] = {
+        t.id: _completed_dates(t, calendar, project.start_date)
         for t in task_map.values()
         if _is_complete(t)
     }
 
-    # WHY: schedule() keeps a completed task's recorded ``actual_finish`` VERBATIM
-    # even on a non-working day (``_forward_pass`` sets ``early_finish =
-    # actual_finish``, ADR-0136 "actuals are truth"). The working-day offset index
-    # cannot represent a weekend, so its exclusive-EF offset resolves back to the
-    # previous working day and monte_carlo() reported the project finishing a day
-    # before schedule() did (#1929/#1830). Record the raw recorded finish keyed by
-    # its (integer) exclusive-EF offset so ``_offset_to_date`` restores the exact
-    # date whenever the controlling completion offset is such a task. Only the
-    # terminal date conversion is affected — the network math (FS/SS anchoring off
-    # the snapped offset) is untouched, so in-progress and not-started tasks are
-    # unchanged. Two completed tasks that share an offset keep the later date, and
-    # a working-day ``actual_finish`` needs no override (the index already lands on
-    # it). Aligning MC to schedule() (not the reverse) upholds the docstring
-    # contract that a fully deterministic completed project simulates to precisely
-    # the CPM finish date.
-    completed_finish_override: dict[int, date] = {}
-    for tid, (_es_off, ef_off) in completed_offsets.items():
-        finish = task_map[tid].actual_finish
-        if finish is not None and not calendar.is_working_day(finish):
-            ef_key = round(ef_off)
-            prev = completed_finish_override.get(ef_key)
-            if prev is None or finish > prev:
-                completed_finish_override[ef_key] = finish
+    completed_offsets: dict[str, tuple[float, float]] = {
+        tid: _completed_offsets(es_date, ef_date, calendar, offset_of, wd_index)
+        for tid, (es_date, ef_date) in completed_dates.items()
+    }
 
     # In-progress tasks have a fixed elapsed portion subtracted from every sampled
     # duration, so only the *remaining* work carries uncertainty (a deterministic
@@ -2675,7 +2720,7 @@ def _mc_progress_state(
                 int(t.duration.days * min(t.percent_complete, 100.0) / 100.0)
             )
 
-    return snet_floor, status_floor, completed_offsets, completed_finish_override, elapsed_days
+    return snet_floor, status_floor, completed_offsets, completed_dates, elapsed_days
 
 
 def _mc_forward_pass(
@@ -2688,6 +2733,7 @@ def _mc_forward_pass(
     snet_floor: dict[str, float],
     status_floor: float,
     completed_offsets: dict[str, tuple[float, float]],
+    completed_edge: dict[tuple[str, str], tuple[bool, float]],
     elapsed_days: dict[str, float],
 ) -> tuple[np.ndarray, np.ndarray]:
     """Vectorised forward pass — early-start/early-finish working-day offset matrices.
@@ -2716,6 +2762,21 @@ def _mc_forward_pass(
         has_ef_constraint = False
 
         for pred_id in g.predecessors(tid):
+            # A completed predecessor's constraint is a run-invariant constant that
+            # was resolved in scalar date space from its VERBATIM dates (#2460/#2461).
+            # Take it directly: routing it through the offset anchor + lag-delta path
+            # below would re-derive it from the working-day index, which cannot
+            # represent a non-working actual and lands a day off.
+            fixed = completed_edge.get((pred_id, tid))
+            if fixed is not None:
+                is_ef_constraint, imposed_off = fixed
+                if is_ef_constraint:
+                    np.maximum(ef_constraints, imposed_off, out=ef_constraints)
+                    has_ef_constraint = True
+                else:
+                    np.maximum(es_constraints, imposed_off, out=es_constraints)
+                continue
+
             dep: Dependency = g[pred_id][tid]["dep"]
             delta_arr = edge_lag_delta[(pred_id, tid)]
             p = task_idx[pred_id]
@@ -2768,24 +2829,32 @@ def _mc_forward_pass(
 
 
 def _offset_to_date(
-    offset: float, wd_index: list[date], completed_finish_override: dict[int, date]
+    offset: float, wd_index: list[date], completed_finish_floor: date | None
 ) -> date:
     """Map a working-day completion offset back to a calendar date.
 
-    Clamps to the final index entry, so an offset at the very edge is safe. A
-    completed task whose recorded ``actual_finish`` is a non-working day is kept
-    verbatim by schedule() (ADR-0136), so restore that exact date when the
-    controlling offset is one of those pins — the working-day index can only ever
-    return a working day (#1929/#1830).
+    Clamps to the final index entry, so an offset at the very edge is safe.
+
+    ``completed_finish_floor`` is the latest verbatim ``early_finish`` across the
+    project's completed tasks, which ``schedule()`` keeps unsnapped even on a
+    non-working day (ADR-0136 "actuals are truth"). ``schedule().project_finish`` is
+    a ``max`` over *every* task's early finish, so the project can never finish
+    before that date — flooring here reproduces it exactly, and the working-day
+    index (which can only return a working day) cannot (#1929/#1830).
+
+    This replaces the earlier per-offset override map, which keyed the verbatim date
+    by its rounded exclusive-EF offset: a *live* task whose completion offset rounded
+    to the same key would then be reported on the completed task's weekend date. A
+    floor has no such collision — it is a property of the project, not of whichever
+    task happened to land on an offset (#2461).
     """
-    key = round(offset)
-    override = completed_finish_override.get(key)
-    if override is not None:
-        return override
     # EF offsets are exclusive (EF=5 means working days 0..4). Subtract 1 to get the
     # last working day of the task, matching CPM's inclusive EF.
-    idx = max(0, min(key - 1, len(wd_index) - 1))
-    return wd_index[idx]
+    idx = max(0, min(round(offset) - 1, len(wd_index) - 1))
+    resolved = wd_index[idx]
+    if completed_finish_floor is not None and completed_finish_floor > resolved:
+        return completed_finish_floor
+    return resolved
 
 
 def monte_carlo(
@@ -2945,9 +3014,18 @@ def monte_carlo(
         snet_floor,
         status_floor,
         completed_offsets,
-        completed_finish_override,
+        completed_dates,
         elapsed_days,
     ) = _mc_progress_state(project, task_map, calendar, offset_of, wd_index)
+
+    # A completed task's dates are run-invariant, so both the constraints it imposes
+    # on live successors and its own contribution to the project finish are resolved
+    # once, in scalar date space, from the verbatim dates schedule() would give it
+    # (#2460/#2461).
+    completed_edge = _completed_edge_constraints(g, completed_dates, calendar, offset_of, wd_index)
+    completed_finish_floor = (
+        max(ef_date for _es_date, ef_date in completed_dates.values()) if completed_dates else None
+    )
 
     _es_mat, ef_mat = _mc_forward_pass(
         topo_order,
@@ -2959,6 +3037,7 @@ def monte_carlo(
         snet_floor,
         status_floor,
         completed_offsets,
+        completed_edge,
         elapsed_days,
     )
 
@@ -2973,12 +3052,12 @@ def monte_carlo(
     # expect and stays reproducible under the same seed. Percentiles use the FULL
     # distribution.
     all_dates = sorted(
-        _offset_to_date(o, wd_index, completed_finish_override) for o in completion_offsets.tolist()
+        _offset_to_date(o, wd_index, completed_finish_floor) for o in completion_offsets.tolist()
     )
     pct_offsets = np.percentile(completion_offsets, [50, 80, 95])
-    p50 = _offset_to_date(float(pct_offsets[0]), wd_index, completed_finish_override)
-    p80 = _offset_to_date(float(pct_offsets[1]), wd_index, completed_finish_override)
-    p95 = _offset_to_date(float(pct_offsets[2]), wd_index, completed_finish_override)
+    p50 = _offset_to_date(float(pct_offsets[0]), wd_index, completed_finish_floor)
+    p80 = _offset_to_date(float(pct_offsets[1]), wd_index, completed_finish_floor)
+    p95 = _offset_to_date(float(pct_offsets[2]), wd_index, completed_finish_floor)
 
     # Duration-sensitivity tornado (ADR-0140) — which tasks' sampled durations
     # most move the finish, from the same sampled matrix (no second pass). Computed

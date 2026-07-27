@@ -134,11 +134,16 @@ def test_bisect_is_working_day_matches_linear_scan(seed: int) -> None:
         assert cal.is_working_day(d) == _linear_is_working_day(cal, d)
 
 
-def test_exception_index_rebuilds_when_list_grows() -> None:
-    """A mutated/grown exceptions list must invalidate the cached index."""
+def test_exception_index_rebuilds_when_exceptions_are_replaced() -> None:
+    """A changed exceptions set must invalidate the cached index.
+
+    Assigning a new set is now the *only* way to change it (#2462) — the previous
+    ``cal.exceptions.append(...)`` spelling is no longer expressible, which is the
+    point: an in-place mutation could not be detected and served a stale index.
+    """
     cal = Calendar(exceptions=[DateRange(date(2026, 3, 2), date(2026, 3, 2))])
     assert cal.is_working_day(date(2026, 3, 3)) is True  # Tuesday, not excepted
-    cal.exceptions.append(DateRange(date(2026, 3, 3), date(2026, 3, 3)))
+    cal.exceptions = [*cal.exceptions, DateRange(date(2026, 3, 3), date(2026, 3, 3))]
     assert cal.is_working_day(date(2026, 3, 3)) is False  # now excepted
 
 

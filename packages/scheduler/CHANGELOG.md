@@ -15,8 +15,49 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.4.0b1`).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`monte_carlo()` mis-anchored successors of a completed task, so its
+  percentiles disagreed with the `schedule()` finish.** Both defects broke the
+  documented contract that a fully deterministic project simulates to precisely
+  the CPM finish date, and both were found by differential-fuzzing the two passes
+  against each other.
+  - A completed task recording an `actual_finish` but **no** `actual_start` had
+    its simulated start pinned exactly one working day before the finish
+    regardless of duration, instead of a full duration back the way
+    `schedule()` lays it out. Every Start-to-Start / Start-to-Finish successor was
+    therefore anchored up to `duration - 1` working days late (#2460).
+  - A completed task whose recorded actual fell on a **non-working day** had its
+    successors anchored off the nearest working day, while `schedule()` keeps the
+    recorded date verbatim (actuals are truth). The two diverged whenever the link
+    carried a lag or was start-anchored, and a project could be reported as
+    finishing on a weekend. Completed tasks' constraints are now resolved from
+    their recorded dates in scalar date arithmetic, and the terminal finish is
+    floored at the latest recorded completion — replacing the per-offset override
+    that could attribute a completed task's weekend date to an unrelated live task
+    (#2461, completing the terminal-date-only fix in 0.4.0b1).
+- **A `Calendar` served stale working-day answers after its exceptions were
+  edited in place.** The cached exception index was keyed on the length and
+  identity of the `exceptions` list, so replacing an element (or mutating a
+  `DateRange`) changed nothing the cache could observe and `is_working_day` kept
+  answering from the pre-edit calendar — silently scheduling against holidays that
+  had been removed (#2462).
+
 ### Changed
 
+- **`Calendar.exceptions` is now an immutable `tuple` of frozen `DateRange`s.**
+  Any iterable is still accepted at construction, so `Calendar(exceptions=[...])`
+  — including the whole `from_dict` / `from_json` path — is unchanged. What is no
+  longer possible is in-place mutation: `cal.exceptions.append(...)`,
+  `cal.exceptions[0] = ...`, and `range.start = ...` now raise rather than leave
+  the cached index stale (#2462). Assign a new set instead:
+
+  ```python
+  cal.exceptions = [*cal.exceptions, DateRange(holiday, holiday)]
+  ```
+
+  Reassignment is normalized and invalidates the cache, so this is the one
+  supported way to change a calendar's exception set.
 - `schedule` CLI output now labels the project finish as the earliest feasible
   date and points at `monte-carlo` for confidence dates.
 - `monte-carlo` CLI output now carries the reading of each percentile (P50 is a

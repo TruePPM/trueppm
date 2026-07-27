@@ -106,7 +106,7 @@ class TestCalendarCompose:
     def test_empty_iterable_yields_default(self) -> None:
         cal = Calendar.compose([])
         assert cal.working_days == 0b0011111
-        assert cal.exceptions == []
+        assert cal.exceptions == ()  # normalized to an immutable tuple (#2462)
         assert cal.is_working_day(date(2026, 3, 2))  # Monday
         assert not cal.is_working_day(date(2026, 3, 7))  # Saturday
 
