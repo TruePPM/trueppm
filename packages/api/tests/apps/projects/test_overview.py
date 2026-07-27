@@ -9,6 +9,7 @@ Covers:
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -16,6 +17,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus
+from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
 User = get_user_model()
 
@@ -122,7 +124,10 @@ class TestProjectOverview:
         assert data["tasks_late_count"] == 0
         assert data["critical_task_count"] == 0
         assert data["next_milestone"] is None
+        # No roster → the ratio is undefined, and the endpoint names the cause so
+        # the card can explain the blank instead of showing a bare em-dash (#2428).
         assert data["team_utilization_pct"] is None
+        assert data["team_utilization_reason"] == "no_roster"
         # Risk summary fields are always present (zero when no open risks).
         assert data["open_risk_count"] == 0
         assert data["high_risk_count"] == 0
@@ -629,3 +634,153 @@ class TestOverviewSpiProxy:
         assert spi is not None
         # BCWP=1 (complete), BCWS=1 (baseline finish=today) → SPI=1.0, not 0.
         assert spi == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Team utilization on the overview payload (#2428)
+# ---------------------------------------------------------------------------
+
+
+def _this_week() -> tuple[datetime.date, datetime.date]:
+    """The Mon–Sun window the overview endpoint measures (its own definition)."""
+    today = datetime.date.today()
+    monday = today - datetime.timedelta(days=today.weekday())
+    return monday, monday + datetime.timedelta(days=6)
+
+
+@pytest.mark.django_db
+class TestTeamUtilization:
+    """`team_utilization_pct` / `team_utilization_reason` (rule 119, #2428).
+
+    The card used to render a bare em-dash forever: the endpoint hardcoded `None`
+    with a "populated when the resource module extends this" note, long after that
+    module landed. These cover the real computation and — the point of the issue —
+    that an undefined ratio is distinguishable from a real 0%.
+    """
+
+    def url(self, pk: object) -> str:
+        return f"/api/v1/projects/{pk}/overview/"
+
+    def _roster(
+        self,
+        project: Project,
+        *,
+        max_units: str = "1.0",
+        units_override: str | None = None,
+        name: str = "Dana",
+    ) -> Resource:
+        resource = Resource.objects.create(name=name, max_units=Decimal(max_units))
+        ProjectResource.objects.create(
+            project=project,
+            resource=resource,
+            units_override=Decimal(units_override) if units_override is not None else None,
+        )
+        return resource
+
+    def _assign_all_week(self, project: Project, resource: Resource, units: str = "1.0") -> Task:
+        """Assign `resource` to a task covering the whole measured window."""
+        start, end = _this_week()
+        task = make_task(project, name="Wiring", early_start=start, early_finish=end)
+        TaskResource.objects.create(task=task, resource=resource, units=Decimal(units))
+        return task
+
+    def test_no_roster_reports_a_reason_not_a_bare_null(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        # The bug: a null percent with nothing to explain it, so the card could not
+        # tell "no one is allocated" from "this is broken".
+        data = client.get(self.url(project.pk)).json()
+        assert data["team_utilization_pct"] is None
+        assert data["team_utilization_reason"] == "no_roster"
+
+    def test_idle_roster_is_a_real_zero_not_a_reason(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        # Nobody allocated is a *meaningful answer*, so it must render as 0% rather
+        # than as an unavailable card — that distinction is the whole issue.
+        self._roster(project)
+        data = client.get(self.url(project.pk)).json()
+        assert data["team_utilization_pct"] == 0.0
+        assert data["team_utilization_reason"] is None
+
+    def test_fully_booked_roster_reads_100_percent(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        resource = self._roster(project)
+        self._assign_all_week(project, resource)
+        data = client.get(self.url(project.pk)).json()
+        assert data["team_utilization_pct"] == 100.0
+        assert data["team_utilization_reason"] is None
+
+    def test_half_time_assignment_halves_the_ratio(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        resource = self._roster(project)
+        self._assign_all_week(project, resource, units="0.5")
+        assert client.get(self.url(project.pk)).json()["team_utilization_pct"] == 50.0
+
+    def test_overallocation_exceeds_100_percent(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        # Two concurrent full-time tasks on one person — the state the card's
+        # critical band exists to surface.
+        resource = self._roster(project)
+        self._assign_all_week(project, resource)
+        self._assign_all_week(project, resource)
+        assert client.get(self.url(project.pk)).json()["team_utilization_pct"] == 200.0
+
+    def test_idle_roster_member_dilutes_the_ratio(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        # A rostered-but-unassigned person is idle capacity and belongs in the
+        # denominator; counting only assignees would peg this team at 100%.
+        busy = self._roster(project, name="Dana")
+        self._roster(project, name="Ravi")
+        self._assign_all_week(project, busy)
+        assert client.get(self.url(project.pk)).json()["team_utilization_pct"] == 50.0
+
+    def test_units_override_wins_over_resource_max_units(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        # "Half on this project" halves the denominator, so the same assignment
+        # reads as fully booked rather than half booked.
+        resource = self._roster(project, max_units="1.0", units_override="0.5")
+        self._assign_all_week(project, resource, units="0.5")
+        assert client.get(self.url(project.pk)).json()["team_utilization_pct"] == 100.0
+
+    def test_off_roster_assignee_brings_its_own_capacity(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        # TaskResource does not require a ProjectResource row. Counting only the
+        # roster would put these hours in the numerator with no denominator and
+        # report a phantom overallocation, so the population is the union.
+        stranger = Resource.objects.create(name="Contractor", max_units=Decimal("1.0"))
+        self._assign_all_week(project, stranger)
+        data = client.get(self.url(project.pk)).json()
+        assert data["team_utilization_pct"] == 100.0
+        assert data["team_utilization_reason"] is None
+
+    def test_zero_capacity_roster_reports_no_capacity(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        # A ratio over zero capacity is undefined, not zero — so this is a reason.
+        self._roster(project, max_units="0.0")
+        data = client.get(self.url(project.pk)).json()
+        assert data["team_utilization_pct"] is None
+        assert data["team_utilization_reason"] == "no_capacity"
+
+    def test_work_outside_the_window_is_not_counted(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        # The card answers "how loaded is this team *now*", so next month's crunch
+        # must not inflate this week's reading.
+        resource = self._roster(project)
+        _, end = _this_week()
+        future = make_task(
+            project,
+            name="Later",
+            early_start=end + datetime.timedelta(days=14),
+            early_finish=end + datetime.timedelta(days=18),
+        )
+        TaskResource.objects.create(task=future, resource=resource, units=Decimal("1.0"))
+        assert client.get(self.url(project.pk)).json()["team_utilization_pct"] == 0.0

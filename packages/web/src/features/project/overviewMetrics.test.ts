@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   rankOverviewMetrics,
   focusHeading,
+  secondaryHeading,
   type OverviewMetric,
   type OverviewMetricKey,
   type OverviewMetricVariant,
@@ -142,5 +143,50 @@ describe('focusHeading', () => {
     expect(
       focusHeading([metric('schedule_health', 'on-track'), metric('forecast_finish', 'neutral')]),
     ).toBe('Project health');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// secondaryHeading (#2429)
+// ---------------------------------------------------------------------------
+
+describe('secondaryHeading', () => {
+  it('reads "Holding steady" when every demoted metric is calm', () => {
+    expect(
+      secondaryHeading([metric('next_milestone', 'neutral'), metric('schedule_health', 'on-track')]),
+    ).toBe('Holding steady');
+  });
+
+  it('reads "Also needs attention" when a demoted metric is at-risk', () => {
+    expect(
+      secondaryHeading([metric('next_milestone', 'neutral'), metric('open_risks', 'at-risk')]),
+    ).toBe('Also needs attention');
+  });
+
+  it('reads "Also needs attention" when a demoted metric is critical', () => {
+    expect(secondaryHeading([metric('team_utilization', 'critical')])).toBe(
+      'Also needs attention',
+    );
+  });
+
+  // The strip is `ranked.slice(3)`, so with four or more problems a *problem*
+  // lands in it. This is exactly why the heading is derived rather than a fixed
+  // subject label like "Trajectory", which would be false here.
+  it('stays honest when four metrics are critical and one is demoted', () => {
+    const ranked = rankOverviewMetrics([
+      metric('schedule_health', 'critical'),
+      metric('tasks_late', 'critical'),
+      metric('open_risks', 'critical'),
+      metric('team_utilization', 'critical'),
+      metric('forecast_finish', 'neutral'),
+      metric('next_milestone', 'neutral'),
+    ]);
+    const secondary = ranked.slice(3);
+    expect(keys(secondary)).toContain('team_utilization');
+    expect(secondaryHeading(secondary)).toBe('Also needs attention');
+  });
+
+  it('reads "Holding steady" for an empty strip', () => {
+    expect(secondaryHeading([])).toBe('Holding steady');
   });
 });

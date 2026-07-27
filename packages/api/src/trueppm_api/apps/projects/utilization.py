@@ -522,3 +522,106 @@ def _accumulate_assignment(
         daily_hours,
         str(task.pk),
     )
+
+
+# ---------------------------------------------------------------------------
+# Project-level team utilization (single scalar for the Overview KPI, #2428)
+# ---------------------------------------------------------------------------
+
+# Machine-readable codes for "the team-utilization ratio is undefined". The web
+# package maps each to a plain-language sentence (rule 119); the vocabulary is
+# owned here, so a client never guesses at the cause of a blank card.
+#
+# Deliberately NOT a reason: a computable 0%. Nobody being allocated this week is
+# a real, meaningful answer — and telling those two states apart is the whole
+# point of the card (#2428). Only a genuinely undefined ratio gets a reason.
+TEAM_UTILIZATION_NO_ROSTER = "no_roster"
+TEAM_UTILIZATION_NO_CAPACITY = "no_capacity"
+
+
+def _window_load_hours(row: dict[str, Any]) -> float:
+    """Total assigned hours in one engine row. ``_days`` is already window-clamped."""
+    return sum(float(day["hours"]) for day in row["_days"].values())
+
+
+def compute_team_utilization(
+    project: Any,  # trueppm_api.apps.projects.models.Project
+    window_start: datetime.date,
+    window_end: datetime.date,
+) -> dict[str, Any]:
+    """Collapse the per-resource daily engine into one project-level utilization percent.
+
+    Returns ``{"pct": float | None, "reason": str | None}``. Exactly one of the two
+    is populated: a computable ratio carries ``reason=None``, and an undefined one
+    carries ``pct=None`` plus a code from the ``TEAM_UTILIZATION_*`` vocabulary
+    above.
+
+    ``pct = 100 × Σ assigned hours ÷ Σ capacity hours`` over the window, where
+    capacity is the same calendar-aware ``hours_per_day × units × working_days``
+    product the daily engine and the weekly heatmap use — so the Overview KPI, the
+    heatmap, and a headless/MCP client cannot disagree about how loaded a team is.
+
+    The measured population is the project roster **union** the resources carrying
+    assignments in the window. The union matters: ``TaskResource`` does not require
+    a matching ``ProjectResource`` row, so counting only the roster would put an
+    off-roster assignee's hours in the numerator with no capacity in the
+    denominator and report a phantom overallocation. Counting only assignees would
+    instead hide idle capacity and peg a barely-booked team at 100%.
+
+    Per-project ``units_override`` wins over ``Resource.max_units`` for anyone on
+    the roster — that override exists precisely to say "this person is only half
+    on this project", and ignoring it would understate their utilization.
+    """
+    rows_by_id = {
+        row["resource_id"]: row
+        for row in _compute_utilization_internal(project, window_start, window_end)
+    }
+
+    project_cal = project.calendar
+    proj_mask, proj_exceptions, proj_cal_id = _resolve_project_calendar(project_cal)
+
+    roster = {
+        str(pr.resource_id): pr
+        for pr in project.resource_pool.filter(is_deleted=False).prefetch_related(
+            "resource__calendar__exceptions"
+        )
+    }
+
+    measured = set(roster) | set(rows_by_id)
+    if not measured:
+        return {"pct": None, "reason": TEAM_UTILIZATION_NO_ROSTER}
+
+    load_total = 0.0
+    capacity_total = 0.0
+    for rid in measured:
+        row = rows_by_id.get(rid)
+        roster_entry = roster.get(rid)
+
+        if row is not None:
+            # The engine row already resolved this resource's calendar; reuse it
+            # rather than re-deriving it, so numerator and denominator cannot drift.
+            mask, hrs, exc_ranges = row["_mask"], row["hours_per_day"], row["_exc_ranges"]
+            units = float(row["max_units"])
+            load_total += _window_load_hours(row)
+        else:
+            # On the roster but carrying no assignments in the window — pure idle
+            # capacity, which still belongs in the denominator.
+            resource = roster_entry.resource  # type: ignore[union-attr]
+            mask, hrs, exc_ranges, _ = _resolve_resource_calendar(
+                resource, project_cal, proj_mask, proj_exceptions, proj_cal_id
+            )
+            units = float(resource.max_units)
+
+        if roster_entry is not None and roster_entry.units_override is not None:
+            units = float(roster_entry.units_override)
+
+        working_days = _count_working_days_in_range(mask, exc_ranges, window_start, window_end)
+        capacity_total += hrs * units * working_days
+
+    # No working capacity in the window at all (every calendar closed, or every
+    # roster member at 0 units). The ratio is undefined rather than zero, so this
+    # is a reason and not a 0% reading.
+    if capacity_total <= 0:
+        return {"pct": None, "reason": TEAM_UTILIZATION_NO_CAPACITY}
+
+    return {"pct": round(100.0 * load_total / capacity_total, 1), "reason": None}
