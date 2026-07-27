@@ -24,6 +24,13 @@ import {
   useUpdateNotificationSettings,
 } from '@/hooks/useUpdateNotificationSettings';
 import { Toggle } from '@/features/settings/components/Toggle';
+import {
+  describeSchedule,
+  formatHour,
+  useDigestSchedule,
+  useUpdateDigestSchedule,
+  WEEKDAY_LABELS,
+} from '@/hooks/useDigestSchedule';
 
 const EVENT_LABELS: Record<string, { title: string; example: string }> = {
   mention_individual: {
@@ -79,7 +86,21 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: 'When a task you own is carried to another sprint',
     example: '“Foundation pour” carries from Sprint 7 to Sprint 8 at close',
   },
+  // Scheduled digests (ADR-0663, #2407) — the only clock-driven rows in the
+  // matrix, and the only pair defaulting OFF on both channels. Both are worded as
+  // a recurring send rather than an event so the distinction is legible here.
+  'program.health_digest': {
+    title: 'Weekly program health digest',
+    example: 'Sunday evening: which programs are at risk, and what is driving each',
+  },
+  'resource.overallocation_digest': {
+    title: 'Weekly resource overallocation digest',
+    example: 'Sunday evening: who is booked over 100% in the week ahead',
+  },
 };
+
+/** Event types sent on the weekly slot — used to gate the schedule card. */
+const DIGEST_EVENT_TYPES = ['program.health_digest', 'resource.overallocation_digest'];
 
 const CHANNEL_LABELS: Record<string, string> = {
   in_app: 'In-app',
@@ -122,6 +143,105 @@ function PreferenceToggle({ pref, onChange }: ToggleProps) {
   );
 }
 
+/**
+ * Weekly send-time picker for the ADR-0663 digests.
+ *
+ * Two native selects rather than a custom popover: this is a low-frequency
+ * preference with small, fully-enumerable option sets, and the native control
+ * gets keyboard, screen-reader, and mobile-wheel behavior for free. The timezone
+ * is shown read-only — it follows the account's timezone preference rather than
+ * introducing a second, silently-diverging tz control on this page.
+ */
+function DigestScheduleCard() {
+  const { data, isLoading, error } = useDigestSchedule();
+  const updateSchedule = useUpdateDigestSchedule();
+  const [announcement, setAnnouncement] = useState('');
+
+  if (isLoading || error || !data) {
+    // A failed/pending schedule read must not block the matrix above it — the
+    // toggles are independently useful, and the slot has a working server default.
+    return null;
+  }
+
+  function handleChange(patch: { digest_weekday?: number; digest_hour?: number }) {
+    if (!data) return;
+    const next = { ...data, ...patch };
+    setAnnouncement(describeSchedule(next));
+    updateSchedule.mutate(patch, {
+      onError: () => setAnnouncement("Couldn't update the digest schedule. Try again."),
+    });
+  }
+
+  return (
+    <section
+      aria-label="Digest schedule"
+      className="rounded-card border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-3"
+    >
+      <div>
+        <h2 className="text-sm font-semibold text-neutral-text-primary">Digest schedule</h2>
+        <p className="text-[13px] text-neutral-text-secondary mt-0.5">
+          When your weekly digests are sent. Applies to every digest you turn on below.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="digest-weekday"
+            className="text-xs font-medium text-neutral-text-secondary"
+          >
+            Day
+          </label>
+          <select
+            id="digest-weekday"
+            value={data.digest_weekday}
+            onChange={(e) => handleChange({ digest_weekday: Number(e.target.value) })}
+            className="h-11 min-w-[9rem] rounded-control border border-neutral-border
+              bg-neutral-surface px-2 text-sm text-neutral-text-primary
+              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+          >
+            {WEEKDAY_LABELS.map((label, index) => (
+              <option key={label} value={index}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label htmlFor="digest-hour" className="text-xs font-medium text-neutral-text-secondary">
+            Time
+          </label>
+          <select
+            id="digest-hour"
+            value={data.digest_hour}
+            onChange={(e) => handleChange({ digest_hour: Number(e.target.value) })}
+            className="h-11 min-w-[7rem] rounded-control border border-neutral-border
+              bg-neutral-surface px-2 text-sm text-neutral-text-primary
+              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+          >
+            {Array.from({ length: 24 }, (_, hour) => (
+              <option key={hour} value={hour}>
+                {formatHour(hour)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* The visible summary and the sr-only announcement carry the same sentence
+          (one source: describeSchedule), so the testid is what keeps a locator
+          from matching both under Playwright strict mode. */}
+      <p data-testid="digest-schedule-summary" className="text-[12px] text-neutral-text-secondary">
+        {describeSchedule(data)}
+      </p>
+      <p role="status" aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
+    </section>
+  );
+}
+
 export function NotificationPreferencesPage() {
   const { preferences, isLoading, error } = useNotificationPreferences();
   const updatePreference = useUpdateNotificationPreference();
@@ -141,6 +261,10 @@ export function NotificationPreferencesPage() {
   const isContributor = user?.can_access_admin_settings === false;
   const [showFullMatrix, setShowFullMatrix] = useState(false);
   const matrixVisible = !isContributor || showFullMatrix;
+  // The schedule card only earns its space once a digest is actually on.
+  const digestEnabled = preferences.some(
+    (p) => DIGEST_EVENT_TYPES.includes(p.event_type) && p.enabled,
+  );
 
   // Distinct event_type + channel sets, derived from the preferences list
   // so Enterprise additions (slack_dm, teams_dm, sms) appear automatically.
@@ -154,24 +278,32 @@ export function NotificationPreferencesPage() {
       byKey.set(`${p.event_type}:${p.channel}`, p);
     }
     // Deterministic order: OSS event types first (mention_individual then
-    // mention_group), then anything else alphabetized.
-    const ordered = (set: Set<string>, primary: string[]) => {
+    // mention_group), then anything else alphabetized, then `trailing` pinned to
+    // the bottom. The trailing group exists so the ADR-0663 digests sit together
+    // at the foot of the matrix — they are recurring sends on a schedule, not
+    // reactions to an event, and interleaving them alphabetically among the event
+    // rows would bury that distinction.
+    const ordered = (set: Set<string>, primary: string[], trailing: string[] = []) => {
       const out = primary.filter((k) => set.has(k));
-      const rest = [...set].filter((k) => !primary.includes(k)).sort();
-      return [...out, ...rest];
+      const rest = [...set].filter((k) => !primary.includes(k) && !trailing.includes(k)).sort();
+      return [...out, ...rest, ...trailing.filter((k) => set.has(k))];
     };
     return {
-      eventTypes: ordered(eventSet, [
-        'mention_individual',
-        'mention_group',
-        'task.assigned',
-        'task.due_date_changed',
-        'task.blocked',
-        'comment_on_my_task',
-        'signal.ceiling_proposal_opened',
-        'signal.ceiling_proposal_resolved',
-        'project.deleted',
-      ]),
+      eventTypes: ordered(
+        eventSet,
+        [
+          'mention_individual',
+          'mention_group',
+          'task.assigned',
+          'task.due_date_changed',
+          'task.blocked',
+          'comment_on_my_task',
+          'signal.ceiling_proposal_opened',
+          'signal.ceiling_proposal_resolved',
+          'project.deleted',
+        ],
+        DIGEST_EVENT_TYPES,
+      ),
       channels: ordered(channelSet, ['in_app', 'email']),
       prefByKey: byKey,
     };
@@ -290,6 +422,12 @@ export function NotificationPreferencesPage() {
           {dndAnnounce}
         </p>
       </section>
+
+      {/* Digest schedule (ADR-0663, #2407). Rendered only once a digest is
+          actually enabled: a send-time picker for a digest nobody subscribed to
+          is a control with no effect, which is the exact defect #2404 fixed on
+          the rollup KPI toggles. */}
+      {digestEnabled && <DigestScheduleCard />}
 
       {/* Signal-only card (#855) — contributors only. The full matrix stays
           collapsed behind the escape until they ask for it. */}

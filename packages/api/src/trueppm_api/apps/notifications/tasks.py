@@ -134,6 +134,62 @@ def detect_stale_tasks(self: object) -> None:
         logger.info("detect_stale_tasks: created %d stale-task notification(s)", created)
 
 
+@idempotent_task(
+    lock_key_template="send_scheduled_digests",
+    lock_ttl=300,
+    on_contention="skip",
+    soft_time_limit=280,
+    time_limit=300,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=0,
+    name="notifications.send_scheduled_digests",
+)
+def send_scheduled_digests(self: object) -> None:
+    """Send weekly digests whose per-user slot matches this hour (ADR-0663).
+
+    Runs **hourly** via Beat even though the digests are weekly: the send time is
+    a per-user property (``UserNotificationSettings.digest_*``) in the user's own
+    timezone, so the sweep has to look every hour and match slots rather than fire
+    on one cluster-wide schedule.
+
+    ``max_retries=0`` — retrying is pointless here. The next tick is 60 minutes
+    away and re-evaluates from current state, and the ledger row is already written,
+    so a retry would either no-op or mail a stale snapshot. A failed run means one
+    skipped weekly digest, which the reader can recover by logging in
+    (ADR-0663 §Durable Execution item 8).
+    """
+    from .digests import send_due_digests
+
+    created = send_due_digests()
+    if created:
+        logger.info("send_scheduled_digests: created %d digest notification(s)", created)
+
+
+@idempotent_task(
+    lock_key_template="purge_old_digest_runs",
+    lock_ttl=300,
+    on_contention="skip",
+    soft_time_limit=55,
+    time_limit=90,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="notifications.purge_old_digest_runs",
+)
+def purge_old_digest_runs(self: object) -> None:
+    """Delete digest ledger rows past the retention window (ADR-0663 item 6).
+
+    Retention is 90 days rather than the 7-day per-request outbox convention: the
+    ledger exists to remember a *weekly* send, so a 7-day window would forget a
+    fortnight-old run it must not repeat.
+    """
+    from .digests import purge_old_digest_runs as _purge
+
+    deleted = _purge()
+    if deleted:
+        logger.info("purge_old_digest_runs: deleted %d ledger row(s)", deleted)
+
+
 # ---------------------------------------------------------------------------
 # Drain — extracted for direct testability without Celery in the loop
 # ---------------------------------------------------------------------------

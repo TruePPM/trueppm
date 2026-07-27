@@ -27,12 +27,14 @@ CATEGORY_MENTIONS = "mentions"
 CATEGORY_TASKS = "tasks"
 CATEGORY_SIGNALS = "signals"
 CATEGORY_PROJECT = "project"
+CATEGORY_DIGESTS = "digests"
 
 CATEGORIES: tuple[str, ...] = (
     CATEGORY_MENTIONS,
     CATEGORY_TASKS,
     CATEGORY_SIGNALS,
     CATEGORY_PROJECT,
+    CATEGORY_DIGESTS,
 )
 
 # event_type → category. Exhaustive over NotificationEventType (enforced by
@@ -41,6 +43,7 @@ CATEGORIES: tuple[str, ...] = (
 #   tasks    — events about a task you own / are on
 #   signals  — schedule-health signals and team-visibility proposals
 #   project  — project-lifecycle events
+#   digests  — clock-driven weekly summaries (ADR-0663), not event-triggered
 _EVENT_TYPE_CATEGORY: dict[str, str] = {
     NotificationEventType.MENTION_INDIVIDUAL.value: CATEGORY_MENTIONS,
     NotificationEventType.MENTION_GROUP.value: CATEGORY_MENTIONS,
@@ -57,6 +60,8 @@ _EVENT_TYPE_CATEGORY: dict[str, str] = {
     NotificationEventType.SIGNAL_CEILING_PROPOSAL_OPENED.value: CATEGORY_SIGNALS,
     NotificationEventType.SIGNAL_CEILING_PROPOSAL_RESOLVED.value: CATEGORY_SIGNALS,
     NotificationEventType.PROJECT_DELETED.value: CATEGORY_PROJECT,
+    NotificationEventType.PROGRAM_HEALTH_DIGEST.value: CATEGORY_DIGESTS,
+    NotificationEventType.RESOURCE_OVERALLOCATION_DIGEST.value: CATEGORY_DIGESTS,
 }
 
 

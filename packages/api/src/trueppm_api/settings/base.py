@@ -445,6 +445,25 @@ CELERY_BEAT_SCHEDULE = {
         # state and lands a fresh nudge before the working day starts.
         "schedule": crontab(hour=5, minute=30),
     },
+    # Scheduled digests (ADR-0663, #2407): hourly sweep that sends each opted-in
+    # user's weekly program-health / overallocation digest when the current hour
+    # matches their own slot in their own timezone. Hourly (not weekly) because
+    # the schedule is a per-user property — one cluster-wide weekly entry would be
+    # 3 a.m. for half the recipients. Runs at minute 10 so it does not contend
+    # with generate-recurring-occurrences at minute 0.
+    "send-scheduled-digests": {
+        "task": "notifications.send_scheduled_digests",
+        "schedule": crontab(minute=10),
+    },
+    # Nightly cleanup: drop digest ledger rows past the 90-day retention window
+    # (ADR-0663 §Durable Execution item 6). Longer than the 7-day convention
+    # because the ledger's job is to remember a weekly send.
+    "purge-old-digest-runs": {
+        "task": "notifications.purge_old_digest_runs",
+        # 03:20 UTC — between archive-old-notifications (03:15) and the 04:00
+        # workflow purge.
+        "schedule": crontab(hour=3, minute=20),
+    },
     # Beat liveness heartbeat: a single worker writes BeatHeartbeat.last_heartbeat
     # every 30 s. GET /api/v1/health/beat/ reads it to detect a dead Beat (ADR-0081).
     "beat-heartbeat": {

@@ -403,6 +403,39 @@ existing unread nudge, so a still-stale task is not notified twice — read or a
 and only then does a later run nudge again. The threshold is a per-project setting an
 admin configures; see [Project settings → Notifications](/administration/project-settings/).
 
+### Weekly digests
+
+Two notifications arrive on a **clock** rather than in response to an event, for
+the people whose relationship with TruePPM is "tell me when something is wrong":
+
+| Digest | What it reports |
+|---|---|
+| **Weekly program health digest** | Which of your programs are *at risk* or *critical*, and the project contributing most to each |
+| **Weekly resource overallocation digest** | Which resources are booked over 100% in the week ahead, on projects where you are a Resource Manager or above |
+
+Both are **off by default on every channel** — unlike the event notifications
+above, which default to in-app ON. A weekly send is traffic you have to actually
+want, so nothing arrives until you turn it on in the preference matrix.
+
+**Choosing when they arrive.** Once you enable a digest, a **Digest schedule**
+card appears at the top of `/me/settings/notifications/` with a day and time
+picker. The slot is evaluated in your own timezone, so "Sunday at 5:00 pm" means
+5:00 pm where you are, not on the server. One schedule covers both digests.
+
+**What the numbers mean.** A digest never computes anything of its own. Program
+health is the same rolled-up band the
+[program overview](/features/programs/) shows, and overallocation is the same
+`> 100%` threshold the resource heat map colors red — so a line in the digest and
+the screen it links to can never disagree.
+
+**Nothing at risk is still a report.** When the check finds nothing, the digest
+still sends, with a subject line saying so. A channel that only speaks when
+something is wrong leaves you unable to tell good news from a broken pipeline.
+
+Digest lines link straight to the relevant screen when the installation has a
+public frontend URL configured; if it does not, the digest still sends with the
+findings and omits the links.
+
 ## API
 
 The full REST surface is documented in [docs/api/](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/api/openapi.json).

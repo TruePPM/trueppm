@@ -935,7 +935,7 @@ def create_event_notifications(
     recipient_ids: Sequence[int | str | None],
     subject: str,
     body: str,
-    project_id: uuid.UUID | str,
+    project_id: uuid.UUID | str | None,
     task_id: uuid.UUID | str | None = None,
 ) -> int:
     """Create event-sourced Notification rows for an own-task event (#639).
@@ -960,6 +960,10 @@ def create_event_notifications(
         subject: Pre-rendered email subject line.
         body: Pre-rendered plain-text email body.
         project_id: The project the event occurred on (scopes the inbox row).
+            ``None`` only for account-scoped rows that genuinely have no owning
+            project — the ADR-0663 scheduled digests, which span the recipient's
+            whole membership set. Every event- and mention-sourced caller passes a
+            real project.
         task_id: Optional deep-link target — the task/milestone the inbox row
             should link to (#497/#861). ``None`` for events with no task anchor.
 
