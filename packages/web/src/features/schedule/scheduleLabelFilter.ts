@@ -23,6 +23,12 @@
  *               contrast.
  * - **zero matches** — dimming does not apply at all. Dimming every row reads
  *               as broken rather than as an empty result (frame A4).
+ *
+ * TODO(#2443): this module is deliberately unconsumed — no component mounts it
+ * yet. The 2026-07-26 UX-flows VoC audit deferred the Schedule filter surface to
+ * the shared filter vocabulary, so the consumer lands in #2443/#2444 rather than
+ * as a standalone toolbar. Generalizing from labels to the full vocabulary is a
+ * one-line predicate swap below; everything after it is facet-agnostic.
  */
 
 import { taskMatchesLabels } from '@/components/filters/labelFilter';
@@ -71,6 +77,10 @@ export function classifyScheduleRows(
   const selected = [...selectedLabelIds];
   const matched = new Set<string>();
   for (const task of allTasks) {
+    // TODO(#2443): the only facet-specific line in this module. Swapping this
+    // predicate (and the `selectedLabelIds` param) generalizes the classifier to
+    // the shared filter vocabulary — the tree walk, context tally, cycle guard
+    // and arrow rule below all operate on `matched` and need no change.
     if (taskMatchesLabels(task, selected)) matched.add(task.id);
   }
 

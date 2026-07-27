@@ -271,9 +271,13 @@ export interface GanttEngine {
    * filter matches nothing, since dimming *every* row reads as broken rather
    * than as an empty result.
    *
-   * The engine classifies nothing: `ScheduleView` computes the state with
+   * The engine classifies nothing: the host computes the state with
    * `classifyScheduleRows` and pushes the resulting id sets here, the same
    * one-way contract as {@link setHoverChain}.
+   *
+   * TODO(#2443): no caller yet. Taking pure id sets rather than a predicate is
+   * what makes this vocabulary-agnostic, so the shared filter vocabulary can
+   * drive it unchanged when the Schedule filter surface lands in #2443/#2444.
    */
   setFilterHighlight(highlight: FilterHighlight | null): void;
 
