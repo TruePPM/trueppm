@@ -9,7 +9,7 @@
 
 use chrono::{Duration, NaiveDate};
 
-use crate::models::Project;
+use crate::models::{Calendar, Project, Task};
 
 /// Per-task working-day duration ceiling (~100 years).
 /// Mirrors `trueppm_scheduler.engine.MAX_DURATION_DAYS`.
@@ -61,17 +61,33 @@ fn is_whole_days(seconds: f64) -> bool {
 /// out-of-range task duration / PERT estimate, an out-of-range dependency lag,
 /// an out-of-range `planned_start`/`actual_start`/`actual_finish`/`status_date`,
 /// or a calendar with no working day reachable from the project start.
+///
+/// The checks are ordered, and that order is observable: the conformance
+/// fixtures assert *which* message a malformed document produces, so a document
+/// that trips two guards must keep tripping the earlier one. Each helper below
+/// is one guard group, applied in the original sequence.
 pub fn validate_project(project: &Project) -> Result<(), String> {
-    let cal = &project.calendar;
+    reject_per_task_calendars(project)?;
+    reject_duplicate_task_ids(project)?;
+    validate_calendar(&project.calendar)?;
+    validate_tasks(project)?;
+    let status_offset = checked_status_offset(project)?;
+    validate_dependencies(project)?;
+    validate_span(project, status_offset)?;
+    assert_working_day_reachable(project)
+}
 
-    // Per-task calendars (ADR-0120 D3) are now *parsed* (so the canonical
-    // Project.to_json() output, which always emits calendar_id/calendars as null,
-    // is accepted, #1816) but still *rejected when set*: this engine shares one
-    // calendar across all tasks and cannot reproduce a per-task calendar, so honoring
-    // it would silently disagree with the server schedule. A null value (the common
-    // case) is fine; a set value is refused here rather than at parse. The MC-only
-    // fields (delivery_mode/story_points/velocity_samples/sprint_length_days) are
-    // deliberately *not* rejected — they never affect a deterministic CPM result.
+/// Per-task calendars (ADR-0120 D3) are *parsed* but rejected when set.
+///
+/// The canonical `Project.to_json()` output always emits `calendar_id`/`calendars`
+/// as null, so parsing them keeps that round-trip working (#1816). Honoring them
+/// is what this engine cannot do: it shares one calendar across all tasks, so a
+/// per-task calendar would silently disagree with the server schedule. A null
+/// value (the common case) is fine; a set value is refused here rather than at
+/// parse. The MC-only fields (delivery_mode/story_points/velocity_samples/
+/// sprint_length_days) are deliberately *not* rejected — they never affect a
+/// deterministic CPM result.
+fn reject_per_task_calendars(project: &Project) -> Result<(), String> {
     if let Some(calendars) = &project.calendars {
         if !calendars.is_empty() {
             return Err(format!(
@@ -91,10 +107,13 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
             ));
         }
     }
+    Ok(())
+}
 
-    // Unique task IDs: every per-task result is keyed on Task.id, so a duplicate
-    // id silently shadows one task. Reject it as the structural error it is,
-    // matching the Python engine's _validate_project (#749).
+/// Every per-task result is keyed on `Task.id`, so a duplicate id silently
+/// shadows one task. Reject it as the structural error it is, matching the
+/// Python engine's `_validate_project` (#749).
+fn reject_duplicate_task_ids(project: &Project) -> Result<(), String> {
     let mut seen_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for t in &project.tasks {
         if !seen_ids.insert(t.id.as_str()) {
@@ -104,7 +123,11 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
             ));
         }
     }
+    Ok(())
+}
 
+/// Working-day mask, exception-range count, and exception-range ordering.
+fn validate_calendar(cal: &Calendar) -> Result<(), String> {
     // is_working_day only consults bits 0-6 (Mon-Sun); a mask with none of them
     // set (0, or only bits >= 7) has no working day at all.
     if (cal.working_days & 0b0111_1111) == 0 {
@@ -147,7 +170,11 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
             ));
         }
     }
+    Ok(())
+}
 
+/// Per-task durations, PERT estimates, recorded actuals, and the SNET pin.
+fn validate_tasks(project: &Project) -> Result<(), String> {
     for t in &project.tasks {
         check_whole_days(t.duration, &format!("Task {:?} duration", t.id))?;
         check_duration(
@@ -165,82 +192,106 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
                 check_duration(days, &format!("Task {:?} {}", t.id, label))?;
             }
         }
-
-        // A complete three-point estimate must be ordered. An inconsistent one
-        // (most_likely outside [optimistic, pessimistic], or optimistic above
-        // pessimistic) was previously sampled by the degenerate _sample_pert
-        // fallback as the constant most_likely, possibly beyond the user's own
-        // pessimistic bound (#1069). Partial estimates are not validated: Monte
-        // Carlo only samples when all three are present. Day-granularity match to
-        // Python's `.days` comparison (#1085).
-        if let (Some(o), Some(m), Some(pe)) = (
-            t.optimistic_duration,
-            t.most_likely_duration,
-            t.pessimistic_duration,
-        ) {
-            let od = (o / 86_400.0).round() as i64;
-            let md = (m / 86_400.0).round() as i64;
-            let pd = (pe / 86_400.0).round() as i64;
-            if !(od <= md && md <= pd) {
-                return Err(format!(
-                    "Task {:?} three-point estimates must satisfy optimistic <= most_likely \
-                     <= pessimistic (got {od} <= {md} <= {pd} days).",
-                    t.id
-                ));
-            }
-        }
-
-        // A recorded pair of actuals must be internally ordered. ADR-0136 keeps a
-        // completed task's actuals verbatim (early_start = actual_start,
-        // early_finish = actual_finish) so out-of-sequence reality — a task before
-        // its predecessor — is surfaced. But a single task claiming it finished
-        // before it started is not out-of-sequence truth; it is physically
-        // impossible input, in the same class as a negative duration. Left
-        // unchecked it produces an inverted early window (early_start >
-        // early_finish) that every downstream consumer reads as garbage (#2119).
-        // Reject it here so both engines refuse identically at the validation
-        // layer. Mirrors Python's _validate_project actual-ordering guard.
-        if let (Some(start), Some(finish)) = (t.actual_start, t.actual_finish) {
-            if start > finish {
-                return Err(format!(
-                    "Task {:?} actual_start must not be after actual_finish (got {start} > {finish}).",
-                    t.id
-                ));
-            }
-        }
-
-        // planned_start (SNET) extends the schedule directly, so it is bounded by
-        // the same span cap as durations and lags — otherwise a pin in year 9999
-        // is accepted by the bounded calendar walk and drives the day-by-day walk
-        // into a multi-million-entry scan (#1086, mirrors Python #1068).
-        if let Some(snet) = t.planned_start {
-            if (snet - project.start_date).num_days() > MAX_PROJECT_SPAN_DAYS {
-                return Err(format!(
-                    "Task {:?} planned_start is more than {MAX_PROJECT_SPAN_DAYS} days after the \
-                     project start; the schedule cannot be computed within a representable date range.",
-                    t.id
-                ));
-            }
-        }
+        check_pert_ordering(t)?;
+        check_actual_ordering(t)?;
+        check_planned_start_bound(t, project.start_date)?;
     }
+    Ok(())
+}
 
-    // status_date (the data date, ADR-0132) shifts the "as of" point used by the
-    // progress-aware forward pass, so an unbounded value drives the same
-    // day-by-day walk into a multi-million-entry scan as an unbounded
-    // planned_start. Unlike the actuals check below, this is not abs()'d — a
-    // status_date *before* the project start is not a runaway-span risk, only
-    // one after it is. Mirrors Python _validate_project's `status_offset` check.
-    let mut status_offset: i64 = 0;
-    if let Some(status_date) = project.status_date {
-        status_offset = (status_date - project.start_date).num_days();
-        if status_offset > MAX_PROJECT_SPAN_DAYS {
+/// A complete three-point estimate must be ordered.
+///
+/// An inconsistent one (most_likely outside [optimistic, pessimistic], or
+/// optimistic above pessimistic) was previously sampled by the degenerate
+/// `_sample_pert` fallback as the constant most_likely, possibly beyond the
+/// user's own pessimistic bound (#1069). Partial estimates are not validated:
+/// Monte Carlo only samples when all three are present. Day-granularity match to
+/// Python's `.days` comparison (#1085).
+fn check_pert_ordering(t: &Task) -> Result<(), String> {
+    let (Some(o), Some(m), Some(pe)) = (
+        t.optimistic_duration,
+        t.most_likely_duration,
+        t.pessimistic_duration,
+    ) else {
+        return Ok(());
+    };
+    let od = (o / 86_400.0).round() as i64;
+    let md = (m / 86_400.0).round() as i64;
+    let pd = (pe / 86_400.0).round() as i64;
+    if !(od <= md && md <= pd) {
+        return Err(format!(
+            "Task {:?} three-point estimates must satisfy optimistic <= most_likely \
+             <= pessimistic (got {od} <= {md} <= {pd} days).",
+            t.id
+        ));
+    }
+    Ok(())
+}
+
+/// A recorded pair of actuals must be internally ordered.
+///
+/// ADR-0136 keeps a completed task's actuals verbatim (early_start =
+/// actual_start, early_finish = actual_finish) so out-of-sequence reality — a
+/// task before its predecessor — is surfaced. But a single task claiming it
+/// finished before it started is not out-of-sequence truth; it is physically
+/// impossible input, in the same class as a negative duration. Left unchecked it
+/// produces an inverted early window (early_start > early_finish) that every
+/// downstream consumer reads as garbage (#2119). Reject it here so both engines
+/// refuse identically at the validation layer. Mirrors Python's
+/// `_validate_project` actual-ordering guard.
+fn check_actual_ordering(t: &Task) -> Result<(), String> {
+    if let (Some(start), Some(finish)) = (t.actual_start, t.actual_finish) {
+        if start > finish {
             return Err(format!(
-                "status_date is more than {MAX_PROJECT_SPAN_DAYS} days after the project \
-                 start; the schedule cannot be computed within a representable date range."
+                "Task {:?} actual_start must not be after actual_finish (got {start} > {finish}).",
+                t.id
             ));
         }
     }
+    Ok(())
+}
 
+/// `planned_start` (SNET) extends the schedule directly, so it is bounded by the
+/// same span cap as durations and lags — otherwise a pin in year 9999 is accepted
+/// by the bounded calendar walk and drives the day-by-day walk into a
+/// multi-million-entry scan (#1086, mirrors Python #1068).
+fn check_planned_start_bound(t: &Task, project_start: NaiveDate) -> Result<(), String> {
+    if let Some(snet) = t.planned_start {
+        if (snet - project_start).num_days() > MAX_PROJECT_SPAN_DAYS {
+            return Err(format!(
+                "Task {:?} planned_start is more than {MAX_PROJECT_SPAN_DAYS} days after the \
+                 project start; the schedule cannot be computed within a representable date range.",
+                t.id
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Bound the data date and return its offset from the project start.
+///
+/// `status_date` (ADR-0132) shifts the "as of" point used by the progress-aware
+/// forward pass, so an unbounded value drives the same day-by-day walk into a
+/// multi-million-entry scan as an unbounded `planned_start`. Unlike the actuals
+/// check, this is not `abs()`'d — a `status_date` *before* the project start is
+/// not a runaway-span risk, only one after it is. Mirrors Python
+/// `_validate_project`'s `status_offset` check.
+fn checked_status_offset(project: &Project) -> Result<i64, String> {
+    let Some(status_date) = project.status_date else {
+        return Ok(0);
+    };
+    let status_offset = (status_date - project.start_date).num_days();
+    if status_offset > MAX_PROJECT_SPAN_DAYS {
+        return Err(format!(
+            "status_date is more than {MAX_PROJECT_SPAN_DAYS} days after the project \
+             start; the schedule cannot be computed within a representable date range."
+        ));
+    }
+    Ok(status_offset)
+}
+
+/// Edge count, duplicate pairs, and per-edge lag bounds.
+fn validate_dependencies(project: &Project) -> Result<(), String> {
     // Bound the raw edge count (#1203) before the loop below — and every later
     // O(E) pass — iterates it. A `.len()` check, so it rejects a multi-million-edge
     // payload before any per-edge work or the list's memory footprint is the cost.
@@ -284,18 +335,28 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
             ));
         }
     }
+    Ok(())
+}
 
-    // Cumulative span: an upper bound on the longest path (and the Monte Carlo
-    // completion offset, which samples up to the pessimistic duration). Bounding
-    // the sum keeps the day-by-day walk from spinning or overflowing the date
-    // range no matter how many tasks are chained.
-    let mut total_span: i64 = 0;
-    let mut max_snet_days: i64 = 0;
-    // Furthest recorded actual (actual_start or actual_finish) from the project
-    // start, in either direction — abs()'d because a far-*past* actual anchors
-    // the calendar walk just as badly as a far-future one (#951 precedent, mirrors
-    // Python's max_actual_days).
-    let mut max_actual_days: i64 = 0;
+/// The per-task terms that feed the cumulative-span bound.
+struct SpanTerms {
+    /// Sum of the worst-case duration of every task.
+    task_days: i64,
+    /// Furthest `planned_start` pin from the project start.
+    max_snet_days: i64,
+    /// Furthest recorded actual (`actual_start` or `actual_finish`) from the
+    /// project start, in either direction — `abs()`'d because a far-*past* actual
+    /// anchors the calendar walk just as badly as a far-future one (#951
+    /// precedent, mirrors Python's `max_actual_days`).
+    max_actual_days: i64,
+}
+
+fn span_terms(project: &Project) -> SpanTerms {
+    let mut terms = SpanTerms {
+        task_days: 0,
+        max_snet_days: 0,
+        max_actual_days: 0,
+    };
     for t in &project.tasks {
         // Worst case across the deterministic duration AND every PERT estimate:
         // Monte Carlo falls back to most_likely when the range is degenerate, so
@@ -314,27 +375,43 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
         {
             task_max = task_max.max((seconds / 86_400.0).round() as i64);
         }
-        total_span += task_max.max(0);
+        terms.task_days += task_max.max(0);
         if let Some(snet) = t.planned_start {
-            max_snet_days = max_snet_days.max((snet - project.start_date).num_days());
+            terms.max_snet_days = terms
+                .max_snet_days
+                .max((snet - project.start_date).num_days());
         }
         for actual in [t.actual_start, t.actual_finish].into_iter().flatten() {
-            max_actual_days = max_actual_days.max((actual - project.start_date).num_days().abs());
+            terms.max_actual_days = terms
+                .max_actual_days
+                .max((actual - project.start_date).num_days().abs());
         }
     }
+    terms
+}
+
+/// Cumulative span: an upper bound on the longest path (and the Monte Carlo
+/// completion offset, which samples up to the pessimistic duration). Bounding the
+/// sum keeps the day-by-day walk from spinning or overflowing the date range no
+/// matter how many tasks are chained.
+fn validate_span(project: &Project, status_offset: i64) -> Result<(), String> {
+    let terms = span_terms(project);
+
     // Recorded actuals (ADR-0132/0136) anchor a completed task's full-duration
     // span and feed the same calendar walk as a planned_start pin, so an actual
     // far from the project start must be bounded the same way — otherwise a
     // year-9999 actual_finish (or an equally distant actual_start) is accepted
     // here and drives the day-by-day walk past the representable date range.
     // Mirrors Python's max_actual_days check.
-    if max_actual_days > MAX_PROJECT_SPAN_DAYS {
+    if terms.max_actual_days > MAX_PROJECT_SPAN_DAYS {
         return Err(format!(
             "A task actual_start/actual_finish is more than {MAX_PROJECT_SPAN_DAYS} days \
              from the project start; the schedule cannot be computed within a representable \
              date range."
         ));
     }
+
+    let mut total_span = terms.task_days;
     for dep in &project.dependencies {
         total_span += dep.lag_days().abs();
     }
@@ -343,7 +420,10 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
     // bound exactly once (they don't accumulate the way durations on a chain
     // do). Mirrors the Python _validate_project (#1086 / #1068, and #1564 for
     // the status_date / actuals terms).
-    total_span += max_snet_days.max(status_offset.max(0)).max(max_actual_days);
+    total_span += terms
+        .max_snet_days
+        .max(status_offset.max(0))
+        .max(terms.max_actual_days);
     if total_span > MAX_PROJECT_SPAN_DAYS {
         return Err(format!(
             "Total project span ({total_span} days across all task durations and lags) \
@@ -367,11 +447,15 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
             project.start_date
         ));
     }
+    Ok(())
+}
 
-    // Reachability: a working day must exist within MAX_CALENDAR_SCAN_DAYS of
-    // the project start (catches a valid mask whose exceptions blanket the
-    // schedule). Uses checked arithmetic so this scan cannot itself panic, even
-    // for an absurd start_date — it returns an error instead.
+/// Reachability: a working day must exist within `MAX_CALENDAR_SCAN_DAYS` of the
+/// project start (catches a valid mask whose exceptions blanket the schedule).
+/// Uses checked arithmetic so this scan cannot itself panic, even for an absurd
+/// `start_date` — it returns an error instead.
+fn assert_working_day_reachable(project: &Project) -> Result<(), String> {
+    let cal = &project.calendar;
     let mut d = project.start_date;
     let mut scanned: i64 = 0;
     while !cal.is_working_day(d) {
@@ -386,7 +470,6 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
             .ok_or("Calendar scan overflowed the representable date range.")?;
         scanned += 1;
     }
-
     Ok(())
 }
 

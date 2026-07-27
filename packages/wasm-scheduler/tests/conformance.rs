@@ -197,90 +197,95 @@ fn incremental_matches_full_recompute() {
         let changed_ids: Vec<String> = base.tasks.iter().map(|t| t.id.clone()).collect();
 
         for changed in &changed_ids {
-            let mut project = base.clone();
-            for t in project.tasks.iter_mut() {
-                if &t.id == changed {
-                    // Perturb: shift this task by two working days so the
-                    // schedule genuinely shifts downstream. Extend normally,
-                    // but shrink when extending would cross MAX_DURATION_DAYS
-                    // (mirrors validate::MAX_DURATION_DAYS = 36,525) — the
-                    // #1855 boundary fixture sits exactly at the cap, where a
-                    // +2d perturbation is validator-rejected, not
-                    // schedule-shifting.
-                    let two_days = 2.0 * 86_400.0;
-                    if t.duration + two_days > 36_525.0 * 86_400.0 {
-                        t.duration -= two_days;
-                    } else {
-                        t.duration += two_days;
-                    }
-                }
-            }
+            assert_incremental_matches_full(&stem, &base, changed);
+        }
+    }
+}
 
-            let full = schedule_impl(&project)
-                .unwrap_or_else(|e| panic!("{stem}: full schedule failed after perturbation: {e}"));
-            let incr = incremental_update(&project, changed)
-                .unwrap_or_else(|e| panic!("{stem}: incremental_update({changed}) failed: {e}"));
-
-            // Whole-project aggregates are computed over the full task map inside
-            // incremental_update, so they must match the full recompute exactly.
-            assert_eq!(
-                incr.project_start, full.project_start,
-                "{stem}/{changed}: incremental project_start diverged"
-            );
-            assert_eq!(
-                incr.project_finish, full.project_finish,
-                "{stem}/{changed}: incremental project_finish diverged"
-            );
-            assert_eq!(
-                incr.critical_path, full.critical_path,
-                "{stem}/{changed}: incremental critical_path diverged"
-            );
-
-            let full_by_id: HashMap<&str, &_> =
-                full.tasks.iter().map(|t| (t.id.as_str(), t)).collect();
-            for it in &incr.tasks {
-                let ft = full_by_id.get(it.id.as_str()).unwrap_or_else(|| {
-                    panic!(
-                        "{stem}/{changed}: incremental task {} not in full recompute",
-                        it.id
-                    )
-                });
-                assert_eq!(
-                    it.early_start, ft.early_start,
-                    "{stem}/{changed}/{}: early_start",
-                    it.id
-                );
-                assert_eq!(
-                    it.early_finish, ft.early_finish,
-                    "{stem}/{changed}/{}: early_finish",
-                    it.id
-                );
-                assert_eq!(
-                    it.late_start, ft.late_start,
-                    "{stem}/{changed}/{}: late_start",
-                    it.id
-                );
-                assert_eq!(
-                    it.late_finish, ft.late_finish,
-                    "{stem}/{changed}/{}: late_finish",
-                    it.id
-                );
-                assert_eq!(
-                    it.total_float, ft.total_float,
-                    "{stem}/{changed}/{}: total_float",
-                    it.id
-                );
-                assert_eq!(
-                    it.free_float, ft.free_float,
-                    "{stem}/{changed}/{}: free_float",
-                    it.id
-                );
-                assert_eq!(
-                    it.is_critical, ft.is_critical,
-                    "{stem}/{changed}/{}: is_critical",
-                    it.id
-                );
+/// Perturb one task's duration by two working days so the schedule genuinely
+/// shifts downstream.
+///
+/// Extends normally, but *shrinks* when extending would cross
+/// `MAX_DURATION_DAYS` (mirrors `validate::MAX_DURATION_DAYS` = 36,525) — the
+/// #1855 boundary fixture sits exactly at the cap, where a +2d perturbation is
+/// validator-rejected rather than schedule-shifting.
+fn perturbed(base: &Project, changed: &str) -> Project {
+    let mut project = base.clone();
+    for t in project.tasks.iter_mut() {
+        if t.id == changed {
+            let two_days = 2.0 * 86_400.0;
+            if t.duration + two_days > 36_525.0 * 86_400.0 {
+                t.duration -= two_days;
+            } else {
+                t.duration += two_days;
             }
         }
+    }
+    project
+}
+
+/// Assert that `incremental_update` after perturbing `changed` agrees with a
+/// fresh full `schedule_impl` on every task it returns and on every whole-project
+/// aggregate.
+fn assert_incremental_matches_full(stem: &str, base: &Project, changed: &str) {
+    let project = perturbed(base, changed);
+
+    let full = schedule_impl(&project)
+        .unwrap_or_else(|e| panic!("{stem}: full schedule failed after perturbation: {e}"));
+    let incr = incremental_update(&project, changed)
+        .unwrap_or_else(|e| panic!("{stem}: incremental_update({changed}) failed: {e}"));
+
+    // Whole-project aggregates are computed over the full task map inside
+    // incremental_update, so they must match the full recompute exactly.
+    assert_eq!(
+        incr.project_start, full.project_start,
+        "{stem}/{changed}: incremental project_start diverged"
+    );
+    assert_eq!(
+        incr.project_finish, full.project_finish,
+        "{stem}/{changed}: incremental project_finish diverged"
+    );
+    assert_eq!(
+        incr.critical_path, full.critical_path,
+        "{stem}/{changed}: incremental critical_path diverged"
+    );
+
+    let full_by_id: HashMap<&str, &_> = full.tasks.iter().map(|t| (t.id.as_str(), t)).collect();
+    for it in &incr.tasks {
+        let ft = full_by_id.get(it.id.as_str()).unwrap_or_else(|| {
+            panic!(
+                "{stem}/{changed}: incremental task {} not in full recompute",
+                it.id
+            )
+        });
+        let id = &it.id;
+        assert_eq!(
+            it.early_start, ft.early_start,
+            "{stem}/{changed}/{id}: early_start"
+        );
+        assert_eq!(
+            it.early_finish, ft.early_finish,
+            "{stem}/{changed}/{id}: early_finish"
+        );
+        assert_eq!(
+            it.late_start, ft.late_start,
+            "{stem}/{changed}/{id}: late_start"
+        );
+        assert_eq!(
+            it.late_finish, ft.late_finish,
+            "{stem}/{changed}/{id}: late_finish"
+        );
+        assert_eq!(
+            it.total_float, ft.total_float,
+            "{stem}/{changed}/{id}: total_float"
+        );
+        assert_eq!(
+            it.free_float, ft.free_float,
+            "{stem}/{changed}/{id}: free_float"
+        );
+        assert_eq!(
+            it.is_critical, ft.is_critical,
+            "{stem}/{changed}/{id}: is_critical"
+        );
     }
 }
