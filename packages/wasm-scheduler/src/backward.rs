@@ -58,42 +58,9 @@ pub fn backward_pass(
         // overstating float and propagating upstream (#1820). A no-op when
         // project_finish is already a working day.
         let mut lf_constraints: Vec<NaiveDate> = vec![prev_working_day(project_finish, calendar)?];
-        let mut ls_constraints: Vec<NaiveDate> = Vec::new();
-
-        for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
-            let succ = &tasks[edge.target().index()];
-            // A completed successor is out of network logic (ADR-0136); it
-            // imposes no backward constraint on a live predecessor. Including it
-            // would clamp this task's late dates to the done successor's actuals,
-            // reporting false-zero float and polluting the critical path (#1819).
-            if succ.is_complete() {
-                continue;
-            }
-            let dep = &deps[*edge.weight()];
-            let lag_days = dep.lag_days();
-
-            let succ_ls = succ.late_start.unwrap();
-            let succ_lf = succ.late_finish.unwrap();
-
-            match dep.dep_type {
-                DependencyType::FS => {
-                    // Predecessor must finish the day before successor's late start minus lag.
-                    lf_constraints.push(prev_working_day(
-                        checked_offset_days(succ_ls, -(1 + lag_days))?,
-                        calendar,
-                    )?);
-                }
-                DependencyType::SS => {
-                    ls_constraints.push(retreat_calendar_days(succ_ls, lag_days, calendar)?);
-                }
-                DependencyType::FF => {
-                    lf_constraints.push(retreat_calendar_days(succ_lf, lag_days, calendar)?);
-                }
-                DependencyType::SF => {
-                    ls_constraints.push(retreat_calendar_days(succ_lf, lag_days, calendar)?);
-                }
-            }
-        }
+        let (succ_lf_constraints, ls_constraints) =
+            successor_constraints(idx, tasks, pg, deps, calendar)?;
+        lf_constraints.extend(succ_lf_constraints);
 
         // LF = earliest of all LF constraints.
         let lf = *lf_constraints.iter().min().unwrap();
@@ -108,8 +75,6 @@ pub fn backward_pass(
                 let fwd_finish = finish_from_start(ls, duration_days, calendar)?;
                 final_lf = fwd_finish.min(*lf_constraints.iter().min().unwrap());
             }
-        } else {
-            final_lf = lf;
         }
 
         let task = &mut tasks[i];
@@ -117,4 +82,57 @@ pub fn backward_pass(
         task.late_finish = Some(final_lf);
     }
     Ok(())
+}
+
+/// Split a node's outgoing edges into late-finish and late-start constraints.
+///
+/// The mirror of `forward::edge_constraints`: FS/FF bound when this task may
+/// *finish*; SS/SF bound when it may *start*. The successor's late dates are
+/// unwrapped unconditionally because the reversed topological order guarantees
+/// every successor was scheduled on an earlier iteration.
+fn successor_constraints(
+    idx: NodeIndex,
+    tasks: &[Task],
+    pg: &ProjectGraph,
+    deps: &[Dependency],
+    calendar: &Calendar,
+) -> Result<(Vec<NaiveDate>, Vec<NaiveDate>), String> {
+    let mut lf_constraints: Vec<NaiveDate> = Vec::new();
+    let mut ls_constraints: Vec<NaiveDate> = Vec::new();
+
+    for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
+        let succ = &tasks[edge.target().index()];
+        // A completed successor is out of network logic (ADR-0136); it
+        // imposes no backward constraint on a live predecessor. Including it
+        // would clamp this task's late dates to the done successor's actuals,
+        // reporting false-zero float and polluting the critical path (#1819).
+        if succ.is_complete() {
+            continue;
+        }
+        let dep = &deps[*edge.weight()];
+        let lag_days = dep.lag_days();
+
+        let succ_ls = succ.late_start.unwrap();
+        let succ_lf = succ.late_finish.unwrap();
+
+        match dep.dep_type {
+            DependencyType::FS => {
+                // Predecessor must finish the day before successor's late start minus lag.
+                lf_constraints.push(prev_working_day(
+                    checked_offset_days(succ_ls, -(1 + lag_days))?,
+                    calendar,
+                )?);
+            }
+            DependencyType::SS => {
+                ls_constraints.push(retreat_calendar_days(succ_ls, lag_days, calendar)?);
+            }
+            DependencyType::FF => {
+                lf_constraints.push(retreat_calendar_days(succ_lf, lag_days, calendar)?);
+            }
+            DependencyType::SF => {
+                ls_constraints.push(retreat_calendar_days(succ_lf, lag_days, calendar)?);
+            }
+        }
+    }
+    Ok((lf_constraints, ls_constraints))
 }
