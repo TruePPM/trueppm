@@ -10,6 +10,26 @@ import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-feedback-0000-0000-0000-000000002392';
 
+/**
+ * Whether `url`'s host is the issue tracker, by exact or subdomain match.
+ *
+ * Deliberately not `url.includes('gitlab.com')`: a substring test is also
+ * satisfied by a path segment (`https://evil.test/gitlab.com/beacon`) and by a
+ * lookalike host (`gitlab.com.evil.test`), so it does not actually express "the
+ * request went to the tracker". Same reasoning — and same shape — as
+ * `detectProviderForMock` in `task-external-links.spec.ts`. An unparseable URL
+ * is not the tracker, so it falls through to `false`.
+ */
+function isTrackerHost(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).host.toLowerCase();
+  } catch {
+    return false;
+  }
+  return host === 'gitlab.com' || host.endsWith('.gitlab.com');
+}
+
 async function setup(page: Page, opts: { enabled?: boolean; url?: string } = {}) {
   await setupAuth(page);
   await setupCatchAll(page);
@@ -119,7 +139,7 @@ test.describe('Report a bug (#2392)', () => {
     const writes: string[] = [];
     page.on('request', (req) => {
       const url = req.url();
-      if (url.includes('gitlab.com')) tracker.push(url);
+      if (isTrackerHost(url)) tracker.push(url);
       if (req.method() !== 'GET') writes.push(`${req.method()} ${url}`);
     });
 
