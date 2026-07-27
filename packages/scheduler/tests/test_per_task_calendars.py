@@ -376,26 +376,318 @@ def test_non_string_calendar_id_is_rejected() -> None:
         schedule(project)
 
 
-def test_monte_carlo_rejects_per_task_calendars() -> None:
-    """monte_carlo() does not honor Project.calendars (issue #1566): the vectorized
-    pass shares one working-day index and one lag-delta table across every task and
-    run, so it cannot reproduce schedule()'s per-task calendar arithmetic. Rather
-    than silently simulate every task on the default calendar — producing P50/P80/
-    P95 that disagree with schedule() with no error — a project carrying a non-empty
-    calendars registry is rejected outright. schedule() on the same project is
-    unaffected and keeps working (proven by the sibling tests in this file)."""
+# ---------------------------------------------------------------------------
+# Monte Carlo honors per-task calendars (#1385)
+# ---------------------------------------------------------------------------
+#
+# The load-bearing assertion in this section is the documented contract that a
+# FULLY DETERMINISTIC project — no three-point estimates, no velocity signal —
+# simulates to precisely the CPM finish date. That makes schedule() an
+# independent oracle for monte_carlo() on exactly the arithmetic per-task
+# calendars change: if the simulation snapped any date on the wrong calendar, the
+# two would disagree. Before #1385 this pass refused a per-task-calendar project
+# outright (#1566), so a program-scoped plan had a deterministic date and no
+# probabilistic band at all.
+
+
+@pytest.mark.parametrize("dep_type", list(DependencyType))
+@pytest.mark.parametrize("lag_days", [0, 2, -1])
+def test_monte_carlo_matches_cpm_across_calendars(dep_type: DependencyType, lag_days: int) -> None:
+    """A deterministic cross-calendar edge simulates to exactly the CPM finish.
+
+    Covers every dependency type at zero, positive, and negative lag. Zero lag is
+    the case that would regress first: within one calendar a lag-free FS/SS/FF edge
+    takes a "no adjustment" short-circuit, and reusing that across two calendars
+    would propagate a predecessor offset into a working-day space where it means a
+    different date.
+    """
     project = Project(
         id="p",
         name="p",
         start_date=MON,
         tasks=[_task("a", 4), _task("b", 3, "seven")],
+        dependencies=[Dependency("a", "b", dep_type, timedelta(days=lag_days))],
+        calendars={"seven": SEVEN},
+    )
+    expected = schedule(project).project_finish
+    res = monte_carlo(project, runs=64, seed=7)
+    assert res.p50 == expected
+    assert res.p80 == expected
+    assert res.p95 == expected
+
+
+def test_monte_carlo_matches_cpm_both_edge_directions() -> None:
+    """The conversion is directional: seven-day → Mon-Fri must work too.
+
+    The predecessor's offset is read in its own space and the snap lands in the
+    successor's. A conversion that silently used one calendar for both would still
+    pass the Mon-Fri → seven-day case for some inputs, so pin the reverse.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[_task("a", 4, "seven"), _task("b", 3), _task("c", 2, "seven")],
+        dependencies=[
+            Dependency("a", "b", DependencyType.FS, timedelta(days=1)),
+            Dependency("b", "c", DependencyType.FS, timedelta(days=1)),
+        ],
+        calendars={"seven": SEVEN},
+    )
+    expected = schedule(project).project_finish
+    res = monte_carlo(project, runs=64, seed=3)
+    assert res.p50 == expected == res.p95
+
+
+def test_monte_carlo_off_calendar_task_can_own_the_finish() -> None:
+    """The project maximum is taken in a shared space, not on raw offsets.
+
+    Two parallel tasks on different calendars reach the same offset at different
+    dates. Taking ``max`` on unconverted offsets would pick whichever column held
+    the larger *number* rather than the later *date* — here the Mon-Fri task holds
+    the later date at the smaller offset.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[_task("slow", 11), _task("fast", 13, "seven")],
+        calendars={"seven": SEVEN},
+    )
+    det = schedule(project)
+    # Pin the premise: the seven-day task holds the LARGER working-day offset (13
+    # vs 11) but the EARLIER finish date, so a max over raw offsets picks the wrong
+    # column and reports the project finishing two days early.
+    tasks = {t.id: t for t in det.tasks}
+    assert tasks["slow"].early_finish > tasks["fast"].early_finish
+    res = monte_carlo(project, runs=64, seed=11)
+    assert res.p50 == det.project_finish
+
+
+def test_monte_carlo_honors_snet_and_status_date_per_calendar() -> None:
+    """A SNET pin and the data date snap on the pinned task's OWN calendar.
+
+    Both floors land on a Saturday, which the seven-day calendar honors verbatim
+    and the Mon-Fri calendar pushes to the following Monday. A single project-wide
+    floor would move both tasks to the same offset.
+    """
+    saturday = date(2026, 1, 10)
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        status_date=saturday,
+        tasks=[_task("weekday", 3, planned_start=saturday), _task("weekend", 3, "seven")],
+        calendars={"seven": SEVEN},
+    )
+    det = schedule(project)
+    tasks = {t.id: t for t in det.tasks}
+    assert tasks["weekend"].early_start == saturday
+    assert tasks["weekday"].early_start == date(2026, 1, 12)  # snapped to Monday
+    assert monte_carlo(project, runs=32, seed=5).p50 == det.project_finish
+
+
+def test_monte_carlo_keeps_verbatim_actual_finish_on_off_calendar_task() -> None:
+    """A completed task's recorded finish is truth, even on its own non-working day.
+
+    ADR-0136: schedule() keeps ``actual_finish`` verbatim. The working-day index
+    cannot represent a non-working day, so the raw date is carried separately —
+    and with per-task calendars "non-working" is a per-calendar question.
+    """
+    sunday = date(2026, 1, 11)
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[_task("done", 4, percent_complete=100.0, actual_finish=sunday)],
+        calendars={"seven": SEVEN},
+    )
+    det = schedule(project)
+    assert det.project_finish == sunday
+    assert monte_carlo(project, runs=16, seed=1).p50 == sunday
+
+
+@pytest.mark.parametrize("dep_type", list(DependencyType))
+def test_monte_carlo_completed_predecessor_constrains_across_calendars(
+    dep_type: DependencyType,
+) -> None:
+    """A completed task's constraint on a successor snaps on the SUCCESSOR's calendar.
+
+    The intersection of #2461 and #1385: a completed predecessor's dates cross the
+    edge as verbatim ``date``s (they must — a non-working actual has no offset), and
+    the snap that turns them into the successor's constraint therefore has to happen
+    on the successor's calendar, the same rule ``_forward_pass`` applies to a live
+    predecessor. Here ``a``'s recorded finish is a Sunday that its own Mon-Fri
+    calendar does not work, while ``b`` runs a seven-day week and *can* start on it —
+    so resolving the snap on the predecessor's (or the project's) calendar pushes
+    ``b`` to the Monday and the two passes disagree.
+    """
+    sunday = date(2026, 1, 11)
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[
+            _task("a", 4, percent_complete=100.0, actual_finish=sunday),
+            _task("b", 3, "seven"),
+        ],
+        dependencies=[Dependency("a", "b", dep_type, timedelta(days=1))],
+        calendars={"seven": SEVEN},
+    )
+    det = schedule(project)
+    res = monte_carlo(project, runs=64, seed=13)
+    assert res.p50 == det.project_finish
+    assert res.p95 == det.project_finish
+
+
+def test_monte_carlo_completed_predecessor_on_seven_day_week_drives_weekday_successor() -> None:
+    """The reverse direction: completed on the seven-day week, live successor Mon-Fri.
+
+    ``a`` finishes verbatim on a Saturday it legitimately worked; ``b`` cannot start
+    until the Monday. Reading the constraint in ``a``'s space and forgetting to
+    convert would land ``b`` a working day early.
+    """
+    saturday = date(2026, 1, 10)
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[
+            _task("a", 5, "seven", percent_complete=100.0, actual_finish=saturday),
+            _task("b", 3),
+        ],
+        dependencies=[Dependency("a", "b", DependencyType.FS, timedelta(days=0))],
+        calendars={"seven": SEVEN},
+    )
+    det = schedule(project)
+    tasks = {t.id: t for t in det.tasks}
+    # Pin the premise: the completed finish really is a non-working day for the
+    # successor, so the snap is observable rather than a no-op.
+    assert tasks["a"].early_finish == saturday
+    assert tasks["b"].early_start == date(2026, 1, 12)  # Monday
+    res = monte_carlo(project, runs=64, seed=17)
+    assert res.p50 == det.project_finish
+    assert res.p95 == det.project_finish
+
+
+def test_monte_carlo_completed_task_floor_survives_the_reference_conversion() -> None:
+    """The verbatim-finish floor is a date, so the union-index remap cannot move it.
+
+    A completed task holding the project finish on its own non-working day, in a
+    project that *also* has a live task on another calendar — so the multi-calendar
+    reference conversion runs. The floor is applied after that conversion and in
+    date space, which is what keeps it immune to the remap.
+    """
+    sunday = date(2026, 1, 25)
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[
+            _task("done", 4, percent_complete=100.0, actual_finish=sunday),
+            _task("live", 3, "seven"),
+        ],
+        calendars={"seven": SEVEN},
+    )
+    det = schedule(project)
+    assert det.project_finish == sunday
+    res = monte_carlo(project, runs=64, seed=23)
+    assert res.p50 == sunday
+    assert res.p95 == sunday
+
+
+def test_monte_carlo_per_task_calendars_are_seed_reproducible() -> None:
+    """A fixed seed still pins P50/P80/P95 once calendars vary per task."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[
+            _task(
+                "a",
+                4,
+                optimistic_duration=timedelta(days=2),
+                pessimistic_duration=timedelta(days=9),
+                most_likely_duration=timedelta(days=4),
+            ),
+            _task("b", 3, "seven"),
+        ],
         dependencies=[Dependency("a", "b")],
         calendars={"seven": SEVEN},
     )
-    with pytest.raises(InvalidScheduleInput, match="calendars"):
-        monte_carlo(project, runs=10, seed=0)
-    # schedule() is unaffected by the guard.
-    schedule(project)
+    first = monte_carlo(project, runs=256, seed=42)
+    second = monte_carlo(project, runs=256, seed=42)
+    assert (first.p50, first.p80, first.p95) == (second.p50, second.p80, second.p95)
+    assert first.distribution == second.distribution
+
+
+def test_monte_carlo_stochastic_band_brackets_the_cpm_finish() -> None:
+    """With estimates in play the band is ordered and sits at or past the CPM date.
+
+    The deterministic pass is the optimistic single date; the distribution it sits
+    in cannot start before it.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[
+            _task(
+                "a",
+                5,
+                optimistic_duration=timedelta(days=3),
+                most_likely_duration=timedelta(days=5),
+                pessimistic_duration=timedelta(days=15),
+            ),
+            _task("b", 4, "seven"),
+        ],
+        dependencies=[Dependency("a", "b")],
+        calendars={"seven": SEVEN},
+    )
+    cpm_finish = schedule(project).project_finish
+    res = monte_carlo(project, runs=2000, seed=9)
+    assert res.p50 <= res.p80 <= res.p95
+    assert res.p50 >= cpm_finish
+
+
+def test_monte_carlo_registry_resolving_to_one_calendar_is_unchanged() -> None:
+    """A registry every task ignores must simulate identically to no registry.
+
+    ``Project.calendars`` being non-empty is not by itself a mixed-calendar
+    project; the fast path keys on the resolved calendars, not the declaration.
+    """
+    tasks = [_task("a", 4), _task("b", 3)]
+    deps = [Dependency("a", "b", DependencyType.FS, timedelta(days=2))]
+    bare = Project(id="p", name="p", start_date=MON, tasks=tasks, dependencies=deps)
+    with_registry = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[_task("a", 4), _task("b", 3)],
+        dependencies=[Dependency("a", "b", DependencyType.FS, timedelta(days=2))],
+        calendars={"seven": SEVEN},  # declared, but no task opts in
+    )
+    a = monte_carlo(bare, runs=128, seed=17)
+    b = monte_carlo(with_registry, runs=128, seed=17)
+    assert (a.p50, a.p80, a.p95) == (b.p50, b.p80, b.p95)
+    assert a.distribution == b.distribution
+
+
+def test_monte_carlo_unknown_calendar_id_falls_back_like_schedule() -> None:
+    """A stray ``calendar_id`` falls back to the pass-level calendar, never errors.
+
+    ``_resolve_task_calendars`` treats an unknown id as a fall-back rather than a
+    validation failure; the simulation must agree with the deterministic pass.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[_task("a", 4, "nope"), _task("b", 3, "seven")],
+        dependencies=[Dependency("a", "b")],
+        calendars={"seven": SEVEN},
+    )
+    assert monte_carlo(project, runs=32, seed=2).p50 == schedule(project).project_finish
 
 
 # ---------------------------------------------------------------------------

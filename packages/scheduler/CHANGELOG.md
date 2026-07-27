@@ -42,6 +42,22 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.4.0b1`).
   `DateRange`) changed nothing the cache could observe and `is_working_day` kept
   answering from the pre-edit calendar — silently scheduling against holidays that
   had been removed (#2462).
+- **`monte_carlo()` honors per-task calendars (ADR-0120 D3).** A project
+  declaring a non-empty `Project.calendars` registry was rejected outright with
+  `InvalidScheduleInput`, so the program-scoped case per-task calendars exist to
+  serve — member projects each keeping their own working week — had a
+  deterministic `schedule()` finish and no distribution around it. The
+  vectorised pass now works in per-calendar working-day space: a task's duration
+  expands on its own calendar, each edge's precomputed delta array carries the
+  conversion from the predecessor's space into the successor's (lag is consumed
+  on the successor's calendar, exactly as `schedule()` does), and the per-run
+  project maximum is taken against a reference index built from the *union* of
+  every calendar's working days — raw offsets from different working weeks are
+  not comparable, and the larger offset is frequently the earlier date. A fully
+  deterministic mixed-calendar project simulates to precisely its CPM finish
+  date, which is the contract the suite asserts across all four dependency types
+  at zero, positive, and negative lag. **Single-calendar projects take the
+  unchanged fast path and their seeded P50/P80/P95 are byte-identical** (#1385).
 
 ### Changed
 

@@ -98,9 +98,9 @@ Conventions:
   constraint lands where the wait is actually consumed.
 - It is fully backward compatible — a project with no `calendars` registry
   schedules byte-for-byte as before.
-- Per-task calendars are honored by the CPM `schedule()` pass (early/late dates,
-  float, criticality). `monte_carlo()` samples on the pass-level `Project.calendar`
-  only.
+- Both passes honor them: the CPM `schedule()` pass (early/late dates, float,
+  criticality) and `monte_carlo()`. A fully deterministic mixed-calendar project
+  simulates to precisely its CPM finish date, so the two agree by construction.
 
 See [the full documentation](https://docs.trueppm.com/features/scheduler) for CPM output fields, Monte Carlo usage, and CLI reference.
 
