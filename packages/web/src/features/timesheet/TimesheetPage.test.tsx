@@ -1,7 +1,8 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AxiosError, type AxiosResponse } from 'axios';
 import { TimesheetPage } from './TimesheetPage';
+import { localDateIso } from '@/lib/localDate';
 import { mondayOf, type WeeklyEntry, type WeeklyResponse } from './weekModel';
 
 vi.mock('@/hooks/useWeekTimesheet', () => ({
@@ -29,9 +30,21 @@ const submitMutate = vi.fn();
 const cellMutate = vi.fn();
 const refetch = vi.fn();
 
+/**
+ * A fixed instant the whole suite runs at, so "this week" is the same fact for the
+ * fixture and for the page. Noon UTC keeps the *local* calendar day inside
+ * 2026-06-17/18 for every real timezone, both of which sit in the week beginning
+ * Monday 2026-06-15 — the `week_start` the submission fixture already declares.
+ */
+const PINNED_NOW = new Date('2026-06-17T12:00:00Z');
+
 // Anchor the seeded entry to the currently-displayed week so its editable cell renders
-// (the grid only paints the seven day columns of the open week).
-const THIS_MONDAY = mondayOf(new Date().toISOString().slice(0, 10));
+// (the grid only paints the seven day columns of the open week). Derived from the pinned
+// instant's *local* calendar day, exactly as the page derives its week — reading
+// `toISOString()` here took the UTC day instead, so on any evening west of UTC the entry
+// landed in a week the grid was not showing and its cell input never rendered (#2453).
+// CI runners are UTC, where the two agree, so the pipeline could never see it.
+const THIS_MONDAY = mondayOf(localDateIso(PINNED_NOW));
 
 function weekEntry(minutes: number): WeeklyEntry {
   return {
@@ -68,11 +81,19 @@ function setWeek(state: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  // The page opens on the week containing "now", so "now" has to be a fixed fact rather
+  // than whatever the wall clock says when the suite runs (#2453).
+  vi.useFakeTimers();
+  vi.setSystemTime(PINNED_NOW);
   vi.clearAllMocks();
   mockUseCell.mockReturnValue({ mutate: cellMutate, isPending: false });
   mockUseSubmit.mockReturnValue({ mutate: submitMutate, isPending: false });
   mockUseMyWork.mockReturnValue({ data: { pages: [{ results: [] }] }, isLoading: false });
   setWeek({ data: weekData(false, [weekEntry(120)]) });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('TimesheetPage', () => {
