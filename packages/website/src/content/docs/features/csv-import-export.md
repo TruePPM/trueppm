@@ -25,7 +25,8 @@ the format built for it.
 |---|---|---|---|
 | **Risks** | Yes | Yes | **Yes** — the two are counterparts |
 | **Tasks** | Yes | Ships in 0.4 | **No** — see below |
-| Sprints, resources, calendars, dependencies, labels | No | No | — |
+| **Labels** | No | Yes | **No** — import-only; there is no label export to round-trip from |
+| Sprints, resources, calendars, dependencies | No | No | — |
 
 ### Why tasks don't round-trip
 
@@ -99,7 +100,14 @@ Headers it will recognize, case-insensitively:
 | Percent complete | % Complete, Percent Complete, Done, Progress |
 | Assignee | Assignee, Owner, Resource, Assigned To |
 | Predecessor | Predecessor, Predecessors, Depends On, Blocked By |
+| Labels | Labels, Label, Tags, Tag, Category, Component, Stream, Workstream |
 | Hierarchy | WBS, Phase, Level, Outline Level — or indentation in the name column |
+
+**Labels** and **Predecessor** each accept *several* source columns, and the
+values are unioned — a sheet with both `Tags` and `Component`, or with
+`Predecessor 1` and `Predecessor 2`, keeps all of them. Every other field takes
+exactly one column. See
+[Columns that can appear more than once](/features/csv-import/#columns-that-can-appear-more-than-once).
 
 Excel files are read as one sheet of values: the **first sheet only**, **no
 formulas evaluated**. If your workbook has other sheets, the import warns and

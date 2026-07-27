@@ -85,6 +85,10 @@ def import_project(
         project_id, data, task_uid_to_pk, resource_uid_to_pk, summary, batch_size=batch_size
     )
 
+    # --- Step 5: Attach labels ---
+    _update(80, "Attaching labels...")
+    _import_labels(project_id, data, task_uid_to_pk, summary, batch_size=batch_size)
+
     _update(90, "Import complete, triggering schedule recalculation...")
     return summary
 
@@ -118,6 +122,11 @@ def _init_summary(data: ProjectData) -> dict[str, Any]:
         # the start was pulled back. The import task broadcasts project_updated so
         # live collaborators on an existing project re-fetch the moved boundary.
         "project_start_shifted": False,
+        # Label attach counts (#2406, ADR-0400). ``labels_matched`` are catalog
+        # entries the file reused; ``labels_created`` are ones it minted.
+        "labels_matched": 0,
+        "labels_created": 0,
+        "label_assignments_created": 0,
         "warnings": list(data.warnings),
     }
     # Count tasks the parser warned about for partial PERT data; the warning
@@ -127,6 +136,78 @@ def _init_summary(data: ProjectData) -> dict[str, Any]:
         1 for w in data.warnings if "partial three-point estimate" in w
     )
     return summary
+
+
+def _import_labels(
+    project_id: str,
+    data: ProjectData,
+    task_uid_to_pk: dict[int, str],
+    summary: dict[str, Any],
+    *,
+    batch_size: int,
+) -> None:
+    """Match-or-create the file's label names in the project catalog and attach them.
+
+    Matching is **case-insensitive against the project's existing catalog**
+    (ADR-0400 scopes ``Label`` to a project), so re-importing a sheet that says
+    ``Safety`` into a project that already has ``safety`` reuses the existing
+    entry instead of minting a near-duplicate the operator then has to merge.
+    The existing spelling wins on a match — the catalog is curated, the
+    spreadsheet is not.
+
+    Idempotent across re-import in both directions: labels resolve by name, and
+    the ``TaskLabel`` rows use ``ignore_conflicts`` against the
+    ``unique(task, label)`` constraint, so a second run of the same file creates
+    nothing new.
+    """
+    from trueppm_api.apps.projects.models import Label, LabelColor, TaskLabel
+
+    wanted: dict[str, str] = {}
+    for td in data.tasks:
+        for name in td.labels:
+            wanted.setdefault(name.lower(), name)
+    if not wanted:
+        return
+
+    existing = {
+        label.name.lower(): label
+        for label in Label.objects.filter(project_id=project_id, is_deleted=False)
+    }
+    summary["labels_matched"] = sum(1 for key in wanted if key in existing)
+
+    # Colors cycle the palette from the end of the current catalog, so an import
+    # of several labels produces a distinguishable set rather than a wall of the
+    # default. Position continues the catalog's order for the same reason.
+    palette = [choice[0] for choice in LabelColor.choices]
+    start = len(existing)
+    new_labels = [
+        Label(
+            project_id=project_id,
+            name=wanted[key],
+            color=palette[(start + offset) % len(palette)],
+            position=start + offset,
+        )
+        for offset, key in enumerate(k for k in wanted if k not in existing)
+    ]
+    if new_labels:
+        # bulk_create leaves server_version at its default, matching how this
+        # importer creates tasks and resources (ADR-0011): the import is one
+        # bulk write, and the post-import recalculation is what advances the
+        # sync watermark for the whole project.
+        Label.objects.bulk_create(new_labels, batch_size=batch_size)
+        summary["labels_created"] = len(new_labels)
+        existing.update({label.name.lower(): label for label in new_labels})
+
+    assignments = [
+        TaskLabel(task_id=task_uid_to_pk[td.uid], label=existing[name.lower()])
+        for td in data.tasks
+        if td.uid in task_uid_to_pk
+        for name in td.labels
+        if name.lower() in existing
+    ]
+    if assignments:
+        TaskLabel.objects.bulk_create(assignments, batch_size=batch_size, ignore_conflicts=True)
+        summary["label_assignments_created"] = len(assignments)
 
 
 def _import_resources(

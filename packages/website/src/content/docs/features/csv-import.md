@@ -46,11 +46,46 @@ shape to paste into.
 | Predecessors | `Predecessors`, `Depends On`, `Dependency`, `Blocked By`, `After` |
 | Milestone | `Milestone` |
 | Notes | `Notes`, `Description`, `Comment`, `Detail` |
+| Labels | `Labels`, `Label`, `Tags`, `Tag`, `Category`, `Component`, `Stream`, `Workstream` |
 
 Matching is **case-insensitive, punctuation-insensitive, and plural-aware**, so
 `% Complete`, `%complete` and `Percent Completes` all resolve to the same field.
 Anything the importer cannot place is shown to you as unmapped rather than
 silently dropped, and you can assign it yourself before committing.
+
+### Columns that can appear more than once
+
+Most fields take exactly one column — two `Name` columns is a mistake, so the
+second is reported as a duplicate and dropped rather than merged.
+
+**Labels and Predecessors are the exceptions.** Both accept several source
+columns, and the values are unioned onto the task:
+
+- A sheet carrying `Tags`, `Component` **and** `Team` gets all three as labels.
+- An MS Project export that spreads dependencies across `Predecessor 1` and
+  `Predecessor 2` gets both links. The same reference appearing in two columns
+  is one relationship, not two.
+
+If auto-detection places only one of them, map the others to the same field
+yourself in the [column overrides](#2-override-any-column-you-disagree-with).
+
+### Labels
+
+One cell can carry several labels, separated by `,` `;` or `/` — the same
+convention the assignee column uses. `safety, rework` becomes two labels.
+
+Names are matched against your project's **existing label catalog,
+case-insensitively**, so importing a sheet that says `Safety` into a project
+that already has `safety` reuses the existing label instead of creating a
+near-duplicate you then have to merge. The catalog's spelling wins. Labels that
+do not exist yet are created and given distinct colors.
+
+Labels are **project-scoped**: a label of the same name in another project is a
+different label and is not matched.
+
+An import is capped at 100 distinct labels and 20 per task, and label names are
+shortened to 50 characters. Exceeding a cap does not fail the import — the
+excess is reported as a row warning and everything else is imported.
 
 ### Rows that are skipped
 
@@ -219,7 +254,7 @@ for operator configuration.
 
 `GET /api/v1/import-templates/csv/` returns a known-good CSV with the canonical
 headers and a worked example demonstrating nesting, a lagged dependency, a
-Start-to-Start link, and a zero-duration milestone.
+Start-to-Start link, a zero-duration milestone, and a multi-value Labels cell.
 
 ## What does *not* map
 

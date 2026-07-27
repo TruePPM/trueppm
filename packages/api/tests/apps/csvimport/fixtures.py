@@ -128,3 +128,24 @@ def build_zip_bomb(declared_size: int) -> bytes:
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("[Content_Types].xml", b"\0" * declared_size)
     return buffer.getvalue()
+
+
+# Labels spread across two columns with different spellings, mixed separators,
+# and a case variant — the shape a real migrated sheet has (#2406).
+LABELS_CSV = b"""\
+ID,Name,Duration,Tags,Component
+1,Site survey,3,"safety, rework",Civil
+2,Foundation pour,5,safety;permit,Civil
+3,Steel erection,8,SAFETY,Structural
+4,Fit-out,10,,
+"""
+
+# Dependencies spread across numbered columns, as MS Project's CSV export writes
+# them, plus one duplicate reference across the two columns.
+MULTI_PREDECESSOR_CSV = b"""\
+ID,Name,Duration,Predecessor 1,Predecessor 2
+1,Design,5,,
+2,Procure,3,,
+3,Build,8,1,2
+4,Inspect,2,3,3
+"""
