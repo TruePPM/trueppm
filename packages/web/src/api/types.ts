@@ -71,7 +71,10 @@ export interface UserSearchResult {
 export interface OmniSearchResult {
   id: string;
   kind: 'task' | 'backlog_item';
-  type: 'epic' | 'story' | 'task';
+  /** `milestone` is synthesized server-side from `is_milestone`, not a `TaskType`
+   *  (ADR-0662) — the kinds are mutually exclusive, so a milestone never also
+   *  arrives as its underlying agile type. */
+  type: 'epic' | 'story' | 'task' | 'milestone';
   title: string;
   program_id: string | null;
   program_name: string | null;

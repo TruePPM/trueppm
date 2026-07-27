@@ -34,7 +34,7 @@ describe('useOmniSearch', () => {
     vi.clearAllMocks();
   });
 
-  it('debounces, fetches with q + default epic,story type, and returns results', async () => {
+  it('debounces, fetches with q + the default kind set, and returns results', async () => {
     getMock.mockResolvedValueOnce(
       envelope([
         {
@@ -59,7 +59,7 @@ describe('useOmniSearch', () => {
     await waitFor(() => expect(result.current.data?.length).toBe(1));
     expect(result.current.data?.[0].title).toBe('Login flow');
     expect(getMock).toHaveBeenCalledWith('/me/search/', {
-      params: { q: 'login', type: 'epic,story' },
+      params: { q: 'login', type: 'epic,story,task,milestone' },
     });
   });
 

@@ -50,13 +50,23 @@ describe('omniSearchGroup', () => {
     expect(omniSearchGroup(taskResult({ type: 'story' }))).toBe('story');
     expect(omniSearchGroup(backlogResult({ type: 'epic' }))).toBe('epic');
   });
+
+  // Before #2442 this returned 'story' for everything non-epic, so a plain task was
+  // filed under "Stories" with a "Story" chip.
+  it('gives plain tasks and milestones their own groups (#2442)', () => {
+    expect(omniSearchGroup(taskResult({ type: 'task' }))).toBe('omniTask');
+    expect(omniSearchGroup(taskResult({ type: 'milestone' }))).toBe('milestone');
+  });
+
+  it('does not reuse the project-scoped `task` group for global results', () => {
+    // `task` is the "Tasks" (this project) tier — one header cannot carry two scopes.
+    expect(omniSearchGroup(taskResult({ type: 'task' }))).not.toBe('task');
+  });
 });
 
 describe('omniSearchBreadcrumb', () => {
   it('builds an agile program ▸ project ▸ epic path for a story task', () => {
-    expect(omniSearchBreadcrumb(taskResult())).toBe(
-      'Q3 Marketing ▸ Website Relaunch ▸ Login flow',
-    );
+    expect(omniSearchBreadcrumb(taskResult())).toBe('Q3 Marketing ▸ Website Relaunch ▸ Login flow');
   });
 
   it('omits the parent epic for an epic (no grandparent)', () => {
@@ -130,6 +140,35 @@ describe('buildOmniSearchItems', () => {
     expect(go).toHaveBeenCalledWith('/projects/proj-1/schedule?task=task-1');
   });
 
+  it('chips a task "Task" and a milestone "Milestone" (#2442)', () => {
+    const go = vi.fn((path: string) => () => path);
+    const items = buildOmniSearchItems(
+      [
+        taskResult({ id: 'p1', type: 'task', title: 'Foundation pour' }),
+        taskResult({ id: 'm1', type: 'milestone', title: 'Q4 gate' }),
+      ],
+      go,
+      'pm',
+    );
+    expect(items.map((i) => [i.group, i.tag])).toEqual([
+      ['omniTask', 'Task'],
+      ['milestone', 'Milestone'],
+    ]);
+  });
+
+  it('breadcrumbs a task/milestone with program ▸ project and no WBS code', () => {
+    const go = vi.fn((path: string) => () => path);
+    // Neither carries a parent epic, so the shared helper degrades to program ▸ project
+    // — no new code path, and the Product-Owner WBS hard-NO still holds.
+    const [row] = buildOmniSearchItems(
+      [taskResult({ type: 'milestone', parent_epic_id: null, parent_epic_name: null })],
+      go,
+      'pm',
+    );
+    expect(row.detail).toBe('Q3 Marketing ▸ Website Relaunch');
+    expect(row.detail).not.toMatch(/\d+\.\d+/);
+  });
+
   it('drops results that cannot be routed rather than rendering dead rows', () => {
     const go = vi.fn((path: string) => () => path);
     const items = buildOmniSearchItems([taskResult({ project_id: null })], go, 'pm');
@@ -139,10 +178,7 @@ describe('buildOmniSearchItems', () => {
   it('preserves server order (already ranked)', () => {
     const go = vi.fn((path: string) => () => path);
     const items = buildOmniSearchItems(
-      [
-        taskResult({ id: 'a', title: 'Alpha' }),
-        taskResult({ id: 'b', title: 'Beta' }),
-      ],
+      [taskResult({ id: 'a', title: 'Alpha' }), taskResult({ id: 'b', title: 'Beta' })],
       go,
       'pm',
     );
