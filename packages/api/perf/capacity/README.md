@@ -36,12 +36,21 @@ tree, and seeding is not a measured path.
 ## Running it
 
 ```bash
-# 0. Mint a throwaway Fernet key for the integration-PAT boot guard (#1002).
-#    Supplied from the environment rather than committed: a literal 32-byte
-#    base64 key in a tracked file is a secret-scanner finding however
-#    disposable it is. Same `${VAR:?}` pattern the prod compose uses.
+# 0. Mint the two throwaway secrets this stack needs. Both are supplied from
+#    the environment rather than committed: a literal key or password in a
+#    tracked file is a secret-scanner finding however disposable it is. Same
+#    `${VAR:?}` pattern the prod compose uses.
+
+#    a. Fernet key for the integration-PAT boot guard (#1002).
 export CAPACITY_INTEGRATION_KEY=$(python3 -c \
   'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')
+
+#    b. Password for the load driver's account, capacity@trueppm.local (#2457).
+#       `seed_capacity` creates the account with it and `run_capacity.py`
+#       authenticates as it, so both read this one variable. Export it in the
+#       same shell you run both from; the value is thrown away with the stack.
+export TRUEPPM_CAPACITY_PASSWORD=$(python3 -c \
+  'import secrets; print(secrets.token_urlsafe(16))')
 
 # 1. Bring the isolated stack up (from repo root)
 docker compose -f packages/api/perf/capacity/docker-compose.capacity.yml up -d
