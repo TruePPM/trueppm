@@ -234,9 +234,15 @@ test.describe('Task notes — detail page section (#740)', () => {
     await composer.fill('Spike showed Option B is cheaper — going with it.');
     await page.getByRole('button', { name: 'Add note' }).click();
 
-    await expect(page.getByText('Spike showed Option B is cheaper — going with it.')).toBeVisible({
-      timeout: 5_000,
-    });
+    // Scope to the list. An unscoped getByText also matched the composer's own
+    // textarea while its draft was still in flight, which is what made this spec
+    // flake ~1-in-3 (#2449). The composer now clears at submit; asserting inside
+    // the list keeps this check about the round-trip rather than about that window.
+    const notesList = page.getByRole('list', { name: /^Notes — / });
+    await expect(
+      notesList.getByText('Spike showed Option B is cheaper — going with it.'),
+    ).toBeVisible({ timeout: 5_000 });
+    await expect(composer).toHaveValue('');
     await expect(page.getByText('Morgan Lee').first()).toBeVisible();
   });
 

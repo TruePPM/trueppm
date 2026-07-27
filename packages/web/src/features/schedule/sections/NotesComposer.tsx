@@ -44,11 +44,19 @@ export function NotesComposer({ projectId, taskId }: Props) {
 
   function handleSubmit() {
     if (!canSubmit) return;
+    const submitted = body;
+    // Clear at submit, not on success. `useCreateNote` appends an optimistic row the
+    // moment the mutation starts, so a draft that lingers until the server replies
+    // renders the same text twice — once in the list, once in the disabled box
+    // (#2449). The textarea is disabled while pending, so nothing can overwrite the
+    // cleared value before the error path restores it.
+    setBody('');
     createNote.mutate(
-      { projectId, taskId, body },
+      { projectId, taskId, body: submitted },
       {
-        onSuccess: () => {
-          setBody('');
+        // Put the text back so a failed save never destroys it (#1514).
+        onError: () => {
+          setBody(submitted);
         },
       },
     );

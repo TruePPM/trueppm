@@ -98,20 +98,40 @@ describe('NotesComposer — submit', () => {
     );
   });
 
-  it('submits via Cmd+Enter (metaKey) and clears the body on success', () => {
+  it('submits via Cmd+Enter (metaKey) and clears the body', () => {
     render(<NotesComposer projectId="p1" taskId="t1" />);
     const ta = getTextarea();
     fireEvent.change(ta, { target: { value: 'keyboard note' } });
-    type Opts = { onSuccess?: () => void };
-    mutateMock.mockImplementation((_vars: unknown, opts?: Opts) => {
-      opts?.onSuccess?.();
-    });
     fireEvent.keyDown(ta, { key: 'Enter', metaKey: true });
     expect(mutateMock).toHaveBeenCalledWith(
       { projectId: 'p1', taskId: 't1', body: 'keyboard note' },
       expect.anything(),
     );
     expect(ta.value).toBe('');
+  });
+
+  // The optimistic row lands immediately, so the draft must not still be sitting in
+  // the box while the create is in flight — that renders the note twice (#2449).
+  it('clears the body at submit, before the mutation settles', () => {
+    render(<NotesComposer projectId="p1" taskId="t1" />);
+    const ta = getTextarea();
+    fireEvent.change(ta, { target: { value: 'staged note' } });
+    // mutate() is a no-op here: neither onSuccess nor onError ever fires, so the
+    // textarea is observed mid-flight.
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+    expect(ta.value).toBe('');
+  });
+
+  it('restores the draft when the create fails (#1514)', () => {
+    type Opts = { onError?: () => void };
+    mutateMock.mockImplementation((_vars: unknown, opts?: Opts) => {
+      opts?.onError?.();
+    });
+    render(<NotesComposer projectId="p1" taskId="t1" />);
+    const ta = getTextarea();
+    fireEvent.change(ta, { target: { value: 'this will fail' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+    expect(ta.value).toBe('this will fail');
   });
 
   it('submits via Ctrl+Enter as well', () => {
