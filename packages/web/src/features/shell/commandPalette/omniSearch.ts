@@ -5,6 +5,8 @@
  * wrapper) and folds the returned items into the palette list.
  */
 import type { OmniSearchResult } from '@/api/types';
+import type { RoleContext } from '@/hooks/useCurrentUser';
+import { taskDeepLinkPath } from '@/features/shell/lensOrder';
 import type { CommandGroup, CommandItem } from './commandItems';
 
 /** The agile-hierarchy glyph. The breadcrumb uses this (not the ` · ` dot the rest
@@ -35,15 +37,14 @@ export function omniSearchBreadcrumb(result: OmniSearchResult): string {
 /** The deep-link a selected result navigates to, or null when it cannot be routed
  *  (a task with no project, or a backlog item with no program — neither should
  *  occur, but the palette must never build an item that navigates nowhere). A task
- *  opens the schedule with the drawer deep-linked (`?task=`); a backlog item lands
- *  on its program backlog. */
-export function omniSearchRoute(result: OmniSearchResult): string | null {
+ *  opens the drawer (`?task=`) on the lens's own landing view, so a result found in
+ *  agile vocabulary does not drop the user on the CPM Gantt (#2441); a backlog item
+ *  lands on its program backlog. */
+export function omniSearchRoute(result: OmniSearchResult, lens: RoleContext): string | null {
   if (result.kind === 'backlog_item') {
     return result.program_id ? `/programs/${result.program_id}/backlog` : null;
   }
-  return result.project_id
-    ? `/projects/${result.project_id}/schedule?task=${result.id}`
-    : null;
+  return result.project_id ? taskDeepLinkPath(result.project_id, result.id, lens) : null;
 }
 
 /**
@@ -55,10 +56,11 @@ export function omniSearchRoute(result: OmniSearchResult): string | null {
 export function buildOmniSearchItems(
   results: OmniSearchResult[],
   go: (path: string) => () => void,
+  lens: RoleContext,
 ): CommandItem[] {
   const items: CommandItem[] = [];
   for (const result of results) {
-    const path = omniSearchRoute(result);
+    const path = omniSearchRoute(result, lens);
     if (path === null) continue;
     const group = omniSearchGroup(result);
     items.push({

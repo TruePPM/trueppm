@@ -49,6 +49,42 @@ export function lensDefaultView(lens: RoleContext): string {
 }
 
 /**
+ * Views that honor a `?task=` drawer deep-link. Schedule and Grid read the param
+ * directly; Board and Sprints go through `useUrlSelectedId('task')`. `today` is
+ * deliberately absent — the Unified Today view has no task drawer, so a `?task=`
+ * sent there would be silently dropped and the user would land on a surface with no
+ * sign of the thing they clicked.
+ */
+const TASK_DRAWER_VIEWS: ReadonlySet<string> = new Set(['schedule', 'grid', 'board', 'sprints']);
+
+/** Where a task deep-link goes when the lens's landing view has no task drawer. */
+const TASK_DEEP_LINK_FALLBACK = 'schedule';
+
+/**
+ * The project view a task deep-link should open for `lens` — its landing view when
+ * that view can show a task drawer, else Schedule.
+ *
+ * Entry was already personalized by the lens while every subsequent jump hardcoded
+ * Schedule, so a Scrum Master clicking a notification about their own board story was
+ * teleported onto the CPM Gantt (#2441). This keeps the deep-link on the surface the
+ * user actually works in. The fallback matters for `unified`, whose landing view
+ * (`today`) is not drawer-capable.
+ */
+export function lensTaskDeepLinkView(lens: RoleContext): string {
+  const view = lensDefaultView(lens);
+  return TASK_DRAWER_VIEWS.has(view) ? view : TASK_DEEP_LINK_FALLBACK;
+}
+
+/**
+ * The full lens-aware `?task=` deep-link path for a task in a project. The single
+ * place that composes a task deep-link, so the palette and the notification panel
+ * cannot drift apart.
+ */
+export function taskDeepLinkPath(projectId: string, taskId: string, lens: RoleContext): string {
+  return `/projects/${projectId}/${lensTaskDeepLinkView(lens)}?task=${taskId}`;
+}
+
+/**
  * Re-order each group's `visibleViews` so the lens-priority views lead, keeping
  * every other view in its original relative order (a stable promotion). Pure and
  * non-destructive: no view is added, removed, or moved between groups — only the
