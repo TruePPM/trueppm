@@ -2436,76 +2436,21 @@ class Task(VersionedModel):
         is_new = not type(self).objects.filter(pk=self.pk).exists() if self.pk else True
         if is_new and not self.short_id:
             self.short_id = _next_short_id(self.project_id)
-        # Capture whether status is being written before super() expands update_fields.
-        _update_fields = kwargs.get("update_fields")
-        _track = _update_fields is None or "status" in _update_fields
-        _old_status: str | None = None
-        if _track and not is_new:
-            _old_status = (
-                type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
-            )
-        # Stamp status_changed_at whenever the status column changes (or on creation).
-        # For partial saves with update_fields, append status_changed_at automatically
-        # so the timestamp persists without callers needing to know about it.
-        _status_changed = _track and _old_status != self.status
-        if _status_changed:
-            self.status_changed_at = timezone.now()
-            if _update_fields is not None and "status_changed_at" not in _update_fields:
-                kwargs = {**kwargs, "update_fields": (*_update_fields, "status_changed_at")}
 
-        # Stamp blocked_since on the empty->non-empty blocked_reason transition, and
-        # clear the whole structured blocker (since/type/link/actor) on the inverse —
-        # mirrors status_changed_at. blocked_reason stays the flag-of-record; this only
-        # runs when blocked_reason is actually being written (cold path), so it adds no
-        # query to the common task save. blocked_by (actor) is set by the serializer.
-        _track_block = _update_fields is None or "blocked_reason" in _update_fields
-        if _track_block:
-            _old_reason = ""
-            if not is_new:
-                _old_reason = (
-                    type(self)
-                    .objects.filter(pk=self.pk)
-                    .values_list("blocked_reason", flat=True)
-                    .first()
-                    or ""
-                )
-            _was_blocked = bool(_old_reason.strip())
-            _is_blocked = bool((self.blocked_reason or "").strip())
-            _block_fields: list[str] = []
-            if _is_blocked and not _was_blocked:
-                self.blocked_since = timezone.now()
-                _block_fields.append("blocked_since")
-            elif _was_blocked and not _is_blocked:
-                self.blocked_since = None
-                self.blocker_type = ""
-                self.blocking_task = None
-                self.blocked_by = None
-                _block_fields += ["blocked_since", "blocker_type", "blocking_task", "blocked_by"]
-            if _block_fields:
-                _uf_now = kwargs.get("update_fields")
-                if _uf_now is not None:
-                    kwargs = {
-                        **kwargs,
-                        "update_fields": (
-                            *_uf_now,
-                            *[f for f in _block_fields if f not in _uf_now],
-                        ),
-                    }
-        # REVIEW and COMPLETE both coerce percent_complete to 100 — a card in
-        # the Review column is "work done, awaiting sign-off" and DONE is
-        # finished by definition; both states imply 100% delivered work. The
-        # only difference between them is whether the PM has signed off yet.
-        # Without this, the popover/ring/strip/SPI math disagree with the
-        # column the card lives in. The inverse direction (progress=100 →
-        # auto-flip status) lives in TaskSerializer.update() where actor role
-        # can be inspected: contributor → REVIEW, PM/PMO → COMPLETE.
-        if self.status in (TaskStatus.REVIEW, TaskStatus.COMPLETE) and self.percent_complete != 100:
-            self.percent_complete = 100.0
-            _update_fields = kwargs.get("update_fields")
-            if _update_fields is not None and "percent_complete" not in _update_fields:
-                kwargs = {**kwargs, "update_fields": (*_update_fields, "percent_complete")}
+        # Read the caller's update_fields once, before any stamp widens it — the
+        # "is this column being written?" questions must be answered against what
+        # the caller asked for, not against what we have since appended.
+        requested = kwargs.get("update_fields")
+        kwargs, old_status, status_changed = self._stamp_status_change(
+            kwargs, is_new=is_new, tracked=requested is None or "status" in requested
+        )
+        if requested is None or "blocked_reason" in requested:
+            kwargs = self._stamp_blocker_transition(kwargs, is_new=is_new)
+        kwargs = self._coerce_signoff_percent(kwargs)
+
         super().save(*args, **kwargs)
-        if _status_changed:
+
+        if status_changed:
             from trueppm_api.apps.projects.signals import task_status_changed
 
             # send_robust: this signal is an OSS extension point Enterprise
@@ -2514,9 +2459,95 @@ class Task(VersionedModel):
             task_status_changed.send_robust(
                 sender=type(self),
                 task=self,
-                old_status=_old_status,
+                old_status=old_status,
                 new_status=self.status,
             )
+
+    @staticmethod
+    def _also_write(kwargs: dict[str, Any], *names: str) -> dict[str, Any]:
+        """Add implicitly-stamped columns to a partial save's ``update_fields``.
+
+        A caller passing ``update_fields=("status",)`` has no way to know that
+        ``save()`` also stamps ``status_changed_at``; without this the stamp is
+        computed and then silently dropped by the UPDATE. A full save
+        (``update_fields=None``) already writes every column, so it is left alone.
+        """
+        current = kwargs.get("update_fields")
+        if current is None:
+            return kwargs
+        missing = [name for name in names if name not in current]
+        if not missing:
+            return kwargs
+        return {**kwargs, "update_fields": (*current, *missing)}
+
+    def _stamp_status_change(
+        self, kwargs: dict[str, Any], *, is_new: bool, tracked: bool
+    ) -> tuple[dict[str, Any], str | None, bool]:
+        """Stamp ``status_changed_at`` when the status column actually moves.
+
+        Returns the (possibly widened) kwargs, the pre-save status, and whether
+        it changed — the caller needs the last two to fire ``task_status_changed``
+        after ``super().save()`` succeeds.
+        """
+        old_status: str | None = None
+        if tracked and not is_new:
+            old_status = (
+                type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            )
+        changed = tracked and old_status != self.status
+        if changed:
+            self.status_changed_at = timezone.now()
+            kwargs = self._also_write(kwargs, "status_changed_at")
+        return kwargs, old_status, changed
+
+    def _stamp_blocker_transition(self, kwargs: dict[str, Any], *, is_new: bool) -> dict[str, Any]:
+        """Stamp ``blocked_since`` on block, and clear the whole blocker on unblock.
+
+        Mirrors ``status_changed_at``. ``blocked_reason`` stays the flag-of-record;
+        the caller only invokes this when ``blocked_reason`` is actually being
+        written (cold path), so it adds no query to the common task save.
+        ``blocked_by`` (actor) is set by the serializer.
+        """
+        old_reason = ""
+        if not is_new:
+            old_reason = (
+                type(self)
+                .objects.filter(pk=self.pk)
+                .values_list("blocked_reason", flat=True)
+                .first()
+                or ""
+            )
+        was_blocked = bool(old_reason.strip())
+        is_blocked = bool((self.blocked_reason or "").strip())
+
+        if is_blocked and not was_blocked:
+            self.blocked_since = timezone.now()
+            return self._also_write(kwargs, "blocked_since")
+        if was_blocked and not is_blocked:
+            self.blocked_since = None
+            self.blocker_type = ""
+            self.blocking_task = None
+            self.blocked_by = None
+            return self._also_write(
+                kwargs, "blocked_since", "blocker_type", "blocking_task", "blocked_by"
+            )
+        return kwargs
+
+    def _coerce_signoff_percent(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Force ``percent_complete`` to 100 in the two sign-off states.
+
+        REVIEW and COMPLETE both imply 100% delivered work — a card in the Review
+        column is "work done, awaiting sign-off" and DONE is finished by
+        definition; the only difference is whether the PM has signed off yet.
+        Without this, the popover/ring/strip/SPI math disagree with the column the
+        card lives in. The inverse direction (progress=100 → auto-flip status)
+        lives in ``TaskSerializer.update()`` where actor role can be inspected:
+        contributor → REVIEW, PM/PMO → COMPLETE.
+        """
+        if self.status in (TaskStatus.REVIEW, TaskStatus.COMPLETE) and self.percent_complete != 100:
+            self.percent_complete = 100.0
+            return self._also_write(kwargs, "percent_complete")
+        return kwargs
 
     def soft_delete(self) -> None:
         """Soft-delete the task, its dependency edges, and any is_subtask children.
