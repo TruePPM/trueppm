@@ -751,7 +751,7 @@ export function GridView() {
         statusTriggerRef={statusTriggerRef}
         labelTriggerRef={labelTriggerRef}
         note={
-          !online && hasFacetFilter && tasks
+          !online && hasFacetFilter
             ? `Offline — filtering the ${tasks.length} rows already loaded`
             : undefined
         }

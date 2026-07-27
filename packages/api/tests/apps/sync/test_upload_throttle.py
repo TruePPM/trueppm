@@ -78,7 +78,8 @@ def test_anonymous_request_is_allowed() -> None:
 
 def test_allowed_under_both_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     """A first upload is under both windows → allowed, no wait set."""
-    monkeypatch.setattr(throttles, "_client", lambda: _FakeRedis())
+    # No seeded counts to close over, so the class is its own zero-arg factory.
+    monkeypatch.setattr(throttles, "_client", _FakeRedis)
     throttle = SyncUploadThrottle()
     assert throttle.allow_request(_request(_auth_user()), _view("p1")) is True
     assert throttle.wait() is None

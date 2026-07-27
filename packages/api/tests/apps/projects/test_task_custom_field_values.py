@@ -370,7 +370,8 @@ def test_delete_clears_value_and_bumps_version(member_client, project, task):
 
     # Idempotent re-delete is a no-op (still 204, no further bump).
     v1 = task.server_version
-    assert member_client.delete(_value_url(project, task, field)).status_code == 204
+    repeat_delete = member_client.delete(_value_url(project, task, field))
+    assert repeat_delete.status_code == 204
     task.refresh_from_db()
     assert task.server_version == v1
 
