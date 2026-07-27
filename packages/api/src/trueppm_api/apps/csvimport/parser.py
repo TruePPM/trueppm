@@ -737,62 +737,104 @@ def _resolve_predecessors(
         return
 
     tasks = result.project_data.tasks
-
-    # Map every usable handle -> uid. Row position is registered first so an
-    # explicit ID column overrides it on collision (the ID is the stronger claim).
-    by_handle: dict[str, int] = {}
-    for position, task in enumerate(tasks, start=1):
-        by_handle[str(position)] = task.uid
-    if "external_id" in by_field:
-        id_index = _one(by_field, "external_id")
-        # data_rows and tasks diverge when a row was dropped for a missing name,
-        # so walk the tasks and re-read the row each one came from via its uid.
-        for task in tasks:
-            raw_id = _cell(data_rows[task.uid - 1], id_index).strip()
-            if raw_id:
-                by_handle[raw_id] = task.uid
-
+    by_handle = _predecessor_handle_map(tasks, data_rows, by_field)
     for task in tasks:
-        row_number = task.uid + 1
-        seen: set[tuple[int, str, int]] = set()
-        for index in indexes:
-            column = result.headers[index]
-            raw = _cell(data_rows[task.uid - 1], index).strip()
-            if not raw:
+        _attach_row_predecessors(task, indexes, by_handle, data_rows, result)
+
+
+def _predecessor_handle_map(
+    tasks: list[TaskData], data_rows: list[list[Any]], by_field: dict[str, list[int]]
+) -> dict[str, int]:
+    """Map every usable predecessor handle → task uid.
+
+    Row position is registered first so an explicit ID column overrides it on
+    collision — the ID is the stronger claim.
+    """
+    by_handle: dict[str, int] = {
+        str(position): task.uid for position, task in enumerate(tasks, start=1)
+    }
+    if "external_id" not in by_field:
+        return by_handle
+
+    id_index = _one(by_field, "external_id")
+    # data_rows and tasks diverge when a row was dropped for a missing name,
+    # so walk the tasks and re-read the row each one came from via its uid.
+    for task in tasks:
+        raw_id = _cell(data_rows[task.uid - 1], id_index).strip()
+        if raw_id:
+            by_handle[raw_id] = task.uid
+    return by_handle
+
+
+def _resolved_link(
+    token: str,
+    by_handle: dict[str, int],
+    task: TaskData,
+    *,
+    row_number: int,
+    column: str,
+    result: ParseResult,
+) -> PredecessorLinkData | None:
+    """Resolve one reference token, or record why it was skipped and return ``None``.
+
+    A bad token never fails the import — it quarantines as a row error naming the
+    column it actually came from, and the rest of the row still links.
+    """
+    link = _parse_predecessor(token, by_handle)
+    if link is None:
+        result.row_errors.append(
+            RowError(
+                row_number,
+                column,
+                "unknown_predecessor",
+                f"Predecessor '{token.strip()}' does not match any row; the link was skipped.",
+            )
+        )
+        return None
+    if link.predecessor_uid == task.uid:
+        result.row_errors.append(
+            RowError(
+                row_number,
+                column,
+                "self_dependency",
+                "A task cannot depend on itself; the link was skipped.",
+            )
+        )
+        return None
+    return link
+
+
+def _attach_row_predecessors(
+    task: TaskData,
+    indexes: list[int],
+    by_handle: dict[str, int],
+    data_rows: list[list[Any]],
+    result: ParseResult,
+) -> None:
+    """Read every mapped predecessor column for one task and attach its links."""
+    row_number = task.uid + 1
+    seen: set[tuple[int, str, int]] = set()
+    for index in indexes:
+        column = result.headers[index]
+        raw = _cell(data_rows[task.uid - 1], index).strip()
+        if not raw:
+            continue
+        for token in re.split(r"[,;]", raw):
+            if not token.strip():
                 continue
-            for token in re.split(r"[,;]", raw):
-                if not token.strip():
-                    continue
-                link = _parse_predecessor(token, by_handle)
-                if link is None:
-                    result.row_errors.append(
-                        RowError(
-                            row_number,
-                            column,
-                            "unknown_predecessor",
-                            f"Predecessor '{token.strip()}' does not match any row; "
-                            "the link was skipped.",
-                        )
-                    )
-                    continue
-                if link.predecessor_uid == task.uid:
-                    result.row_errors.append(
-                        RowError(
-                            row_number,
-                            column,
-                            "self_dependency",
-                            "A task cannot depend on itself; the link was skipped.",
-                        )
-                    )
-                    continue
-                # Two columns naming the same predecessor is a union, not two
-                # edges — the importer would otherwise create a duplicate
-                # Dependency row for one real relationship.
-                key = (link.predecessor_uid, link.dep_type, link.lag_days)
-                if key in seen:
-                    continue
-                seen.add(key)
-                task.predecessor_links.append(link)
+            link = _resolved_link(
+                token, by_handle, task, row_number=row_number, column=column, result=result
+            )
+            if link is None:
+                continue
+            # Two columns naming the same predecessor is a union, not two
+            # edges — the importer would otherwise create a duplicate
+            # Dependency row for one real relationship.
+            key = (link.predecessor_uid, link.dep_type, link.lag_days)
+            if key in seen:
+                continue
+            seen.add(key)
+            task.predecessor_links.append(link)
 
 
 def _parse_predecessor(token: str, by_handle: dict[str, int]) -> PredecessorLinkData | None:
