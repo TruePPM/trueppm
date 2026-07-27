@@ -7,7 +7,7 @@ import enum
 import json
 import math
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Self
@@ -61,9 +61,18 @@ class DeliveryMode(enum.Enum):
     SCRUM = "scrum"
 
 
-@dataclass
+@dataclass(frozen=True)
 class DateRange:
-    """A contiguous range of dates (inclusive on both ends)."""
+    """A contiguous range of dates (inclusive on both ends).
+
+    Immutable (#2462). :class:`Calendar` caches a merged-interval index derived
+    from its ``exceptions``, and an in-place edit of a range inside that list
+    changed nothing the cache could observe — so ``is_working_day`` kept
+    answering from the pre-edit index and the whole schedule computed on a
+    calendar that no longer existed. Freezing the range makes the edit a loud
+    ``FrozenInstanceError`` instead of a silent wrong answer; build a new
+    ``DateRange`` (and assign a new ``Calendar.exceptions``) to change a range.
+    """
 
     start: date
     end: date
@@ -337,7 +346,14 @@ class Calendar:
     """
 
     working_days: int = 0b0011111
-    exceptions: list[DateRange] = field(default_factory=list)
+    # Normalized to a tuple in __post_init__ (#2462) so the cached exception index
+    # below cannot go stale: a tuple cannot be appended to or element-assigned, and
+    # DateRange is frozen, so the only way to change the exception set is to assign
+    # a NEW object to this attribute — which the cache detects by identity. Any
+    # iterable of DateRange is accepted on construction, so ``Calendar(exceptions=[...])``
+    # (the common call, including the TruePPM API's) is unaffected; only in-place
+    # mutation, which was silently wrong before, now raises.
+    exceptions: Sequence[DateRange] = field(default_factory=tuple)
     # RESERVED (#826): the engine schedules in whole-day units, so hours_per_day
     # and timezone are NOT consumed by CPM/Monte Carlo today — they round-trip for
     # API/calendar parity only. hours_per_day in particular is a knob users will
@@ -350,13 +366,34 @@ class Calendar:
     # O(log E) is_working_day lookup instead of an O(E) linear scan (#1206). The
     # calendar walk calls is_working_day once per day stepped, so the old linear
     # scan made a schedule on a calendar with thousands of exceptions O(span x E)
-    # — minutes of synchronous work. Lazily built on first use and keyed by a cheap
-    # (len, id) token so a reassigned/grown exceptions list rebuilds. Excluded from
-    # init, repr, equality, and the manual to_dict — not part of the public surface.
+    # — minutes of synchronous work. Lazily built on first use. Excluded from init,
+    # repr, equality, and the manual to_dict — not part of the public surface.
+    #
+    # Validity is keyed on the IDENTITY of the exceptions object the index was built
+    # from, and ``_exc_src`` holds a strong reference to it (#2462). The previous
+    # ``(len, id)`` token was unsound twice over: a same-length in-place replacement
+    # changed neither term, so the stale index was served; and ``id()`` is unique
+    # only among *live* objects, so a dropped list's address could be reused by a
+    # new same-length one. Holding the reference pins the identity for as long as
+    # the cache claims it, and the tuple/frozen-DateRange normalization above makes
+    # every remaining mutation shape either impossible or a new object.
     _exc_index: tuple[list[int], list[int]] | None = field(
         default=None, init=False, repr=False, compare=False
     )
-    _exc_token: tuple[int, int] | None = field(default=None, init=False, repr=False, compare=False)
+    _exc_src: Sequence[DateRange] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Normalize any accepted iterable to the immutable tuple the cache relies on.
+        # Done in __setattr__ rather than __post_init__ so it covers *both* entry
+        # points — the generated __init__ (which assigns through here) and a later
+        # ``cal.exceptions = [...]`` reassignment. Normalizing only at construction
+        # would leave a reassigned plain list in place, and in-place mutation of
+        # that list would be silently stale all over again (#2462).
+        if name == "exceptions" and not isinstance(value, tuple):
+            value = tuple(value)
+        super().__setattr__(name, value)
 
     def is_working_day(self, d: date) -> bool:
         # date.weekday(): Monday=0, Sunday=6
@@ -374,13 +411,15 @@ class Calendar:
     def _exception_intervals(self) -> tuple[list[int], list[int]]:
         """Sorted, merged exception intervals as parallel ordinal lists (#1206).
 
-        Rebuilt only when the exceptions list is replaced or changes length (the
-        cheap ``(len, id)`` token). Merging overlapping/adjacent ranges keeps the
-        intervals disjoint, so a single :func:`bisect.bisect_right` locates the only
-        range that could contain a date.
+        Rebuilt only when a *new* exceptions object is assigned — the cache holds a
+        strong reference to the one it was built from and compares by identity
+        (#2462), which is sound because the set is an immutable tuple of frozen
+        ranges and therefore cannot change without becoming a different object.
+        Merging overlapping/adjacent ranges keeps the intervals disjoint, so a
+        single :func:`bisect.bisect_right` locates the only range that could
+        contain a date.
         """
-        token = (len(self.exceptions), id(self.exceptions))
-        if self._exc_token == token and self._exc_index is not None:
+        if self._exc_index is not None and self._exc_src is self.exceptions:
             return self._exc_index
         ranges = sorted((e.start.toordinal(), e.end.toordinal()) for e in self.exceptions)
         starts: list[int] = []
@@ -392,7 +431,9 @@ class Calendar:
                 starts.append(s)
                 ends.append(e)
         self._exc_index = (starts, ends)
-        self._exc_token = token
+        # Strong reference: pins the identity the check above relies on, so the
+        # source object cannot be collected and have its address reused (#2462).
+        self._exc_src = self.exceptions
         return self._exc_index
 
     def to_dict(self) -> dict[str, Any]:
