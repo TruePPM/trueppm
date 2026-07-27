@@ -3,8 +3,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScheduleDisplayMenu, type DisplayMenuRow } from './ScheduleDisplayMenu';
 
-function setup(overrides: Partial<ComponentProps<typeof ScheduleDisplayMenu>> = {}) {
-  const props: ComponentProps<typeof ScheduleDisplayMenu> = {
+type MenuProps = ComponentProps<typeof ScheduleDisplayMenu>;
+
+function baseProps(overrides: Partial<MenuProps> = {}): MenuProps {
+  return {
     showCpOnly: false,
     setShowCpOnly: vi.fn(),
     focusModeEnabled: false,
@@ -17,8 +19,28 @@ function setup(overrides: Partial<ComponentProps<typeof ScheduleDisplayMenu>> = 
     iconOnly: false,
     ...overrides,
   };
+}
+
+function setup(overrides: Partial<MenuProps> = {}) {
+  const props = baseProps(overrides);
   render(<ScheduleDisplayMenu {...props} />);
   return props;
+}
+
+/** Like {@link setup} but hands back the render result so a test can rerender. */
+function setupRerenderable(overrides: Partial<MenuProps> = {}) {
+  const props = baseProps(overrides);
+  const view = render(<ScheduleDisplayMenu {...props} />);
+  return {
+    props,
+    rerender: (next: Partial<MenuProps>) =>
+      view.rerender(<ScheduleDisplayMenu {...baseProps({ ...overrides, ...next })} />),
+  };
+}
+
+function openMenu() {
+  fireEvent.click(screen.getByRole('button', { name: /^Display/ }));
+  return screen.getByRole('menu', { name: 'Display options' });
 }
 
 describe('ScheduleDisplayMenu (#1741)', () => {
@@ -170,5 +192,253 @@ describe('ScheduleDisplayMenu (#1741)', () => {
       expect(screen.getByRole('menuitemcheckbox', { name: 'WBS' })).toBeInTheDocument();
       expect(screen.getByRole('menuitemcheckbox', { name: 'Owner' })).toBeInTheDocument();
     });
+  });
+});
+
+describe('ScheduleDisplayMenu — trigger keyboard contract', () => {
+  it('opens on ArrowDown with the first row focused', () => {
+    setup();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Display' }), { key: 'ArrowDown' });
+    expect(screen.getByRole('menu', { name: 'Display options' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'CP only' })).toHaveFocus();
+  });
+
+  it.each(['Enter', ' '])('opens on %s with the first row focused', (key) => {
+    setup();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Display' }), { key });
+    expect(screen.getByRole('menu', { name: 'Display options' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'CP only' })).toHaveFocus();
+  });
+
+  it('opens on ArrowUp with the LAST row focused', () => {
+    setup();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Display' }), { key: 'ArrowUp' });
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Milestones' })).toHaveFocus();
+  });
+
+  it('ignores keys that are not part of the open contract', () => {
+    setup();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Display' }), { key: 'a' });
+    expect(screen.queryByRole('menu', { name: 'Display options' })).toBeNull();
+  });
+});
+
+describe('ScheduleDisplayMenu — roving keyboard navigation', () => {
+  it('ArrowDown moves focus to the next row', () => {
+    setup();
+    const menu = openMenu();
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Focus chain' })).toHaveFocus();
+  });
+
+  it('ArrowUp from the first row wraps to the last', () => {
+    setup();
+    const menu = openMenu();
+    fireEvent.keyDown(menu, { key: 'ArrowUp' });
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Milestones' })).toHaveFocus();
+  });
+
+  it('ArrowDown from the last row wraps back to the first', () => {
+    setup();
+    const menu = openMenu();
+    fireEvent.keyDown(menu, { key: 'End' });
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(screen.getByRole('menuitemcheckbox', { name: 'CP only' })).toHaveFocus();
+  });
+
+  it('End jumps to the last row and Home back to the first', () => {
+    setup();
+    const menu = openMenu();
+    fireEvent.keyDown(menu, { key: 'End' });
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Milestones' })).toHaveFocus();
+    fireEvent.keyDown(menu, { key: 'Home' });
+    expect(screen.getByRole('menuitemcheckbox', { name: 'CP only' })).toHaveFocus();
+  });
+
+  it('End reaches a Columns row when the columns section is present', () => {
+    setup({
+      columns: [{ id: 'wbs', label: 'WBS', checked: false, onChange: vi.fn() }],
+    });
+    const menu = openMenu();
+    fireEvent.keyDown(menu, { key: 'End' });
+    expect(screen.getByRole('menuitemcheckbox', { name: 'WBS' })).toHaveFocus();
+  });
+
+  it('Tab closes the menu and falls through instead of restoring the trigger', () => {
+    setup();
+    const trigger = screen.getByRole('button', { name: 'Display' });
+    const menu = openMenu();
+    fireEvent.keyDown(menu, { key: 'Tab' });
+    expect(screen.queryByRole('menu', { name: 'Display options' })).toBeNull();
+    expect(trigger).not.toHaveFocus();
+  });
+
+  it('leaves the menu open for keys it does not handle', () => {
+    setup();
+    const menu = openMenu();
+    fireEvent.keyDown(menu, { key: 'x' });
+    expect(screen.getByRole('menu', { name: 'Display options' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'CP only' })).toHaveFocus();
+  });
+
+  it('clamps a stale roving index when the row list shrinks (#2107)', () => {
+    // Open with the Columns section present (6 rows) and park focus on the last
+    // row, then drop the section: a stale index would focus past the array and
+    // drop focus to <body>.
+    const { rerender } = setupRerenderable({
+      columns: [
+        { id: 'wbs', label: 'WBS', checked: false, onChange: vi.fn() },
+        { id: 'owner', label: 'Owner', checked: false, onChange: vi.fn() },
+      ],
+    });
+    const menu = openMenu();
+    fireEvent.keyDown(menu, { key: 'End' });
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Owner' })).toHaveFocus();
+
+    rerender({ columns: null });
+    expect(screen.queryByText('Columns')).toBeNull();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Milestones' })).toHaveFocus();
+    expect(document.body).not.toHaveFocus();
+  });
+});
+
+describe('ScheduleDisplayMenu — dismissal and trigger state', () => {
+  it('closes on an outside pointerdown', () => {
+    setup();
+    openMenu();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('menu', { name: 'Display options' })).toBeNull();
+  });
+
+  it('stays open for a pointerdown inside the menu', () => {
+    setup();
+    const menu = openMenu();
+    fireEvent.pointerDown(menu);
+    expect(screen.getByRole('menu', { name: 'Display options' })).toBeInTheDocument();
+  });
+
+  it('stays open for a pointerdown on the trigger itself (the click handler owns the toggle)', () => {
+    setup();
+    const trigger = screen.getByRole('button', { name: 'Display' });
+    openMenu();
+    fireEvent.pointerDown(trigger);
+    expect(screen.getByRole('menu', { name: 'Display options' })).toBeInTheDocument();
+  });
+
+  it('toggles closed on a second trigger click', () => {
+    setup();
+    const trigger = screen.getByRole('button', { name: 'Display' });
+    fireEvent.click(trigger);
+    expect(screen.getByRole('menu', { name: 'Display options' })).toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(screen.queryByRole('menu', { name: 'Display options' })).toBeNull();
+  });
+
+  it('reflects the open state in aria-expanded and aria-controls', () => {
+    setup();
+    const trigger = screen.getByRole('button', { name: 'Display' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(trigger).not.toHaveAttribute('aria-controls');
+    const menu = openMenu();
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(trigger).toHaveAttribute('aria-controls', menu.id);
+  });
+
+  it('adds a hover tooltip only in icon-only mode', () => {
+    setup({ iconOnly: true, showCpOnly: true });
+    expect(screen.getByRole('button', { name: /^Display/ })).toHaveAttribute(
+      'title',
+      'Display, 1 active filter',
+    );
+  });
+
+  it('omits the tooltip when the label is visible', () => {
+    setup({ iconOnly: false });
+    expect(screen.getByRole('button', { name: 'Display' })).not.toHaveAttribute('title');
+  });
+});
+
+describe('ScheduleDisplayMenu — section assembly edge cases', () => {
+  it('omits the Columns section for an empty column list', () => {
+    setup({ columns: [] });
+    openMenu();
+    expect(screen.queryByText('Columns')).toBeNull();
+    // Only the two always-present filter sections remain.
+    expect(screen.getAllByRole('menuitemcheckbox')).toHaveLength(4);
+  });
+
+  it('floors a negative hidden-chart count at zero in the badge', () => {
+    setup({ showCpOnly: true, hiddenChartCount: -3 });
+    expect(screen.getByRole('button', { name: 'Display, 1 active filter' })).toBeInTheDocument();
+  });
+
+  it('counts every data filter and hidden chart element together', () => {
+    setup({
+      showCpOnly: true,
+      focusModeEnabled: true,
+      showCriticalOnly: true,
+      showMilestonesOnly: true,
+      hiddenChartCount: 1,
+    });
+    expect(screen.getByRole('button', { name: 'Display, 5 active filters' })).toBeInTheDocument();
+  });
+
+  it('marks unchecked rows aria-checked=false and checked rows true', () => {
+    setup({ showCpOnly: true });
+    openMenu();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'CP only' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Focus chain' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+
+  it('separates sections after the first with a separator', () => {
+    setup();
+    const menu = openMenu();
+    // Two sections → exactly one separator between them.
+    expect(within(menu).getAllByRole('separator')).toHaveLength(1);
+  });
+
+  it('toggles an already-active filter back off', () => {
+    const props = setup({ showCriticalOnly: true, showMilestonesOnly: true });
+    openMenu();
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Critical path' }));
+    expect(props.setShowCriticalOnly).toHaveBeenCalledWith(false);
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Milestones' }));
+    expect(props.setShowMilestonesOnly).toHaveBeenCalledWith(false);
+  });
+
+  it('toggles the focus chain on from the menu', () => {
+    const props = setup();
+    openMenu();
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Focus chain' }));
+    expect(props.setFocusModeEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it('reaches the chart rows with End when the Chart section is present', () => {
+    const chart = {
+      dependencyLinesVisible: false,
+      setDependencyLinesVisible: vi.fn(),
+      viewMode: 'grid' as const,
+      taskNamePlacement: 'hidden' as const,
+      setTaskNamePlacement: vi.fn(),
+      progressPillsVisible: false,
+      setProgressPillsVisible: vi.fn(),
+    };
+    setup({ chart });
+    const menu = openMenu();
+    fireEvent.keyDown(menu, { key: 'End' });
+    // Grid: 4 filters + dependency lines + 2 radios + progress = last row is Progress %.
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Progress %' })).toHaveFocus();
+    expect(screen.getByRole('menuitemradio', { name: 'Hidden' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Dependency lines' }));
+    expect(chart.setDependencyLinesVisible).toHaveBeenCalledWith(true);
   });
 });

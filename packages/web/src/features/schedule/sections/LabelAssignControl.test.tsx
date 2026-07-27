@@ -1,6 +1,7 @@
 import type { ComponentProps } from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { renderWithProviders } from '@/test/utils';
 import { LabelAssignControl } from './LabelAssignControl';
 import type { Label } from '@/hooks/useLabels';
 import type { TaskLabel } from '@/types';
@@ -63,7 +64,7 @@ beforeEach(() => {
 });
 
 function renderControl(props: Partial<ComponentProps<typeof LabelAssignControl>> = {}) {
-  return render(
+  return renderWithProviders(
     <LabelAssignControl
       projectId="p1"
       taskId="t1"
@@ -97,6 +98,28 @@ describe('LabelAssignControl — pill rendering', () => {
   it('does not show the placeholder when labels exist', () => {
     renderControl({ labels: [taskLabel({ name: 'spec' })] });
     expect(screen.queryByText('No labels')).toBeNull();
+  });
+
+  it('treats a missing position as 0 and falls back to name order', () => {
+    renderControl({
+      labels: [
+        taskLabel({ id: 'z', name: 'zeta', position: undefined }),
+        taskLabel({ id: 'a', name: 'alpha', position: undefined }),
+      ],
+    });
+    const names = screen.getAllByText(/alpha|zeta/).map((n) => n.textContent);
+    expect(names).toEqual(['alpha', 'zeta']);
+  });
+
+  it('sorts a position-less label ahead of a positioned one (missing = 0)', () => {
+    renderControl({
+      labels: [
+        taskLabel({ id: 'b', name: 'beta', position: 4 }),
+        taskLabel({ id: 'a', name: 'alpha', position: undefined }),
+      ],
+    });
+    const names = screen.getAllByText(/alpha|beta/).map((n) => n.textContent);
+    expect(names).toEqual(['alpha', 'beta']);
   });
 });
 
@@ -151,6 +174,24 @@ describe('LabelAssignControl — popover close behaviors', () => {
     fireEvent.pointerDown(popover);
     expect(screen.getByTestId('label-popover')).toBeInTheDocument();
   });
+
+  it('ignores non-Escape keys while the popover is open', () => {
+    renderControl();
+    fireEvent.click(screen.getByTestId('label-assign-trigger'));
+    fireEvent.keyDown(document, { key: 'Enter' });
+    fireEvent.keyDown(document, { key: 'a' });
+    expect(screen.getByTestId('label-popover')).toBeInTheDocument();
+  });
+
+  it('reopens cleanly after an outside dismissal', () => {
+    renderControl();
+    const trigger = screen.getByTestId('label-assign-trigger');
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByTestId('label-popover')).toBeNull();
+    fireEvent.click(trigger);
+    expect(screen.getByTestId('label-popover')).toBeInTheDocument();
+  });
 });
 
 describe('LabelAssignControl — popover catalog states', () => {
@@ -168,6 +209,42 @@ describe('LabelAssignControl — popover catalog states', () => {
     expect(
       screen.getByText('No labels yet. An admin or team member can create one.'),
     ).toBeInTheDocument();
+  });
+
+  it('treats an unresolved catalog (data undefined) as empty for a non-creator', () => {
+    useLabelsMock.mockReturnValue({ data: undefined, isLoading: false });
+    renderControl({ canCreate: false });
+    fireEvent.click(screen.getByTestId('label-assign-trigger'));
+    expect(
+      screen.getByText('No labels yet. An admin or team member can create one.'),
+    ).toBeInTheDocument();
+  });
+
+  it('still offers create against an unresolved catalog (data undefined)', () => {
+    useLabelsMock.mockReturnValue({ data: undefined, isLoading: false });
+    renderControl();
+    fireEvent.click(screen.getByTestId('label-assign-trigger'));
+    fireEvent.change(screen.getByTestId('label-popover-search'), { target: { value: 'Novel' } });
+    expect(screen.getByTestId('label-create-submit')).toHaveTextContent('Create');
+  });
+
+  it('keeps the empty-catalog notice from a creator (who gets the create form instead)', () => {
+    useLabelsMock.mockReturnValue({ data: [], isLoading: false });
+    renderControl({ canCreate: true });
+    fireEvent.click(screen.getByTestId('label-assign-trigger'));
+    expect(screen.queryByText('No labels yet. An admin or team member can create one.')).toBeNull();
+  });
+
+  it('shows every catalog option for a whitespace-only query', () => {
+    useLabelsMock.mockReturnValue({
+      data: [catalogLabel({ id: 'c1', name: 'Backend' }), catalogLabel({ id: 'c2', name: 'Front' })],
+      isLoading: false,
+    });
+    renderControl();
+    fireEvent.click(screen.getByTestId('label-assign-trigger'));
+    fireEvent.change(screen.getByTestId('label-popover-search'), { target: { value: '   ' } });
+    expect(screen.getByTestId('label-option-c1')).toBeInTheDocument();
+    expect(screen.getByTestId('label-option-c2')).toBeInTheDocument();
   });
 
   it('filters catalog options by the search query (case-insensitive)', () => {
@@ -287,6 +364,28 @@ describe('LabelAssignControl — inline create', () => {
       screen.getByText(/Could not create label\. It may already exist/),
     ).toBeInTheDocument();
     expect(attachMutate).not.toHaveBeenCalled();
+  });
+
+  it('clears a previous error when the create is retried successfully', () => {
+    createMutate
+      .mockImplementationOnce((_input, opts) => opts.onError(new Error('dup')))
+      .mockImplementationOnce((_input, opts) =>
+        opts.onSuccess({ id: 'new1', name: 'Dupe', color: 'teal', position: 1 }),
+      );
+    useLabelsMock.mockReturnValue({ data: [], isLoading: false });
+    renderControl();
+    fireEvent.click(screen.getByTestId('label-assign-trigger'));
+    fireEvent.change(screen.getByTestId('label-popover-search'), { target: { value: 'Dupe' } });
+    fireEvent.click(screen.getByTestId('label-create-submit'));
+    expect(screen.getByText(/Could not create label/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('label-popover-search'), { target: { value: 'Dupe' } });
+    fireEvent.click(screen.getByTestId('label-create-submit'));
+    expect(screen.queryByText(/Could not create label/)).toBeNull();
+    expect(attachMutate).toHaveBeenCalledWith({
+      taskId: 't1',
+      label: { id: 'new1', name: 'Dupe', color: 'teal', position: 1 },
+    });
   });
 
   it('does not submit a blank/whitespace-only query', () => {

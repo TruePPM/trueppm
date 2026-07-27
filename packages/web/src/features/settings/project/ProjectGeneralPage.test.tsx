@@ -553,5 +553,225 @@ describe('ProjectGeneralPage', () => {
       // Dialog stays open so the user can correct or cancel.
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
+
+    it('closes the dialog on Cancel without writing anything', () => {
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: /add to program/i }));
+      const dialog = screen.getByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(mutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('falls back to generic copy when the failure carries no validation body', async () => {
+      // A transport failure (no axios response) has no server message to surface
+      // verbatim — the user still needs an actionable line, not a blank dialog.
+      mutateAsync.mockRejectedValueOnce(new Error('network down'));
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: /add to program/i }));
+
+      const dialog = screen.getByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('radio', { name: /Apollo/ }));
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Move project' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/Could not move the project/i);
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+  });
+
+  // ----- Sparse / still-loading payloads -------------------------------------
+
+  it('renders empty fields and the system-default calendar while the project loads', () => {
+    useProject.mockReturnValue({ data: undefined });
+    renderPage();
+
+    expect(screen.getByRole('textbox', { name: /project name/i })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: /project code/i })).toHaveValue('');
+
+    const row = within(calendarRow());
+    // No calendar is resolvable yet, so the row names the system default rather
+    // than rendering an empty name, and claims no provenance it cannot prove.
+    expect(row.getByText(/System default/)).toBeInTheDocument();
+    expect(row.getByText('Inherited')).toBeInTheDocument();
+    expect(row.queryByText(/Inherited from/i)).not.toBeInTheDocument();
+  });
+
+  it('treats a null description as an empty textarea', () => {
+    useProject.mockReturnValue({ data: { ...SEED_PROJECT, description: null } });
+    renderPage();
+    expect(screen.getByRole('textbox', { name: /description/i })).toHaveValue('');
+  });
+
+  it('shows no provenance breadcrumb when the server omits the resolved calendar', () => {
+    // A stale cached read from before #1987 carries `calendar_source` but no
+    // `effective_calendar` — a missing breadcrumb beats "Inherited from program
+    // (undefined)".
+    useProject.mockReturnValue({
+      data: {
+        ...SEED_PROJECT,
+        calendar: null,
+        calendar_source: 'program',
+        effective_calendar: null,
+      },
+    });
+    renderPage();
+
+    const row = within(calendarRow());
+    expect(row.getByText(/System default/)).toBeInTheDocument();
+    expect(row.getByText('Inherited')).toBeInTheDocument();
+    expect(row.queryByText(/Inherited from program/i)).not.toBeInTheDocument();
+  });
+
+  it('falls back to built-in inherit defaults when the inherited_* reads are absent', () => {
+    const sparse: Record<string, unknown> = { ...SEED_PROJECT };
+    delete sparse.inherited_mc_history_enabled;
+    delete sparse.inherited_mc_history_retention_cap;
+    delete sparse.inherited_mc_history_attribution_audience;
+    delete sparse.inherited_task_duration_change_percent_policy;
+    useProject.mockReturnValue({ data: sparse });
+    renderPage();
+
+    const enabledGroup = screen.getByRole('radiogroup', { name: /keep monte carlo run history/i });
+    expect(within(enabledGroup).getByText('(On)')).toBeInTheDocument();
+
+    const capGroup = screen.getByRole('radiogroup', { name: /run history limit/i });
+    expect(within(capGroup).getByText('(100)')).toBeInTheDocument();
+
+    const attrGroup = screen.getByRole('radiogroup', { name: /run attribution visible to/i });
+    expect(within(attrGroup).getByText(/admins & owners/i)).toBeInTheDocument();
+
+    const durationGroup = screen.getByRole('radiogroup', {
+      name: 'Duration change percent policy',
+    });
+    expect(within(durationGroup).getByText(/Keep entered %/)).toBeInTheDocument();
+  });
+
+  // ----- Input normalization -------------------------------------------------
+
+  it('normalizes a cleared start date back to the last saved value on save (#2018)', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '' } });
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    // start_date is required — an accidentally-cleared native date input must not
+    // 400 the whole batch; it normalizes back to the last saved anchor.
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ start_date: '2026-01-01' }),
+    );
+    expect(screen.getByLabelText('Start date')).toHaveValue('2026-01-01');
+  });
+
+  it('returns to "Today (dynamic)" when a seeded fixed status date is emptied', () => {
+    useProject.mockReturnValue({ data: { ...SEED_PROJECT, status_date: '2026-03-15' } });
+    renderPage();
+
+    expect(screen.getByLabelText('Fixed status date')).toHaveValue('2026-03-15');
+    expect(screen.getByRole('button', { name: 'Today (dynamic)' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+
+    fireEvent.change(screen.getByLabelText('Fixed status date'), { target: { value: '' } });
+
+    expect(screen.getByRole('button', { name: 'Today (dynamic)' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('maps an emptied threshold input to the 1-day minimum', () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText('Notify on end-date shift of'), {
+      target: { value: '' },
+    });
+    expect(screen.getByLabelText('Notify on end-date shift of')).toHaveValue(1);
+  });
+
+  // ----- Discard -------------------------------------------------------------
+
+  it('discards every edited field back to the last saved values', () => {
+    renderPage();
+
+    const name = screen.getByRole('textbox', { name: /project name/i });
+    const description = screen.getByRole('textbox', { name: /description/i });
+    const timezone = screen.getByRole('combobox', { name: /timezone/i });
+
+    fireEvent.change(name, { target: { value: 'Renamed project' } });
+    fireEvent.change(description, { target: { value: 'A different blurb.' } });
+    fireEvent.change(timezone, { target: { value: 'Asia/Tokyo' } });
+    fireEvent.click(screen.getByRole('button', { name: /on track/i }));
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-06-01' } });
+    expect(name).toHaveValue('Renamed project');
+
+    act(() => {
+      useSettingsSaveStore.getState().triggerDiscard();
+    });
+
+    expect(name).toHaveValue('Atlas Migration');
+    expect(description).toHaveValue('Migrate the data warehouse to the new platform.');
+    expect(timezone).toHaveValue('Europe/London');
+    expect(screen.getByRole('button', { name: /at risk/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByLabelText('Start date')).toHaveValue('2026-01-01');
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  // ----- Iteration terminology (ADR-0116) ------------------------------------
+
+  it('persists a custom iteration label as an override', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('radio', { name: /set a custom label/i }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Custom…' }));
+    fireEvent.change(screen.getByLabelText('Custom iteration label'), {
+      target: { value: 'Cycle' },
+    });
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ iteration_label: 'Cycle' }),
+    );
+  });
+
+  it('normalizes a blank custom iteration label back to inherit (null)', async () => {
+    renderPage();
+
+    // "Set a custom label" seeds from the inherited term; "Custom…" then blanks it.
+    fireEvent.click(screen.getByRole('radio', { name: /set a custom label/i }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Custom…' }));
+    expect(screen.getByLabelText<HTMLInputElement>('Custom iteration label').value).toBe('');
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    // The serializer rejects empty strings — "inherit" is the explicit null.
+    expect(mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ iteration_label: null }));
+  });
+
+  it('hides the iteration terminology control on a waterfall project', () => {
+    useProject.mockReturnValue({ data: { ...SEED_PROJECT, methodology: 'WATERFALL' } });
+    renderPage();
+    expect(screen.queryByText('Iteration terminology')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /set a custom label/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the iteration terminology control on an agile project', () => {
+    useProject.mockReturnValue({ data: { ...SEED_PROJECT, methodology: 'AGILE' } });
+    renderPage();
+    // No server-resolved inherited label on this payload → the "Sprint" default.
+    const inherit = screen.getByRole('radio', { name: /^inherit\(sprint\)$/i });
+    expect(inherit).toBeChecked();
+    expect(screen.getByRole('radio', { name: /set a custom label/i })).not.toBeChecked();
   });
 });

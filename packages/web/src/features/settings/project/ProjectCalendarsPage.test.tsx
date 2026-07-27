@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -9,6 +9,13 @@ import type {
   CalendarPreview,
 } from '@/hooks/useProjectCalendars';
 import { ROLE_ADMIN, ROLE_VIEWER } from '@/lib/roles';
+import {
+  buildMonthGrids,
+  formatFullDate,
+  monthWindow,
+  shiftAnchor,
+  spanWindow,
+} from './calendarDisplay';
 
 const useProjectId = vi.fn();
 const useProject = vi.fn();
@@ -320,5 +327,599 @@ describe('ProjectCalendarsPage', () => {
     expect(screen.getByText(/Couldn't load the working-time preview/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('alert').querySelector('button') as HTMLButtonElement);
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── Additional branch coverage (#2459) ───────────────────────────────────────
+// Everything below drives a conditional in the page that the suite above never
+// reached: the mobile layout, the pager, library load/error states, the empty
+// nudge, the in-flight (saving) state, and each day-cell classification.
+
+const TODAY_ISO_NOW = new Date().toISOString().slice(0, 10);
+
+/** A month six months out — guaranteed not to be the current month, so the
+ *  "today" ring assertions below can't collide with the rich-day fixtures. */
+const FAR = (() => {
+  const now = new Date();
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 6, 1));
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 };
+})();
+const far = (day: number) =>
+  `${FAR.year}-${String(FAR.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+const SRC_BASE = { role: 'project' as const, calendar_id: 'base', name: 'Project calendar' };
+const SRC_HOL = { role: 'holidays' as const, calendar_id: 'hol', name: 'US Federal Holidays 2026' };
+const SRC_WS = { role: 'workspace' as const, calendar_id: 'ws', name: 'Winter shutdown' };
+
+/** One of every day classification the grid can render. */
+const RICH_PREVIEW: CalendarPreview = {
+  start: far(1),
+  end: far(9),
+  days: [
+    { date: far(2), working: true, sources: [] },
+    { date: far(3), working: false, sources: [SRC_BASE] },
+    { date: far(4), working: false, sources: [SRC_HOL] },
+    { date: far(5), working: false, sources: [SRC_WS] },
+    { date: far(6), working: false, sources: [SRC_HOL, SRC_WS] },
+  ],
+};
+
+function overrideCalendars(data: ProjectCalendars) {
+  useProjectCalendars.mockReturnValue({ data, isLoading: false, error: null, refetch: vi.fn() });
+}
+
+describe('ProjectCalendarsPage — role gating', () => {
+  it('shows neither the view-only note nor edit controls while the role is unknown', () => {
+    loadedHooks(ROLE_ADMIN);
+    useCurrentUserRole.mockReturnValue({ role: null, isLoading: true });
+    renderPage();
+
+    expect(screen.queryByText(/You have view-only access/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add calendar' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: 'Working calendar override' }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe('ProjectCalendarsPage — base picker library states', () => {
+  it('disables the override picker with a loading placeholder while the library loads', () => {
+    loadedHooks(ROLE_ADMIN);
+    useCalendarLibrary.mockReturnValue({ data: undefined, isLoading: true });
+    renderPage();
+
+    const picker = screen.getByRole<HTMLSelectElement>('combobox', {
+      name: 'Working calendar override',
+    });
+    expect(picker).toBeDisabled();
+    expect(within(picker).getByRole('option', { name: 'Loading calendars…' })).toBeInTheDocument();
+  });
+
+  it('disables the override picker and says so when the library fetch fails', () => {
+    loadedHooks(ROLE_ADMIN);
+    useCalendarLibrary.mockReturnValue({ data: [], isLoading: false, error: new Error('nope') });
+    renderPage();
+
+    const picker = screen.getByRole<HTMLSelectElement>('combobox', {
+      name: 'Working calendar override',
+    });
+    expect(picker).toBeDisabled();
+    expect(
+      within(picker).getByRole('option', { name: "Couldn't load calendars" }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the current override selectable when it is missing from the library list', () => {
+    loadedHooks(ROLE_ADMIN);
+    // The library no longer carries the project's base calendar.
+    useCalendarLibrary.mockReturnValue({ data: [HOL, ALT], isLoading: false });
+    renderPage();
+
+    const picker = screen.getByRole<HTMLSelectElement>('combobox', {
+      name: 'Working calendar override',
+    });
+    expect(within(picker).getByRole('option', { name: 'Current override' })).toBeInTheDocument();
+    expect(picker.value).toBe('base');
+  });
+
+  it('disables both base controls while a calendar write is in flight', () => {
+    loadedHooks(ROLE_ADMIN);
+    useUpdateProjectCalendars.mockReturnValue({ mutate: vi.fn(), isPending: true });
+    renderPage();
+
+    expect(screen.getByRole('button', { name: 'Inherit from workspace' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Working calendar override' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Remove US Federal Holidays 2026/ })).toBeDisabled();
+  });
+
+  it('omits the breadcrumb when the base is inherited but the project read has no source', () => {
+    loadedHooks(ROLE_ADMIN);
+    overrideCalendars({ ...APPLIED, base: null });
+    useProject.mockReturnValue({ data: { calendar: null } });
+    renderPage();
+
+    expect(screen.getByRole('button', { name: 'Inherit from workspace' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.queryByText(/Inherited from/)).not.toBeInTheDocument();
+  });
+
+  it('falls back to generic inherit copy for a Viewer with no breadcrumb', () => {
+    loadedHooks(ROLE_VIEWER);
+    overrideCalendars({ ...APPLIED, base: null });
+    useProject.mockReturnValue({ data: { calendar: null } });
+    renderPage();
+
+    expect(screen.getByText('Inherited calendar')).toBeInTheDocument();
+    expect(screen.getByText('Inherits the program or workspace default.')).toBeInTheDocument();
+  });
+
+  it('shows the resolved inherited breadcrumb for a Viewer when the project names a source', () => {
+    loadedHooks(ROLE_VIEWER);
+    overrideCalendars({ ...APPLIED, base: null });
+    useProject.mockReturnValue({
+      data: {
+        calendar: null,
+        calendar_source: 'program',
+        effective_calendar: {
+          id: 'pg',
+          name: 'Program calendar',
+          working_days: 31,
+          hours_per_day: 8,
+        },
+      },
+    });
+    renderPage();
+
+    expect(screen.getByText(/Inherited from program \(Program calendar\)/)).toBeInTheDocument();
+  });
+});
+
+describe('ProjectCalendarsPage — overlay stack', () => {
+  it('adding calendars from the picker PUTs the new overlay alongside the existing stack', () => {
+    const mutate = vi.fn();
+    loadedHooks(ROLE_ADMIN, mutate);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add calendar' }));
+    const picker = screen.getByRole('dialog', { name: 'Add calendars to this project' });
+    fireEvent.click(within(picker).getByRole('option', { name: /Night shift/ }));
+    fireEvent.click(within(picker).getByRole('button', { name: 'Add 1 calendar' }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      base_calendar_id: 'base',
+      overlays: [
+        { calendar_id: 'hol', role: 'holidays' },
+        { calendar_id: 'alt', role: 'holidays' },
+      ],
+    });
+  });
+
+  it('already-applied library calendars are not re-addable from the picker', () => {
+    loadedHooks(ROLE_ADMIN);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add calendar' }));
+    const picker = screen.getByRole('dialog', { name: 'Add calendars to this project' });
+    expect(within(picker).getByRole('option', { name: /US Federal Holidays 2026/ })).toBeDisabled();
+    expect(within(picker).getByRole('option', { name: /Night shift/ })).toBeEnabled();
+  });
+
+  it('toggling the Add calendar button closes an open picker', () => {
+    loadedHooks(ROLE_ADMIN);
+    renderPage();
+
+    const trigger = screen.getByRole('button', { name: 'Add calendar' });
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      screen.queryByRole('dialog', { name: 'Add calendars to this project' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers no remove control for an overlay the server sent without a layer id', () => {
+    loadedHooks(ROLE_ADMIN);
+    overrideCalendars({
+      base: BASE,
+      overlays: [{ layer_id: null, role: 'holidays', sort_order: 1, calendar: HOL }],
+      applied: [
+        { layer_id: null, role: 'project', sort_order: 0, calendar: BASE },
+        { layer_id: null, role: 'holidays', sort_order: 1, calendar: HOL },
+      ],
+    });
+    renderPage();
+
+    expect(
+      screen.queryByRole('button', { name: /Remove US Federal Holidays 2026/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('nudges a Scheduler to add a holiday calendar when only the base is applied', () => {
+    loadedHooks(ROLE_ADMIN);
+    overrideCalendars({
+      base: BASE,
+      overlays: [],
+      applied: [{ layer_id: null, role: 'project', sort_order: 0, calendar: BASE }],
+    });
+    renderPage();
+
+    // Singular noun for a one-calendar stack.
+    expect(screen.getByText('1 calendar')).toBeInTheDocument();
+    expect(screen.getByText('No holiday calendars applied')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Add a holidays calendar/ }));
+    expect(
+      screen.getByRole('dialog', { name: 'Add calendars to this project' }),
+    ).toBeInTheDocument();
+  });
+
+  it('hides the empty nudge from a Viewer even with no holiday overlay', () => {
+    loadedHooks(ROLE_VIEWER);
+    overrideCalendars({
+      base: BASE,
+      overlays: [],
+      applied: [{ layer_id: null, role: 'project', sort_order: 0, calendar: BASE }],
+    });
+    renderPage();
+
+    expect(screen.queryByText('No holiday calendars applied')).not.toBeInTheDocument();
+  });
+
+  it('labels a workspace overlay with the shutdown chip', () => {
+    loadedHooks(ROLE_ADMIN);
+    const shutdown = cal('ws', 'Winter shutdown', 2);
+    overrideCalendars({
+      base: BASE,
+      overlays: [{ layer_id: 'L9', role: 'workspace', sort_order: 1, calendar: shutdown }],
+      applied: [
+        { layer_id: null, role: 'project', sort_order: 0, calendar: BASE },
+        { layer_id: 'L9', role: 'workspace', sort_order: 1, calendar: shutdown },
+      ],
+    });
+    renderPage();
+
+    expect(screen.getByText('workspace')).toBeInTheDocument();
+    expect(screen.getByText('2 shutdowns')).toBeInTheDocument();
+    expect(screen.getByText('2 calendars')).toBeInTheDocument();
+  });
+});
+
+describe('ProjectCalendarsPage — preview strip', () => {
+  it('pages the desktop preview a quarter at a time', () => {
+    loadedHooks(ROLE_ADMIN);
+    renderPage();
+
+    const now = new Date();
+    const start = { year: now.getUTCFullYear(), month: now.getUTCMonth() };
+    const initial = spanWindow(start.year, start.month, 3);
+    expect(useCalendarPreview).toHaveBeenLastCalledWith('p-1', initial.start, initial.end);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next quarter' }));
+    const next = shiftAnchor(start, 3);
+    const nextWindow = spanWindow(next.year, next.month, 3);
+    expect(useCalendarPreview).toHaveBeenLastCalledWith('p-1', nextWindow.start, nextWindow.end);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous quarter' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous quarter' }));
+    const prev = shiftAnchor(start, -3);
+    const prevWindow = spanWindow(prev.year, prev.month, 3);
+    expect(useCalendarPreview).toHaveBeenLastCalledWith('p-1', prevWindow.start, prevWindow.end);
+  });
+
+  it('disables both pager buttons while the preview is errored', () => {
+    loadedHooks(ROLE_ADMIN);
+    useCalendarPreview.mockReturnValue({
+      data: undefined,
+      isFetching: false,
+      error: new Error('boom'),
+      refetch: vi.fn(),
+    });
+    renderPage();
+
+    expect(screen.getByRole('button', { name: 'Previous quarter' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next quarter' })).toBeDisabled();
+  });
+
+  it('shows a grid skeleton — no months, no loss summary — on the first preview fetch', () => {
+    loadedHooks(ROLE_ADMIN);
+    useCalendarPreview.mockReturnValue({
+      data: undefined,
+      isFetching: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+
+    expect(screen.queryByText(/loses/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // The header (range label + pager) stays put while the grid loads.
+    expect(screen.getByRole('button', { name: 'Next quarter' })).toBeEnabled();
+  });
+
+  it('pluralizes the lost-working-days summary', () => {
+    loadedHooks(ROLE_ADMIN);
+    useCalendarPreview.mockReturnValue({
+      data: {
+        start: far(1),
+        end: far(9),
+        days: [
+          { date: far(4), working: false, sources: [SRC_HOL] },
+          { date: far(5), working: false, sources: [SRC_WS] },
+        ],
+      },
+      isFetching: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+
+    expect(screen.getByText(/loses/)).toHaveTextContent(/loses\s+2\s+working days\b/);
+  });
+
+  it('renders each day classification with its own glyph and accessible date label', () => {
+    loadedHooks(ROLE_ADMIN);
+    useCalendarPreview.mockReturnValue({
+      data: RICH_PREVIEW,
+      isFetching: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+
+    // Working day: plain day number, no aria-label (nothing to announce).
+    const working = screen.getByTitle(formatFullDate(far(2)));
+    expect(working).toHaveTextContent('2');
+    expect(working).not.toHaveAttribute('aria-label');
+
+    // Weekend (base calendar): keeps its day number but is announced.
+    const weekend = screen.getByTitle(`${formatFullDate(far(3))} — Project calendar`);
+    expect(weekend).toHaveTextContent('3');
+    expect(weekend).toHaveAttribute('aria-label');
+
+    // Holiday and shutdown swap the number for a color-blind-safe letter.
+    expect(screen.getByTitle(`${formatFullDate(far(4))} — US Federal Holidays 2026`)).toHaveTextContent('H');
+    expect(screen.getByTitle(`${formatFullDate(far(5))} — Winter shutdown`)).toHaveTextContent('S');
+
+    // Two calendars block the same day — shutdown wins the glyph.
+    const multi = screen.getByTitle(
+      `${formatFullDate(far(6))} — US Federal Holidays 2026, Winter shutdown`,
+    );
+    expect(multi).toHaveTextContent('S');
+  });
+
+  it('rings only today in the preview grid', () => {
+    loadedHooks(ROLE_ADMIN);
+    const other = TODAY_ISO_NOW.endsWith('01')
+      ? `${TODAY_ISO_NOW.slice(0, 8)}02`
+      : `${TODAY_ISO_NOW.slice(0, 8)}01`;
+    useCalendarPreview.mockReturnValue({
+      data: {
+        start: TODAY_ISO_NOW,
+        end: TODAY_ISO_NOW,
+        days: [
+          { date: TODAY_ISO_NOW, working: true, sources: [] },
+          { date: other, working: true, sources: [] },
+        ],
+      },
+      isFetching: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+
+    expect(screen.getByTitle(formatFullDate(TODAY_ISO_NOW)).className).toContain(
+      'outline-brand-primary',
+    );
+    expect(screen.getByTitle(formatFullDate(other)).className).not.toContain(
+      'outline-brand-primary',
+    );
+  });
+});
+
+describe('ProjectCalendarsPage — mobile layout', () => {
+  beforeEach(() => {
+    useBreakpoint.mockReturnValue('sm');
+  });
+
+  it('previews a single month with a month pager and no month heading', () => {
+    loadedHooks(ROLE_ADMIN);
+    useCalendarPreview.mockReturnValue({
+      data: RICH_PREVIEW,
+      isFetching: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+
+    const now = new Date();
+    const w = monthWindow(now.getUTCFullYear(), now.getUTCMonth());
+    expect(useCalendarPreview).toHaveBeenLastCalledWith('p-1', w.start, w.end);
+
+    expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Next quarter' })).not.toBeInTheDocument();
+
+    // The grid's own month caption is suppressed — the strip header carries it.
+    const grids = buildMonthGrids(RICH_PREVIEW);
+    expect(screen.queryByText(grids[0].label)).not.toBeInTheDocument();
+  });
+
+  it('pages a single month at a time', () => {
+    loadedHooks(ROLE_ADMIN);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+    const now = new Date();
+    const next = shiftAnchor({ year: now.getUTCFullYear(), month: now.getUTCMonth() }, 1);
+    const w = monthWindow(next.year, next.month);
+    expect(useCalendarPreview).toHaveBeenLastCalledWith('p-1', w.start, w.end);
+  });
+
+  it('opens the add-calendar picker as a bottom sheet', () => {
+    loadedHooks(ROLE_ADMIN);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add calendar' }));
+    const sheet = screen.getByRole('dialog', { name: 'Add calendars to this project' });
+    // The sheet variant is modal and carries its own header close control;
+    // the desktop popover has neither.
+    expect(sheet).toHaveAttribute('aria-modal', 'true');
+    expect(within(sheet).getByRole('button', { name: 'Close' })).toBeInTheDocument();
+  });
+
+  it('never opens the sheet for a Viewer', () => {
+    loadedHooks(ROLE_VIEWER);
+    renderPage();
+    expect(screen.queryByRole('button', { name: 'Add calendar' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: 'Add calendars to this project' }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe('ProjectCalendarsPage — remaining guards and dismissals', () => {
+  it('renders the skeleton and asks for no project role before the route resolves', () => {
+    loadedHooks(ROLE_ADMIN);
+    useProjectId.mockReturnValue(null);
+    useProjectCalendars.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+
+    expect(screen.getByText('Loading calendars…')).toBeInTheDocument();
+    expect(useCurrentUserRole).toHaveBeenCalledWith(undefined);
+  });
+
+  it('pressing Inherit while already inherited fires no redundant PUT', () => {
+    const mutate = vi.fn();
+    loadedHooks(ROLE_ADMIN, mutate);
+    overrideCalendars({ ...APPLIED, base: null });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inherit from workspace' }));
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('clearing the override select falls back to inheriting', () => {
+    const mutate = vi.fn();
+    loadedHooks(ROLE_ADMIN, mutate);
+    renderPage();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Working calendar override' }), {
+      target: { value: '' },
+    });
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      base_calendar_id: null,
+      overlays: [{ calendar_id: 'hol', role: 'holidays' }],
+    });
+  });
+
+  it('names the system default when nothing above the project sets a calendar', () => {
+    loadedHooks(ROLE_ADMIN);
+    overrideCalendars({ ...APPLIED, base: null });
+    useProject.mockReturnValue({ data: { calendar: null, calendar_source: 'system_default' } });
+    renderPage();
+
+    expect(screen.getByText(/Inherited from the system default/)).toBeInTheDocument();
+  });
+
+  it('closes the picker once the add settles', () => {
+    loadedHooks(ROLE_ADMIN);
+    useUpdateProjectCalendars.mockReturnValue({
+      mutate: (_payload: unknown, opts?: { onSettled?: () => void }) => opts?.onSettled?.(),
+      isPending: false,
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add calendar' }));
+    const picker = screen.getByRole('dialog', { name: 'Add calendars to this project' });
+    fireEvent.click(within(picker).getByRole('option', { name: /Night shift/ }));
+    fireEvent.click(within(picker).getByRole('button', { name: 'Add 1 calendar' }));
+
+    expect(
+      screen.queryByRole('dialog', { name: 'Add calendars to this project' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('cancelling the desktop popover closes it without a write', () => {
+    const mutate = vi.fn();
+    loadedHooks(ROLE_ADMIN, mutate);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add calendar' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: 'Add calendars to this project' })).getByRole(
+        'button',
+        { name: 'Cancel' },
+      ),
+    );
+    expect(
+      screen.queryByRole('dialog', { name: 'Add calendars to this project' }),
+    ).not.toBeInTheDocument();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('the desktop popover shows the library loading row while the library resolves', () => {
+    loadedHooks(ROLE_ADMIN);
+    useCalendarLibrary.mockReturnValue({ data: undefined, isLoading: true });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add calendar' }));
+    const picker = screen.getByRole('dialog', { name: 'Add calendars to this project' });
+    expect(within(picker).getByText('Loading calendars…')).toBeInTheDocument();
+    expect(within(picker).queryByRole('option')).not.toBeInTheDocument();
+  });
+});
+
+describe('ProjectCalendarsPage — mobile dismissals and loading', () => {
+  beforeEach(() => {
+    useBreakpoint.mockReturnValue('sm');
+  });
+
+  it('closing the bottom sheet leaves the stack untouched', () => {
+    const mutate = vi.fn();
+    loadedHooks(ROLE_ADMIN, mutate);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add calendar' }));
+    const sheet = screen.getByRole('dialog', { name: 'Add calendars to this project' });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+
+    expect(
+      screen.queryByRole('dialog', { name: 'Add calendars to this project' }),
+    ).not.toBeInTheDocument();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('the bottom sheet shows the library loading row while the library resolves', () => {
+    loadedHooks(ROLE_ADMIN);
+    useCalendarLibrary.mockReturnValue({ data: undefined, isLoading: true });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add calendar' }));
+    const sheet = screen.getByRole('dialog', { name: 'Add calendars to this project' });
+    expect(within(sheet).getByText('Loading calendars…')).toBeInTheDocument();
+  });
+
+  it('renders a single-month skeleton while the mobile preview loads', () => {
+    loadedHooks(ROLE_ADMIN);
+    useCalendarPreview.mockReturnValue({
+      data: undefined,
+      isFetching: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+
+    expect(screen.queryByText(/loses/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeEnabled();
   });
 });

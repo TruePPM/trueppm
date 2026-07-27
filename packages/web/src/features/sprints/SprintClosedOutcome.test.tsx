@@ -878,6 +878,41 @@ describe('SprintClosedOutcome — demo reorder (curator, ≥2 demo stories) #113
     expect(presenterMutate).toHaveBeenCalledWith({ outcomeId: 'o-a', presenter: 'Sam' });
   });
 
+  it('writes the reviewer note from a demo-flagged, criteria-incomplete sortable row', async () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-a',
+                task_short_id: 'T-1',
+                task_title: 'Alpha story',
+                demo_ready: true,
+                acceptance: { met: 1, total: 2 },
+                unmet_criteria: [{ id: 'ac1', text: 'Edge case' }],
+              }),
+              shippedStory({
+                outcome_id: 'o-b',
+                task_short_id: 'T-2',
+                task_title: 'Beta story',
+                demo_ready: true,
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    const note = screen.getByPlaceholderText(/Optional note for reviewers/i);
+    await userEvent.type(note, 'Carried the edge case');
+    note.blur();
+    expect(noteMutate).toHaveBeenCalledWith({
+      outcomeId: 'o-a',
+      note: 'Carried the edge case',
+    });
+  });
+
   it('wires note + flag-for-backlog on a demo-flagged, criteria-incomplete sortable row', () => {
     render(
       <SprintClosedOutcome
@@ -907,5 +942,408 @@ describe('SprintClosedOutcome — demo reorder (curator, ≥2 demo stories) #113
     // The flag-for-backlog button on the sortable incomplete row fires the mutation.
     screen.getByRole('button', { name: /Flag for backlog/i }).click();
     expect(flagMutate).toHaveBeenCalledWith({ outcomeId: 'o-a' });
+  });
+});
+
+describe('SprintClosedOutcome — rows without a recorded outcome row', () => {
+  it('renders a shipped story that has no outcome_id without any curation control', () => {
+    // A story the server could not bind to a SprintTaskOutcome row: the row still
+    // renders (the team shipped it) but there is nothing to write against, so no
+    // demo switch, no presenter field, and no note textarea appear.
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: null,
+                task_short_id: 'T-777',
+                task_title: 'Unbound story',
+                acceptance: { met: 0, total: 0 },
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    const sec = screen.getByTestId('sprint-review');
+    expect(sec).toHaveTextContent('T-777');
+    expect(sec).toHaveTextContent('Unbound story');
+    expect(screen.queryByRole('switch')).toBeNull();
+    expect(screen.queryByPlaceholderText(/Optional note for reviewers/i)).toBeNull();
+    expect(screen.queryByLabelText('Presenter')).toBeNull();
+  });
+
+  it('does not re-fire set-presenter when the presenter is blurred unchanged', async () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [shippedStory({ demo_ready: true, presenter: 'Jordan' })],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    const input = screen.getByLabelText<HTMLInputElement>('Presenter');
+    expect(input.value).toBe('Jordan');
+    await userEvent.click(input);
+    input.blur();
+    expect(presenterMutate).not.toHaveBeenCalled();
+  });
+
+  it('trims whitespace before deciding the presenter actually changed', async () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [shippedStory({ demo_ready: true, presenter: '' })],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    const input = screen.getByLabelText<HTMLInputElement>('Presenter');
+    await userEvent.type(input, '   ');
+    input.blur();
+    // "   ".trim() === "" === the stored presenter, so nothing is written.
+    expect(presenterMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe('SprintClosedOutcome — read-only reviewer note (#1131)', () => {
+  it('shows the stored note to a non-curator on a criteria-incomplete story', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-inc',
+                task_short_id: 'T-301',
+                task_title: 'Payment retries',
+                acceptance: { met: 1, total: 2 },
+                unmet_criteria: [{ id: 'ac1', text: 'Declined card handled' }],
+                review_note: 'Declined-card path lands next sprint',
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo={false}
+      />,
+    );
+    expect(
+      screen.getByText('Declined-card path lands next sprint'),
+    ).toBeInTheDocument();
+    // Read-only: no editable textarea, no flag button.
+    expect(screen.queryByPlaceholderText(/Optional note for reviewers/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Flag for backlog/i })).toBeNull();
+  });
+
+  it('renders nothing for a non-curator when the story has no note', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-inc',
+                task_short_id: 'T-301',
+                task_title: 'Payment retries',
+                acceptance: { met: 1, total: 2 },
+                review_note: '',
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo={false}
+      />,
+    );
+    const rows = screen.getByTestId('sprint-review').querySelectorAll('li');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].querySelector('p')).toBeNull();
+  });
+
+  it('renders nothing for a non-curator on a fully accepted story even with a note', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                acceptance: { met: 2, total: 2 },
+                review_note: 'Should not surface',
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo={false}
+      />,
+    );
+    expect(screen.queryByText('Should not surface')).toBeNull();
+  });
+
+  it('hides the "+ Add criteria" link on a criteria-incomplete story (criteria exist)', () => {
+    renderAtProjectRoute(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-inc',
+                task_id: 't-inc',
+                task_short_id: 'T-301',
+                task_title: 'Payment retries',
+                acceptance: { met: 1, total: 2 },
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+      'proj-42',
+    );
+    expect(screen.queryByRole('link', { name: /add criteria/i })).toBeNull();
+    // The note + flag affordances still render for the curator.
+    expect(screen.getByPlaceholderText(/Optional note for reviewers/i)).toBeInTheDocument();
+  });
+
+  it('hides the "+ Add criteria" link when the story has no task_id to link to', () => {
+    renderAtProjectRoute(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-not',
+                task_id: null,
+                task_short_id: 'T-302',
+                task_title: 'Receipt email',
+                acceptance: { met: 0, total: 0 },
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+      'proj-42',
+    );
+    expect(screen.queryByRole('link', { name: /add criteria/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /Flag for backlog/i })).toBeInTheDocument();
+  });
+
+  it('keeps the unmet-criteria disclosure closed when the server sent no criteria detail', async () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-inc',
+                task_short_id: 'T-301',
+                task_title: 'Payment retries',
+                acceptance: { met: 1, total: 2 },
+                unmet_criteria: [],
+              }),
+            ],
+          }),
+        })}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /show incomplete criteria/i }));
+    expect(screen.queryByTestId('unmet-criteria')).toBeNull();
+  });
+
+  it('collapses the disclosure again on a second badge click', async () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-inc',
+                task_short_id: 'T-301',
+                task_title: 'Payment retries',
+                acceptance: { met: 1, total: 2 },
+                unmet_criteria: [{ id: 'ac1', text: 'Declined card handled' }],
+              }),
+            ],
+          }),
+        })}
+      />,
+    );
+    const badge = screen.getByRole('button', { name: /show incomplete criteria/i });
+    await userEvent.click(badge);
+    expect(screen.getByTestId('unmet-criteria')).toBeInTheDocument();
+    await userEvent.click(badge);
+    expect(screen.queryByTestId('unmet-criteria')).toBeNull();
+    expect(badge).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('makes the fully-accepted badge a non-interactive, non-expandable marker', () => {
+    render(<SprintClosedOutcome outcome={outcome()} />);
+    const badge = screen.getByRole('button', { name: /3 of 3 acceptance criteria met — accepted/i });
+    expect(badge).toBeDisabled();
+    expect(badge).not.toHaveAttribute('aria-expanded');
+    expect(badge.className).toContain('semantic-on-track');
+  });
+
+  it('hides the per-story points chip when points are suppressed', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({ shipped: [shippedStory({ story_points: null })] }),
+        })}
+      />,
+    );
+    const row = screen.getByTestId('sprint-review').querySelector('li');
+    expect(row).toHaveTextContent('Checkout flow');
+    expect(row).not.toHaveTextContent('pts');
+  });
+
+  it('gates not-accepted points independently of the accepted-points gate', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({ not_accepted_count: 2, not_accepted_points: null }),
+        })}
+      />,
+    );
+    expect(screen.getByTestId('not-accepted-count')).toHaveTextContent('2 criteria incomplete');
+    expect(screen.getByTestId('not-accepted-count')).not.toHaveTextContent('pts');
+  });
+
+  it('omits the criteria-not-set chip when every committed story had criteria', () => {
+    render(<SprintClosedOutcome outcome={outcome({ review: review({ no_criteria_count: 0 }) })} />);
+    expect(screen.queryByTestId('no-criteria-count')).toBeNull();
+  });
+
+  it('omits the "for demo" count and drag hint when nothing is demo-flagged', () => {
+    render(<SprintClosedOutcome outcome={outcome()} canCurateDemo />);
+    const sec = screen.getByTestId('sprint-review');
+    expect(sec).toHaveTextContent('Shipped (1)');
+    expect(sec).not.toHaveTextContent('for demo');
+    expect(sec).not.toHaveTextContent('Drag the ⠿ handle');
+  });
+
+  it('shows the demo count but no drag hint with exactly one demo story', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({ shipped: [shippedStory({ demo_ready: true })] }),
+        })}
+        canCurateDemo
+      />,
+    );
+    const sec = screen.getByTestId('sprint-review');
+    expect(sec).toHaveTextContent('1 for demo');
+    expect(sec).not.toHaveTextContent('Drag the ⠿ handle');
+    expect(screen.queryByRole('button', { name: /Reorder demo:/i })).toBeNull();
+  });
+
+  it('keeps a demo-flagged story out of the sortable set when it has no outcome_id', () => {
+    // Two demo-flagged stories but only one is bound to an outcome row, so the
+    // sortable path (which needs 2+ sortable ids) must not engage.
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({ outcome_id: 'o-a', task_short_id: 'T-1', task_title: 'Alpha story', demo_ready: true }),
+              shippedStory({ outcome_id: null, task_short_id: 'T-2', task_title: 'Beta story', demo_ready: true }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    expect(screen.getByTestId('sprint-review')).toHaveTextContent('1 for demo');
+    expect(screen.queryByRole('button', { name: /Reorder demo:/i })).toBeNull();
+  });
+
+  it('shows no demo-list error alert while both mutations are idle', () => {
+    render(<SprintClosedOutcome outcome={outcome()} canCurateDemo />);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('SprintClosedOutcome — milestone slip + didn\'t-ship edge branches', () => {
+  const slip = (over: Partial<NonNullable<SprintOutcome['milestone_slip']>> = {}) => ({
+    milestone_id: 'm1',
+    milestone_name: 'Login redesign',
+    milestone_short_id: 'T-9',
+    slip_days: 7,
+    baseline_finish: '2026-05-01',
+    forecast_finish: '2026-05-08',
+    basis: 'forecast' as const,
+    ...over,
+  });
+
+  it('drops the rolled-over clause when the sprint predates membership capture', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          milestone_slip: slip(),
+          outcome_recorded: false,
+          didnt_ship: [],
+        })}
+      />,
+    );
+    const line = screen.getByTestId('milestone-slip-line');
+    expect(line).not.toHaveTextContent('Rolled over');
+    expect(line).toHaveTextContent('Login redesign');
+    expect(line).toHaveTextContent('now +7d vs baseline');
+  });
+
+  it('renders a didn\'t-ship row keyed off the title when the task_id is missing', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          didnt_ship: [
+            {
+              task_id: null,
+              task_short_id: 'T-900',
+              task_title: 'Deleted since close',
+              story_points: null,
+              final_status: 'TODO',
+              disposition: 'dropped',
+              next_sprint_id: null,
+              next_sprint_name: null,
+              was_pending: false,
+            },
+          ],
+          didnt_ship_summary: {
+            carried_count: 0,
+            carried_points: 0,
+            dropped_count: 1,
+            dropped_points: 0,
+          },
+        })}
+      />,
+    );
+    const list = screen.getByTestId('didnt-ship');
+    expect(list).toHaveTextContent('Deleted since close');
+    expect(list).toHaveTextContent('dropped');
+    expect(list).not.toHaveTextContent('pts');
+  });
+
+  it('omits both breakdown clauses from the header when neither count is set', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          didnt_ship_summary: {
+            carried_count: 0,
+            carried_points: 0,
+            dropped_count: 0,
+            dropped_points: 0,
+          },
+        })}
+      />,
+    );
+    const heading = screen.getByRole('heading', { name: /What didn't ship/i });
+    expect(heading).toHaveTextContent("What didn't ship (1)");
+    expect(heading).not.toHaveTextContent('carried');
+    expect(heading).not.toHaveTextContent('dropped');
   });
 });

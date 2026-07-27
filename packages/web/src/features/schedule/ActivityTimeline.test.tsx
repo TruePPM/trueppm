@@ -1001,6 +1001,87 @@ describe('ActivityTimeline — value formatting and detail edges', () => {
 });
 
 // ---------------------------------------------------------------------------
+// normalize() / groupsFor() fallbacks on partial or malformed payloads
+// ---------------------------------------------------------------------------
+
+describe('ActivityTimeline — normalization and grouping fallbacks', () => {
+  beforeEach(() => {
+    historySpy.mockReset();
+    historySpy.mockReturnValue(makeHistory([]));
+  });
+
+  it('falls back to the epoch when a legacy entry has no timestamp and no history_date', () => {
+    // Neither `timestamp` nor `history_date` — normalize() must still produce a
+    // parseable instant rather than rendering an Invalid Date.
+    const rec = legacy({
+      id: 50,
+      history_type: '+',
+      history_user: 'u-alice',
+      history_user_display: 'Alice A',
+      diff: [],
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/created this task/i)).toBeInTheDocument();
+    expect(screen.getByText('2h ago')).toHaveAttribute('datetime', '1970-01-01T00:00:00.000Z');
+  });
+
+  it('renders a field-diff event whose diff key is absent as a bare one-line event', () => {
+    // A task_created row with no `diff` key at all: the diff-length and
+    // group-derivation readers must both tolerate the missing array.
+    const createdNoDiff = evt({
+      id: 51,
+      event_type: 'task_created',
+      actor: { id: 'u-alice', display_name: 'Alice' },
+      timestamp: '2026-05-01T10:00:00Z',
+    });
+    historySpy.mockReturnValue(makeHistory([createdNoDiff]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/created this task/i)).toBeInTheDocument();
+    // No diff → nothing to expand and no group chip beyond "All".
+    expect(screen.queryByRole('button', { name: /Show changes/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('radio')).toHaveLength(1);
+    expect(screen.getByRole('radio', { name: 'All · 1' })).toBeInTheDocument();
+  });
+
+  it('omits the Finish clause when the legacy early_finish "to" is not a string', () => {
+    const rec = evt({
+      event_type: 'cpm_recalculated',
+      actor: null,
+      timestamp: '2026-05-06T10:00:00Z',
+      // A malformed nested delta (numeric `to`) must not render "Finish NaN".
+      detail: { early_finish: { from: '2026-06-01', to: 20260605 }, is_critical: false },
+    });
+    historySpy.mockReturnValue(makeHistory([rec]));
+    renderWithProvidersAndRouter(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/recalculated the schedule/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Finish/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/critical path/i)).not.toBeInTheDocument();
+  });
+
+  it('labels a person filter option by actor id when the actor has no display name', () => {
+    const nameless = legacy({
+      event_type: 'comment_added',
+      actor: { id: 'u-nameless', display_name: null },
+      timestamp: '2026-05-05T10:00:00Z',
+      detail: { comment_id: 'c-x', preview: 'anonymous note' },
+    });
+    historySpy.mockReturnValue(makeHistory([statusRecord, nameless]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    // The option falls back to the stable actor id…
+    expect(screen.getByRole('option', { name: 'u-nameless' })).toBeInTheDocument();
+    // …while the row itself, having no display name, reads as System.
+    expect(screen.getByText('System')).toBeInTheDocument();
+    // Filtering by that id still isolates their events.
+    fireEvent.change(screen.getByLabelText(/Filter activity by person/i), {
+      target: { value: 'u-nameless' },
+    });
+    expect(screen.getByText('commented')).toBeInTheDocument();
+    expect(screen.queryByText(/changed status/i)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Multi-field expand/collapse toggle
 // ---------------------------------------------------------------------------
 

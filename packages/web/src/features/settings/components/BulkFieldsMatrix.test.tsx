@@ -338,4 +338,245 @@ describe('BulkFieldsMatrix — enum radiogroup keyboard navigation', () => {
     fireEvent.keyDown(agile, { key: 'a' });
     expect(document.activeElement).toBe(agile);
   });
+
+  it('ArrowDown/ArrowUp move roving focus like ArrowRight/ArrowLeft', () => {
+    renderMatrix();
+    const agile = screen.getByRole('radio', { name: 'Agile' });
+    const waterfall = screen.getByRole('radio', { name: 'Waterfall' });
+    const hybrid = screen.getByRole('radio', { name: 'Hybrid' });
+    agile.focus();
+    fireEvent.keyDown(agile, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(waterfall);
+    fireEvent.keyDown(waterfall, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(agile);
+    // Wrap-around downward from the last option lands back on the first.
+    hybrid.focus();
+    fireEvent.keyDown(hybrid, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(agile);
+  });
+
+  it('moves the roving tabstop onto the chosen option once a value is staged', () => {
+    renderMatrix();
+    const agile = screen.getByRole('radio', { name: 'Agile' });
+    const waterfall = screen.getByRole('radio', { name: 'Waterfall' });
+    // No value staged → the first option holds the tabstop.
+    expect(agile).toHaveAttribute('tabindex', '0');
+    expect(waterfall).toHaveAttribute('tabindex', '-1');
+    fireEvent.click(waterfall);
+    expect(waterfall).toHaveAttribute('tabindex', '0');
+    expect(agile).toHaveAttribute('tabindex', '-1');
+    expect(waterfall).toHaveAttribute('aria-checked', 'true');
+    expect(agile).toHaveAttribute('aria-checked', 'false');
+  });
+});
+
+describe('BulkFieldsMatrix — nothing to render', () => {
+  it('renders nothing at all when there are no rows (page owns the empty state)', () => {
+    const { container } = renderMatrix({ rows: [] });
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('hides the action bar when every field is locked, keeping the display columns', () => {
+    const lockedOnly: FieldDescriptor<Row>[] = [
+      {
+        key: 'methodology',
+        label: 'Methodology',
+        kind: 'enum',
+        options: [{ value: 'AGILE', label: 'Agile' }],
+        read: (r) => ({ effective: r.methodology, overridden: true }),
+        resettable: false,
+        locked: true,
+      },
+    ];
+    renderMatrix({ fields: lockedOnly });
+    expect(screen.queryByTestId('bulk-fields-action-bar')).toBeNull();
+    // The locked column is still a read-only display column, and rows still list.
+    expect(screen.getByText('Methodology')).toBeInTheDocument();
+    expect(screen.getByText('Apollo')).toBeInTheDocument();
+  });
+});
+
+describe('BulkFieldsMatrix — in-flight (isApplying)', () => {
+  it('shows the Applying… label and blocks both Apply and Reset', () => {
+    renderMatrix({ isApplying: true, fields: makeFields() });
+    fireEvent.change(screen.getByLabelText('Field to set'), { target: { value: 'iteration_label' } });
+    fireEvent.click(screen.getByLabelText('Select Apollo'));
+    const applyBtn = screen.getByTestId('bulk-fields-apply');
+    expect(applyBtn).toHaveTextContent('Applying…');
+    expect(applyBtn).toBeDisabled();
+    expect(screen.getByTestId('bulk-fields-reset')).toBeDisabled();
+  });
+
+  it('shows Clearing… on the reset confirm while the call is in flight', () => {
+    const { rerender } = render(
+      <BulkFieldsMatrix<Row>
+        rows={ROWS}
+        rowKey={(r) => r.id}
+        rowLabel={(r) => r.name}
+        rowNoun="Project"
+        fields={makeFields()}
+        canEdit
+        apply={apply}
+        isApplying={false}
+        entityNoun="projects"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Field to set'), { target: { value: 'iteration_label' } });
+    fireEvent.click(screen.getByLabelText('Select Apollo'));
+    fireEvent.click(screen.getByTestId('bulk-fields-reset'));
+    const confirm = screen.getByTestId('bulk-fields-reset-confirm');
+    expect(within(confirm).getByText('Clear override')).toBeEnabled();
+
+    rerender(
+      <BulkFieldsMatrix<Row>
+        rows={ROWS}
+        rowKey={(r) => r.id}
+        rowLabel={(r) => r.name}
+        rowNoun="Project"
+        fields={makeFields()}
+        canEdit
+        apply={apply}
+        isApplying
+        entityNoun="projects"
+      />,
+    );
+    const busyConfirm = screen.getByTestId('bulk-fields-reset-confirm');
+    expect(within(busyConfirm).getByText('Clearing…')).toBeInTheDocument();
+    expect(within(busyConfirm).getByText('Cancel')).toBeDisabled();
+  });
+});
+
+describe('BulkFieldsMatrix — apply guards', () => {
+  it('does nothing when the selection is emptied while the reset confirm is open', () => {
+    renderMatrix();
+    fireEvent.change(screen.getByLabelText('Field to set'), { target: { value: 'iteration_label' } });
+    const apollo = screen.getByLabelText<HTMLInputElement>('Select Apollo');
+    fireEvent.click(apollo);
+    fireEvent.click(screen.getByTestId('bulk-fields-reset'));
+    // Row checkboxes stay live behind the confirm — deselecting empties the cohort.
+    fireEvent.click(apollo);
+    expect(apollo.checked).toBe(false);
+    fireEvent.click(within(screen.getByTestId('bulk-fields-reset-confirm')).getByText('Clear override'));
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('discards a staged value when the chosen field changes', () => {
+    renderMatrix();
+    fireEvent.click(screen.getByLabelText('Select Apollo'));
+    fireEvent.click(screen.getByRole('radio', { name: 'Agile' }));
+    expect(screen.getByTestId('bulk-fields-apply')).toBeEnabled();
+    // Switching fields must not carry an enum value into a string field.
+    fireEvent.change(screen.getByLabelText('Field to set'), { target: { value: 'iteration_label' } });
+    expect(screen.getByTestId('bulk-fields-apply')).toBeDisabled();
+    const bar = screen.getByTestId('bulk-fields-action-bar');
+    expect(within(bar).getByLabelText<HTMLInputElement>('Iteration label').value).toBe('');
+  });
+
+  it('swaps the value control to match the newly chosen field', () => {
+    renderMatrix();
+    const bar = screen.getByTestId('bulk-fields-action-bar');
+    // Methodology (enum) is the default → a radiogroup, no text box.
+    expect(within(bar).getByRole('radiogroup', { name: 'Methodology' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Field to set'), { target: { value: 'iteration_label' } });
+    expect(within(bar).queryByRole('radiogroup')).toBeNull();
+    expect(within(bar).getByLabelText('Iteration label')).toBeInTheDocument();
+  });
+});
+
+describe('BulkFieldsMatrix — value formatting', () => {
+  const rowsWithNulls: Row[] = [
+    { id: 'r1', name: 'Apollo', methodology: 'FUTURE_MODE', inheritedMethodology: 'HYBRID', iterationLabel: null, effectiveIterationLabel: null },
+  ];
+
+  it('reads an inherited field with no value as a bare "— inherited" (no parenthetical)', () => {
+    renderMatrix({ rows: rowsWithNulls });
+    const cell = screen.getByLabelText('Iteration label: inherited, —');
+    expect(cell).toHaveTextContent('— inherited');
+    expect(cell.textContent).not.toContain('(');
+  });
+
+  it('falls back to the raw enum value when it is not in the option list', () => {
+    renderMatrix({ rows: rowsWithNulls });
+    expect(screen.getByLabelText('Methodology: FUTURE_MODE')).toHaveTextContent('FUTURE_MODE');
+  });
+
+  it('renders an em-dash for an overridden numeric field with no value', () => {
+    const intField: FieldDescriptor<Row>[] = [
+      {
+        key: 'sprint_days',
+        label: 'Sprint length',
+        kind: 'int',
+        min: 1,
+        max: 30,
+        read: () => ({ effective: null, overridden: true }),
+        resettable: true,
+      },
+    ];
+    renderMatrix({ rows: rowsWithNulls, fields: intField });
+    expect(screen.getByLabelText('Sprint length: —, set on this row')).toHaveTextContent('—');
+  });
+
+  it('renders an em-dash for an empty-string value on a string field', () => {
+    const stringField: FieldDescriptor<Row>[] = [
+      {
+        key: 'iteration_label',
+        label: 'Iteration label',
+        kind: 'string',
+        maxLength: 32,
+        read: () => ({ effective: '', overridden: true }),
+        resettable: true,
+      },
+    ];
+    renderMatrix({ rows: rowsWithNulls, fields: stringField });
+    expect(screen.getByLabelText('Iteration label: —, set on this row')).toHaveTextContent('—');
+  });
+});
+
+describe('BulkFieldsMatrix — control edge cases', () => {
+  const intFields: FieldDescriptor<Row>[] = [
+    {
+      key: 'sprint_days',
+      label: 'Sprint length',
+      kind: 'int',
+      min: 5,
+      max: 30,
+      read: () => ({ effective: 14, overridden: true }),
+      resettable: true,
+    },
+  ];
+
+  it('clamps an under-min entry up to the field min before applying', async () => {
+    renderMatrix({ fields: intFields });
+    fireEvent.click(screen.getByLabelText('Select Apollo'));
+    const bar = screen.getByTestId('bulk-fields-action-bar');
+    fireEvent.change(within(bar).getByLabelText<HTMLInputElement>('Sprint length'), {
+      target: { value: '1' },
+    });
+    fireEvent.click(screen.getByTestId('bulk-fields-apply'));
+    await waitFor(() => expect(apply).toHaveBeenCalledWith(['r1'], 'sprint_days', 5));
+  });
+
+  it('emptying the text field unstages it (Apply disabled, no "will inherit" hint)', () => {
+    renderMatrix();
+    fireEvent.change(screen.getByLabelText('Field to set'), { target: { value: 'iteration_label' } });
+    fireEvent.click(screen.getByLabelText('Select Apollo'));
+    const bar = screen.getByTestId('bulk-fields-action-bar');
+    const input = within(bar).getByLabelText<HTMLInputElement>('Iteration label');
+    fireEvent.change(input, { target: { value: 'Cadence' } });
+    expect(screen.getByTestId('bulk-fields-apply')).toBeEnabled();
+    expect(input.placeholder).toBe('');
+    fireEvent.change(input, { target: { value: '' } });
+    expect(screen.getByTestId('bulk-fields-apply')).toBeDisabled();
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('select-all is inert when the cap allows no rows', () => {
+    renderMatrix({ maxRows: 0 });
+    const all = screen.getByLabelText<HTMLInputElement>('Select all rows');
+    expect(all.checked).toBe(false);
+    fireEvent.click(all);
+    expect(all.checked).toBe(false);
+    expect(all.indeterminate).toBe(false);
+    expect(screen.getByTestId('bulk-fields-apply')).toBeDisabled();
+  });
 });

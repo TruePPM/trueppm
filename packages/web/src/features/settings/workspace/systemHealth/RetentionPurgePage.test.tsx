@@ -15,7 +15,7 @@
  */
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { RunStateBadge, RetentionPurgePage } from './RetentionPurgePage';
 import { renderWithProviders } from '@/test/utils';
 import { useSettingsSaveStore } from '../../hooks/useSettingsSaveStore';
@@ -442,5 +442,207 @@ describe('RetentionPurgePage', () => {
 
     await waitFor(() => expect(input.value).toBe('90'));
     expect(useSettingsSaveStore.getState().dirty).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Schedule write paths — day-of-week and the HH:MM -> HH:MM:SS normalization.
+  // The rendered control alone cannot prove the normalization (both branches
+  // display the same HH:MM), so the assertions run through the save payload.
+  // -------------------------------------------------------------------------
+
+  it('defaults the day-of-week select to Monday when the API sends weekly with no day', () => {
+    useRetentionSettings.mockReturnValue({
+      data: makeState({
+        schedule: {
+          frequency: 'weekly',
+          time_of_day_utc: '02:00:00',
+          day_of_week: null,
+          on_failure: 'continue',
+        },
+      }),
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    renderWithProviders(<RetentionPurgePage />);
+    expect(screen.getByLabelText<HTMLSelectElement>('Day of week').value).toBe('0');
+  });
+
+  it('saves the day of week the operator picks', async () => {
+    useRetentionSettings.mockReturnValue({
+      data: makeState({
+        schedule: {
+          frequency: 'weekly',
+          time_of_day_utc: '02:00:00',
+          day_of_week: 0,
+          on_failure: 'continue',
+        },
+      }),
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    renderWithProviders(<RetentionPurgePage />);
+    const select = screen.getByLabelText<HTMLSelectElement>('Day of week');
+
+    fireEvent.change(select, { target: { value: '3' } });
+
+    expect(select.value).toBe('3');
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    expect(updateMutate.mock.calls[0][0].schedule?.day_of_week).toBe(3);
+  });
+
+  it('normalizes an HH:MM time entry to seconds precision before saving', async () => {
+    renderWithProviders(<RetentionPurgePage />);
+    const time = screen.getByLabelText<HTMLInputElement>('Time of day');
+    expect(time.value).toBe('02:00');
+
+    fireEvent.change(time, { target: { value: '03:30' } });
+
+    expect(time.value).toBe('03:30');
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    expect(updateMutate.mock.calls[0][0].schedule?.time_of_day_utc).toBe('03:30:00');
+  });
+
+  it('passes a cleared time field through verbatim instead of appending seconds', async () => {
+    renderWithProviders(<RetentionPurgePage />);
+    const time = screen.getByLabelText<HTMLInputElement>('Time of day');
+
+    fireEvent.change(time, { target: { value: '' } });
+
+    expect(time.value).toBe('');
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    expect(updateMutate.mock.calls[0][0].schedule?.time_of_day_utc).toBe('');
+  });
+
+  // -------------------------------------------------------------------------
+  // Policy set changing underneath the page (a reload that returns a different
+  // set of tables): page-local edit state is one render behind the fresh
+  // metadata, so rows without metadata must be skipped rather than crash.
+  // -------------------------------------------------------------------------
+
+  it('drops policy rows whose metadata disappears when the settings payload changes', () => {
+    const { rerender } = renderWithProviders(<RetentionPurgePage />);
+    expect(screen.getByText('Audit log')).toBeInTheDocument();
+
+    useRetentionSettings.mockReturnValue({
+      data: makeState({
+        policies: [
+          {
+            key: 'TRUEPPM_OUTBOX_RETENTION_DAYS',
+            label: 'Outbox events',
+            note: 'Dispatched outbox rows.',
+            unit: 'days',
+            value: 14,
+            enabled: true,
+            row_count: 7,
+            bytes: 1024,
+          },
+        ],
+      }),
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    rerender(<RetentionPurgePage />);
+
+    expect(screen.getByText('Outbox events')).toBeInTheDocument();
+    expect(screen.queryByText('Audit log')).not.toBeInTheDocument();
+    expect(screen.getByLabelText<HTMLInputElement>('Outbox events retention, days').value).toBe(
+      '14',
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Timer-driven behavior: the impact-estimate debounce and the auto-dismissing
+  // run banner.
+  // -------------------------------------------------------------------------
+
+  describe('timer-driven behavior', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      // Impact scales with the value under test so the rendered estimate proves
+      // WHICH value the debounce settled on, not merely that it fired.
+      useRetentionImpact.mockImplementation((_key: string, value: number, enabled: boolean) =>
+        enabled
+          ? { data: { eligible_rows: value * 10, eligible_bytes: 0 }, isFetching: false, isError: false }
+          : { data: undefined, isFetching: false, isError: false },
+      );
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('withholds the impact estimate until the debounce window elapses', () => {
+      renderWithProviders(<RetentionPurgePage />);
+      fireEvent.change(screen.getByLabelText('Audit log retention, days'), {
+        target: { value: '60' },
+      });
+
+      // The "Lowering" chip is immediate; the estimate is not.
+      expect(screen.getByText('Lowering')).toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(screen.getByText(/Checking impact/i)).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(screen.getByText('~600')).toBeInTheDocument();
+    });
+
+    it('restarts the debounce on each keystroke so only the final value is estimated', () => {
+      renderWithProviders(<RetentionPurgePage />);
+      const input = screen.getByLabelText('Audit log retention, days');
+
+      fireEvent.change(input, { target: { value: '60' } });
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      fireEvent.change(input, { target: { value: '30' } });
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      // 300ms after the last edit the earlier timer must NOT have fired.
+      expect(screen.getByText(/Checking impact/i)).toBeInTheDocument();
+      expect(screen.queryByText('~600')).not.toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(screen.getByText('~300')).toBeInTheDocument();
+      expect(screen.queryByText('~600')).not.toBeInTheDocument();
+    });
+
+    it('auto-dismisses the run banner after six seconds', async () => {
+      renderWithProviders(<RetentionPurgePage />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Dry run' }));
+        // triggerRun awaits the mutation before setting the banner copy.
+        await Promise.resolve();
+      });
+      expect(screen.getByText(/Dry run queued/i)).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(5999);
+      });
+      expect(screen.getByText(/Dry run queued/i)).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(screen.queryByText(/Dry run queued/i)).not.toBeInTheDocument();
+    });
   });
 });

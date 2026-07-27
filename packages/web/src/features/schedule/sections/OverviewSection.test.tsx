@@ -487,6 +487,176 @@ describe('OverviewSection — milestone rollup', () => {
   });
 });
 
+describe('OverviewSection — negative variance (milestone ahead of plan)', () => {
+  it('reads "ahead" rather than "slip" when the sprint plan runs early', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: true,
+      progress: 0,
+      totalFloat: 4,
+      isCritical: false,
+      milestoneRollup: {
+        percent_complete: 90,
+        rollup_basis: 'points',
+        variance_days: -3,
+        sprint_scope_changed: false,
+        sprint_count: 1,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const variance = screen.getByText(/Sprint plan: -3d ahead/);
+    expect(variance).toBeInTheDocument();
+    // The accessible name spells the direction out for a screen reader.
+    expect(variance).toHaveAccessibleName(/Sprint plan 3 days ahead/);
+  });
+
+  it('omits the CPM suffix when there is no float annotation to add', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: true,
+      progress: 0,
+      totalFloat: null,
+      isCritical: false,
+      milestoneRollup: {
+        percent_complete: 90,
+        rollup_basis: 'points',
+        variance_days: -2,
+        sprint_scope_changed: false,
+        sprint_count: 1,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const variance = screen.getByText('Sprint plan: -2d ahead');
+    // No " · <annotation>" tail when CPM has nothing to say.
+    expect(variance.textContent).toBe('Sprint plan: -2d ahead');
+    expect(variance).toHaveAccessibleName('Sprint plan 2 days ahead');
+  });
+
+  it('drops the scope-changed chip when the rollup names no sprint to link to', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: true,
+      progress: 0,
+      milestoneRollup: {
+        percent_complete: 60,
+        rollup_basis: 'points',
+        variance_days: 0,
+        sprint_scope_changed: true,
+        sprint_count: 1,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    // The chip is a link into the sprint — without an id there is nowhere to go.
+    expect(screen.queryByRole('button', { name: /Scope changed/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/60%/)).toBeInTheDocument();
+  });
+
+  it('keeps the editable input when a milestone rollup has no percent yet', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: true,
+      milestoneRollup: {
+        percent_complete: null,
+        rollup_basis: 'points',
+        variance_days: null,
+        sprint_scope_changed: false,
+        sprint_count: 1,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.getByRole('slider', { name: /Task progress/i })).toBeInTheDocument();
+  });
+
+  it('a non-milestone task with a rollup payload still shows the editable input', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: false,
+      milestoneRollup: {
+        percent_complete: 70,
+        rollup_basis: 'points',
+        variance_days: 1,
+        sprint_scope_changed: false,
+        sprint_count: 1,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.getByRole('slider', { name: /Task progress/i })).toBeInTheDocument();
+    expect(screen.queryByText(/rolls up from/i)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guards and fallbacks
+// ---------------------------------------------------------------------------
+
+describe('OverviewSection — guards and fallbacks', () => {
+  it('renders nothing when the task id is not in the schedule', () => {
+    const { container } = renderWithProviders(
+      <OverviewSection taskId="missing" projectId="p1" canEdit />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('falls back to the raw status code when it has no display label', () => {
+    // A status the client does not know (server added one, or a legacy row) must
+    // still render something rather than an empty read-only field.
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      status: 'ARCHIVED' as Task['status'],
+      isSummary: true,
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.getByText('ARCHIVED')).toBeInTheDocument();
+  });
+
+  it('discards a non-numeric progress entry instead of PATCHing NaN', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const numeric = screen.getByRole('spinbutton', { name: /Task progress/i });
+    // A number input reports '' for unparseable text — commit must bail and
+    // restore the server value rather than send NaN.
+    fireEvent.change(numeric, { target: { value: '' } });
+    fireEvent.blur(numeric);
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(numeric).toHaveValue(40);
+  });
+
+  it('Enter in the numeric input blurs it, committing the typed value', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const numeric = screen.getByRole('spinbutton', { name: /Task progress/i });
+    fireEvent.change(numeric, { target: { value: '62' } });
+    fireEvent.keyDown(numeric, { key: 'Enter' });
+    fireEvent.blur(numeric);
+    expect(updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ percent_complete: 62 }),
+      expect.any(Object),
+    );
+  });
+
+  it('a non-Enter key in the numeric input does not commit', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const numeric = screen.getByRole('spinbutton', { name: /Task progress/i });
+    fireEvent.change(numeric, { target: { value: '62' } });
+    fireEvent.keyDown(numeric, { key: 'x' });
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('stays silent when the PATCH fails for a reason other than a missing anchor', () => {
+    updateMock.mockImplementationOnce(
+      (_payload: unknown, options?: { onError?: (err: Error) => void }) => {
+        options?.onError?.(new Error('500'));
+      },
+    );
+    mockParseProgressAnchorError.mockReturnValue(null);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const input = screen.getByRole('slider', { name: /Task progress/i });
+    fireEvent.change(input, { target: { value: '75' } });
+    fireEvent.blur(input);
+    // Only the anchor error has a section-level message; everything else is
+    // surfaced by the mutation layer's toast, not here.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Read-only gating for non-editors (ADR-0133, #1142)
 // ---------------------------------------------------------------------------

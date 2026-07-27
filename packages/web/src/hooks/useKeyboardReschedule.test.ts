@@ -481,6 +481,18 @@ describe('useKeyboardReschedule', () => {
       expect(refs.ariaAssertiveRef.current?.textContent).toBe('5 working days later');
     });
 
+    it('nudges five working days earlier with Shift+ArrowLeft', () => {
+      const engine = new ControllableEngine();
+      const refs = renderReschedule(engine);
+      enterMode(engine);
+      press('ArrowLeft', { shiftKey: true });
+      expect(workerMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ newStartIso: '2024-12-30' }), // -5 working days
+      );
+      expect(useDragStore.getState().keyboardDelta).toBe(-5);
+      expect(refs.ariaAssertiveRef.current?.textContent).toBe('5 working days earlier');
+    });
+
     it('nudges earlier on ArrowLeft', () => {
       const engine = new ControllableEngine();
       const refs = renderReschedule(engine);
@@ -524,6 +536,38 @@ describe('useKeyboardReschedule', () => {
       renderReschedule(engine, { keyboardModeRef: { current: true } });
       press('ArrowRight');
       expect(workerMock.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('does not open the date popover when no task is being dragged', () => {
+      const engine = new ControllableEngine();
+      const onOpenDatePopover = vi.fn();
+      renderReschedule(engine, { keyboardModeRef: { current: true }, onOpenDatePopover });
+      press('d');
+      expect(onOpenDatePopover).not.toHaveBeenCalled();
+    });
+
+    it('ignores an unbound key while in keyboard mode', () => {
+      const engine = new ControllableEngine();
+      renderReschedule(engine);
+      enterMode(engine);
+      press('x');
+      expect(workerMock.postMessage).not.toHaveBeenCalled();
+      expect(useDragStore.getState().phase).toBe('dragging');
+    });
+
+    it('still nudges when the assertive aria-live node is not mounted', () => {
+      const engine = new ControllableEngine();
+      const ariaAssertiveRef: MutableRefObject<HTMLDivElement | null> = { current: null };
+      const { keyboardModeRef } = renderReschedule(engine, { ariaAssertiveRef });
+      act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
+      press('Enter', { shiftKey: true });
+      expect(keyboardModeRef.current).toBe(true);
+      workerMock.postMessage.mockClear();
+      press('ArrowRight');
+      expect(workerMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ newStartIso: '2025-01-07' }),
+      );
+      expect(useDragStore.getState().keyboardDelta).toBe(1);
     });
   });
 

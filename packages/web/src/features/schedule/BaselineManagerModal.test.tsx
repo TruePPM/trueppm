@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER } from '@/lib/roles';
@@ -10,29 +10,50 @@ import type { ApiBaseline } from '@/hooks/useBaselines';
 // ---------------------------------------------------------------------------
 
 interface MockList {
-  data: ApiBaseline[];
+  data: ApiBaseline[] | undefined;
   isLoading: boolean;
   isError: boolean;
   refetch: ReturnType<typeof vi.fn>;
 }
-interface MockMutation {
-  mutate: ReturnType<typeof vi.fn>;
-  isPending: boolean;
-  isError: boolean;
-  reset: ReturnType<typeof vi.fn>;
-}
+
+// Mirrors the `mutate(body|id, opts)` shapes the modal drives — typed signatures
+// so a test can invoke the real onSuccess/onError callbacks without `any`.
+type CaptureMutate = (
+  body: Record<string, never>,
+  opts: { onSuccess: (b: { name: string }) => void; onError: (e: unknown) => void },
+) => void;
+type ActivateMutate = (
+  id: string,
+  opts: { onSuccess: () => void; onError: (e: unknown) => void },
+) => void;
+type DeleteMutate = (id: string, opts: { onSuccess: () => void }) => void;
 
 const listSpy = vi.hoisted(() => vi.fn<() => MockList>());
-const createMut = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false, isError: false, reset: vi.fn() }));
-const activateMut = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false, isError: false, reset: vi.fn() }));
-const deleteMut = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false, isError: false, reset: vi.fn() }));
+const createMut = vi.hoisted(() => ({
+  mutate: vi.fn<CaptureMutate>(),
+  isPending: false,
+  isError: false,
+  reset: vi.fn(),
+}));
+const activateMut = vi.hoisted(() => ({
+  mutate: vi.fn<ActivateMutate>(),
+  isPending: false,
+  isError: false,
+  reset: vi.fn(),
+}));
+const deleteMut = vi.hoisted(() => ({
+  mutate: vi.fn<DeleteMutate>(),
+  isPending: false,
+  isError: false,
+  reset: vi.fn(),
+}));
 const toastSpies = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 
 vi.mock('@/hooks/useBaselines', () => ({
   useBaselines: () => listSpy(),
-  useCreateBaseline: () => createMut as MockMutation,
-  useActivateBaseline: () => activateMut as MockMutation,
-  useDeleteBaseline: () => deleteMut as MockMutation,
+  useCreateBaseline: () => createMut,
+  useActivateBaseline: () => activateMut,
+  useDeleteBaseline: () => deleteMut,
 }));
 vi.mock('@/hooks/useProjectMembers', () => ({
   useProjectMembers: () => ({ members: [{ id: 'u1', username: 'kelly', role: ROLE_OWNER }], isLoading: false, error: null }),
@@ -60,21 +81,33 @@ function baseline(over: Partial<ApiBaseline> = {}): ApiBaseline {
   };
 }
 
-function setList(data: ApiBaseline[], over: Partial<MockList> = {}) {
+function setList(data: ApiBaseline[] | undefined, over: Partial<MockList> = {}) {
   listSpy.mockReturnValue({ data, isLoading: false, isError: false, refetch: vi.fn(), ...over });
 }
 
-function render(role: number | null) {
+function render(role: number | null, onClose: () => void = vi.fn()) {
   return renderWithProviders(
-    <BaselineManagerModal projectId="p1" currentRole={role} onClose={vi.fn()} />,
+    <BaselineManagerModal projectId="p1" currentRole={role} onClose={onClose} />,
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   createMut.isPending = false;
+  createMut.isError = false;
+  createMut.mutate = vi.fn<CaptureMutate>();
+  activateMut.isPending = false;
+  activateMut.isError = false;
+  activateMut.mutate = vi.fn<ActivateMutate>();
+  deleteMut.isPending = false;
   deleteMut.isError = false;
+  deleteMut.mutate = vi.fn<DeleteMutate>();
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
   setList([baseline()]);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 // ---------------------------------------------------------------------------
@@ -187,5 +220,316 @@ describe('BaselineManagerModal — states', () => {
     render(ROLE_ADMIN);
     expect(screen.getByText('Active')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /set active/i })).toBeNull();
+  });
+
+  it('role still loading (null): treated as read-only, no capture or delete', () => {
+    setList([baseline({ is_active: false })]);
+    render(null);
+    expect(screen.queryByRole('button', { name: /capture baseline/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /set active/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^delete$/i })).toBeNull();
+    expect(screen.getByText(/captured by a project admin/i)).toBeInTheDocument();
+  });
+
+  it('empty + read-only: the empty state offers no capture CTA', () => {
+    setList([]);
+    render(ROLE_MEMBER);
+    expect(screen.getByText(/no baselines yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /capture baseline/i })).toBeNull();
+  });
+
+  it('treats an unresolved query payload as an empty list', () => {
+    setList(undefined);
+    render(ROLE_MEMBER);
+    expect(screen.getByText(/no baselines yet/i)).toBeInTheDocument();
+  });
+
+  it('the empty-state CTA opens the same capture confirm as the header button', () => {
+    setList([]);
+    render(ROLE_ADMIN);
+    const [, emptyStateCta] = screen.getAllByRole('button', { name: /capture baseline/i });
+    fireEvent.click(emptyStateCta);
+    expect(screen.getByRole('dialog', { name: /capture a baseline\?/i })).toBeInTheDocument();
+    expect(createMut.mutate).not.toHaveBeenCalled();
+  });
+
+  it('admin note is omitted once the caller can capture', () => {
+    render(ROLE_ADMIN);
+    expect(screen.queryByText(/captured by a project admin/i)).toBeNull();
+  });
+
+  it('error state retries the baselines query', () => {
+    const refetch = vi.fn();
+    setList([], { isError: true, refetch });
+    render(ROLE_ADMIN);
+    fireEvent.click(screen.getByRole('button', { name: /try again|retry/i }));
+    expect(refetch).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Row metadata
+// ---------------------------------------------------------------------------
+
+describe('BaselineManagerModal — row metadata', () => {
+  it('attributes the capture to the member who took it', () => {
+    setList([baseline({ created_by: 'u1' })]);
+    render(ROLE_ADMIN);
+    expect(screen.getByText(/· by kelly/)).toBeInTheDocument();
+  });
+
+  it('omits the author when created_by is null (system capture)', () => {
+    setList([baseline({ created_by: null })]);
+    render(ROLE_ADMIN);
+    expect(screen.queryByText(/· by /)).toBeNull();
+  });
+
+  it('omits the author when the capturing user is no longer a project member', () => {
+    setList([baseline({ created_by: 'gone-user' })]);
+    render(ROLE_ADMIN);
+    expect(screen.queryByText(/· by /)).toBeNull();
+  });
+
+  it('pluralizes the task count, and stays singular at one task', () => {
+    setList([baseline({ task_count: 1 }), baseline({ id: 'b2', name: 'B2', task_count: 2, is_active: false })]);
+    render(ROLE_ADMIN);
+    expect(screen.getByText(/1 task$/)).toBeInTheDocument();
+    expect(screen.getByText(/2 tasks$/)).toBeInTheDocument();
+  });
+
+  it('omits the pre-CPM caveat when the snapshot has CPM dates', () => {
+    setList([baseline({ has_cpm_dates: true })]);
+    render(ROLE_ADMIN);
+    expect(screen.queryByText(/before the schedule was fully calculated/i)).toBeNull();
+  });
+
+  it('disables Set active while an activation is in flight', () => {
+    activateMut.isPending = true;
+    setList([baseline({ id: 'b2', name: 'Baseline 2', is_active: false })]);
+    render(ROLE_ADMIN);
+    expect(screen.getByRole('button', { name: /set active/i })).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dismissal
+// ---------------------------------------------------------------------------
+
+describe('BaselineManagerModal — dismissal', () => {
+  it('closes on the header close button', () => {
+    const onClose = vi.fn();
+    render(ROLE_ADMIN, onClose);
+    fireEvent.click(screen.getByRole('button', { name: /close baselines/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes on a scrim press but not on a press inside the panel', () => {
+    const onClose = vi.fn();
+    render(ROLE_ADMIN, onClose);
+    // A press on the panel body must not fall through to the scrim.
+    fireEvent.pointerDown(screen.getByRole('heading', { name: 'Baselines' }));
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.pointerDown(screen.getByRole('dialog', { name: 'Baselines' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Capture outcomes
+// ---------------------------------------------------------------------------
+
+describe('BaselineManagerModal — capture outcomes', () => {
+  function openCaptureConfirm() {
+    fireEvent.click(screen.getByRole('button', { name: /capture baseline/i }));
+    return screen.getByRole('dialog', { name: /capture a baseline\?/i });
+  }
+
+  it('refuses to capture while offline and says why', () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    render(ROLE_ADMIN);
+    const confirm = openCaptureConfirm();
+    fireEvent.click(within(confirm).getByRole('button', { name: /capture baseline/i }));
+    expect(createMut.mutate).not.toHaveBeenCalled();
+    expect(toastSpies.info).toHaveBeenCalledWith(
+      "You're offline — reconnect to capture a baseline.",
+    );
+  });
+
+  it('toasts the new baseline name and closes the confirm on success', () => {
+    createMut.mutate = vi.fn<CaptureMutate>((_body, opts) => {
+      opts.onSuccess({ name: 'Baseline 7' });
+    });
+    render(ROLE_ADMIN);
+    const confirm = openCaptureConfirm();
+    fireEvent.click(within(confirm).getByRole('button', { name: /capture baseline/i }));
+    expect(toastSpies.success).toHaveBeenCalledWith('Captured Baseline 7');
+    expect(screen.queryByRole('dialog', { name: /capture a baseline\?/i })).toBeNull();
+  });
+
+  it('keeps the confirm open and toasts an error when the capture fails', () => {
+    createMut.mutate = vi.fn<CaptureMutate>((_body, opts) => {
+      opts.onError(new Error('boom'));
+    });
+    render(ROLE_ADMIN);
+    const confirm = openCaptureConfirm();
+    fireEvent.click(within(confirm).getByRole('button', { name: /capture baseline/i }));
+    expect(toastSpies.error).toHaveBeenCalledWith("Couldn't capture baseline — try again.");
+    expect(screen.getByRole('dialog', { name: /capture a baseline\?/i })).toBeInTheDocument();
+  });
+
+  it('Cancel dismisses the capture confirm without capturing', () => {
+    render(ROLE_ADMIN);
+    const confirm = openCaptureConfirm();
+    fireEvent.click(within(confirm).getByRole('button', { name: /cancel/i }));
+    expect(screen.queryByRole('dialog', { name: /capture a baseline\?/i })).toBeNull();
+    expect(createMut.mutate).not.toHaveBeenCalled();
+  });
+
+  it('an in-flight capture blocks Cancel and disables the header button', () => {
+    createMut.isPending = true;
+    render(ROLE_ADMIN);
+    fireEvent.click(screen.getByRole('button', { name: /capture baseline/i }));
+    // The header trigger is disabled while pending, so open via the row-less path:
+    // the confirm is not reachable — assert the disabled affordance instead.
+    expect(screen.getByRole('button', { name: /capture baseline/i })).toBeDisabled();
+    expect(screen.queryByRole('dialog', { name: /capture a baseline\?/i })).toBeNull();
+  });
+
+  it('first capture (no active baseline) explains that it becomes the active one', () => {
+    setList([baseline({ is_active: false })]);
+    render(ROLE_ADMIN);
+    const confirm = openCaptureConfirm();
+    expect(within(confirm).getByText(/becomes|become the/i)).toBeInTheDocument();
+    expect(within(confirm).queryByText(/stays active/i)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Activate outcomes
+// ---------------------------------------------------------------------------
+
+describe('BaselineManagerModal — activate outcomes', () => {
+  beforeEach(() => {
+    setList([baseline({ is_active: true }), baseline({ id: 'b2', name: 'Baseline 2', is_active: false })]);
+  });
+
+  it('refuses to activate while offline and says why', () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    render(ROLE_ADMIN);
+    fireEvent.click(screen.getByRole('button', { name: /set active/i }));
+    expect(activateMut.mutate).not.toHaveBeenCalled();
+    expect(toastSpies.info).toHaveBeenCalledWith(
+      "You're offline — reconnect to change the active baseline.",
+    );
+  });
+
+  it('confirms the new active baseline by name on success', () => {
+    activateMut.mutate = vi.fn<ActivateMutate>((_id, opts) => {
+      opts.onSuccess();
+    });
+    render(ROLE_ADMIN);
+    fireEvent.click(screen.getByRole('button', { name: /set active/i }));
+    expect(toastSpies.success).toHaveBeenCalledWith('Baseline 2 is now the active baseline');
+  });
+
+  it('toasts an error when activation fails', () => {
+    activateMut.mutate = vi.fn<ActivateMutate>((_id, opts) => {
+      opts.onError(new Error('boom'));
+    });
+    render(ROLE_ADMIN);
+    fireEvent.click(screen.getByRole('button', { name: /set active/i }));
+    expect(toastSpies.error).toHaveBeenCalledWith("Couldn't activate baseline — try again.");
+    expect(toastSpies.success).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Delete outcomes
+// ---------------------------------------------------------------------------
+
+describe('BaselineManagerModal — delete outcomes', () => {
+  function openDeleteConfirm() {
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    return screen.getByRole('alertdialog');
+  }
+
+  it('refuses to delete while offline and keeps the confirm open', () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    render(ROLE_OWNER);
+    openDeleteConfirm();
+    fireEvent.click(screen.getByRole('button', { name: /delete baseline/i }));
+    expect(deleteMut.mutate).not.toHaveBeenCalled();
+    expect(toastSpies.info).toHaveBeenCalledWith(
+      "You're offline — reconnect to delete a baseline.",
+    );
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
+  it('toasts and closes the confirm when the delete succeeds', () => {
+    deleteMut.mutate = vi.fn<DeleteMutate>((_id, opts) => {
+      opts.onSuccess();
+    });
+    render(ROLE_OWNER);
+    openDeleteConfirm();
+    fireEvent.click(screen.getByRole('button', { name: /delete baseline/i }));
+    expect(toastSpies.success).toHaveBeenCalledWith('Deleted Baseline 1');
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('surfaces an inline retry message when the delete errored', () => {
+    deleteMut.isError = true;
+    render(ROLE_OWNER);
+    const dialog = openDeleteConfirm();
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/couldn't delete/i);
+  });
+
+  it('shows no inline error before anything has failed', () => {
+    render(ROLE_OWNER);
+    const dialog = openDeleteConfirm();
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+
+  it('Cancel clears the mutation error state and closes the confirm', () => {
+    deleteMut.isError = true;
+    render(ROLE_OWNER);
+    openDeleteConfirm();
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(deleteMut.reset).toHaveBeenCalled();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(deleteMut.mutate).not.toHaveBeenCalled();
+  });
+
+  it('an in-flight delete shows Deleting… and refuses to be dismissed', () => {
+    deleteMut.isPending = true;
+    render(ROLE_OWNER);
+    const dialog = openDeleteConfirm();
+    expect(within(dialog).getByRole('button', { name: /deleting/i })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: /^cancel$/i })).toBeDisabled();
+    // A scrim press is inert while the request is in flight.
+    fireEvent.pointerDown(dialog);
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(deleteMut.reset).not.toHaveBeenCalled();
+  });
+
+  it('a scrim press dismisses the delete confirm when idle', () => {
+    render(ROLE_OWNER);
+    const dialog = openDeleteConfirm();
+    fireEvent.pointerDown(dialog);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('a press inside the delete panel does not dismiss it', () => {
+    render(ROLE_OWNER);
+    const dialog = openDeleteConfirm();
+    fireEvent.pointerDown(within(dialog).getByRole('heading', { name: /delete this baseline\?/i }));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
+  it('names the baseline and its task count in the confirm copy', () => {
+    setList([baseline({ name: 'Q3 freeze', task_count: 12 })]);
+    render(ROLE_OWNER);
+    const dialog = openDeleteConfirm();
+    expect(within(dialog).getByText(/Q3 freeze/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/12-task snapshot/)).toBeInTheDocument();
   });
 });

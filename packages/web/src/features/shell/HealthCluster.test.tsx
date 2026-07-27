@@ -7,7 +7,10 @@ import type { ShellStats, ApiSprint, Methodology } from '@/types';
 import type { ProjectVelocity } from '@/hooks/useSprints';
 import { HealthCluster } from './HealthCluster';
 
-vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'test-project-id' }));
+// Configurable per test: `null` models an off-project route (My Work,
+// Notifications, workspace settings), where the chip is suppressed entirely.
+const projectId = vi.hoisted<{ current: string | null }>(() => ({ current: 'test-project-id' }));
+vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => projectId.current }));
 
 const mockNavigate = vi.fn();
 vi.mock('react-router', async (importOriginal) => {
@@ -16,9 +19,12 @@ vi.mock('react-router', async (importOriginal) => {
 });
 
 const methodology = vi.hoisted<{ current: Methodology }>(() => ({ current: 'WATERFALL' }));
+// `projectLoaded: false` models the pre-load tick, where the component falls back
+// to the richest (HYBRID) cluster.
+const projectLoaded = vi.hoisted<{ current: boolean }>(() => ({ current: true }));
 vi.mock('@/hooks/useProject', () => ({
   useProject: () => ({
-    data: { id: 'p', methodology: methodology.current },
+    data: projectLoaded.current ? { id: 'p', methodology: methodology.current } : undefined,
     isLoading: false,
     error: null,
   }),
@@ -62,9 +68,11 @@ vi.mock('@/hooks/useCurrentSprintTargets', () => ({
   useCurrentSprintTargets: () => sprintTargets.current,
 }));
 
-const mcResult = vi.hoisted<{ current: { p50: string; p80: string; p95: string } | undefined }>(
-  () => ({ current: { p50: '2026-10-05', p80: '2026-11-03', p95: '2026-11-30' } }),
-);
+// `p50`/`p80` are nullable so a "distribution cached but no P80" run can be
+// modelled (the forecast band then reads "P80 not run").
+const mcResult = vi.hoisted<{
+  current: { p50: string | null; p80: string | null; p95: string } | undefined;
+}>(() => ({ current: { p50: '2026-10-05', p80: '2026-11-03', p95: '2026-11-30' } }));
 // Spread the canonical fixture so the mock is a structurally complete
 // MonteCarloResult (cpmFinish/deltaVsCpm/confidenceCurve/sensitivity), not a bare
 // percentile triple — an incomplete mock would mask any read of those fields
@@ -123,6 +131,8 @@ const VELOCITY: ProjectVelocity = {
 };
 
 beforeEach(() => {
+  projectId.current = 'test-project-id';
+  projectLoaded.current = true;
   methodology.current = 'WATERFALL';
   stats.current = FIXTURE_SHELL_STATS;
   activeSprint.current = makeSprint({});
@@ -476,5 +486,180 @@ describe('HealthCluster', () => {
       initialEntries: ['/projects/test-project-id/settings/general'],
     });
     expect(container.firstChild).toBeNull();
+  });
+
+  it('is suppressed entirely off a project route', () => {
+    projectId.current = null;
+    const { container } = renderWithRouter(<HealthCluster onTaskNavigate={vi.fn()} />, {
+      initialEntries: ['/my-work'],
+    });
+    expect(container.firstChild).toBeNull();
+  });
+});
+
+describe('HealthCluster degraded / edge reads', () => {
+  it('falls back to the richest (HYBRID) cluster until the project loads', async () => {
+    const user = userEvent.setup();
+    projectLoaded.current = false;
+    methodology.current = 'AGILE'; // ignored — no project data to read it from
+    render();
+    const dialog = await openPopover(user);
+    // HYBRID = sprint + forecast + critical.
+    expect(within(dialog).getByText('Sprint 7')).toBeInTheDocument();
+    expect(within(dialog).getByText('Forecast P80')).toBeInTheDocument();
+    expect(within(dialog).getByRole('group', { name: /critical task/i })).toBeInTheDocument();
+  });
+
+  it('reads "On track" with 0-task drills when the shell stats have not arrived', async () => {
+    const user = userEvent.setup();
+    stats.current = undefined;
+    methodology.current = 'WATERFALL';
+    render();
+    expect(screen.getByTestId('health-cluster')).toHaveTextContent('On track');
+    const dialog = await openPopover(user);
+    // Both drill rows collapse to the calm static "0 tasks" read — no group, no
+    // task buttons.
+    expect(within(dialog).getAllByText('0 tasks')).toHaveLength(2);
+    expect(within(dialog).queryByRole('group')).not.toBeInTheDocument();
+  });
+
+  it('caps the at-risk drill at five tasks with a "+N more" tail', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'WATERFALL';
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      atRiskCount: 7,
+      atRiskTasks: Array.from({ length: 7 }, (_, i) => ({
+        id: `t${i}`,
+        wbs: `1.${i}`,
+        name: `At-risk task ${i}`,
+      })),
+    };
+    render();
+    const dialog = await openPopover(user);
+    const group = within(dialog).getByRole('group', { name: '7 at-risk tasks' });
+    expect(within(group).getAllByRole('button')).toHaveLength(5);
+    expect(within(group).getByText('+2 more')).toBeInTheDocument();
+  });
+
+  it('pluralizes the drill group labels off the count', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'WATERFALL';
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      atRiskCount: 1,
+      atRiskTasks: [{ id: 'a1', wbs: '1.1', name: 'Only at-risk' }],
+      criticalCount: 2,
+      criticalTasks: [
+        { id: 'c1', wbs: '2.1', name: 'Critical one' },
+        { id: 'c2', wbs: '2.2', name: 'Critical two' },
+      ],
+    };
+    render();
+    const dialog = await openPopover(user);
+    expect(within(dialog).getByRole('group', { name: '1 at-risk task' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('group', { name: '2 critical tasks' })).toBeInTheDocument();
+  });
+
+  it('forecast Details announces "P80 not run" when only a P50 is cached', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'WATERFALL';
+    stats.current = { ...FIXTURE_SHELL_STATS, monteCarlop80: null };
+    mcResult.current = { p50: '2026-10-05', p80: null, p95: '2026-11-30' };
+    render();
+    const dialog = await openPopover(user);
+    expect(
+      within(dialog).getByRole('button', {
+        name: 'Monte Carlo forecast: P50 Oct 5, P80 not run. View distribution.',
+      }),
+    ).toBeInTheDocument();
+    // The P50 slot still carries its date; the P80 slot degrades to an em dash.
+    const p50Row = within(dialog).getByText('Forecast P50').closest('div')!;
+    expect(within(p50Row).getByText('Oct 5')).toBeInTheDocument();
+    const p80Row = within(dialog).getByText('Forecast P80').closest('div')!;
+    expect(within(p80Row).getByText('—')).toBeInTheDocument();
+  });
+
+  it('closes the MC distribution panel from its own close control', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'WATERFALL';
+    render();
+    const dialog = await openPopover(user);
+    await user.click(within(dialog).getByRole('button', { name: /monte carlo forecast/i }));
+    const panel = screen.getByRole('dialog', { name: /monte carlo confidence/i });
+    await user.click(within(panel).getByRole('button', { name: /close monte carlo panel/i }));
+    expect(
+      screen.queryByRole('dialog', { name: /monte carlo confidence/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  // --- AGILE segment edges --------------------------------------------------
+
+  it('points row reads items when the team sizes in counts rather than points', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'AGILE';
+    activeSprint.current = makeSprint({ committed_points: null, completed_points: null });
+    render();
+    const dialog = await openPopover(user);
+    const row = within(dialog).getByLabelText('12 of 18 items completed');
+    expect(within(row).getByText('12/18')).toBeInTheDocument();
+    expect(within(row).getByText('items')).toBeInTheDocument();
+  });
+
+  it('velocity row is a calm em dash until there is closed-sprint history', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'AGILE';
+    velocity.current = { ...VELOCITY, rolling_avg_points: null };
+    render();
+    const dialog = await openPopover(user);
+    // No number, no jump button — just the muted read.
+    expect(within(dialog).queryByRole('button', { name: /velocity/i })).not.toBeInTheDocument();
+    const row = within(dialog).getByText('Velocity').closest('div')!;
+    expect(within(row).getByText('—')).toBeInTheDocument();
+  });
+
+  it('velocity aria omits the range when the forecast band is missing and names excluded sprints', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'AGILE';
+    velocity.current = {
+      ...VELOCITY,
+      forecast_range_low: null,
+      forecast_range_high: null,
+      excluded_count: 2,
+    };
+    render();
+    const dialog = await openPopover(user);
+    const button = within(dialog).getByRole('button', { name: /velocity 24 points per sprint/i });
+    expect(button.getAttribute('aria-label')).toBe(
+      'Velocity 24 points per sprint, 2 excluded. Visible to project members only — not on portfolio dashboards. View sprints.',
+    );
+    await user.click(button);
+    expect(mockNavigate).toHaveBeenCalledWith('/projects/test-project-id/sprints');
+  });
+
+  it('no active sprint: the empty row routes to the sprints list, cross-team jumps remain', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'AGILE';
+    activeSprint.current = null;
+    sprintTargets.current = [
+      {
+        projectId: 'other',
+        projectName: 'Payments platform',
+        sprintId: 's2',
+        sprintName: 'Sprint 12',
+        path: '/projects/other/board?sprint=s2',
+      },
+    ];
+    render();
+    const dialog = await openPopover(user);
+    // Other teams' sprints are still reachable while this project has none.
+    const group = within(dialog).getByRole('group', { name: /other teams' active sprints/i });
+    expect(within(group).getByText('Sprint 12')).toBeInTheDocument();
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'No active sprint. View sprints.' }),
+    );
+    expect(mockNavigate).toHaveBeenCalledWith('/projects/test-project-id/sprints');
+    expect(screen.queryByRole('dialog', { name: 'Project health' })).not.toBeInTheDocument();
   });
 });

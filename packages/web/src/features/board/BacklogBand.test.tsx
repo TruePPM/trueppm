@@ -9,10 +9,11 @@
  *  - Drop-target tint applies only when isOver && isDragActive
  *  - Cards sort by statusEnteredAt descending
  */
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DndContext } from '@dnd-kit/core';
 import {
+  ageInDays,
   BacklogBand,
   BacklogCard,
   filterBacklogTasks,
@@ -597,5 +598,451 @@ describe('filterBacklogTasks (issue 1609)', () => {
   it('returns an empty array when nothing matches', () => {
     const tasks = [makeTask({ id: 'a', name: 'Login' })];
     expect(filterBacklogTasks(tasks, 'nonexistent')).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ageInDays — the rail's "Nd ago" age stamp. Guards the three null paths so a
+// clock skew or a missing timestamp never renders "NaNd ago" on a card.
+// ---------------------------------------------------------------------------
+
+describe('ageInDays', () => {
+  it('returns null when the task has no statusEnteredAt', () => {
+    expect(ageInDays(undefined)).toBeNull();
+  });
+
+  it('returns null for an unparseable timestamp rather than NaN', () => {
+    expect(ageInDays('not-a-date')).toBeNull();
+  });
+
+  it('returns null for a future timestamp (clock skew is not a negative age)', () => {
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
+    expect(ageInDays(tomorrow)).toBeNull();
+  });
+
+  it('floors the elapsed time to whole days', () => {
+    // 3 days and change → 3, never 4.
+    const past = new Date(Date.now() - (3 * 86_400_000 + 3_600_000)).toISOString();
+    expect(ageInDays(past)).toBe(3);
+  });
+
+  it('returns 0 for a timestamp captured moments ago', () => {
+    expect(ageInDays(new Date(Date.now() - 1_000).toISOString())).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Branch coverage — persistence failure, card atoms, compact density, the
+// `···` schedule action, and the pending-capture guard.
+// ---------------------------------------------------------------------------
+
+describe('BacklogBand — collapsed-state persistence failures', () => {
+  it('falls back to expanded when reading the preference throws (private mode)', () => {
+    // A read error must never hide the rail: a card that looks lost is worse
+    // than a forgotten preference.
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    try {
+      renderBand({ tasks: [makeTask({ name: 'Visible idea' })] });
+      expect(screen.getByText('Visible idea')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Collapse backlog rail' })).toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('still collapses when writing the preference throws (quota exceeded)', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+    try {
+      renderBand({ tasks: [makeTask({ name: 'Card A' })] });
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse backlog rail' }));
+      // The in-session collapse is honored even though it could not be persisted.
+      expect(screen.getByRole('button', { name: /Expand backlog rail/i })).toBeInTheDocument();
+      expect(screen.queryByText('Card A')).not.toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('BacklogBand — owner initials', () => {
+  it('uses the first two characters of a single-word assignee name', () => {
+    renderBand({
+      tasks: [
+        makeTask({
+          name: 'Mononym idea',
+          assignees: [{ resourceId: 'r1', name: 'Prince', units: 1 }],
+        }),
+      ],
+    });
+    expect(screen.getByText('PR')).toBeInTheDocument();
+  });
+
+  it('uses first + last initials for a multi-word assignee name', () => {
+    renderBand({
+      tasks: [
+        makeTask({
+          name: 'Two-name idea',
+          assignees: [{ resourceId: 'r1', name: 'Sarah  Lee', units: 1 }],
+        }),
+      ],
+    });
+    expect(screen.getByText('SL')).toBeInTheDocument();
+  });
+
+  it('renders the unassigned placeholder when a card has no assignee', () => {
+    renderBand({ tasks: [makeTask({ name: 'Unowned idea', assignees: [] })] });
+    expect(screen.getByText('?')).toBeInTheDocument();
+  });
+});
+
+describe('BacklogBand — priority histogram tone', () => {
+  it('lights no bars and reads "No priority" when the card is unranked', () => {
+    renderBand({ tasks: [makeTask({ name: 'Unranked', priorityRank: undefined })] });
+    const dot = screen.getByTitle('No priority');
+    const bars = Array.from(dot.children).map((c) => c.className);
+    expect(bars).toHaveLength(3);
+    bars.forEach((cls) => expect(cls).toBe('bg-neutral-border'));
+  });
+
+  it('uses the quiet secondary tone (not an alarm color) for a mid rank of 3', () => {
+    renderBand({ tasks: [makeTask({ name: 'Mid', priorityRank: 3 })] });
+    const dot = screen.getByTitle('Priority 3');
+    const bars = Array.from(dot.children).map((c) => c.className);
+    // rank 3 lights only the shortest bar (r >= 2), in the neutral tone.
+    expect(bars[0]).toBe('bg-neutral-text-secondary');
+    expect(bars[1]).toBe('bg-neutral-border');
+    expect(bars[2]).toBe('bg-neutral-border');
+  });
+
+  it('escalates to the critical tone at rank 5', () => {
+    renderBand({ tasks: [makeTask({ name: 'Urgent', priorityRank: 5 })] });
+    const bars = Array.from(screen.getByTitle('Priority 5').children).map((c) => c.className);
+    // rank 5 lights the two shorter bars (r >= 2, r >= 4); the tallest needs 6.
+    expect(bars[0]).toBe('bg-semantic-critical');
+    expect(bars[1]).toBe('bg-semantic-critical');
+    expect(bars[2]).toBe('bg-neutral-border');
+  });
+});
+
+describe('BacklogBand — focus ring', () => {
+  it('rings the focused card and leaves the others unringed', () => {
+    renderBand({
+      tasks: [
+        makeTask({ id: 'a', name: 'Focused idea' }),
+        makeTask({ id: 'b', name: 'Other idea' }),
+      ],
+      focusedCardId: 'a',
+    });
+    expect(
+      screen.getByRole('button', { name: /Focused idea, backlog idea/ }).className,
+    ).toContain('ring-2');
+    expect(
+      screen.getByRole('button', { name: /Other idea, backlog idea/ }).className,
+    ).not.toContain('ring-2');
+  });
+});
+
+describe('BacklogCard — the ··· schedule action (#318)', () => {
+  it('hands the task and its own trigger element to onSchedule', () => {
+    const onSchedule = vi.fn<(task: Task, trigger: HTMLElement) => void>();
+    renderBand({ tasks: [makeTask({ id: 'idea-9', name: 'Spike auth flow' })], onSchedule });
+    const action = screen.getByRole('button', { name: 'Actions for Spike auth flow' });
+    fireEvent.click(action);
+    expect(onSchedule).toHaveBeenCalledTimes(1);
+    expect(onSchedule.mock.calls[0][0]).toMatchObject({ id: 'idea-9' });
+    // The trigger is handed back so the dialog can return focus on close.
+    expect(onSchedule.mock.calls[0][1]).toBe(action);
+  });
+
+  it('does not open the card detail when the ··· action is clicked', () => {
+    const onCardClick = vi.fn();
+    renderBand({
+      tasks: [makeTask({ name: 'Spike auth flow' })],
+      onSchedule: vi.fn(),
+      onCardClick,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Spike auth flow' }));
+    expect(onCardClick).not.toHaveBeenCalled();
+  });
+
+  it('swallows pointerdown so pressing ··· never starts a card drag', () => {
+    const onParentPointerDown = vi.fn();
+    render(
+      <DndContext>
+        <div onPointerDown={onParentPointerDown}>
+          <BacklogCard
+            task={makeTask({ name: 'Spike auth flow' })}
+            density="comfortable"
+            phaseColor="#3E8C6D"
+            ageDays={null}
+            isFocused={false}
+            onFocus={vi.fn()}
+            onClick={vi.fn()}
+            onSchedule={vi.fn()}
+          />
+        </div>
+      </DndContext>,
+    );
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for Spike auth flow' }));
+    expect(onParentPointerDown).not.toHaveBeenCalled();
+  });
+
+  it('omits the ··· action entirely when no onSchedule handler is supplied', () => {
+    renderBand({ tasks: [makeTask({ name: 'Spike auth flow' })] });
+    expect(screen.queryByRole('button', { name: /Actions for/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('BacklogCard — drag feedback', () => {
+  function renderDraggable(density: 'compact' | 'comfortable') {
+    render(
+      <DndContext>
+        <BacklogCard
+          task={makeTask({ name: 'Drag me' })}
+          density={density}
+          phaseColor="#3E8C6D"
+          ageDays={null}
+          isFocused={false}
+          onFocus={vi.fn()}
+          onClick={vi.fn()}
+        />
+      </DndContext>,
+    );
+    return screen.getByRole('button', { name: /Drag me, backlog idea/ });
+  }
+
+  it('dims the card once a keyboard drag picks it up', () => {
+    const card = renderDraggable('comfortable');
+    expect(card.className).not.toContain('opacity-60');
+    // Space picks the card up (dnd-kit keyboard sensor).
+    fireEvent.keyDown(card, { key: ' ', code: 'Space' });
+    expect(card.className).toContain('opacity-60');
+  });
+
+  it('dims a compact card the same way', () => {
+    const card = renderDraggable('compact');
+    fireEvent.keyDown(card, { key: ' ', code: 'Space' });
+    expect(card.className).toContain('opacity-60');
+  });
+});
+
+describe('BacklogBand — compact density', () => {
+  function renderCompact(props: Partial<BacklogBandProps> & { tasks: Task[] }) {
+    return render(
+      <DndContext>
+        <BacklogBand {...BASE_PROPS} density="compact" {...props} />
+      </DndContext>,
+    );
+  }
+
+  it('folds the priority rank into a compact card name and omits it when unranked', () => {
+    renderCompact({
+      tasks: [
+        makeTask({ id: 'a', name: 'Ranked', priorityRank: 2 }),
+        makeTask({ id: 'b', name: 'Unranked' }),
+      ],
+    });
+    expect(
+      screen.getByRole('button', { name: 'Ranked, backlog idea, priority 2' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unranked, backlog idea' })).toBeInTheDocument();
+  });
+
+  it('opens the card detail when a compact card is clicked', () => {
+    const onCardClick = vi.fn();
+    renderCompact({ tasks: [makeTask({ id: 'c1', name: 'Triage requests' })], onCardClick });
+    fireEvent.click(screen.getByRole('button', { name: /Triage requests, backlog idea/ }));
+    expect(onCardClick).toHaveBeenCalledTimes(1);
+    expect(onCardClick.mock.calls[0][0]).toMatchObject({ id: 'c1' });
+  });
+
+  it('renders the ··· schedule action on compact cards and reserves room for it', () => {
+    const onSchedule = vi.fn<(task: Task, trigger: HTMLElement) => void>();
+    renderCompact({ tasks: [makeTask({ name: 'Triage requests' })], onSchedule });
+    const card = screen.getByRole('button', { name: /Triage requests, backlog idea/ });
+    // Right padding keeps the title clear of the absolutely-positioned action.
+    expect(card.className).toContain('pr-7');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Triage requests' }));
+    expect(onSchedule).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the reserved padding when there is no ··· action', () => {
+    renderCompact({ tasks: [makeTask({ name: 'Triage requests' })] });
+    expect(
+      screen.getByRole('button', { name: /Triage requests, backlog idea/ }).className,
+    ).not.toContain('pr-7');
+  });
+
+  it('renders an unrefined idea in the italic idea tone and a groomed one in primary text', () => {
+    renderCompact({
+      tasks: [
+        makeTask({ id: 'a', name: 'Raw idea', readiness: 'idea' }),
+        makeTask({ id: 'b', name: 'Groomed idea', readiness: 'ready' }),
+      ],
+    });
+    expect(screen.getByText('Raw idea').className).toContain('italic');
+    expect(screen.getByText('Groomed idea').className).not.toContain('italic');
+    expect(screen.getByText('Groomed idea').className).toContain('text-neutral-text-primary');
+  });
+});
+
+describe('BacklogBand — sort stability', () => {
+  it('keeps the most recent idea on top regardless of the incoming order', () => {
+    // Three cards force the comparator through both orderings (a<b and a>b).
+    renderBand({
+      tasks: [
+        makeTask({ id: 'mid', name: 'Mid idea', statusEnteredAt: '2026-04-03T10:00Z' }),
+        makeTask({ id: 'old', name: 'Old idea', statusEnteredAt: '2026-04-01T10:00Z' }),
+        makeTask({ id: 'new', name: 'New idea', statusEnteredAt: '2026-04-05T10:00Z' }),
+      ],
+    });
+    const cards = screen.getAllByRole('listitem');
+    expect(cards[0]).toHaveTextContent('New idea');
+    expect(cards[1]).toHaveTextContent('Mid idea');
+    expect(cards[2]).toHaveTextContent('Old idea');
+  });
+
+  it('treats cards with an equal timestamp as ties and keeps them both', () => {
+    renderBand({
+      tasks: [
+        makeTask({ id: 'a', name: 'Tie A', statusEnteredAt: '2026-04-03T10:00Z' }),
+        makeTask({ id: 'b', name: 'Tie B', statusEnteredAt: '2026-04-03T10:00Z' }),
+      ],
+    });
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  });
+});
+
+describe('BacklogBand — quick capture while a create is in flight', () => {
+  /** Type a title, then flip the rail into its pending state. */
+  function renderPendingWithDraft(onQuickCapture: BacklogBandProps['onQuickCapture']) {
+    const { rerender } = render(
+      <DndContext>
+        <BacklogBand {...BASE_PROPS} tasks={[]} onQuickCapture={onQuickCapture} />
+      </DndContext>,
+    );
+    const input = screen.getByRole<HTMLInputElement>('textbox', {
+      name: /Capture a backlog idea/i,
+    });
+    fireEvent.change(input, { target: { value: 'Refresh the logo' } });
+    rerender(
+      <DndContext>
+        <BacklogBand
+          {...BASE_PROPS}
+          tasks={[]}
+          onQuickCapture={onQuickCapture}
+          isQuickCapturePending
+        />
+      </DndContext>,
+    );
+    return input;
+  }
+
+  it('swaps the ⏎ affordance for a busy glyph while the create is in flight', () => {
+    const input = renderPendingWithDraft(vi.fn());
+    expect(input.value).toBe('Refresh the logo');
+    expect(screen.getByText('…')).toBeInTheDocument();
+    expect(screen.queryByText('⏎')).not.toBeInTheDocument();
+  });
+
+  it('ignores a second submit while the first create is still in flight', () => {
+    const onQuickCapture = vi.fn();
+    const input = renderPendingWithDraft(onQuickCapture);
+    fireEvent.submit(input.closest('form')!);
+    // No duplicate POST, and the typed idea is left intact rather than cleared.
+    expect(onQuickCapture).not.toHaveBeenCalled();
+    expect(input.value).toBe('Refresh the logo');
+  });
+
+  it('shows the ⏎ affordance once a draft is typed and no create is pending', () => {
+    renderBand({ tasks: [], onQuickCapture: vi.fn() });
+    const input = screen.getByRole('textbox', { name: /Capture a backlog idea/i });
+    expect(screen.queryByText('⏎')).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { value: 'Refresh the logo' } });
+    expect(screen.getByText('⏎')).toBeInTheDocument();
+  });
+});
+
+describe('BacklogBand — search row controls', () => {
+  it('keeps the filter applied when the search form is submitted with Enter', () => {
+    renderBand({ tasks: [makeTask({ id: 'a', name: 'Login rework' }), ...padIdeas(7)] });
+    const input = screen.getByRole('textbox', { name: /Filter backlog ideas/i });
+    fireEvent.change(input, { target: { value: 'login' } });
+    fireEvent.submit(input.closest('form')!);
+    // Submitting must not navigate or reset the rail — the filter survives.
+    expect(screen.getByText('Login rework')).toBeInTheDocument();
+    expect(screen.queryByText('Padding idea 0')).not.toBeInTheDocument();
+  });
+
+  it('restores the full list from the inline × clear control', () => {
+    renderBand({ tasks: [makeTask({ id: 'a', name: 'Login rework' }), ...padIdeas(7)] });
+    const input = screen.getByRole<HTMLInputElement>('textbox', {
+      name: /Filter backlog ideas/i,
+    });
+    fireEvent.change(input, { target: { value: 'login' } });
+    expect(screen.queryByText('Padding idea 0')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear backlog search' }));
+    expect(input.value).toBe('');
+    expect(screen.getByText('Padding idea 0')).toBeInTheDocument();
+    expect(screen.getByText('Login rework')).toBeInTheDocument();
+  });
+
+  it('hides the × clear control until a query is typed', () => {
+    renderBand({ tasks: padIdeas(8) });
+    expect(screen.queryByRole('button', { name: 'Clear backlog search' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: /Filter backlog ideas/i }), {
+      target: { value: 'padding' },
+    });
+    expect(screen.getByRole('button', { name: 'Clear backlog search' })).toBeInTheDocument();
+  });
+
+  it('omits the ⌘K handoff when no palette handler is wired', () => {
+    renderBand({ tasks: padIdeas(8) });
+    expect(screen.queryByRole('button', { name: /command palette/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('BacklogBand — late quick-capture failure (#2030)', () => {
+  it('leaves an already-refilled capture field untouched when the error arrives late', () => {
+    let onError: (() => void) | undefined;
+    const onQuickCapture = vi.fn<(name: string, opts?: { onError?: () => void }) => void>(
+      (_name, opts) => {
+        onError = opts?.onError;
+      },
+    );
+    renderBand({ tasks: [], onQuickCapture });
+    const input = screen.getByRole<HTMLInputElement>('textbox', {
+      name: /Capture a backlog idea/i,
+    });
+    fireEvent.change(input, { target: { value: 'First idea' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(input.value).toBe('');
+
+    // The user has already started the next idea before the failure comes back.
+    fireEvent.change(input, { target: { value: 'Second idea' } });
+    act(() => {
+      onError?.();
+    });
+    expect(input.value).toBe('Second idea');
+  });
+});
+
+describe('BacklogBand — collapsed strip', () => {
+  it('pluralizes the rotated count for multiple ideas', () => {
+    localStorage.setItem('trueppm.board.backlogBand.collapsed', '1');
+    renderBand({ tasks: [makeTask({ id: 'a' }), makeTask({ id: 'b' }), makeTask({ id: 'c' })] });
+    expect(screen.getByRole('button', { name: 'Expand backlog rail, 3 ideas' })).toBeInTheDocument();
+    expect(screen.getByText(/Backlog · 3/)).toBeInTheDocument();
+  });
+
+  it('uses the singular in the rotated count for one idea', () => {
+    localStorage.setItem('trueppm.board.backlogBand.collapsed', '1');
+    renderBand({ tasks: [makeTask()] });
+    expect(screen.getByRole('button', { name: 'Expand backlog rail, 1 idea' })).toBeInTheDocument();
   });
 });

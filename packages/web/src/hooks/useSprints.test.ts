@@ -768,3 +768,175 @@ describe('suggestion action mutations', () => {
     expect(postMock).toHaveBeenCalledWith('/tasks/t-1/suggestions/s-1/revoke/');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cache-key isolation and identity invariants
+//
+// Every hook here is keyed on an id (and, for the parameterised reads, on the
+// parameter too). A key that collapses two distinct requests onto one entry
+// serves project A's sprints to project B — so the separation is asserted
+// through observable data, not by inspecting query keys.
+// ---------------------------------------------------------------------------
+
+describe('sprint query cache separation', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = newQc();
+    vi.clearAllMocks();
+  });
+
+  it('keeps the sprint lists of two projects apart in one cache', async () => {
+    getMock.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: {
+          count: 1,
+          next: null,
+          previous: null,
+          results: [sprint({ id: url.includes('proj-1') ? 'from-1' : 'from-2' })],
+        },
+      }),
+    );
+
+    const { result } = renderHook(
+      () => ({ one: useSprints('proj-1'), two: useSprints('proj-2') }),
+      { wrapper: makeWrapper(qc) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.one.sprints).toHaveLength(1);
+      expect(result.current.two.sprints).toHaveLength(1);
+    });
+    expect(result.current.one.sprints[0].id).toBe('from-1');
+    expect(result.current.two.sprints[0].id).toBe('from-2');
+  });
+
+  it('caches each flow-metrics window separately', async () => {
+    getMock.mockImplementation((_url: string, config?: { params?: { window?: number } }) =>
+      Promise.resolve({ data: { window_days: config?.params?.window ?? 30 } }),
+    );
+
+    const { result } = renderHook(
+      () => ({
+        narrow: useFlowMetrics('proj-1', { window: 7 }),
+        standard: useFlowMetrics('proj-1'),
+      }),
+      { wrapper: makeWrapper(qc) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.narrow.isSuccess).toBe(true);
+      expect(result.current.standard.isSuccess).toBe(true);
+    });
+    expect(result.current.narrow.data?.window_days).toBe(7);
+    expect(result.current.standard.data?.window_days).toBe(30);
+  });
+
+  it('caches each daily-delta since-window separately', async () => {
+    getMock.mockImplementation((_url: string, config?: { params?: { since?: string } }) =>
+      Promise.resolve({ data: { sprint_id: 'sp-1', since: config?.params?.since ?? '24h' } }),
+    );
+
+    const { result } = renderHook(
+      () => ({
+        windowed: useSprintDailyDelta('sp-1', { since: '2026-05-01' }),
+        rolling: useSprintDailyDelta('sp-1'),
+      }),
+      { wrapper: makeWrapper(qc) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.windowed.isSuccess).toBe(true);
+      expect(result.current.rolling.isSuccess).toBe(true);
+    });
+    expect(result.current.windowed.data?.since).toBe('2026-05-01');
+    expect(result.current.rolling.data?.since).toBe('24h');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Disabled-query and failure paths the surfaces branch on
+// ---------------------------------------------------------------------------
+
+describe('sprint query gating and failure paths', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = newQc();
+    vi.clearAllMocks();
+  });
+
+  it('useSprints stays idle for an undefined project id', () => {
+    const { result } = renderHook(() => useSprints(undefined), { wrapper: makeWrapper(qc) });
+    expect(result.current.sprints).toEqual([]);
+    expect(result.current.isLoading).toBe(false);
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
+  it('useProjectForecast stays idle for a null project even when enabled defaults true', () => {
+    const { result } = renderHook(() => useProjectForecast(null), { wrapper: makeWrapper(qc) });
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
+  it('useActiveSprint reports loading with a null sprint until the list arrives', async () => {
+    getMock.mockResolvedValueOnce({
+      data: { count: 1, next: null, previous: null, results: [sprint({ id: 'live', state: 'ACTIVE' })] },
+    });
+
+    const { result } = renderHook(() => useActiveSprint('proj-1'), { wrapper: makeWrapper(qc) });
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.sprint).toBeNull();
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.sprint?.id).toBe('live');
+  });
+
+  it('useSprintsByState yields empty buckets and surfaces the error on a failed fetch', async () => {
+    getMock.mockRejectedValueOnce(new Error('sprints unavailable'));
+
+    const { result } = renderHook(() => useSprintsByState('proj-1'), { wrapper: makeWrapper(qc) });
+
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    expect(result.current.error?.message).toBe('sprints unavailable');
+    expect(result.current.closed).toEqual([]);
+    expect(result.current.planned).toEqual([]);
+    expect(result.current.active).toBeNull();
+  });
+
+  it('useSprintsByState keeps a stable result identity across re-renders', async () => {
+    getMock.mockResolvedValue({
+      data: {
+        count: 1,
+        next: null,
+        previous: null,
+        results: [sprint({ id: 'live', state: 'ACTIVE' })],
+      },
+    });
+
+    const { result, rerender } = renderHook(() => useSprintsByState('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.active).not.toBeNull());
+
+    const firstResult = result.current;
+    rerender();
+    // Consumers put the buckets in effect/memo dependency arrays — a fresh
+    // object on every render would loop them.
+    expect(result.current).toBe(firstResult);
+  });
+
+  it('createSprint surfaces a rejection and leaves the sprint list cache untouched', async () => {
+    postMock.mockRejectedValueOnce(new Error('overlapping sprint window'));
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useSprintMutations('proj-1'), { wrapper: makeWrapper(qc) });
+    result.current.createSprint.mutate({
+      name: 'Sprint 4',
+      start_date: '2026-06-01',
+      finish_date: '2026-06-14',
+    });
+
+    await waitFor(() => expect(result.current.createSprint.isError).toBe(true));
+    expect(result.current.createSprint.error?.message).toBe('overlapping sprint window');
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+});

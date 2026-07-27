@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -9,14 +9,22 @@ import type {
   AggregationPolicy,
   ProgramRollupConfig,
   RollupKpi,
+  UnavailableKpiReason,
 } from './useProgramRollupConfig';
+
+interface MutateHandlers {
+  onSuccess?: () => void;
+  onError?: () => void;
+}
 
 const useProgram = vi.fn();
 const useProgramRollupConfig = vi.fn();
 const useProgramRollup = vi.fn();
-const toggleMutate = vi.fn<(payload: RollupKpi[]) => void>();
-const savePolicyMutate = vi.fn<(payload: AggregationPolicy) => void>();
+const toggleMutate = vi.fn<(payload: RollupKpi[], handlers?: MutateHandlers) => void>();
+const savePolicyMutate = vi.fn<(payload: AggregationPolicy, handlers?: MutateHandlers) => void>();
 const refetch = vi.fn();
+/** Mutable so a test can drive the policy mutation's in-flight branch. */
+const savePolicyState = { isPending: false };
 
 vi.mock('@/hooks/useProgram', () => ({
   useProgram: () => useProgram() as { data: unknown },
@@ -45,7 +53,10 @@ vi.mock('./useProgramRollupConfig', async () => {
         refetch: () => void;
       },
     useToggleProgramRollupKpi: () => ({ mutate: toggleMutate, isPending: false }),
-    useSaveProgramRollupPolicy: () => ({ mutate: savePolicyMutate, isPending: false }),
+    useSaveProgramRollupPolicy: () => ({
+      mutate: savePolicyMutate,
+      isPending: savePolicyState.isPending,
+    }),
   };
 });
 
@@ -113,6 +124,7 @@ describe('ProgramRollupPage (settings)', () => {
     toggleMutate.mockReset();
     savePolicyMutate.mockReset();
     refetch.mockReset();
+    savePolicyState.isPending = false;
   });
 
   it('renders KPI groups, current toggles, and policy radio', () => {
@@ -325,9 +337,14 @@ describe('ProgramRollupPage (settings)', () => {
     });
     renderPage();
     const retryButtons = screen.getAllByRole('button', { name: /Retry/ });
-    expect(retryButtons.length).toBeGreaterThan(0);
+    // Both the KPI section and the policy section carry their own Retry.
+    expect(retryButtons).toHaveLength(2);
+    expect(screen.getByText("Couldn't load KPI settings.")).toBeInTheDocument();
+    expect(screen.getByText("Couldn't load policy.")).toBeInTheDocument();
     await user.click(retryButtons[0]);
-    expect(refetch).toHaveBeenCalled();
+    expect(refetch).toHaveBeenCalledTimes(1);
+    await user.click(retryButtons[1]);
+    expect(refetch).toHaveBeenCalledTimes(2);
   });
 
   // --- Live preview (#673) -------------------------------------------------
@@ -484,6 +501,358 @@ describe('ProgramRollupPage (settings)', () => {
       await user.click(cv);
       await waitFor(() => expect(toggleMutate).toHaveBeenCalledTimes(1), { timeout: 1000 });
       expect(toggleMutate.mock.calls[0][0]).toEqual(['schedule_health', 'cost_variance']);
+    });
+
+    it('falls back to a generic sentence for a reason the client does not know yet', () => {
+      // The server owns this vocabulary and may ship a new reason before the
+      // web package has a matching label — the row must still read sensibly.
+      const futureReason = 'no_velocity_history' as unknown as UnavailableKpiReason;
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig({
+          enabled_kpis: ['schedule_health'],
+          unavailable_kpis: { risk_score: futureReason },
+        }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      renderPage();
+
+      expect(screen.getByText('Not yet available in this release.')).toBeInTheDocument();
+      expect(screen.getByRole('switch', { name: 'Risk score' })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+    });
+
+    it('leaves a KPI with no entry in unavailable_kpis switchable', () => {
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig({ enabled_kpis: [], unavailable_kpis: {} }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      renderPage();
+
+      expect(screen.getByRole('switch', { name: 'Cost variance (CV)' })).not.toHaveAttribute(
+        'aria-disabled',
+      );
+      expect(screen.queryByText(/Not yet available/i)).not.toBeInTheDocument();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Save/PATCH outcomes — the inline toast is the only feedback these two
+  // mutations give, so both arms of each handler need a case.
+  // -------------------------------------------------------------------------
+
+  describe('mutation outcomes', () => {
+    beforeEach(() => {
+      useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_ADMIN } });
+    });
+
+    it('reverts the switch and raises an error toast when the KPI PATCH fails', async () => {
+      const user = userEvent.setup();
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig({ enabled_kpis: ['schedule_health'] }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      toggleMutate.mockImplementation((_payload, handlers) => handlers?.onError?.());
+      renderPage();
+
+      const sw = screen.getByRole('switch', { name: 'Critical task count' });
+      await user.click(sw);
+      // Optimistic overlay flips first…
+      expect(sw).toHaveAttribute('aria-checked', 'true');
+      // …then the failed PATCH drops it back to the server's last-known state.
+      await waitFor(
+        () =>
+          expect(screen.getByRole('alert')).toHaveTextContent('Could not save change — try again.'),
+        { timeout: 1000 },
+      );
+      expect(sw).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('cancels an in-flight debounce when the page unmounts mid-toggle', async () => {
+      const user = userEvent.setup();
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig({ enabled_kpis: [] }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      const { unmount } = renderPage();
+
+      await user.click(screen.getByRole('switch', { name: 'At-risk tasks' }));
+      // Navigating away before the 250ms debounce fires must not PATCH.
+      unmount();
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(toggleMutate).not.toHaveBeenCalled();
+    });
+
+    it('confirms a successful policy save with a polite toast', async () => {
+      const user = userEvent.setup();
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig({ aggregation_policy: 'worst' }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      savePolicyMutate.mockImplementation((_payload, handlers) => handlers?.onSuccess?.());
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Average/ }));
+      await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+      const toast = screen.getByText('Saved.');
+      expect(toast).toHaveAttribute('role', 'status');
+      expect(toast).toHaveAttribute('aria-live', 'polite');
+    });
+
+    it('raises an assertive toast when the policy save fails', async () => {
+      const user = userEvent.setup();
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig({ aggregation_policy: 'worst' }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      savePolicyMutate.mockImplementation((_payload, handlers) => handlers?.onError?.());
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Task-weighted/ }));
+      await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+      const toast = screen.getByText('Could not save — try again.');
+      expect(toast).toHaveAttribute('role', 'alert');
+      expect(toast).toHaveAttribute('aria-live', 'assertive');
+      // The bar stays up so the admin can retry — the draft is not discarded.
+      expect(screen.getByText(/Unsaved changes/i)).toBeInTheDocument();
+    });
+
+    it('dismisses the toast on its own after six seconds', () => {
+      // fireEvent (not userEvent) so the fake clock is not driven by the
+      // user-event scheduler — this test only cares about the dismiss timer.
+      vi.useFakeTimers();
+      try {
+        useProgramRollupConfig.mockReturnValue({
+          data: defaultConfig({ aggregation_policy: 'worst' }),
+          isLoading: false,
+          isError: false,
+          refetch,
+        });
+        savePolicyMutate.mockImplementation((_payload, handlers) => handlers?.onSuccess?.());
+        renderPage();
+
+        fireEvent.click(screen.getByRole('radio', { name: /Average/ }));
+        fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+        expect(screen.getByText('Saved.')).toBeInTheDocument();
+
+        act(() => {
+          vi.advanceTimersByTime(6000);
+        });
+        expect(screen.queryByText('Saved.')).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('locks Save and Discard while the policy save is in flight', async () => {
+      const user = userEvent.setup();
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig({ aggregation_policy: 'worst' }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      renderPage();
+      await user.click(screen.getByRole('radio', { name: /Average/ }));
+
+      // Re-render with the mutation in flight — the bar swaps to its busy state.
+      savePolicyState.isPending = true;
+      await user.click(screen.getByRole('radio', { name: /Budget-weighted/ }));
+
+      expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /Discard/ })).toBeDisabled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Guards and degenerate payloads.
+  // -------------------------------------------------------------------------
+
+  describe('guards and degenerate payloads', () => {
+    it('renders nothing when the route carries no program id', () => {
+      useProgram.mockReturnValue({ data: undefined });
+      useProgramRollupConfig.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={['/settings/rollup']}>
+            <Routes>
+              <Route path="/settings/rollup" element={<ProgramRollupPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it('treats a viewer with no loaded program as read-only', () => {
+      useProgram.mockReturnValue({ data: undefined });
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig(),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      renderPage();
+      expect(screen.getByText(/Read-only/)).toBeInTheDocument();
+      expect(screen.queryByRole('switch')).toBeNull();
+    });
+
+    it('renders the section chrome but no rows when the config resolves to nothing', () => {
+      useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
+      useProgramRollupConfig.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      renderPage();
+      expect(screen.getByRole('heading', { name: 'Enabled KPIs' })).toBeInTheDocument();
+      expect(screen.queryByRole('switch')).toBeNull();
+      expect(screen.queryByRole('radio')).toBeNull();
+    });
+
+    it('shows the raw policy value when the server sends one the client cannot label', () => {
+      const futurePolicy = 'risk_weighted' as unknown as AggregationPolicy;
+      useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_MEMBER } });
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig({ aggregation_policy: futurePolicy }),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+      renderPage();
+      expect(
+        screen.getByLabelText(
+          'Aggregation policy: risk_weighted, managed by the program admin. View only.',
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Live preview (#673) — every state the panel can be in.
+  // -------------------------------------------------------------------------
+
+  describe('preview states (#673)', () => {
+    beforeEach(() => {
+      useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
+      useProgramRollupConfig.mockReturnValue({
+        data: defaultConfig(),
+        isLoading: false,
+        isError: false,
+        refetch,
+      });
+    });
+
+    it('shows a named skeleton while the rollup loads', () => {
+      useProgramRollup.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+      renderPage();
+      const preview = screen.getByRole('region', { name: 'Preview' });
+      expect(within(preview).getByRole('status', { name: 'Loading preview' })).toBeInTheDocument();
+      expect(within(preview).queryByLabelText(/Program health/)).toBeNull();
+    });
+
+    it('shows an inline error when the rollup request fails', () => {
+      useProgramRollup.mockReturnValue({ data: undefined, isLoading: false, isError: true });
+      renderPage();
+      const preview = screen.getByRole('region', { name: 'Preview' });
+      expect(within(preview).getByRole('alert')).toHaveTextContent(
+        "Couldn't load the preview.",
+      );
+    });
+
+    it('renders the panel chrome and nothing else when the rollup resolves empty', () => {
+      useProgramRollup.mockReturnValue({ data: undefined, isLoading: false, isError: false });
+      renderPage();
+      const preview = screen.getByRole('region', { name: 'Preview' });
+      expect(
+        within(preview).getByText(/How these settings roll up against your current project data/i),
+      ).toBeInTheDocument();
+      expect(within(preview).queryByLabelText(/Program health/)).toBeNull();
+      expect(within(preview).queryByRole('alert')).toBeNull();
+    });
+
+    it('uses the singular noun for a one-project program', () => {
+      useProgramRollup.mockReturnValue(rollupResult({ project_count: 1 }));
+      renderPage();
+      const preview = screen.getByRole('region', { name: 'Preview' });
+      expect(within(preview).getByText('Worst-case across 1 project')).toBeInTheDocument();
+    });
+
+    it('prompts to add projects when the program has none', () => {
+      useProgramRollup.mockReturnValue(rollupResult({ project_count: 0 }));
+      renderPage();
+      const preview = screen.getByRole('region', { name: 'Preview' });
+      expect(
+        within(preview).getByText('Add projects to the program to preview the rollup.'),
+      ).toBeInTheDocument();
+      // The KPI grid is suppressed entirely in this state.
+      expect(within(preview).queryByText('Schedule health')).toBeNull();
+    });
+
+    it('prompts to enable a KPI when the program has projects but no enabled KPIs', () => {
+      useProgramRollup.mockReturnValue(rollupResult({ project_count: 3, kpis: {} }));
+      renderPage();
+      const preview = screen.getByRole('region', { name: 'Preview' });
+      expect(
+        within(preview).getByText('No KPIs enabled — toggle one above to preview it.'),
+      ).toBeInTheDocument();
+    });
+
+    it('titles a deferred KPI with its reason and leaves an available one untitled', () => {
+      useProgramRollup.mockReturnValue(
+        rollupResult({
+          kpis: {
+            critical_tasks: { available: true, value: 4 },
+            p80_completion: { available: false, reason: 'no_montecarlo_store' },
+          },
+        }),
+      );
+      renderPage();
+      const preview = screen.getByRole('region', { name: 'Preview' });
+      // Muted deferred value carries its explanation as a tooltip.
+      expect(within(preview).getByTitle('Needs a saved Monte Carlo run')).toHaveTextContent('—');
+      // A live value is coloured by variant, not muted, and has no tooltip.
+      const live = within(preview).getByText('4');
+      expect(live).not.toHaveAttribute('title');
+      expect(live.className).toContain('text-semantic-at-risk');
+    });
+
+    it('paints an unknown program health band as the neutral pill', () => {
+      useProgramRollup.mockReturnValue(rollupResult({ program_health: 'unknown' }));
+      renderPage();
+      const preview = screen.getByRole('region', { name: 'Preview' });
+      const pill = within(preview).getByLabelText('Program health: Unknown');
+      expect(pill).toHaveTextContent('Unknown');
+      expect(pill.className).toContain('text-neutral-text-disabled');
+    });
+
+    it('labels the subtitle with each aggregation policy the server can report', () => {
+      useProgramRollup.mockReturnValue(rollupResult({ aggregation_policy: 'task_weighted' }));
+      renderPage();
+      const preview = screen.getByRole('region', { name: 'Preview' });
+      expect(within(preview).getByText('Task-weighted across 2 projects')).toBeInTheDocument();
     });
   });
 });

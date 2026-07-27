@@ -76,6 +76,10 @@ function xmlFile(name = 'plan.xml') {
 function jsonFile(name = 'seed.json') {
   return new File(['{}'], name, { type: 'application/json' });
 }
+/** Wrong extension for both formats — always rejected by the dropzone. */
+function mppFile(name = 'legacy.mpp') {
+  return new File(['bin'], name, { type: 'application/octet-stream' });
+}
 
 function pickFile(file: File) {
   // The real ImportDropzone hides a native <input type=file>; drive it directly.
@@ -303,5 +307,219 @@ describe('ImportProjectModal — dismissal', () => {
     const { onClose } = setup();
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('ignores keys that are neither Escape nor Tab', () => {
+    const { onClose } = setup();
+    const dialog = screen.getByRole('dialog', { name: 'Import a project' });
+    fireEvent.keyDown(document, { key: 'a' });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it('restores focus to the element that opened it', () => {
+    const trigger = document.createElement('button');
+    trigger.textContent = 'Open import';
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    const { unmount } = renderWithProviders(
+      <ImportProjectModal onClose={vi.fn()} onCreated={vi.fn()} />,
+    );
+    expect(document.activeElement).not.toBe(trigger);
+
+    unmount();
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Focus trap — Tab/Shift+Tab cycle within the dialog. The first focusable is
+// the TruePPM format tile; the last is the Import button (once a file makes it
+// enabled, so it is not filtered out by the :not([disabled]) selector).
+// ---------------------------------------------------------------------------
+
+describe('ImportProjectModal — focus trap', () => {
+  function firstFocusable() {
+    return screen.getByRole('radio', { name: /TruePPM/ });
+  }
+  function lastFocusable() {
+    return screen.getByRole('button', { name: 'Import' });
+  }
+
+  it('wraps Tab from the last control back to the first', () => {
+    setup();
+    pickFile(xmlFile());
+    lastFocusable().focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(firstFocusable());
+  });
+
+  it('wraps Shift+Tab from the first control to the last', () => {
+    setup();
+    pickFile(xmlFile());
+    firstFocusable().focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(lastFocusable());
+  });
+
+  it('leaves Tab alone in the middle of the cycle', () => {
+    setup();
+    pickFile(xmlFile());
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    cancel.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(cancel);
+  });
+
+  it('leaves Shift+Tab alone in the middle of the cycle', () => {
+    setup();
+    pickFile(xmlFile());
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    cancel.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(cancel);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rejected files
+// ---------------------------------------------------------------------------
+
+describe('ImportProjectModal — rejected files', () => {
+  it('surfaces the rejection and auto-opens the .xml guidance for MS Project', () => {
+    setup();
+    const guidance = screen.getByRole('button', { name: /How do I get an .xml file/ });
+    expect(guidance).toHaveAttribute('aria-expanded', 'false');
+
+    pickFile(mppFile());
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/That file can't be imported/);
+    expect(guidance).toHaveAttribute('aria-expanded', 'true');
+    // Nothing was selected, so Import stays unavailable.
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+  });
+
+  it('surfaces the rejection without any guidance disclosure on the native seed path', async () => {
+    setup();
+    await userEvent.click(screen.getByRole('radio', { name: /TruePPM/ }));
+    pickFile(xmlFile());
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/\.json only/);
+    expect(
+      screen.queryByRole('button', { name: /How do I get an .xml file/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('toggles the guidance disclosure by hand', async () => {
+    setup();
+    const guidance = screen.getByRole('button', { name: /How do I get an .xml file/ });
+    await userEvent.click(guidance);
+    expect(guidance).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(guidance);
+    expect(guidance).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('clears the rejection message once a valid file is picked', () => {
+    setup();
+    pickFile(mppFile());
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    pickFile(xmlFile());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Clearing / re-picking
+// ---------------------------------------------------------------------------
+
+describe('ImportProjectModal — clearing the picked file', () => {
+  it('Remove clears the selection and resets both mutations', async () => {
+    setup();
+    pickFile(xmlFile());
+    expect(screen.getByRole('button', { name: 'Import' })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+    expect(createState.reset).toHaveBeenCalled();
+    expect(seedState.reset).toHaveBeenCalled();
+  });
+
+  it('re-selecting the format that is already active is a no-op', async () => {
+    setup();
+    pickFile(xmlFile());
+    const resetsAfterPick = createState.reset.mock.calls.length;
+
+    await userEvent.click(screen.getByRole('radio', { name: /Industry-standard schedule/ }));
+
+    // Still the same picked file — no clear, no extra reset.
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+    expect(createState.reset.mock.calls.length).toBe(resetsAfterPick);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error-message normalization edge cases
+// ---------------------------------------------------------------------------
+
+describe('ImportProjectModal — error normalization', () => {
+  it('falls back to the generic message when the server detail is not a string', () => {
+    createState.isError = true;
+    createState.error = axiosErr({ code: 42 });
+    setup();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Couldn't read this file/);
+  });
+
+  it('renders a single-line seed failure as one message, not a bulleted report', async () => {
+    seedState.isError = true;
+    seedState.error = axiosErr('A program with that key already exists.');
+    setup();
+    await userEvent.click(screen.getByRole('radio', { name: /TruePPM/ }));
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('A program with that key already exists.');
+    expect(alert).not.toHaveTextContent("Couldn't import this file:");
+    expect(alert.querySelector('ul')).toBeNull();
+  });
+
+  it('shows exactly eight lines and no overflow note for an eight-line report', async () => {
+    seedState.isError = true;
+    seedState.error = axiosErr(Array.from({ length: 8 }, (_, i) => `Error line ${i + 1}`));
+    setup();
+    await userEvent.click(screen.getByRole('radio', { name: /TruePPM/ }));
+
+    const alert = screen.getByRole('alert');
+    expect(alert.querySelectorAll('li')).toHaveLength(8);
+    expect(alert).not.toHaveTextContent('…and');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Optional props
+// ---------------------------------------------------------------------------
+
+describe('ImportProjectModal — optional props', () => {
+  it('does not blow up on a seed success when no onProgramImported is wired', async () => {
+    seedState.mutate = vi.fn(
+      (_file: File, opts: { onSuccess: (data: { id: string }) => void }) =>
+        opts.onSuccess({ id: 'prog-1' }),
+    );
+    const onCreated = vi.fn();
+    renderWithProviders(<ImportProjectModal onClose={vi.fn()} onCreated={onCreated} />);
+
+    await userEvent.click(screen.getByRole('radio', { name: /TruePPM/ }));
+    pickFile(jsonFile());
+    await userEvent.click(screen.getByRole('button', { name: 'Import' }));
+
+    expect(seedState.mutate).toHaveBeenCalledTimes(1);
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it('omits the "added to program" hint when the program name is unknown', () => {
+    setup({ programId: 'prog-1' });
+    pickFile(xmlFile());
+    expect(screen.queryByText(/Will be added to the/)).not.toBeInTheDocument();
   });
 });

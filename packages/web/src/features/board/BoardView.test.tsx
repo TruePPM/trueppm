@@ -109,15 +109,28 @@ vi.mock('@/hooks/useBoardConfig', () => ({
   }),
 }));
 
+// Shared create-task spy (#2459) so tests can assert what quick capture and the
+// workshop "add phase" affordance actually POST, and drive their onError paths.
+const createTaskMutate =
+  vi.fn<
+    (
+      body: Record<string, unknown>,
+      opts?: { onError?: (e: Error) => void; onSuccess?: () => void },
+    ) => void
+  >();
+/** Shared update-task spy (#2459) — the workshop phase-rename write path. */
+const updateTaskMutate = vi.fn<(body: Record<string, unknown>) => void>();
 vi.mock('@/hooks/useTaskMutations', () => ({
   useCreateTask: () => ({
-    mutate: vi.fn(),
+    mutate: createTaskMutate,
     mutateAsync: vi.fn(),
     isPending: false,
     isError: false,
   }),
-  useUpdateTask: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useUpdateTask: () => ({ mutate: updateTaskMutate, mutateAsync: vi.fn(), isPending: false }),
   useDeleteTask: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  // The backlog "Schedule…" dialog (#318) commits through this (#2459).
+  usePromoteTask: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useAddDependency: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useRemoveDependency: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -223,9 +236,12 @@ vi.mock('@/hooks/useBoardSavedViews', () => ({
 }));
 
 // Board batch 3 hooks — stub out network-dependent overallocation + dep fetches.
+// Mutable (#2459) so a test can seed `${resourceId}:${taskId}` peak factors and
+// exercise the per-task regrouping BoardView does before handing them to cards.
+let mockOverallocByPair = new Map<string, number>();
 vi.mock('@/hooks/useBoardOverallocation', () => ({
   useBoardOverallocation: () => ({
-    overallocByPair: new Map<string, number>(),
+    overallocByPair: mockOverallocByPair,
     threshold: 1.0,
     scheduleNotRun: false,
   }),
@@ -275,11 +291,17 @@ vi.mock('@/hooks/useSprints', () => ({
   }),
 }));
 
+// Mutable dep edges (#2459) so a test can drive the chain-hover dim set, which
+// only resolves once the hovered card's dependency fetch settles.
+type MockDepEdge = import('@/hooks/useTaskDependencies').TaskDependencyEdge;
+let mockDepPredecessors: MockDepEdge[] = [];
+let mockDepSuccessors: MockDepEdge[] = [];
+let mockDepIsLoading = false;
 vi.mock('@/hooks/useTaskDependencies', () => ({
   useTaskDependencies: () => ({
-    predecessors: [],
-    successors: [],
-    isLoading: false,
+    predecessors: mockDepPredecessors,
+    successors: mockDepSuccessors,
+    isLoading: mockDepIsLoading,
     error: null,
   }),
   useTaskRisks: () => ({
@@ -303,6 +325,16 @@ vi.mock('@/hooks/useTaskDependencies', () => ({
   },
 }));
 
+// Board PDF export (#2459) — the real module rasterizes the DOM through
+// html2canvas/jsPDF, neither of which works in jsdom. Stub the two exports so
+// the request → mount print surface → rasterize → unmount cycle is testable.
+const exportBoardPdfMock =
+  vi.fn<(node: HTMLElement, opts: { fileName: string }) => Promise<void>>();
+vi.mock('./export/exportBoardPdf', () => ({
+  exportBoardPdf: (node: HTMLElement, opts: { fileName: string }) => exportBoardPdfMock(node, opts),
+  boardPdfFileName: (name: string) => `${name}.pdf`,
+}));
+
 function resetMocks() {
   boardRoleMock = 300;
   mockTasks = FIXTURE_TASKS;
@@ -324,6 +356,14 @@ function resetMocks() {
   mockWorkshopSession = null;
   mockEndWorkshopPending = false;
   mockProjectResourcePool = [];
+  mockOverallocByPair = new Map<string, number>();
+  mockDepPredecessors = [];
+  mockDepSuccessors = [];
+  mockDepIsLoading = false;
+  createTaskMutate.mockReset();
+  updateTaskMutate.mockReset();
+  exportBoardPdfMock.mockReset();
+  exportBoardPdfMock.mockResolvedValue(undefined);
   mockMyTasksFilter = {
     enabled: false,
     isLoading: false,
@@ -1353,7 +1393,9 @@ describe('BoardView', () => {
       // expect.objectContaining (which loses type information here) — the
       // saved payload's name and its full config.filters must both land.
       expect(mockCreateMutate).toHaveBeenCalledTimes(1);
-      const [firstCallArgs] = mockCreateMutate.mock.calls[0] as [{ name: string; config: BoardViewConfig }];
+      const [firstCallArgs] = mockCreateMutate.mock.calls[0] as [
+        { name: string; config: BoardViewConfig },
+      ];
       expect(firstCallArgs.name).toBe('My filtered view');
       expect(firstCallArgs.config.filters).toEqual({
         assignees: ['r1'],
@@ -1374,7 +1416,9 @@ describe('BoardView', () => {
       await user.click(screen.getByRole('button', { name: /^save$/i }));
 
       expect(mockCreateMutate).toHaveBeenCalledTimes(1);
-      const [firstCallArgs] = mockCreateMutate.mock.calls[0] as [{ name: string; config: BoardViewConfig }];
+      const [firstCallArgs] = mockCreateMutate.mock.calls[0] as [
+        { name: string; config: BoardViewConfig },
+      ];
       expect(firstCallArgs.config.filters).toEqual({
         assignees: [],
         priority: [],
@@ -1987,12 +2031,8 @@ describe('per-cell card cap (issue 1967, ADR-0420)', () => {
     const crit = [1, 2].map((n) => leaf(`crit${n}`, `Critical ${n}`, { isCritical: true }));
     mockTasks = [...calm, ...crit];
     renderBoard();
-    expect(
-      screen.getByRole('button', { name: /Critical 1,.*% complete/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /Critical 2,.*% complete/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Critical 1,.*% complete/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Critical 2,.*% complete/i })).toBeInTheDocument();
     expect(cardCount()).toBe(6);
     expect(screen.getByTestId('cell-overflow-toggle')).toHaveAttribute(
       'aria-label',
@@ -2114,9 +2154,7 @@ describe('swimlane grouping (Group chip)', () => {
     // … plus the catch-all for the unassigned leaves (t5 QA, t6 Go-Live).
     expect(screen.getByRole('group', { name: 'Unassigned swimlane' })).toBeInTheDocument();
     // The WBS phase lane header is gone in assignee mode.
-    expect(
-      screen.queryByRole('group', { name: 'Alpha Platform Upgrade swimlane' }),
-    ).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Alpha Platform Upgrade swimlane' })).toBeNull();
   });
 
   it('collapses every card into a single "(No epic)" lane when no task has a parent epic', async () => {
@@ -2209,9 +2247,13 @@ describe('board zoom stepper', () => {
     const zoomOut = screen.getByRole('button', { name: /zoom out/i });
     await user.click(zoomIn);
     // Board is unaffected structurally — phase lane still present.
-    expect(screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' }),
+    ).toBeInTheDocument();
     await user.click(zoomOut);
-    expect(screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -2313,8 +2355,8 @@ describe('workshop exit dialog focus trap', () => {
       ended_at: null,
       participants: [],
     };
-    startWorkshopMutate.mockImplementation(
-      (_input: undefined, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
+    startWorkshopMutate.mockImplementation((_input: undefined, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
     );
     renderBoard();
     await openMore(user);
@@ -2421,9 +2463,7 @@ describe('collapsed-column WIP breach popover (#1459)', () => {
     renderBoard();
     await collapse(user, 'IN PROGRESS');
     await collapse(user, 'DONE');
-    expect(screen.getByTestId('collapsed-columns-banner')).toHaveTextContent(
-      '2 columns collapsed',
-    );
+    expect(screen.getByTestId('collapsed-columns-banner')).toHaveTextContent('2 columns collapsed');
 
     await user.click(screen.getByTestId('expand-all-columns'));
     expect(screen.queryByTestId('collapsed-columns-banner')).toBeNull();
@@ -2619,10 +2659,7 @@ describe('lens filter chips in the phase grid', () => {
   it('At-risk lens hides phases whose tasks carry no linked risk', async () => {
     const user = userEvent.setup();
     // Alpha lane tasks have no linked risks; give the root Documentation task one.
-    mockTasks = [
-      ...FIXTURE_TASKS.slice(0, 6),
-      { ...FIXTURE_TASKS[6], linkedRisksCount: 1 },
-    ];
+    mockTasks = [...FIXTURE_TASKS.slice(0, 6), { ...FIXTURE_TASKS[6], linkedRisksCount: 1 }];
     renderBoard();
     expect(
       screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' }),
@@ -2723,5 +2760,535 @@ describe('mobile create FAB (#605)', () => {
     // The FAB is the only "Add task" affordance on the mobile snap board.
     await user.click(screen.getByRole('button', { name: 'Add task' }));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+// ===========================================================================
+// Branch-coverage sweep (#2459)
+//
+// Drives the board paths the suite above never reached: quick capture, workshop
+// authoring writes, PDF export, overallocation regrouping, the dep-chain hover
+// dim set, facet seeding from a shared link / localStorage, search dimming, and
+// the keyboard-navigation guards. Drag-driven paths (dropOnCell /
+// dropOnBacklogBand / reorderPhases) are deliberately absent — @dnd-kit's
+// sensors need real layout rects, which jsdom does not provide.
+// ===========================================================================
+
+import { facetsStorageKey, serializeFacets } from './boardFacets';
+
+// Board card search hits GET /tasks/search/; mock it so typing in the search
+// box exercises BoardView's query mirroring + dim plumbing without a request.
+let mockSearchMatchIds = new Set<string>();
+let mockSearchMatchCount = 0;
+vi.mock('@/hooks/useBoardCardSearch', () => ({
+  useBoardCardSearch: () => ({
+    matchIds: mockSearchMatchIds,
+    matchCount: mockSearchMatchCount,
+    isSearching: false,
+    activeQuery: '',
+  }),
+}));
+
+/** renderBoard, but starting at an explicit URL so ?fa=/?fp=/?q= are honored. */
+function renderBoardAt(path: string) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[path]}>
+        <BoardView />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+function reset2459() {
+  vi.clearAllMocks();
+  resetMocks();
+  mockSearchMatchIds = new Set<string>();
+  mockSearchMatchCount = 0;
+}
+
+describe('backlog quick capture (#2459)', () => {
+  beforeEach(reset2459);
+
+  const captureField = () =>
+    screen.getByRole<HTMLInputElement>('textbox', { name: /Capture a backlog idea/i });
+
+  it('creates a trimmed BACKLOG idea straight from the rail field', () => {
+    renderBoard();
+    const input = captureField();
+    fireEvent.change(input, { target: { value: '  Refresh the logo  ' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      { name: 'Refresh the logo', duration: 0, status: 'BACKLOG', parent_id: null },
+      expect.any(Object),
+    );
+    expect(input.value).toBe('');
+  });
+
+  it('restores the typed idea into the field when the create fails', () => {
+    createTaskMutate.mockImplementation((_body, opts) => opts?.onError?.(new Error('nope')));
+    renderBoard();
+    const input = captureField();
+    fireEvent.change(input, { target: { value: 'Refresh the logo' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(input.value).toBe('Refresh the logo');
+  });
+
+  it('captures nothing for a whitespace-only entry', () => {
+    renderBoard();
+    const input = captureField();
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
+  it('opens the full create modal from the rail "Add with details" affordance', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: /Add with details/i }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+describe('workshop authoring writes (#2459)', () => {
+  beforeEach(reset2459);
+
+  async function enterWorkshop(user: UE) {
+    mockWorkshopSession = {
+      id: 'session-uuid',
+      project_id: 'project-1',
+      started_by_id: 'user-1',
+      started_at: '2026-04-29T10:00:00Z',
+      ended_at: null,
+      participants: [],
+    };
+    startWorkshopMutate.mockImplementation((_input: undefined, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
+    );
+    renderBoard();
+    await openMore(user);
+    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
+  }
+
+  it('creates the next numbered phase from "+ Add Phase"', async () => {
+    const user = userEvent.setup();
+    await enterWorkshop(user);
+    await user.click(screen.getByRole('button', { name: /Add Phase/i }));
+    // A new phase is a zero-duration root task auto-named from the lane count.
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: expect.stringMatching(/^Phase \d+$/) as unknown as string,
+        duration: 0,
+        parent_id: null,
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it('renames a phase through the inline lane title', async () => {
+    const user = userEvent.setup();
+    await enterWorkshop(user);
+    const title = screen.getByRole('textbox', { name: 'Phase name: Alpha Platform Upgrade' });
+    title.textContent = 'Alpha Rebuild';
+    fireEvent.blur(title);
+    expect(updateTaskMutate).toHaveBeenCalledWith({
+      id: 't1',
+      projectId: 'project-1',
+      name: 'Alpha Rebuild',
+    });
+  });
+
+  it('does not write a rename when the lane title is left unchanged', async () => {
+    const user = userEvent.setup();
+    await enterWorkshop(user);
+    const title = screen.getByRole('textbox', { name: 'Phase name: Alpha Platform Upgrade' });
+    fireEvent.blur(title);
+    expect(updateTaskMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe('board PDF export (#2459)', () => {
+  beforeEach(reset2459);
+
+  const exportButton = () => screen.getByRole('button', { name: 'Export the board as a PDF' });
+
+  it('mounts the print surface, rasterizes it, then tears it down', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await openMore(user);
+    await user.click(exportButton());
+    await waitFor(() => expect(exportBoardPdfMock).toHaveBeenCalledTimes(1));
+    const [node, opts] = exportBoardPdfMock.mock.calls[0];
+    expect(node).toBeInstanceOf(HTMLElement);
+    expect(opts.fileName).toBe('Test Project.pdf');
+    // The duplicate off-screen projection must not linger on the live board.
+    await waitFor(() => expect(exportButton()).not.toBeDisabled());
+  });
+
+  it('ignores a second request while one export is already in flight', async () => {
+    let release: (() => void) | undefined;
+    exportBoardPdfMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = () => resolve();
+        }),
+    );
+    const user = userEvent.setup();
+    renderBoard();
+    await openMore(user);
+    await user.click(exportButton());
+    await waitFor(() => expect(exportBoardPdfMock).toHaveBeenCalledTimes(1));
+    // The button is busy; a programmatic re-click must not queue a second run.
+    fireEvent.click(exportButton());
+    expect(exportBoardPdfMock).toHaveBeenCalledTimes(1);
+    release?.();
+    await waitFor(() => expect(exportButton()).not.toBeDisabled());
+  });
+
+  it('surfaces a toast and re-enables the button when rasterizing fails', async () => {
+    exportBoardPdfMock.mockRejectedValue(new Error('canvas exploded'));
+    const user = userEvent.setup();
+    renderBoard();
+    await openMore(user);
+    await user.click(exportButton());
+    await waitFor(() => expect(exportBoardPdfMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(exportButton()).not.toBeDisabled());
+  });
+});
+
+describe('resource overallocation on cards (#2459)', () => {
+  beforeEach(reset2459);
+
+  it('regroups the (resource, task) peak factors onto the right card', () => {
+    // Alice (r1) is 1.4x allocated during Discovery & Design (t2) only.
+    mockOverallocByPair = new Map([['r1:t2', 1.4]]);
+    renderBoard();
+    expect(screen.getByLabelText('Alice Chen, overallocated')).toBeInTheDocument();
+    // Alice is also on Backend Implementation (t3) — that pairing is not flagged.
+    expect(screen.getAllByLabelText('Alice Chen').length).toBeGreaterThan(0);
+  });
+
+  it('flags no assignee when the schedule reports no overallocation', () => {
+    renderBoard();
+    expect(screen.queryByLabelText(/overallocated/)).not.toBeInTheDocument();
+  });
+});
+
+describe('dependency-chain hover dimming (#2459)', () => {
+  beforeEach(reset2459);
+
+  const DIM = 'opacity-40';
+  const chainChip = () => screen.getByRole('button', { name: /Press D to view/ });
+
+  function seedChainFixture() {
+    // t3 carries a chain chip; t2 is its predecessor, t4 its successor.
+    mockTasks = FIXTURE_TASKS.map((t) =>
+      t.id === 't3' ? { ...t, predecessorCount: 2, isBlocked: false } : t,
+    );
+    mockDepPredecessors = [
+      { id: 'e1', predecessorId: 't2', successorId: 't3', depType: 'FS', lag: 0 },
+    ];
+    mockDepSuccessors = [
+      { id: 'e2', predecessorId: 't3', successorId: 't4', depType: 'FS', lag: 0 },
+    ];
+  }
+
+  const cardRoot = (name: RegExp): HTMLElement =>
+    screen
+      .getAllByRole('button', { name })
+      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+
+  it('dims every card outside the hovered task’s dependency chain', () => {
+    seedChainFixture();
+    renderBoard();
+    fireEvent.pointerEnter(chainChip());
+    // In-chain cards stay at full opacity …
+    expect(cardRoot(/Backend Implementation/).className).not.toContain(DIM);
+    expect(cardRoot(/Discovery & Design/).className).not.toContain(DIM);
+    expect(cardRoot(/Frontend Build/).className).not.toContain(DIM);
+    // … while an unrelated card recedes.
+    expect(cardRoot(/Documentation/).className).toContain(DIM);
+  });
+
+  it('restores every card when the pointer leaves the chain chip', () => {
+    seedChainFixture();
+    renderBoard();
+    fireEvent.pointerEnter(chainChip());
+    expect(cardRoot(/Documentation/).className).toContain(DIM);
+    fireEvent.pointerLeave(chainChip());
+    expect(cardRoot(/Documentation/).className).not.toContain(DIM);
+  });
+
+  it('dims nothing while the dependency fetch is still in flight', () => {
+    seedChainFixture();
+    mockDepIsLoading = true;
+    renderBoard();
+    fireEvent.pointerEnter(chainChip());
+    expect(cardRoot(/Documentation/).className).not.toContain(DIM);
+  });
+});
+
+describe('facet filters — link and storage seeding (#2459)', () => {
+  beforeEach(reset2459);
+
+  // A filtered-out card stays on the board (dimmed in place) but drops out of
+  // the accessibility tree, so a role query is the cleanest "is it in view" probe.
+  const inView = (name: RegExp): HTMLElement | null =>
+    screen
+      .queryAllByRole('button', { name })
+      .find((el) => el.getAttribute('aria-roledescription') === 'draggable') ?? null;
+
+  it('honors facets carried on a shared board link', () => {
+    // Only Alice's cards (t2, t3) match; the rest are dimmed out of the view.
+    renderBoardAt('/board?fa=r1');
+    expect(inView(/Discovery & Design/)).toBeInTheDocument();
+    expect(inView(/Documentation/)).toBeNull();
+    // The card is dimmed in place, never unmounted.
+    expect(screen.getByText('Documentation')).toBeInTheDocument();
+  });
+
+  it('seeds facets from the per-project store when the link carries none', () => {
+    localStorage.setItem(
+      facetsStorageKey('project-1'),
+      serializeFacets({ assignees: ['r1'], priority: [], due: [], labels: [] }),
+    );
+    renderBoard();
+    expect(inView(/Discovery & Design/)).toBeInTheDocument();
+    expect(inView(/Documentation/)).toBeNull();
+  });
+
+  it('lets a shared link win over a conflicting stored facet set', () => {
+    localStorage.setItem(
+      facetsStorageKey('project-1'),
+      serializeFacets({ assignees: ['r1'], priority: [], due: [], labels: [] }),
+    );
+    // The URL selects Bob (r2) — Documentation is his, Discovery is Alice's.
+    renderBoardAt('/board?fa=r2');
+    expect(inView(/Documentation/)).toBeInTheDocument();
+    expect(inView(/Discovery & Design/)).toBeNull();
+  });
+
+  it('shows the zero-match banner when an active facet matches nothing', () => {
+    renderBoardAt('/board?fa=nobody');
+    expect(screen.getByTestId('board-zero-match')).toBeInTheDocument();
+  });
+
+  it('clears every facet from the chip bar', async () => {
+    const user = userEvent.setup();
+    renderBoardAt('/board?fa=r1');
+    expect(inView(/Documentation/)).toBeNull();
+    await user.click(screen.getByTestId('board-filter-chips-clear'));
+    expect(inView(/Documentation/)).toBeInTheDocument();
+  });
+});
+
+describe('board card search dimming (#2459)', () => {
+  beforeEach(reset2459);
+
+  const searchBox = () => screen.getByRole<HTMLInputElement>('searchbox');
+
+  it('dims the cards a live query does not match', () => {
+    mockSearchMatchIds = new Set(['t3']);
+    mockSearchMatchCount = 1;
+    renderBoard();
+    fireEvent.change(searchBox(), { target: { value: 'backend' } });
+    const doc = screen
+      .getAllByRole('button', { name: /Documentation/ })
+      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+    expect(doc.className).toContain('opacity-40');
+  });
+
+  it('leaves the board undimmed once the query is cleared', () => {
+    mockSearchMatchIds = new Set(['t3']);
+    mockSearchMatchCount = 1;
+    renderBoard();
+    fireEvent.change(searchBox(), { target: { value: 'backend' } });
+    mockSearchMatchIds = new Set<string>();
+    mockSearchMatchCount = 0;
+    fireEvent.change(searchBox(), { target: { value: '' } });
+    const doc = screen
+      .getAllByRole('button', { name: /Documentation/ })
+      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+    expect(doc.className).not.toContain('opacity-40');
+  });
+});
+
+describe('lane keyboard shortcuts and column stubs (#2459)', () => {
+  beforeEach(reset2459);
+
+  it('[ collapses the focused lane and ] expands it again', () => {
+    renderBoard();
+    const toggle = screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ });
+    fireEvent.keyDown(toggle, { key: '[' });
+    expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
+
+    const expandToggle = screen.getByRole('button', { name: /Expand Alpha Platform Upgrade/ });
+    fireEvent.keyDown(expandToggle, { key: ']' });
+    expect(screen.getByText('Discovery & Design')).toBeInTheDocument();
+  });
+
+  it('ignores ] on an already-expanded lane and [ on an already-collapsed one', () => {
+    renderBoard();
+    const toggle = screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ });
+    fireEvent.keyDown(toggle, { key: ']' });
+    expect(screen.getByText('Discovery & Design')).toBeInTheDocument();
+    fireEvent.keyDown(toggle, { key: '[' });
+    fireEvent.keyDown(screen.getByRole('button', { name: /Expand Alpha Platform Upgrade/ }), {
+      key: '[',
+    });
+    expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
+  });
+
+  it('re-expands a folded column from its in-lane stub track', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: 'Collapse IN PROGRESS column' }));
+    const stub = screen.getByTestId('lane-stub-t1-IN_PROGRESS');
+    // The stub carries the hidden card count for screen readers.
+    expect(stub).toHaveTextContent('2 tasks');
+    await user.click(stub);
+    expect(screen.getByRole('button', { name: 'Collapse IN PROGRESS column' })).toBeInTheDocument();
+    expect(screen.queryByTestId('lane-stub-t1-IN_PROGRESS')).not.toBeInTheDocument();
+  });
+
+  it('leaves keyboard column traversal inert when every column is folded', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    const backend = screen
+      .getAllByRole('button', { name: /Backend Implementation/ })
+      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+    fireEvent.pointerDown(backend);
+    for (const label of ['TO DO', 'IN PROGRESS', 'REVIEW', 'DONE']) {
+      await user.click(screen.getByRole('button', { name: `Collapse ${label} column` }));
+    }
+    // No visible column remains to land on — the shortcut is a no-op, not a crash.
+    fireEvent.keyDown(window, { key: 'l' });
+    expect(screen.getByTestId('collapsed-columns-banner')).toBeInTheDocument();
+  });
+
+  it('ignores j/k before any card has been focused', () => {
+    renderBoard();
+    fireEvent.keyDown(window, { key: 'j' });
+    expect(document.querySelectorAll('.ring-offset-neutral-surface-sunken')).toHaveLength(0);
+  });
+});
+
+describe('phase cost rollup and epic lanes (#2459)', () => {
+  beforeEach(reset2459);
+
+  it('sums budget and actuals across the lane when cost is shown', async () => {
+    mockTasks = FIXTURE_TASKS.map((t) =>
+      t.id === 't2' || t.id === 't3' ? { ...t, budgetAtCompletion: 1000, actualCost: 250 } : t,
+    );
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: 'Show cost' }));
+    // 1000 + 1000 budget and 250 + 250 actual roll up to one lane figure —
+    // neither number is reachable from a single card.
+    expect(screen.getByLabelText('Phase budget: $500 of $2K')).toBeInTheDocument();
+  });
+
+  it('names each epic lane from the epic task it groups', async () => {
+    const user = userEvent.setup();
+    mockTasks = [
+      ...FIXTURE_TASKS.map((t) => (t.id === 't7' ? { ...t, parentEpic: 'e1' } : t)),
+      {
+        ...FIXTURE_TASKS[6],
+        id: 'e1',
+        name: 'Platform Epic',
+        taskType: 'epic',
+        parentId: null,
+        isSummary: false,
+      },
+    ] as Task[];
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: 'Group lanes by' }));
+    await user.click(screen.getByRole('radio', { name: 'By epic' }));
+    expect(screen.getByRole('group', { name: 'Platform Epic swimlane' })).toBeInTheDocument();
+  });
+});
+
+describe('per-cell cap toggle round trip (#2459)', () => {
+  beforeEach(reset2459);
+
+  it('turns the cap on and back off from the More menu', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await openMore(user);
+    const capToggle = () =>
+      screen.getByRole<HTMLInputElement>('checkbox', { name: /Cap tall cells/i });
+    expect(capToggle().checked).toBe(false);
+    await user.click(capToggle());
+    expect(capToggle().checked).toBe(true);
+    await user.click(capToggle());
+    expect(capToggle().checked).toBe(false);
+  });
+});
+
+describe('mobile FAB under the queue layout (#2459)', () => {
+  beforeEach(() => {
+    reset2459();
+    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(makeMq(true));
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('targets the backlog when the flat queue is the active layout', async () => {
+    const user = userEvent.setup();
+    renderBoard(); // no explicit layout → phones resolve to the queue
+    await user.click(screen.getByRole('button', { name: 'Add task' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(/backlog/i);
+  });
+});
+
+describe('dependency popover jump-to-card (#2459)', () => {
+  beforeEach(reset2459);
+
+  it('closes the popover and moves keyboard focus onto the predecessor card', async () => {
+    const user = userEvent.setup();
+    mockTasks = FIXTURE_TASKS.map((t) => (t.id === 't3' ? { ...t, predecessorCount: 1 } : t));
+    mockDepPredecessors = [
+      { id: 'e1', predecessorId: 't2', successorId: 't3', depType: 'FS', lag: 0 },
+    ];
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: /Press D to view/ }));
+    const popover = await screen.findByRole('dialog');
+    await user.click(within(popover).getByRole('button', { name: /Discovery & Design/ }));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const jumped = screen
+      .getAllByRole('button', { name: /Discovery & Design/ })
+      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+    expect(jumped.className).toContain('ring-offset-neutral-surface-sunken');
+  });
+});
+
+describe('backlog "Schedule…" dialog (#2459)', () => {
+  beforeEach(reset2459);
+
+  it('opens from a backlog card action and returns focus to it on close', async () => {
+    const user = userEvent.setup();
+    const idea: Task = {
+      ...FIXTURE_TASKS[4],
+      id: 'idea-1',
+      name: 'Polish onboarding copy',
+      parentId: null,
+      status: 'BACKLOG',
+      plannedStart: null,
+      isSummary: false,
+      isMilestone: false,
+    };
+    mockTasks = [...FIXTURE_TASKS, idea];
+    renderBoard();
+
+    const trigger = screen.getByRole('button', { name: 'Actions for Polish onboarding copy' });
+    await user.click(trigger);
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(document.activeElement).toBe(trigger);
   });
 });

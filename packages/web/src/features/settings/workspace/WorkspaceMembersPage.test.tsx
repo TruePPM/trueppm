@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -20,6 +20,21 @@ vi.mock('@/api/client', () => ({
     patch: patchMock,
     delete: deleteMock,
     post: postMock,
+  },
+}));
+
+// Toast is a store-backed imperative API; stub it so the resend/resend-all
+// outcome copy can be asserted directly.
+const { toastSuccess, toastError } = vi.hoisted(() => ({
+  toastSuccess: vi.fn<(m: string) => void>(),
+  toastError: vi.fn<(m: string) => void>(),
+}));
+
+vi.mock('@/components/Toast', () => ({
+  toast: {
+    success: (m: string) => toastSuccess(m),
+    error: (m: string) => toastError(m),
+    info: (m: string) => toastSuccess(m),
   },
 }));
 
@@ -139,6 +154,22 @@ describe('WorkspaceMembersPage — search + filters', () => {
     expect(screen.queryByText('Anika Krishnan')).not.toBeInTheDocument();
     expect(screen.getByText(/Showing 2 of 10/)).toBeInTheDocument();
   });
+
+  it('restores every row when the Role filter is reset to "All roles"', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Sam Reyes')).toBeInTheDocument());
+    const roleFilter = screen.getByRole('combobox', { name: /filter by role/i });
+
+    await user.selectOptions(roleFilter, 'Lead');
+    expect(screen.queryByText('Anika Krishnan')).not.toBeInTheDocument();
+
+    // Selecting the empty option maps back to a null filter, not the string ''.
+    await user.selectOptions(roleFilter, '');
+    expect(screen.getByText('Anika Krishnan')).toBeInTheDocument();
+    expect(screen.getByText(/Showing all 10/)).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -231,6 +262,22 @@ describe('WorkspaceMembersPage — remove error alert', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/Action failed\. Try again\./i);
+  });
+
+  it('clears the row alert when the retried removal succeeds', async () => {
+    const user = userEvent.setup();
+    deleteMock.mockRejectedValueOnce(new Error('500')).mockResolvedValue({});
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Anika Krishnan')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /Remove Anika Krishnan/i }));
+    await user.click(screen.getByRole('button', { name: /^Confirm$/i }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Remove Anika Krishnan/i }));
+    await user.click(screen.getByRole('button', { name: /^Confirm$/i }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
 });
 
@@ -401,6 +448,548 @@ describe('WorkspaceMembersPage — Resend invite (issue 969)', () => {
     await waitFor(() =>
       expect(postMock).toHaveBeenCalledWith('/workspace/invites/resend-all/'),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared fixtures for the branch-coverage suites below
+// ---------------------------------------------------------------------------
+
+/** snake_case member row as GET /workspace/members/ returns it. */
+interface RawMember {
+  id: string;
+  name: string;
+  initials: string;
+  color: string;
+  email: string;
+  role: string;
+  role_value: number;
+  groups: string[];
+  project_count: number;
+  last_active: string | null;
+  status: string;
+  sso: boolean;
+  two_fa: boolean;
+}
+
+interface RawInvite {
+  id: string;
+  email: string;
+  role: string;
+  role_value: number;
+  status: string;
+  invited_by: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
+function invite(overrides: Partial<RawInvite> = {}): RawInvite {
+  return {
+    id: 'inv1',
+    email: 'pending@truescope.io',
+    role: 'Member',
+    role_value: 100,
+    status: 'pending',
+    invited_by: 'Anika Krishnan',
+    created_at: '2026-05-20',
+    expires_at: '2026-06-20',
+    ...overrides,
+  };
+}
+
+/** Point the GET mock at a specific member/invite fixture pair. */
+function setupData(members: RawMember[], invites: RawInvite[] = []) {
+  getMock.mockImplementation((url: string) => {
+    if (url.includes('/workspace/members/'))
+      return Promise.resolve({ data: { results: members, next: null } });
+    if (url.includes('/workspace/invites/'))
+      return Promise.resolve({ data: { results: invites, next: null } });
+    return Promise.resolve({ data: { results: [], next: null } });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Loading state
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceMembersPage — loading state', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders skeleton rows and no controls while the queries are in flight', () => {
+    // Never resolves — the page stays in its isLoading branch.
+    getMock.mockImplementation(() => new Promise(() => {}));
+    const { container } = render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Export CSV' })).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.motion-safe\\:animate-pulse')).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Role change
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceMembersPage — role change', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMocks();
+  });
+
+  it('PATCHes the member with the newly selected role integer', async () => {
+    const user = userEvent.setup();
+    patchMock.mockResolvedValue({ data: {} });
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const select = await screen.findByRole('combobox', { name: 'Role for Anika Krishnan' });
+    expect(select).toHaveValue('300');
+    await user.selectOptions(select, '400');
+
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/workspace/members/1/', { role: 400 }),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows an inline alert on the touched row when the role PATCH rejects', async () => {
+    const user = userEvent.setup();
+    patchMock.mockRejectedValue(new Error('500'));
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const select = await screen.findByRole('combobox', { name: 'Role for Jordan Mehta' });
+    await user.selectOptions(select, '300');
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Action failed. Try again.');
+    // Only the touched row carries the alert.
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
+  it('clears the row alert once a later change on the same row succeeds', async () => {
+    const user = userEvent.setup();
+    patchMock.mockRejectedValueOnce(new Error('500')).mockResolvedValue({ data: {} });
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const select = await screen.findByRole('combobox', { name: 'Role for Jordan Mehta' });
+    await user.selectOptions(select, '300');
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    await user.selectOptions(select, '400');
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invite form
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceMembersPage — invite form', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMocks();
+  });
+
+  it('POSTs the trimmed email with the chosen role and resets the form on success', async () => {
+    const user = userEvent.setup();
+    postMock.mockResolvedValue({ data: { id: 'inv9' } });
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const email = await screen.findByRole<HTMLInputElement>('textbox', { name: 'Email' });
+    const role = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Role' });
+    await user.type(email, '  new@example.com  ');
+    await user.selectOptions(role, '300');
+
+    await user.click(screen.getByRole('button', { name: /Invite members/i }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/workspace/invites/', {
+        email: 'new@example.com',
+        role: 300,
+      }),
+    );
+    // Success resets both controls to their defaults.
+    await waitFor(() => expect(email.value).toBe(''));
+    expect(role.value).toBe('100');
+  });
+
+  it('keeps the typed address when the invite POST rejects', async () => {
+    const user = userEvent.setup();
+    postMock.mockRejectedValue(new Error('400'));
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const email = await screen.findByRole<HTMLInputElement>('textbox', { name: 'Email' });
+    await user.type(email, 'bad@example.com');
+    await user.click(screen.getByRole('button', { name: /Invite members/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Could not send the invite/i);
+    expect(email.value).toBe('bad@example.com');
+  });
+
+  it('does not POST when the form is submitted with a whitespace-only address', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const email = await screen.findByRole<HTMLInputElement>('textbox', { name: 'Email' });
+    await user.type(email, '   ');
+    // The submit button is disabled, so drive the form's submit handler directly.
+    expect(screen.getByRole('button', { name: /Invite members/i })).toBeDisabled();
+    const form = container.querySelector('form');
+    expect(form).not.toBeNull();
+    fireEvent.submit(form as HTMLFormElement);
+
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('shows a pending label while the invite POST is in flight', async () => {
+    const user = userEvent.setup();
+    postMock.mockImplementation(() => new Promise(() => {}));
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const email = await screen.findByRole('textbox', { name: 'Email' });
+    await user.type(email, 'slow@example.com');
+    await user.click(screen.getByRole('button', { name: /Invite members/i }));
+
+    const pending = await screen.findByRole('button', { name: 'Sending…' });
+    expect(pending).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pending invite actions — revoke
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceMembersPage — revoke invite', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupData(MEMBERS, [invite()]);
+  });
+
+  it('DELETEs the invite and leaves no error alert on success', async () => {
+    const user = userEvent.setup();
+    deleteMock.mockResolvedValue({});
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await user.click(
+      await screen.findByRole('button', { name: /Revoke invite for pending@truescope.io/i }),
+    );
+
+    await waitFor(() =>
+      expect(deleteMock).toHaveBeenCalledWith('/workspace/invites/inv1/'),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows an inline alert on the invite row when the revoke rejects', async () => {
+    const user = userEvent.setup();
+    deleteMock.mockRejectedValue(new Error('500'));
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await user.click(
+      await screen.findByRole('button', { name: /Revoke invite for pending@truescope.io/i }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not complete. Try again.');
+  });
+
+  it('clears the invite alert when a retried revoke succeeds', async () => {
+    const user = userEvent.setup();
+    deleteMock.mockRejectedValueOnce(new Error('500')).mockResolvedValue({});
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const revoke = await screen.findByRole('button', {
+      name: /Revoke invite for pending@truescope.io/i,
+    });
+    await user.click(revoke);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    await user.click(revoke);
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('clears a failed-revoke alert once the same invite is successfully re-sent', async () => {
+    const user = userEvent.setup();
+    deleteMock.mockRejectedValue(new Error('500'));
+    postMock.mockResolvedValue({ data: {} });
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await user.click(
+      await screen.findByRole('button', { name: /Revoke invite for pending@truescope.io/i }),
+    );
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('button', { name: /Resend invite to pending@truescope.io/i }),
+    );
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(await screen.findByTestId('invite-resent-cue')).toHaveTextContent('Sent');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pending invite actions — resend outcomes
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceMembersPage — resend invite outcomes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupData(MEMBERS, [invite()]);
+  });
+
+  async function clickResend() {
+    const user = userEvent.setup();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    await user.click(
+      await screen.findByRole('button', { name: /Resend invite to pending@truescope.io/i }),
+    );
+  }
+
+  it('confirms the re-send with a success toast naming the recipient', async () => {
+    postMock.mockResolvedValue({ data: {} });
+    await clickResend();
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith('Invite re-sent to pending@truescope.io.'),
+    );
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('explains a 429 throttle rather than a generic failure', async () => {
+    postMock.mockRejectedValue({ response: { status: 429 } });
+    await clickResend();
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        'Too many resends — wait a minute and try again.',
+      ),
+    );
+  });
+
+  it('explains a 409 (invite no longer resendable)', async () => {
+    postMock.mockRejectedValue({ response: { status: 409 } });
+    await clickResend();
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith('This invite can no longer be resent.'),
+    );
+  });
+
+  it('falls back to a generic message for any other resend failure', async () => {
+    postMock.mockRejectedValue(new Error('boom'));
+    await clickResend();
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith('Could not resend the invite. Please try again.'),
+    );
+    // The failure also surfaces inline on the row.
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not complete. Try again.');
+    // The Resend button stays available for a retry — no premature "Sent" cue.
+    expect(screen.queryByTestId('invite-resent-cue')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pending invite actions — resend all outcomes
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceMembersPage — resend all outcomes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupData(MEMBERS, [
+      invite(),
+      invite({ id: 'inv2', email: 'second@truescope.io', role: 'Owner' }),
+    ]);
+  });
+
+  async function clickResendAll() {
+    const user = userEvent.setup();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    await user.click(await screen.findByRole('button', { name: /Resend all/i }));
+  }
+
+  it('pluralizes the confirmation and marks every row sent when several are re-queued', async () => {
+    postMock.mockResolvedValue({ data: { requeued: 2 } });
+    await clickResendAll();
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Re-sent 2 invites.'));
+    expect(await screen.findAllByTestId('invite-resent-cue')).toHaveLength(2);
+  });
+
+  it('uses the singular form when exactly one invite is re-queued', async () => {
+    postMock.mockResolvedValue({ data: { requeued: 1 } });
+    await clickResendAll();
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Re-sent 1 invite.'));
+  });
+
+  it('says nothing was re-queued when every invite is already sending', async () => {
+    postMock.mockResolvedValue({ data: { requeued: 0 } });
+    await clickResendAll();
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith('All pending invites are already sending.'),
+    );
+  });
+
+  it('explains a 429 throttle on the bulk resend', async () => {
+    postMock.mockRejectedValue({ response: { status: 429 } });
+    await clickResendAll();
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        'Too many resends — wait a minute and try again.',
+      ),
+    );
+    expect(screen.queryByTestId('invite-resent-cue')).not.toBeInTheDocument();
+  });
+
+  it('falls back to a generic message for any other bulk-resend failure', async () => {
+    postMock.mockRejectedValue(new Error('boom'));
+    await clickResendAll();
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith('Could not resend invites. Please try again.'),
+    );
+  });
+
+  it('shows a pending label on the bulk action while it is in flight', async () => {
+    postMock.mockImplementation(() => new Promise(() => {}));
+    await clickResendAll();
+    const pending = await screen.findByRole('button', { name: 'Resending…' });
+    expect(pending).toBeDisabled();
+  });
+
+  it('renders a badge for a pending-invite role outside the palette', async () => {
+    postMock.mockResolvedValue({ data: { requeued: 0 } });
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    // "Owner" has no ROLE_PALETTE entry — it must still render, using the
+    // Member fallback styling rather than crashing on the undefined lookup.
+    // Scope to the invite row so the "Owner" <option> in the role selects
+    // does not collide.
+    const ownerRow = (await screen.findByText('second@truescope.io')).closest('div.grid');
+    expect(ownerRow).not.toBeNull();
+    expect(within(ownerRow as HTMLElement).getByText('Owner')).toBeInTheDocument();
+
+    const memberRow = (await screen.findByText('pending@truescope.io')).closest('div.grid');
+    expect(within(memberRow as HTMLElement).getByText('Member')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Member row rendering variants
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceMembersPage — member row variants', () => {
+  const VARIANTS: RawMember[] = [
+    {
+      id: 'v1',
+      name: 'Guest Gupta',
+      initials: 'GG',
+      color: '#7C3AED',
+      email: 'gg@vendor.x',
+      role: 'Viewer',
+      role_value: 100,
+      groups: ['Alpha', 'Beta', 'Gamma', 'Delta'],
+      project_count: 1,
+      last_active: null,
+      status: 'guest',
+      sso: false,
+      two_fa: false,
+    },
+    {
+      id: 'v2',
+      name: 'Secure Singh',
+      initials: 'SS',
+      color: '#3E8C6D',
+      email: 'ss@truescope.io',
+      role: 'Admin',
+      role_value: 300,
+      groups: ['Omega'],
+      project_count: 4,
+      last_active: '5m ago',
+      status: 'active',
+      sso: true,
+      two_fa: true,
+    },
+    {
+      // A status the client does not have a dot color for — the row must still
+      // render rather than blanking the status cell.
+      id: 'v3',
+      name: 'Pending Park',
+      initials: 'PP',
+      color: '#475569',
+      email: 'pp@truescope.io',
+      role: 'Member',
+      role_value: 100,
+      groups: ['Sigma'],
+      project_count: 0,
+      last_active: '1d ago',
+      status: 'invited',
+      sso: false,
+      two_fa: false,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupData(VARIANTS);
+  });
+
+  it('renders an unrecognized member status without dropping the row', async () => {
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByText('Pending Park')).toBeInTheDocument();
+    expect(screen.getByText('invited')).toBeInTheDocument();
+  });
+
+  it('flags a guest member and collapses group overflow to a +N counter', async () => {
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    expect(await screen.findByText('Guest Gupta')).toBeInTheDocument();
+    expect(screen.getByText('GUEST')).toBeInTheDocument();
+    // Only the first two groups render; the rest collapse to "+2".
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+    expect(screen.getByText('Beta')).toBeInTheDocument();
+    expect(screen.queryByText('Gamma')).not.toBeInTheDocument();
+    expect(screen.getByText('+2')).toBeInTheDocument();
+  });
+
+  it('renders an em dash for a member who has never been active', async () => {
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByText('Guest Gupta')).toBeInTheDocument();
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
+  it('shows SSO and 2FA badges only for the member that has them', async () => {
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    expect(await screen.findByText('Secure Singh')).toBeInTheDocument();
+    // One member has both; the guest has neither.
+    expect(screen.getAllByText('SSO')).toHaveLength(1);
+    expect(screen.getAllByText('2FA')).toHaveLength(1);
+  });
+
+  it('renders the role filter empty state when a role matches nothing', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await screen.findByText('Guest Gupta');
+    await user.selectOptions(screen.getByRole('combobox', { name: /filter by role/i }), 'Lead');
+
+    // No search term is active, so the copy is the filter variant, not the
+    // "no members match <query>" variant.
+    expect(screen.getByText('No members match the selected filters')).toBeInTheDocument();
+    expect(screen.getByText(/Showing 0 of 3/)).toBeInTheDocument();
+  });
+
+  it('disables Export CSV and explains why when the filter hides every row', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await screen.findByText('Guest Gupta');
+    await user.type(screen.getByRole('searchbox', { name: /search members/i }), 'zzzzz');
+
+    const exportBtn = screen.getByRole('button', { name: 'Export CSV' });
+    expect(exportBtn).toBeDisabled();
+    expect(exportBtn).toHaveAttribute('title', 'No members to export');
+  });
+
+  it('describes the export target when rows are visible', async () => {
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    const exportBtn = await screen.findByRole('button', { name: 'Export CSV' });
+    await waitFor(() => expect(exportBtn).toBeEnabled());
+    expect(exportBtn).toHaveAttribute('title', 'Download the visible members as a CSV file');
   });
 });
 

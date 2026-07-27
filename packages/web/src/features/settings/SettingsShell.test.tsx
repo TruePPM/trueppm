@@ -1,10 +1,11 @@
-import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, within, createEvent } from '@testing-library/react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import {
   SettingsShell,
   SettingsSection,
   SettingsPageTitle,
+  SettingsCard,
   FieldRow,
   type SettingsNavGroup,
   type SettingsScopeLink,
@@ -920,5 +921,520 @@ describe('<FieldRow> aria-describedby wiring (web-rule 269, #2266)', () => {
     // The ~100 existing call sites pass no `help` — the label row is unchanged.
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.getByLabelText('Name')).toBeInTheDocument();
+  });
+});
+
+describe('<SettingsShell> unload & keyboard guards', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
+  });
+
+  /** Dispatch a cancelable beforeunload and report whether the shell blocked it. */
+  function unloadBlocked(): boolean {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it('blocks a browser unload only while a section is dirty', () => {
+    renderShell();
+    expect(unloadBlocked()).toBe(false);
+    act(() => registerSection({ dirty: true }));
+    expect(unloadBlocked()).toBe(true);
+    // Going clean again releases the guard — no phantom "leave site?" prompt.
+    act(() => registerSection({ dirty: false }));
+    expect(unloadBlocked()).toBe(false);
+  });
+
+  it('releases the unload guard while a save is in flight', () => {
+    // The leave prompt must not interrupt the in-flight PATCH (the save is what
+    // resolves the dirty state, so prompting here would fight the fix).
+    renderShell();
+    act(() => {
+      registerSection({ dirty: true });
+      useSettingsSaveStore.setState({ isSaving: true });
+    });
+    expect(unloadBlocked()).toBe(false);
+  });
+
+  it('ignores keypresses that are not Ctrl/Cmd+S', () => {
+    renderShell();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    act(() => registerSection({ dirty: true, onSave }));
+    fireEvent.keyDown(window, { key: 'a', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 's' });
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('accepts Cmd+Shift-style uppercase S with the meta modifier', () => {
+    renderShell();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    act(() => registerSection({ dirty: true, onSave }));
+    act(() => {
+      fireEvent.keyDown(window, { key: 'S', metaKey: true });
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('<SettingsShell> in-flight save state', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
+  });
+
+  function startSaving() {
+    act(() => {
+      registerSection({ dirty: true });
+      useSettingsSaveStore.setState({ isSaving: true });
+    });
+  }
+
+  it('shows "Saving…" and disables both save-bar buttons while in flight', () => {
+    renderShell();
+    startSaving();
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^discard$/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
+  });
+
+  it('navigates straight through the dirty guard while a save is in flight', () => {
+    // The edits are already on their way to the server, so there is nothing to
+    // lose — prompting here would strand the user mid-save.
+    renderShell();
+    startSaving();
+    fireEvent.click(screen.getByRole('button', { name: 'System health' }));
+    expect(screen.getByText('HEALTH_ROUTE')).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('<SettingsShell> discard with no navigation target', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
+  });
+
+  it('discards the edits and stays put when the guarded target is empty', () => {
+    const onReset = vi.fn();
+    render(
+      <MemoryRouter initialEntries={['/projects/p1/settings']}>
+        <Routes>
+          <Route
+            path="/projects/p1/settings"
+            element={
+              <SettingsShell
+                scope="project"
+                scopeLinks={[
+                  // A scope link whose target has not resolved to a real path yet.
+                  { scope: 'workspace', label: 'Workspace', to: '' },
+                  { scope: 'project', label: 'Project', to: '/projects/p1/settings' },
+                ]}
+                contextName="P1"
+                navGroups={NAV_GROUPS}
+                exitTo="/projects/p1/overview"
+                exitLabel="Overview"
+              >
+                <SettingsSection id="general">
+                  <SettingsPageTitle title="General" />
+                  <div>GENERAL_SECTION</div>
+                </SettingsSection>
+              </SettingsShell>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    act(() => registerSection({ dirty: true, onReset }));
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(onReset).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    // No route to go to, so the page stays mounted rather than blanking out.
+    expect(screen.getByText('GENERAL_SECTION')).toBeInTheDocument();
+  });
+});
+
+describe('<SettingsShell> rail filter — route departures & no-match Enter', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
+  });
+
+  function filterInput() {
+    return screen.getByRole('searchbox', { name: 'Filter settings sections' });
+  }
+
+  it('Enter on a route-departure match navigates to the tool page', () => {
+    renderShell();
+    fireEvent.change(filterInput(), { target: { value: 'system health' } });
+    act(() => {
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+    });
+    expect(screen.getByText('HEALTH_ROUTE')).toBeInTheDocument();
+  });
+
+  it('Enter on a route-departure match while dirty routes through the discard guard', () => {
+    renderShell();
+    act(() => registerSection({ dirty: true }));
+    fireEvent.change(filterInput(), { target: { value: 'system health' } });
+    act(() => {
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+    });
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.queryByText('HEALTH_ROUTE')).not.toBeInTheDocument();
+  });
+
+  it('Enter with no match is a no-op that keeps the query and the empty state', () => {
+    renderShell();
+    fireEvent.change(filterInput(), { target: { value: 'zzzznope' } });
+    act(() => {
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+    });
+    expect(screen.getByLabelText<HTMLInputElement>('Filter settings sections').value).toBe(
+      'zzzznope',
+    );
+    expect(screen.getByText(/No settings match/)).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('lets Escape bubble when the filter is already empty (nothing to clear)', () => {
+    renderShell();
+    const escape = createEvent.keyDown(filterInput(), { key: 'Escape' });
+    fireEvent(filterInput(), escape);
+    // An empty field must not swallow Escape — a parent dismiss handler owns it.
+    expect(escape.defaultPrevented).toBe(false);
+  });
+
+  it('leaves other keys alone so normal typing still reaches the field', () => {
+    renderShell();
+    const arrow = createEvent.keyDown(filterInput(), { key: 'ArrowDown' });
+    fireEvent(filterInput(), arrow);
+    expect(arrow.defaultPrevented).toBe(false);
+  });
+});
+
+describe('<SettingsShell> scope switcher edge states', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
+  });
+
+  function renderScope(
+    scope: 'workspace' | 'project' | 'program',
+    scopeLinks: SettingsScopeLink[],
+    contextName = 'Acme Inc',
+  ) {
+    return render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <Routes>
+          <Route
+            path="/settings"
+            element={
+              <SettingsShell
+                scope={scope}
+                scopeLinks={scopeLinks}
+                contextName={contextName}
+                navGroups={NAV_GROUPS}
+                exitTo="/"
+                exitLabel="Home"
+              >
+                <SettingsSection id="general">
+                  <SettingsPageTitle title="General" />
+                  <div>GENERAL_SECTION</div>
+                </SettingsSection>
+              </SettingsShell>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it('falls back to the current scope as a static label when every segment is hidden', () => {
+    renderScope('workspace', [
+      { scope: 'workspace', label: 'Workspace', to: '/settings', hidden: true },
+      { scope: 'project', label: 'Project', to: null, hidden: true },
+      { scope: 'program', label: 'Program', to: null, hidden: true },
+    ]);
+    // Nothing is navigable, so the switcher degrades to an identity label rather
+    // than rendering an empty control.
+    expect(screen.queryByRole('button', { name: 'Workspace' })).not.toBeInTheDocument();
+    expect(screen.getByText('Workspace')).toBeInTheDocument();
+  });
+
+  it('does nothing when the active scope segment has no target of its own', () => {
+    renderScope('program', [
+      { scope: 'workspace', label: 'Workspace', to: '/settings' },
+      // The scope you are already on, with no self-link.
+      { scope: 'program', label: 'Program', to: null },
+      { scope: 'project', label: 'Project', to: '/projects/p1/settings' },
+    ]);
+    const program = screen.getByRole('button', { name: 'Program' });
+    // Active segments are never disabled, so the click must be a safe no-op.
+    expect(program).toBeEnabled();
+    fireEvent.click(program);
+    expect(screen.getByText('GENERAL_SECTION')).toBeInTheDocument();
+  });
+
+  it('falls back to the bare scope heading when there is no context name', () => {
+    renderScope('program', [{ scope: 'program', label: 'Program', to: '/settings' }], '');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Program settings');
+  });
+
+  it('prefixes the scope heading with the context name when there is one', () => {
+    renderScope('program', [{ scope: 'program', label: 'Program', to: '/settings' }], 'Apollo');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Program settings: Apollo',
+    );
+  });
+});
+
+describe('<SettingsShell> mobile jump-to-section edges (#539)', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'sm';
+  });
+
+  it('ignores a change to an id that is not in the nav', () => {
+    renderShell();
+    act(() => registerSection({ dirty: true }));
+    fireEvent.change(screen.getByLabelText('Jump to section'), { target: { value: '' } });
+    // No section matched, so nothing navigates and the dirty guard stays quiet.
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByText('GENERAL_SECTION')).toBeInTheDocument();
+  });
+
+  it('still renders a usable select on a tool page with no inline sections', () => {
+    render(
+      <MemoryRouter initialEntries={['/settings/elsewhere']}>
+        <Routes>
+          <Route
+            path="/settings/elsewhere"
+            element={
+              <SettingsShell
+                scope="workspace"
+                scopeLinks={SCOPE_LINKS}
+                contextName="Acme"
+                navGroups={[
+                  {
+                    label: 'System',
+                    items: [
+                      {
+                        id: 'health',
+                        label: 'System health',
+                        to: '/settings/health',
+                        external: true,
+                        icon: <span />,
+                      },
+                      {
+                        id: 'trash',
+                        label: 'Trash',
+                        to: '/settings/trash',
+                        external: true,
+                        icon: <span />,
+                      },
+                    ],
+                  },
+                ]}
+                exitTo="/"
+                exitLabel="Home"
+              >
+                <div>TOOL_PAGE</div>
+              </SettingsShell>
+            }
+          />
+          <Route path="/settings/trash" element={<div>TRASH_ROUTE</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    // Neither scroll-spy (there are no inline sections) nor the pathname (which
+    // matches no route item) names an active item, so the select falls back to
+    // the native first-option default — and every tool stays reachable from it.
+    const jump = screen.getByLabelText<HTMLSelectElement>('Jump to section');
+    expect(jump.value).toBe('health');
+    fireEvent.change(jump, { target: { value: 'trash' } });
+    expect(screen.getByText('TRASH_ROUTE')).toBeInTheDocument();
+  });
+});
+
+describe('<SettingsShell> deferred effects', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
+  });
+
+  /** Single-section shell so the deep-link frame is not pre-empted by a re-render. */
+  function renderSingleSection(hash: string) {
+    return render(
+      <MemoryRouter initialEntries={[`/projects/p1/settings${hash}`]}>
+        <Routes>
+          <Route
+            path="/projects/p1/settings"
+            element={
+              <SettingsShell
+                scope="project"
+                scopeLinks={SCOPE_LINKS}
+                contextName="Project Atlas"
+                navGroups={[
+                  { label: 'Setup', items: [{ id: 'general', label: 'General', icon: <span /> }] },
+                ]}
+                exitTo="/projects/p1/overview"
+                exitLabel="Overview"
+              >
+                <SettingsSection id="general">
+                  <SettingsPageTitle title="General" />
+                  <div>GENERAL_SECTION</div>
+                </SettingsSection>
+              </SettingsShell>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it('scrolls to the hash section on mount and moves focus into its heading', async () => {
+    renderSingleSection('#general');
+    // The deep-link scroll is deferred to the next frame so the sections are laid
+    // out before it measures; focus lands on the heading so keyboard/SR users
+    // arrive inside the section, not at the top of the page.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'General' }));
+  });
+
+  it('does not move focus when the URL carries no hash at all', async () => {
+    renderSingleSection('');
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('does not move focus for a hash that names no inline section', async () => {
+    renderShell(['/projects/p1/settings#not-a-section']);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('re-renders the saved footer as the elapsed time grows', () => {
+    vi.useFakeTimers();
+    try {
+      const t0 = new Date('2026-07-27T10:00:00Z').getTime();
+      vi.setSystemTime(t0);
+      renderShell();
+      act(() => {
+        useSettingsSaveStore.setState({ lastSavedAt: t0 });
+      });
+      expect(screen.getByText('just now')).toBeInTheDocument();
+      act(() => {
+        vi.setSystemTime(t0 + 120_000);
+        vi.advanceTimersByTime(30_000);
+      });
+      // Without the ticker the footer would still read "just now" two minutes on.
+      expect(screen.getByText('2m ago')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restarts the copy confirmation timer on a second click', () => {
+    vi.useFakeTimers();
+    const original = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined) },
+    });
+    try {
+      renderShell();
+      const copy = () => {
+        act(() => {
+          fireEvent.click(screen.getByRole('button', { name: 'Copy link to settings' }));
+        });
+      };
+      const tick = (ms: number) => {
+        act(() => {
+          vi.advanceTimersByTime(ms);
+        });
+      };
+      copy();
+      tick(1000);
+      copy();
+      // 2000ms after the first click the original 1500ms timer would have fired;
+      // the second click must have cleared it rather than letting it win.
+      tick(1000);
+      expect(screen.getByText('Link copied to clipboard')).toBeInTheDocument();
+      tick(600);
+      expect(screen.queryByText('Link copied to clipboard')).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: original });
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('<SettingsPageTitle>', () => {
+  it('renders the count, subtitle and action slots when supplied', () => {
+    render(
+      <SettingsPageTitle
+        title="Members"
+        subtitle="Who can see this project."
+        count={12}
+        action={<button type="button">Invite</button>}
+      />,
+    );
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Members12');
+    expect(screen.getByText('Who can see this project.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Invite' })).toBeInTheDocument();
+  });
+
+  it('renders a bare title strip when the optional slots are omitted', () => {
+    render(<SettingsPageTitle title="Retention" />);
+    const heading = screen.getByRole('heading', { level: 2 });
+    expect(heading).toHaveTextContent('Retention');
+    expect(screen.queryByRole('button')).toBeNull();
+    // Outside a <SettingsSection> there is no region to label, so no id is stamped.
+    expect(heading).not.toHaveAttribute('id');
+  });
+
+  it('stamps the region heading id when mounted inside a <SettingsSection>', () => {
+    render(
+      <SettingsSection id="general">
+        <SettingsPageTitle title="General" />
+      </SettingsSection>,
+    );
+    const heading = screen.getByRole('heading', { level: 2, name: 'General' });
+    expect(heading).toHaveAttribute('id', 'settings-heading-general');
+    // …and the region really is named by it, not by the raw slug.
+    expect(screen.getByRole('region', { name: 'General' })).toBeInTheDocument();
+  });
+});
+
+describe('<SettingsCard>', () => {
+  it('renders its children inside a raised card', () => {
+    render(
+      <SettingsCard>
+        <p>CARD_BODY</p>
+      </SettingsCard>,
+    );
+    const card = screen.getByText('CARD_BODY').parentElement;
+    expect(card?.className).toContain('bg-neutral-surface-raised');
+    expect(card?.className).toContain('rounded-card');
+  });
+
+  it('appends a caller className without dropping the base card styling', () => {
+    render(
+      <SettingsCard className="mt-4">
+        <p>CARD_BODY</p>
+      </SettingsCard>,
+    );
+    const card = screen.getByText('CARD_BODY').parentElement;
+    expect(card?.className).toContain('mt-4');
+    expect(card?.className).toContain('rounded-card');
   });
 });

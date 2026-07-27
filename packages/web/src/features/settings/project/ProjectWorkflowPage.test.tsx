@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -49,9 +49,12 @@ vi.mock('@/hooks/useProjectPhases', () => ({
     },
 }));
 
+// The `projectId ?? null` argument is forwarded to every project-scoped hook so a
+// test can assert what the page does when it is mounted outside a project route
+// (useProjectId() === undefined → the hooks are called with null and stay idle).
 vi.mock('@/hooks/useBoardConfig', () => ({
-  useBoardConfig: () =>
-    useBoardConfig() as {
+  useBoardConfig: (projectId: string | null) =>
+    useBoardConfig(projectId) as {
       columns: BoardColumnDef[];
       isLoading: boolean;
       save: typeof boardSave;
@@ -60,15 +63,17 @@ vi.mock('@/hooks/useBoardConfig', () => ({
 }));
 
 vi.mock('@/hooks/useProject', () => ({
-  useProject: () => useProject() as { data: unknown; isLoading: boolean },
+  useProject: (projectId: string | null) =>
+    useProject(projectId) as { data: unknown; isLoading: boolean },
 }));
 
 vi.mock('@/hooks/useProjectMutations', () => ({
-  useUpdateProject: () => useUpdateProject() as unknown,
+  useUpdateProject: (projectId: string | null) => useUpdateProject(projectId) as unknown,
 }));
 
 vi.mock('@/hooks/useSprints', () => ({
-  useActiveSprint: () => useActiveSprint() as { sprint: unknown; isLoading: boolean },
+  useActiveSprint: (projectId: string | null) =>
+    useActiveSprint(projectId) as { sprint: unknown; isLoading: boolean },
 }));
 
 vi.mock('@/hooks/useProjectCustomFields', () => ({
@@ -106,6 +111,22 @@ function makeColumn(o: Partial<BoardColumnDef> = {}): BoardColumnDef {
     ageThresholdDays: null,
     ...o,
   };
+}
+
+/** Mount the page on a route that carries no `:projectId` segment, so
+ *  `useProjectId()` resolves to undefined and every project-scoped hook is
+ *  called with null. */
+function renderPageOutsideProjectRoute() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/settings/workflow']}>
+        <Routes>
+          <Route path="/settings/workflow" element={<ProjectWorkflowPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
 function renderPage() {
@@ -964,5 +985,356 @@ describe('ProjectWorkflowPage — contextual help', () => {
       screen.getByRole('button', { name: /About the Board cadence options/i }),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /About the Field type options/i })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mounted outside a project route (#2459)
+//
+// `useProjectId()` returns undefined for a component rendered outside the
+// `/projects/:projectId/` tree. Every project-scoped hook is then called with
+// null and stays idle, so the page must degrade to its loading shells rather
+// than rendering controls bound to a project that isn't there.
+// ---------------------------------------------------------------------------
+
+describe('ProjectWorkflowPage — no project in the route', () => {
+  beforeEach(() => {
+    // Idle hooks: null project id → no data.
+    useProject.mockImplementation((projectId: string | null) =>
+      projectId === null
+        ? { data: undefined, isLoading: false }
+        : { data: { board_cadence: 'sprint', methodology: 'AGILE' }, isLoading: false },
+    );
+    useBoardConfig.mockImplementation((projectId: string | null) =>
+      projectId === null
+        ? { columns: [], isLoading: true, save: boardSave }
+        : { columns: [makeColumn()], isLoading: false, save: boardSave },
+    );
+  });
+
+  it('renders the cadence and status shells instead of their controls', () => {
+    renderPageOutsideProjectRoute();
+    const cadence = screen.getByRole('region', { name: /Board cadence/i });
+    expect(within(cadence).queryByRole('radio')).not.toBeInTheDocument();
+    const statuses = screen.getByRole('region', { name: /Statuses/i });
+    expect(within(statuses).getByRole('status', { name: /Loading statuses/i })).toBeInTheDocument();
+  });
+
+  it('still renders the section headings so the page is not blank', () => {
+    renderPageOutsideProjectRoute();
+    expect(screen.getByRole('region', { name: /Phases/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /Fields/i })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cadence — value the picker does not know about, and error-shape fallbacks
+// ---------------------------------------------------------------------------
+
+describe('ProjectWorkflowPage — unrecognized board cadence', () => {
+  beforeEach(() => {
+    useProject.mockReturnValue({
+      data: { board_cadence: 'experimental', methodology: 'AGILE' },
+      isLoading: false,
+    });
+  });
+
+  it('shows the raw stored value to a read-only viewer when no option matches', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_MEMBER, isLoading: false });
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    expect(
+      within(region).getByLabelText(
+        'Board cadence: experimental, managed by the project scheduler. View only.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('leaves both radios unchecked and starts arrow navigation at the first option', async () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_SCHEDULER, isLoading: false });
+    const user = userEvent.setup();
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    const sprint = within(region).getByRole('radio', { name: /Sprint-based/i });
+    const continuous = within(region).getByRole('radio', { name: /Continuous flow/i });
+    expect(sprint).toHaveAttribute('aria-checked', 'false');
+    expect(continuous).toHaveAttribute('aria-checked', 'false');
+    // focusIdx falls back to 0 when the stored value matches no option, so the
+    // first ArrowRight lands on the second card.
+    sprint.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(continuous).toHaveFocus();
+    expect(cadenceMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProjectWorkflowPage — cadence error shapes', () => {
+  function failWith(error: unknown) {
+    useUpdateProject.mockReturnValue({
+      mutate: cadenceMutate,
+      isPending: false,
+      isError: true,
+      error,
+    });
+  }
+
+  it('shows a plain Error message when the failure carries no response body', () => {
+    failWith(new Error('Network unreachable'));
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    expect(within(region).getByText('Network unreachable')).toBeInTheDocument();
+  });
+
+  it('falls back to the generic message when the response body is not an object', () => {
+    failWith({ response: { data: 503 } });
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    expect(within(region).getByText('Could not update board cadence.')).toBeInTheDocument();
+  });
+
+  it('falls back to the generic message when no field error is a string', () => {
+    failWith({ response: { data: { board_cadence: [], methodology: { nested: true } } } });
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    expect(within(region).getByText('Could not update board cadence.')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Statuses — no-op age commits and the read-only read-out
+// ---------------------------------------------------------------------------
+
+describe('ProjectWorkflowPage — age threshold no-ops', () => {
+  beforeEach(() => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_SCHEDULER, isLoading: false });
+    boardSave.mockResolvedValue(undefined);
+  });
+
+  it('blurring an already-blank age field does not persist anything', async () => {
+    useBoardConfig.mockReturnValue({
+      columns: [makeColumn({ status: 'BACKLOG', label: 'Backlog', ageThresholdDays: null })],
+      isLoading: false,
+      save: boardSave,
+    });
+    const user = userEvent.setup();
+    renderPage();
+    const input = screen.getByRole('spinbutton', { name: /Age limit in days for Backlog/i });
+    await user.click(input);
+    await user.tab();
+    expect(boardSave).not.toHaveBeenCalled();
+  });
+
+  it('re-entering the value already saved does not persist a redundant write', async () => {
+    useBoardConfig.mockReturnValue({
+      columns: [makeColumn({ status: 'BACKLOG', label: 'Backlog', ageThresholdDays: 5 })],
+      isLoading: false,
+      save: boardSave,
+    });
+    const user = userEvent.setup();
+    renderPage();
+    const input = screen.getByRole('spinbutton', { name: /Age limit in days for Backlog/i });
+    await user.clear(input);
+    await user.type(input, '5');
+    await user.tab();
+    expect(boardSave).not.toHaveBeenCalled();
+    expect(input).toHaveValue(5);
+  });
+
+  it('read-only viewers see the column override, not the inherited default', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_MEMBER, isLoading: false });
+    useBoardConfig.mockReturnValue({
+      columns: [makeColumn({ status: 'BACKLOG', label: 'Backlog', ageThresholdDays: 3 })],
+      isLoading: false,
+      save: boardSave,
+    });
+    renderPage();
+    const section = screen.getByRole('region', { name: /Statuses/i });
+    // The override (3d) wins over COLUMN_SLA_DEFAULTS.BACKLOG (14d).
+    expect(within(section).getByText('3d')).toBeInTheDocument();
+    expect(within(section).queryByText('14d')).not.toBeInTheDocument();
+  });
+
+  it('read-only viewers see "Hidden" for a hidden column', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_MEMBER, isLoading: false });
+    useBoardConfig.mockReturnValue({
+      columns: [makeColumn({ status: 'BACKLOG', label: 'Backlog', visible: false })],
+      isLoading: false,
+      save: boardSave,
+    });
+    renderPage();
+    const section = screen.getByRole('region', { name: /Statuses/i });
+    expect(within(section).getByText('Hidden')).toBeInTheDocument();
+    expect(within(section).queryByText('Visible')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phases — singular task count
+// ---------------------------------------------------------------------------
+
+it('pluralizes the phase task count, using the singular for exactly one task', () => {
+  useProjectPhases.mockReturnValue({
+    phases: [
+      makePhase({ id: 'p1', name: 'Solo', taskCount: 1 }),
+      makePhase({ id: 'p2', name: 'Many', taskCount: 4 }),
+    ],
+    isLoading: false,
+    error: null,
+    create: { mutate: phaseCreate, isPending: false, error: null },
+    update: { mutate: phaseUpdate, isPending: false },
+    remove: { mutate: phaseRemove, isPending: false, error: null, variables: undefined },
+    reorder: { mutate: phaseReorder },
+  });
+  renderPage();
+  const region = screen.getByRole('region', { name: /Phases/i });
+  expect(within(region).getByText('1 task')).toBeInTheDocument();
+  expect(within(region).getByText('4 tasks')).toBeInTheDocument();
+});
+
+// ---------------------------------------------------------------------------
+// Fields — required chip, unknown type label, show-on-card, modal close paths
+// ---------------------------------------------------------------------------
+
+describe('ProjectWorkflowPage — custom field rows', () => {
+  function withField(field: Partial<ProjectCustomField>) {
+    useProjectCustomFields.mockReturnValue({
+      fields: [
+        {
+          id: 'f1',
+          name: 'Vendor',
+          fieldType: 'TEXT',
+          required: false,
+          options: [],
+          order: 1,
+          serverVersion: 1,
+          showOnCard: false,
+          ...field,
+        },
+      ],
+      isLoading: false,
+      error: null,
+      create: { mutate: fieldCreate, isPending: false, error: null },
+      update: { mutate: fieldUpdate, isPending: false, error: null },
+      remove: { mutate: fieldRemove, isPending: false },
+    });
+  }
+
+  it('marks a required custom field with the Required chip', () => {
+    withField({ required: true });
+    renderPage();
+    const section = screen.getByRole('region', { name: /Fields/i });
+    // Two rows carry the chip: the built-in catalog and this custom field.
+    expect(within(section).getAllByText('Required').length).toBeGreaterThan(1);
+  });
+
+  it('falls back to the raw type code when the field type is not in the catalog', () => {
+    withField({ fieldType: 'GEO_POINT' as ProjectCustomField['fieldType'] });
+    renderPage();
+    const section = screen.getByRole('region', { name: /Fields/i });
+    expect(within(section).getByText('GEO_POINT')).toBeInTheDocument();
+  });
+
+  it('toggling show-on-card persists the new value', async () => {
+    withField({ showOnCard: false });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('switch', { name: /Show Vendor on board cards/i }));
+    expect(fieldUpdate).toHaveBeenCalledWith({ id: 'f1', payload: { showOnCard: true } });
+  });
+
+  /** The Vendor custom-field row (the table header also says "On card"). */
+  function vendorRow(): HTMLElement {
+    const section = screen.getByRole('region', { name: /Fields/i });
+    const row = within(section).getByText('Vendor').closest('li');
+    if (!row) throw new Error('Vendor row not rendered');
+    return row;
+  }
+
+  it('read-only viewers read "On card" in the row instead of getting a switch', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_MEMBER, isLoading: false });
+    withField({ showOnCard: true });
+    renderPage();
+    expect(within(vendorRow()).getByText('On card')).toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+  });
+
+  it('read-only viewers see a dash, and no row actions, when the field is off the card', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_MEMBER, isLoading: false });
+    withField({ showOnCard: false });
+    renderPage();
+    const row = vendorRow();
+    expect(within(row).queryByText('On card')).not.toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: /Edit Vendor/i })).not.toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: /Delete Vendor/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('ProjectWorkflowPage — custom field modal lifecycle', () => {
+  it('closes the create modal once the server accepts the new field', async () => {
+    fieldCreate.mockImplementationOnce((_payload, opts) => {
+      (opts as { onSuccess?: () => void } | undefined)?.onSuccess?.();
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /\+ New field/i }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'Compliance gate');
+    await user.click(within(dialog).getByRole('button', { name: /Add field/i }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('closes the edit modal once the update succeeds', async () => {
+    fieldUpdate.mockImplementationOnce((_args, opts) => {
+      (opts as { onSuccess?: () => void } | undefined)?.onSuccess?.();
+    });
+    const user = userEvent.setup();
+    renderPage();
+    const section = screen.getByRole('region', { name: /Fields/i });
+    await user.click(within(section).getByRole('button', { name: /Edit Vendor/i }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /^Save$/i }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('canceling the edit modal closes it without an update', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const section = screen.getByRole('region', { name: /Fields/i });
+    await user.click(within(section).getByRole('button', { name: /Edit Vendor/i }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Cancel/i }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(fieldUpdate).not.toHaveBeenCalled();
+  });
+
+  it('submitting the form while the payload is incomplete is a guarded no-op', async () => {
+    const user = userEvent.setup();
+    const { container } = renderPage();
+    await user.click(screen.getByRole('button', { name: /\+ New field/i }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'Region');
+    // A select-type field with zero options can never be valid.
+    await user.selectOptions(within(dialog).getByRole('combobox'), 'SINGLE_SELECT');
+    const form = container.ownerDocument.querySelector('form');
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+    expect(fieldCreate).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('shows no error paragraph when the failure body has no readable message', async () => {
+    useProjectCustomFields.mockReturnValue({
+      fields: [],
+      isLoading: false,
+      error: null,
+      create: { mutate: fieldCreate, isPending: false, error: { response: { data: { name: [] } } } },
+      update: { mutate: fieldUpdate, isPending: false, error: null },
+      remove: { mutate: fieldRemove, isPending: false },
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /\+ New field/i }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('button', { name: /Add field/i })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/exists|invalid|error/i)).not.toBeInTheDocument();
   });
 });

@@ -3,7 +3,7 @@
  * #384). Cover grouping behaviour, empty-state copy per group, and the
  * top-level empty state.
  */
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { QueueLayout, groupTasksForQueue, reorderGroupTasks } from './QueueLayout';
@@ -561,5 +561,360 @@ describe('reorderGroupTasks from === to', () => {
   it('returns the same array reference when source and target index are identical', () => {
     const tasks = [makeTask({ id: 'a' }), makeTask({ id: 'b' })];
     expect(reorderGroupTasks(tasks, 1, 1)).toBe(tasks);
+  });
+});
+
+// The comparators are fed by Array.prototype.sort, which only ever calls them in
+// one argument order for a given input order. Feeding the same set in the
+// opposite order exercises the mirror side of each `<` tie-break and pins the
+// stronger property: the sorted result is independent of input order.
+describe('groupTasksForQueue is input-order independent', () => {
+  const NOW = new Date('2026-05-09T00:00:00Z');
+
+  it('sorts next-up by statusEnteredAt descending regardless of input order', () => {
+    const nextUp = groupTasksForQueue(
+      [
+        makeTask({
+          id: 'newer',
+          status: 'NOT_STARTED',
+          priorityRank: 2,
+          statusEnteredAt: '2026-04-01T00:00:00Z',
+        }),
+        makeTask({
+          id: 'older',
+          status: 'NOT_STARTED',
+          priorityRank: 2,
+          statusEnteredAt: '2026-01-01T00:00:00Z',
+        }),
+      ],
+      NOW,
+    ).find((g) => g.key === 'nextUp');
+    expect(nextUp?.tasks.map((t) => t.id)).toEqual(['newer', 'older']);
+  });
+
+  it('sorts the backlog newest-first regardless of input order', () => {
+    const backlog = groupTasksForQueue(
+      [
+        makeTask({ id: 'newer', status: 'BACKLOG', statusEnteredAt: '2026-04-01T00:00:00Z' }),
+        makeTask({ id: 'older', status: 'BACKLOG', statusEnteredAt: '2026-01-01T00:00:00Z' }),
+      ],
+      NOW,
+    ).find((g) => g.key === 'backlog');
+    expect(backlog?.tasks.map((t) => t.id)).toEqual(['newer', 'older']);
+  });
+
+  it('orders backlog rows with no statusEnteredAt by name', () => {
+    const backlog = groupTasksForQueue(
+      [
+        makeTask({ id: 'z', name: 'Zebra', status: 'BACKLOG', statusEnteredAt: undefined }),
+        makeTask({ id: 'a', name: 'Apple', status: 'BACKLOG', statusEnteredAt: undefined }),
+      ],
+      NOW,
+    ).find((g) => g.key === 'backlog');
+    expect(backlog?.tasks.map((t) => t.name)).toEqual(['Apple', 'Zebra']);
+  });
+
+  it('sorts recently-done on `finish` when no task carries an actualFinish', () => {
+    const ids = (tasks: Task[]) =>
+      groupTasksForQueue(tasks, NOW)
+        .find((g) => g.key === 'recentlyDone')
+        ?.tasks.map((t) => t.id);
+    const early = makeTask({
+      id: 'early',
+      status: 'COMPLETE',
+      actualFinish: undefined,
+      finish: '2026-05-02',
+    });
+    const late = makeTask({
+      id: 'late',
+      status: 'COMPLETE',
+      actualFinish: undefined,
+      finish: '2026-05-06',
+    });
+    expect(ids([early, late])).toEqual(['late', 'early']);
+    expect(ids([late, early])).toEqual(['late', 'early']);
+  });
+
+  it('defaults the recently-done cutoff to the real current time when `now` is omitted', () => {
+    const recent = groupTasksForQueue([
+      makeTask({
+        id: 'fresh',
+        status: 'COMPLETE',
+        actualFinish: new Date(Date.now() - 60_000).toISOString(),
+      }),
+      makeTask({
+        id: 'stale',
+        status: 'COMPLETE',
+        actualFinish: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+      }),
+    ]).find((g) => g.key === 'recentlyDone');
+    expect(recent?.tasks.map((t) => t.id)).toEqual(['fresh']);
+  });
+});
+
+describe('QueueLayout header slot', () => {
+  const NOW = new Date('2026-05-09T00:00:00Z');
+
+  it('renders the header above the group list when there are tasks', () => {
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        header={<div data-testid="sprint-summary">Sprint summary</div>}
+        tasks={[makeTask({ id: 'a', status: 'NOT_STARTED' })]}
+      />,
+    );
+    const scroll = screen.getByTestId('queue-layout');
+    const header = screen.getByTestId('sprint-summary');
+    expect(scroll).toContainElement(header);
+    // Scrolls with the queue: it precedes the first group section in the DOM.
+    expect(
+      header.compareDocumentPosition(screen.getByTestId('queue-group-nextUp')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('still renders the header in the top-level empty state', () => {
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        header={<div data-testid="sprint-summary">Sprint summary</div>}
+        tasks={[]}
+      />,
+    );
+    expect(screen.getByTestId('queue-empty-scroll')).toContainElement(
+      screen.getByTestId('sprint-summary'),
+    );
+    expect(screen.getByTestId('queue-empty')).toBeInTheDocument();
+  });
+
+  it('renders no header node when the slot is omitted', () => {
+    render(<QueueLayout {...BASE_PROPS} now={NOW} tasks={[]} />);
+    expect(screen.queryByTestId('sprint-summary')).toBeNull();
+  });
+});
+
+describe('QueueRow priority histogram tone', () => {
+  const NOW = new Date('2026-05-09T00:00:00Z');
+
+  function litClasses(rank: number): string[] {
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        tasks={[makeTask({ id: `r${rank}`, status: 'NOT_STARTED', priorityRank: rank })]}
+      />,
+    );
+    return Array.from(screen.getByTitle(`Priority ${rank}`).children).map((c) => c.className);
+  }
+
+  it('uses the critical tone for rank 5 and above', () => {
+    expect(litClasses(5)[0]).toContain('bg-semantic-critical');
+  });
+
+  it('uses the accent tone for rank 4', () => {
+    const classes = litClasses(4);
+    expect(classes[0]).toContain('bg-brand-accent-dark');
+    expect(classes[0]).not.toContain('bg-semantic-critical');
+    // Rank 4 lights the first two bars (thresholds 2 and 4) but not the third (6).
+    expect(classes[1]).toContain('bg-brand-accent-dark');
+    expect(classes[2]).toContain('bg-neutral-border');
+  });
+
+  it('uses the secondary tone for rank 3', () => {
+    expect(litClasses(3)[0]).toContain('bg-neutral-text-secondary');
+  });
+});
+
+describe('QueueRow overflow menu interaction edges', () => {
+  const NOW = new Date('2026-05-09T00:00:00Z');
+
+  it('closes the open menu when the trigger is clicked again', () => {
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={vi.fn()}
+        tasks={[makeTask({ id: 'a', status: 'NOT_STARTED', serverVersion: 1 })]}
+      />,
+    );
+    const trigger = screen.getByTestId('queue-row-menu-a');
+    // fireEvent.click dispatches only `click` — a userEvent click would also fire
+    // the `mousedown` the menu treats as click-outside, masking the toggle path.
+    fireEvent.click(trigger);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('does not open when the trigger has no layout box', async () => {
+    const rectSpy = vi
+      .spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue(undefined as unknown as DOMRect);
+    try {
+      const user = userEvent.setup();
+      render(
+        <QueueLayout
+          {...BASE_PROPS}
+          now={NOW}
+          canReorder
+          onReorderGroup={vi.fn()}
+          tasks={[makeTask({ id: 'a', status: 'NOT_STARTED', serverVersion: 1 })]}
+        />,
+      );
+      await user.click(screen.getByTestId('queue-row-menu-a'));
+      expect(screen.queryByRole('menu')).toBeNull();
+      expect(screen.getByTestId('queue-row-menu-a')).toHaveAttribute('aria-expanded', 'false');
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
+  it('"Open details" opens the task detail anchored on the row button', async () => {
+    const user = userEvent.setup();
+    const onCardClick = vi.fn();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        onCardClick={onCardClick}
+        now={NOW}
+        canReorder={false}
+        tasks={[makeTask({ id: 'a', status: 'NOT_STARTED', name: 'Refresh logo' })]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-a'));
+    await user.click(screen.getByRole('menuitem', { name: /Open details/ }));
+    expect(onCardClick).toHaveBeenCalledTimes(1);
+    expect(onCardClick.mock.calls[0][0]).toMatchObject({ id: 'a' });
+    expect(onCardClick.mock.calls[0][1]).toBe(screen.getByRole('button', { name: /^Refresh logo,/ }));
+    // Selecting an item dismisses the menu.
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('emits serverVersion 0 for a reordered row that has never synced', async () => {
+    const user = userEvent.setup();
+    const onReorderGroup = vi.fn();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={onReorderGroup}
+        tasks={[
+          makeTask({ id: 'a', status: 'NOT_STARTED', priorityRank: 1, serverVersion: undefined }),
+          makeTask({ id: 'b', status: 'NOT_STARTED', priorityRank: 2, serverVersion: undefined }),
+        ]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-b'));
+    await user.click(screen.getByRole('menuitem', { name: /Promote/ }));
+    expect(onReorderGroup).toHaveBeenCalledWith([
+      { id: 'b', serverVersion: 0 },
+      { id: 'a', serverVersion: 0 },
+    ]);
+  });
+
+  it('a disabled Promote on the first row does not emit a reorder', async () => {
+    const user = userEvent.setup();
+    const onReorderGroup = vi.fn();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={onReorderGroup}
+        tasks={[
+          makeTask({ id: 'a', status: 'NOT_STARTED', priorityRank: 1, serverVersion: 1 }),
+          makeTask({ id: 'b', status: 'NOT_STARTED', priorityRank: 2, serverVersion: 1 }),
+        ]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-a'));
+    await user.click(screen.getByRole('menuitem', { name: /Promote/ }));
+    expect(onReorderGroup).not.toHaveBeenCalled();
+  });
+
+  it('offers only Open details on the Recently done group', async () => {
+    const user = userEvent.setup();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={vi.fn()}
+        tasks={[
+          makeTask({
+            id: 'done',
+            status: 'COMPLETE',
+            isComplete: true,
+            actualFinish: '2026-05-05T00:00:00Z',
+            serverVersion: 1,
+          }),
+        ]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-done'));
+    expect(screen.queryByRole('menuitem', { name: /Promote/ })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /Demote/ })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: /Open details/ })).toBeInTheDocument();
+  });
+});
+
+describe('QueueLayout in-flight reordering', () => {
+  const NOW = new Date('2026-05-09T00:00:00Z');
+
+  it('reorders within the In flight group too (not just Next up)', async () => {
+    const user = userEvent.setup();
+    const onReorderGroup = vi.fn();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={onReorderGroup}
+        tasks={[
+          makeTask({ id: 'a', status: 'IN_PROGRESS', priorityRank: 1, serverVersion: 2 }),
+          makeTask({ id: 'b', status: 'REVIEW', priorityRank: 2, serverVersion: 3 }),
+        ]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-b'));
+    await user.click(screen.getByRole('menuitem', { name: /Promote/ }));
+    expect(onReorderGroup).toHaveBeenCalledWith([
+      { id: 'b', serverVersion: 3 },
+      { id: 'a', serverVersion: 2 },
+    ]);
+  });
+
+  it('marks the focused row with the persistent focus ring', () => {
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        focusedCardId="a"
+        tasks={[
+          makeTask({ id: 'a', status: 'NOT_STARTED', name: 'Focused row' }),
+          makeTask({ id: 'b', status: 'NOT_STARTED', name: 'Other row' }),
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('queue-row-a').className).toMatch(/ring-brand-primary ring-inset/);
+    expect(screen.getByTestId('queue-row-b').className).not.toMatch(
+      /ring-2 ring-brand-primary ring-inset/,
+    );
+  });
+
+  it('falls back to the idea readiness chip when a BACKLOG row has no readiness', () => {
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        tasks={[makeTask({ id: 'b', status: 'BACKLOG', readiness: undefined, name: 'Raw idea' })]}
+      />,
+    );
+    expect(screen.getByText('idea')).toBeInTheDocument();
   });
 });

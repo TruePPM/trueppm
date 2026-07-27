@@ -1,7 +1,8 @@
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
+import { localTodayIso } from '@/lib/localDate';
 import { PlanSprintModal } from './PlanSprintModal';
 
 const mutateMock = vi.fn();
@@ -301,6 +302,296 @@ describe('PlanSprintModal', () => {
         />,
       );
       expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    });
+
+    it('prefers the existing sprint window over a supplied defaultStart', () => {
+      renderWithProviders(
+        <PlanSprintModal
+          projectId="proj-1"
+          defaultStart="2026-01-05"
+          existingSprint={existing}
+          onClose={() => undefined}
+        />,
+      );
+      expect(screen.getByLabelText(/^Start/i)).toHaveValue('2026-05-01');
+      expect(screen.getByLabelText(/^Finish/i)).toHaveValue('2026-05-14');
+    });
+
+    it('leaves the goal blank when the existing sprint has none', () => {
+      renderWithProviders(
+        <PlanSprintModal
+          projectId="proj-1"
+          existingSprint={{
+            id: 'sp-nogoal',
+            name: 'Sprint Foxtrot',
+            start_date: '2026-06-01',
+            finish_date: '2026-06-14',
+          }}
+          onClose={() => undefined}
+        />,
+      );
+      expect(screen.getByRole('textbox', { name: /Goal/i })).toHaveValue('');
+    });
+
+    it('calls onUpdated with the saved sprint id', async () => {
+      const onClose = vi.fn();
+      const onUpdated = vi.fn();
+      updateMutateMock.mockImplementation(
+        (_vars: unknown, opts?: { onSuccess?: (data: { id: string }) => void }) =>
+          opts?.onSuccess?.({ id: 'sp-edit' }),
+      );
+      renderWithProviders(
+        <PlanSprintModal
+          projectId="proj-1"
+          existingSprint={existing}
+          onClose={onClose}
+          onUpdated={onUpdated}
+        />,
+      );
+      await userEvent.type(screen.getByRole('textbox', { name: /Name/i }), '!');
+      await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+      expect(onUpdated).toHaveBeenCalledWith('sp-edit');
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it('still closes after a successful edit when no onUpdated is supplied', async () => {
+      const onClose = vi.fn();
+      updateMutateMock.mockImplementation(
+        (_vars: unknown, opts?: { onSuccess?: (data: { id: string }) => void }) =>
+          opts?.onSuccess?.({ id: 'sp-edit' }),
+      );
+      renderWithProviders(
+        <PlanSprintModal projectId="proj-1" existingSprint={existing} onClose={onClose} />,
+      );
+      await userEvent.type(screen.getByRole('textbox', { name: /Name/i }), '!');
+      await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it('shows the update-specific error message when the PATCH fails', () => {
+      mockUpdateMutation.isError = true;
+      renderWithProviders(
+        <PlanSprintModal
+          projectId="proj-1"
+          existingSprint={existing}
+          onClose={() => undefined}
+        />,
+      );
+      expect(screen.getByRole('alert')).toHaveTextContent(/Failed to update sprint/i);
+      expect(screen.queryByText(/Failed to create/i)).not.toBeInTheDocument();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Defaults, validation guards and submit gating
+  // -------------------------------------------------------------------------
+
+  it("seeds the start date with today's local calendar day when no default is given", () => {
+    renderWithProviders(<PlanSprintModal projectId="proj-1" onClose={() => undefined} />);
+    expect(screen.getByLabelText(/^Start/i)).toHaveValue(localTodayIso());
+  });
+
+  it('suppresses the range alert while a date field is empty', async () => {
+    renderWithProviders(
+      <PlanSprintModal projectId="proj-1" defaultStart="2026-04-01" onClose={() => undefined} />,
+    );
+    await userEvent.type(screen.getByRole('textbox', { name: /Name/i }), 'Sprint X');
+    await userEvent.clear(screen.getByLabelText(/^Start/i));
+
+    // Half-typed range is not an error yet — only a complete, inverted range is.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Plan sprint$/i })).toBeDisabled();
+  });
+
+  it('rejects a finish date equal to the start date', async () => {
+    renderWithProviders(
+      <PlanSprintModal projectId="proj-1" defaultStart="2026-04-01" onClose={() => undefined} />,
+    );
+    await userEvent.type(screen.getByRole('textbox', { name: /Name/i }), 'Sprint X');
+    const finish = screen.getByLabelText(/^Finish/i);
+    await userEvent.clear(finish);
+    await userEvent.type(finish, '2026-04-01');
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/Finish date must be after start date/i);
+    expect(screen.getByRole('button', { name: /^Plan sprint$/i })).toBeDisabled();
+  });
+
+  it('ignores a form submit while the form is invalid', () => {
+    const { container } = renderWithProviders(
+      <PlanSprintModal projectId="proj-1" defaultStart="2026-04-01" onClose={() => undefined} />,
+    );
+    const form = container.querySelector<HTMLFormElement>('form');
+    if (!form) throw new Error('PlanSprintModal did not render a <form>');
+    fireEvent.submit(form);
+    expect(mutateMock).not.toHaveBeenCalled();
+    expect(updateMutateMock).not.toHaveBeenCalled();
+  });
+
+  it('calls onCreated with the new sprint id', async () => {
+    const onCreated = vi.fn();
+    mutateMock.mockImplementation(
+      (_payload: unknown, opts?: { onSuccess?: (data: { id: string }) => void }) =>
+        opts?.onSuccess?.({ id: 'sp-new' }),
+    );
+    renderWithProviders(
+      <PlanSprintModal
+        projectId="proj-1"
+        defaultStart="2026-04-01"
+        onClose={() => undefined}
+        onCreated={onCreated}
+      />,
+    );
+    await userEvent.type(screen.getByRole('textbox', { name: /Name/i }), 'Sprint 13');
+    await userEvent.click(screen.getByRole('button', { name: /^Plan sprint$/i }));
+
+    expect(onCreated).toHaveBeenCalledWith('sp-new');
+  });
+
+  it('disables Cancel while the create is in flight', () => {
+    mockMutation.isPending = true;
+    renderWithProviders(<PlanSprintModal projectId="proj-1" onClose={() => undefined} />);
+    expect(screen.getByRole('button', { name: /^Cancel$/i })).toBeDisabled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Focus management — trap cycle and restore-on-unmount
+  // -------------------------------------------------------------------------
+
+  describe('focus management', () => {
+    async function renderWithName() {
+      const result = renderWithProviders(
+        <PlanSprintModal projectId="proj-1" defaultStart="2026-04-01" onClose={() => undefined} />,
+      );
+      // A non-empty name enables the submit button, which is the trap's LAST stop
+      // (getFocusable skips `button[disabled]`).
+      await userEvent.type(screen.getByRole('textbox', { name: /Name/i }), 'Sprint X');
+      return result;
+    }
+
+    it('wraps Tab from the last control back to the first', async () => {
+      await renderWithName();
+      const submit = screen.getByRole('button', { name: /^Plan sprint$/i });
+      submit.focus();
+
+      fireEvent.keyDown(document, { key: 'Tab' });
+      expect(screen.getByRole('textbox', { name: /Name/i })).toHaveFocus();
+    });
+
+    it('wraps Shift+Tab from the first control back to the last', async () => {
+      await renderWithName();
+      const name = screen.getByRole('textbox', { name: /Name/i });
+      name.focus();
+
+      fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+      expect(screen.getByRole('button', { name: /^Plan sprint$/i })).toHaveFocus();
+    });
+
+    it('leaves Shift+Tab alone in the middle of the cycle', async () => {
+      await renderWithName();
+      const goal = screen.getByRole('textbox', { name: /Goal/i });
+      goal.focus();
+
+      fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+      expect(goal).toHaveFocus();
+    });
+
+    it('leaves plain Tab alone in the middle of the cycle', async () => {
+      await renderWithName();
+      const name = screen.getByRole('textbox', { name: /Name/i });
+      name.focus();
+
+      fireEvent.keyDown(document, { key: 'Tab' });
+      // Not the last stop, so the trap does not intervene — the browser's own
+      // sequential navigation takes over.
+      expect(name).toHaveFocus();
+    });
+
+    it('ignores keys other than Tab', async () => {
+      await renderWithName();
+      const submit = screen.getByRole('button', { name: /^Plan sprint$/i });
+      submit.focus();
+
+      fireEvent.keyDown(document, { key: 'ArrowDown' });
+      expect(submit).toHaveFocus();
+    });
+
+    it('focuses the name field on open and restores the trigger on close', () => {
+      const trigger = document.createElement('button');
+      document.body.appendChild(trigger);
+      trigger.focus();
+
+      const { unmount } = renderWithProviders(
+        <PlanSprintModal projectId="proj-1" onClose={() => undefined} />,
+      );
+      expect(screen.getByRole('textbox', { name: /Name/i })).toHaveFocus();
+
+      unmount();
+      expect(trigger).toHaveFocus();
+      trigger.remove();
+    });
+
+    it('does not try to restore focus to a non-HTML trigger', () => {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('tabindex', '0');
+      document.body.appendChild(svg);
+      svg.focus();
+      expect(document.activeElement).toBe(svg);
+
+      const { unmount } = renderWithProviders(
+        <PlanSprintModal projectId="proj-1" onClose={() => undefined} />,
+      );
+      unmount();
+
+      // SVGElement is not an HTMLElement, so the restore is skipped rather than
+      // throwing on a missing `focus`.
+      expect(document.activeElement).not.toBe(svg);
+      svg.remove();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Dirty detection covers every field the modal opened with (#1913)
+  // -------------------------------------------------------------------------
+
+  describe('dirty detection per field', () => {
+    it('arms the guard when only the goal changed', async () => {
+      const onClose = vi.fn();
+      renderWithProviders(<PlanSprintModal projectId="proj-1" onClose={onClose} />);
+      await userEvent.type(screen.getByRole('textbox', { name: /Goal/i }), 'Ship the pilot');
+      await userEvent.click(screen.getByRole('button', { name: /^Cancel$/i }));
+
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('Discard unsaved changes?');
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('arms the guard when only the start date changed', async () => {
+      const onClose = vi.fn();
+      renderWithProviders(
+        <PlanSprintModal projectId="proj-1" defaultStart="2026-04-01" onClose={onClose} />,
+      );
+      const start = screen.getByLabelText(/^Start/i);
+      await userEvent.clear(start);
+      await userEvent.type(start, '2026-04-02');
+      await userEvent.click(screen.getByRole('button', { name: /^Cancel$/i }));
+
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('Discard unsaved changes?');
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('arms the guard when only the finish date changed', async () => {
+      const onClose = vi.fn();
+      renderWithProviders(
+        <PlanSprintModal projectId="proj-1" defaultStart="2026-04-01" onClose={onClose} />,
+      );
+      const finish = screen.getByLabelText(/^Finish/i);
+      await userEvent.clear(finish);
+      await userEvent.type(finish, '2026-04-20');
+      await userEvent.click(screen.getByRole('button', { name: /^Cancel$/i }));
+
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('Discard unsaved changes?');
+      expect(onClose).not.toHaveBeenCalled();
     });
   });
 });

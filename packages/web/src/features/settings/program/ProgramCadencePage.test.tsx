@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROLE_ADMIN, ROLE_VIEWER } from '@/lib/roles';
@@ -29,12 +29,35 @@ vi.mock('@/features/programs/hooks/useProgramCeremonyMutations', () => ({
 }));
 // Render identifiable markers so the open/close of each surface is assertable.
 vi.mock('@/features/programs/cadence/CeremonyModal', () => ({
-  CeremonyModal: ({ ceremony }: { ceremony?: CeremonyTemplate }) => (
-    <div data-testid="ceremony-modal">{ceremony ? 'Editing ceremony' : 'Add ceremony modal'}</div>
+  CeremonyModal: ({
+    ceremony,
+    onClose,
+    onSaved,
+  }: {
+    ceremony?: CeremonyTemplate;
+    onClose: () => void;
+    onSaved: () => void;
+  }) => (
+    <div data-testid="ceremony-modal">
+      {ceremony ? 'Editing ceremony' : 'Add ceremony modal'}
+      <button type="button" onClick={onClose}>
+        Dismiss modal
+      </button>
+      <button type="button" onClick={onSaved}>
+        Report saved
+      </button>
+    </div>
   ),
 }));
 vi.mock('@/features/programs/cadence/PhaseGateConfigPanel', () => ({
-  PhaseGateConfigPanel: () => <div data-testid="phase-gate-panel">Phase gate panel</div>,
+  PhaseGateConfigPanel: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="phase-gate-panel">
+      Phase gate panel
+      <button type="button" onClick={onClose}>
+        Dismiss panel
+      </button>
+    </div>
+  ),
 }));
 
 import { useProgram } from '@/hooks/useProgram';
@@ -54,6 +77,19 @@ const CEREMONY: CeremonyTemplate = {
   created_by: null,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
+};
+
+/** A second row: disabled, no owner, monthly — the mirror image of CEREMONY. */
+const RETRO: CeremonyTemplate = {
+  ...CEREMONY,
+  id: 'c2',
+  name: 'Retro',
+  cadence_type: 'monthly',
+  cadence_day: '1st-thursday',
+  cadence_time: '15:00:00',
+  duration_minutes: 60,
+  owner_role: '',
+  enabled: false,
 };
 
 function mockProgramRole(role: number) {
@@ -258,5 +294,169 @@ describe('ProgramCadencePage — ceremony actions menu keyboard access', () => {
     expect(screen.queryByTestId('phase-gate-panel')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Configure gate template/i }));
     expect(screen.getByTestId('phase-gate-panel')).toBeInTheDocument();
+  });
+
+  it('renders a disabled, unowned ceremony with an "Enable" toggle and an em-dash owner', () => {
+    mockCeremonies({ data: [CEREMONY, RETRO] });
+    render(<ProgramCadencePage />);
+    // Both rows render; the toggle label flips with the ceremony's enabled state.
+    expect(screen.getByRole('switch', { name: 'Disable Standup' })).toBeChecked();
+    const retroToggle = screen.getByRole('switch', { name: 'Enable Retro' });
+    expect(retroToggle).not.toBeChecked();
+    // A blank owner_role falls back to an em dash rather than an empty cell.
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.getByText('Monthly · first Thursday 15:00')).toBeInTheDocument();
+    expect(screen.getByText('60 min')).toBeInTheDocument();
+  });
+
+  it('toggling a disabled ceremony PATCHes it back to enabled', async () => {
+    mockCeremonies({ data: [RETRO] });
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    await user.click(screen.getByRole('switch', { name: 'Enable Retro' }));
+    await waitFor(() =>
+      expect(updateMutateAsync).toHaveBeenCalledWith({
+        ceremonyId: 'c2',
+        patch: { enabled: true },
+      }),
+    );
+  });
+
+  it('reads out "Off" for a viewer looking at a disabled ceremony', () => {
+    mockProgramRole(ROLE_VIEWER);
+    mockCeremonies({ data: [RETRO] });
+    render(<ProgramCadencePage />);
+    expect(
+      screen.getByRole('img', { name: /Retro: Off, managed by the program admin\. View only\./i }),
+    ).toBeInTheDocument();
+  });
+
+  it('treats a program whose role has not resolved as read-only', () => {
+    vi.mocked(useProgram).mockReturnValue({ data: undefined } as unknown as ReturnType<
+      typeof useProgram
+    >);
+    render(<ProgramCadencePage />);
+    expect(screen.queryByRole('button', { name: '+ Add ceremony' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /View gate template/i })).toBeInTheDocument();
+  });
+
+  it('shows the empty state when the ceremonies query has not produced data yet', () => {
+    vi.mocked(useProgramCeremonies).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useProgramCeremonies>);
+    render(<ProgramCadencePage />);
+    expect(screen.getByText('No ceremonies configured yet')).toBeInTheDocument();
+  });
+
+  it('opens the add modal from the empty-state CTA', async () => {
+    mockCeremonies({ data: [] });
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    await user.click(screen.getByRole('button', { name: /Add your first ceremony/i }));
+    expect(screen.getByTestId('ceremony-modal')).toHaveTextContent('Add ceremony modal');
+  });
+
+  it('closes the add modal when it reports a dismissal', async () => {
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    await user.click(screen.getByRole('button', { name: '+ Add ceremony' }));
+    await user.click(screen.getByRole('button', { name: 'Dismiss modal' }));
+    expect(screen.queryByTestId('ceremony-modal')).not.toBeInTheDocument();
+  });
+
+  it('closes the add modal when it reports a successful save', async () => {
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    await user.click(screen.getByRole('button', { name: '+ Add ceremony' }));
+    await user.click(screen.getByRole('button', { name: 'Report saved' }));
+    expect(screen.queryByTestId('ceremony-modal')).not.toBeInTheDocument();
+  });
+
+  it('closes the edit modal on dismiss and on save', async () => {
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    await user.click(screen.getByRole('button', { name: 'More options for Standup' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: 'Dismiss modal' }));
+    expect(screen.queryByTestId('ceremony-modal')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'More options for Standup' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: 'Report saved' }));
+    expect(screen.queryByTestId('ceremony-modal')).not.toBeInTheDocument();
+  });
+
+  it('closes the phase-gate panel when it reports a dismissal', async () => {
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    await user.click(screen.getByRole('button', { name: /Configure gate template/i }));
+    await user.click(screen.getByRole('button', { name: 'Dismiss panel' }));
+    expect(screen.queryByTestId('phase-gate-panel')).not.toBeInTheDocument();
+  });
+
+  it('falls back to a generic message when a delete rejects with a non-Error', async () => {
+    deleteMutateAsync.mockRejectedValueOnce('boom');
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    await user.click(screen.getByRole('button', { name: 'More options for Standup' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete…' }));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/Couldn.t delete .Standup./i),
+    );
+  });
+
+  it('Escape pressed on the kebab trigger itself closes the menu', async () => {
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    const kebab = screen.getByRole('button', { name: 'More options for Standup' });
+    await user.click(kebab);
+    expect(screen.getByRole('menuitem', { name: 'Edit' })).toBeInTheDocument();
+    // Focus lives in the portaled menu, so drive the trigger's own handler directly.
+    fireEvent.keyDown(kebab, { key: 'Escape' });
+    expect(screen.queryByRole('menuitem', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(kebab).toHaveFocus();
+  });
+
+  it('a non-Escape key on the kebab trigger leaves the menu open', async () => {
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    const kebab = screen.getByRole('button', { name: 'More options for Standup' });
+    await user.click(kebab);
+    fireEvent.keyDown(kebab, { key: 'a' });
+    expect(screen.getByRole('menuitem', { name: 'Edit' })).toBeInTheDocument();
+  });
+
+  it('Home and End jump to the first and last menu items', async () => {
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    await user.click(screen.getByRole('button', { name: 'More options for Standup' }));
+    await user.keyboard('{End}');
+    expect(screen.getByRole('menuitem', { name: 'Delete…' })).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(screen.getByRole('menuitem', { name: 'Edit' })).toHaveFocus();
+  });
+
+  it('an unhandled key inside the menu neither moves focus nor closes it', async () => {
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    await user.click(screen.getByRole('button', { name: 'More options for Standup' }));
+    await user.keyboard('x');
+    expect(screen.getByRole('menuitem', { name: 'Edit' })).toHaveFocus();
+    expect(screen.getByRole('menuitem', { name: 'Delete…' })).toBeInTheDocument();
+  });
+
+  it('an outside pointer-down dismisses the ceremony menu', async () => {
+    const user = userEvent.setup();
+    render(<ProgramCadencePage />);
+    await user.click(screen.getByRole('button', { name: 'More options for Standup' }));
+    expect(screen.getByRole('menuitem', { name: 'Edit' })).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    await waitFor(() =>
+      expect(screen.queryByRole('menuitem', { name: 'Edit' })).not.toBeInTheDocument(),
+    );
   });
 });

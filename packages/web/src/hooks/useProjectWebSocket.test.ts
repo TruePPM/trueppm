@@ -30,15 +30,27 @@ import type { Task } from '@/types';
 // `.catch()` failure branch (session-expired vs back-off-and-retry) can be
 // exercised synchronously. It defaults to 'success' and every describe resets to
 // it, so the existing synchronous-resolve behavior is unchanged.
-const wsTicketControl = vi.hoisted(() => ({ mode: 'success' as 'success' | 'reject' }));
+//
+// 'defer' is a third mode in which the mint settles neither way until a test
+// invokes the captured callback. It is the only way to reach the guards that run
+// *after* the ticket round-trip — the component unmounted, or projectId changed,
+// while the mint was in flight — because the synchronous thenable above always
+// settles inside connect().
+const wsTicketControl = vi.hoisted(() => ({
+  mode: 'success' as 'success' | 'reject' | 'defer',
+  deferredResolve: null as ((ticket: string) => void) | null,
+  deferredReject: null as ((reason: unknown) => void) | null,
+}));
 vi.mock('@/api/wsTicket', () => ({
   fetchWsTicket: () => ({
     then(onFulfilled: (t: string) => void) {
       if (wsTicketControl.mode === 'success') onFulfilled('test-ticket');
+      else if (wsTicketControl.mode === 'defer') wsTicketControl.deferredResolve = onFulfilled;
       return this;
     },
     catch(onRejected: (e: unknown) => void) {
       if (wsTicketControl.mode === 'reject') onRejected(new Error('mint failed'));
+      else if (wsTicketControl.mode === 'defer') wsTicketControl.deferredReject = onRejected;
       return this;
     },
   }),
@@ -2426,5 +2438,381 @@ describe('useProjectWebSocket — async import failure surfacing (#2151)', () =>
     dispatchFailed('run-cpm');
 
     expect(toastMock.error).not.toHaveBeenCalled();
+  });
+});
+
+// --- Payload guards on the per-entity invalidation handlers ---------------
+// Every task_-scoped handler keys its invalidation off a `task_id` read straight
+// off the wire. A frame that omits it (or ships a non-string) must not invalidate
+// a bogus ['<key>', undefined] entry — the sibling project-wide refresh still runs.
+describe('useProjectWebSocket — missing task_id guards', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  function dispatch(eventType: string, payload: Record<string, unknown>) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: eventType, payload }),
+      });
+    });
+  }
+
+  function flushDebounce() {
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+  }
+
+  function keysInvalidated(calls: unknown[][], head: string): unknown[][] {
+    return calls.filter((call) => {
+      const arg = call[0] as { queryKey?: unknown[] } | undefined;
+      return Array.isArray(arg?.queryKey) && arg.queryKey[0] === head;
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    wsTicketControl.mode = 'success';
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok', isAuthenticated: true });
+    });
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
+    });
+  });
+
+  it('skips the per-task comment refresh but still refreshes the feed when task_id is absent', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_comment_created', { comment_id: 'c1' });
+    flushDebounce();
+
+    expect(keysInvalidated(invalidateSpy.mock.calls, 'task-comments')).toHaveLength(0);
+    // The board activity feed is task-agnostic, so it still refetches.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['board-activity', 'proj-1'] });
+  });
+
+  it('ignores a non-string task_id on a task-comment event', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_comment_updated', { task_id: 42 });
+
+    expect(keysInvalidated(invalidateSpy.mock.calls, 'task-comments')).toHaveLength(0);
+  });
+
+  it('skips the per-task notes refresh but still refreshes tasks when task_id is absent', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_note_created', { id: 'note-1' });
+
+    expect(keysInvalidated(invalidateSpy.mock.calls, 'task-notes')).toHaveLength(0);
+    // latest_note_at is annotated on the task serializer, so the list still refreshes.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('does nothing for a task-link event with no task_id', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_link_created', { id: 'link-1' });
+    flushDebounce();
+
+    expect(keysInvalidated(invalidateSpy.mock.calls, 'task-links')).toHaveLength(0);
+  });
+});
+
+// --- task_dates_updated: the no-op shapes (ADR-0091) ----------------------
+describe('useProjectWebSocket — task_dates_updated no-op payloads', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  const SEEDED = [
+    {
+      id: 't1',
+      name: 'Alpha',
+      start: '2026-10-05',
+      finish: '2026-10-15',
+      duration: 10,
+      isCritical: false,
+      totalFloat: 5,
+      plannedStart: null,
+      isSummary: false,
+      progress: 0,
+      status: 'NOT_STARTED',
+    },
+  ] as unknown as Task[];
+
+  function dispatch(payload: Record<string, unknown>) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: 'task_dates_updated', payload }),
+      });
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    wsTicketControl.mode = 'success';
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok', isAuthenticated: true });
+    });
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(['tasks', 'proj-1'], SEEDED);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
+    });
+  });
+
+  it('leaves the cache untouched when the frame is neither truncated nor a task list', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({ count: 0 });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+
+    // Same array identity — no splice ran, so no consumer re-renders.
+    expect(qc.getQueryData(['tasks', 'proj-1'])).toBe(SEEDED);
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('leaves the cache untouched for an empty delta list', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({ count: 0, tasks: [] });
+
+    expect(qc.getQueryData(['tasks', 'proj-1'])).toBe(SEEDED);
+  });
+
+  it('leaves the cache untouched when truncated is falsy and tasks is not an array', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({ truncated: false, tasks: null });
+
+    expect(qc.getQueryData(['tasks', 'proj-1'])).toBe(SEEDED);
+  });
+});
+
+// --- Reconnect guards that fire after teardown ----------------------------
+// Two retryable closes on the same socket arm two backoff timers; stop() only
+// clears the most recent one, so the orphaned timer still fires after teardown.
+// The guards inside connect() are what keep that from opening a zombie socket.
+describe('useProjectWebSocket — connect() guards on a late reconnect', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    wsTicketControl.mode = 'success';
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok', isAuthenticated: true, sessionExpired: false });
+      useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
+    });
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false, sessionExpired: false });
+      useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
+    });
+  });
+
+  /** Arm two backoff timers so one survives the controller's stop(). */
+  function armOrphanedRetry() {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+  }
+
+  it('opens no socket when an orphaned backoff timer fires after unmount', () => {
+    const { unmount } = renderHook(() => useProjectWebSocket('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    armOrphanedRetry();
+
+    unmount();
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    // The mountedRef guard makes the late retry inert — no zombie connection.
+    expect(MockWebSocket.instances.length).toBe(1);
+  });
+
+  it('opens no socket when the token is gone by the time the retry fires', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    armOrphanedRetry();
+
+    // Signing out re-runs the effect (which returns early) but leaves the
+    // component mounted, so the orphaned timer still fires with a null token.
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
+    });
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(MockWebSocket.instances.length).toBe(1);
+  });
+});
+
+// --- Guards that run after the ticket round-trip (ADR-0141) ---------------
+describe('useProjectWebSocket — ticket settles after teardown', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    wsTicketControl.mode = 'defer';
+    wsTicketControl.deferredResolve = null;
+    wsTicketControl.deferredReject = null;
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok', isAuthenticated: true, sessionExpired: false });
+      useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
+    });
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    wsTicketControl.mode = 'success';
+    wsTicketControl.deferredResolve = null;
+    wsTicketControl.deferredReject = null;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false, sessionExpired: false });
+      useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
+    });
+  });
+
+  it('does not open a socket when the mint resolves after unmount', () => {
+    const { unmount } = renderHook(() => useProjectWebSocket('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    // The mint is still in flight, so nothing has been opened yet.
+    expect(MockWebSocket.instances.length).toBe(0);
+    const resolve = wsTicketControl.deferredResolve;
+
+    unmount();
+    act(() => {
+      resolve?.('late-ticket');
+    });
+
+    expect(MockWebSocket.instances.length).toBe(0);
+  });
+
+  it('does not open a socket for a ticket minted for a project the user has left', () => {
+    const { rerender } = renderHook(({ pid }) => useProjectWebSocket(pid), {
+      wrapper: makeWrapper(qc),
+      initialProps: { pid: 'proj-1' as string | null },
+    });
+    const staleResolve = wsTicketControl.deferredResolve;
+
+    // Navigating to another project re-runs the effect and starts a second mint.
+    rerender({ pid: 'proj-2' });
+    act(() => {
+      staleResolve?.('stale-ticket');
+    });
+    expect(MockWebSocket.instances.length).toBe(0);
+
+    // The in-flight mint for the *current* project still opens normally.
+    act(() => {
+      wsTicketControl.deferredResolve?.('fresh-ticket');
+    });
+    expect(MockWebSocket.instances.length).toBe(1);
+    expect(MockWebSocket.instances[0].url).toContain('/ws/v1/projects/proj-2/');
+    expect(MockWebSocket.instances[0].url).toContain('ticket=fresh-ticket');
+  });
+
+  it('does not schedule a reconnect when the mint rejects after unmount', () => {
+    const { unmount } = renderHook(() => useProjectWebSocket('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    const reject = wsTicketControl.deferredReject;
+
+    unmount();
+    act(() => {
+      reject?.(new Error('mint failed'));
+    });
+
+    // Teardown left the pill idle; a post-unmount failure must not escalate it
+    // to reconnecting, nor arm a backoff retry.
+    expect(useWsConnectionStore.getState().state).toBe('connecting');
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(MockWebSocket.instances.length).toBe(0);
+  });
+});
+
+// --- Secure-origin socket scheme -----------------------------------------
+// WS_BASE is derived once at module load, so the https → wss mapping can only be
+// exercised by re-importing the module against a stubbed location. Only `src/`
+// modules are reset (node_modules stay externalized), so React and TanStack Query
+// remain a single shared instance and the provider context still resolves.
+describe('useProjectWebSocket — secure-origin scheme', () => {
+  const originalWebSocket = globalThis.WebSocket;
+
+  afterEach(() => {
+    globalThis.WebSocket = originalWebSocket;
+    vi.resetModules();
+  });
+
+  it('opens wss:// when the page itself is served over https', async () => {
+    const realLocation = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { protocol: 'https:', host: 'app.example.test' },
+    });
+    MockWebSocket.instances = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    vi.resetModules();
+    try {
+      const freshHook = await import('./useProjectWebSocket');
+      const freshAuth = await import('@/stores/authStore');
+      act(() => {
+        freshAuth.useAuthStore.setState({ accessToken: 'tok', isAuthenticated: true });
+      });
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      renderHook(() => freshHook.useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      expect(MockWebSocket.instances[0].url).toContain('wss://app.example.test/ws/v1/projects/');
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: realLocation });
+    }
   });
 });

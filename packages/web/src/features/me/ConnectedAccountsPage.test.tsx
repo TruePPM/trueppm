@@ -17,16 +17,28 @@ const useIntegrationCredentials = vi.fn<() => HookReturn>();
 const upsertMutate = vi.fn();
 const revokeMutate = vi.fn();
 
+/**
+ * In-flight state per mutation. Each dialog/button swaps its label and disables
+ * itself while its own write is pending, so the cases below flip exactly one
+ * flag to assert that pending affordance in isolation.
+ */
+const pending = {
+  upsert: false,
+  revoke: false,
+  sync: false,
+  disconnect: false,
+};
+
 vi.mock('@/hooks/useIntegrationCredentials', () => ({
   useIntegrationCredentials: () => useIntegrationCredentials(),
   useUpsertIntegrationCredential: () => ({
     mutate: upsertMutate,
-    isPending: false,
+    isPending: pending.upsert,
     isError: false,
   }),
   useRevokeIntegrationCredential: () => ({
     mutate: revokeMutate,
-    isPending: false,
+    isPending: pending.revoke,
   }),
 }));
 
@@ -56,8 +68,8 @@ vi.mock('@/hooks/useExternalConnection', () => ({
   useExternalConnection: (source: string, enabled?: boolean) =>
     useExternalConnection(source, enabled),
   useExternalItems: () => useExternalItems(),
-  useSyncExternalSource: () => ({ mutate: syncMutate, isPending: false }),
-  useDisconnectExternalSource: () => ({ mutate: disconnectMutate, isPending: false }),
+  useSyncExternalSource: () => ({ mutate: syncMutate, isPending: pending.sync }),
+  useDisconnectExternalSource: () => ({ mutate: disconnectMutate, isPending: pending.disconnect }),
   useConnectExternalSource: () => ({ mutate: connectMutate, isPending: false }),
   extractConnectionError: (_err: unknown, fallback: string) => fallback,
 }));
@@ -156,6 +168,10 @@ const EMPTY_LIST = [
 ];
 
 beforeEach(() => {
+  pending.upsert = false;
+  pending.revoke = false;
+  pending.sync = false;
+  pending.disconnect = false;
   upsertMutate.mockReset();
   revokeMutate.mockReset();
   syncMutate.mockReset();
@@ -644,6 +660,145 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
     expect(card.queryByText('Fourth item')).not.toBeInTheDocument();
     expect(card.queryByText('RIV-4')).not.toBeInTheDocument();
   });
+
+  it('falls back to "your account" and omits the host when the connection carries neither', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira'
+        ? {
+            connection: { account_email: '', last_synced_at: FIVE_MINUTES_AGO },
+            isConnected: true,
+            isLoading: false,
+          }
+        : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    expect(card.getByText(/Linked as your account/i)).toBeInTheDocument();
+    expect(card.queryByText(/atlassian\.net/)).not.toBeInTheDocument();
+  });
+
+  it('treats an unparseable last-sync stamp as "not stale" rather than crashing', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira'
+        ? {
+            connection: {
+              account_email: 'p.patel@acme.com',
+              status: 'connected',
+              last_synced_at: 'not-a-timestamp',
+            },
+            isConnected: true,
+            isLoading: false,
+          }
+        : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    expect(card.getByText('Active')).toBeInTheDocument();
+    // A garbage stamp must not be reported as a staleness warning.
+    expect(card.queryByText(/^Last synced/i)).not.toBeInTheDocument();
+    expect(card.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('shows a syncing affordance and blocks a second pull while a sync is in flight', () => {
+    pending.sync = true;
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    const button = card.getByRole('button', { name: /Syncing…/ });
+    expect(button).toBeDisabled();
+    expect(card.queryByRole('button', { name: /Sync now/i })).toBeNull();
+  });
+
+  it('shows a disconnecting affordance while the disconnect is in flight', async () => {
+    pending.disconnect = true;
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /^Disconnect$/i }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByRole('button', { name: /Disconnecting…/ })).toBeDisabled();
+  });
+
+  it('keeps the disconnect dialog open on a key that is not Escape', async () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /^Disconnect$/i }));
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Enter' });
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(disconnectMutate).not.toHaveBeenCalled();
+  });
+
+  it('dismisses the disconnect dialog from the scrim but not from the panel', async () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /^Disconnect$/i }));
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.pointerDown(within(dialog).getByRole('heading', { name: /Disconnect Jira\?/i }));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.pointerDown(dialog);
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(disconnectMutate).not.toHaveBeenCalled();
+  });
+
+  it('closes the PAT connect wizard from its Cancel button', async () => {
+    useExternalConnection.mockReturnValue(NOT_CONNECTED);
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /^Connect$/ }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Cancel$/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(connectMutate).not.toHaveBeenCalled();
+    // The card returns to its unconnected affordance.
+    expect(card.getByRole('button', { name: /^Connect$/ })).toBeInTheDocument();
+  });
+
+  it('does not fetch items for a source that is not connected', () => {
+    useExternalConnection.mockReturnValue(NOT_CONNECTED);
+    renderPage();
+    // `useExternalItems(enabled)` is called with false for every card while
+    // nothing is connected — no cross-source item fetch on an empty page.
+    expect(useExternalItems).toHaveBeenCalled();
+    const jira = within(document.getElementById('source-jira') as HTMLElement);
+    expect(jira.queryByText(/Recently pulled/i)).not.toBeInTheDocument();
+  });
+
+  it('omits the recently-pulled preview when the connected source has no items', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    // Items exist, but all belong to another source — this card previews none.
+    useExternalItems.mockReturnValue({
+      items: [
+        {
+          id: 'x',
+          source_key: 'github',
+          external_id: 'GH-1',
+          external_url: 'https://github.com/acme/repo/issues/1',
+          title: 'Another source item',
+          external_status: 'Open',
+          display_bucket: 'todo',
+          last_synced_at: null,
+        },
+      ],
+      isLoading: false,
+    });
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    expect(card.queryByText(/Recently pulled/i)).not.toBeInTheDocument();
+    expect(card.queryByText('Another source item')).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -783,6 +938,109 @@ describe('ConnectedAccountsPage — credential dialogs', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
   });
+
+  it('keeps the connect dialog open on a key that is not Escape', async () => {
+    withCredentials(EMPTY_LIST);
+    openConnectDialog();
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Enter' });
+    fireEvent.keyDown(document, { key: 'a' });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('keeps the connect dialog open when the pointer lands inside the panel', async () => {
+    withCredentials(EMPTY_LIST);
+    openConnectDialog();
+    const dialog = await screen.findByRole('dialog');
+    // Only a press on the scrim itself dismisses — a press on the panel content
+    // must not close a half-typed token.
+    fireEvent.pointerDown(within(dialog).getByRole('heading', { name: /Connect GitLab/i }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('falls back to a generic message when the failure is not an Error', async () => {
+    withCredentials(EMPTY_LIST);
+    upsertMutate.mockImplementation(
+      (_vars: unknown, opts: { onError: (e: unknown) => void }) => {
+        // A rejected non-Error (e.g. a bare string from a transport layer).
+        opts.onError('kaboom');
+      },
+    );
+    openConnectDialog();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Personal access token/i), {
+      target: { value: 'some-token' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Connect$/ }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      /Could not save credential/i,
+    );
+  });
+
+  it('omits the host URL from the payload when the field is left blank', async () => {
+    withCredentials(EMPTY_LIST);
+    openConnectDialog();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Personal access token/i), {
+      target: { value: 'glpat-fake' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Connect$/ }));
+    await waitFor(() =>
+      expect(upsertMutate).toHaveBeenCalledWith(
+        { provider: 'gitlab', secret: 'glpat-fake', base_url: undefined },
+        expect.any(Object),
+      ),
+    );
+  });
+
+  it('shows a saving affordance and blocks resubmission while the upsert is in flight', async () => {
+    pending.upsert = true;
+    withCredentials(EMPTY_LIST);
+    openConnectDialog();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Personal access token/i), {
+      target: { value: 'glpat-fake' },
+    });
+    const submit = within(dialog).getByRole('button', { name: /Saving…/ });
+    expect(submit).toBeDisabled();
+    expect(within(dialog).queryByRole('button', { name: /^Connect$/ })).toBeNull();
+  });
+
+  it('shows a revoking affordance while the revoke is in flight', async () => {
+    pending.revoke = true;
+    withCredentials([GITHUB_CONNECTED, EMPTY_LIST[0], EMPTY_LIST[2]]);
+    const { container } = renderPage();
+    const card = within(container.querySelector('#provider-github') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /Revoke/i }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByRole('button', { name: /Revoking…/ })).toBeDisabled();
+  });
+
+  it('keeps the revoke dialog open on a key that is not Escape', async () => {
+    withCredentials([GITHUB_CONNECTED, EMPTY_LIST[0], EMPTY_LIST[2]]);
+    const { container } = renderPage();
+    const card = within(container.querySelector('#provider-github') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /Revoke/i }));
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(revokeMutate).not.toHaveBeenCalled();
+  });
+
+  it('dismisses the revoke dialog from the scrim but not from the panel', async () => {
+    withCredentials([GITHUB_CONNECTED, EMPTY_LIST[0], EMPTY_LIST[2]]);
+    const { container } = renderPage();
+    const card = within(container.querySelector('#provider-github') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /Revoke/i }));
+    const dialog = await screen.findByRole('alertdialog');
+    // Inside the panel: a destructive confirm must not close under the pointer.
+    fireEvent.pointerDown(within(dialog).getByRole('heading', { name: /Revoke GitHub/i }));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    // On the scrim: dismiss without revoking.
+    fireEvent.pointerDown(dialog);
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(revokeMutate).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -849,6 +1107,37 @@ describe('ConnectedAccountsPage — anchor scroll & enterprise slot', () => {
     expect(scrollSpy).toHaveBeenCalledWith(
       expect.objectContaining({ behavior: 'smooth', block: 'start' }),
     );
+  });
+
+  it('does not scroll when the deep link names a section that does not exist', () => {
+    const scrollSpy = vi.fn();
+    Element.prototype.scrollIntoView = scrollSpy;
+    window.location.hash = '#bitbucket';
+    useIntegrationCredentials.mockReturnValue({
+      credentials: EMPTY_LIST,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+    expect(scrollSpy).not.toHaveBeenCalled();
+    // The page still renders normally rather than erroring on the dead anchor.
+    expect(screen.getByRole('heading', { name: /Connected accounts/i })).toBeInTheDocument();
+  });
+
+  it('does not scroll while the credential list is still loading', () => {
+    const scrollSpy = vi.fn();
+    Element.prototype.scrollIntoView = scrollSpy;
+    window.location.hash = '#github';
+    useIntegrationCredentials.mockReturnValue({
+      credentials: [],
+      isLoading: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+    // Sections do not exist yet — scrolling now would land on nothing.
+    expect(scrollSpy).not.toHaveBeenCalled();
   });
 
   it('renders enterprise-registered provider cards in the extension slot', () => {
