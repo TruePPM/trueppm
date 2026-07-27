@@ -455,6 +455,19 @@ function ReadyLine() {
 }
 
 /** Flatten the displayed backlog to the global ordered reorder payload (ADR-0110). */
+/**
+ * Re-order `stories` to match `orderedIds`, dropping any id that no longer
+ * resolves (a story moved or deleted between the drag starting and settling).
+ *
+ * Module-scope so the epic reorder doesn't nest a `find` inside a `map` inside
+ * the epics `map` inside the handler — five levels (Sonar S2004). The id index
+ * also makes it O(n) rather than the O(n²) scan-per-id it replaces.
+ */
+function reorderBy(stories: Task[], orderedIds: string[]): Task[] {
+  const byId = new Map(stories.map((s) => [s.id, s]));
+  return orderedIds.map((id) => byId.get(id)).filter((s): s is Task => Boolean(s));
+}
+
 function toEntries(d: ProductBacklog): ReorderEntry[] {
   const flat = [...d.epics.flatMap((g) => g.stories), ...d.ungrouped];
   return flat.map((s) => ({ id: s.id, server_version: s.serverVersion ?? 0 }));
@@ -688,14 +701,7 @@ function DesktopGroomingView() {
     const optimistic: ProductBacklog = {
       ...backlog,
       epics: backlog.epics.map((g) =>
-        g.epic.id === epicId
-          ? {
-              ...g,
-              stories: orderedIds
-                .map((id) => g.stories.find((s) => s.id === id))
-                .filter((s): s is Task => Boolean(s)),
-            }
-          : g,
+        g.epic.id === epicId ? { ...g, stories: reorderBy(g.stories, orderedIds) } : g,
       ),
     };
     commitReorder(optimistic);
@@ -704,9 +710,7 @@ function DesktopGroomingView() {
   function reorderUngrouped(orderedIds: string[]) {
     const optimistic: ProductBacklog = {
       ...backlog,
-      ungrouped: orderedIds
-        .map((id) => backlog.ungrouped.find((s) => s.id === id))
-        .filter((s): s is Task => Boolean(s)),
+      ungrouped: reorderBy(backlog.ungrouped, orderedIds),
     };
     commitReorder(optimistic);
   }

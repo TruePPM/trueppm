@@ -26,6 +26,44 @@ function signature(list: AcceptanceCriterion[]): string {
   return list.map((c) => `${c.id}:${c.met ? 1 : 0}:${c.position}:${c.text}`).join('|');
 }
 
+/**
+ * Position-ordered copy — the canonical display order for the checklist.
+ *
+ * The three list transforms below are module-scope and pure so the optimistic
+ * update and its rollback are the *same* expression applied to different values,
+ * and so neither has to nest a `.map`/`.sort` callback inside a `setItems`
+ * updater inside a mutation callback (five levels deep, Sonar S2004).
+ */
+function byPosition(list: AcceptanceCriterion[]): AcceptanceCriterion[] {
+  return [...list].sort((a, b) => a.position - b.position);
+}
+
+/** Apply `patch` to the criterion with `id`, leaving order and the rest untouched. */
+function withPatch(
+  list: AcceptanceCriterion[],
+  id: string,
+  patch: Partial<AcceptanceCriterion>,
+): AcceptanceCriterion[] {
+  return list.map((x) => (x.id === id ? { ...x, ...patch } : x));
+}
+
+/**
+ * Flip `met` on the criterion with `id`, reading its value from `list` rather
+ * than from a captured prop — under two rapid ticks the second updater must see
+ * what the first already wrote, not the state at render time.
+ */
+function withToggledMet(list: AcceptanceCriterion[], id: string): AcceptanceCriterion[] {
+  return list.map((x) => (x.id === id ? { ...x, met: !x.met } : x));
+}
+
+/** Re-insert a removed criterion in position order — the rollback for a failed delete. */
+function withRestored(
+  list: AcceptanceCriterion[],
+  criterion: AcceptanceCriterion,
+): AcceptanceCriterion[] {
+  return byPosition([...list, criterion]);
+}
+
 export function AcceptanceCriteriaList({ projectId, taskId, criteria }: Props) {
   const create = useCreateCriterion(projectId);
   const update = useUpdateCriterion(projectId);
@@ -35,26 +73,23 @@ export function AcceptanceCriteriaList({ projectId, taskId, criteria }: Props) {
   // whenever the server payload changes (the post-mutation invalidation is the
   // source of truth); edits commit to both local + server synchronously so a
   // reconcile never clobbers an in-flight change.
-  const sorted = [...criteria].sort((a, b) => a.position - b.position);
+  const sorted = byPosition(criteria);
   const [items, setItems] = useState<AcceptanceCriterion[]>(sorted);
   const [draft, setDraft] = useState('');
 
   const serverSig = signature(sorted);
   useEffect(() => {
-    setItems([...criteria].sort((a, b) => a.position - b.position));
+    setItems(byPosition(criteria));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverSig, taskId]);
 
   const met = items.filter((c) => c.met).length;
 
   function toggleMet(c: AcceptanceCriterion) {
-    setItems((prev) => prev.map((x) => (x.id === c.id ? { ...x, met: !x.met } : x)));
+    setItems((prev) => withToggledMet(prev, c.id));
     update.mutate(
       { criterionId: c.id, patch: { met: !c.met } },
-      {
-        onError: () =>
-          setItems((prev) => prev.map((x) => (x.id === c.id ? { ...x, met: c.met } : x))),
-      },
+      { onError: () => setItems((prev) => withPatch(prev, c.id, { met: c.met })) },
     );
   }
 
@@ -62,10 +97,10 @@ export function AcceptanceCriteriaList({ projectId, taskId, criteria }: Props) {
     const next = text.trim();
     if (!next || next === c.text) {
       // Empty or unchanged → snap back to the saved text, do not persist.
-      setItems((prev) => prev.map((x) => (x.id === c.id ? { ...x, text: c.text } : x)));
+      setItems((prev) => withPatch(prev, c.id, { text: c.text }));
       return;
     }
-    setItems((prev) => prev.map((x) => (x.id === c.id ? { ...x, text: next } : x)));
+    setItems((prev) => withPatch(prev, c.id, { text: next }));
     update.mutate({ criterionId: c.id, patch: { text: next } });
   }
 
@@ -73,7 +108,7 @@ export function AcceptanceCriteriaList({ projectId, taskId, criteria }: Props) {
     setItems((prev) => prev.filter((x) => x.id !== c.id));
     remove.mutate(
       { criterionId: c.id },
-      { onError: () => setItems((prev) => [...prev, c].sort((a, b) => a.position - b.position)) },
+      { onError: () => setItems((prev) => withRestored(prev, c)) },
     );
   }
 

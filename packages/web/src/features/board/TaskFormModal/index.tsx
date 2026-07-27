@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Task, TaskStatus, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
@@ -233,6 +241,16 @@ function initialState(task: Task | null, defaultStatus: TaskStatus): FormState {
   };
 }
 
+/**
+ * Drop the entry at `index`, preserving order.
+ *
+ * Module-scope so the assignee/predecessor row removers don't nest a `filter`
+ * callback inside a `setForm` updater inside the row handler (Sonar S2004).
+ */
+function withoutIndex<T>(list: T[], index: number): T[] {
+  return list.filter((_, i) => i !== index);
+}
+
 function isMac(): boolean {
   if (typeof navigator === 'undefined') return false;
   return /Mac|iPhone|iPad|iPod/.test(navigator.platform);
@@ -307,6 +325,14 @@ export function TaskFormModal({
   // leading "1" (#1974). form.duration is the committed value; this is only
   // the in-flight display. Normalized back to a valid number on blur.
   const [durationText, setDurationText] = useState<string>(() => String(form.duration));
+  /**
+   * Commit a parsed duration to the form. Hoisted out of the duration input's
+   * `onChange`/`onBlur` so neither has to nest the `setForm` updater as a fifth
+   * function level (Sonar S2004).
+   */
+  const commitDuration = useCallback((days: number) => {
+    setForm((f) => ({ ...f, duration: days }));
+  }, []);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // #2036: a 409 sync conflict on edit-save keeps the modal open with an inline
   // banner instead of closing and discarding the user's edits. `conflict` holds
@@ -1081,7 +1107,7 @@ export function TaskFormModal({
                       setDurationText(raw);
                       const n = Number(raw);
                       if (raw !== '' && Number.isFinite(n)) {
-                        setForm((f) => ({ ...f, duration: n }));
+                        commitDuration(n);
                       }
                     }}
                     onBlur={() => {
@@ -1092,7 +1118,7 @@ export function TaskFormModal({
                       const n = Number(durationText);
                       const next =
                         durationText.trim() !== '' && Number.isFinite(n) && n >= 1 ? n : 1;
-                      if (next !== form.duration) setForm((f) => ({ ...f, duration: next }));
+                      if (next !== form.duration) commitDuration(next);
                       setDurationText(String(next));
                     }}
                     className="w-full h-9 px-3 text-sm text-neutral-text-primary tppm-mono bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
@@ -1136,10 +1162,7 @@ export function TaskFormModal({
                 })
               }
               onRemove={(index) =>
-                setForm((s) => ({
-                  ...s,
-                  assignees: s.assignees.filter((_, i) => i !== index),
-                }))
+                setForm((s) => ({ ...s, assignees: withoutIndex(s.assignees, index) }))
               }
             />
           </div>
@@ -1172,10 +1195,7 @@ export function TaskFormModal({
               }))
             }
             onRemove={(index) =>
-              setForm((s) => ({
-                ...s,
-                predecessors: s.predecessors.filter((_, i) => i !== index),
-              }))
+              setForm((s) => ({ ...s, predecessors: withoutIndex(s.predecessors, index) }))
             }
           />
         </div>

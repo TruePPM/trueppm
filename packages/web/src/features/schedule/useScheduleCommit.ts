@@ -448,6 +448,21 @@ export function useScheduleCommit({
 
   // --- Project-start floor prompt handlers (#868) ---------------------------
 
+  /**
+   * Surface a save failure inline on the before-start prompt, if it is still open.
+   *
+   * The `prev ? … : prev` guard matters: the user may have dismissed the prompt
+   * while the request was in flight, and resurrecting it to show an error for a
+   * decision they already walked away from would be wrong.
+   *
+   * Hoisted to hook scope so the mutation `onError` handlers below — which sit
+   * two callbacks deep inside a chained mutation — don't have to nest a state
+   * updater as a fifth function level (Sonar S2004).
+   */
+  const failBeforeStartPrompt = useCallback((message: string) => {
+    setBeforeStartPrompt((prev) => (prev ? { ...prev, error: message } : prev));
+  }, []);
+
   const handleSnapToProjectStart = useCallback(() => {
     const p = beforeStartPrompt;
     if (!p || !projectId) return;
@@ -480,15 +495,11 @@ export function useScheduleCommit({
           }
         },
         onError: (err) => {
-          setBeforeStartPrompt((prev) =>
-            prev
-              ? { ...prev, error: extractErrorMessage(err, "Couldn't save the change. Try again.") }
-              : prev,
-          );
+          failBeforeStartPrompt(extractErrorMessage(err, "Couldn't save the change. Try again."));
         },
       },
     );
-  }, [beforeStartPrompt, projectId, engine, rescheduleTask, onCommitSuccess, setScheduleError, ariaAssertiveRef]);
+  }, [beforeStartPrompt, projectId, engine, rescheduleTask, onCommitSuccess, setScheduleError, ariaAssertiveRef, failBeforeStartPrompt]);
 
   const handleMoveProjectStart = useCallback(() => {
     const p = beforeStartPrompt;
@@ -524,37 +535,27 @@ export function useScheduleCommit({
                 }
               },
               onError: (err) => {
-                setBeforeStartPrompt((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        error: extractErrorMessage(
-                          err,
-                          'Moved the project start, but saving the task failed. Try again.',
-                        ),
-                      }
-                    : prev,
+                failBeforeStartPrompt(
+                  extractErrorMessage(
+                    err,
+                    'Moved the project start, but saving the task failed. Try again.',
+                  ),
                 );
               },
             },
           );
         },
         onError: (err) => {
-          setBeforeStartPrompt((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  error: extractErrorMessage(
-                    err,
-                    "Couldn't move the project start date. You may not have permission.",
-                  ),
-                }
-              : prev,
+          failBeforeStartPrompt(
+            extractErrorMessage(
+              err,
+              "Couldn't move the project start date. You may not have permission.",
+            ),
           );
         },
       },
     );
-  }, [beforeStartPrompt, projectId, engine, updateProject, rescheduleTask, onCommitSuccess, setScheduleError, ariaAssertiveRef]);
+  }, [beforeStartPrompt, projectId, engine, updateProject, rescheduleTask, onCommitSuccess, setScheduleError, ariaAssertiveRef, failBeforeStartPrompt]);
 
   const handleCancelBeforeStart = useCallback(() => {
     const p = beforeStartPrompt;
