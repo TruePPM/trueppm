@@ -9,7 +9,8 @@ import functools
 import logging
 import re
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -3632,6 +3633,522 @@ def annotate_tasks_queryset(
     return cast("QuerySet[Task]", qs)
 
 
+def _is_truthy(raw: str) -> bool:
+    """The query-string truthiness this API has always accepted: ``true`` or ``1``."""
+    return raw.lower() in ("true", "1")
+
+
+def _filter_task_scalars(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
+    """Apply the single-value equality filters.
+
+    ``?type=`` is the ADR-0178 / #1076 task-type filter backing the board tech-debt
+    toggle; like ``?status=``, an unrecognized value simply matches nothing rather
+    than erroring.
+    """
+    project_id = params.get("project")
+    if project_id:
+        qs = qs.filter(project_id=project_id)
+    short_id = params.get("short_id")
+    if short_id:
+        qs = qs.filter(short_id=short_id.upper())
+    is_critical = params.get("is_critical")
+    if is_critical is not None:
+        qs = qs.filter(is_critical=_is_truthy(is_critical))
+    status = params.get("status")
+    if status:
+        qs = qs.filter(status=status)
+    task_type = params.get("type")
+    if task_type:
+        qs = qs.filter(type=task_type)
+    is_subtask = params.get("is_subtask")
+    if is_subtask is not None:
+        qs = qs.filter(is_subtask=_is_truthy(is_subtask))
+    return qs
+
+
+def _filter_tasks_mine(qs: QuerySet[Task], params: Any, user: Any) -> QuerySet[Task]:
+    """``?mine=true`` — tasks the requesting user is assigned to via ``Resource.user``.
+
+    Falls back to an email match for legacy resources whose ``user`` FK has not been
+    backfilled, which keeps pre-#198 fixtures working without a data migration.
+    ``.distinct()`` collapses the M2M-through join into one row per task.
+    """
+    mine = params.get("mine")
+    if not mine or not _is_truthy(mine):
+        return qs
+
+    user_email = (getattr(user, "email", "") or "").strip().lower()
+    mine_q = Q(assignments__resource__user=user)
+    if user_email:
+        mine_q |= Q(
+            assignments__resource__user__isnull=True,
+            assignments__resource__email__iexact=user_email,
+        )
+    return qs.filter(mine_q).distinct()
+
+
+def _filter_tasks_by_sprint(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
+    """Sprint membership (ADR-0037 Q5).
+
+    ``?sprint=<uuid>`` selects that sprint; the literal ``?sprint=none`` selects
+    sprint-less tasks — the project backlog.
+    """
+    sprint_filter = params.get("sprint")
+    if sprint_filter == "none":
+        return qs.filter(sprint__isnull=True)
+    if sprint_filter:
+        return qs.filter(sprint_id=sprint_filter)
+    return qs
+
+
+def _filter_tasks_by_parent(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
+    """``?parent=<uuid>`` — the drawer-created subtasks of one task (ADR-0060 #308)."""
+    parent_filter = params.get("parent")
+    if not parent_filter:
+        return qs
+    parent_path = (
+        Task.objects.filter(pk=parent_filter).values_list("wbs_path", flat=True).first() or ""
+    )
+    return qs.filter(wbs_path__startswith=parent_path, is_subtask=True).exclude(pk=parent_filter)
+
+
+def _filter_tasks_by_labels(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
+    """``?labels=<id>[,<id>…]`` — tasks carrying ANY of the given labels (#2331).
+
+    OR semantics, mirroring the Board's ``?fl=`` facet. Labels are project-scoped,
+    so a caller only ever matches labels on projects they can already see — no
+    extra scoping needed. ``.distinct()`` collapses the M2M join so a task with two
+    matching labels isn't returned twice.
+
+    Each id is validated as a UUID first: an unvalidated string passed into a UUID
+    ``__in`` lookup raises at query time and surfaces as a 500 the UUID-only
+    exception handler doesn't map (#2213 class), so a malformed id must return a
+    clean 400 here instead.
+    """
+    labels_param = params.get("labels")
+    if not labels_param:
+        return qs
+
+    label_ids: list[uuid.UUID] = []
+    for chunk in labels_param.split(","):
+        raw = chunk.strip()
+        if not raw:
+            continue
+        try:
+            label_ids.append(uuid.UUID(raw))
+        except ValueError:
+            raise DRFValidationError({"labels": "Each label must be a valid UUID."}) from None
+    if not label_ids:
+        return qs
+    return qs.filter(labels__id__in=label_ids).distinct()
+
+
+def _filter_tasks_by_date_range(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
+    """Date-range filter for the calendar / resource views.
+
+    ``?start__gte`` keeps tasks whose ``early_finish`` is on or after the date (still
+    active); ``?finish__lte`` keeps tasks whose ``early_start`` is on or before it
+    (already started). Combined, they return tasks overlapping the window.
+
+    Both are parsed before filtering: ``early_start``/``early_finish`` are DateFields,
+    so an unvalidated string reaching ``.filter()`` lets Django raise at query time
+    into the UUID-only exception handler and surface as a 500 (#2213). Coerce here
+    and 400 on a malformed date.
+    """
+    for param, lookup in (("start__gte", "early_finish__gte"), ("finish__lte", "early_start__lte")):
+        raw = params.get(param)
+        if not raw:
+            continue
+        try:
+            qs = qs.filter(**{lookup: datetime.date.fromisoformat(raw)})
+        except ValueError:
+            raise DRFValidationError(
+                {param: "Must be a valid ISO 8601 date (YYYY-MM-DD)."}
+            ) from None
+    return qs
+
+
+def _resolve_create_parent(project: Any, parent_id: Any, *, is_subtask: bool) -> tuple[Task, str]:
+    """Lock the requested parent, enforce the placement guards, and pick the child path.
+
+    All three guards reject a structurally impossible placement rather than let it
+    reach the WBS:
+
+    * **Milestone** (#1773) — a milestone is a zero-duration gate, not a container.
+      Giving it children would make the phase rollup aggregate under a node the CPM
+      treats as a single point.
+    * **Depth-1** (ADR-0060) — subtasks are leaf nodes, so no task of any kind may be
+      created under one. Checked on *every* ``parent_id`` path, not only
+      ``is_subtask=True`` requests, so "Add Task" cannot bypass it.
+    * **Phase** (#1750) — a phase (a summary task grouping real WBS work) must not
+      accept drawer-subtasks. Both drawer-subtasks and WBS-phase children make the
+      parent ``is_summary``; the discriminator is whether it already has a
+      *structural* (non-subtask) child. If it does, a subtask would conflate the two
+      decomposition models. A leaf — no children, or only ``is_subtask`` children —
+      stays decomposable. Reuses the already-locked sibling list, so no extra query.
+    """
+    from rest_framework.exceptions import ErrorDetail
+    from rest_framework.exceptions import ValidationError as DRFValidationError
+
+    try:
+        parent = Task.objects.select_for_update().get(
+            pk=parent_id, project=project, is_deleted=False
+        )
+    except Task.DoesNotExist as exc:
+        raise DRFValidationError({"parent_id": "Parent task not found in this project."}) from exc
+
+    if not parent.wbs_path:
+        raise DRFValidationError({"parent_id": "Parent task has no WBS path."})
+    if parent.is_milestone:
+        raise DRFValidationError(
+            {"parent_id": [ErrorDetail(_MILESTONE_NO_CHILDREN, code="child_of_milestone")]}
+        )
+    if parent.is_subtask:
+        raise DRFValidationError({"parent_id": "Cannot create a child of a subtask."})
+
+    children = _get_siblings(str(project.pk), str(parent.wbs_path), lock=True)
+    if is_subtask and any(not c.is_subtask for c in children):
+        raise DRFValidationError(
+            {
+                "parent_id": [
+                    ErrorDetail(
+                        "Phases group work — add tasks inside the phase, not subtasks.",
+                        code="subtask_on_phase",
+                    )
+                ]
+            }
+        )
+    return parent, _build_wbs_path(str(parent.wbs_path), len(children) + 1)
+
+
+def _next_root_wbs_path(project: Any) -> str:
+    """The next root-level WBS number, counted under the same lock as the INSERT."""
+    root_count = (
+        Task.objects.select_for_update()
+        .filter(project=project, is_deleted=False, wbs_path__regex=_ROOT_WBS_RE)
+        .count()
+    )
+    return str(root_count + 1)
+
+
+def _record_subtask_spawn(parent: Task, instance: Task, by: Any) -> None:
+    """Bump the parent's ``server_version`` and log the sprint scope change, if any.
+
+    The version bump is what makes sync clients notice the parent's new
+    ``is_summary=True`` state. The scope-change row is recorded against the
+    already-committed parent for the drawer chip with ``flag_pending=False`` — the
+    parent stays in the commitment; flagging it pending would wrongly drop the whole
+    parent from the burndown.
+    """
+    Task.objects.filter(pk=parent.pk).update(server_version=db_models.F("server_version") + 1)
+    if parent.sprint_id is None:
+        return
+
+    from trueppm_api.apps.projects.models import Sprint
+    from trueppm_api.apps.projects.services import record_sprint_scope_change
+
+    parent_sprint = Sprint.objects.filter(pk=parent.sprint_id).first()
+    if parent_sprint is None:
+        return
+    record_sprint_scope_change(
+        task=parent,
+        sprint=parent_sprint,
+        by=by,
+        item_name=instance.name,
+        flag_pending=False,
+    )
+
+
+def _defer_task_create_events(instance: Task, bumped_parent: Task | None) -> None:
+    """Queue the post-commit recalc, board broadcasts, and webhook for a new task.
+
+    ``bumped_parent`` is the parent whose ``is_summary`` state just changed (subtask
+    creates only) — ``None`` when no parent row needs a re-fetch.
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    project_id = str(instance.project_id)
+    task_id = str(instance.pk)
+    transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+    transaction.on_commit(
+        lambda: broadcast_board_event(project_id, "task_created", {"id": task_id})
+    )
+    # #867: a new task placed before the project start pulled the boundary
+    # earlier (auto-shift in TaskSerializer.create). Broadcast the project
+    # change in the same on_commit batch so collaborators re-fetch the start.
+    if getattr(instance, "_project_start_shifted_from", None) is not None:
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
+        )
+    if bumped_parent is not None:
+        parent_id_str = str(bumped_parent.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "task_updated", {"id": parent_id_str})
+        )
+    payload = _task_webhook_payload(instance)
+    transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.created", payload))
+
+
+@dataclass(frozen=True)
+class _TaskUpdateSnapshot:
+    """Pre-save field values the post-save event emitters compare against.
+
+    Captured BEFORE ``serializer.save()`` mutates the instance — ``serializer.instance``
+    still holds the prior DB values at that point (#638 / ADR-0083). Stored as plain
+    scalars so the ``on_commit`` lambdas never close over an ORM object.
+    """
+
+    assignee_id: str | None
+    planned_start: str | None
+    sprint_id: str | None
+    is_blocked: bool
+
+
+def _snapshot_task_before_update(instance: Task | None) -> _TaskUpdateSnapshot:
+    return _TaskUpdateSnapshot(
+        assignee_id=str(instance.assignee_id) if instance and instance.assignee_id else None,
+        planned_start=str(instance.planned_start) if instance and instance.planned_start else None,
+        # ADR-0102 §4: the prior sprint link is what lets a *direct* task→sprint link
+        # be detected after save and routed through the scope-injection approve-gate
+        # when the new sprint is ACTIVE (post-activation injection).
+        sprint_id=str(instance.sprint_id) if instance and instance.sprint_id else None,
+        # #855: "blocked" means a non-empty blocked_reason. This before/after snapshot
+        # is the idempotency guard — re-saving an already-blocked task, or editing its
+        # reason, must not re-notify.
+        is_blocked=bool((getattr(instance, "blocked_reason", "") or "").strip())
+        if instance
+        else False,
+    )
+
+
+def _defer_task_update_broadcasts(
+    instance: Task, changed_fields: set[str], actor_id: str | None
+) -> None:
+    """Queue the CPM recalc and the three post-commit board broadcasts for an edit.
+
+    The recalc is conditional (#965): a PATCH touching only non-scheduling fields
+    (notes, name) would otherwise enqueue a full-project CPM recalc on every
+    keystroke — the dominant source of drawer-edit lag. ``validated_data`` holds
+    exactly the fields this partial update wrote, so a subset-of-denylist write skips
+    it. ``percent_complete`` is deliberately NOT in the denylist (#1500): since
+    ADR-0132 it is a live CPM input on every project, status_date set or not.
+
+    The board broadcast always fires — collaborators must see a progress or name
+    change land even though it doesn't move the schedule.
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event, broadcast_task_updated
+
+    project_id = str(instance.project_id)
+    task_id = str(instance.pk)
+
+    if not changed_fields or not changed_fields <= _NON_SCHEDULE_TASK_FIELDS:
+        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+
+    # ADR-0152 (#327): carry the field-level delta (names only — never gated values),
+    # the post-commit server_version, and the actor so the originating client can
+    # suppress its own echo instead of re-fetching over its optimistic update.
+    delta_fields = sorted(changed_fields)
+    version = instance.server_version
+    transaction.on_commit(
+        lambda: broadcast_task_updated(
+            project_id,
+            task_id=task_id,
+            changed_fields=delta_fields,
+            version=version,
+            actor_id=actor_id,
+        )
+    )
+    # #867: this edit pulled the project start earlier (auto-shift in
+    # TaskSerializer.update). Broadcast the project change in the same batch
+    # so collaborators re-fetch the new boundary alongside the task update.
+    if getattr(instance, "_project_start_shifted_from", None) is not None:
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
+        )
+    # ADR-0151 (#414): a user edit changed this task's duration on a task with
+    # progress. Broadcast the WS-only task_duration_changed event so the desktop
+    # client can render the inline "Recalc %?" / confirm affordance without a
+    # refetch. WS-only (no webhook): external consumers already see the new
+    # duration via task.updated, and the OSS webhook set is at its cap (ADR-0147).
+    # The event row is already persisted by the serializer; this is the live hint.
+    duration_event: dict[str, Any] | None = getattr(instance, "_duration_change_event", None)
+    if duration_event is not None:
+        event_payload = duration_event
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "task_duration_changed", event_payload)
+        )
+
+
+def _emit_assignee_change_events(
+    payload: dict[str, Any],
+    before: _TaskUpdateSnapshot,
+    actor_id: str | None,
+    project_id: str,
+) -> None:
+    """Granular assignee webhooks + the new assignee's notification (#638, #639).
+
+    None → user is an *assignment*; user → user is a *reassignment*. Clearing the
+    assignee (user → None) is just ``task.updated`` and emits neither. The new
+    assignee is notified either way, and never the actor.
+    """
+    new_assignee_id = payload["assignee"]
+    if new_assignee_id == before.assignee_id:
+        return
+
+    assignee_payload = {**payload, "previous_assignee": before.assignee_id}
+    if before.assignee_id is None and new_assignee_id is not None:
+        transaction.on_commit(
+            lambda: _dispatch_webhooks(project_id, _TASK_ASSIGNED_EVENT, assignee_payload)
+        )
+    elif new_assignee_id is not None:
+        transaction.on_commit(
+            lambda: _dispatch_webhooks(project_id, "task.assignee_changed", assignee_payload)
+        )
+
+    if new_assignee_id is not None and new_assignee_id != actor_id:
+        task_name = payload["name"]
+        a_subj = f"You were assigned to {task_name}"
+        a_body = f'You were assigned to the task "{task_name}" in TruePPM.'
+        a_rcpt = new_assignee_id
+        transaction.on_commit(
+            lambda: _notify_event(_TASK_ASSIGNED_EVENT, [a_rcpt], a_subj, a_body, project_id)
+        )
+
+
+def _sprint_team_recipients(instance: Task, sprint_pk: Any, exclude: set[str]) -> list[str | None]:
+    """Other assignees in the same sprint who should hear about a reschedule (#497).
+
+    Scoped to *current* project members and *live* tasks: member removal is a soft
+    delete that leaves task assignments intact, so a revoked member could otherwise
+    be notified about a project they've left (rbac/security 🟡).
+    """
+    member_ids = {
+        str(uid)
+        for uid in ProjectMembership.objects.filter(
+            project_id=instance.project_id, is_deleted=False
+        ).values_list("user_id", flat=True)
+    }
+    return [
+        aid
+        for aid in {
+            str(x)
+            for x in Task.objects.filter(
+                sprint_id=sprint_pk, assignee__isnull=False, is_deleted=False
+            ).values_list("assignee_id", flat=True)
+        }
+        if aid not in exclude and aid in member_ids
+    ]
+
+
+def _emit_due_date_change_events(
+    instance: Task,
+    payload: dict[str, Any],
+    before: _TaskUpdateSnapshot,
+    actor_id: str | None,
+    project_id: str,
+    task_id: str,
+) -> None:
+    """``task.due_date_changed`` webhook plus its targeted and sprint-wide notices.
+
+    The event binds to ``planned_start`` (the PM-committed date) — Task has no
+    dedicated deadline field; #690 rebinds this to ``planned_finish``.
+    """
+    new_planned_start = payload["planned_start"]
+    if new_planned_start == before.planned_start:
+        return
+
+    date_payload = {**payload, "previous_planned_start": before.planned_start}
+    transaction.on_commit(
+        lambda: _dispatch_webhooks(project_id, "task.due_date_changed", date_payload)
+    )
+
+    task_name = payload["name"]
+    new_assignee_id = payload["assignee"]
+    old_label = before.planned_start or "unscheduled"
+
+    # Notify the task's current assignee (the owner of the work), if any. #497:
+    # carry both old and new dates and deep-link to the task — a Confirmed
+    # schedule-canvas reschedule (ADR-0067) lands a deliberate date change on
+    # someone else's committed work, and they must learn of it as a targeted
+    # signal, not a generic feed entry.
+    if new_assignee_id is not None and new_assignee_id != actor_id:
+        d_subj = f"Planned start changed on {task_name}"
+        d_body = f'"{task_name}" moved from {old_label} to {new_planned_start}.'
+        d_rcpt = new_assignee_id
+        transaction.on_commit(
+            lambda: _notify_event(
+                "task.due_date_changed", [d_rcpt], d_subj, d_body, project_id, task_id=task_id
+            )
+        )
+
+    # #497: when the rescheduled task is in an ACTIVE sprint, the rest of the sprint
+    # team also needs the signal — a moved commitment ripples across the iteration.
+    # Recipients are the *other* sprint assignees (the targeted assignee already got
+    # the dedicated notice above, and the actor is never notified of their own edit),
+    # so nobody is double-notified. PLANNED/COMPLETED/CANCELLED sprints don't fan out.
+    sprint = instance.sprint
+    if sprint is None or sprint.state != SprintState.ACTIVE:
+        return
+    already_notified = {x for x in (new_assignee_id, actor_id) if x}
+    team_ids = _sprint_team_recipients(instance, sprint.pk, already_notified)
+    if not team_ids:
+        return
+
+    s_name = sprint.name
+    s_subj = f"{task_name} rescheduled in {s_name}"
+    s_body = f'"{task_name}" in sprint {s_name} moved from {old_label} to {new_planned_start}.'
+    transaction.on_commit(
+        lambda: _notify_event(
+            "sprint.task_rescheduled", team_ids, s_subj, s_body, project_id, task_id=task_id
+        )
+    )
+
+
+def _emit_blocked_notification(
+    instance: Task,
+    before: _TaskUpdateSnapshot,
+    actor: Any,
+    project_id: str,
+    task_id: str,
+) -> None:
+    """``task.blocked`` on the unblocked→blocked transition (#855, #476, ADR-0124 #1134).
+
+    The recipient set is the impediment-clearers: the assignee + the project's Scrum
+    Master(s) + the PM(s), so the people whose job is removing impediments are told,
+    not just the assignee who already knows. Each recipient is independently gated by
+    their own NotificationPreference downstream. The subject/body carry blocker_type +
+    age and NEVER the reason text — the Morgan boundary, enforced at render in
+    ``blocker_services.render_blocker_notification``.
+    """
+    if before.is_blocked or not (instance.blocked_reason or "").strip():
+        return
+
+    from trueppm_api.apps.projects.blocker_services import (
+        render_blocker_notification,
+        resolve_impediment_recipients,
+    )
+
+    recipients = resolve_impediment_recipients(instance)
+    # Never notify the actor who raised the flag (they took the action), whether they
+    # reach the set as the assignee, a Scrum Master, or a PM.
+    # NOTE: ``recipients`` holds raw user PKs (ints) from the resolver, while an
+    # ``actor_id`` string would be a no-op against an int set — discard the raw PK.
+    recipients.discard(actor.pk if actor.is_authenticated else None)
+    if not recipients:
+        return
+
+    b_subj, b_body = render_blocker_notification(instance)
+    b_rcpts = list(recipients)
+    # Literal mirrors NotificationEventType.TASK_BLOCKED (kept a literal here per the
+    # line-833 convention). It MUST stay in step with that value: notifications
+    # .DND_BYPASS_EVENTS is keyed on it so a blocker always emails through
+    # Do-Not-Disturb (#1707, ADR-0292) — a drift here would silently let DND swallow
+    # the flagship blocker alert.
+    transaction.on_commit(
+        lambda: _notify_event("task.blocked", b_rcpts, b_subj, b_body, project_id, task_id=task_id)
+    )
+
+
 def _attach_milestone_rollups(tasks: list[Task]) -> None:
     """Pre-compute and attach milestone rollups for a page of tasks (#999).
 
@@ -3872,120 +4389,17 @@ class TaskViewSet(
     # which get_object_or_404 silently converts to a 404 on every retrieve.
 
     def get_queryset(self) -> QuerySet[Task]:
-        qs = super().get_queryset()
-        project_id = self.request.query_params.get("project")
-        if project_id:
-            qs = qs.filter(project_id=project_id)
-        short_id = self.request.query_params.get("short_id")
-        if short_id:
-            qs = qs.filter(short_id=short_id.upper())
-        is_critical = self.request.query_params.get("is_critical")
-        if is_critical is not None:
-            qs = qs.filter(is_critical=is_critical.lower() in ("true", "1"))
-        status = self.request.query_params.get("status")
-        if status:
-            qs = qs.filter(status=status)
-        # Task-type filter (ADR-0178, #1076) — backs the board tech-debt toggle
-        # and lets any client chart debt distinctly via ?type=tech_debt. An
-        # unrecognized value simply matches nothing (consistent with ?status=).
-        task_type = self.request.query_params.get("type")
-        if task_type:
-            qs = qs.filter(type=task_type)
-
-        # "My tasks" filter (issue #198): tasks the requesting user is
-        # assigned to via Resource.user. Falls back to email match for
-        # legacy resources whose user FK has not been backfilled — keeps
-        # pre-#198 fixtures working without a data migration. Distinct
-        # collapses the M2M-through join into one row per task.
-        mine = self.request.query_params.get("mine")
-        if mine and mine.lower() in ("true", "1"):
-            user = self.request.user
-            user_email = (getattr(user, "email", "") or "").strip().lower()
-            mine_q = Q(assignments__resource__user=user)
-            if user_email:
-                mine_q |= Q(
-                    assignments__resource__user__isnull=True,
-                    assignments__resource__email__iexact=user_email,
-                )
-            qs = qs.filter(mine_q).distinct()
-
-        # Sprint membership filter (ADR-0037 Q5):
-        #   ?sprint=<uuid>  — only tasks in that sprint
-        #   ?sprint=none    — only sprint-less tasks (project backlog)
-        sprint_filter = self.request.query_params.get("sprint")
-        if sprint_filter == "none":
-            qs = qs.filter(sprint__isnull=True)
-        elif sprint_filter:
-            qs = qs.filter(sprint_id=sprint_filter)
-
-        # Subtask filters (ADR-0060 #308):
-        #   ?parent=<uuid>       — subtasks of a specific parent task
-        #   ?is_subtask=true     — all drawer-created subtasks in the project
-        parent_filter = self.request.query_params.get("parent")
-        if parent_filter:
-            qs = qs.filter(
-                wbs_path__startswith=Task.objects.filter(pk=parent_filter)
-                .values_list("wbs_path", flat=True)
-                .first()
-                or "",
-                is_subtask=True,
-            ).exclude(pk=parent_filter)
-        is_subtask_filter = self.request.query_params.get("is_subtask")
-        if is_subtask_filter is not None:
-            qs = qs.filter(is_subtask=is_subtask_filter.lower() in ("true", "1"))
-
-        # Label filter (#2331): ?labels=<id>[,<id>…] — tasks carrying ANY of the
-        # given label ids (OR semantics, mirroring the Board's ?fl= facet). Labels
-        # are project-scoped, so a caller only ever matches labels on projects they
-        # can already see; no extra scoping needed. `.distinct()` collapses the M2M
-        # join so a task with two matching labels isn't returned twice. Each id is
-        # validated as a UUID first — an unvalidated string passed into a UUID
-        # `__in` lookup raises at query time and surfaces as a 500 that the
-        # UUID-only exception handler doesn't map (#2213 class), so a malformed id
-        # returns a clean 400 instead.
-        labels_param = self.request.query_params.get("labels")
-        if labels_param:
-            label_ids: list[uuid.UUID] = []
-            for chunk in labels_param.split(","):
-                raw = chunk.strip()
-                if not raw:
-                    continue
-                try:
-                    label_ids.append(uuid.UUID(raw))
-                except ValueError:
-                    raise DRFValidationError(
-                        {"labels": "Each label must be a valid UUID."}
-                    ) from None
-            if label_ids:
-                qs = qs.filter(labels__id__in=label_ids).distinct()
-
-        # Date-range filter for calendar / resource views.
-        # ?start__gte=YYYY-MM-DD  — tasks whose early_finish >= this date (still active)
-        # ?finish__lte=YYYY-MM-DD — tasks whose early_start <= this date (already started)
-        # Combined, they return tasks that overlap [start__gte, finish__lte].
-        # Parse the date params before filtering: early_start/early_finish are
-        # DateFields, so passing an unvalidated string straight into .filter()
-        # lets Django raise a ValidationError at query time that the (UUID-only)
-        # exception handler doesn't map, surfacing as a 500 (#2213). Coerce here
-        # and 400 on a malformed date, matching the _parse idiom above.
-        start_gte = self.request.query_params.get("start__gte")
-        if start_gte:
-            try:
-                qs = qs.filter(early_finish__gte=datetime.date.fromisoformat(start_gte))
-            except ValueError:
-                raise DRFValidationError(
-                    {"start__gte": "Must be a valid ISO 8601 date (YYYY-MM-DD)."}
-                ) from None
-        finish_lte = self.request.query_params.get("finish__lte")
-        if finish_lte:
-            try:
-                qs = qs.filter(early_start__lte=datetime.date.fromisoformat(finish_lte))
-            except ValueError:
-                raise DRFValidationError(
-                    {"finish__lte": "Must be a valid ISO 8601 date (YYYY-MM-DD)."}
-                ) from None
-
-        return annotate_tasks_queryset(qs, self.request, project_id)
+        # Each query param is an independent narrowing, applied in a fixed order.
+        # They are grouped rather than chained inline so a new filter is one small
+        # function, not another paragraph in a very long method.
+        params = self.request.query_params
+        qs = _filter_task_scalars(super().get_queryset(), params)
+        qs = _filter_tasks_mine(qs, params, self.request.user)
+        qs = _filter_tasks_by_sprint(qs, params)
+        qs = _filter_tasks_by_parent(qs, params)
+        qs = _filter_tasks_by_labels(qs, params)
+        qs = _filter_tasks_by_date_range(qs, params)
+        return annotate_tasks_queryset(qs, self.request, params.get("project"))
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Attach batched milestone rollups to the page before serialization.
@@ -4019,8 +4433,6 @@ class TaskViewSet(
         return Response(serializer.data)
 
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
-
         # H1 fix: DRF does not call has_object_permission on create actions,
         # so we must enforce project membership explicitly before saving.
         project = serializer.validated_data.get("project")
@@ -4039,102 +4451,19 @@ class TaskViewSet(
 
         with transaction.atomic():
             if not serializer.validated_data.get("wbs_path") and project is not None:
-                from rest_framework.exceptions import ErrorDetail
-                from rest_framework.exceptions import ValidationError as DRFValidationError
-
                 parent_id = self.request.data.get("parent_id")
                 if parent_id:
-                    try:
-                        parent = Task.objects.select_for_update().get(
-                            pk=parent_id, project=project, is_deleted=False
-                        )
-                    except Task.DoesNotExist as exc:
-                        raise DRFValidationError(
-                            {"parent_id": "Parent task not found in this project."}
-                        ) from exc
-                    if not parent.wbs_path:
-                        raise DRFValidationError({"parent_id": "Parent task has no WBS path."})
-                    # Milestone guard (#1773): a milestone is a zero-duration gate,
-                    # not a container — it must never acquire children, or the phase
-                    # rollup would try to aggregate under a node the CPM treats as a
-                    # single point. Mirrors the subtask depth-1 / phase guards below.
-                    if parent.is_milestone:
-                        raise DRFValidationError(
-                            {
-                                "parent_id": [
-                                    ErrorDetail(
-                                        _MILESTONE_NO_CHILDREN,
-                                        code="child_of_milestone",
-                                    )
-                                ]
-                            }
-                        )
-                    # Depth-1 enforcement (ADR-0060): subtasks are leaf nodes —
-                    # no task of any kind may be created as a child of a subtask.
-                    # Checked on every parent_id path, not only is_subtask=True
-                    # requests, so the "Add Task" entry point cannot bypass it.
-                    if parent.is_subtask:
-                        raise DRFValidationError(
-                            {"parent_id": "Cannot create a child of a subtask."}
-                        )
-                    children = _get_siblings(str(project.pk), str(parent.wbs_path), lock=True)
-                    # Phase guard (#1750): a phase — a summary task that groups real
-                    # WBS work — must not accept drawer-subtasks. Drawer-subtasks and
-                    # WBS-phase children are both WBS children, so both make the parent
-                    # ``is_summary``; the discriminator is whether the parent already has
-                    # a *structural* (non-subtask) child. If it does, it is a phase, and a
-                    # subtask would conflate the two decomposition models (the subtask
-                    # surfaces as an ordinary task in the WBS). A leaf — no children, or
-                    # only ``is_subtask`` children — stays decomposable. Reuses the
-                    # already-fetched, locked sibling list, so it costs no extra query.
-                    if is_subtask and any(not c.is_subtask for c in children):
-                        raise DRFValidationError(
-                            {
-                                "parent_id": [
-                                    ErrorDetail(
-                                        "Phases group work — add tasks inside the phase, "
-                                        "not subtasks.",
-                                        code="subtask_on_phase",
-                                    )
-                                ]
-                            }
-                        )
-                    wbs_path = _build_wbs_path(str(parent.wbs_path), len(children) + 1)
-                else:
-                    root_count = (
-                        Task.objects.select_for_update()
-                        .filter(project=project, is_deleted=False, wbs_path__regex=_ROOT_WBS_RE)
-                        .count()
+                    parent, wbs_path = _resolve_create_parent(
+                        project, parent_id, is_subtask=is_subtask
                     )
-                    wbs_path = str(root_count + 1)
+                else:
+                    wbs_path = _next_root_wbs_path(project)
                 instance = serializer.save(wbs_path=wbs_path, is_subtask=is_subtask)
             else:
                 instance = serializer.save(is_subtask=is_subtask)
 
-            # When a subtask is created: bump parent server_version so sync clients
-            # detect the parent's new is_summary=True state, and record a
-            # SprintScopeChange row if the parent belongs to an active sprint.
             if is_subtask and parent is not None:
-                Task.objects.filter(pk=parent.pk).update(
-                    server_version=db_models.F("server_version") + 1
-                )
-                if parent.sprint_id is not None:
-                    from trueppm_api.apps.projects.models import Sprint
-                    from trueppm_api.apps.projects.services import record_sprint_scope_change
-
-                    parent_sprint = Sprint.objects.filter(pk=parent.sprint_id).first()
-                    if parent_sprint is not None:
-                        # Subtask spawn: record the audit row against the already-
-                        # committed parent for the drawer chip (flag_pending=False —
-                        # the parent stays in the commitment; flagging it pending
-                        # would wrongly drop the whole parent from the burndown).
-                        record_sprint_scope_change(
-                            task=parent,
-                            sprint=parent_sprint,
-                            by=self.request.user,
-                            item_name=instance.name,
-                            flag_pending=False,
-                        )
+                _record_subtask_spawn(parent, instance, self.request.user)
 
             # ADR-0102 §4: a NON-subtask task created directly into an ACTIVE
             # sprint (the board "add card to the active sprint" flow) is a
@@ -4146,30 +4475,9 @@ class TaskViewSet(
 
             maybe_record_scope_injection(instance, None, self.request.user)
 
-        project_id = str(instance.project_id)
-        task_id = str(instance.pk)
-        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
-        transaction.on_commit(
-            lambda: broadcast_board_event(project_id, "task_created", {"id": task_id})
-        )
-        # #867: a new task placed before the project start pulled the boundary
-        # earlier (auto-shift in TaskSerializer.create). Broadcast the project
-        # change in the same on_commit batch so collaborators re-fetch the start.
-        if getattr(instance, "_project_start_shifted_from", None) is not None:
-            transaction.on_commit(
-                lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
-            )
-        if is_subtask and parent is not None:
-            parent_id_str = str(parent.pk)
-            transaction.on_commit(
-                lambda: broadcast_board_event(project_id, "task_updated", {"id": parent_id_str})
-            )
-        payload = _task_webhook_payload(instance)
-        transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.created", payload))
+        _defer_task_create_events(instance, parent if is_subtask else None)
 
     def perform_update(self, serializer: BaseSerializer[Task]) -> None:
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
-
         # Stash the bound serializer so _handle_task_write can read the guardrail
         # rules it recorded in validate() and surface them as response warnings
         # (ADR-0101). validate() ran before perform_update, so the attribute is set.
@@ -4179,41 +4487,13 @@ class TaskViewSet(
         # stale write; returns the concurrently-changed fields for the response header.
         self._merge_concurrent_fields = check_field_conflict(self.request, serializer)
 
-        # Snapshot the fields the granular webhook events compare on, BEFORE the
-        # save mutates the instance. serializer.instance still holds the prior DB
-        # values here (#638 / ADR-0083). Captured as plain scalars so the
-        # on_commit lambdas don't close over the ORM object.
-        old_assignee_id = (
-            str(serializer.instance.assignee_id)
-            if serializer.instance and serializer.instance.assignee_id
-            else None
-        )
-        old_planned_start = (
-            str(serializer.instance.planned_start)
-            if serializer.instance and serializer.instance.planned_start
-            else None
-        )
-        # ADR-0102 §4: capture the prior sprint link so a *direct* task→sprint
-        # link can be detected after save and routed through the scope-injection
-        # approve-gate when the new sprint is ACTIVE (post-activation injection).
-        old_sprint_id = (
-            str(serializer.instance.sprint_id)
-            if serializer.instance and serializer.instance.sprint_id
-            else None
-        )
-        # #855: capture prior blocked state so the task.blocked notification fires
-        # only on the unblocked→blocked transition (re-saving an already-blocked
-        # task, or editing its reason, must not re-notify — the before/after
-        # snapshot is the idempotency guard). "Blocked" = non-empty blocked_reason.
-        old_is_blocked = bool(
-            (getattr(serializer.instance, "blocked_reason", "") or "").strip()
-            if serializer.instance
-            else False
-        )
+        before = _snapshot_task_before_update(serializer.instance)
 
         instance = serializer.save()
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
+        actor = self.request.user
+        actor_id = str(actor.pk) if actor.is_authenticated else None
 
         # ADR-0102 §4 — generalized scope-injection write path. A task newly
         # linked to an ACTIVE sprint enters pending-acceptance. The detection lives
@@ -4226,67 +4506,18 @@ class TaskViewSet(
             notify_sprint_membership_change,
         )
 
-        maybe_record_scope_injection(instance, old_sprint_id, self.request.user)
+        maybe_record_scope_injection(instance, before.sprint_id, actor)
 
         # ADR-0412 (#1946): a committed change to this task's sprint FK that enters
         # or leaves an ACTIVE sprint fans out a targeted in-app notification to the
         # project leads — closing the "silent mid-sprint injection" audit gap. The
         # emitter self-guards (no-op PATCH / non-active sprint) and defers a
         # best-effort dispatch, so it can never fail or revert the task update.
-        notify_sprint_membership_change(
-            instance, old_sprint_id, instance.sprint_id, self.request.user
-        )
+        notify_sprint_membership_change(instance, before.sprint_id, instance.sprint_id, actor)
 
-        # Only recalculate when a schedule-affecting field changed (#965). A
-        # PATCH that touches only non-scheduling fields (notes, name) would
-        # otherwise enqueue a full-project CPM recalc on every keystroke — the
-        # dominant source of drawer-edit lag. `validated_data` holds exactly the
-        # fields this partial update wrote, so an empty/subset-of-denylist write
-        # skips the recalc; everything else still recalculates immediately.
-        # `percent_complete` is deliberately NOT in the denylist (#1500) — since
-        # ADR-0132 it is a live CPM input (remaining-duration + completion) on
-        # every project, status_date set or not.
         changed_fields = set(getattr(serializer, "validated_data", {}).keys())
-        if not changed_fields or not changed_fields <= _NON_SCHEDULE_TASK_FIELDS:
-            transaction.on_commit(lambda: _enqueue_recalculate(project_id))
-        # The board broadcast always fires — collaborators must see a progress or
-        # name change land even though it doesn't move the schedule. ADR-0152 (#327):
-        # carry the field-level delta (names only — never gated values), the
-        # post-commit server_version, and the actor so the originating client can
-        # suppress its own echo instead of re-fetching over its optimistic update.
-        from trueppm_api.apps.sync.broadcast import broadcast_task_updated
+        _defer_task_update_broadcasts(instance, changed_fields, actor_id)
 
-        delta_fields = sorted(changed_fields)
-        version = instance.server_version
-        actor_id = str(self.request.user.pk) if self.request.user.is_authenticated else None
-        transaction.on_commit(
-            lambda: broadcast_task_updated(
-                project_id,
-                task_id=task_id,
-                changed_fields=delta_fields,
-                version=version,
-                actor_id=actor_id,
-            )
-        )
-        # #867: this edit pulled the project start earlier (auto-shift in
-        # TaskSerializer.update). Broadcast the project change in the same batch
-        # so collaborators re-fetch the new boundary alongside the task update.
-        if getattr(instance, "_project_start_shifted_from", None) is not None:
-            transaction.on_commit(
-                lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
-            )
-        # ADR-0151 (#414): a user edit changed this task's duration on a task with
-        # progress. Broadcast the WS-only task_duration_changed event so the desktop
-        # client can render the inline "Recalc %?" / confirm affordance without a
-        # refetch. WS-only (no webhook): external consumers already see the new
-        # duration via task.updated, and the OSS webhook set is at its cap (ADR-0147).
-        # The event row is already persisted by the serializer; this is the live hint.
-        duration_event: dict[str, Any] | None = getattr(instance, "_duration_change_event", None)
-        if duration_event is not None:
-            event_payload = duration_event
-            transaction.on_commit(
-                lambda: broadcast_board_event(project_id, "task_duration_changed", event_payload)
-            )
         # Capture the calling surface from X-Source header so downstream consumers
         # (webhooks, future audit views) can distinguish a status flip from /me/work
         # vs the schedule canvas vs the board — Morgan's sprint-sovereignty concern
@@ -4300,152 +4531,15 @@ class TaskViewSet(
         transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.updated", payload))
 
         # Granular task events (#638). Each fires only when the relevant field
-        # actually changed — a PATCH that doesn't touch the assignee/date does
-        # not emit the specific event (keeps the at-least-once stream meaningful
-        # and the before/after snapshot is the idempotency guard, ADR-0170).
-        # The same field-change triggers ALSO drive per-user email/in-app
-        # notifications (#639, ADR-0085) — a sibling dispatch to the new assignee
-        # / task owner, never the actor.
-        actor_id = str(self.request.user.pk) if self.request.user.is_authenticated else None
-        task_name = payload["name"]
-        new_assignee_id = payload["assignee"]
-        if new_assignee_id != old_assignee_id:
-            assignee_payload = {**payload, "previous_assignee": old_assignee_id}
-            # None → user is an assignment; user → user is a reassignment.
-            # Clearing the assignee (user → None) is just task.updated.
-            if old_assignee_id is None and new_assignee_id is not None:
-                transaction.on_commit(
-                    lambda: _dispatch_webhooks(project_id, _TASK_ASSIGNED_EVENT, assignee_payload)
-                )
-            elif new_assignee_id is not None:
-                transaction.on_commit(
-                    lambda: _dispatch_webhooks(
-                        project_id, "task.assignee_changed", assignee_payload
-                    )
-                )
-            # Notify the NEW assignee either way (assigned or reassigned to them).
-            if new_assignee_id is not None and new_assignee_id != actor_id:
-                a_subj = f"You were assigned to {task_name}"
-                a_body = f'You were assigned to the task "{task_name}" in TruePPM.'
-                a_rcpt = new_assignee_id
-                transaction.on_commit(
-                    lambda: _notify_event(
-                        _TASK_ASSIGNED_EVENT, [a_rcpt], a_subj, a_body, project_id
-                    )
-                )
-
-        # task.due_date_changed binds to planned_start (the PM-committed date) —
-        # Task has no dedicated deadline field; #690 rebinds this to planned_finish.
-        new_planned_start = payload["planned_start"]
-        if new_planned_start != old_planned_start:
-            date_payload = {**payload, "previous_planned_start": old_planned_start}
-            transaction.on_commit(
-                lambda: _dispatch_webhooks(project_id, "task.due_date_changed", date_payload)
-            )
-            # Notify the task's current assignee (the owner of the work), if any.
-            # #497: carry both old and new dates and deep-link to the task — a
-            # Confirmed schedule-canvas reschedule (ADR-0067) lands a deliberate
-            # date change on someone else's committed work, and they must learn of
-            # it as a targeted signal, not a generic feed entry.
-            old_label = old_planned_start or "unscheduled"
-            if new_assignee_id is not None and new_assignee_id != actor_id:
-                d_subj = f"Planned start changed on {task_name}"
-                d_body = f'"{task_name}" moved from {old_label} to {new_planned_start}.'
-                d_rcpt = new_assignee_id
-                transaction.on_commit(
-                    lambda: _notify_event(
-                        "task.due_date_changed",
-                        [d_rcpt],
-                        d_subj,
-                        d_body,
-                        project_id,
-                        task_id=task_id,
-                    )
-                )
-            # #497: when the rescheduled task is in an ACTIVE sprint, the rest of
-            # the sprint team also needs the signal — a moved commitment ripples
-            # across the iteration. Recipients are the *other* sprint assignees
-            # (the targeted assignee already got the dedicated notice above, and
-            # the actor is never notified of their own edit), so nobody is
-            # double-notified. PLANNED/COMPLETED/CANCELLED sprints don't fan out.
-            sprint = instance.sprint
-            if sprint is not None and sprint.state == SprintState.ACTIVE:
-                already_notified = {x for x in (new_assignee_id, actor_id) if x}
-                # Scope the fan-out to *current* project members and *live* tasks:
-                # member removal is a soft delete that leaves task assignments
-                # intact, so a revoked member could otherwise be notified about a
-                # project they've left (rbac/security 🟡).
-                member_ids = {
-                    str(uid)
-                    for uid in ProjectMembership.objects.filter(
-                        project_id=instance.project_id, is_deleted=False
-                    ).values_list("user_id", flat=True)
-                }
-                team_ids: list[str | None] = [
-                    aid
-                    for aid in {
-                        str(x)
-                        for x in Task.objects.filter(
-                            sprint_id=sprint.pk, assignee__isnull=False, is_deleted=False
-                        ).values_list("assignee_id", flat=True)
-                    }
-                    if aid not in already_notified and aid in member_ids
-                ]
-                if team_ids:
-                    s_name = sprint.name
-                    s_subj = f"{task_name} rescheduled in {s_name}"
-                    s_body = (
-                        f'"{task_name}" in sprint {s_name} moved from '
-                        f"{old_label} to {new_planned_start}."
-                    )
-                    transaction.on_commit(
-                        lambda: _notify_event(
-                            "sprint.task_rescheduled",
-                            team_ids,
-                            s_subj,
-                            s_body,
-                            project_id,
-                            task_id=task_id,
-                        )
-                    )
-
-        # task.blocked (#855, #476, ADR-0124 #1134) — fires on the unblocked→blocked
-        # transition only. The recipient set is the impediment-clearers: the
-        # assignee (existing) + the project's Scrum Master(s) + the PM(s), so the
-        # people whose job is removing impediments are told, not just the assignee
-        # who already knows. Each recipient is independently gated by their own
-        # NotificationPreference downstream. The subject/body carry blocker_type +
-        # age + NEVER the reason text (the Morgan boundary, enforced at render —
-        # see blocker_services.render_blocker_notification).
-        new_is_blocked = bool((instance.blocked_reason or "").strip())
-        became_blocked = not old_is_blocked and new_is_blocked
-        if became_blocked:
-            from trueppm_api.apps.projects.blocker_services import (
-                render_blocker_notification,
-                resolve_impediment_recipients,
-            )
-
-            recipients = resolve_impediment_recipients(instance)
-            # Never notify the actor who raised the flag (they took the action),
-            # whether they reach the set as the assignee, a Scrum Master, or a PM.
-            # NOTE: ``recipients`` holds raw user PKs (ints) from the resolver, while
-            # ``actor_id`` is ``str(pk)`` — discarding the string is a no-op against
-            # an int set, so discard the raw PK to actually drop the actor.
-            actor_pk = self.request.user.pk if self.request.user.is_authenticated else None
-            recipients.discard(actor_pk)
-            if recipients:
-                b_subj, b_body = render_blocker_notification(instance)
-                b_rcpts = list(recipients)
-                # Literal mirrors NotificationEventType.TASK_BLOCKED (kept a literal
-                # here per the line-833 convention). It MUST stay in step with that
-                # value: notifications.DND_BYPASS_EVENTS is keyed on it so a blocker
-                # always emails through Do-Not-Disturb (#1707, ADR-0292) — a drift
-                # here would silently let DND swallow the flagship blocker alert.
-                transaction.on_commit(
-                    lambda: _notify_event(
-                        "task.blocked", b_rcpts, b_subj, b_body, project_id, task_id=task_id
-                    )
-                )
+        # actually changed — a PATCH that doesn't touch the assignee/date does not
+        # emit the specific event (keeps the at-least-once stream meaningful, and the
+        # before/after snapshot is the idempotency guard, ADR-0170). The same
+        # field-change triggers ALSO drive per-user email/in-app notifications
+        # (#639, ADR-0085) — a sibling dispatch to the new assignee / task owner,
+        # never the actor.
+        _emit_assignee_change_events(payload, before, actor_id, project_id)
+        _emit_due_date_change_events(instance, payload, before, actor_id, project_id, task_id)
+        _emit_blocked_notification(instance, before, actor, project_id, task_id)
 
     def _handle_task_write(
         self, super_method: Any, request: Request, *args: Any, **kwargs: Any
@@ -7048,31 +7142,9 @@ class TaskBulkView(IdempotencyMixin, APIView):
         serializer.is_valid(raise_exception=True)
 
         operations: list[dict[str, Any]] = serializer.validated_data["operations"]
-
-        # Collect update/delete IDs up front so we can lock the rows in one
+        # Collect update/delete IDs up front so the rows are locked in one
         # select_for_update() call — avoids repeated individual lookups.
-        mutated_ids = [op["id"] for op in operations if op["op"] in ("update", "delete")]
-        locked_tasks: dict[uuid.UUID, Task] = {}
-        if mutated_ids:
-            # of=("self",) restricts the row lock to the Task table — without it,
-            # select_related on the nullable Sprint FK creates an outer join that
-            # Postgres rejects ("FOR UPDATE cannot be applied to the nullable side
-            # of an outer join"). Sprint is needed read-only by the progress-gate
-            # serializer; only Task rows need a write lock.
-            qs = (
-                Task.objects.select_for_update(of=("self",))
-                .select_related("sprint", "project")
-                .filter(pk__in=mutated_ids, project_id=pk, is_deleted=False)
-            )
-            locked_tasks = {t.pk: t for t in qs}
-
-            # Validate all referenced tasks exist and belong to this project.
-            missing = [str(uid) for uid in mutated_ids if uid not in locked_tasks]
-            if missing:
-                return Response(
-                    {"operations": [f"Task(s) not found in project: {', '.join(missing)}"]},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        locked_tasks = _lock_bulk_targets(pk, operations)
 
         result: dict[str, Any] = {"created": [], "updated": [], "deleted": []}
         # #998: collect mutated PKs and serialize them in ONE annotated batch
@@ -7086,8 +7158,7 @@ class TaskBulkView(IdempotencyMixin, APIView):
         # so a single project_updated event rides the bulk on_commit batch.
         project_start_shifted = False
 
-        # Fetch the caller's role once for the delete permission check below.
-        # delete mirrors IsProjectMemberWriteOrOwn: Admin+ or task assignee.
+        # Fetch the caller's role once for the per-op permission checks below.
         from django.contrib.auth.models import User as _User
 
         _caller = cast(_User, request.user)
@@ -7103,104 +7174,28 @@ class TaskBulkView(IdempotencyMixin, APIView):
                 op_type: str = op["op"]
                 data: dict[str, Any] = op.get("data", {})
 
-                if op_type == "create":
-                    serializer_ctx = {"request": request, "caller_role": caller_role}
-                    task_serializer = TaskSerializer(
-                        data={**data, "project": str(project.pk)}, context=serializer_ctx
-                    )
-                    try:
-                        task_serializer.is_valid(raise_exception=True)
-                    except ProgressAnchorError:
-                        return Response(
-                            {
-                                "code": "progress_requires_anchor",
-                                "detail": (
-                                    "Cannot record progress without a planned start date"
-                                    " or sprint assignment."
-                                ),
-                                "suggested_action": "set_planned_start",
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    task = task_serializer.save()
-                    created_ids.append(task.pk)
-                    if getattr(task, "_project_start_shifted_from", None) is not None:
-                        project_start_shifted = True
-
-                elif op_type == "update":
-                    task = locked_tasks[op["id"]]
-                    # Enforce the SAME per-task ownership rule the single-task
-                    # TaskViewSet.update path applies via IsProjectMemberWriteOrOwn
-                    # (ADR-0133 can_user_edit_task): Admin+ edit any task, a Member
-                    # only their own assigned task, PO the EPIC/STORY items. Without
-                    # this a plain Member could bulk-edit tasks assigned to others,
-                    # bypassing the check enforced everywhere else (#1548). Non-
-                    # editable tasks 403 the whole request, mirroring the delete
-                    # branch below so both bulk ops behave consistently.
-                    if not can_user_edit_task(request, task, method="PATCH"):
-                        return Response(
-                            {
-                                "operations": [
-                                    "You do not have permission to edit one or more tasks "
-                                    "in this batch."
-                                ]
-                            },
-                            status=status.HTTP_403_FORBIDDEN,
-                        )
-                    serializer_ctx = {"request": request, "caller_role": caller_role}
-                    task_serializer = TaskSerializer(
-                        task, data=data, partial=True, context=serializer_ctx
-                    )
-                    try:
-                        task_serializer.is_valid(raise_exception=True)
-                    except ProgressAnchorError:
-                        return Response(
-                            {
-                                "code": "progress_requires_anchor",
-                                "detail": (
-                                    "Cannot record progress without a planned start date"
-                                    " or sprint assignment."
-                                ),
-                                "suggested_action": "set_planned_start",
-                                "task_id": str(op["id"]),
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    except MilestoneRollupLockedError:
-                        return Response(
-                            {
-                                "code": "milestone_rollup_locked",
-                                "detail": (
-                                    "This milestone's progress is rolled up from its linked "
-                                    "sprint(s) and cannot be edited manually. Close or unlink "
-                                    "the sprint to edit."
-                                ),
-                                "suggested_action": "unlink_or_close_sprint",
-                                "task_id": str(op["id"]),
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    task = task_serializer.save()
-                    updated_ids.append(task.pk)
-                    if getattr(task, "_project_start_shifted_from", None) is not None:
-                        project_start_shifted = True
-
-                elif op_type == "delete":
-                    task = locked_tasks[op["id"]]
-                    # Mirrors IsProjectMemberWriteOrOwn: Admin+ or task assignee may delete.
-                    if caller_role < Role.ADMIN:
-                        is_assignee = task.assignments.filter(resource__user=_caller).exists()
-                        if not is_assignee:
-                            return Response(
-                                {
-                                    "operations": [
-                                        "Only Project Managers and task assignees may delete tasks."
-                                    ]
-                                },
-                                status=status.HTTP_403_FORBIDDEN,
-                            )
-                    task.soft_delete()
+                if op_type == "delete":
+                    error = _bulk_delete_task(locked_tasks[op["id"]], caller_role, _caller)
+                    if error is not None:
+                        return error
                     result["deleted"].append(str(op["id"]))
+                    continue
+
+                if op_type == "create":
+                    outcome = _bulk_create_task(project, data, request, caller_role)
+                elif op_type == "update":
+                    outcome = _bulk_update_task(locked_tasks[op["id"]], data, request, caller_role)
+                else:
+                    continue
+                # A rejected op fails the whole batch, mirroring the pre-extraction
+                # control flow: this `return` leaves the atomic block normally, so
+                # everything applied so far still commits.
+                if isinstance(outcome, Response):
+                    return outcome
+
+                (created_ids if op_type == "create" else updated_ids).append(outcome.pk)
+                if getattr(outcome, "_project_start_shifted_from", None) is not None:
+                    project_start_shifted = True
 
             project_id = str(project.pk)
             # #1009: carry the ids of the tasks this bulk op touched (created,
@@ -7250,6 +7245,126 @@ class TaskBulkView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 # Risk register
 # ---------------------------------------------------------------------------
+
+
+def _bulk_error_response(message: str, http_status: int) -> Response:
+    """The shared `{"operations": [...]}` error body for a failed bulk op."""
+    return Response({"operations": [message]}, status=http_status)
+
+
+def _progress_anchor_response(task_id: str | None = None) -> Response:
+    body: dict[str, Any] = {
+        "code": "progress_requires_anchor",
+        "detail": ("Cannot record progress without a planned start date or sprint assignment."),
+        "suggested_action": "set_planned_start",
+    }
+    if task_id is not None:
+        body["task_id"] = task_id
+    return Response(body, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _milestone_rollup_locked_response(task_id: str) -> Response:
+    return Response(
+        {
+            "code": "milestone_rollup_locked",
+            "detail": (
+                "This milestone's progress is rolled up from its linked sprint(s) and "
+                "cannot be edited manually. Close or unlink the sprint to edit."
+            ),
+            "suggested_action": "unlink_or_close_sprint",
+            "task_id": task_id,
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def _bulk_create_task(
+    project: Project, data: dict[str, Any], request: Request, caller_role: int
+) -> Task | Response:
+    """Create one task from a bulk `create` op, or the Response that aborts the batch."""
+    serializer = TaskSerializer(
+        data={**data, "project": str(project.pk)},
+        context={"request": request, "caller_role": caller_role},
+    )
+    try:
+        serializer.is_valid(raise_exception=True)
+    except ProgressAnchorError:
+        return _progress_anchor_response()
+    return serializer.save()
+
+
+def _bulk_update_task(
+    task: Task, data: dict[str, Any], request: Request, caller_role: int
+) -> Task | Response:
+    """Apply one bulk `update` op, or return the Response that aborts the batch.
+
+    Enforces the SAME per-task ownership rule the single-task ``TaskViewSet.update``
+    path applies via ``IsProjectMemberWriteOrOwn`` (ADR-0133 ``can_user_edit_task``):
+    Admin+ edit any task, a Member only their own assigned task, PO the EPIC/STORY
+    items. Without this a plain Member could bulk-edit tasks assigned to others,
+    bypassing the check enforced everywhere else (#1548). A non-editable task 403s the
+    whole request, mirroring the delete branch so both bulk ops behave consistently.
+    """
+    if not can_user_edit_task(request, task, method="PATCH"):
+        return _bulk_error_response(
+            "You do not have permission to edit one or more tasks in this batch.",
+            status.HTTP_403_FORBIDDEN,
+        )
+    serializer = TaskSerializer(
+        task, data=data, partial=True, context={"request": request, "caller_role": caller_role}
+    )
+    try:
+        serializer.is_valid(raise_exception=True)
+    except ProgressAnchorError:
+        return _progress_anchor_response(str(task.pk))
+    except MilestoneRollupLockedError:
+        return _milestone_rollup_locked_response(str(task.pk))
+    return serializer.save()
+
+
+def _bulk_delete_task(task: Task, caller_role: int, caller: Any) -> Response | None:
+    """Soft-delete one task, or return the Response that aborts the batch.
+
+    Mirrors ``IsProjectMemberWriteOrOwn``: Admin+ or the task assignee may delete.
+    """
+    if caller_role < Role.ADMIN and not task.assignments.filter(resource__user=caller).exists():
+        return _bulk_error_response(
+            "Only Project Managers and task assignees may delete tasks.",
+            status.HTTP_403_FORBIDDEN,
+        )
+    task.soft_delete()
+    return None
+
+
+def _lock_bulk_targets(project_pk: str, operations: list[dict[str, Any]]) -> dict[uuid.UUID, Task]:
+    """Lock every task an update/delete op references, in one query.
+
+    ``of=("self",)`` restricts the row lock to the Task table — without it, the
+    ``select_related`` on the nullable Sprint FK creates an outer join Postgres rejects
+    ("FOR UPDATE cannot be applied to the nullable side of an outer join"). Sprint is
+    needed read-only by the progress-gate serializer; only Task rows need a write lock.
+
+    Raises:
+        DRFValidationError: one or more referenced tasks are missing from this project.
+    """
+    from rest_framework.exceptions import ValidationError as DRFValidationError
+
+    mutated_ids = [op["id"] for op in operations if op["op"] in ("update", "delete")]
+    if not mutated_ids:
+        return {}
+
+    qs = (
+        Task.objects.select_for_update(of=("self",))
+        .select_related("sprint", "project")
+        .filter(pk__in=mutated_ids, project_id=project_pk, is_deleted=False)
+    )
+    locked = {t.pk: t for t in qs}
+    missing = [str(uid) for uid in mutated_ids if uid not in locked]
+    if missing:
+        raise DRFValidationError(
+            {"operations": [f"Task(s) not found in project: {', '.join(missing)}"]}
+        )
+    return locked
 
 
 def _record_risk_link_events(
@@ -8270,6 +8385,183 @@ def _broadcast_retro_updated(sprint: Sprint) -> None:
     transaction.on_commit(_on_commit)
 
 
+def _retro_with_items(sprint: Any) -> Any:
+    """Fetch the sprint's retro with action_items + assignee prefetched.
+
+    Every retro read needs the same shape: without the prefetch,
+    ``SprintRetroSummarySerializer.get_action_items_count`` / ``get_promoted_count``
+    issue per-object COUNT queries, and ``RetroActionItemSerializer.get_assignee_username``
+    N+1s on the assignee FK once the full serializer renders them (#821, P13).
+    """
+    from trueppm_api.apps.projects.models import RetroActionItem, SprintRetro
+
+    return (
+        SprintRetro.objects.filter(sprint=sprint, is_deleted=False)
+        .prefetch_related(
+            db_models.Prefetch(
+                "action_items",
+                queryset=RetroActionItem.objects.select_related("assignee"),
+            )
+        )
+        .first()
+    )
+
+
+def _retro_serializer_for(retro_obj: Any, caller_role: int) -> type:
+    """Visibility × role gate (ADR-0071 §3).
+
+    TEAM_ONLY → MEMBER+ sees full; VIEWER sees summary.
+    PROJECT  → any project member sees full.
+    ORG      → falls back to PROJECT behaviour until Program ships.
+    """
+    from trueppm_api.apps.access.models import Role
+    from trueppm_api.apps.projects.models import RetroVisibility
+    from trueppm_api.apps.projects.serializers import (
+        SprintRetroSerializer,
+        SprintRetroSummarySerializer,
+    )
+
+    if retro_obj.team_visibility == RetroVisibility.TEAM_ONLY:
+        return SprintRetroSerializer if caller_role >= Role.MEMBER else SprintRetroSummarySerializer
+    return SprintRetroSerializer
+
+
+def _invalid_visibility_response(value: Any) -> Response:
+    return Response(
+        {"team_visibility": f"Invalid value '{value}'."}, status=status.HTTP_400_BAD_REQUEST
+    )
+
+
+def _retro_patch(request: Request, sprint: Any, caller: Any, caller_role: int) -> Response:
+    """PATCH — partial update, currently scoped to ``team_visibility``."""
+    from trueppm_api.apps.access.models import Role
+    from trueppm_api.apps.projects.models import RetroVisibility
+
+    retro = _retro_with_items(sprint)
+    if retro is None:
+        return Response(
+            {"detail": "No retro recorded for this sprint."}, status=status.HTTP_404_NOT_FOUND
+        )
+
+    new_visibility = request.data.get("team_visibility")
+    if new_visibility is not None:
+        # Author or Project ADMIN+ only.
+        if retro.created_by_id != caller.pk and caller_role < Role.ADMIN:
+            return Response(
+                {"detail": "Only the retro author or a Project Admin can change visibility."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if new_visibility not in RetroVisibility.values:
+            return _invalid_visibility_response(new_visibility)
+        retro.team_visibility = new_visibility
+        retro.save(update_fields=["team_visibility", "server_version"])
+        _broadcast_retro_updated(sprint)
+    return Response(
+        _retro_serializer_for(retro, caller_role)(retro).data, status=status.HTTP_200_OK
+    )
+
+
+def _validate_retro_assignees(items_in: list[dict[str, Any]], project_id: Any) -> Response | None:
+    """Reject an action-item assignee who is not a live member of the retro's project.
+
+    #1725 (security): ``assignee`` is set straight from the request body by this
+    endpoint (not the read-only serializer), so without this guard any writer could
+    point an item at ANY user id and the GET response would echo back that user's real
+    username — a display-name / user-enumeration disclosure primitive. Mirrors the
+    ``Task.assignee`` guard (#684).
+
+    ``AUTH_USER_MODEL`` uses integer PKs, so a malformed (non-integer) id is rejected
+    with a clean 400 rather than 500-ing at the membership query or bulk_create. The
+    int32 bound matters too: an out-of-range but numerically-valid id would otherwise
+    raise a Postgres DataError (500) at the ``user_id__in`` query. No real user PK can
+    fall outside that range.
+    """
+    requested: set[int] = set()
+    for entry in items_in:
+        raw = entry.get("assignee")
+        if raw in (None, ""):
+            continue
+        try:
+            parsed = int(str(raw))
+        except (ValueError, TypeError):
+            parsed = -1
+        if not 1 <= parsed <= 2_147_483_647:
+            return Response(
+                {"action_items": "Each assignee id must be a valid user identifier."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        requested.add(parsed)
+
+    if not requested:
+        return None
+    member_ids = set(
+        ProjectMembership.objects.filter(
+            project_id=project_id, user_id__in=requested, is_deleted=False
+        ).values_list("user_id", flat=True)
+    )
+    if requested - member_ids:
+        return Response(
+            {"action_items": "Each assignee must be a member of this project."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
+
+
+def _retro_post(request: Request, sprint: Any, caller: Any, caller_role: int) -> Response:
+    """POST — upsert. Write permission already enforced via ``get_permissions()``.
+
+    ADR-0071: this path no longer auto-promotes. Action items land as
+    ``RetroActionItem`` rows only; the explicit ``/promote/`` action converts them to
+    BACKLOG Tasks under sprint sovereignty.
+    """
+    from trueppm_api.apps.projects.models import RetroActionItem, RetroVisibility, SprintRetro
+
+    notes = request.data.get("notes", "")
+    items_in: list[dict[str, Any]] = list(request.data.get("action_items", []) or [])
+    new_visibility = request.data.get("team_visibility")
+
+    invalid = _validate_retro_assignees(items_in, sprint.project_id)
+    if invalid is not None:
+        return invalid
+
+    with transaction.atomic():
+        defaults: dict[str, Any] = {"notes": notes, "created_by": caller}
+        if new_visibility is not None:
+            if new_visibility not in RetroVisibility.values:
+                return _invalid_visibility_response(new_visibility)
+            defaults["team_visibility"] = new_visibility
+        retro, _ = SprintRetro.objects.update_or_create(sprint=sprint, defaults=defaults)
+
+        # Replace the action item set on each save — retros are append-on-save
+        # semantics at the meeting boundary. P15: bulk_create replaces O(N) INSERT
+        # round-trips with one.
+        retro.action_items.filter(is_deleted=False).delete()
+        new_items = [
+            RetroActionItem(
+                retro=retro,
+                text=(entry.get("text") or "").strip(),
+                assignee_id=entry.get("assignee") or None,
+                story_points=entry.get("story_points"),
+            )
+            for entry in items_in
+            if (entry.get("text") or "").strip()
+        ]
+        if new_items:
+            RetroActionItem.objects.bulk_create(new_items)
+
+    # Notes + action items just changed under any peer with the retro open (#1359).
+    # Broadcast so their view refetches instead of silently desyncing until a manual
+    # refresh — deferred to commit inside _broadcast_retro_updated.
+    _broadcast_retro_updated(sprint)
+
+    # P13: a fresh prefetching fetch rather than refresh_from_db() (which wipes the
+    # prefetch cache), so the serializer doesn't N+1 per action item on the response.
+    retro = _retro_with_items(sprint) or retro
+    return Response(
+        _retro_serializer_for(retro, caller_role)(retro).data, status=status.HTTP_200_OK
+    )
+
+
 # ---------------------------------------------------------------------------
 # Board column configuration
 # ---------------------------------------------------------------------------
@@ -9198,12 +9490,42 @@ def _dependency_activity_events(
     if not rows:
         return [], False
 
+    label_for = _far_endpoint_labeler(task, request, rows)
+
     # Group by edge id and walk each edge's timeline oldest-first to detect transitions.
     by_edge: dict[Any, list[Any]] = {}
     for row in rows:
         by_edge.setdefault(row.id, []).append(row)
 
-    # Resolve far-endpoint task labels in one batched query, gated by caller access.
+    candidates: list[tuple[Any, dict[str, Any]]] = []
+    for edge_rows in by_edge.values():
+        edge_rows.sort(key=lambda r: r.history_date)
+        prev_deleted: bool | None = None
+        for row in edge_rows:
+            event_type = _dependency_event_type(row, prev_deleted)
+            prev_deleted = row.is_deleted
+            if event_type is None:
+                continue
+            candidates.append(
+                (row.history_date, _dependency_event_payload(row, task, event_type, label_for))
+            )
+
+    candidates.sort(key=lambda pair: pair[0], reverse=True)
+    truncated = window_truncated or len(candidates) > cap
+    return candidates[:cap], truncated
+
+
+def _far_endpoint_labeler(
+    task: Any, request: Request, rows: list[Any]
+) -> Callable[[Any], str | None]:
+    """Build the access-gated name lookup for each edge's far endpoint.
+
+    **Cross-project guard (ADR-0120):** an edge's far endpoint can live in a project
+    the caller is not a member of, and this endpoint only authorized the current
+    task's project. Resolves every far task in one batched query, then returns a
+    labeler that yields the name only for projects the caller may see — otherwise
+    ``None``, closing the cross-project title-leak vector.
+    """
     other_task_ids = {
         (row.successor_id if row.predecessor_id == task.pk else row.predecessor_id) for row in rows
     }
@@ -9233,52 +9555,55 @@ def _dependency_activity_events(
             return None
         return other.name
 
-    candidates: list[tuple[Any, dict[str, Any]]] = []
-    for edge_rows in by_edge.values():
-        edge_rows.sort(key=lambda r: r.history_date)
-        prev_deleted: bool | None = None
-        for row in edge_rows:
-            event_type: str | None = None
-            if row.history_type == "+":
-                event_type = "dependency_added"
-            elif row.history_type == "~" and prev_deleted is not None:
-                if row.is_deleted and not prev_deleted:
-                    event_type = "dependency_removed"
-                elif not row.is_deleted and prev_deleted:
-                    event_type = "dependency_added"
-            prev_deleted = row.is_deleted
-            if event_type is None:
-                continue
-            if row.predecessor_id == task.pk:
-                # This task is the predecessor → the OTHER task is downstream.
-                other_id, direction = row.successor_id, "successor"
-            else:
-                other_id, direction = row.predecessor_id, "predecessor"
-            candidates.append(
-                (
-                    row.history_date,
-                    {
-                        "event_type": event_type,
-                        "actor": _activity_actor(row.history_user),
-                        "timestamp": row.history_date.isoformat(),
-                        "detail": {
-                            "dependency_id": str(row.id),
-                            "dep_type": row.dep_type,
-                            "lag": row.lag,
-                            # Role of the OTHER task relative to this one:
-                            # "predecessor" = upstream (this task depends on it),
-                            # "successor" = downstream (depends on this task).
-                            "direction": direction,
-                            "other_task_id": str(other_id) if other_id else None,
-                            "other_task_name": _label(other_id),
-                        },
-                    },
-                )
-            )
+    return _label
 
-    candidates.sort(key=lambda pair: pair[0], reverse=True)
-    truncated = window_truncated or len(candidates) > cap
-    return candidates[:cap], truncated
+
+def _dependency_event_type(row: Any, prev_deleted: bool | None) -> str | None:
+    """Classify one history row against the immediately-older row of the same edge.
+
+    A ``+`` row is always a create. A ``~`` row is an event only when ``is_deleted``
+    *transitioned* — ``Dependency.soft_delete()`` writes a ``~`` row, never a ``-``.
+    Plain field edits (lag, acceptance) produce no event.
+
+    At the fetch-window boundary the prior state is unknown (``prev_deleted is None``),
+    so such a row is recorded as state without emitting — under-reporting at the
+    truncation edge rather than emitting a false event.
+    """
+    if row.history_type == "+":
+        return "dependency_added"
+    if row.history_type != "~" or prev_deleted is None:
+        return None
+    if row.is_deleted and not prev_deleted:
+        return "dependency_removed"
+    if not row.is_deleted and prev_deleted:
+        return "dependency_added"
+    return None
+
+
+def _dependency_event_payload(
+    row: Any, task: Any, event_type: str, label_for: Callable[[Any], str | None]
+) -> dict[str, Any]:
+    if row.predecessor_id == task.pk:
+        # This task is the predecessor → the OTHER task is downstream.
+        other_id, direction = row.successor_id, "successor"
+    else:
+        other_id, direction = row.predecessor_id, "predecessor"
+    return {
+        "event_type": event_type,
+        "actor": _activity_actor(row.history_user),
+        "timestamp": row.history_date.isoformat(),
+        "detail": {
+            "dependency_id": str(row.id),
+            "dep_type": row.dep_type,
+            "lag": row.lag,
+            # Role of the OTHER task relative to this one:
+            # "predecessor" = upstream (this task depends on it),
+            # "successor" = downstream (depends on this task).
+            "direction": direction,
+            "other_task_id": str(other_id) if other_id else None,
+            "other_task_name": label_for(other_id),
+        },
+    }
 
 
 def _comment_activity_events(
@@ -11766,16 +12091,9 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
         Permissions: read = IsProjectMember; write = IsProjectMemberWrite.
         """
-        from trueppm_api.apps.access.models import ProjectMembership, Role
-        from trueppm_api.apps.projects.models import (
-            RetroActionItem,
-            RetroVisibility,
-            SprintRetro,
-        )
-        from trueppm_api.apps.projects.serializers import (
-            SprintRetroSerializer,
-            SprintRetroSummarySerializer,
-        )
+        from django.contrib.auth.models import User as _User
+
+        from trueppm_api.apps.access.models import ProjectMembership
 
         sprint = get_object_or_404(
             Sprint.objects.select_related("project"),
@@ -11783,8 +12101,6 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             is_deleted=False,
         )
         self.check_object_permissions(request, sprint)
-
-        from django.contrib.auth.models import User as _User
 
         caller = cast(_User, request.user)
         caller_role: int = (
@@ -11796,188 +12112,19 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             or -1
         )
 
-        def _pick_serializer(retro_obj: SprintRetro) -> type:
-            """Visibility × role gate (ADR-0071 §3).
-
-            TEAM_ONLY → MEMBER+ sees full; VIEWER sees summary.
-            PROJECT  → any project member sees full.
-            ORG      → falls back to PROJECT behaviour until Program ships.
-            """
-            vis = retro_obj.team_visibility
-            if vis == RetroVisibility.TEAM_ONLY:
-                return (
-                    SprintRetroSerializer
-                    if caller_role >= Role.MEMBER
-                    else SprintRetroSummarySerializer
-                )
-            return SprintRetroSerializer
-
         if request.method == "GET":
-            # Prefetch action_items so SprintRetroSummarySerializer.get_action_items_count /
-            # get_promoted_count can read the cache instead of issuing per-object COUNT
-            # queries (N+1 risk on list-like surfaces that embed retro summaries).
-            retro = (
-                SprintRetro.objects.filter(sprint=sprint, is_deleted=False)
-                # select_related the assignee on the prefetched action_items so
-                # RetroActionItemSerializer.get_assignee_username doesn't N+1 on
-                # the assignee FK once the full serializer renders them (#821).
-                .prefetch_related(
-                    db_models.Prefetch(
-                        "action_items",
-                        queryset=RetroActionItem.objects.select_related("assignee"),
-                    )
-                )
-                .first()
-            )
+            retro = _retro_with_items(sprint)
             if retro is None:
                 return Response(
                     {"detail": "No retro recorded for this sprint."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            serializer_cls = _pick_serializer(retro)
-            return Response(serializer_cls(retro).data, status=status.HTTP_200_OK)
-
-        # PATCH — partial update, currently scoped to team_visibility.
+            return Response(
+                _retro_serializer_for(retro, caller_role)(retro).data, status=status.HTTP_200_OK
+            )
         if request.method == "PATCH":
-            # Prefetch action_items+assignee so the serializer response doesn't
-            # N+1 per action item (P13 perf fix — mirrors the GET path above).
-            retro = (
-                SprintRetro.objects.filter(sprint=sprint, is_deleted=False)
-                .prefetch_related(
-                    db_models.Prefetch(
-                        "action_items",
-                        queryset=RetroActionItem.objects.select_related("assignee"),
-                    )
-                )
-                .first()
-            )
-            if retro is None:
-                return Response(
-                    {"detail": "No retro recorded for this sprint."},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-            new_visibility = request.data.get("team_visibility")
-            if new_visibility is not None:
-                # Author or Project ADMIN+ only.
-                is_author = retro.created_by_id == caller.pk
-                if not is_author and caller_role < Role.ADMIN:
-                    return Response(
-                        {
-                            "detail": (
-                                "Only the retro author or a Project Admin can change visibility."
-                            )
-                        },
-                        status=status.HTTP_403_FORBIDDEN,
-                    )
-                if new_visibility not in RetroVisibility.values:
-                    return Response(
-                        {"team_visibility": f"Invalid value '{new_visibility}'."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                retro.team_visibility = new_visibility
-                retro.save(update_fields=["team_visibility", "server_version"])
-                _broadcast_retro_updated(sprint)
-            return Response(_pick_serializer(retro)(retro).data, status=status.HTTP_200_OK)
-
-        # POST — upsert. Write permission already enforced via get_permissions().
-        # ADR-0071: this path no longer auto-promotes. Action items land as
-        # RetroActionItem rows only; the explicit /promote/ action converts
-        # them to BACKLOG Tasks under sprint sovereignty.
-        notes = request.data.get("notes", "")
-        items_in: list[dict[str, Any]] = list(request.data.get("action_items", []) or [])
-        new_visibility = request.data.get("team_visibility")
-
-        # #1725 (security): an action-item assignee must be a live member of the
-        # retro's project. ``assignee`` is set straight from the request body
-        # below (this endpoint, not the read-only serializer, is the write path),
-        # so without this guard any writer could point an item at ANY user id and
-        # the GET response would echo back that user's real username — a
-        # display-name / user-enumeration disclosure primitive. Mirrors the
-        # Task.assignee guard (#684). ``AUTH_USER_MODEL`` uses integer PKs, so a
-        # malformed (non-integer) id is rejected with a clean 400 rather than
-        # 500-ing at the membership query or bulk_create.
-        requested_assignees: set[int] = set()
-        for entry in items_in:
-            raw = entry.get("assignee")
-            if raw in (None, ""):
-                continue
-            try:
-                parsed = int(str(raw))
-            except (ValueError, TypeError):
-                parsed = -1
-            # Reject anything outside the int32 PK range too: an out-of-range but
-            # numerically-valid id would otherwise raise a Postgres DataError (500)
-            # at the ``user_id__in`` query rather than a clean 400. No real user PK
-            # can fall outside this range.
-            if not 1 <= parsed <= 2_147_483_647:
-                return Response(
-                    {"action_items": "Each assignee id must be a valid user identifier."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            requested_assignees.add(parsed)
-        if requested_assignees:
-            member_ids = set(
-                ProjectMembership.objects.filter(
-                    project_id=sprint.project_id,
-                    user_id__in=requested_assignees,
-                    is_deleted=False,
-                ).values_list("user_id", flat=True)
-            )
-            if requested_assignees - member_ids:
-                return Response(
-                    {"action_items": "Each assignee must be a member of this project."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        with transaction.atomic():
-            defaults: dict[str, Any] = {"notes": notes, "created_by": caller}
-            if new_visibility is not None:
-                if new_visibility not in RetroVisibility.values:
-                    return Response(
-                        {"team_visibility": f"Invalid value '{new_visibility}'."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                defaults["team_visibility"] = new_visibility
-            retro, _ = SprintRetro.objects.update_or_create(
-                sprint=sprint,
-                defaults=defaults,
-            )
-            # Replace the action item set on each save — retros are
-            # append-on-save semantics at the meeting boundary.
-            # P15: use bulk_create to replace O(N) INSERT round-trips with one.
-            retro.action_items.filter(is_deleted=False).delete()
-            new_items = [
-                RetroActionItem(
-                    retro=retro,
-                    text=(entry.get("text") or "").strip(),
-                    assignee_id=entry.get("assignee") or None,
-                    story_points=entry.get("story_points"),
-                )
-                for entry in items_in
-                if (entry.get("text") or "").strip()
-            ]
-            if new_items:
-                RetroActionItem.objects.bulk_create(new_items)
-
-        # Notes + action items just changed under any peer with the retro open
-        # (#1359). Broadcast so their view refetches instead of silently desyncing
-        # until a manual refresh — deferred to commit inside _broadcast_retro_updated.
-        _broadcast_retro_updated(sprint)
-
-        # P13: replace refresh_from_db() (wipes prefetch cache) with a fresh
-        # fetch that prefetches action_items+assignee so the serializer doesn't
-        # N+1 per action item when rendering the POST response.
-        retro = (
-            SprintRetro.objects.filter(sprint=sprint, is_deleted=False)
-            .prefetch_related(
-                db_models.Prefetch(
-                    "action_items",
-                    queryset=RetroActionItem.objects.select_related("assignee"),
-                )
-            )
-            .first()
-        ) or retro
-        return Response(_pick_serializer(retro)(retro).data, status=status.HTTP_200_OK)
+            return _retro_patch(request, sprint, caller, caller_role)
+        return _retro_post(request, sprint, caller, caller_role)
 
     @extend_schema(
         summary="Live retro board — stickies + columns (ADR-0117 §1)",
