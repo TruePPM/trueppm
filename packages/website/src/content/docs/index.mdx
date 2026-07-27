@@ -1,14 +1,19 @@
 ---
 title: TruePPM
-description: Open-source P3M platform built for waterfall, agile, and hybrid programs. One data model, every stakeholder, every methodology.
+description: Most project tools store dates. TruePPM computes them — a real CPM engine with Monte Carlo risk analysis, Apache 2.0, self-hosted, and installable on its own so you can verify the math before you trust the platform.
 template: splash
 hero:
-  tagline: Built for waterfall, agile, and hybrid programs. Every stakeholder — the Scrum Master, the Project Manager, the PMO Director, the Executive — gets the view they need, from the same source of truth.
+  tagline: |
+    Most project tools store dates. TruePPM computes them — a real Critical Path Method engine with Monte Carlo risk analysis, wrapped in a platform where the board card and the Gantt bar are the same object. The engine installs on its own, so you can check the math before you trust anything else here.
   actions:
+    - text: Verify the engine (60s)
+      link: /features/scheduler/
+      icon: right-arrow
+      variant: primary
     - text: Get Started
       link: /getting-started/installation/
       icon: right-arrow
-      variant: primary
+      variant: secondary
     # Hosted read-only demo (#1487, #1775). The try.trueppm.com instance is not
     # live until the 0.4 tag, so the hero routes to the /try-it/ preview page
     # (which explains the status and the verified path today) rather than the
@@ -16,7 +21,7 @@ hero:
     - text: Try it (0.4 beta)
       link: /getting-started/try-it/
       icon: right-arrow
-      variant: secondary
+      variant: minimal
     - text: View on GitLab
       link: https://gitlab.com/trueppm/trueppm
       icon: external
@@ -31,6 +36,46 @@ import { SHIPPED, SHIPPED_TAG, SHIPPED_DATE, FIRST_BETA } from "../_release-stat
     stays in sync with SHIPPED by hand; the body interpolates the constants. */}
 :::caution[0.3 shipped (alpha) · pre-GA]
 TruePPM {SHIPPED} shipped {SHIPPED_DATE} (as the <code>{SHIPPED_TAG}</code> pre-release) — the scheduling engine, REST API, real-time backend, the full web UI (Schedule, Board, Sprints, Risk, My Work, Programs), the settings/administration platform, program foundations, board and schedule depth, the first import/export migration path, and the agile-team feature set (first-class sprints, dual backlog, epic hierarchy, and the sprint↔schedule bridge) on the v2 interface refresh are all functional. {SHIPPED} is an alpha release; the first beta is planned for {FIRST_BETA}. The product is pre-GA: API contracts may evolve across 0.x point releases. Suitable for evaluation and early-adopter deployments; expect breaking changes before 1.0.
+:::
+
+## Start with the engine, not the platform
+
+You should not have to install a platform to find out whether its scheduling is real. TruePPM's engine is a **separate Apache 2.0 Python package** — the same code the platform runs on, versioned in lockstep. No server, no database, no account:
+
+```bash
+pip install trueppm-scheduler
+```
+
+```python
+from datetime import date, timedelta
+from trueppm_scheduler import schedule, Project, Task, Dependency
+
+result = schedule(Project(
+    id="p-1", name="Verify me", start_date=date(2026, 1, 5),
+    tasks=[
+        Task(id="design", name="Design", duration=timedelta(days=5)),
+        Task(id="build",  name="Build",  duration=timedelta(days=10)),
+        Task(id="docs",   name="Docs",   duration=timedelta(days=3)),
+    ],
+    dependencies=[Dependency(predecessor_id="design", successor_id="build")],
+))
+
+print(result.critical_path)                                            # ['design', 'build']
+print(next(t for t in result.tasks if t.id == "build").early_finish)   # 2026-01-23
+print(next(t for t in result.tasks if t.id == "docs").total_float)     # 12 days, 0:00:00
+```
+
+Fifteen working days across two weekends, computed on a Mon–Fri calendar — and `docs`, off the critical path, carries twelve days of slack before the date moves. Check it against MS Project. That is why the engine ships on its own.
+
+All four dependency types, calendar-aware lag, multi-calendar composition, cycle detection with the offending path, and Monte Carlo with per-task sensitivity. [Full engine reference →](/features/scheduler/) · [View on PyPI →](https://pypi.org/project/trueppm-scheduler/)
+
+:::tip[Before you evaluate further]
+Two pages exist so you can disqualify TruePPM quickly rather than slowly:
+[**How TruePPM compares**](/overview/how-it-compares/) names competitors with dated
+citations — including the head-to-heads TruePPM loses — and
+[**What TruePPM doesn't do yet**](/overview/what-it-does-not-do/) is the maintained
+gap list (no resource leveling, one constraint type, no cost/EVM, a ~1,000-task
+Schedule-view ceiling).
 :::
 
 ## One platform, every methodology
@@ -69,52 +114,32 @@ docker compose exec api python manage.py seed_demo_project --with-personas
 
 The persona password is `demo` because the local Docker stack runs with `DEBUG=True`; on a non-dev install the seed prints a one-time random password unless you set `TRUEPPM_DEMO_PASSWORD`. See [`seed_demo_project`](/administration/management-commands/#seed_demo_project).
 
-Or use the scheduling engine standalone — no server required:
-
-```bash
-pip install trueppm-scheduler
-```
-
-[View `trueppm-scheduler` on PyPI →](https://pypi.org/project/trueppm-scheduler/)
-
-```python
-from datetime import date, timedelta
-from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency
-
-calendar = Calendar()  # Mon–Fri working days
-project = Project(
-    id="p-1", name="My Project", start_date=date(2026, 1, 5),
-    tasks=[
-        Task(id="t-1", name="Design", duration=timedelta(days=5)),
-        Task(id="t-2", name="Build",  duration=timedelta(days=10)),
-    ],
-    dependencies=[Dependency(predecessor_id="t-1", successor_id="t-2")],
-    calendar=calendar,
-)
-result = schedule(project)
-print(result.tasks[1].early_finish)   # 2026-01-23
-print(result.critical_path)           # ['t-1', 't-2']
-```
+Just want the math, not the platform? That's [the engine package](#start-with-the-engine-not-the-platform) above.
 
 **Stack:** Django 5.2 + Channels · React 19 + Vite · PostgreSQL 16 + ltree · Apache 2.0
 
 ## Why TruePPM?
 
+Four claims, each one checkable rather than taken on trust — and one page of the ones that go the other way.
+
 <CardGrid>
-  <Card title="Real scheduling, not task lists" icon="rocket">
-    CPM forward/backward pass on every change. You always know which tasks drive your deadline and where you have float. All 4 dependency types with calendar-aware lag.
+  <Card title="Monte Carlo, in the free core" icon="random">
+    Three-point estimates give you P50/P80/P95 plus a per-task sensitivity ranking — which tasks actually move the finish. Across the commercial field this is a separately licensed product (Acumen Risk, Full Monte, Safran Risk, Primavera Risk Analysis) bolted onto an exported schedule. No other open-source PPM platform ships it at all. [The comparison →](/overview/how-it-compares/)
   </Card>
-  <Card title="Monte Carlo risk analysis" icon="random">
-    Add three-point estimates and get P50/P80/P95 completion dates. Commit to P80 — there's only a 50% chance you'll hit the CPM date.
+  <Card title="The engine is separable" icon="puzzle">
+    `pip install trueppm-scheduler` — CPM and Monte Carlo, no server, no account, the same code the platform runs on. No other PPM tool, open or commercial, lets you audit its scheduling engine in isolation. That's why you should believe the rest of this page.
   </Card>
-  <Card title="Computed, not guessed" icon="puzzle">
-    Every date and forecast is calculated by the engine, with the derivation to show for it. The read-only AI-query server (MCP) landing in the 0.4 beta answers from that engine — an AI client can *ask* your schedule, but a language model never *invents* your dates. [Computed, not guessed →](/overview/computed-not-guessed/)
+  <Card title="Board card = Gantt bar" icon="rocket">
+    Not synced. Not mirrored. The same row. MS Project has no agile surface; Jira has no critical path; OpenProject keeps board and Gantt as adjacent views. Here, a contributor drags a card to Done and the project manager's finish date moves — and closing a sprint reforecasts the schedule from measured velocity.
   </Card>
-  <Card title="Self-hosted, Apache 2.0" icon="open-book">
-    Your data stays yours. Run it on your infrastructure. The scheduling engine ships standalone on PyPI — use it without the API if you just need the math.
+  <Card title="Nothing that should be free is taxed" icon="open-book">
+    Apache 2.0, no seat count, no feature flags, no telemetry. SSO through your own identity provider ships in the OSS core at 0.4 — OpenProject gates OIDC behind Enterprise, Plane behind Commercial. [SSO is not an enterprise feature →](/overview/sso-is-not-enterprise/)
   </Card>
-  <Card title="Built for collaboration" icon="laptop">
-    Real-time WebSocket push, 5-role RBAC, offline-first sync for unreliable networks. Every mutation broadcast to connected clients.
+  <Card title="Computed, not guessed" icon="approve-check">
+    Every date and forecast is calculated by the engine with a derivation to show for it — which is what makes the schedule safe to hand an AI. An agent can **compute**, **cite**, be **refused**, and **reproduce**. The read-only MCP server lands in the 0.4 beta. [How grounding works →](/overview/computed-not-guessed/)
+  </Card>
+  <Card title="…and what it doesn't do" icon="warning">
+    No resource leveling. One constraint type. No cost or earned value until 0.8. A measured ~1,000-task ceiling in the Schedule view. If you need automatic leveling today, use P6. The full maintained list: [What TruePPM doesn't do yet →](/overview/what-it-does-not-do/)
   </Card>
 </CardGrid>
 

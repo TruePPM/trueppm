@@ -10,20 +10,47 @@
 
 > **Canonical source: [gitlab.com/trueppm/trueppm](https://gitlab.com/trueppm/trueppm)** — issues and merge requests are handled there. The GitHub repository is a read-only mirror for discovery; it does not accept issues or pull requests.
 
-**Waterfall, agile, and hybrid programs — one platform, one data model.**
+**Most project tools store dates. This one computes them.**
 
-Most tools make you pick a side. Jira speaks agile and turns into a mess the moment someone wants a timeline. MS Project speaks waterfall and ignores how the team actually works in two-week sprints. So the project manager keeps a schedule, the team keeps a board, and somebody spends every Monday reconciling the two by hand.
+At the center of TruePPM is a real Critical Path Method engine — all four dependency types, calendar-aware lag, cycle detection, float on every task — with Monte Carlo risk analysis on top. Not a Gantt chart that draws bars where you drag them: an engine that works out which tasks actually drive your deadline, and what date you are 80% likely to hit.
 
-TruePPM removes that reconciliation. A Scrum Master and a project manager look at the **same underlying data** and each sees the view that fits their job. The team closes a sprint; the master schedule re-forecasts on its own. No copy-paste, no status meeting, no second tool.
+You don't have to take that on faith, and you don't have to install a platform to check. The engine is a **separate Apache-2.0 Python package**. Verify the math in sixty seconds — no signup, no Docker, no account:
 
-It's open source, self-hosted, and built scheduling-first: the Critical Path Method (CPM) — the math that works out which tasks actually drive your deadline — is the engine, and the agile board and sprints sit on top of it, not as a parallel system bolted on the side.
+```bash
+pip install trueppm-scheduler
+```
 
-And because that schedule is *computed* — one engine over one data model, never a second system to reconcile — it's answerable. That's one principle, **computed, not guessed**: an AI client can **compute** an answer from the engine instead of guessing it, **cite** the derivation behind it, be **refused** when a change would break the plan, and **reproduce** any answer later. The read-only AI-query server (MCP) landing in the 0.4 beta is its first surface — real questions against your live schedule, answers the engine stands behind, never a language model's guess, and nothing leaves your box.
+```python
+from datetime import date, timedelta
+from trueppm_scheduler import schedule, Project, Task, Dependency
+
+result = schedule(Project(
+    id="p-1", name="Verify me", start_date=date(2026, 1, 5),
+    tasks=[
+        Task(id="design", name="Design", duration=timedelta(days=5)),
+        Task(id="build",  name="Build",  duration=timedelta(days=10)),
+        Task(id="docs",   name="Docs",   duration=timedelta(days=3)),
+    ],
+    dependencies=[Dependency(predecessor_id="design", successor_id="build")],
+))
+
+print(result.critical_path)                                  # ['design', 'build']
+print(next(t for t in result.tasks if t.id == "build").early_finish)   # 2026-01-23
+print(next(t for t in result.tasks if t.id == "docs").total_float)     # 12 days, 0:00:00
+```
+
+Fifteen working days across two weekends, computed on a Mon–Fri calendar — and `docs`, off the critical path, has twelve days of slack it can absorb before the date moves. Check it against MS Project if you like. That is the point of shipping the engine on its own.
+
+That engine is the product. Everything else — the web UI, the agile board, sprints, programs, real-time sync, offline, RBAC, the REST API — is a platform wrapped around it, built on one rule: **the board card and the Gantt bar are the same object.** Close a sprint and the master schedule reforecasts itself. There is no reconciliation step because there is nothing to reconcile.
+
+And because every date is *computed* rather than stored, it is answerable. That's the principle we call **computed, not guessed**: an AI client can **compute** an answer from the engine instead of guessing it, **cite** the derivation behind it, be **refused** when a change would break the plan, and **reproduce** any answer later. The read-only AI-query server (MCP) landing in the 0.4 beta is its first surface — real questions against your live schedule, never a language model's guess, and nothing leaves your box.
 
 > ### Status: 0.3-alpha — pre-GA, not yet production-ready
 > The engine and API are solid; the UI works but is still maturing. 0.3 is out as the `0.3.0-alpha.3` pre-release, and **0.4 will be the first beta**. Expect breaking API changes before then. **If you're running real teams, wait for the first beta** — we're still learning what needs to change from early feedback, and we'd rather not lock you in before we do. Kicking the tires, self-hosting a trial, or using the scheduler library? Dive in now.
 
-## Try it in five minutes
+## Run the whole platform — five minutes
+
+The engine above is the sixty-second check. This is the five-minute one: the full stack, populated with real data and six persona logins.
 
 ```bash
 git clone https://gitlab.com/trueppm/trueppm.git
@@ -77,21 +104,34 @@ TruePPM is built around eight roles. Find yourself below — each links to a gui
 
 Not sure it's a fit? The [evaluation guide](https://docs.trueppm.com/getting-started/evaluation-guide/) walks every capability — which demo, which login, which screen, what to expect — in about 30 minutes.
 
-## Why TruePPM?
+## What's actually different
 
-**Real scheduling, not just task lists.** TruePPM runs the Critical Path Method on every change — start and finish dates forward, the latest each task can slip backward, and the slack (*float*) on every task. You always know which tasks drive your deadline and where you have room to move.
+Four claims, each one you can check rather than take on trust.
 
-**Probabilistic forecasts, built in.** Add three-point estimates (optimistic / most likely / pessimistic) to any task and run a Monte Carlo simulation. You get P50, P80, and P95 dates — the dates you're 50%, 80%, and 95% likely to hit — instead of one optimistic number. P80 is the date you commit to stakeholders.
+**1. Monte Carlo schedule risk, in the free core.** Add three-point estimates (optimistic / most likely / pessimistic) to any task and get P50, P80, and P95 dates plus a per-task sensitivity ranking — which tasks actually move the finish. Across the commercial field this is a separately licensed product bolted onto a schedule exported from somewhere else: Deltek Acumen Risk, Barbecana Full Monte, Safran Risk, Oracle Primavera Risk Analysis. TruePPM computes it in the same engine that computes the dates, and we are not aware of another open-source PPM platform that ships it at all. If you find one, [open an issue](https://gitlab.com/trueppm/trueppm/-/issues) and we'll correct this line.
 
-**Agile-native, schedule-aware.** Full sprint lifecycle (plan → activate → close), a board with work-in-progress (WIP) limits, velocity, burndown, and retrospective-to-backlog. The Scrum Master gets a native agile surface and never opens the timeline — and sprint velocity quietly re-forecasts the schedule underneath.
+**2. The engine is separable, so the claim is falsifiable.** `pip install trueppm-scheduler` gets you the CPM and Monte Carlo math with no server, no database, and no account — the same code the platform runs on, versioned in lockstep. No other PPM tool, open or commercial, lets you audit its scheduling engine in isolation. That is not a convenience feature; it is the reason you should believe the rest of this README.
 
-**The hybrid bridge is the whole point.** The same task is both a line in the master schedule and a story on the sprint board. A team member marks a story done, the schedule recalculates on the spot, and the project manager's timeline updates in real time. No status meetings, no reconciliation spreadsheets.
+**3. The board card and the Gantt bar are the same object.** Not synced, not mirrored — the same row. MS Project has no agile surface. Jira has no critical path. OpenProject has both a board and a Gantt, but they are adjacent views rather than one coupled model. In TruePPM a team member drags a card to Done, the CPM re-runs, and the project manager's finish date moves in real time. Close a sprint and measured velocity reforecasts the schedule. There is no Monday reconciliation meeting because there is nothing to reconcile.
 
-**Computed, not guessed — the AI contract.** Every date, float value, and forecast is calculated by the scheduling engine, with the derivation to show for it — and that's the rule for everything AI-facing, as one capability with four parts. An AI client can **compute** an answer from the engine (never a model's guess), **cite** the server-side derivation behind it, be **refused** when a proposed change would break the plan's own rules — the same refusal a human hits — and **reproduce** any answer later from the same inputs. The read-only AI-query server lands in the 0.4 beta as the first surface of it; the write path and its guardrails follow in 0.6. See [Computed, not guessed](https://docs.trueppm.com/overview/computed-not-guessed/).
+**4. Nothing that should be free is taxed.** The community edition is Apache 2.0 with no seat count, no feature flags, and no telemetry. Single sign-on through your own identity provider ships in the OSS core at 0.4 — OpenProject gates OIDC and SAML behind its Enterprise tier, and Plane gates SSO behind its Commercial editions.<sup>[†](https://docs.trueppm.com/overview/sso-is-not-enterprise/)</sup> The enterprise edition earns its price on identity *governance* (SAML, SCIM, LDAP sync) and cross-program portfolio coordination — not on the login screen. Every competitor claim is dated and sourced on [**How TruePPM compares**](https://docs.trueppm.com/overview/how-it-compares/).
 
-**Open source, self-hosted, no lock-in.** The community edition is Apache 2.0. Run it on your own infrastructure; your data stays yours. Even single sign-on through your own identity provider is open source — it lands in 0.4, not behind a paywall. And the scheduling engine ships as a standalone Python package if you just need the math.
+**And the rule underneath all of it: computed, not guessed.** Every date, float value, and forecast is calculated by the engine with a derivation to show for it — which is what makes the schedule safe to hand an AI. An agent can **compute** an answer from the engine (never a model's guess), **cite** the server-side derivation, be **refused** when a proposed change breaks the plan's own rules — the same refusal a human hits — and **reproduce** any answer later from the same inputs. The read-only AI-query server lands in the 0.4 beta; the guarded write path follows in 0.6. See [Computed, not guessed](https://docs.trueppm.com/overview/computed-not-guessed/).
 
-**API-first.** Every feature is a REST or real-time (WebSocket) endpoint. The web UI is an API consumer with no privileged access, same as any integration you'd build. The OpenAPI schema is the contract.
+## What it doesn't do yet
+
+We would rather you find these here than forty minutes into an evaluation. This list is maintained, not decorative — see [**What TruePPM doesn't do yet**](https://docs.trueppm.com/overview/what-it-does-not-do/) for the full version with issue links.
+
+| Gap | Status |
+|---|---|
+| **Resource leveling** | Not implemented. The engine computes the schedule; it will not resolve an over-allocation for you. Per-project allocation with over-allocation *warnings* lands in 0.5; cross-program leveling is an enterprise feature after 1.0. If you need automatic leveling today, use P6 or MS Project. |
+| **Schedule constraints** | One type. `planned_start` is honored as start-no-earlier-than. There is no must-finish-on, finish-no-later-than, or deadline constraint. MS Project ships eight. |
+| **Cost and earned value** | Not present. Resource costs and EV-lite (PV/EV/AC, SPI/CPI) are planned for 0.8. If your practice is cost-centric, TruePPM is not ready for you. |
+| **Scale** | A project stays comfortable in the Schedule view to roughly **1,000 tasks**, bounded by the whole-project client load. Measured, not estimated — see the [tested scale envelope](https://docs.trueppm.com/administration/sizing/#tested-envelope). P6 handles two orders of magnitude more. |
+| **Mobile** | No app yet. An installable PWA lands in 0.5, a native Android app in 0.6, iOS at 1.0. |
+| **Maturity** | 0.3 is an alpha; 0.4 is the first beta. OpenProject has fifteen years and a support contract. We have a published 3–4 week release cadence and the [commit history](https://gitlab.com/trueppm/trueppm/-/commits/main) to back it. Judge accordingly. |
+
+**API-first, so none of this is a black box.** Every feature is a REST or WebSocket endpoint; the web UI is an API consumer with no privileged access. The OpenAPI schema is the contract.
 
 ## What's in the current release (0.3)
 
@@ -141,7 +181,7 @@ See the [full installation guide](https://docs.trueppm.com/getting-started/insta
 
 ### Scheduling engine only
 
-If you just need the math, the critical-path and Monte Carlo engine ships as a standalone Apache 2.0 package — no API, no database:
+If you just need the math — CPM, float, and Monte Carlo with no API and no database — the engine is its own Apache 2.0 package. The sixty-second sample is [at the top of this README](#trueppm); this is the fuller surface:
 
 ```bash
 pip install trueppm-scheduler
@@ -149,26 +189,39 @@ pip install trueppm-scheduler
 
 ```python
 from datetime import date, timedelta
-from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency, DependencyType
+from trueppm_scheduler import (
+    schedule, monte_carlo, Calendar, Project, Task, Dependency, DependencyType,
+)
 
 calendar = Calendar()  # Mon–Fri, no holidays (whole-day scheduling)
-task_a = Task(id="t-1", name="Design", duration=timedelta(days=5))
-task_b = Task(id="t-2", name="Build",  duration=timedelta(days=10))
-dep = Dependency(predecessor_id="t-1", successor_id="t-2", dep_type=DependencyType.FS)
-
 project = Project(
     id="p-1",
     name="My Project",
     start_date=date(2026, 1, 5),
-    tasks=[task_a, task_b],
-    dependencies=[dep],
+    tasks=[
+        Task(id="t-1", name="Design", duration=timedelta(days=5)),
+        Task(
+            id="t-2", name="Build", duration=timedelta(days=10),
+            optimistic_duration=timedelta(days=7),
+            most_likely_duration=timedelta(days=10),
+            pessimistic_duration=timedelta(days=20),
+        ),
+    ],
+    dependencies=[
+        Dependency(predecessor_id="t-1", successor_id="t-2", dep_type=DependencyType.FS),
+    ],
     calendar=calendar,
 )
 
 result = schedule(project)
-build = next(t for t in result.tasks if t.id == "t-2")
-print(build.early_finish)  # 2026-01-23 (15 working days from 2026-01-05, across two weekends)
+print(next(t for t in result.tasks if t.id == "t-2").early_finish)  # 2026-01-23
+
+# Probabilistic finish dates from the three-point estimates above.
+mc = monte_carlo(project, runs=5000, seed=42)
+print(mc.p50, mc.p80, mc.p95)
 ```
+
+All four dependency types (FS/SS/FF/SF), calendar-aware lag, multi-calendar composition, cycle detection with the offending path, and per-task sensitivity ranking. Full reference: [`docs.trueppm.com/features/scheduler`](https://docs.trueppm.com/features/scheduler/).
 
 ## Documentation
 
