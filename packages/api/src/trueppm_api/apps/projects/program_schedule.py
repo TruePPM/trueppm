@@ -28,7 +28,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from rest_framework.exceptions import APIException
 
@@ -152,6 +152,101 @@ class ProgramScheduleGraph:
         return set(self.children_map.keys())
 
 
+def _schedulable_tasks(project: Any) -> list[Any]:
+    """The member project's committed tasks, replicating the single-project filter.
+
+    Drops recurring templates, EPIC grouping nodes, BACKLOG cards, and soft-deleted
+    tombstones — matching ``CommittedTaskManager`` (#1772). Anything else would put
+    work in the merged CPM that the single-project pass never schedules, and the two
+    surfaces would drift (the #1185 failure class).
+    """
+    from trueppm_api.apps.projects.models import TaskStatus, TaskType
+
+    return [
+        t
+        for t in project.tasks.all()
+        if not t.is_recurring
+        and t.type != TaskType.EPIC
+        and t.status != TaskStatus.BACKLOG
+        and not t.is_deleted
+    ]
+
+
+def _project_sched_tasks(project: Any, db_tasks: list[Any], *, suggest_approve: bool) -> list[Any]:
+    """Convert one member project's tasks to engine tasks, tagged with its calendar.
+
+    The ``calendar_id`` tag is the ADR-0120 D3 engine substrate: the merged pass
+    holds one calendar per member project rather than a single program-wide one, so
+    each task's working-day math matches its own project's composed calendar. The
+    engine falls back to the project-level default for an unknown id (it never will
+    here — every id is registered by the caller).
+    """
+    from trueppm_api.apps.scheduling.services import build_sched_tasks
+
+    sched_tasks = build_sched_tasks(db_tasks, suggest_approve=suggest_approve)
+    for st in sched_tasks:
+        st.calendar_id = str(project.id)
+    return sched_tasks
+
+
+def _merge_children_map(db_tasks: list[Any], children_map: dict[str, list[str]]) -> None:
+    """Add ``db_tasks``' parent→children edges to the merged WBS map, in place.
+
+    Built per project from ``wbs_path`` then merged — keys are globally-unique task
+    ids, so no namespacing is needed. Mirrors ``_run_schedule`` exactly.
+    """
+    for t in db_tasks:
+        if not t.wbs_path:
+            continue
+        parent_path = str(t.wbs_path).rsplit(".", 1)
+        if len(parent_path) < 2:
+            continue
+        for candidate in db_tasks:
+            if candidate.wbs_path and str(candidate.wbs_path) == parent_path[0]:
+                children_map.setdefault(str(candidate.id), []).append(str(t.id))
+                break
+
+
+def _raise_invalid_input(
+    exc: Exception,
+    *,
+    db_task_by_id: dict[str, Any],
+    project_by_id: dict[Any, Any],
+    can_access_project: Callable[[Any], bool] | None,
+) -> NoReturn:
+    """Map a merged-CPM ``SchedulerError`` to the structured 422 (#1981).
+
+    Compute-on-read means a single degenerate task in any member project would
+    otherwise become an unhandled 500 that blanks the whole program view. Best-effort
+    attribution: a cycle carries its task ids directly; other invalid inputs embed the
+    offending id in the message.
+
+    The raw ``reason`` embeds the offending task's estimate day-values, which ADR-0120
+    D5 withholds for member projects the requester cannot fully read. It is included
+    only when the offending project is both attributable AND accessible; otherwise the
+    client still gets the project/task identity (already public via lane metadata and
+    the redacted ExternalTaskCard) but not the withheld estimate values.
+    """
+    from trueppm_scheduler.engine import CyclicDependencyError
+
+    if isinstance(exc, CyclicDependencyError):
+        offending_ids = [tid for tid in exc.cycle if tid in db_task_by_id]
+    else:
+        offending_ids = [tid for tid in _TASK_ID_RE.findall(str(exc)) if tid in db_task_by_id]
+    db_task = db_task_by_id.get(offending_ids[0]) if offending_ids else None
+    project = project_by_id.get(db_task.project_id) if db_task is not None else None
+    reason_visible = (
+        project is not None and can_access_project is not None and can_access_project(project.id)
+    )
+    raise ProgramScheduleInvalidInput(
+        reason=str(exc) if reason_visible else None,
+        project_id=str(project.id) if project is not None else None,
+        project_name=project.name if project is not None else None,
+        task_id=str(db_task.id) if db_task is not None else None,
+        task_name=db_task.name if db_task is not None else None,
+    ) from exc
+
+
 def gather_program_schedule(
     program: Program,
     *,
@@ -188,7 +283,6 @@ def gather_program_schedule(
             task data makes the merged CPM unschedulable.
     """
     from trueppm_scheduler.engine import (
-        CyclicDependencyError,
         SchedulerError,
         expand_summary_dependencies,
         schedule,
@@ -198,15 +292,8 @@ def gather_program_schedule(
     from trueppm_scheduler.models import DependencyType
     from trueppm_scheduler.models import Project as SchedProject
 
-    from trueppm_api.apps.projects.models import (
-        Dependency,
-        EstimationMode,
-        Project,
-        TaskStatus,
-        TaskType,
-    )
+    from trueppm_api.apps.projects.models import Dependency, EstimationMode, Project
     from trueppm_api.apps.scheduling.calendars import compose_project_calendar
-    from trueppm_api.apps.scheduling.services import build_sched_tasks
 
     member_projects = list(
         Project.objects.filter(program=program, is_deleted=False)
@@ -242,14 +329,7 @@ def gather_program_schedule(
     total_tasks = 0
 
     for p in member_projects:
-        db_tasks = [
-            t
-            for t in p.tasks.all()
-            if not t.is_recurring
-            and t.type != TaskType.EPIC
-            and t.status != TaskStatus.BACKLOG
-            and not t.is_deleted
-        ]
+        db_tasks = _schedulable_tasks(p)
         if not db_tasks:
             continue
         total_tasks += len(db_tasks)
@@ -261,33 +341,15 @@ def gather_program_schedule(
         # CalendarException holiday/shutdown range — so the merged program-scoped
         # CPM pass honors the same composed calendar as the single-project pass.
         calendars[str(p.id)] = compose_project_calendar(p)
-
-        sched_tasks = build_sched_tasks(
-            db_tasks,
-            suggest_approve=p.estimation_mode == EstimationMode.SUGGEST_APPROVE,
+        all_sched_tasks.extend(
+            _project_sched_tasks(
+                p,
+                db_tasks,
+                suggest_approve=p.estimation_mode == EstimationMode.SUGGEST_APPROVE,
+            )
         )
-        for st in sched_tasks:
-            # Point each task at its project's calendar in the merged registry;
-            # the engine falls back to the project-level default for any unknown
-            # id (it never will here).
-            st.calendar_id = str(p.id)
-        all_sched_tasks.extend(sched_tasks)
-
-        for t in db_tasks:
-            db_task_by_id[str(t.id)] = t
-
-        # children_map for summary expansion — built per project from wbs_path,
-        # then merged (keys are unique task ids). Mirrors _run_schedule exactly.
-        for t in db_tasks:
-            if not t.wbs_path:
-                continue
-            parent_path = str(t.wbs_path).rsplit(".", 1)
-            if len(parent_path) < 2:
-                continue
-            for candidate in db_tasks:
-                if candidate.wbs_path and str(candidate.wbs_path) == parent_path[0]:
-                    all_children_map.setdefault(str(candidate.id), []).append(str(t.id))
-                    break
+        db_task_by_id.update({str(t.id): t for t in db_tasks})
+        _merge_children_map(db_tasks, all_children_map)
 
     # --- Dependencies: every within-project edge plus every ACCEPTED cross-project
     # edge whose endpoints both sit in member projects. Pending (unaccepted) cross
@@ -365,37 +427,12 @@ def gather_program_schedule(
         # that telemetry.
         if not enforce_max:
             raise
-        # Compute-on-read means a single degenerate task in any member project
-        # would otherwise become an unhandled 500 that blanks the whole program
-        # view (#1981). Map it to a structured 422 that names the offending
-        # project/task so the client can render an actionable state instead of a
-        # dead retry loop. Best-effort attribution: a cycle carries its task ids
-        # directly; other inputs embed the offending id in the message.
-        offending_ids: list[str] = []
-        if isinstance(exc, CyclicDependencyError):
-            offending_ids = [tid for tid in exc.cycle if tid in db_task_by_id]
-        else:
-            offending_ids = [tid for tid in _TASK_ID_RE.findall(str(exc)) if tid in db_task_by_id]
-        db_task = db_task_by_id.get(offending_ids[0]) if offending_ids else None
-        project = project_by_id.get(db_task.project_id) if db_task is not None else None
-        # The raw ``reason`` embeds the offending task's estimate day-values, which
-        # ADR-0120 D5 withholds for member projects the requester cannot fully read
-        # (the redacted ExternalTaskCard ships title + CPM dates only). Include it
-        # only when the offending project is attributable AND accessible; otherwise
-        # the client still gets the project/task identity (already public via lane
-        # metadata + ExternalTaskCard) but not the withheld estimate values.
-        reason_visible = (
-            project is not None
-            and can_access_project is not None
-            and can_access_project(project.id)
+        _raise_invalid_input(
+            exc,
+            db_task_by_id=db_task_by_id,
+            project_by_id=project_by_id,
+            can_access_project=can_access_project,
         )
-        raise ProgramScheduleInvalidInput(
-            reason=str(exc) if reason_visible else None,
-            project_id=str(project.id) if project is not None else None,
-            project_name=project.name if project is not None else None,
-            task_id=str(db_task.id) if db_task is not None else None,
-            task_name=db_task.name if db_task is not None else None,
-        ) from exc
     result_map = {st.id: st for st in result.tasks}
     leaf_ids = set(result_map.keys())
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 import calendar
 import logging
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -866,6 +866,139 @@ def _date_range_inclusive(start: date, end: date) -> list[date]:
     return days
 
 
+def _daily_burn_series(
+    by_task: dict[Any, list[dict[str, Any]]],
+    days: Sequence[date],
+    *,
+    chart_type: str,
+    metric: str,
+) -> list[dict[str, Any]]:
+    """Reconstruct each day's scope/actual from the per-task history index.
+
+    ``by_task`` lists are newest-first, so the first row whose ``history_date``
+    falls on or before the end of a day *is* that task's state on that day. A
+    deleted or not-yet-created task contributes nothing rather than zero, which
+    is what keeps ``scope`` a true "work committed as of this day" curve.
+    """
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    def _value(row: dict[str, Any]) -> int:
+        return int(row.get("story_points") or 0) if metric == "points" else 1
+
+    series: list[dict[str, Any]] = []
+    for day in days:
+        end_of_day = datetime.combine(
+            day, datetime.max.time(), tzinfo=timezone.get_current_timezone()
+        )
+        scope = 0
+        completed = 0
+        for rows in by_task.values():
+            state = next((r for r in rows if r["history_date"] <= end_of_day), None)
+            if state is None or state["history_type"] == "-" or state.get("is_deleted"):
+                continue  # task didn't exist (or was deleted) on this day
+            value = _value(state)
+            scope += value
+            if state["status"] == TaskStatus.COMPLETE:
+                completed += value
+        series.append(
+            {
+                "date": day.isoformat(),
+                "scope": scope,
+                "actual": (scope - completed) if chart_type == "burndown" else completed,
+            }
+        )
+    return series
+
+
+def _apply_ideal_curve(series: list[dict[str, Any]], *, chart_type: str, day_count: int) -> None:
+    """Overlay the linear ``ideal`` curve on an already-computed series, in place.
+
+    Burndown anchors to the first day's scope (the commitment baseline draws down
+    to zero); burnup anchors to the final day's scope (the team plans to complete
+    *current* scope by the end). That asymmetry matches how PMs read each chart.
+    """
+    initial_scope = series[0]["scope"] if series else 0
+    final_scope = series[-1]["scope"] if series else 0
+    span_days = max(day_count - 1, 1)
+    for index, point in enumerate(series):
+        progress = index / span_days
+        if chart_type == "burndown":
+            point["ideal"] = round(initial_scope * (1 - progress), 2)
+        else:
+            point["ideal"] = round(final_scope * progress, 2)
+
+
+def _baseline_planned_series(
+    weight_by_task: dict[str, int],
+    finishes: Sequence[tuple[str, Any]],
+    days: Sequence[date],
+    *,
+    chart_type: str,
+) -> list[dict[str, Any]]:
+    """ "Planned remaining" curve from baselined finish dates — not an interpolation.
+
+    ``planned`` for a date is the weight of baselined tasks still outstanding
+    (burndown) or already due (burnup) as of that date.
+    """
+    total = sum(weight_by_task.get(tid, 0) for tid, _ in finishes)
+    out: list[dict[str, Any]] = []
+    for day in days:
+        done = sum(
+            weight_by_task.get(tid, 0)
+            for tid, finish in finishes
+            if finish is not None and finish <= day
+        )
+        planned = (total - done) if chart_type == "burndown" else done
+        out.append({"date": day.isoformat(), "planned": planned})
+    return out
+
+
+def _burn_baseline_series(
+    project_id: str | uuid.UUID,
+    days: Sequence[date],
+    *,
+    chart_type: str,
+    metric: str,
+) -> list[dict[str, Any]] | None:
+    """Baseline overlay for the burn chart, or ``None`` when there is nothing to draw.
+
+    ``None`` covers three cases the caller treats identically — no active baseline,
+    an empty baseline task list, and (points metric) a baseline whose live tasks
+    carry no story points at all, where a flat zero line would be misread as
+    "planned nothing".
+    """
+    from trueppm_api.apps.projects.models import Baseline, BaselineTask, Task
+
+    active_baseline = Baseline.objects.filter(
+        project_id=project_id, is_active=True, is_deleted=False
+    ).first()
+    if active_baseline is None:
+        return None
+
+    if metric == "points":
+        # Join the baseline task list with live tasks to obtain story_points.
+        bt_rows = list(active_baseline.tasks.values("task_id", "finish"))
+        weight_by_task: dict[str, int] = {
+            str(tid): sp or 0
+            for tid, sp in Task.objects.filter(
+                id__in=[r["task_id"] for r in bt_rows], is_deleted=False
+            ).values_list("id", "story_points")
+        }
+        finishes = [(str(r["task_id"]), r["finish"]) for r in bt_rows]
+        if sum(weight_by_task.get(tid, 0) for tid, _ in finishes) <= 0:
+            return None
+    else:
+        rows = list(
+            BaselineTask.objects.filter(baseline=active_baseline).values("task_id", "finish")
+        )
+        if not rows:
+            return None
+        finishes = [(str(r["task_id"]), r["finish"]) for r in rows]
+        weight_by_task = {tid: 1 for tid, _ in finishes}
+
+    return _baseline_planned_series(weight_by_task, finishes, days, chart_type=chart_type)
+
+
 def burn_series(
     project_id: str | uuid.UUID,
     *,
@@ -909,12 +1042,7 @@ def burn_series(
     of baselined tasks whose snapshot finish date is greater than that
     date — a proper "planned remaining" curve, not a linear interpolation.
     """
-    from trueppm_api.apps.projects.models import (
-        Baseline,
-        BaselineTask,
-        Task,
-        TaskStatus,
-    )
+    from trueppm_api.apps.projects.models import Task
 
     HistoricalTask = Task.history.model
 
@@ -949,51 +1077,8 @@ def burn_series(
         by_task.setdefault(row["id"], []).append(row)
     # Each list is already newest-first because of the order_by above.
 
-    def _value(row: dict[str, Any]) -> int:
-        if metric == "points":
-            return int(row.get("story_points") or 0)
-        return 1
-
-    series: list[dict[str, Any]] = []
-    for day in days:
-        end_of_day = datetime.combine(
-            day, datetime.max.time(), tzinfo=timezone.get_current_timezone()
-        )
-        scope = 0
-        completed = 0
-        for rows in by_task.values():
-            # First row whose history_date <= end_of_day (rows are newest-first).
-            state = next((r for r in rows if r["history_date"] <= end_of_day), None)
-            if state is None:
-                continue
-            if state["history_type"] == "-" or state.get("is_deleted"):
-                continue  # task didn't exist (or was deleted) on this day
-            value = _value(state)
-            scope += value
-            if state["status"] == TaskStatus.COMPLETE:
-                completed += value
-        remaining = scope - completed
-        series.append(
-            {
-                "date": day.isoformat(),
-                "scope": scope,
-                "actual": remaining if chart_type == "burndown" else completed,
-            }
-        )
-
-    # Linear ideal curve. Burndown anchors to the first day's scope (the
-    # commitment baseline draws down to zero); burnup anchors to the final
-    # day's scope (the team plans to complete *current* scope by end).
-    # This asymmetry matches how PMs read each chart.
-    initial_scope = series[0]["scope"] if series else 0
-    final_scope = series[-1]["scope"] if series else 0
-    span_days = max(len(days) - 1, 1)
-    for index, point in enumerate(series):
-        progress = index / span_days
-        if chart_type == "burndown":
-            point["ideal"] = round(initial_scope * (1 - progress), 2)
-        else:
-            point["ideal"] = round(final_scope * progress, 2)
+    series = _daily_burn_series(by_task, days, chart_type=chart_type, metric=metric)
+    _apply_ideal_curve(series, chart_type=chart_type, day_count=len(days))
 
     payload: dict[str, Any] = {
         "chart_type": chart_type,
@@ -1003,55 +1088,10 @@ def burn_series(
         "series": series,
     }
 
-    # Baseline overlay — present only when an active baseline exists.
-    active_baseline = Baseline.objects.filter(
-        project_id=project_id, is_active=True, is_deleted=False
-    ).first()
-    if active_baseline is not None:
-        if metric == "points":
-            # Join baseline task list with live tasks to obtain story_points.
-            from trueppm_api.apps.projects.models import Task as _Task
-
-            bt_rows = list(active_baseline.tasks.values("task_id", "finish"))
-            live_sp: dict[str, int] = {
-                str(tid): sp or 0
-                for tid, sp in _Task.objects.filter(
-                    id__in=[r["task_id"] for r in bt_rows], is_deleted=False
-                ).values_list("id", "story_points")
-            }
-            baseline_tasks_pts = [(str(r["task_id"]), r["finish"]) for r in bt_rows]
-            total_pts = sum(live_sp.get(tid, 0) for tid, _ in baseline_tasks_pts)
-            if total_pts > 0:
-                baseline_series: list[dict[str, Any]] = []
-                for day in days:
-                    done_pts = sum(
-                        live_sp.get(tid, 0)
-                        for tid, finish in baseline_tasks_pts
-                        if finish is not None and finish <= day
-                    )
-                    if chart_type == "burndown":
-                        baseline_series.append(
-                            {"date": day.isoformat(), "planned": total_pts - done_pts}
-                        )
-                    else:
-                        baseline_series.append({"date": day.isoformat(), "planned": done_pts})
-                payload["baseline_series"] = baseline_series
-        else:
-            baseline_tasks = list(
-                BaselineTask.objects.filter(baseline=active_baseline).values("finish")
-            )
-            if baseline_tasks:
-                total = len(baseline_tasks)
-                baseline_series = []
-                for day in days:
-                    done = sum(
-                        1 for t in baseline_tasks if t["finish"] is not None and t["finish"] <= day
-                    )
-                    if chart_type == "burndown":
-                        baseline_series.append({"date": day.isoformat(), "planned": total - done})
-                    else:
-                        baseline_series.append({"date": day.isoformat(), "planned": done})
-                payload["baseline_series"] = baseline_series
+    # Baseline overlay — the key is present only when there is a curve to draw.
+    baseline_series = _burn_baseline_series(project_id, days, chart_type=chart_type, metric=metric)
+    if baseline_series is not None:
+        payload["baseline_series"] = baseline_series
 
     return payload
 
@@ -2132,6 +2172,203 @@ def flag_outcome_for_backlog(outcome: Any, *, actor: Any) -> Any:
     return locked
 
 
+def _history_is_flagged(history_row: Any) -> bool:
+    """A history row is 'blocked' iff its blocked_reason is non-empty (#1125)."""
+    return bool((getattr(history_row, "blocked_reason", "") or "").strip())
+
+
+def _status_move_entry(row: Any, prev: Any, short_id: str, actor: Any) -> dict[str, Any]:
+    """One ``task_changes`` row for a status transition between two history rows."""
+    return {
+        "task_id": str(row.id),
+        "task_short_id": short_id,
+        "task_title": row.name,
+        "kind": "status",
+        "from": prev.status,
+        "to": row.status,
+        "actor_id": actor.pk if actor else None,
+        "actor_username": getattr(actor, "username", None) if actor else None,
+        "at": row.history_date.isoformat(),
+    }
+
+
+def _new_blocker_entry(row: Any, short_id: str, actor: Any, until: Any) -> dict[str, Any]:
+    """One ``new_blockers`` row for a blocked_reason empty→non-empty transition.
+
+    Carries blocker type and age but NEVER the free-text reason: the standup is a
+    shared screen and the reason stays contributor-private (ADR-0124, #1125).
+    """
+    age_seconds: int | None = None
+    if row.blocked_since is not None:
+        age_seconds = max(0, int((until - row.blocked_since).total_seconds()))
+    btype = (getattr(row, "blocker_type", "") or "").strip() or None
+    return {
+        "task_id": str(row.id),
+        "task_short_id": short_id,
+        "task_title": row.name,
+        "actor_username": getattr(actor, "username", None) if actor else None,
+        "at": row.history_date.isoformat(),
+        "blocker_type": btype,
+        "blocked_age_seconds": age_seconds,
+        # The split the standup renders: impediment = a triageable type is
+        # recorded; paused = a bare flag with no type.
+        "kind": "impediment" if btype else "paused",
+    }
+
+
+def _collect_history_deltas(
+    task_ids: Sequence[Any],
+    effective_since: Any,
+    until: Any,
+    bump: Callable[[Any, str], None],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Replay sprint task history into (status moves, new blockers).
+
+    Rows are pulled oldest-first per task so each in-window row can be diffed
+    against its true predecessor, which may pre-date the window — a row with no
+    predecessor is the task's creation and is not a transition. Bounded by sprint
+    size; one query (ADR-0121 §1).
+    """
+    from trueppm_api.apps.projects.models import Task, TaskStatus
+
+    task_changes: list[dict[str, Any]] = []
+    new_blockers: list[dict[str, Any]] = []
+    if not task_ids:
+        return task_changes, new_blockers
+
+    rows = list(
+        Task.history.filter(id__in=list(task_ids))
+        .select_related("history_user")
+        .order_by("id", "history_date")
+    )
+    prev_by_task: dict[Any, Any] = {}
+    for r in rows:
+        prev = prev_by_task.get(r.id)
+        prev_by_task[r.id] = r
+        if prev is None or r.history_date < effective_since:
+            continue
+        actor = r.history_user
+        short_id = f"T-{r.short_id}" if r.short_id else ""
+
+        # Status moves ("moved cards" — the issue's core signal). Tracked
+        # independently of the blocker flag so a task can both move and be
+        # flagged in the same window.
+        if r.status != prev.status:
+            task_changes.append(_status_move_entry(r, prev, short_id, actor))
+            bump(actor, "moved")
+            if r.status == TaskStatus.COMPLETE:
+                bump(actor, "completed")
+
+        # ADR-0124 (#1125): a "new blocker" is the blocked_reason empty→non-empty
+        # transition — the intentional human flag — NOT a move into the deprecated
+        # ON_HOLD status (which conflated blocked / deprioritized / parked).
+        if _history_is_flagged(r) and not _history_is_flagged(prev):
+            new_blockers.append(_new_blocker_entry(r, short_id, actor, until))
+            bump(actor, "blocked")
+
+    return task_changes, new_blockers
+
+
+def _scope_added_entry(sc: Any, *, velocity_readable: bool) -> dict[str, Any]:
+    """One ``scope_added`` row for a mid-sprint ``SprintScopeChange``.
+
+    ADR-0104 points gate: a below-audience reader sees the row (and its epic), but
+    never the point cost.
+    """
+    task = sc.task
+    epic = task.parent_epic if task is not None else None
+    return {
+        "task_id": str(sc.task_id) if sc.task_id else None,
+        "task_short_id": f"T-{task.short_id}" if task and task.short_id else "",
+        "task_title": task.name if task else "",
+        "added_by_username": getattr(sc.added_by, "username", None) if sc.added_by else None,
+        "at": sc.added_at.isoformat(),
+        "status": sc.status,
+        "story_points": (task.story_points if task is not None else None)
+        if velocity_readable
+        else None,
+        "epic": ({"id": str(epic.pk), "name": epic.name} if epic is not None else None),
+    }
+
+
+def _collect_scope_added(
+    sprint: Any,
+    effective_since: Any,
+    *,
+    velocity_readable: bool,
+    bump: Callable[[Any, str], None],
+) -> list[dict[str, Any]]:
+    """Scope injected since the window opened (ADR-0102 ``SprintScopeChange``).
+
+    Each item carries its point cost (velocity-gated per ADR-0104: a below-audience
+    reader sees the row and its epic, but never the point cost) and epic grouping
+    label, so the standup reads "what landed mid-sprint and what it costs us" (#1127).
+    """
+    from trueppm_api.apps.projects.models import SprintScopeChange
+
+    scope_added: list[dict[str, Any]] = []
+    for sc in (
+        SprintScopeChange.objects.filter(sprint_id=sprint.pk, added_at__gte=effective_since)
+        .select_related("task", "added_by", "task__parent_epic")
+        .order_by("added_at")
+    ):
+        scope_added.append(_scope_added_entry(sc, velocity_readable=velocity_readable))
+        bump(sc.added_by, "added")
+    return scope_added
+
+
+def _burndown_delta(sprint: Any) -> dict[str, Any] | None:
+    """Burndown swing between the two most recent daily snapshots (ADR-0121 §1).
+
+    ``None`` until a sprint has at least two snapshots — a single point is not a
+    swing, and reporting a delta against nothing would read as "no change".
+    """
+    from trueppm_api.apps.projects.models import SprintBurnSnapshot
+
+    snaps = list(
+        SprintBurnSnapshot.objects.filter(sprint_id=sprint.pk).order_by("-snapshot_date")[:2]
+    )
+    if len(snaps) != 2:
+        return None
+    current, prior = snaps[0], snaps[1]
+    return {
+        "prior_date": prior.snapshot_date.isoformat(),
+        "prior_remaining": prior.remaining_points,
+        "current_date": current.snapshot_date.isoformat(),
+        "current_remaining": current.remaining_points,
+        "remaining_delta": current.remaining_points - prior.remaining_points,
+        "completed_delta": current.completed_points - prior.completed_points,
+    }
+
+
+def _sprint_load(sprint: Any, *, velocity_readable: bool) -> dict[str, Any]:
+    """Committed snapshot vs current committed load (#1127).
+
+    ``pct_loaded`` is measured against capacity when the team set one (the
+    meaningful "how full are we" read), else against the activation commitment.
+    Every point figure is nulled for a reader who cannot see the velocity signal.
+    """
+    if not velocity_readable:
+        return {
+            "committed_points": None,
+            "current_points": None,
+            "delta_points": None,
+            "pct_loaded": None,
+        }
+
+    committed_points = sprint.committed_points
+    current_points = current_committed_points(sprint.pk)
+    load_basis = sprint.capacity_points or committed_points
+    return {
+        "committed_points": committed_points,
+        "current_points": current_points,
+        "delta_points": (
+            current_points - committed_points if committed_points is not None else None
+        ),
+        "pct_loaded": round(current_points / load_basis, 4) if load_basis else None,
+    }
+
+
 def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
     """Team standup "what changed since yesterday" read for a sprint (ADR-0121, #925).
 
@@ -2168,12 +2405,7 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
 
     from trueppm_api.apps.access.models import Role
     from trueppm_api.apps.access.permissions import _membership_role
-    from trueppm_api.apps.projects.models import (
-        SprintBurnSnapshot,
-        SprintScopeChange,
-        Task,
-        TaskStatus,
-    )
+    from trueppm_api.apps.projects.models import Task
     from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
 
     velocity_readable = can_read_signal(request, sprint.project_id, "velocity")
@@ -2182,8 +2414,9 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
     floor = sprint.activated_at
     effective_since = max(since, floor) if floor is not None else since
 
-    task_qs = Task.objects.filter(sprint_id=sprint.pk, is_deleted=False)
-    task_ids = list(task_qs.values_list("pk", flat=True))
+    task_ids = list(
+        Task.objects.filter(sprint_id=sprint.pk, is_deleted=False).values_list("pk", flat=True)
+    )
 
     # Per-actor count rollup, keyed by actor id (None = system/unknown).
     actors: dict[Any, dict[str, Any]] = {}
@@ -2203,128 +2436,10 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
         )
         row[field] += 1
 
-    task_changes: list[dict[str, Any]] = []
-    new_blockers: list[dict[str, Any]] = []
-
-    def _is_flagged(history_row: Any) -> bool:
-        """A history row is 'blocked' iff its blocked_reason is non-empty (#1125)."""
-        return bool((getattr(history_row, "blocked_reason", "") or "").strip())
-
-    if task_ids:
-        # All history for the current sprint tasks, oldest-first per task, so each
-        # in-window row can be diffed against its true predecessor (which may pre-
-        # date the window). Bounded by sprint size; one query (ADR-0121 §1).
-        rows = list(
-            Task.history.filter(id__in=task_ids)
-            .select_related("history_user")
-            .order_by("id", "history_date")
-        )
-        prev_by_task: dict[Any, Any] = {}
-        for r in rows:
-            prev = prev_by_task.get(r.id)
-            prev_by_task[r.id] = r
-            if prev is None:
-                continue
-            if r.history_date < effective_since:
-                continue
-            actor = r.history_user
-            actor_username = getattr(actor, "username", None) if actor else None
-            short_id = f"T-{r.short_id}" if r.short_id else ""
-
-            # Status moves ("moved cards" — the issue's core signal). Tracked
-            # independently of the blocker flag so a task can both move and be
-            # flagged in the same window.
-            if r.status != prev.status:
-                task_changes.append(
-                    {
-                        "task_id": str(r.id),
-                        "task_short_id": short_id,
-                        "task_title": r.name,
-                        "kind": "status",
-                        "from": prev.status,
-                        "to": r.status,
-                        "actor_id": actor.pk if actor else None,
-                        "actor_username": actor_username,
-                        "at": r.history_date.isoformat(),
-                    }
-                )
-                _bump(actor, "moved")
-                if r.status == TaskStatus.COMPLETE:
-                    _bump(actor, "completed")
-
-            # ADR-0124 (#1125): a "new blocker" is the blocked_reason empty→non-empty
-            # transition — the intentional human flag — NOT a move into the deprecated
-            # ON_HOLD status (which conflated blocked / deprioritized / parked). The
-            # entry splits "impediment" (a structured blocker_type is set) vs "paused"
-            # (flagged with no type). It carries type + age, NEVER the reason text
-            # (the Morgan boundary — the standup is a shared screen).
-            if _is_flagged(r) and not _is_flagged(prev):
-                age_seconds: int | None = None
-                if r.blocked_since is not None:
-                    age_seconds = max(0, int((until - r.blocked_since).total_seconds()))
-                btype = (getattr(r, "blocker_type", "") or "").strip() or None
-                new_blockers.append(
-                    {
-                        "task_id": str(r.id),
-                        "task_short_id": short_id,
-                        "task_title": r.name,
-                        "actor_username": actor_username,
-                        "at": r.history_date.isoformat(),
-                        "blocker_type": btype,
-                        "blocked_age_seconds": age_seconds,
-                        # The split the standup renders: impediment = a triageable
-                        # type is recorded; paused = a bare flag with no type.
-                        "kind": "impediment" if btype else "paused",
-                    }
-                )
-                _bump(actor, "blocked")
-
-    # Scope injected since the window opened (ADR-0102 SprintScopeChange). Each item
-    # carries its point cost (velocity-gated) and epic grouping label (#1127) so the
-    # standup can read "what landed mid-sprint and what it costs us" at a glance.
-    scope_added: list[dict[str, Any]] = []
-    for sc in (
-        SprintScopeChange.objects.filter(sprint_id=sprint.pk, added_at__gte=effective_since)
-        .select_related("task", "added_by", "task__parent_epic")
-        .order_by("added_at")
-    ):
-        task = sc.task
-        epic = task.parent_epic if task is not None else None
-        scope_added.append(
-            {
-                "task_id": str(sc.task_id) if sc.task_id else None,
-                "task_short_id": f"T-{task.short_id}" if task and task.short_id else "",
-                "task_title": task.name if task else "",
-                "added_by_username": getattr(sc.added_by, "username", None)
-                if sc.added_by
-                else None,
-                "at": sc.added_at.isoformat(),
-                "status": sc.status,
-                # ADR-0104 points gate: a below-audience reader sees the row (and its
-                # epic), but never the point cost.
-                "story_points": (task.story_points if task is not None else None)
-                if velocity_readable
-                else None,
-                "epic": ({"id": str(epic.pk), "name": epic.name} if epic is not None else None),
-            }
-        )
-        _bump(sc.added_by, "added")
-
-    # Burndown swing — the two most recent daily snapshots (ADR-0121 §1).
-    snaps = list(
-        SprintBurnSnapshot.objects.filter(sprint_id=sprint.pk).order_by("-snapshot_date")[:2]
+    task_changes, new_blockers = _collect_history_deltas(task_ids, effective_since, until, _bump)
+    scope_added = _collect_scope_added(
+        sprint, effective_since, velocity_readable=velocity_readable, bump=_bump
     )
-    burndown_delta: dict[str, Any] | None = None
-    if len(snaps) == 2:
-        current, prior = snaps[0], snaps[1]
-        burndown_delta = {
-            "prior_date": prior.snapshot_date.isoformat(),
-            "prior_remaining": prior.remaining_points,
-            "current_date": current.snapshot_date.isoformat(),
-            "current_remaining": current.remaining_points,
-            "remaining_delta": current.remaining_points - prior.remaining_points,
-            "completed_delta": current.completed_points - prior.completed_points,
-        }
 
     # Suppress zero-activity actors (#1126): a row with no moves/dones/adds/blocks is
     # noise on the standup and never leaves the server.
@@ -2351,33 +2466,6 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
         else sorted(active_actors, key=lambda a: (a["actor_username"] or "￿").lower())
     )
 
-    # Sprint load (#1127): committed snapshot vs current committed load. pct_loaded is
-    # measured against capacity when the team set one (the meaningful "how full are we"
-    # read), else against the activation commitment. Point figures are velocity-gated.
-    committed_points = sprint.committed_points
-    current_points = current_committed_points(sprint.pk)
-    capacity_points = sprint.capacity_points
-    load_basis = capacity_points if capacity_points else committed_points
-    pct_loaded: float | None = None
-    if load_basis:
-        pct_loaded = round(current_points / load_basis, 4)
-    delta_points = current_points - committed_points if committed_points is not None else None
-    sprint_load: dict[str, Any] = (
-        {
-            "committed_points": committed_points,
-            "current_points": current_points,
-            "delta_points": delta_points,
-            "pct_loaded": pct_loaded,
-        }
-        if velocity_readable
-        else {
-            "committed_points": None,
-            "current_points": None,
-            "delta_points": None,
-            "pct_loaded": None,
-        }
-    )
-
     # ADR-0124 (#1125): the standup splits the blocker count into impediments
     # (a structured type is recorded — the SM can triage) vs paused (a bare flag).
     blocker_summary = {
@@ -2393,10 +2481,10 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
         "scope_added": scope_added,
         "new_blockers": new_blockers,
         "blocker_summary": blocker_summary,
-        "burndown_delta": burndown_delta,
+        "burndown_delta": _burndown_delta(sprint),
         "per_actor": per_actor,
         "actor_aggregate": actor_aggregate,
-        "sprint_load": sprint_load,
+        "sprint_load": _sprint_load(sprint, velocity_readable=velocity_readable),
     }
 
 
