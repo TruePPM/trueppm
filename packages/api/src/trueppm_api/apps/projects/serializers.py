@@ -5161,69 +5161,89 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             return None
         return dict(ExternalTaskCardSerializer(task).data)
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+    def _edge_endpoints(self, attrs: dict[str, Any]) -> tuple[Task | None, Task | None]:
+        """Resolve both endpoints, falling back to the instance on a partial update."""
         predecessor = attrs.get("predecessor") or (
             self.instance.predecessor if self.instance else None
         )
         successor = attrs.get("successor") or (self.instance.successor if self.instance else None)
+        return predecessor, successor
 
+    def _authorize_same_project_edge(
+        self, predecessor: Task | None, successor: Task | None
+    ) -> None:
+        """Check Scheduler+ on both endpoints of a same-project edge.
+
+        The object-permission check runs for *both* endpoints before any
+        branching, so a non-member submitting a foreign UUID always gets 403
+        regardless of whether the two UUIDs share a project — preventing
+        membership inference from the error code (ADR-0055 / #359 hardening).
+        """
         request = self.context.get("request")
         view = self.context.get("view")
+        if request is None or view is None:
+            return
+        if predecessor:
+            view.check_object_permissions(request, predecessor)
+        if successor:
+            view.check_object_permissions(request, successor)
 
+    def _endpoints_repointed(self, predecessor: Task, successor: Task) -> bool:
+        """Whether this write creates or moves the edge, rather than editing it.
+
+        Consent is resolved on create, or when an *update* repoints an endpoint
+        into a (new) cross-project relationship — repointing is itself a
+        scope-injection vector and must re-earn downstream consent. A
+        no-endpoint-change update (e.g. an FS→SS or lag edit on an existing cross
+        edge) must NOT re-run consent, or it would silently reset an
+        already-accepted edge back to pending.
+        """
+        return self.instance is None or (
+            predecessor.pk != self.instance.predecessor_id
+            or successor.pk != self.instance.successor_id
+        )
+
+    def _validate_span_with_lag(self, attrs: dict[str, Any], predecessor: Task) -> None:
+        """Cumulative project-span guard (#1862).
+
+        A same-project edge's lag adds to the project's total span, which the CPM
+        engine caps at ``MAX_PROJECT_SPAN_DAYS``. Validate the projected sum at the
+        write boundary so an oversized lag fails here rather than breaking every
+        later recalculate. Cross-project edges are scheduled in the program graph,
+        not one project's span, so they are left to that path.
+        """
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        effective_lag = attrs.get("lag", self.instance.lag if self.instance is not None else 0)
+        try:
+            validate_project_span(
+                predecessor.project_id,
+                exclude_dependency_pk=self.instance.pk if self.instance is not None else None,
+                added_lag_days=effective_lag,
+            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"lag": exc.messages}) from exc
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        predecessor, successor = self._edge_endpoints(attrs)
         cross_project = bool(
             predecessor and successor and predecessor.project_id != successor.project_id
         )
 
         if not cross_project:
-            # Same-project edge — unchanged behaviour. The object-permission check
-            # (Scheduler+ on the one project) runs for both endpoints before any
-            # branching, so a non-member submitting a foreign UUID always gets 403
-            # regardless of whether the two UUIDs share a project — preventing
-            # membership inference from the error code (ADR-0055 / #359 hardening).
-            if request is not None and view is not None:
-                if predecessor:
-                    view.check_object_permissions(request, predecessor)
-                if successor:
-                    view.check_object_permissions(request, successor)
-        elif predecessor and successor:
+            self._authorize_same_project_edge(predecessor, successor)
+        elif predecessor and successor and self._endpoints_repointed(predecessor, successor):
             # Cross-project edge within one program (ADR-0120 D1/D2): authorize,
             # reject cross-PROGRAM edges, and classify the consent state. Recorded
             # on the serializer for perform_create/perform_update to persist.
-            #
-            # Resolve consent on create, or when an *update* repoints an endpoint
-            # into a (new) cross-project relationship — repointing is itself a
-            # scope-injection vector and must re-earn downstream consent. A
-            # no-endpoint-change update (e.g. an FS→SS or lag edit on an existing
-            # cross edge) must NOT re-run consent, or it would silently reset an
-            # already-accepted edge back to pending.
-            endpoints_changed = self.instance is None or (
-                predecessor.pk != self.instance.predecessor_id
-                or successor.pk != self.instance.successor_id
+            self._consent = self._resolve_cross_project_consent(
+                self.context.get("request"), predecessor, successor
             )
-            if endpoints_changed:
-                self._consent = self._resolve_cross_project_consent(request, predecessor, successor)
 
         if predecessor and successor:
             self._check_no_cycle(predecessor, successor)
-
-        # Cumulative project-span guard (#1862): a same-project edge's lag adds to
-        # the project's total span, which the CPM engine caps at
-        # MAX_PROJECT_SPAN_DAYS. Validate the projected sum at the write boundary so
-        # an oversized lag fails here rather than breaking every later recalculate.
-        # Cross-project edges are scheduled in the program graph, not one project's
-        # span, so they are left to that path.
-        if predecessor and successor and not cross_project:
-            from django.core.exceptions import ValidationError as DjangoValidationError
-
-            effective_lag = attrs.get("lag", self.instance.lag if self.instance is not None else 0)
-            try:
-                validate_project_span(
-                    predecessor.project_id,
-                    exclude_dependency_pk=self.instance.pk if self.instance is not None else None,
-                    added_lag_days=effective_lag,
-                )
-            except DjangoValidationError as exc:
-                raise serializers.ValidationError({"lag": exc.messages}) from exc
+            if not cross_project:
+                self._validate_span_with_lag(attrs, predecessor)
         return attrs
 
     def _resolve_cross_project_consent(
@@ -5489,6 +5509,62 @@ class TaskRelationSerializer(serializers.ModelSerializer[TaskRelation]):
             return None
         return dict(ExternalTaskCardSerializer(task).data)
 
+    def _reject_repoint(self, attrs: dict[str, Any]) -> None:
+        """Endpoints and type are immutable after creation — a PATCH edits ``note`` only.
+
+        Reject a repoint rather than silently ignore it, so the client can never
+        believe it moved a link.
+        """
+        if self.instance is None:
+            return
+        if "source" in attrs and attrs["source"].pk != self.instance.source_id:
+            raise serializers.ValidationError({"source": _IMMUTABLE_AFTER_CREATE})
+        if "target" in attrs and attrs["target"].pk != self.instance.target_id:
+            raise serializers.ValidationError({"target": _IMMUTABLE_AFTER_CREATE})
+        if "relation_type" in attrs and attrs["relation_type"] != self.instance.relation_type:
+            raise serializers.ValidationError({"relation_type": _IMMUTABLE_AFTER_CREATE})
+
+    def _authorize_relation(self, source: Task, target: Task, *, cross_project: bool) -> None:
+        """Check write authority on the source (and read on both, when cross-project)."""
+        if cross_project:
+            # Cross-project relation within one program (ADR-0120 D1): authorize
+            # read on both endpoints, reject cross-PROGRAM links, and require write
+            # authority on the source (the annotated task).
+            self._authorize_cross_project(self.context.get("request"), source, target)
+            return
+        # Same-project relation — the write authority is "can I edit the source
+        # task" (Member-may-annotate-own, PM+ any), enforced by running the view's
+        # object-permission set on the source. DRF skips has_object_permission on
+        # create, so this is the serializer's job on the create path;
+        # perform_create re-checks for defense in depth.
+        request = self.context.get("request")
+        view = self.context.get("view")
+        if request is not None and view is not None:
+            view.check_object_permissions(request, source)
+
+    @staticmethod
+    def _reject_duplicate(source: Task, target: Task, relation_type: str) -> None:
+        """Duplicate dedupe on create (ADR-0455).
+
+        The exact (source, target, type) direction is covered by the DB
+        partial-unique constraint; guarding it here too turns what would be a raw
+        IntegrityError 500 into a clean 400. For the symmetric ``relates_to`` type
+        the reverse direction (B→A when A→B is live) is also a duplicate — the
+        constraint cannot see that, so this closes it. ``blocks`` / ``duplicates``
+        are directional, so only the exact direction is a duplicate.
+        """
+        from django.db.models import Q
+
+        dup_q = Q(source=source, target=target)
+        if relation_type == RelationType.RELATES_TO:
+            dup_q |= Q(source=target, target=source)
+        if (
+            TaskRelation.objects.filter(relation_type=relation_type, is_deleted=False)
+            .filter(dup_q)
+            .exists()
+        ):
+            raise serializers.ValidationError({"detail": "duplicate_relation"})
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         source = attrs.get("source") or (self.instance.source if self.instance else None)
         target = attrs.get("target") or (self.instance.target if self.instance else None)
@@ -5496,63 +5572,25 @@ class TaskRelationSerializer(serializers.ModelSerializer[TaskRelation]):
             self.instance.relation_type if self.instance else RelationType.RELATES_TO
         )
 
-        request = self.context.get("request")
-        view = self.context.get("view")
+        self._reject_repoint(attrs)
 
-        # Endpoints and type are immutable after creation — a PATCH edits ``note``
-        # only. Reject a repoint rather than silently ignore it so the client can
-        # never believe it moved a link.
-        if self.instance is not None:
-            if "source" in attrs and attrs["source"].pk != self.instance.source_id:
-                raise serializers.ValidationError({"source": _IMMUTABLE_AFTER_CREATE})
-            if "target" in attrs and attrs["target"].pk != self.instance.target_id:
-                raise serializers.ValidationError({"target": _IMMUTABLE_AFTER_CREATE})
-            if "relation_type" in attrs and attrs["relation_type"] != self.instance.relation_type:
-                raise serializers.ValidationError({"relation_type": _IMMUTABLE_AFTER_CREATE})
+        # Both endpoints are required PrimaryKeyRelatedFields, so field-level
+        # validation has already supplied them on create and the instance supplies
+        # them on update — this guard is a formality that keeps the checks below
+        # total rather than a reachable branch.
+        if source is None or target is None:
+            return attrs
 
         # Reject a self-link (belt-and-braces with the DB CheckConstraint) — a task
         # cannot relate to itself.
-        if source is not None and target is not None and source.pk == target.pk:
+        if source.pk == target.pk:
             raise serializers.ValidationError("A task cannot relate to itself.")
 
-        cross_project = bool(
-            source is not None and target is not None and source.project_id != target.project_id
+        self._authorize_relation(
+            source, target, cross_project=source.project_id != target.project_id
         )
-
-        if not cross_project:
-            # Same-project relation — the write authority is "can I edit the source
-            # task" (Member-may-annotate-own, PM+ any), enforced by running the
-            # view's object-permission set on the source. DRF skips
-            # has_object_permission on create, so this is the serializer's job on
-            # the create path; perform_create re-checks for defense in depth.
-            if request is not None and view is not None and source is not None:
-                view.check_object_permissions(request, source)
-        elif source is not None and target is not None:
-            # Cross-project relation within one program (ADR-0120 D1): authorize
-            # read on both endpoints, reject cross-PROGRAM links, and require write
-            # authority on the source (the annotated task).
-            self._authorize_cross_project(request, source, target)
-
-        # Duplicate dedupe on create (ADR-0455). The exact (source, target, type)
-        # direction is covered by the DB partial-unique constraint; guarding it here
-        # too turns what would be a raw IntegrityError 500 into a clean 400. For the
-        # symmetric ``relates_to`` type the reverse direction (B→A when A→B is live)
-        # is also a duplicate — the constraint cannot see that, so this closes it.
-        # ``blocks`` / ``duplicates`` are directional, so only the exact direction
-        # is a duplicate.
-        if self.instance is None and source is not None and target is not None:
-            from django.db.models import Q
-
-            dup_q = Q(source=source, target=target)
-            if relation_type == RelationType.RELATES_TO:
-                dup_q |= Q(source=target, target=source)
-            duplicate_exists = (
-                TaskRelation.objects.filter(relation_type=relation_type, is_deleted=False)
-                .filter(dup_q)
-                .exists()
-            )
-            if duplicate_exists:
-                raise serializers.ValidationError({"detail": "duplicate_relation"})
+        if self.instance is None:
+            self._reject_duplicate(source, target, relation_type)
         return attrs
 
     def _authorize_cross_project(self, request: Any, source: Task, target: Task) -> None:
@@ -8059,8 +8097,87 @@ class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
             "deleted_at",
         ]
 
+    @staticmethod
+    def _checked_size(file: Any) -> int:
+        """Reject an upload over the size ceiling (ADR-0075 #4)."""
+        size = getattr(file, "size", None)
+        if size is None or size > MAX_ATTACHMENT_SIZE_BYTES:
+            raise serializers.ValidationError(
+                f"File exceeds the {MAX_ATTACHMENT_SIZE_BYTES // (1024 * 1024)} MB limit.",
+                code="attachment_too_large",
+            )
+        return int(size)
+
+    def _checked_mime(self, file: Any) -> str:
+        """Resolve the declared MIME and enforce the applicable allow-list.
+
+        Uses the RESOLVED per-project allow-list (ADR-0153, #976) when the viewset
+        injected the project into context; otherwise falls back to the system seed
+        default. The security denylist (``text/html`` etc.) is always applied
+        inside ``is_attachment_mime_allowed`` regardless of scope.
+        """
+        declared = getattr(file, "content_type", "") or ""
+        mime = declared.split(";", 1)[0].strip().lower()  # strip any "; charset=..." trailer
+
+        project = self.context.get("attachment_project")
+        if project is None:
+            if mime not in ALLOWED_ATTACHMENT_MIMES or mime in SYSTEM_ATTACHMENT_DENYLIST:
+                raise UnsupportedAttachmentMediaType(
+                    f"File type {mime!r} is not allowed. Allowed types: "
+                    "PDF, JPG, PNG, WebP, XLSX, CSV, DOCX.",
+                    code="attachment_unsupported_mime",
+                )
+            return mime
+
+        from .attachment_policy import (
+            is_attachment_mime_allowed,
+            resolve_effective_attachment_types,
+        )
+
+        if not is_attachment_mime_allowed(project, mime):
+            allowed = resolve_effective_attachment_types(project)
+            raise UnsupportedAttachmentMediaType(
+                f"File type {mime!r} is not allowed for this project."
+                + (
+                    f" Allowed types: {', '.join(allowed)}."
+                    if allowed
+                    else " No file types are currently allowed."
+                ),
+                code="attachment_unsupported_mime",
+            )
+        return mime
+
+    def _validate_upload(self, attrs: dict[str, Any], file: Any) -> None:
+        """Size, MIME allow-list, and content sniff for a newly-uploaded file."""
+        size = self._checked_size(file)
+        mime = self._checked_mime(file)
+
+        # The declared MIME passed the allow-list, but the client controls it.
+        # Sniff the real bytes so a payload cannot pose as an allowed type
+        # (#1003). A mismatch here means the declared MIME lied about the
+        # actual content — that is a media-type problem (415), not a
+        # malformed-request problem (400) — ADR-0075 constraint #5 (#573).
+        sniff_error = _sniff_attachment_content(file, mime)
+        if sniff_error:
+            raise UnsupportedAttachmentMediaType(sniff_error, code="attachment_content_mismatch")
+
+        attrs["file_size"] = size
+        attrs["file_mime"] = mime
+        if not attrs.get("file_name"):
+            attrs["file_name"] = getattr(file, "name", "")
+
+    @staticmethod
+    def _validate_external_url(external: Any) -> None:
+        """External URL must be http(s) — reject ``javascript:``, ``file://``, etc."""
+        external_str = str(external)
+        scheme = external_str.split(":", 1)[0].lower() if ":" in external_str else ""
+        if scheme not in ("http", "https"):
+            raise serializers.ValidationError(
+                "Only http(s) URLs are accepted for external attachments.",
+                code="attachment_unsupported_scheme",
+            )
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # file XOR external_url
         file = attrs.get("file") or getattr(self.instance, "file", None)
         external = attrs.get("external_url") or getattr(self.instance, "external_url", "")
         has_file = bool(file)
@@ -8071,60 +8188,8 @@ class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
                 code="attachment_file_xor_url",
             )
 
-        # File size + MIME allow-list (ADR-0075 #4, #5)
         if has_file and not self.instance:
-            size = getattr(file, "size", None)
-            if size is None or size > MAX_ATTACHMENT_SIZE_BYTES:
-                raise serializers.ValidationError(
-                    f"File exceeds the {MAX_ATTACHMENT_SIZE_BYTES // (1024 * 1024)} MB limit.",
-                    code="attachment_too_large",
-                )
-            mime = getattr(file, "content_type", "") or ""
-            # Strip any "; charset=..." trailer
-            mime = mime.split(";", 1)[0].strip().lower()
-            # Enforce the RESOLVED per-project allow-list (ADR-0153, #976) when the
-            # viewset injected the project into context; otherwise fall back to the
-            # system seed default. The security denylist (text/html etc.) is always
-            # applied inside ``is_attachment_mime_allowed`` regardless of scope.
-            project = self.context.get("attachment_project")
-            if project is not None:
-                from .attachment_policy import (
-                    is_attachment_mime_allowed,
-                    resolve_effective_attachment_types,
-                )
-
-                if not is_attachment_mime_allowed(project, mime):
-                    allowed = resolve_effective_attachment_types(project)
-                    raise UnsupportedAttachmentMediaType(
-                        f"File type {mime!r} is not allowed for this project."
-                        + (
-                            f" Allowed types: {', '.join(allowed)}."
-                            if allowed
-                            else " No file types are currently allowed."
-                        ),
-                        code="attachment_unsupported_mime",
-                    )
-            elif mime not in ALLOWED_ATTACHMENT_MIMES or mime in SYSTEM_ATTACHMENT_DENYLIST:
-                raise UnsupportedAttachmentMediaType(
-                    f"File type {mime!r} is not allowed. Allowed types: "
-                    "PDF, JPG, PNG, WebP, XLSX, CSV, DOCX.",
-                    code="attachment_unsupported_mime",
-                )
-            # The declared MIME passed the allow-list, but the client controls it.
-            # Sniff the real bytes so a payload cannot pose as an allowed type
-            # (#1003). A mismatch here means the declared MIME lied about the
-            # actual content — that is a media-type problem (415), not a
-            # malformed-request problem (400) — ADR-0075 constraint #5 (#573).
-            sniff_error = _sniff_attachment_content(file, mime)
-            if sniff_error:
-                raise UnsupportedAttachmentMediaType(
-                    sniff_error,
-                    code="attachment_content_mismatch",
-                )
-            attrs["file_size"] = size
-            attrs["file_mime"] = mime
-            if not attrs.get("file_name"):
-                attrs["file_name"] = getattr(file, "name", "")
+            self._validate_upload(attrs, file)
 
         # Sanitize the stored filename regardless of source (#892). file_name is
         # writable and echoed back verbatim, so both the client-supplied value
@@ -8133,15 +8198,8 @@ class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
         if attrs.get("file_name"):
             attrs["file_name"] = _sanitize_attachment_filename(str(attrs["file_name"]))
 
-        # External URL must be http(s) — reject javascript:, file://, etc.
         if has_url:
-            external_str = str(external)
-            scheme = external_str.split(":", 1)[0].lower() if ":" in external_str else ""
-            if scheme not in ("http", "https"):
-                raise serializers.ValidationError(
-                    "Only http(s) URLs are accepted for external attachments.",
-                    code="attachment_unsupported_scheme",
-                )
+            self._validate_external_url(external)
 
         return attrs
 
