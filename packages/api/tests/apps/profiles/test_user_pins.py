@@ -68,6 +68,19 @@ def _pin_url(project_id: str) -> str:
     return f"/api/v1/projects/{project_id}/pin/"
 
 
+def _program_pin_url(program_id: str) -> str:
+    return f"/api/v1/programs/{program_id}/pin/"
+
+
+@pytest.fixture
+def program_member(program):
+    from trueppm_api.apps.access.models import ProgramMembership
+
+    user = User.objects.create_user(username="program-pinner", password="pw")
+    ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+    return user
+
+
 # ---------------------------------------------------------------------------
 # Privacy — the reason this feature is shaped the way it is
 # ---------------------------------------------------------------------------
@@ -179,6 +192,21 @@ def test_me_pinned_merges_projects_and_programs_newest_first(member, project, pr
     assert items[0]["program_id"] is None
 
 
+@pytest.mark.django_db
+def test_pin_then_unpin_a_program(program_member, program):
+    """The program endpoint is a separate action from the project one, so its
+    DELETE branch needs its own exercise — a shared helper underneath does not
+    make the two views the same code path."""
+    c = _client(program_member)
+    assert c.post(_program_pin_url(str(program.pk))).status_code == 200
+    assert UserPin.objects.filter(user=program_member, program=program).count() == 1
+
+    assert c.delete(_program_pin_url(str(program.pk))).status_code == 204
+    assert UserPin.objects.filter(user=program_member, program=program).count() == 0
+    # Unpinning something already unpinned is a 204, not a 404.
+    assert c.delete(_program_pin_url(str(program.pk))).status_code == 204
+
+
 # ---------------------------------------------------------------------------
 # Cap
 # ---------------------------------------------------------------------------
@@ -198,6 +226,21 @@ def test_pin_over_cap_returns_machine_readable_code(member, project, calendar, p
     assert resp.status_code == 400
     # The client must not have to string-match a human sentence to know which
     # limit was hit — the copy and the locale can both change.
+    assert resp.data["code"] == "pin_limit_reached"
+
+
+@pytest.mark.django_db
+@override_settings(TRUEPPM_MAX_USER_PINS=1)
+def test_program_pin_over_cap_returns_machine_readable_code(program_member, program):
+    from trueppm_api.apps.access.models import ProgramMembership
+
+    second = Program.objects.create(name="Gemini", code="GEM")
+    ProgramMembership.objects.create(program=second, user=program_member, role=Role.MEMBER)
+    c = _client(program_member)
+    assert c.post(_program_pin_url(str(program.pk))).status_code == 200
+
+    resp = c.post(_program_pin_url(str(second.pk)))
+    assert resp.status_code == 400
     assert resp.data["code"] == "pin_limit_reached"
 
 
