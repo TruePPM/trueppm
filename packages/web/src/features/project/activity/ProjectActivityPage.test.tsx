@@ -133,3 +133,93 @@ describe('ProjectActivityPage', () => {
     expect(navigateMock).toHaveBeenCalledWith('/projects/proj-1/tasks/t7');
   });
 });
+
+describe('ProjectActivityPage sub-views (#2481)', () => {
+  function renderAt(path: string) {
+    useProjectChangelogMock.mockReturnValue(ret({ data: pages([sample]) }));
+    return renderWithProvidersAndRouter(<ProjectActivityPage />, { initialEntries: [path] });
+  }
+
+  it('opens on Changes with no view param, so pre-#2481 links are unchanged', () => {
+    renderAt('/projects/proj-1/activity?type=task');
+    expect(screen.getByRole('tab', { name: 'Changes' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('changelog-list')).toBeInTheDocument();
+  });
+
+  it('opens directly on Agents from a shared ?view=agents link', () => {
+    renderAt('/projects/proj-1/activity?view=agents');
+    expect(screen.getByRole('tab', { name: 'Agents' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('changelog-list')).not.toBeInTheDocument();
+  });
+
+  it('swaps the filter band rather than showing changelog chips on Agents', () => {
+    renderAt('/projects/proj-1/activity?view=agents');
+    expect(screen.getByRole('group', { name: 'Filter agent activity' })).toBeInTheDocument();
+    // The changelog chips and the member filter cannot apply to an agent action.
+    expect(screen.queryByRole('checkbox', { name: 'Task' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Filter by user')).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Refusals only/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Agent activity date range/i)).toBeInTheDocument();
+  });
+
+  it('stops fetching the changelog while the Agents sub-view is showing', () => {
+    renderAt('/projects/proj-1/activity?view=agents');
+    // Third arg is the `enabled` flag — an unwatched feed must not keep paging.
+    expect(useProjectChangelogMock).toHaveBeenCalledWith(
+      'proj-1',
+      expect.anything(),
+      false,
+    );
+  });
+
+  it('switches to Agents on click and back to Changes', async () => {
+    const user = userEvent.setup();
+    renderAt('/projects/proj-1/activity');
+
+    await user.click(screen.getByRole('tab', { name: 'Agents' }));
+    expect(screen.getByRole('tab', { name: 'Agents' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('changelog-list')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Changes' }));
+    expect(screen.getByRole('tab', { name: 'Changes' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('changelog-list')).toBeInTheDocument();
+  });
+
+  it('arrow keys move focus WITHOUT switching sub-view; activation commits', async () => {
+    // web-rule 167: arrowing across a tablist must not fire the next sub-view's
+    // query for a tab the user never chose to open.
+    const user = userEvent.setup();
+    renderAt('/projects/proj-1/activity');
+
+    await user.tab();
+    const changes = screen.getByRole('tab', { name: 'Changes' });
+    const agents = screen.getByRole('tab', { name: 'Agents' });
+    expect(changes).toHaveFocus();
+
+    await user.keyboard('{ArrowRight}');
+    expect(agents).toHaveFocus();
+    expect(changes).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('changelog-list')).toBeInTheDocument();
+
+    await user.keyboard('{Enter}');
+    expect(agents).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('changelog-list')).not.toBeInTheDocument();
+  });
+
+  it('keeps only one tab stop in the tablist (roving tabindex)', () => {
+    renderAt('/projects/proj-1/activity');
+    expect(screen.getByRole('tab', { name: 'Changes' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('tab', { name: 'Agents' })).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('toggling Refusals only keeps the Agents sub-view selected', async () => {
+    const user = userEvent.setup();
+    renderAt('/projects/proj-1/activity?view=agents');
+    await user.click(screen.getByRole('checkbox', { name: /Refusals only/i }));
+    expect(screen.getByRole('checkbox', { name: /Refusals only/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('tab', { name: 'Agents' })).toHaveAttribute('aria-selected', 'true');
+  });
+});

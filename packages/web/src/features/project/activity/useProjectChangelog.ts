@@ -119,6 +119,12 @@ export function changelogParams(filters: ChangelogFilterState): Record<string, s
 export function useProjectChangelog(
   projectId: string | undefined,
   filters: ChangelogFilterState,
+  /**
+   * Off while the Activity tab shows its Agents sub-view (#2481) — the changelog
+   * is not rendered there, and its infinite-scroll sentinel would otherwise keep
+   * paging a feed nobody is looking at.
+   */
+  enabled = true,
 ) {
   return useInfiniteQuery({
     queryKey: [
@@ -132,15 +138,14 @@ export function useProjectChangelog(
     queryFn: async ({ pageParam }) => {
       const params = changelogParams(filters);
       if (pageParam) params.cursor = pageParam;
-      const res = await apiClient.get<ChangelogResponse>(
-        `/projects/${projectId}/changelog/`,
-        { params },
-      );
+      const res = await apiClient.get<ChangelogResponse>(`/projects/${projectId}/changelog/`, {
+        params,
+      });
       return res.data;
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
-    enabled: !!projectId,
+    enabled: !!projectId && enabled,
     refetchOnWindowFocus: true,
     staleTime: 15 * 1000,
   });
