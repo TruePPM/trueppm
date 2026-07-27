@@ -12,6 +12,7 @@ import {
 } from '@/hooks/useProjectGuardrailPolicy';
 import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 // Sprint guardrails has no StubFieldset (the pills carry their own role-gate), so
 // every FieldHelp ⓘ here renders unconditionally and stays clickable for all roles —
@@ -59,7 +60,7 @@ export function ProjectGuardrailsPage() {
           title={`${itl.singular} guardrails`}
           subtitle={`Decide which ${itl.lower}/phase mistakes warn the team and which the team's Owner blocks outright.`}
         />
-        <div className="px-6 pb-8 text-[13px] text-neutral-text-secondary">Loading…</div>
+        <LoadingSkeleton label="Loading guardrails…" rows={4} className="px-6 pb-8" />
       </div>
     );
   }

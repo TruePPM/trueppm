@@ -211,7 +211,8 @@ describe('DeadLetterInspectorPage', () => {
     useFailedTasks.mockReturnValue(listResult({ data: makeList([makeTask({ id: 'task-1' })]) }));
     useFailedTask.mockReturnValue(detailResult({ isLoading: true }));
     renderPage('/settings/health/dead-letters?selected=task-1');
-    expect(screen.getByText(/Loading/)).toBeInTheDocument();
+    // Rule 248: a skeleton ghost with a named status node, never bare text (#2431).
+    expect(screen.getByRole('status', { name: /Loading task details/i })).toBeInTheDocument();
   });
 
   it('selecting a list row opens its detail pane via the URL', async () => {

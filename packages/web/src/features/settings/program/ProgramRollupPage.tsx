@@ -6,6 +6,7 @@ import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { FieldHelp } from '@/components/FieldHelp';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import {
   HEALTH_LABEL,
   HEALTH_VARIANT,
@@ -248,13 +249,7 @@ function RollupPreview({ programId, policyDirty }: { programId: string; policyDi
 
       <div className="px-4 py-3">
         {isLoading && (
-          <div
-            role="status"
-            aria-label="Loading preview"
-            className="text-xs text-neutral-text-secondary"
-          >
-            Loading…
-          </div>
+          <LoadingSkeleton label="Loading preview" rows={2} />
         )}
         {isError && (
           <div role="alert" className="text-xs text-semantic-critical">
@@ -465,13 +460,7 @@ export function ProgramRollupPage() {
           </div>
 
           {isLoading && (
-            <div
-              role="status"
-              aria-label="Loading KPI settings"
-              className="px-4 py-6 text-xs text-neutral-text-secondary"
-            >
-              Loading…
-            </div>
+            <LoadingSkeleton label="Loading KPI settings" rows={4} className="px-4 py-6" />
           )}
 
           {isError && (
@@ -583,13 +572,7 @@ export function ProgramRollupPage() {
           </div>
 
           {isLoading && (
-            <div
-              role="status"
-              aria-label="Loading policy"
-              className="px-4 py-6 text-xs text-neutral-text-secondary"
-            >
-              Loading…
-            </div>
+            <LoadingSkeleton label="Loading policy" rows={3} className="px-4 py-6" />
           )}
 
           {isError && (

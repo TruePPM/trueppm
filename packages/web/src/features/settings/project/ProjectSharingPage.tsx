@@ -5,6 +5,7 @@ import { FieldHelp } from '@/components/FieldHelp';
 import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useRevokeShareLink, useShareLinks, type ShareLink } from '../hooks/useShareLinks';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 const BTN =
   'px-3 py-1.5 rounded-control border border-neutral-border text-[12px] font-medium ' +
@@ -166,7 +167,7 @@ export function ProjectSharingPage() {
         </div>
 
         {isLoading ? (
-          <p className="text-[12px] text-neutral-text-secondary">Loading…</p>
+          <LoadingSkeleton label="Loading share links…" rows={2} />
         ) : hasAny ? (
           <>
             <LinkGroup icon="◷" label="Schedule" links={scheduleLinks} projectId={projectId} />

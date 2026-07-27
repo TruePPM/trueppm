@@ -132,7 +132,8 @@ describe('ProjectNotificationsPage', () => {
       update: { mutate },
     });
     renderPage();
-    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    // Rule 248: a skeleton ghost with a named status node, never bare text (#2431).
+    expect(screen.getByRole('status', { name: /Loading notification rules/i })).toBeInTheDocument();
   });
 
   it('renders the pause-all kill-switch above the matrix (#589)', () => {

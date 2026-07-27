@@ -15,6 +15,7 @@ import { PhaseGateConfigPanel } from '@/features/programs/cadence/PhaseGateConfi
 import { formatCadence, formatDuration } from '@/features/programs/cadence/cadenceCopy';
 import { ROLE_ADMIN } from '@/lib/roles';
 import type { CeremonyTemplate } from '@/api/types';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 const GRID = '1.6fr 1.4fr 90px 1fr 60px 44px';
 
@@ -337,13 +338,7 @@ export function ProgramCadencePage() {
           </div>
 
           {isLoading && (
-            <div
-              role="status"
-              aria-label="Loading ceremonies"
-              className="px-4 py-6 text-xs text-neutral-text-secondary"
-            >
-              Loading…
-            </div>
+            <LoadingSkeleton label="Loading ceremonies" rows={3} className="px-4 py-6" />
           )}
 
           {isError && (

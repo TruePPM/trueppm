@@ -5,6 +5,7 @@ import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN } from '@/lib/roles';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import {
   useProgramRiskPolicy,
   useSaveProgramRiskPolicy,
@@ -230,13 +231,7 @@ export function ProgramRiskPolicyPage() {
           </div>
 
           {isLoading && (
-            <div
-              role="status"
-              aria-label="Loading risk policy"
-              className="px-4 py-6 text-xs text-neutral-text-secondary"
-            >
-              Loading…
-            </div>
+            <LoadingSkeleton label="Loading risk policy" rows={3} className="px-4 py-6" />
           )}
 
           {isError && (

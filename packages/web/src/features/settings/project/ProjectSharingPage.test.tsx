@@ -73,7 +73,8 @@ describe('ProjectSharingPage (#283 / #1486)', () => {
   it('shows the loading state', () => {
     sharedLinksResult = { data: undefined, isLoading: true };
     render(<ProjectSharingPage />);
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    // Rule 248: a skeleton ghost with a named status node, never bare text (#2431).
+    expect(screen.getByRole('status', { name: /Loading share links/i })).toBeInTheDocument();
   });
 
   it('shows the empty state when there are no links', () => {

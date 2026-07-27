@@ -43,6 +43,7 @@ import {
   type ProjectCustomField,
 } from '@/hooks/useProjectCustomFields';
 import { ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 // Preset palette for phase & status colors. Limited so a settings page stays
 // approachable; "More colors" via free-form hex is intentionally not exposed
@@ -656,7 +657,7 @@ function PhasesSection({
       </div>
 
       {isLoading ? (
-        <div className="px-4 py-6 text-[12px] text-neutral-text-secondary">Loading…</div>
+        <LoadingSkeleton label="Loading phases…" rows={3} className="px-4 py-6" />
       ) : orderedPhases.length === 0 ? (
         <div className="px-4 py-6 text-[12px] text-neutral-text-secondary">
           No phases yet. Phases group tasks into swim-lanes on the board and summary rows on the
@@ -869,7 +870,7 @@ function StatusesSection({
       </div>
 
       {isLoading ? (
-        <div className="px-4 py-6 text-[12px] text-neutral-text-secondary">Loading…</div>
+        <LoadingSkeleton label="Loading statuses…" rows={5} className="px-4 py-6" />
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext

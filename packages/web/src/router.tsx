@@ -13,6 +13,7 @@ import { SectionRedirect } from '@/features/settings/SectionRedirect';
 import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
 import { NotFoundPage } from '@/components/NotFoundPage';
 import { RouteTitle } from '@/components/RouteTitle';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import type { RouteHandle } from '@/router/routeHandle';
 
 // Route-level code splitting — each chunk is loaded only when the route is
@@ -281,13 +282,18 @@ const ProgramSettingsPage = lazy(() =>
   })),
 );
 
-/** Fallback rendered inside Suspense while a lazy chunk is loading. */
+/**
+ * Fallback rendered inside Suspense while a lazy chunk is loading.
+ *
+ * This is the first frame of *every* navigation, so it is the most-seen loading
+ * state in the app — and it used to be the one place that broke rule 248 with a
+ * bare centred "Loading…" (#2431). It ghosts the generic shell shape (toolbar
+ * band + content rows) rather than a per-route shape: the chunk hasn't resolved,
+ * so which surface is arriving is precisely what we don't yet know. Once it
+ * resolves, the surface's own rule-248 skeleton takes over for its query.
+ */
 function RouteLoadingFallback() {
-  return (
-    <div className="flex items-center justify-center h-full text-sm text-neutral-text-secondary">
-      Loading…
-    </div>
-  );
+  return <LoadingSkeleton label="Loading…" variant="shell" rows={4} />;
 }
 
 /**
@@ -309,9 +315,17 @@ function RootRedirect() {
   }, [user, isLoading, navigate]);
 
   // Hold the loading state while `me` resolves — never flash a fallback first.
+  // While resolving, ghost the shell (rule 248) rather than printing bare text:
+  // `/` is the app's front door, so this is the very first frame a returning user
+  // sees. Once `me` lands the effect above navigates immediately, so the
+  // post-resolve line is a sub-frame flash that only becomes visible if the
+  // redirect itself is slow — there it earns its words.
+  if (isLoading) {
+    return <LoadingSkeleton label="Loading…" variant="shell" rows={4} />;
+  }
   return (
     <div className="flex items-center justify-center h-full text-sm text-neutral-text-secondary">
-      {isLoading ? 'Loading…' : 'Taking you to your home screen…'}
+      Taking you to your home screen…
     </div>
   );
 }
