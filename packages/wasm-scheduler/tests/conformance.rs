@@ -29,7 +29,7 @@ const KNOWN_DIVERGENT: &[(&str, &str)] = &[
 ];
 
 /// Every top-level `*.json` under `fixtures/` (excludes the `expected/`,
-/// `invalid/`, and `rust_rejects/` subdirectories — `read_dir` yields those as
+/// `invalid/`, and `parse_rejects/` subdirectories — `read_dir` yields those as
 /// directories, which have no `.json` extension).
 fn valid_fixture_stems() -> Vec<String> {
     let mut stems: Vec<String> = fs::read_dir(fixtures_dir())

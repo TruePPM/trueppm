@@ -1,0 +1,54 @@
+{
+  "project_id": "p-ptc-fs-lag",
+  "project_start": "2026-03-02",
+  "project_finish": "2026-03-12",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2026-03-02",
+      "early_finish": "2026-03-06",
+      "late_start": "2026-03-02",
+      "late_finish": "2026-03-06",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    },
+    {
+      "id": "B",
+      "early_start": "2026-03-08",
+      "early_finish": "2026-03-10",
+      "late_start": "2026-03-08",
+      "late_finish": "2026-03-10",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    },
+    {
+      "id": "C",
+      "early_start": "2026-03-11",
+      "early_finish": "2026-03-12",
+      "late_start": "2026-03-11",
+      "late_finish": "2026-03-12",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    }
+  ],
+  "critical_path": [
+    "A",
+    "B",
+    "C"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "B",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "B",
+      "successor_id": "C",
+      "dep_type": "FS"
+    }
+  ]
+}

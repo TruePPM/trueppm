@@ -9,6 +9,7 @@
 
 use chrono::{Duration, NaiveDate};
 
+use crate::calendar::next_working_day;
 use crate::models::{Calendar, Project, Task};
 
 /// Per-task working-day duration ceiling (~100 years).
@@ -67,9 +68,9 @@ fn is_whole_days(seconds: f64) -> bool {
 /// that trips two guards must keep tripping the earlier one. Each helper below
 /// is one guard group, applied in the original sequence.
 pub fn validate_project(project: &Project) -> Result<(), String> {
-    reject_per_task_calendars(project)?;
     reject_duplicate_task_ids(project)?;
     validate_calendar(&project.calendar)?;
+    validate_task_calendars(project)?;
     validate_tasks(project)?;
     let status_offset = checked_status_offset(project)?;
     validate_dependencies(project)?;
@@ -77,35 +78,56 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
     assert_working_day_reachable(project)
 }
 
-/// Per-task calendars (ADR-0120 D3) are *parsed* but rejected when set.
+/// Validate the per-task calendar registry (ADR-0120 D3), mirroring the Python
+/// `_validate_task_calendars`.
 ///
-/// The canonical `Project.to_json()` output always emits `calendar_id`/`calendars`
-/// as null, so parsing them keeps that round-trip working (#1816). Honoring them
-/// is what this engine cannot do: it shares one calendar across all tasks, so a
-/// per-task calendar would silently disagree with the server schedule. A null
-/// value (the common case) is fine; a set value is refused here rather than at
-/// parse. The MC-only fields (delivery_mode/story_points/velocity_samples/
-/// sprint_length_days) are deliberately *not* rejected — they never affect a
-/// deterministic CPM result.
-fn reject_per_task_calendars(project: &Project) -> Result<(), String> {
-    if let Some(calendars) = &project.calendars {
-        if !calendars.is_empty() {
+/// Every named calendar a task may opt into is held to the same guards as the
+/// project calendar, so a degenerate member-project calendar cannot drive the
+/// merged program pass into a spin. Each is reachability-probed from the project
+/// start, because the merged pass anchors every calendar at the same start. The
+/// offending id is named so a bad member-project calendar is traceable in a
+/// program-scoped run.
+///
+/// A `calendar_id` that names no registry entry is deliberately **not** an error:
+/// it falls back to the pass-level calendar, matching `resolve_task_calendars`
+/// and the Python engine. The MC-only fields (delivery_mode/story_points/
+/// velocity_samples/sprint_length_days) are not validated here — they never
+/// affect a deterministic CPM result.
+fn validate_task_calendars(project: &Project) -> Result<(), String> {
+    let Some(calendars) = &project.calendars else {
+        return Ok(());
+    };
+    // Iterate in id order so a project with several bad calendars always reports
+    // the same one — HashMap iteration order is not stable, and the conformance
+    // fixtures assert on the exact message.
+    let mut ids: Vec<&String> = calendars.keys().collect();
+    ids.sort();
+    for id in ids {
+        let cal = &calendars[id];
+        if cal.working_days & 0b111_1111 == 0 {
             return Err(format!(
-                "This engine does not support per-task calendars (Project.calendars \
-                 declares {} calendar(s)); it shares one calendar across all tasks. \
-                 Schedule on the server, or remove the per-task calendar registry.",
-                calendars.len()
+                "Calendar {id:?} has no working weekday set (working_days bitmask is \
+                 empty); at least one of Mon-Sun must be a working day."
             ));
         }
-    }
-    for t in &project.tasks {
-        if t.calendar_id.is_some() {
+        if cal.exceptions.len() > MAX_CALENDAR_EXCEPTIONS {
             return Err(format!(
-                "Task {:?} sets calendar_id (a per-task calendar, ADR-0120 D3), which \
-                 this engine cannot honor; it shares one calendar across all tasks.",
-                t.id
+                "Calendar {:?} has {} exception ranges, exceeding the maximum of {}.",
+                id,
+                cal.exceptions.len(),
+                MAX_CALENDAR_EXCEPTIONS
             ));
         }
+        for exc in &cal.exceptions {
+            if exc.end < exc.start {
+                return Err(format!(
+                    "Calendar {id:?} has an exception range whose end precedes its start."
+                ));
+            }
+        }
+        // Reachability probe: a calendar whose exceptions blanket the window after
+        // the project start would otherwise spin in the first snap of the pass.
+        next_working_day(project.start_date, cal)?;
     }
     Ok(())
 }
@@ -883,12 +905,33 @@ mod tests {
     }
 
     #[test]
-    fn rejects_set_calendar_id() {
-        // A *set* per-task calendar cannot be honored by this single-calendar engine.
+    fn accepts_set_calendar_id() {
+        // Per-task calendars are honored since #1504; a set calendar_id naming a
+        // registry entry is ordinary input.
         let mut t = task("A", 5);
         t.calendar_id = Some("six-day".to_string());
-        let p = project(vec![t], vec![], Calendar::default());
-        assert!(validate_project(&p).is_err());
+        let mut p = project(vec![t], vec![], Calendar::default());
+        let mut registry = std::collections::HashMap::new();
+        registry.insert(
+            "six-day".to_string(),
+            Calendar {
+                working_days: 63,
+                ..Calendar::default()
+            },
+        );
+        p.calendars = Some(registry);
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn accepts_unknown_calendar_id_as_a_fallback() {
+        // A stray id resolves to the pass-level calendar rather than erroring —
+        // matching resolve_task_calendars and the Python engine.
+        let mut t = task("A", 5);
+        t.calendar_id = Some("does-not-exist".to_string());
+        let mut p = project(vec![t], vec![], Calendar::default());
+        p.calendars = Some(std::collections::HashMap::new());
+        assert!(validate_project(&p).is_ok());
     }
 
     #[test]
@@ -918,13 +961,52 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_empty_calendars_registry() {
+    fn accepts_non_empty_calendars_registry() {
         let mut p = project(vec![task("A", 5)], vec![], Calendar::default());
         let mut registry = std::collections::HashMap::new();
         registry.insert(
             "six-day".to_string(),
             Calendar {
                 working_days: 63,
+                ..Calendar::default()
+            },
+        );
+        p.calendars = Some(registry);
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn rejects_registry_calendar_with_empty_working_mask() {
+        // A registry calendar is held to the same guards as the project calendar:
+        // a degenerate member-project calendar must not reach the pass and spin.
+        let mut p = project(vec![task("A", 5)], vec![], Calendar::default());
+        let mut registry = std::collections::HashMap::new();
+        registry.insert(
+            "dead".to_string(),
+            Calendar {
+                working_days: 0,
+                ..Calendar::default()
+            },
+        );
+        p.calendars = Some(registry);
+        let err = validate_project(&p).unwrap_err();
+        assert!(err.contains("dead"), "message must name the calendar: {err}");
+    }
+
+    #[test]
+    fn rejects_registry_calendar_whose_exceptions_blanket_the_start() {
+        // Reachability probe: exceptions covering the whole window after the
+        // project start would otherwise spin in the pass's first snap.
+        let mut p = project(vec![task("A", 5)], vec![], Calendar::default());
+        let mut registry = std::collections::HashMap::new();
+        registry.insert(
+            "blanket".to_string(),
+            Calendar {
+                working_days: 31,
+                exceptions: vec![DateRange {
+                    start: NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
+                    end: NaiveDate::from_ymd_opt(2200, 1, 1).unwrap(),
+                }],
                 ..Calendar::default()
             },
         );

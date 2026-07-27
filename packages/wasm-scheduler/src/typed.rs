@@ -143,13 +143,16 @@ fn run_passes(
     project: &Project,
     pg: &ProjectGraph,
 ) -> Result<NaiveDate, String> {
+    // Per-task calendars (ADR-0120 D3); uniform = single-calendar fast path.
+    let cals = crate::calendar::PassCalendars::resolve(project);
+
     forward_pass(
         scratch,
         &pg.topo_order,
         pg,
         &project.dependencies,
         project.start_date,
-        &project.calendar,
+        &cals,
         project.status_date,
     )?;
 
@@ -165,7 +168,7 @@ fn run_passes(
         pg,
         &project.dependencies,
         project_finish,
-        &project.calendar,
+        &cals,
     )?;
 
     compute_floats(
@@ -173,7 +176,7 @@ fn run_passes(
         &pg.topo_order,
         pg,
         &project.dependencies,
-        &project.calendar,
+        &cals,
     )?;
 
     Ok(project_finish)

@@ -2,6 +2,9 @@
 //!
 //! Mirrors the Python `_forward_pass` function from `trueppm_scheduler.engine`.
 
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+
 use chrono::NaiveDate;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
@@ -9,7 +12,7 @@ use petgraph::Direction;
 
 use crate::calendar::{
     advance_calendar_days, checked_offset_days, finish_from_start, next_working_day,
-    start_from_finish,
+    start_from_finish, PassCalendars,
 };
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
@@ -23,6 +26,13 @@ use crate::models::{Calendar, Dependency, DependencyType, Task};
 /// date) is given, remaining/not-started work is floored at it so future work is
 /// never scheduled in the past. With no actuals and no status date the result is
 /// byte-identical to a pure planning pass.
+///
+/// Per-task calendars (ADR-0120 D3): the task being computed (the successor of
+/// every incoming edge) uses its own calendar for *all* of its arithmetic —
+/// duration expansion **and** the working-day snap of every predecessor
+/// constraint, since lag lands on the successor's calendar and the successor *is*
+/// the node here. A project with no `calendars` registry resolves every node to
+/// the pass-level calendar, making the single-calendar path identical.
 ///
 /// Returns `Err` (instead of panicking) when a calendar walk cannot reach a
 /// working day within the scan bound — see `calendar::next_working_day` (#908).
@@ -38,23 +48,40 @@ pub fn forward_pass(
     pg: &ProjectGraph,
     deps: &[Dependency],
     project_start: NaiveDate,
-    calendar: &Calendar,
+    cals: &PassCalendars,
     status_date: Option<NaiveDate>,
 ) -> Result<(), String> {
-    // The project-start floor; and the data-date floor for not-yet-finished work.
-    // Both are node-independent under a single project calendar (the WASM engine
-    // has no per-task calendars), so they are hoisted out of the loop.
-    let start_base = next_working_day(project_start, calendar)?;
-    let start = match status_date {
-        // A status date at or before project start is already covered by the
-        // project-start floor, hence the max().
-        Some(sd) => start_base.max(next_working_day(sd, calendar)?),
-        None => start_base,
-    };
+    // The project-start floor and the data-date floor snap to *this task's own*
+    // calendar — a task can never begin on a day it cannot work. Under one project
+    // calendar every task resolves the same pair, so they are computed once and the
+    // result is byte-identical to the pre-ADR-0120 hoist. With per-task calendars
+    // they are memoized per distinct calendar (keyed by address, mirroring the
+    // Python pass's `id(cal)` memo, #1824) so the snap runs once per calendar
+    // rather than once per task — a sparse calendar's snap walk is not free.
+    let mut floors_by_cal: HashMap<*const Calendar, (NaiveDate, NaiveDate)> = HashMap::new();
 
     for &idx in topo_order {
         let i = idx.index();
-        if let Some((es, ef)) = pinned_placement(&tasks[i], calendar)? {
+        // The node being computed is the successor of all its incoming edges, so a
+        // single calendar — its own — governs both its duration and the snap of
+        // every predecessor constraint (lag is consumed on the successor's
+        // calendar). With no per-task calendars this is always the pass-level one.
+        let node_cal = cals.for_node(i);
+        let (start_base, start) = match floors_by_cal.entry(node_cal as *const Calendar) {
+            Entry::Occupied(e) => *e.get(),
+            Entry::Vacant(e) => {
+                let base = next_working_day(project_start, node_cal)?;
+                let floored = match status_date {
+                    // A status date at or before project start is already covered
+                    // by the project-start floor, hence the max().
+                    Some(sd) => base.max(next_working_day(sd, node_cal)?),
+                    None => base,
+                };
+                *e.insert((base, floored))
+            }
+        };
+
+        if let Some((es, ef)) = pinned_placement(&tasks[i], node_cal)? {
             let t = &mut tasks[i];
             t.early_start = Some(es);
             t.early_finish = Some(ef);
@@ -72,15 +99,15 @@ pub fn forward_pass(
 
         let mut es_constraints: Vec<NaiveDate> = vec![base_es];
         if let Some(ps) = tasks[i].planned_start {
-            es_constraints.push(next_working_day(ps, calendar)?);
+            es_constraints.push(next_working_day(ps, node_cal)?);
         }
         let (pred_es_constraints, ef_constraints) =
-            edge_constraints(idx, tasks, pg, deps, calendar)?;
+            edge_constraints(idx, tasks, pg, deps, node_cal)?;
         es_constraints.extend(pred_es_constraints);
 
         // ES = latest of all ES constraints.
         let es = *es_constraints.iter().max().unwrap();
-        let mut ef = finish_from_start(es, duration_days, calendar)?;
+        let mut ef = finish_from_start(es, duration_days, node_cal)?;
 
         // Apply EF constraints (from FF/SF dependencies).
         let mut final_es = es;
@@ -88,10 +115,10 @@ pub fn forward_pass(
             let min_ef = *ef_constraints.iter().max().unwrap();
             if min_ef > ef {
                 ef = min_ef;
-                let back_start = start_from_finish(ef, duration_days, calendar)?;
+                let back_start = start_from_finish(ef, duration_days, node_cal)?;
                 let max_es = *es_constraints.iter().max().unwrap();
                 final_es = back_start.max(max_es);
-                ef = finish_from_start(final_es, duration_days, calendar)?.max(min_ef);
+                ef = finish_from_start(final_es, duration_days, node_cal)?.max(min_ef);
             }
         }
 
