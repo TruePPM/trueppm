@@ -126,6 +126,41 @@ NetworkPolicy that denies the internal ranges you care about, rather than
 relying on the application guard alone. Connection-time IP pinning is an
 Enterprise hardening.
 
+## Browser-side third-party requests (none)
+
+The two sections above cover requests the **server** makes. This one covers the
+end user's **browser**, which is a separate egress surface: a request made from
+there carries the user's own IP and referrer, and no server-side egress proxy or
+NetworkPolicy can see it, let alone stop it.
+
+**Loading a page of the TruePPM web app makes zero requests to any host other than
+your own.** No font CDN, no analytics, no error-reporting service, no remote
+scripts or stylesheets. The three typefaces (Space Grotesk, Inter, JetBrains Mono)
+are vendored into the bundle and served from your origin under `/fonts/`, licensed
+SIL OFL 1.1 which expressly permits redistribution.
+
+This matters twice over for a self-hosted install:
+
+- **Air-gapped and network-restricted deployments render correctly.** Nothing about
+  the app's appearance depends on reaching the public internet. Previously a
+  blocked font request meant the whole type scale silently fell back to a
+  substitute face, with no warning to the operator (#2419).
+- **No undisclosed third-party data flow.** An operator who deployed TruePPM
+  specifically to keep data on their own infrastructure is not quietly emitting a
+  per-page-load request to someone else.
+
+A Playwright assertion (`e2e/self-hosted-fonts.spec.ts`) fails the build if any
+third-party request appears on a page load, so this cannot regress silently. It is
+a whole-origin check, not a font allowlist — the next accidental CDN reference will
+not be a font one.
+
+**Features you turn on can still make outbound calls**, and they are opt-in by
+design and documented where they live: client telemetry and OTLP export
+([Observability](/administration/observability/)), SMTP delivery
+([Email](/administration/email/)), an external identity provider
+([Single sign-on](/administration/single-sign-on/)), and outbound webhooks. Nothing
+in that list is enabled by default.
+
 ## Cache (Valkey/Redis) security
 
 - The cache requires authentication by default in the Helm chart
