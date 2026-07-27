@@ -292,8 +292,6 @@ def _derive_forward(
     Returns the value (ISO date string) and the candidate contributions, with the
     binding one flagged. ``want_finish`` selects ``early_finish`` vs ``early_start``.
     """
-    contribs: list[DerivationContribution] = []
-
     # Completed tasks are pinned to their recorded actuals and taken out of network
     # logic (engine ADR-0136); the honest binding is the recorded actual, not a
     # predecessor link.
@@ -303,32 +301,7 @@ def _derive_forward(
         return (value.isoformat() if value else None, contribs)
 
     # --- Early-start candidates (mirror engine._forward_pass) ---
-    start_base = _next_working_day(project_start, cal)
-    contribs.append(
-        DerivationContribution(
-            kind="project_start",
-            imposed_date=start_base,
-            calendar_days_added=_days_between(project_start, start_base),
-        )
-    )
-    if status_date is not None:
-        snapped = _next_working_day(status_date, cal)
-        contribs.append(
-            DerivationContribution(
-                kind="data_date",
-                imposed_date=snapped,
-                calendar_days_added=_days_between(status_date, snapped),
-            )
-        )
-    if task.planned_start is not None:
-        snapped = _next_working_day(task.planned_start, cal)
-        contribs.append(
-            DerivationContribution(
-                kind="planned_start_snet",
-                imposed_date=snapped,
-                calendar_days_added=_days_between(task.planned_start, snapped),
-            )
-        )
+    contribs = _forward_floor_contribs(task, cal, project_start, status_date)
 
     # FS/SS impose the early start (appended in-line); FF/SF impose the early finish
     # and are collected separately so the binding resolution below can flag them.
@@ -347,39 +320,84 @@ def _derive_forward(
     es_terms = [c for c in contribs if c.kind not in ("predecessor_ff", "predecessor_sf")]
     contribs.extend(ef_terms)
 
+    # _flag_binding marks the matching term in place and returns it; None means no
+    # candidate produced the engine's value, so the derived term below is the cause.
     if want_finish:
-        binding = _flag_binding(ef_terms, task.early_finish)
-        if binding is None:
-            # Finish derived from the (start + duration) expansion, not an FF/SF term.
-            # The date this term produces is the early_finish itself.
-            binding = DerivationContribution(
-                kind="duration_from_early_start",
-                imposed_date=task.early_finish,
-                is_binding=True,
-                slack_days=_effective_duration_days(task),
-            )
-            contribs.append(binding)
+        if _flag_binding(ef_terms, task.early_finish) is None:
+            contribs.append(_forward_duration_binding(task))
         value = task.early_finish
     else:
-        binding = _flag_binding(es_terms, task.early_start)
-        if binding is None:
-            # Rare: an FF/SF finish constraint pulled the start back below every ES
-            # term (engine EF-pullback branch). The finish driver is the honest cause;
-            # the date it forces onto the start is the early_start itself.
-            driver = min(ef_terms, key=lambda c: c.imposed_date or date.max) if ef_terms else None
-            binding = DerivationContribution(
-                kind="early_finish_pullback",
-                source_task_id=driver.source_task_id if driver else None,
-                source_task_name=driver.source_task_name if driver else None,
-                dep_type=driver.dep_type if driver else None,
-                lag_days=driver.lag_days if driver else None,
-                imposed_date=task.early_start,
-                is_binding=True,
-            )
-            contribs.append(binding)
+        if _flag_binding(es_terms, task.early_start) is None:
+            contribs.append(_forward_pullback_binding(task, ef_terms))
         value = task.early_start
 
     return (value.isoformat() if value else None, contribs)
+
+
+def _forward_floor_contribs(
+    task: Task, cal: Calendar, project_start: date, status_date: date | None
+) -> list[DerivationContribution]:
+    """The three non-network early-start candidates: project start, data date, SNET."""
+    start_base = _next_working_day(project_start, cal)
+    contribs = [
+        DerivationContribution(
+            kind="project_start",
+            imposed_date=start_base,
+            calendar_days_added=_days_between(project_start, start_base),
+        )
+    ]
+    if status_date is not None:
+        snapped = _next_working_day(status_date, cal)
+        contribs.append(
+            DerivationContribution(
+                kind="data_date",
+                imposed_date=snapped,
+                calendar_days_added=_days_between(status_date, snapped),
+            )
+        )
+    if task.planned_start is not None:
+        snapped = _next_working_day(task.planned_start, cal)
+        contribs.append(
+            DerivationContribution(
+                kind="planned_start_snet",
+                imposed_date=snapped,
+                calendar_days_added=_days_between(task.planned_start, snapped),
+            )
+        )
+    return contribs
+
+
+def _forward_duration_binding(task: Task) -> DerivationContribution:
+    """Finish derived from the (start + duration) expansion, not an FF/SF term.
+
+    The date this term produces is the ``early_finish`` itself.
+    """
+    return DerivationContribution(
+        kind="duration_from_early_start",
+        imposed_date=task.early_finish,
+        is_binding=True,
+        slack_days=_effective_duration_days(task),
+    )
+
+
+def _forward_pullback_binding(
+    task: Task, ef_terms: list[DerivationContribution]
+) -> DerivationContribution:
+    """Rare: an FF/SF finish constraint pulled the start back below every ES term.
+
+    This is the engine's EF-pullback branch. The finish driver is the honest cause;
+    the date it forces onto the start is the ``early_start`` itself.
+    """
+    driver = min(ef_terms, key=lambda c: c.imposed_date or date.max) if ef_terms else None
+    return DerivationContribution(
+        kind="early_finish_pullback",
+        source_task_id=driver.source_task_id if driver else None,
+        source_task_name=driver.source_task_name if driver else None,
+        dep_type=driver.dep_type if driver else None,
+        lag_days=driver.lag_days if driver else None,
+        imposed_date=task.early_start,
+        is_binding=True,
+    )
 
 
 def _derive_backward(
@@ -391,32 +409,65 @@ def _derive_backward(
     want_start: bool,
 ) -> tuple[str | int | None, list[DerivationContribution]]:
     """Replay :func:`engine._backward_pass` for one node, recording provenance."""
-    contribs: list[DerivationContribution] = []
-
     if _is_complete(task):
         # Completed → late == early → zero float; the finish anchor is its own finish.
-        contribs.append(
+        contribs = [
             DerivationContribution(
                 kind="early_start", imposed_date=task.late_start, is_binding=want_start
-            )
-        )
-        contribs.append(
+            ),
             DerivationContribution(
                 kind="project_finish", imposed_date=task.late_finish, is_binding=not want_start
-            )
-        )
+            ),
+        ]
         value = task.late_start if want_start else task.late_finish
         return (value.isoformat() if value else None, contribs)
 
-    # The project-finish anchor snaps to this node's own last workable day, exactly
-    # as engine._backward_pass seeds it (#1820) — the provenance must cite the date
-    # the engine actually floors at, not a raw weekend project_finish.
+    lf_terms, ls_terms = _backward_successor_terms(succs, cal, project_finish)
+    contribs = [*lf_terms, *ls_terms]
+
+    # _flag_binding marks the matching term in place and returns it; None means no
+    # candidate produced the engine's value, so the derived term below is the cause.
+    if want_start:
+        if _flag_binding(ls_terms, task.late_start) is None:
+            contribs.append(_backward_duration_binding(task))
+        value = task.late_start
+    else:
+        if _flag_binding(lf_terms, task.late_finish) is None:
+            contribs.append(_backward_pullback_binding(task, ls_terms))
+        value = task.late_finish
+
+    return (value.isoformat() if value else None, contribs)
+
+
+def _backward_successor_terms(
+    succs: list[tuple[Task, DependencyType, timedelta]],
+    cal: Calendar,
+    project_finish: date,
+) -> tuple[list[DerivationContribution], list[DerivationContribution]]:
+    """Split the outgoing edges into late-finish and late-start candidate terms.
+
+    Seeded with the project-finish anchor, which snaps to this node's own last
+    workable day exactly as ``engine._backward_pass`` seeds it (#1820) — the
+    provenance must cite the date the engine actually floors at, not a raw weekend
+    ``project_finish``.
+    """
     lf_terms: list[DerivationContribution] = [
         DerivationContribution(
             kind="project_finish", imposed_date=_prev_working_day(project_finish, cal)
         )
     ]
     ls_terms: list[DerivationContribution] = []
+
+    # FS/FF bound when this task may finish; SS/SF bound when it may start. The
+    # dep_type label is spelled out rather than read off the enum so the emitted
+    # provenance strings stay pinned to their frozen public contract.
+    bounds: dict[DependencyType, tuple[list[DerivationContribution], str, str]] = {
+        DependencyType.FS: (lf_terms, "successor_fs", "FS"),
+        DependencyType.FF: (lf_terms, "successor_ff", "FF"),
+        DependencyType.SS: (ls_terms, "successor_ss", "SS"),
+        DependencyType.SF: (ls_terms, "successor_sf", "SF"),
+    }
+
     for succ, dep_type, lag in succs:
         # A completed successor is out of network logic and imposes no backward
         # constraint (engine._backward_pass skips it, #1819); it must not appear as
@@ -424,104 +475,66 @@ def _derive_backward(
         if _is_complete(succ):
             continue
         assert succ.late_start is not None and succ.late_finish is not None
-        lag_days = lag.days
+
         if dep_type == DependencyType.FS:
             raw = _safe_offset(succ.late_start, -timedelta(days=1) - lag)
-            imposed = _prev_working_day(raw, cal)
-            lf_terms.append(
-                DerivationContribution(
-                    kind="successor_fs",
-                    source_task_id=succ.id,
-                    source_task_name=succ.name,
-                    dep_type="FS",
-                    lag_days=lag_days,
-                    imposed_date=imposed,
-                    calendar_days_added=_days_between(raw, imposed),
-                )
-            )
-        elif dep_type == DependencyType.FF:
-            raw = _safe_offset(succ.late_finish, -lag)
-            imposed = _prev_working_day(raw, cal)
-            lf_terms.append(
-                DerivationContribution(
-                    kind="successor_ff",
-                    source_task_id=succ.id,
-                    source_task_name=succ.name,
-                    dep_type="FF",
-                    lag_days=lag_days,
-                    imposed_date=imposed,
-                    calendar_days_added=_days_between(raw, imposed),
-                )
-            )
         elif dep_type == DependencyType.SS:
             raw = _safe_offset(succ.late_start, -lag)
-            imposed = _prev_working_day(raw, cal)
-            ls_terms.append(
-                DerivationContribution(
-                    kind="successor_ss",
-                    source_task_id=succ.id,
-                    source_task_name=succ.name,
-                    dep_type="SS",
-                    lag_days=lag_days,
-                    imposed_date=imposed,
-                    calendar_days_added=_days_between(raw, imposed),
-                )
-            )
-        elif dep_type == DependencyType.SF:
+        else:  # FF and SF both retreat from the successor's late finish.
             raw = _safe_offset(succ.late_finish, -lag)
-            imposed = _prev_working_day(raw, cal)
-            ls_terms.append(
-                DerivationContribution(
-                    kind="successor_sf",
-                    source_task_id=succ.id,
-                    source_task_name=succ.name,
-                    dep_type="SF",
-                    lag_days=lag_days,
-                    imposed_date=imposed,
-                    calendar_days_added=_days_between(raw, imposed),
-                )
-            )
 
-    contribs.extend(lf_terms)
-    contribs.extend(ls_terms)
-
-    if want_start:
-        binding = _flag_binding(ls_terms, task.late_start)
-        if binding is None:
-            # Late start derived from the late finish (duration expansion backward);
-            # the date this term produces is the late_start itself.
-            binding = DerivationContribution(
-                kind="duration_from_late_finish",
-                imposed_date=task.late_start,
-                is_binding=True,
-                slack_days=_effective_duration_days(task),
+        terms, kind, label = bounds[dep_type]
+        imposed = _prev_working_day(raw, cal)
+        terms.append(
+            DerivationContribution(
+                kind=kind,
+                source_task_id=succ.id,
+                source_task_name=succ.name,
+                dep_type=label,
+                lag_days=lag.days,
+                imposed_date=imposed,
+                calendar_days_added=_days_between(raw, imposed),
             )
-            contribs.append(binding)
-        value = task.late_start
-    else:
-        binding = _flag_binding(lf_terms, task.late_finish)
-        if binding is None:
-            # Rare: an SS/SF successor pulled late_start below the LF-derived
-            # start (engine LS-pullback branch), and the forward re-expansion
-            # finish_from_start(late_start, duration) undercut every LF term —
-            # so late_finish matches none of them. The tightest SS/SF successor
-            # is the honest driver; the date its pullback forces onto the finish
-            # (via the duration expansion) is the late_finish itself.
-            driver = min(ls_terms, key=lambda c: c.imposed_date or date.max) if ls_terms else None
-            binding = DerivationContribution(
-                kind="duration_from_late_start",
-                source_task_id=driver.source_task_id if driver else None,
-                source_task_name=driver.source_task_name if driver else None,
-                dep_type=driver.dep_type if driver else None,
-                lag_days=driver.lag_days if driver else None,
-                imposed_date=task.late_finish,
-                is_binding=True,
-                slack_days=_effective_duration_days(task),
-            )
-            contribs.append(binding)
-        value = task.late_finish
+        )
 
-    return (value.isoformat() if value else None, contribs)
+    return lf_terms, ls_terms
+
+
+def _backward_duration_binding(task: Task) -> DerivationContribution:
+    """Late start derived from the late finish (duration expansion backward).
+
+    The date this term produces is the ``late_start`` itself.
+    """
+    return DerivationContribution(
+        kind="duration_from_late_finish",
+        imposed_date=task.late_start,
+        is_binding=True,
+        slack_days=_effective_duration_days(task),
+    )
+
+
+def _backward_pullback_binding(
+    task: Task, ls_terms: list[DerivationContribution]
+) -> DerivationContribution:
+    """Rare: an SS/SF successor pulled late_start below the LF-derived start.
+
+    This is the engine's LS-pullback branch: the forward re-expansion
+    ``finish_from_start(late_start, duration)`` undercut every LF term, so
+    ``late_finish`` matches none of them. The tightest SS/SF successor is the honest
+    driver; the date its pullback forces onto the finish (via the duration expansion)
+    is the ``late_finish`` itself.
+    """
+    driver = min(ls_terms, key=lambda c: c.imposed_date or date.max) if ls_terms else None
+    return DerivationContribution(
+        kind="duration_from_late_start",
+        source_task_id=driver.source_task_id if driver else None,
+        source_task_name=driver.source_task_name if driver else None,
+        dep_type=driver.dep_type if driver else None,
+        lag_days=driver.lag_days if driver else None,
+        imposed_date=task.late_finish,
+        is_binding=True,
+        slack_days=_effective_duration_days(task),
+    )
 
 
 def _flag_binding(
