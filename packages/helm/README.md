@@ -100,6 +100,67 @@ creates a PersistentVolumeClaim you did not ask for. Restore is a deliberate man
 action with `scripts/restore.sh`. Full runbook: docs → Administration → Backup &
 Restore.
 
+## Public read-only demo mode (#2440, ADR-0658)
+
+`demo.enabled=true` turns a release into a **throwaway public demo**: a
+post-install/post-upgrade hook Job seeds the bundled sample project and mints two
+anonymous, read-only share links — one schedule, one board — which are the only
+publicly reachable way in.
+
+Demo mode also replaces the web tier's nginx config with an **allowlist** that
+mirrors `nginx/demo.conf.template` (#1763): only the two share projections and the
+liveness probe are proxied, while `/admin/`, `/ws/` and every other `/api/` route
+return 404. That is the actual control. A bootstrap superuser still exists — the api
+Deployment creates one on every deploy, as the compose demo does — it simply has no
+public login surface. To reach Django admin on a demo release:
+
+```bash
+kubectl port-forward svc/<release>-trueppm-api 8000:8000
+```
+
+**Never enable this against an instance holding real data.** The hook runs
+`seed_demo_project`, which is destructively idempotent: on every install *and every
+upgrade* it deletes any project named "Platform Migration" or "Pilot Deployment" and
+re-seeds it. That is what keeps a demo from drifting, and what would destroy a real
+one.
+
+```bash
+SCHEDULE_TOKEN=$(openssl rand -base64 32 | tr -d '=+/')
+BOARD_TOKEN=$(openssl rand -base64 32 | tr -d '=+/')
+
+helm install trueppm ./packages/helm \
+  -f packages/helm/values-demo.yaml \
+  --set demo.baseUrl=https://demo.example.com \
+  --set demo.shareToken.schedule="$SCHEDULE_TOKEN" \
+  --set demo.shareToken.board="$BOARD_TOKEN"
+```
+
+The links are printed by the hook Job and are also derivable from the tokens:
+`<baseUrl>/share/schedule/<token>` and `<baseUrl>/share/board/<token>`. To re-read
+them later:
+
+```bash
+kubectl logs job/<release>-trueppm-demo-seed
+```
+
+Four things worth knowing before you run it:
+
+- **Both tokens are required and must differ.** `ShareLink.token_hash` is globally
+  unique, so one token cannot back both links. The chart refuses to render otherwise.
+- **Pinning is mandatory, not cosmetic.** Because the seed is destructive and share
+  links cascade with their project, an unpinned link would silently change its public
+  URL on every `helm upgrade`. Pinned tokens restore the same URLs every time.
+- **Demo mode does not weaken the app.** Celery stays enabled (sized down) so the
+  deployment matches production topology, and the seeder never creates persona
+  logins. The share endpoints remain gated by the instance-wide
+  `TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED` switch, which `values-demo.yaml` asserts.
+- **The chart does not terminate TLS.** Front it at your ingress or load balancer, as
+  with any other deployment (see below).
+
+Demo mode also adds `X-Robots-Tag: noindex, nofollow, noarchive` and a
+`Disallow: /` robots.txt to the web tier, so a public demo does not end up in search
+results.
+
 ## Ingress and edge TLS (#1714)
 
 The chart ships a chart-managed `Ingress`, **off by default** — the correct

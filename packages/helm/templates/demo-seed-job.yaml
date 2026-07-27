@@ -1,0 +1,123 @@
+{{- if .Values.demo.enabled }}
+{{/*
+Demo-mode seed hook (ADR-0658, #2440).
+
+Runs `seed_demo_project` then `create_demo_share_link` once per release, as a
+post-install/post-upgrade Helm hook, so a `demo.enabled` deployment comes up with
+the public read-only sample already loaded and its share links minted.
+
+Three details that are load-bearing and must not be "simplified" away:
+
+  1. This Job runs its own `migrate` initContainer. Helm does NOT wait for the api
+     Deployment to become Ready before firing post-install hooks unless the operator
+     passes --wait, so the seed would otherwise race the api Deployment's own
+     `migrate` initContainer and fail on missing tables. `migrate` is idempotent, so
+     running it twice costs nothing and removes the dependence on a CLI flag.
+
+  2. hook-delete-policy is `before-hook-creation` ONLY — deliberately not
+     `hook-succeeded`. `create_demo_share_link` prints the public share URLs to
+     stdout; deleting the Job on success would destroy the only in-cluster record of
+     them. Keeping the completed Job leaves `kubectl logs` as a recovery path.
+
+  3. Both share tokens must be pinned. `seed_demo_project` is destructively
+     idempotent (it deletes the prior demo projects and re-seeds) and
+     ShareLink.project is on_delete=CASCADE, so every `helm upgrade` drops the share
+     links. Pinned tokens recreate them at identical URLs; unpinned ones would
+     silently change the public URL on every upgrade. Hence the hard `fail` below
+     rather than a generated fallback.
+*/}}
+{{- if not .Values.demo.baseUrl }}
+{{- fail "demo.enabled is true but demo.baseUrl is empty. Set it to the public origin serving this instance (e.g. https://demo.example.com) — it is used to print the share URLs and cannot be guessed from inside the cluster." }}
+{{- end }}
+{{- if not .Values.demo.shareToken.schedule }}
+{{- fail "demo.enabled is true but demo.shareToken.schedule is empty. Pinning is REQUIRED in demo mode: every helm upgrade re-seeds destructively and cascades the share links away, so an unpinned token silently changes the public URL on each upgrade. Generate one with: openssl rand -base64 32 | tr -d '=+/'" }}
+{{- end }}
+{{- if not .Values.demo.shareToken.board }}
+{{- fail "demo.enabled is true but demo.shareToken.board is empty. The board link needs its own token — ShareLink.token_hash is globally unique, so one token cannot back both the schedule and the board link. Generate a second one with: openssl rand -base64 32 | tr -d '=+/'" }}
+{{- end }}
+{{- if eq .Values.demo.shareToken.schedule .Values.demo.shareToken.board }}
+{{- fail "demo.shareToken.schedule and demo.shareToken.board must differ — ShareLink.token_hash is globally unique, so identical tokens would collide and the second link would fail to mint." }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "trueppm.fullname" . }}-demo-seed
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: demo-seed
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ .Values.demo.backoffLimit | default 2 }}
+  template:
+    metadata:
+      labels:
+        {{- include "trueppm.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: demo-seed
+    spec:
+      restartPolicy: Never
+      # Makes no in-cluster Kubernetes API calls — same posture as the app pods.
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      volumes:
+        # readOnlyRootFilesystem is on; the seeder needs scratch space.
+        - name: tmp
+          emptyDir: {}
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "manage.py", "migrate", "--noinput"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          {{- with .Values.envFrom }}
+          # Required here for the same reason as on the api Deployment: `migrate`
+          # imports settings.prod, whose import-time boot guards (#1002, #775) abort
+          # before the command runs if SECRET_KEY et al. are absent.
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- include "trueppm.envVars" . | nindent 12 }}
+            {{- include "trueppm.connectionEnv" . | nindent 12 }}
+            {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: demo-seed
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # seed_demo_project runs WITHOUT --with-personas: no persona logins, no
+          # password path. The zero-accounts / no-auth-write-path posture is what
+          # makes the baked demo secrets acceptable (ADR-0658 Context), so this flag
+          # must not be added here.
+          command:
+            - sh
+            - -c
+            - python manage.py seed_demo_project && python manage.py create_demo_share_link
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- include "trueppm.envVars" . | nindent 12 }}
+            {{- include "trueppm.connectionEnv" . | nindent 12 }}
+            {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
+            - name: TRUEPPM_DEMO_BASE_URL
+              value: {{ .Values.demo.baseUrl | quote }}
+            - name: TRUEPPM_DEMO_SHARE_TOKEN
+              value: {{ .Values.demo.shareToken.schedule | quote }}
+            - name: TRUEPPM_DEMO_SHARE_TOKEN_BOARD
+              value: {{ .Values.demo.shareToken.board | quote }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.demo.resources | nindent 12 }}
+{{- end }}

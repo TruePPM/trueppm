@@ -606,3 +606,68 @@ admin:
   passwordFile: /run/trueppm/admin_password
   # Admin email address (defaults to admin@trueppm.com if not set).
   email: ""
+
+# Public read-only demo mode (#2440, ADR-0658).
+#
+# DEMO ONLY — never enable against an instance holding real data. A post-install/
+# post-upgrade hook Job runs `seed_demo_project`, which is destructively idempotent:
+# it DELETES any projects named "Platform Migration" or "Pilot Deployment" and their
+# demo resources, then re-seeds them. That is correct for a throwaway demo (state can
+# never drift) and catastrophic anywhere else. Hence the default below.
+#
+# The posture: the only PUBLICLY REACHABLE surface is the two anonymous, read-only
+# share links printed by the hook Job. Be precise about why, because the obvious
+# phrasing is wrong — a bootstrap superuser DOES exist (the api Deployment's
+# `bootstrap` initContainer runs create_admin on every deploy, exactly as
+# docker-compose.demo.yml does). What makes the demo safe is that demo mode swaps
+# the web tier's nginx config for an ALLOWLIST: /admin/, /ws/ and every /api/ route
+# except the share projections and the liveness probe return 404, so the
+# authenticated API and the admin login are simply not there from the internet.
+#
+# Two consequences. Reaching Django admin on a demo release requires
+# `kubectl port-forward svc/<release>-trueppm-api 8000:8000` — there is no public
+# path to it by design. And anything that widens that allowlist, or exposes the API
+# by another route, invalidates the security argument in ADR-0658 rather than
+# merely bending it.
+#
+# See values-demo.yaml for a ready-made fragment, and packages/helm/README.md for the
+# full walkthrough.
+demo:
+  # Master switch. Everything else in this block is inert while false.
+  enabled: false
+  # Public origin serving this instance, e.g. https://demo.example.com — no trailing
+  # slash. Used to print the share URLs; it cannot be inferred from inside the
+  # cluster, so demo.enabled with an empty baseUrl fails the render.
+  baseUrl: ""
+  # Pinned share tokens. BOTH are required and they must differ.
+  #
+  # Pinning is not a convenience here, it is a correctness requirement: the seed is
+  # destructive and ShareLink.project is on_delete=CASCADE, so each upgrade drops the
+  # links. Pinned tokens recreate them at the same URLs; unpinned ones would change
+  # the public URL on every upgrade. Two tokens are needed because
+  # ShareLink.token_hash is globally unique — one token cannot back both links.
+  #
+  # Generate each with: openssl rand -base64 32 | tr -d '=+/'
+  #
+  # These are public URL components, not credentials — the server stores only
+  # sha256(token) — so values (rather than a Secret) is the right home. No default is
+  # shipped: a chart-wide default token would hand every deployment the same
+  # guessable URL.
+  shareToken:
+    schedule: ""
+    board: ""
+  # Retries before the hook Job is considered failed. Exhaustion fails the Helm
+  # release on purpose — a demo that deployed without data is broken and must not
+  # report success. The failed Job is retained (hook-delete-policy is
+  # before-hook-creation, not hook-succeeded) so `kubectl logs` shows the traceback.
+  backoffLimit: 2
+  # Short-lived seeding Job. Sized for the seed transaction, not for serving.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+      ephemeral-storage: 128Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+      ephemeral-storage: 512Mi
