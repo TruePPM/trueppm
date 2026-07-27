@@ -452,10 +452,259 @@ function finalizePdf(
 }
 
 /**
+ * The jsPDF surface these pagination strategies use. Structural rather than the
+ * real `jsPDF` type because the library is dynamically imported at call time.
+ */
+interface PdfWriter {
+  addImage: (data: string, fmt: string, x: number, y: number, w: number, h: number) => void;
+  addPage: () => void;
+  output: (type: string) => unknown;
+  save: (name: string) => void;
+  autoPrint?: () => void;
+}
+
+/**
+ * Everything the pagination strategies share about one export run.
+ *
+ * Each strategy below reads this and returns a finished `ExportResult`, or `null`
+ * meaning "not my case — fall through to the next strategy". That keeps the
+ * precedence between the three layouts (week bands → vertical flow → plain bitmap
+ * bands) readable as a short chain in `exportSchedulePdf` rather than as three
+ * nested branches sharing a hundred lines of local state.
+ */
+interface PaginationContext {
+  pdf: PdfWriter;
+  img: HTMLImageElement;
+  dataUrl: string;
+  pageW: number;
+  pageH: number;
+  paper: SchedulePaper;
+  fileName: string;
+  destination: ExportDestination;
+  signal?: AbortSignal;
+  onProgress?: (p: ExportProgress) => void;
+  textRuns: readonly PrintTextRun[];
+}
+
+/** Assemble the success result once, so every strategy reports identically. */
+function finishedResult(ctx: PaginationContext, pageCount: number): ExportResult {
+  const { byteSize, blobUrl } = finalizePdf(ctx.pdf, ctx.fileName, ctx.destination);
+  return {
+    fileName: ctx.fileName,
+    pageCount,
+    paper: ctx.paper,
+    destination: ctx.destination,
+    byteSize,
+    canceled: false,
+    blobUrl,
+  };
+}
+
+/**
+ * Week-snapped horizontal banding with a repeated label column (issue 1440).
+ *
+ * When the print surface reports its geometry and the timeline is wider than one
+ * sheet, band the bitmap on week boundaries: each sheet re-draws the frozen label
+ * strip (source x 0..labelStripImg) then its own chart slice, and carries a
+ * "Sheet n of N" caption. A single fixed scale keeps bars the same size on every
+ * sheet so they read across the seams.
+ *
+ * Returns `null` when the geometry is absent, the timeline fits one sheet wide, or
+ * no 2D context is available — the caller falls through to the next strategy.
+ */
+function paginateWeekBands(ctx: PaginationContext, node: HTMLElement): ExportResult | null {
+  const { pdf, img, pageW, pageH, signal, onProgress, textRuns } = ctx;
+
+  const geom = readBandGeometry(node);
+  if (!geom) return null;
+
+  const labelStripImg = Math.min(geom.labelStripPx * PIXEL_RATIO, img.width);
+  // Band only the content region (label strip + chart up to the last bar), so
+  // the scale's trailing buffer whitespace never counts toward the sheet count.
+  const contentWidthImg = geom.chartContentPx
+    ? Math.min(img.width, labelStripImg + geom.chartContentPx * PIXEL_RATIO)
+    : img.width;
+  const plan = planSheetColumns({
+    imageWidthPx: contentWidthImg,
+    chartLeftPx: labelStripImg,
+    pageWidthPx: geom.pageWidthPx * PIXEL_RATIO,
+    weekPx: geom.weekPx * PIXEL_RATIO,
+  });
+  const bandCanvas = document.createElement('canvas');
+  const bandCtx = bandCanvas.getContext('2d');
+  if (plan.columns.length <= 1 || !bandCtx) return null;
+
+  const sheetSrcW = labelStripImg + plan.bandWidthPx;
+  const scale = pageW / sheetSrcW;
+  const pageImgH = pageH / scale;
+  const rowBands = Math.max(1, Math.ceil(img.height / (pageImgH + 1)));
+  const total = plan.columns.length * rowBands;
+
+  let placed = 0;
+  for (const column of plan.columns) {
+    for (let r = 0; r < rowBands; r++) {
+      // Cancel between sheets: stop without saving, so nothing reaches disk.
+      if (signal?.aborted) return canceledResult(ctx.fileName, ctx.paper, ctx.destination);
+
+      const sy = r * pageImgH;
+      const sliceH = Math.min(pageImgH, img.height - sy);
+      bandCanvas.width = labelStripImg + column.sliceW;
+      bandCanvas.height = sliceH;
+      bandCtx.clearRect(0, 0, bandCanvas.width, bandCanvas.height);
+      // Frozen label strip, repeated on every sheet so activity rows line up.
+      bandCtx.drawImage(img, 0, sy, labelStripImg, sliceH, 0, 0, labelStripImg, sliceH);
+      // This sheet's chart band, drawn to the right of the label strip.
+      bandCtx.drawImage(
+        img,
+        column.chartSx,
+        sy,
+        column.sliceW,
+        sliceH,
+        labelStripImg,
+        0,
+        column.sliceW,
+        sliceH,
+      );
+      const sheetUrl = bandCanvas.toDataURL('image/png');
+      if (placed > 0) pdf.addPage();
+      pdf.addImage(sheetUrl, 'PNG', 0, 0, (labelStripImg + column.sliceW) * scale, sliceH * scale);
+      // Selectable text over both re-composited regions: the frozen label strip
+      // (repeated on every sheet) and this sheet's chart band (ADR-0289).
+      stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+        srcX: 0,
+        srcY: sy,
+        srcW: labelStripImg,
+        srcH: sliceH,
+        destX: 0,
+        destY: 0,
+        scale,
+      });
+      stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+        srcX: column.chartSx,
+        srcY: sy,
+        srcW: column.sliceW,
+        srcH: sliceH,
+        destX: labelStripImg * scale,
+        destY: 0,
+        scale,
+      });
+      placed += 1;
+      drawSheetCaption(pdf, sheetLabel(placed, total), pageW, pageH);
+      onProgress?.({ phase: 'paginate', done: placed, total });
+    }
+  }
+
+  if (signal?.aborted) return canceledResult(ctx.fileName, ctx.paper, ctx.destination);
+  onProgress?.({ phase: 'finalize', done: total, total });
+  return finishedResult(ctx, placed);
+}
+
+/**
+ * Plain bitmap banding — the fallback that always produces a document.
+ *
+ * One horizontal band is `columnWidth` source px wide, scaled to the page width.
+ * Default (full width) → a single column, so this degenerates to the board's
+ * fit-to-width vertical banding.
+ */
+function paginateBitmapBands(
+  ctx: PaginationContext,
+  bandWidthPx: number | undefined,
+): ExportResult {
+  const { pdf, img, dataUrl, pageW, signal, onProgress, textRuns } = ctx;
+
+  const columnWidth = Math.min(bandWidthPx ?? img.width, img.width);
+  const scale = pageW / columnWidth;
+  const pageImgH = ctx.pageH / scale;
+
+  const cols = Math.max(1, Math.ceil(img.width / columnWidth));
+  const rows = Math.max(1, Math.ceil(img.height / (pageImgH + 1)));
+  const total = cols * rows;
+
+  // Fast path: the whole bitmap fits one page (single column, single row).
+  if (total === 1) {
+    onProgress?.({ phase: 'paginate', done: 0, total: 1 });
+    pdf.addImage(dataUrl, 'PNG', 0, 0, columnWidth * scale, img.height * scale);
+    stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+      srcX: 0,
+      srcY: 0,
+      srcW: columnWidth,
+      srcH: img.height,
+      destX: 0,
+      destY: 0,
+      scale,
+    });
+    onProgress?.({ phase: 'finalize', done: 1, total: 1 });
+    return finishedResult(ctx, 1);
+  }
+
+  // Multi-band: slice the bitmap into a col × row grid via an offscreen canvas.
+  const canvas = document.createElement('canvas');
+  const ctx2d = canvas.getContext('2d');
+  if (!ctx2d) {
+    // No 2D context (headless without canvas) — fall back to a single oversized
+    // page rather than failing the export outright (mirrors the board helper).
+    pdf.addImage(dataUrl, 'PNG', 0, 0, pageW, img.height * scale);
+    stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+      srcX: 0,
+      srcY: 0,
+      srcW: img.width,
+      srcH: img.height,
+      destX: 0,
+      destY: 0,
+      scale: pageW / img.width,
+    });
+    onProgress?.({ phase: 'finalize', done: 1, total: 1 });
+    return finishedResult(ctx, 1);
+  }
+
+  let placed = 0;
+  for (let col = 0; col < cols; col++) {
+    const sx = col * columnWidth;
+    const sliceW = Math.min(columnWidth, img.width - sx);
+    for (let row = 0; row < rows; row++) {
+      // Cancel between bands: stop without saving, so nothing reaches disk.
+      if (signal?.aborted) return canceledResult(ctx.fileName, ctx.paper, ctx.destination);
+
+      const sy = row * pageImgH;
+      const sliceH = Math.min(pageImgH, img.height - sy);
+      canvas.width = sliceW;
+      canvas.height = sliceH;
+      ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+      ctx2d.drawImage(img, sx, sy, sliceW, sliceH, 0, 0, sliceW, sliceH);
+      const sliceUrl = canvas.toDataURL('image/png');
+      if (placed > 0) pdf.addPage();
+      pdf.addImage(sliceUrl, 'PNG', 0, 0, sliceW * scale, sliceH * scale);
+      stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+        srcX: sx,
+        srcY: sy,
+        srcW: sliceW,
+        srcH: sliceH,
+        destX: 0,
+        destY: 0,
+        scale,
+      });
+      placed += 1;
+      onProgress?.({ phase: 'paginate', done: placed, total });
+    }
+  }
+
+  if (signal?.aborted) return canceledResult(ctx.fileName, ctx.paper, ctx.destination);
+  onProgress?.({ phase: 'finalize', done: total, total });
+  return finishedResult(ctx, placed);
+}
+
+/**
  * Rasterize `node` and save a paginated landscape PDF, reporting progress and
  * honoring cancellation. Throws if the snapshot cannot be produced (the issue 1438
  * dialog surfaces the machine code); nothing is persisted, so a retry is the only
  * recovery.
+ *
+ * Three pagination strategies are tried in order — each returns `null` when it
+ * does not apply, and the last one always produces a document:
+ *
+ *  1. week-snapped horizontal bands with a repeated label column (issue 1440)
+ *  2. row-aware vertical flow with repeated headers (ADR-0276, issue 1694)
+ *  3. plain bitmap bands
  */
 export async function exportSchedulePdf(
   node: HTMLElement,
@@ -482,134 +731,41 @@ export async function exportSchedulePdf(
   if (signal?.aborted) return canceledResult(fileName, paper, destination);
 
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: paper });
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
 
   // Selectable invisible-text layer (ADR-0289, issue 1687): collect the opt-in
   // `data-print-text` runs from the surface once, and set the document title/language.
-  // Each pagination branch below stamps the runs that fall on its page over the raster.
+  // Each pagination strategy stamps the runs that fall on its page over the raster.
   const textRuns = collectPrintTextRuns(node);
   setPrintDocumentMetadata(pdf, { title: fileName.replace(/\.pdf$/i, '') });
 
-  // ── Week-snapped horizontal banding with a repeated label column (issue 1440) ──
-  // When the print surface reports its geometry and the timeline is wider than one
-  // sheet, band the bitmap on week boundaries: each sheet re-draws the frozen label
-  // strip (source x 0..labelStripImg) then its own chart slice, and carries a
-  // "Sheet n of N" caption. A single fixed scale keeps bars the same size on every
-  // sheet so they read across the seams. Falls through to the plain bitmap-band
-  // path below when geometry is absent or the timeline fits one sheet wide.
-  const geom = readBandGeometry(node);
-  if (geom) {
-    const labelStripImg = Math.min(geom.labelStripPx * PIXEL_RATIO, img.width);
-    // Band only the content region (label strip + chart up to the last bar), so
-    // the scale's trailing buffer whitespace never counts toward the sheet count.
-    const contentWidthImg = geom.chartContentPx
-      ? Math.min(img.width, labelStripImg + geom.chartContentPx * PIXEL_RATIO)
-      : img.width;
-    const plan = planSheetColumns({
-      imageWidthPx: contentWidthImg,
-      chartLeftPx: labelStripImg,
-      pageWidthPx: geom.pageWidthPx * PIXEL_RATIO,
-      weekPx: geom.weekPx * PIXEL_RATIO,
-    });
-    const bandCanvas = document.createElement('canvas');
-    const bandCtx = bandCanvas.getContext('2d');
-    if (plan.columns.length > 1 && bandCtx) {
-      const sheetSrcW = labelStripImg + plan.bandWidthPx;
-      const scale = pageW / sheetSrcW;
-      const pageImgH = pageH / scale;
-      const rowBands = Math.max(1, Math.ceil(img.height / (pageImgH + 1)));
-      const total = plan.columns.length * rowBands;
+  const ctx: PaginationContext = {
+    pdf,
+    img,
+    dataUrl,
+    pageW: pdf.internal.pageSize.getWidth(),
+    pageH: pdf.internal.pageSize.getHeight(),
+    paper,
+    fileName,
+    destination,
+    signal,
+    onProgress,
+    textRuns,
+  };
 
-      let placed = 0;
-      for (const column of plan.columns) {
-        for (let r = 0; r < rowBands; r++) {
-          // Cancel between sheets: stop without saving, so nothing reaches disk.
-          if (signal?.aborted) return canceledResult(fileName, paper, destination);
+  const banded = paginateWeekBands(ctx, node);
+  if (banded) return banded;
 
-          const sy = r * pageImgH;
-          const sliceH = Math.min(pageImgH, img.height - sy);
-          bandCanvas.width = labelStripImg + column.sliceW;
-          bandCanvas.height = sliceH;
-          bandCtx.clearRect(0, 0, bandCanvas.width, bandCanvas.height);
-          // Frozen label strip, repeated on every sheet so activity rows line up.
-          bandCtx.drawImage(img, 0, sy, labelStripImg, sliceH, 0, 0, labelStripImg, sliceH);
-          // This sheet's chart band, drawn to the right of the label strip.
-          bandCtx.drawImage(
-            img,
-            column.chartSx,
-            sy,
-            column.sliceW,
-            sliceH,
-            labelStripImg,
-            0,
-            column.sliceW,
-            sliceH,
-          );
-          const sheetUrl = bandCanvas.toDataURL('image/png');
-          if (placed > 0) pdf.addPage();
-          pdf.addImage(
-            sheetUrl,
-            'PNG',
-            0,
-            0,
-            (labelStripImg + column.sliceW) * scale,
-            sliceH * scale,
-          );
-          // Selectable text over both re-composited regions: the frozen label strip
-          // (repeated on every sheet) and this sheet's chart band (ADR-0289).
-          stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
-            srcX: 0,
-            srcY: sy,
-            srcW: labelStripImg,
-            srcH: sliceH,
-            destX: 0,
-            destY: 0,
-            scale,
-          });
-          stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
-            srcX: column.chartSx,
-            srcY: sy,
-            srcW: column.sliceW,
-            srcH: sliceH,
-            destX: labelStripImg * scale,
-            destY: 0,
-            scale,
-          });
-          placed += 1;
-          drawSheetCaption(pdf, sheetLabel(placed, total), pageW, pageH);
-          onProgress?.({ phase: 'paginate', done: placed, total });
-        }
-      }
-
-      if (signal?.aborted) return canceledResult(fileName, paper, destination);
-      onProgress?.({ phase: 'finalize', done: total, total });
-      const { byteSize, blobUrl } = finalizePdf(pdf, fileName, destination);
-      return {
-        fileName,
-        pageCount: placed,
-        paper,
-        destination,
-        byteSize,
-        canceled: false,
-        blobUrl,
-      };
-    }
-  }
-
-  // ── Row-aware vertical pagination with repeated headers (ADR-0276, issue 1694) ──
   // The common single-column report (chart fits one page wide) is taller than one
   // landscape page: break it only on safe row/block boundaries and repeat the
   // Activity + date-scale header (and a "Critical Path Chain (Continued)" header) so
   // continuation pages read standalone. Skipped when the surface isn't laid out
-  // (jsdom → zero rects → null geometry) or the markers are absent — the plain
-  // bitmap-band path below handles those and keeps its existing behavior.
+  // (jsdom → zero rects → null geometry) or the markers are absent.
   const vflow = readVFlowGeometry(node, img.height);
   if (vflow) {
     const vResult = paginateVerticalReport(pdf, img, dataUrl, vflow, {
       paper,
-      pageW,
-      pageH,
+      pageW: ctx.pageW,
+      pageH: ctx.pageH,
       fileName,
       destination,
       signal,
@@ -617,95 +773,11 @@ export async function exportSchedulePdf(
       textRuns,
     });
     // Null only when no 2D context is available (before anything was placed) — fall
-    // through to the plain single-image path below.
+    // through to the plain bitmap-band path below.
     if (vResult) return vResult;
   }
 
-  // One horizontal band is `columnWidth` source px wide, scaled to the page
-  // width. Default (full width) → a single column, so this degenerates to the
-  // board's fit-to-width vertical banding.
-  const columnWidth = Math.min(bandWidthPx ?? img.width, img.width);
-  const scale = pageW / columnWidth;
-  const pageImgH = pageH / scale;
-
-  const cols = Math.max(1, Math.ceil(img.width / columnWidth));
-  const rows = Math.max(1, Math.ceil(img.height / (pageImgH + 1)));
-  const total = cols * rows;
-
-  // Fast path: the whole bitmap fits one page (single column, single row).
-  if (total === 1) {
-    onProgress?.({ phase: 'paginate', done: 0, total: 1 });
-    pdf.addImage(dataUrl, 'PNG', 0, 0, columnWidth * scale, img.height * scale);
-    stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
-      srcX: 0,
-      srcY: 0,
-      srcW: columnWidth,
-      srcH: img.height,
-      destX: 0,
-      destY: 0,
-      scale,
-    });
-    onProgress?.({ phase: 'finalize', done: 1, total: 1 });
-    const { byteSize, blobUrl } = finalizePdf(pdf, fileName, destination);
-    return { fileName, pageCount: 1, paper, destination, byteSize, canceled: false, blobUrl };
-  }
-
-  // Multi-band: slice the bitmap into a col × row grid via an offscreen canvas.
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    // No 2D context (headless without canvas) — fall back to a single oversized
-    // page rather than failing the export outright (mirrors the board helper).
-    pdf.addImage(dataUrl, 'PNG', 0, 0, pageW, img.height * scale);
-    stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
-      srcX: 0,
-      srcY: 0,
-      srcW: img.width,
-      srcH: img.height,
-      destX: 0,
-      destY: 0,
-      scale: pageW / img.width,
-    });
-    onProgress?.({ phase: 'finalize', done: 1, total: 1 });
-    const { byteSize, blobUrl } = finalizePdf(pdf, fileName, destination);
-    return { fileName, pageCount: 1, paper, destination, byteSize, canceled: false, blobUrl };
-  }
-
-  let placed = 0;
-  for (let col = 0; col < cols; col++) {
-    const sx = col * columnWidth;
-    const sliceW = Math.min(columnWidth, img.width - sx);
-    for (let row = 0; row < rows; row++) {
-      // Cancel between bands: stop without saving, so nothing reaches disk.
-      if (signal?.aborted) return canceledResult(fileName, paper, destination);
-
-      const sy = row * pageImgH;
-      const sliceH = Math.min(pageImgH, img.height - sy);
-      canvas.width = sliceW;
-      canvas.height = sliceH;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, sx, sy, sliceW, sliceH, 0, 0, sliceW, sliceH);
-      const sliceUrl = canvas.toDataURL('image/png');
-      if (placed > 0) pdf.addPage();
-      pdf.addImage(sliceUrl, 'PNG', 0, 0, sliceW * scale, sliceH * scale);
-      stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
-        srcX: sx,
-        srcY: sy,
-        srcW: sliceW,
-        srcH: sliceH,
-        destX: 0,
-        destY: 0,
-        scale,
-      });
-      placed += 1;
-      onProgress?.({ phase: 'paginate', done: placed, total });
-    }
-  }
-
-  if (signal?.aborted) return canceledResult(fileName, paper, destination);
-  onProgress?.({ phase: 'finalize', done: total, total });
-  const { byteSize, blobUrl } = finalizePdf(pdf, fileName, destination);
-  return { fileName, pageCount: placed, paper, destination, byteSize, canceled: false, blobUrl };
+  return paginateBitmapBands(ctx, bandWidthPx);
 }
 
 /**

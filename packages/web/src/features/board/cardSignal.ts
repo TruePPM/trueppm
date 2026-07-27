@@ -89,65 +89,75 @@ export interface CardSignal {
  * signal). Returns `null` for an on-track card.
  */
 export function classifyCardSignal(input: CardSignalInput): CardSignal | null {
-  // 1. Blocked — the most actionable signal: work cannot proceed.
-  if (input.isBlocked) {
-    const deps =
-      input.predecessorCount > 0
-        ? ` · ${input.predecessorCount} dep${input.predecessorCount === 1 ? '' : 's'}`
-        : '';
-    const srDeps =
-      input.predecessorCount > 0
-        ? `, ${input.predecessorCount} dependenc${input.predecessorCount === 1 ? 'y' : 'ies'}`
-        : '';
-    return {
-      tier: 'blocked',
-      Icon: BanIcon,
-      label: `Blocked${deps}`,
-      tone: 'critical',
-      srText: `Blocked${srDeps}`,
-    };
-  }
+  // The ADR-0191 §4 severity order, most actionable first. Each rule returns null
+  // when it does not apply, so the chain *is* the precedence — and an on-track
+  // card falls through all four to null (no primary badge, calm card).
+  return (
+    blockedSignal(input) ?? staleSignal(input) ?? criticalSignal(input) ?? behindSignal(input)
+  );
+}
 
-  // 2. Stale — sitting in a column past its SLA. Twice the SLA is critical.
-  // The escalation carries in the label ("Very stale"), not in color alone
-  // (rule 12): a sighted user must distinguish at-risk from critical without
-  // relying on the amber/red tone.
-  if (input.isAging && (input.isStalled || input.isPastTwiceSla)) {
-    const days = input.daysAgo ?? 0;
-    return {
-      tier: 'stale',
-      Icon: BoltIcon,
-      label: `${input.isPastTwiceSla ? 'Very stale' : 'Stale'} ${days}d`,
-      tone: input.isPastTwiceSla ? 'critical' : 'at-risk',
-      srText: `Stale, ${days} days in column${input.isPastTwiceSla ? ', over twice the limit' : ''}`,
-    };
-  }
+/** 1. Blocked — the most actionable signal: work cannot proceed. */
+function blockedSignal(input: CardSignalInput): CardSignal | null {
+  if (!input.isBlocked) return null;
+  const count = input.predecessorCount;
+  const deps = count > 0 ? ` · ${count} dep${count === 1 ? '' : 's'}` : '';
+  const srDeps = count > 0 ? `, ${count} dependenc${count === 1 ? 'y' : 'ies'}` : '';
+  return {
+    tier: 'blocked',
+    Icon: BanIcon,
+    label: `Blocked${deps}`,
+    tone: 'critical',
+    srText: `Blocked${srDeps}`,
+  };
+}
 
-  // 3. Critical path / negative float — schedule risk that endangers the finish.
+/**
+ * 2. Stale — sitting in a column past its SLA. Twice the SLA is critical.
+ *
+ * The escalation carries in the label ("Very stale"), not in color alone
+ * (rule 12): a sighted user must distinguish at-risk from critical without
+ * relying on the amber/red tone.
+ */
+function staleSignal(input: CardSignalInput): CardSignal | null {
+  if (!input.isAging || !(input.isStalled || input.isPastTwiceSla)) return null;
+  const days = input.daysAgo ?? 0;
+  const veryStale = input.isPastTwiceSla;
+  return {
+    tier: 'stale',
+    Icon: BoltIcon,
+    label: `${veryStale ? 'Very stale' : 'Stale'} ${days}d`,
+    tone: veryStale ? 'critical' : 'at-risk',
+    srText: `Stale, ${days} days in column${veryStale ? ', over twice the limit' : ''}`,
+  };
+}
+
+/** 3. Critical path / negative float — schedule risk that endangers the finish. */
+function criticalSignal(input: CardSignalInput): CardSignal | null {
   const negativeFloat = input.floatDays != null && input.floatDays < 0;
-  if (input.showCriticalState || negativeFloat) {
-    const label = negativeFloat ? `${Math.abs(input.floatDays as number)}d late` : 'Critical path';
-    const srText = negativeFloat
-      ? `${Math.abs(input.floatDays as number)} days behind, negative float`
-      : 'On the critical path';
-    return { tier: 'critical', Icon: FlagIcon, label, tone: 'critical', srText };
-  }
+  if (!input.showCriticalState && !negativeFloat) return null;
+  const lateDays = negativeFloat ? Math.abs(input.floatDays as number) : 0;
+  return {
+    tier: 'critical',
+    Icon: FlagIcon,
+    label: negativeFloat ? `${lateDays}d late` : 'Critical path',
+    tone: 'critical',
+    srText: negativeFloat ? `${lateDays} days behind, negative float` : 'On the critical path',
+  };
+}
 
-  // 4. Behind on earned value — slipping but not yet schedule-critical.
+/** 4. Behind on earned value — slipping but not yet schedule-critical. */
+function behindSignal(input: CardSignalInput): CardSignal | null {
   const cpiBehind = input.cpi != null && input.cpi < 0.85;
-  if (input.spiBand === 'behind' || input.spiBand === 'at_risk' || cpiBehind) {
-    const hard = input.spiBand === 'behind' || cpiBehind;
-    return {
-      tier: 'behind',
-      Icon: TrendDownIcon,
-      label: hard ? 'Behind' : 'At risk',
-      tone: hard ? 'critical' : 'at-risk',
-      srText: hard ? 'Behind schedule on earned value' : 'Schedule at risk on earned value',
-    };
-  }
-
-  // 5. On track — no primary badge (calm card).
-  return null;
+  if (input.spiBand !== 'behind' && input.spiBand !== 'at_risk' && !cpiBehind) return null;
+  const hard = input.spiBand === 'behind' || cpiBehind;
+  return {
+    tier: 'behind',
+    Icon: TrendDownIcon,
+    label: hard ? 'Behind' : 'At risk',
+    tone: hard ? 'critical' : 'at-risk',
+    srText: hard ? 'Behind schedule on earned value' : 'Schedule at risk on earned value',
+  };
 }
 
 /** Tailwind classes for a signal pill, by tone — the rule 8b `-bg` pairing. */
