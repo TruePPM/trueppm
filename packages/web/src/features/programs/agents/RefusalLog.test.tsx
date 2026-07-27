@@ -63,6 +63,14 @@ describe('RefusalLog', () => {
     expect(screen.getByText(/Missing mcp:read scope/i)).toBeInTheDocument();
   });
 
+  it('leads the group label with the ban SVG, not the ⛔ emoji', () => {
+    const { container } = render(
+      <RefusalLog refusals={[refusal({ refusal_reason: 'policy' })]} {...base} />,
+    );
+    expect(container.querySelector('svg')).toBeTruthy();
+    expect(container.textContent).not.toContain('⛔');
+  });
+
   it('always shows the forward-looking commitment section (0.6)', () => {
     render(<RefusalLog refusals={[]} {...base} />);
     expect(screen.getByText(/arrives with 0.6 writes/i)).toBeInTheDocument();

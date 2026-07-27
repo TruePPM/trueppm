@@ -639,4 +639,17 @@ describe('NotesSection — decision chip (ADR-0167, #748)', () => {
     expect(screen.queryByLabelText('Unmark as decision')).toBeNull();
     expect(screen.queryByLabelText('Mark as decision')).toBeNull();
   });
+
+  it('marks the badge and the toggle with the scale SVG, not the ⚖ emoji', () => {
+    useNotesMock.mockReturnValue({
+      notes: [note({ id: 'n9', decision: true })],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
+    for (const el of [screen.getByTitle('Decision'), screen.getByLabelText('Unmark as decision')]) {
+      expect(el.querySelector('svg')).toBeTruthy();
+      expect(el.textContent).not.toContain('⚖');
+    }
+  });
 });

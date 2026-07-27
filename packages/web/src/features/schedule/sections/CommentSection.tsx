@@ -14,6 +14,7 @@ import type { ReactElement } from 'react';
 import { useMemo, useState } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask, ROLE_ADMIN } from '@/lib/roles';
+import { PaperclipIcon } from '@/components/Icons';
 import {
   useAcknowledgeComment,
   useDeleteComment,
@@ -72,7 +73,11 @@ function renderBody(body: string, attachmentIndex: Map<string, TaskAttachment>):
             className="text-xs text-neutral-text-secondary italic"
             title="Attachment no longer available"
           >
-            📎 (deleted attachment)
+            <PaperclipIcon
+              className="inline-block h-3 w-3 align-[-0.125em] mr-1"
+              aria-hidden="true"
+            />
+            (deleted attachment)
           </span>,
         ];
       }
@@ -80,11 +85,15 @@ function renderBody(body: string, attachmentIndex: Map<string, TaskAttachment>):
       return [
         <span
           key={`att-${idx}`}
-          className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-chip border
+          className="inline-block text-xs px-2 py-0.5 rounded-chip border
             border-neutral-border bg-neutral-surface align-baseline"
           title={`Attachment: ${name}`}
         >
-          📎 {name}
+          <PaperclipIcon
+            className="inline-block h-3 w-3 align-[-0.125em] mr-1"
+            aria-hidden="true"
+          />
+          {name}
         </span>,
       ];
     }

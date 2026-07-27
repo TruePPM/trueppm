@@ -350,7 +350,11 @@ describe('TaskListRow — inline chips', () => {
         {...tree}
       />,
     );
-    expect(screen.getByTestId('note-freshness-chip')).toBeInTheDocument();
+    const chip = screen.getByTestId('note-freshness-chip');
+    expect(chip).toBeInTheDocument();
+    // The marker is a house SVG, not the 📝 emoji it replaced.
+    expect(chip.querySelector('svg')).toBeTruthy();
+    expect(chip.textContent).toBe('');
   });
 
   it('renders the external-link chip with a pluralized count and worst-status tone', () => {

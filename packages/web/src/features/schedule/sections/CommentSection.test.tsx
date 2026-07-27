@@ -223,6 +223,30 @@ describe('CommentSection — comment rendering', () => {
     render(<CommentSection taskId="t1" projectId="p1" />);
     expect(screen.getByText(/deleted attachment/)).toBeTruthy();
   });
+
+  it('marks both attachment chips with the paperclip SVG, not the 📎 emoji', () => {
+    useAttachmentsMock.mockReturnValue({
+      attachments: [attachment('00000000-0000-4000-8000-000000000001', 'rfi.pdf')],
+      isLoading: false,
+      error: null,
+    });
+    useCommentsMock.mockReturnValue({
+      comments: [
+        comment({ body: 'live [[attachment:00000000-0000-4000-8000-000000000001]]' }),
+        comment({ id: 'c9', body: 'gone [[attachment:00000000-0000-4000-8000-deadbeef0001]]' }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" />);
+    for (const chip of [
+      screen.getByTitle('Attachment: rfi.pdf'),
+      screen.getByText(/deleted attachment/),
+    ]) {
+      expect(chip.querySelector('svg')).toBeTruthy();
+      expect(chip.textContent).not.toContain('📎');
+    }
+  });
 });
 
 describe('CommentSection — interactions', () => {

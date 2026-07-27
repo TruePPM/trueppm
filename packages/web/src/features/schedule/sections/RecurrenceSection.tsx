@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { RepeatIcon } from '@/components/Icons';
 import {
   useCreateRecurrenceRule,
   useDeleteRecurrenceRule,
@@ -684,7 +685,8 @@ export function RecurrenceSection({ taskId, projectId, userRole, canEdit }: Draw
           role="note"
           className="rounded-card border border-dashed border-neutral-border bg-neutral-surface-sunken px-4 py-3 text-xs text-neutral-text-secondary"
         >
-          🔁 This task doesn&apos;t repeat.
+          <RepeatIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
+          This task doesn&apos;t repeat.
           {editable ? ' Add a recurrence to spawn it on a schedule.' : ''}
         </p>
         {editable && (

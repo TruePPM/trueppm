@@ -16,6 +16,7 @@ import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useRovingTabIndex } from '@/hooks/useRovingTabIndex';
 import { useSprints } from '@/hooks/useSprints';
 import { formatRelative } from '@/lib/formatRelative';
+import { ScaleIcon } from '@/components/Icons';
 import type { DecisionNote } from '@/types';
 import { groupDecisionsBySprint } from './groupDecisions';
 import { OversightConsentControl } from './OversightConsentControl';
@@ -45,9 +46,10 @@ function DecisionRow({ decision, projectId }: { decision: DecisionNote; projectI
   return (
     <li className="flex flex-col gap-1 rounded border border-neutral-border bg-neutral-surface-raised p-3">
       <div className="text-sm whitespace-pre-wrap break-words text-neutral-text-primary">
-        <span aria-hidden="true" className="mr-1 text-brand-primary">
-          ⚖
-        </span>
+        <ScaleIcon
+          aria-hidden="true"
+          className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em] text-brand-primary"
+        />
         {decision.body}
       </div>
       <div className="flex items-baseline gap-2 flex-wrap text-xs text-neutral-text-secondary">

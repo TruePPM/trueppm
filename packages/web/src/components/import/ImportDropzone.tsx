@@ -1,4 +1,5 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { FileIcon, FolderIcon } from '@/components/Icons';
 
 export interface ImportDropzoneProps {
   /** Accepted file extensions, e.g. ['.mpp', '.xml']. Used for the picker and validation. */
@@ -99,9 +100,7 @@ export function ImportDropzone({
   if (file) {
     return (
       <div className="flex items-center gap-3 rounded-card border border-neutral-border bg-neutral-surface-raised p-4">
-        <span aria-hidden="true" className="text-2xl">
-          📄
-        </span>
+        <FileIcon aria-hidden="true" className="h-7 w-7 shrink-0 text-neutral-text-secondary" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-neutral-text-primary">{file.name}</p>
           <p className="text-xs text-neutral-text-secondary">{formatBytes(file.size)}</p>
@@ -150,9 +149,7 @@ export function ImportDropzone({
               : 'border-neutral-border bg-neutral-surface-raised'
           }`}
       >
-        <span aria-hidden="true" className="text-3xl">
-          📂
-        </span>
+        <FolderIcon aria-hidden="true" className="h-8 w-8 shrink-0 text-neutral-text-secondary" />
         <p className="text-sm font-medium text-neutral-text-primary">
           {dragOver ? 'Drop to upload' : 'Drag a file here, or browse…'}
         </p>

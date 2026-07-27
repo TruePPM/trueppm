@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Task } from '@/types';
 import type { EstimationScale } from '@/api/types';
 import { formatRelative } from '@/lib/formatRelative';
+import { NoteIcon } from '@/components/Icons';
 import { formatStoryPoints, storyPointsUnit } from '@/lib/storyPoints';
 import type { ProjectCustomField } from '@/hooks/useProjectCustomFields';
 import { BoardProgressRing } from '../BoardProgressRing';
@@ -94,7 +95,7 @@ function NotesFreshness({ latestNoteAt }: { latestNoteAt: string | null | undefi
       title={`Last note ${relative}`}
       aria-label={`Last note ${relative}`}
     >
-      <span aria-hidden="true">📝</span>
+      <NoteIcon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
       <span className="tppm-mono">{relative}</span>
     </div>
   );

@@ -1348,6 +1348,117 @@ export function FlagIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/**
+ * Balance scale — the "this note is a decision" marker, replacing the `⚖` glyph.
+ *
+ * The pans are open triangles rather than filled bowls: a filled pan collapses
+ * into a blob at chip size, while the two hanging Vs still read as a scale. They
+ * are 4 units wide so the V stays open at 14px — below that the strokes converge
+ * and the mark closes up, so do not render this under `h-3.5`. Kept inside the
+ * 1.75–14.25 safe area the rest of the set uses so it does not optically outsize
+ * its neighbors.
+ */
+export function ScaleIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M8 2.75v10.5" />
+      <path d="M5.25 13.25h5.5" />
+      <path d="M2.75 5.25h10.5" />
+      <path d="M1.75 9.25h4L3.75 5.25Z" />
+      <path d="M10.25 9.25h4L12.25 5.25Z" />
+    </svg>
+  );
+}
+
+/**
+ * Memo — a sheet whose top-right corner is open to a pencil, replacing the `📝`
+ * note-freshness marker.
+ *
+ * Deliberately NOT `FileTextIcon`: that mark is the mime-type glyph for a text
+ * document and appears on attachment rows in the same drawer, so reusing it for
+ * "this task has notes" would give one silhouette two meanings a few rows apart.
+ */
+export function NoteIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M13 8.5v5.25H3V2.25h5.25" />
+      <path d="M5.75 7.75h4" />
+      <path d="M5.75 10.5h2.75" />
+      <path d="m10.75 1.9 2.9 2.9-3.4 3.4H8.5V6.4z" />
+    </svg>
+  );
+}
+
+/** Repeat loop — the recurrence affordance, replacing the `🔁` glyph. */
+export function RepeatIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M3.25 7V6a2 2 0 0 1 2-2h5.5" />
+      <polyline points="9,2.25 11.25,4 9,5.75" />
+      <path d="M12.75 9v1a2 2 0 0 1-2 2h-5.5" />
+      <polyline points="7,10.25 4.75,12 7,13.75" />
+    </svg>
+  );
+}
+
+/**
+ * Five-point star — the "in the demo list" marker, replacing the `★`/`☆` pair.
+ *
+ * `filled` is the state, not a style choice: the outline star means "not picked
+ * for the demo" and the solid one means "picked", the same two-state contrast
+ * the glyph pair carried.
+ */
+export function StarIcon({ className, filled = false, ...rest }: IconProps & { filled?: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill={filled ? 'currentColor' : 'none'}
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M8 1.9l1.85 3.75 4.15.6-3 2.93.71 4.12L8 11.36l-3.71 1.94.71-4.12-3-2.93 4.15-.6z" />
+    </svg>
+  );
+}
+
 /** Trending down — the board's behind-on-earned-value signal. */
 export function TrendDownIcon({ className, ...rest }: IconProps) {
   return (

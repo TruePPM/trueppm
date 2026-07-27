@@ -296,7 +296,7 @@ test.describe('Task notes — detail page section (#740)', () => {
 });
 
 test.describe('Task notes — freshness chip on the schedule row (#740)', () => {
-  test('a task with a recent note shows the 📝 freshness marker', async ({ page }) => {
+  test('a task with a recent note shows the note-freshness marker', async ({ page }) => {
     await setup(page, { role: 300 });
     await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
 

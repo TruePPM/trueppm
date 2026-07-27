@@ -30,6 +30,10 @@ describe('<ImportDropzone>', () => {
     setup();
     expect(screen.getByText('Drag a file here, or browse…')).toBeInTheDocument();
     expect(screen.getByText('.mpp, .xml · up to 50 MB')).toBeInTheDocument();
+    // The dropzone mark is a house SVG, not the 📂 emoji it replaced.
+    const zone = screen.getByRole('button', { name: /Choose file or drag one here/ });
+    expect(zone.querySelector('svg')).toBeTruthy();
+    expect(zone.textContent).not.toContain('📂');
   });
 
   it('accepts a valid file via drop', () => {
@@ -60,7 +64,12 @@ describe('<ImportDropzone>', () => {
     const { onClear } = setup({
       file: new File(['<Project/>'], 'plan.xml', { type: 'application/xml' }),
     });
-    expect(screen.getByText('plan.xml')).toBeInTheDocument();
+    const name = screen.getByText('plan.xml');
+    expect(name).toBeInTheDocument();
+    // The file mark is a house SVG, not the 📄 emoji it replaced.
+    const card = name.closest('div')?.parentElement as HTMLElement;
+    expect(card.querySelector('svg')).toBeTruthy();
+    expect(card.textContent).not.toContain('📄');
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     expect(onClear).toHaveBeenCalledTimes(1);
   });
