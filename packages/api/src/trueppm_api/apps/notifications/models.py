@@ -133,6 +133,18 @@ class NotificationEventType(models.TextChoices):
     # prior snapshot. Reaches the PM/Owner cohort (role >= ADMIN), same targeting
     # as MILESTONE_FORECAST_SHIFTED (#861) — see notify_project_end_date_shift.
     PROJECT_END_DATE_SHIFTED = "project.end_date_shifted", "Project end date shifted"
+    # Scheduled digests (ADR-0663, #2407) — the first CLOCK-driven events in this
+    # enum. Every other member fires from a domain event; these two fire from Beat
+    # on the recipient's own weekly slot (UserNotificationSettings.digest_*), which
+    # is why they are the only pair defaulting OFF on BOTH channels: a weekly send
+    # nobody asked for is exactly the volume the matrix exists to prevent. Content
+    # is read from already-computed facts (compute_program_rollup / _load_band) —
+    # a digest never derives a number the UI does not already show.
+    PROGRAM_HEALTH_DIGEST = "program.health_digest", "Weekly program health digest"
+    RESOURCE_OVERALLOCATION_DIGEST = (
+        "resource.overallocation_digest",
+        "Weekly resource overallocation digest",
+    )
 
 
 class NotificationChannel(models.TextChoices):
@@ -336,9 +348,15 @@ class Notification(models.Model):
         related_name="+",
     )
 
+    # Nullable since ADR-0663: a scheduled digest spans the recipient's whole
+    # membership set and has no single owning project, so forcing one would mean
+    # picking an arbitrary project and mis-scoping the row. Every event- and
+    # mention-sourced row still sets it; only the account-scoped digests are NULL.
     project = models.ForeignKey(
         _PROJECT_MODEL,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="notifications",
     )
 
@@ -474,6 +492,19 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     # matching every other schedule-drift signal in this table.
     (NotificationEventType.PROJECT_END_DATE_SHIFTED, NotificationChannel.IN_APP, True),
     (NotificationEventType.PROJECT_END_DATE_SHIFTED, NotificationChannel.EMAIL, False),
+    # ADR-0663 (#2407) — the scheduled digests are the ONLY rows in this table that
+    # default OFF on both channels, and deliberately so. Every entry above fires
+    # from something the user did or something that happened to their work, so an
+    # in-app row is welcome by default; a weekly clock-driven send is traffic the
+    # user has to actually want. Defaulting in_app OFF also makes the feature inert
+    # on upgrade: create_event_notifications skips a recipient whose in_app is off,
+    # so no digest row exists for anyone until they opt in. Flipping either of these
+    # to True is a product decision with a volume cost (ADR-0663 §Risks), not a
+    # tidy-up.
+    (NotificationEventType.PROGRAM_HEALTH_DIGEST, NotificationChannel.IN_APP, False),
+    (NotificationEventType.PROGRAM_HEALTH_DIGEST, NotificationChannel.EMAIL, False),
+    (NotificationEventType.RESOURCE_OVERALLOCATION_DIGEST, NotificationChannel.IN_APP, False),
+    (NotificationEventType.RESOURCE_OVERALLOCATION_DIGEST, NotificationChannel.EMAIL, False),
 ]
 
 
@@ -713,6 +744,39 @@ class UserNotificationSettings(models.Model):
     # suppressed for all non-bypass events; the durable in-app inbox row is
     # unaffected and DND_BYPASS_EVENTS always deliver on every channel.
     dnd_enabled = models.BooleanField(default=False)
+    # Weekly digest slot (ADR-0663, #2407) — the "per-user timezone + scheduled
+    # window" this model was documented from the start as being shaped to grow
+    # (ADR-0292 §4). ONE slot covers both digest event types: a schedule per event
+    # would double the settings surface to serve a case nobody asked for.
+    #
+    # The slot is only ever *read* by the Beat sweep; it is inert for a user who
+    # has not enabled a digest preference, so the defaults below are a starting
+    # point for the picker rather than an implied subscription.
+    digest_weekday = models.IntegerField(
+        default=6,
+        choices=[
+            (0, "Monday"),
+            (1, "Tuesday"),
+            (2, "Wednesday"),
+            (3, "Thursday"),
+            (4, "Friday"),
+            (5, "Saturday"),
+            (6, "Sunday"),
+        ],
+        help_text="Day of week for scheduled digests, 0=Monday..6=Sunday (Python weekday()).",
+    )
+    digest_hour = models.IntegerField(
+        default=17,
+        help_text="Local hour (0-23) at which scheduled digests are sent.",
+    )
+    # Blank = fall back to settings.TIME_ZONE. Empty string is the single unset
+    # state (project DJ001 convention — no nullable CharFields).
+    digest_timezone = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="IANA timezone for the digest slot; blank uses the server timezone.",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -723,6 +787,57 @@ class UserNotificationSettings(models.Model):
     def __str__(self) -> str:
         state = "on" if self.dnd_enabled else "off"
         return f"UserNotificationSettings(user={self.user_id}, dnd={state})"
+
+
+class NotificationDigestRun(models.Model):
+    """Idempotency ledger for scheduled digests (ADR-0663, #2407).
+
+    One row per ``(user, event_type, period_start)``. The Beat sweep
+    ``get_or_create``s the row **before** building content and skips when
+    ``created`` is False, so a double-fire, a manual re-queue, or an overlapping
+    sweep cannot mail a second copy of the same week's digest. The unique
+    constraint is what makes that check atomic across concurrent workers — the
+    Redis lock on the task is belt-and-braces, not the primary guard.
+
+    Creating the row *before* the content build means a mid-build crash leaves a
+    "sent" marker for a digest that never arrived. That is deliberate and fails
+    closed: a missing weekly digest is recoverable by logging in, whereas a
+    duplicate erodes trust in a channel whose entire value is that it is quiet.
+
+    A plain ``Model`` (no ``server_version``): an operational record, never synced
+    to mobile and never broadcast, mirroring :class:`UserNotificationSettings`.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="digest_runs",
+    )
+    event_type = models.CharField(max_length=64)
+    # User-local week-start date of the send. Date (not datetime) so the ledger
+    # grain matches the weekly cadence and a DST-shifted resend collides.
+    period_start = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    # How many inbox rows the send produced. 0 is a legitimate value — an honest
+    # "nothing at risk this week" digest is still a send (ADR-0663 §4).
+    notification_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "notifications_digest_run"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "event_type", "period_start"],
+                name="uniq_digest_run_user_event_period",
+            ),
+        ]
+        indexes = [
+            # Nightly purge scans by age alone.
+            models.Index(fields=["created_at"], name="digestrun_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"NotificationDigestRun(user={self.user_id}, {self.event_type}, {self.period_start})"
 
 
 # ---------------------------------------------------------------------------

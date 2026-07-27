@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import zoneinfo
 from typing import Any, cast
 
 from rest_framework import serializers
@@ -324,17 +325,51 @@ class ProjectNotificationPreferenceSerializer(
 
 
 class UserNotificationSettingsSerializer(serializers.ModelSerializer[UserNotificationSettings]):
-    """Account-wide notification settings (#1707, ADR-0292).
+    """Account-wide notification settings (#1707, ADR-0292; digest slot ADR-0663).
 
-    Only ``dnd_enabled`` is writable; ``updated_at`` is read-only. The endpoint is
-    self-scoped (the row is always the caller's own), so there is no ``user`` field
-    to expose or spoof.
+    ``dnd_enabled`` plus the weekly digest slot (``digest_weekday`` /
+    ``digest_hour`` / ``digest_timezone``) are writable; ``updated_at`` is
+    read-only. The endpoint is self-scoped (the row is always the caller's own), so
+    there is no ``user`` field to expose or spoof.
+
+    The slot fields are range- and tz-validated rather than clamped: a bad value
+    must surface as a 400 the user can act on. Silently coercing hour 25 to 23
+    would leave someone waiting for a digest that arrives at the wrong time with no
+    indication anything was wrong.
     """
 
     class Meta:
         model = UserNotificationSettings
-        fields = ["dnd_enabled", "updated_at"]
+        fields = [
+            "dnd_enabled",
+            "digest_weekday",
+            "digest_hour",
+            "digest_timezone",
+            "updated_at",
+        ]
         read_only_fields = ["updated_at"]
+
+    def validate_digest_weekday(self, value: int) -> int:
+        """0=Monday .. 6=Sunday, matching Python's ``date.weekday()``."""
+        if not 0 <= value <= 6:
+            raise serializers.ValidationError("Must be between 0 (Monday) and 6 (Sunday).")
+        return value
+
+    def validate_digest_hour(self, value: int) -> int:
+        """Local hour of day, 0-23."""
+        if not 0 <= value <= 23:
+            raise serializers.ValidationError("Must be between 0 and 23.")
+        return value
+
+    def validate_digest_timezone(self, value: str) -> str:
+        """An IANA key, or blank to use the server timezone.
+
+        Validated against the running interpreter's tz database so a typo is a 400
+        at save time rather than a digest that silently never fires.
+        """
+        if value and value not in zoneinfo.available_timezones():
+            raise serializers.ValidationError(f"Unknown timezone: {value!r}")
+        return value
 
 
 class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmailSettings]):
