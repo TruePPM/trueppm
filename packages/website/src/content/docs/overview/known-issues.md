@@ -111,18 +111,15 @@ engine handles.
 
 - **Fix planned for 0.4** — [#1504](https://gitlab.com/trueppm/trueppm/-/issues/1504).
 
-### Cross-engine conformance coverage is thin — planned for 0.4
+### Cross-engine conformance fixtures do not cover per-task calendars — planned for 0.4
 
 The conformance suite compares both engines against shared fixtures, and the gate
-itself is sound (a missing snapshot hard-fails). The **fixtures** are the weak point:
-every one uses zero lag and a standard Mon–Fri mask, and none exercises per-task
-calendars, velocity/SCRUM, or a populated three-point estimate. Whole classes of
-sign, rounding, and snapping bugs would pass the suite green.
+itself is sound (a missing snapshot hard-fails). The **fixtures** have one real
+hole: none exercises per-task calendars, so the semantics the two engines most
+recently diverged on are the semantics the suite cannot check. Dependency lag
+(including negative leads) and non-standard working-day masks *are* covered.
 
-- **Fix planned for 0.4** — [#1497](https://gitlab.com/trueppm/trueppm/-/issues/1497)
-  (fixture coverage) and
-  [#1496](https://gitlab.com/trueppm/trueppm/-/issues/1496) (Rust reject-parity gap:
-  a missing calendar-exception cap and an O(E) linear `is_working_day`).
+- **Fix planned for 0.4** — [#1497](https://gitlab.com/trueppm/trueppm/-/issues/1497).
 
 ## Test and quality gates
 
