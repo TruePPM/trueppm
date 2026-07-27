@@ -52,9 +52,9 @@ project and re-seeds it from scratch, so it is safe to run repeatedly while expl
 
 ## `create_demo_share_link`
 
-Mints (or pins) the public read-only **schedule share link** used by the hosted
-demo (`try.trueppm.com`) and prints its URL. The demo dogfoods the product's own
-tokenized, read-only share link (#283 / #1486) rather than a bespoke read-only
+Mints (or pins) the public read-only **share links** used by the hosted demo
+(`try.trueppm.com`) and prints their URLs. The demo dogfoods the product's own
+tokenized, read-only share links (#283 / #1486) rather than a bespoke read-only
 mode — no login, no write path, near-zero abuse surface. Run it after
 `seed_demo_project`; the [demo compose stack](/getting-started/try-it/) runs both
 automatically.
@@ -62,8 +62,17 @@ automatically.
 | Flag | Effect |
 |------|--------|
 | `--project <name>` | Demo project to share (default: `Platform Migration`) |
-| `--token <token>` | Pin a fixed raw token for a stable, reprintable URL (falls back to the `TRUEPPM_DEMO_SHARE_TOKEN` env var). Omit to mint a random token once |
+| `--token <token>` | Pin a fixed raw token for a stable, reprintable **schedule** URL (falls back to the `TRUEPPM_DEMO_SHARE_TOKEN` env var). Omit to mint a random token once |
+| `--token-board <token>` | Pin a fixed raw token for a **board** URL (falls back to `TRUEPPM_DEMO_SHARE_TOKEN_BOARD`). Omit and no board link is minted |
 | `--base-url <url>` | Public base URL of the demo host (falls back to `TRUEPPM_DEMO_BASE_URL`, else `https://try.trueppm.com`) |
+
+A schedule link is always minted. A **board** link is minted only when you supply a
+board token, so an existing invocation that passes only the schedule token keeps its
+previous single-link behavior. The two tokens must differ: share-link hashes are
+globally unique, so one token cannot back both links, and reusing a token already
+bound to the other kind is refused rather than silently reusing the wrong row.
+There is no generated-token mode for the board link — a board link is only worth
+having if its URL is stable.
 
 With a pinned token the command is **idempotent and reprintable** — it upserts a
 link whose hash matches the token and prints the same stable URL on every run, so
@@ -72,6 +81,14 @@ random link is minted once; because the raw token is stored only as a hash it
 cannot be reprinted, so re-running reuses the existing link and prompts you to pin
 a token. This command never creates persona logins and never touches the
 `TRUEPPM_DEMO_PASSWORD` path.
+
+:::caution[Pinning is mandatory under Helm]
+The [chart's demo mode](/administration/helm-values/#public-read-only-demo-mode)
+re-runs `seed_demo_project` on every upgrade, and that seed is destructive — share
+links cascade away with their project. Pinned tokens recreate the same URLs; unpinned
+ones would silently change the public URL on every upgrade, so the chart refuses to
+render without them.
+:::
 
 ## `seed_ga_launch_program`
 

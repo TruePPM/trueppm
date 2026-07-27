@@ -98,6 +98,36 @@ def test_never_creates_persona_logins() -> None:
 # ── Board share link (#2440) ────────────────────────────────────────────────────
 
 
+def test_schedule_label_is_frozen() -> None:
+    """The SCHEDULE label is a compatibility surface, not an implementation detail.
+
+    Generated-mode idempotency filters on this exact string, and deployed instances
+    already hold rows carrying it. Renaming it would orphan those rows and mint a
+    duplicate on the next run — silently, since every other assertion in this file
+    compares against the imported constant and would follow the rename.
+    """
+    assert DEMO_LABEL == "Public read-only demo (#1487)"
+
+
+@pytest.mark.django_db
+def test_token_bound_to_other_kind_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A token already bound to one kind cannot be reused for the other.
+
+    Without the guard the lookup (which keys on token_hash alone) resolves the
+    existing row, reports "Reused", exits 0 — and never mints the link the caller
+    asked for.
+    """
+    monkeypatch.delenv("TRUEPPM_DEMO_SHARE_TOKEN_BOARD", raising=False)
+    _seed()
+    call_command("create_demo_share_link", token="shared-tok")
+    assert ShareLink.objects.filter(content_kind=ShareContentKind.SCHEDULE).count() == 1
+
+    with pytest.raises(CommandError, match="already bound to a schedule share link"):
+        call_command("create_demo_share_link", token="other", token_board="shared-tok")
+
+    assert not ShareLink.objects.filter(content_kind=ShareContentKind.BOARD).exists()
+
+
 @pytest.mark.django_db
 def test_board_token_mints_both_links(monkeypatch: pytest.MonkeyPatch) -> None:
     """A board token yields a second link alongside the schedule one."""

@@ -104,8 +104,19 @@ Restore.
 
 `demo.enabled=true` turns a release into a **throwaway public demo**: a
 post-install/post-upgrade hook Job seeds the bundled sample project and mints two
-anonymous, read-only share links — one schedule, one board — which are the only way
-in. There are no user accounts, no login in use, and no authenticated write path.
+anonymous, read-only share links — one schedule, one board — which are the only
+publicly reachable way in.
+
+Demo mode also replaces the web tier's nginx config with an **allowlist** that
+mirrors `nginx/demo.conf.template` (#1763): only the two share projections and the
+liveness probe are proxied, while `/admin/`, `/ws/` and every other `/api/` route
+return 404. That is the actual control. A bootstrap superuser still exists — the api
+Deployment creates one on every deploy, as the compose demo does — it simply has no
+public login surface. To reach Django admin on a demo release:
+
+```bash
+kubectl port-forward svc/<release>-trueppm-api 8000:8000
+```
 
 **Never enable this against an instance holding real data.** The hook runs
 `seed_demo_project`, which is destructively idempotent: on every install *and every

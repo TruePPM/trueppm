@@ -11,10 +11,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # WHAT THIS IS
 #
-# A throwaway instance whose only entry points are two anonymous, read-only share
-# links. There are no user accounts, no login form in use, and no authenticated
-# write path. The one mutation any visitor can cause is an access-counter bump on
-# the share link itself.
+# A throwaway instance whose only publicly reachable entry points are two anonymous,
+# read-only share links. The one mutation any visitor can cause is an access-counter
+# bump on the share link itself.
+#
+# Note what this does NOT claim: a bootstrap superuser exists, because the api
+# Deployment creates one on every deploy (as the compose demo does too). It has no
+# public login surface — demo mode replaces the web nginx config with an allowlist
+# that 404s /admin/, /ws/ and all of /api/ except the share projections and the
+# liveness probe. Reach admin with:
+#   kubectl port-forward svc/<release>-trueppm-api 8000:8000
 #
 # WHAT THIS IS NOT
 #
@@ -52,6 +58,12 @@ demo:
 # explicit and a future change to that default cannot silently 404 every demo URL.
 env:
   TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED: "true"
+  # Asserted for the same reason, and with more force: when rate limiting is off
+  # every named throttle scope's rate becomes None, which removes the share_access
+  # throttle — the only bound on the sole public endpoint. A demo pins one replica
+  # at a 1-CPU limit with autoscaling and the PDB disabled, so there is no headroom
+  # to absorb an unthrottled crawler.
+  TRUEPPM_RATE_LIMIT_ENABLED: "true"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECRETS

@@ -159,6 +159,53 @@ Restore](/administration/backup-restore/) for the full runbook.
 | `admin.passwordFile` | `/run/trueppm/admin_password` | Where the one-time bootstrap password is written. Retrieve with `kubectl exec <api-pod> -- cat /run/trueppm/admin_password`. |
 | `admin.email` | `""` | Bootstrap admin email (defaults to `admin@trueppm.com`). |
 
+## Public read-only demo mode
+
+Turns a release into a throwaway public demo. A post-install/post-upgrade hook Job
+seeds the bundled sample project and mints two anonymous, read-only share links — one
+schedule, one board — which become the only publicly reachable way in. Demo mode also
+swaps the web tier's nginx config for an allowlist: `/admin/`, `/ws/` and every
+`/api/` route other than the share projections and the liveness probe return 404, and
+every response carries `X-Robots-Tag: noindex` alongside a `Disallow: /` robots.txt.
+
+| Value | Default | Effect |
+|-------|---------|--------|
+| `demo.enabled` | `false` | Master switch. Everything else in the block is inert while false. |
+| `demo.baseUrl` | `""` | Public origin, no trailing slash. **Required** when enabled — it cannot be inferred from inside the cluster. |
+| `demo.shareToken.schedule` | `""` | Pinned token for the schedule link. **Required** when enabled. |
+| `demo.shareToken.board` | `""` | Pinned token for the board link. **Required** when enabled, and must differ from the schedule token. |
+| `demo.backoffLimit` | `2` | Seed Job retries. Exhaustion fails the release deliberately — a demo without data is broken. |
+| `demo.resources` | see `values.yaml` | Requests/limits for the short-lived seed Job. |
+
+```bash
+helm install trueppm ./packages/helm \
+  -f packages/helm/values-demo.yaml \
+  --set demo.baseUrl=https://demo.example.com \
+  --set demo.shareToken.schedule="$(openssl rand -base64 32 | tr -d '=+/')" \
+  --set demo.shareToken.board="$(openssl rand -base64 32 | tr -d '=+/')"
+```
+
+:::danger[Never enable this against real data]
+`demo.enabled` runs `seed_demo_project` on every install **and every upgrade**, which
+deletes any project named "Platform Migration" or "Pilot Deployment" and re-seeds it.
+That is what stops a demo from drifting, and what would destroy a production instance.
+:::
+
+Two things that are easy to get wrong:
+
+- **Both tokens are required and must differ.** Share-link hashes are globally unique,
+  so one token cannot back both links. The chart refuses to render otherwise.
+- **Pinning is mandatory, not cosmetic.** Because the seed is destructive and share
+  links cascade with their project, an unpinned link would change its public URL on
+  every `helm upgrade`.
+
+A bootstrap superuser still exists on a demo release — the API creates one on every
+deploy — but it has no public login surface, because the allowlist closes `/admin/`.
+Reach it with `kubectl port-forward svc/<release>-trueppm-api 8000:8000`.
+
+Ready-made overlay: `packages/helm/values-demo.yaml`, which also sizes Celery down and
+disables autoscaling, the PodDisruptionBudget, and backups.
+
 ## Related
 
 - [Deployment Sizing](/administration/sizing/) — how many of each to run, with the team-of-25 and team-of-250 profiles.

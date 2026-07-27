@@ -1074,6 +1074,31 @@ helm:template:
     # core kinds (Deployment/Service/Secret/NetworkPolicy/...) are still validated.
     - kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered.yaml
     - bash scripts/helm-structure-check.sh packages/helm
+    # Demo mode (#2440, ADR-0658) is gated behind demo.enabled, so the default
+    # render above never reaches templates/demo-seed-job.yaml or the demo branch of
+    # the web ConfigMap — the whole mode would ship unvalidated. Render it too.
+    - |
+      helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
+        --set image.tag=latest \
+        --set demo.baseUrl=https://demo.example.com \
+        --set demo.shareToken.schedule=ci-schedule-token \
+        --set demo.shareToken.board=ci-board-token > /tmp/rendered-demo.yaml
+    - kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-demo.yaml
+    # The demo's security model IS the nginx allowlist: /admin/, /ws/ and every
+    # /api/ route other than the share projections and the liveness probe must be
+    # closed. A regression here silently publishes the authenticated API — the
+    # exact defect security review caught pre-merge on #2440 — so assert it rather
+    # than trusting the template to stay correct.
+    - |
+      for closed in 'location /admin/' 'location /ws/' 'location /api/'; do
+        grep -A1 -F "$closed" /tmp/rendered-demo.yaml | grep -q 'return 404' \
+          || { echo "DEMO ALLOWLIST REGRESSION: '$closed' no longer returns 404"; exit 1; }
+      done
+    - grep -q 'location \^~ /api/v1/share/' /tmp/rendered-demo.yaml || { echo "DEMO BROKEN: share projections not proxied"; exit 1; }
+    - grep -q 'X-Robots-Tag' /tmp/rendered-demo.yaml || { echo "DEMO REGRESSION: noindex header missing"; exit 1; }
+    # And the inverse: none of this may leak into a normal deploy.
+    - grep -q 'demo-seed' /tmp/rendered.yaml && { echo "LEAK: demo Job rendered with demo.enabled=false"; exit 1; } || true
+    - grep -q 'X-Robots-Tag' /tmp/rendered.yaml && { echo "LEAK: demo noindex rendered into a non-demo release"; exit 1; } || true
 
 ci:build-deploy-images:
   # Build the deployable api + web runtime images from the CURRENT COMMIT's code

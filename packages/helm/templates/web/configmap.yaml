@@ -24,27 +24,117 @@ metadata:
     {{- include "trueppm.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 data:
+{{- if .Values.demo.enabled }}
+{{/*
+  DEMO server block (#2440, ADR-0658) — an ALLOWLIST, not the production proxy.
+
+  This mirrors nginx/demo.conf.template (#1487, hardened #1763), which is the
+  vetted posture for a public demo, with the upstream swapped for the
+  release-scoped Service DNS name. It is a SEPARATE block rather than the
+  production one plus a couple of headers, because the difference that matters is
+  which routes exist at all.
+
+  The demo's whole security model is "zero reachable authenticated surface". The
+  production block below blanket-proxies /api/, /ws/ and /admin/ — correct there,
+  because production is auth-gated with real accounts, and catastrophic here: it
+  would publish auth/token, every project viewset, the Admin-only share-link
+  management routes, workspace SSO and the OpenAPI schema to the internet, plus
+  the Django admin login for the superuser that the api Deployment's `bootstrap`
+  initContainer creates on every deploy.
+
+  So the public surface is exactly: the two anonymous, read-only, GET-only,
+  throttled share projections (projects/share_views.py) and the liveness probe.
+  Everything else under /api/ returns 404, /ws/ returns 404 (the read-only share
+  pages open no live subscription), and /admin/ returns 404.
+
+  /admin/ differs deliberately from the compose template, which uses
+  `allow 127.0.0.1; deny all;`. Behind an ingress the client IP is the ingress
+  pod, not the operator, so a loopback allowlist would be either useless or
+  accidentally permissive depending on proxy config. A flat 404 is unambiguous;
+  the in-cluster equivalent of compose's SSH tunnel is:
+      kubectl port-forward svc/<release>-trueppm-api 8000:8000
+*/}}
   default.conf: |
     server {
         listen {{ .Values.web.containerPort | default 8080 }};
         server_name _;
         root /usr/share/nginx/html;
         index index.html;
-{{- if .Values.demo.enabled }}
 
-        # Demo mode (#2440, ADR-0658): keep the public demo out of search indexes.
-        # `always` so the header is present on error responses too, and none of the
-        # locations below declare their own add_header — an add_header inside a
-        # location resets the inherited set, which would silently drop this.
-        add_header X-Robots-Tag "noindex, nofollow, noarchive" always;
+        # Keep the public demo out of every search index.
+        add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
+        add_header X-Frame-Options        "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
 
-        # Exact-match wins over the SPA fallback regardless of ordering, so a
-        # crawler gets a real robots.txt instead of index.html.
+        # Read-only demo: no large upload is ever legitimate.
+        client_max_body_size 1M;
+
+        # Belt-and-braces alongside X-Robots-Tag. Exact match outranks the SPA
+        # fallback, so a crawler gets a real robots.txt rather than index.html.
         location = /robots.txt {
-            default_type text/plain;
+            add_header Content-Type text/plain;
             return 200 "User-agent: *\nDisallow: /\n";
         }
-{{- end }}
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # ── API allowlist ────────────────────────────────────────────────────
+        # Ordering note: `^~` (prefix, skips regex) and `=` (exact) both outrank
+        # the plain `/api/` prefix below and are longer matches besides, so the
+        # allowed routes win and the catch-all only sees the denied remainder.
+
+        # The ONLY public data plane: anonymous, read-only, throttled, GET-only
+        # share projections. Self-contained — the share pages fetch nothing else.
+        location ^~ /api/v1/share/ {
+            proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_read_timeout 30s;
+        }
+
+        # Liveness probe (AllowAny), kept reachable for an upstream LB/ingress
+        # check. Exact match so it cannot widen the surface.
+        location = /api/v1/health/ {
+            access_log off;
+            proxy_pass       http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Everything else under /api/ is intentionally absent from the demo.
+        location /api/ {
+            return 404;
+        }
+
+        # No live-collaboration WebSocket: no accounts, no writes, and the share
+        # pages open no subscription.
+        location /ws/ {
+            return 404;
+        }
+
+        # Django admin is not published. Reach it with kubectl port-forward.
+        location /admin/ {
+            return 404;
+        }
+
+        location /static/ {
+            proxy_pass       http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_set_header Host $host;
+        }
+    }
+{{- else }}
+  default.conf: |
+    server {
+        listen {{ .Values.web.containerPort | default 8080 }};
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
 
         # Proxy API calls to the Django backend (release-scoped Service DNS).
         location /api/ {
@@ -85,4 +175,5 @@ data:
             try_files $uri $uri/ /index.html;
         }
     }
+{{- end }}
 {{- end }}

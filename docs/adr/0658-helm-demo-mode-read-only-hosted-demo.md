@@ -20,14 +20,27 @@ Three forces shape the decision:
    works — and the chart is what operators will use. This argues for minimizing how far
    demo mode diverges from a normal release.
 
-2. **The read-only posture is load-bearing, not incidental.** The demo has zero user
-   accounts and no authenticated write path; the only mutation reachable anonymously is
-   `share_services.record_access()`, an `F("access_count") + 1` metering bump. That
-   premise is what makes the baked demo `SECRET_KEY` / `INTEGRATION_ENCRYPTION_KEY`
-   acceptable. Any future change that adds a write path invalidates this ADR's security
-   argument and must revisit it. Writable per-visitor sandboxes are explicitly out of
-   scope and tracked as post-beta epic #1672 — per the two-repo rule, the multi-tenancy
-   that would make them safe is an Enterprise concern and unavailable in OSS.
+2. **The read-only posture is load-bearing, and it is enforced at the edge — not by the
+   absence of accounts.** The tempting phrasing ("the demo has no user accounts") is
+   false: the api Deployment's `bootstrap` initContainer runs `create_admin` on every
+   deploy, and `seed_demo_project` then grants that superuser `Role.ADMIN` on the demo
+   projects. The compose demo has exactly the same superuser. What actually makes both
+   safe is `nginx/demo.conf.template` (#1487, hardened #1763): a route **allowlist**
+   under which `/admin/`, `/ws/`, and every `/api/` route except the two share
+   projections and the liveness probe return 404. The authenticated API is not
+   protected on the public demo — it is *absent* from it.
+
+   This distinction is not pedantry. The first implementation of this ADR reused the
+   chart's production web config, which blanket-proxies `/api/`, `/ws/` and `/admin/`,
+   and would have published the full authenticated API plus a Django admin login for a
+   known-username superuser to the internet — while the ADR text asserted the opposite.
+   Security review (#2440) caught it. Any change that widens the allowlist invalidates
+   this argument rather than bending it.
+
+   The only mutation reachable anonymously is `share_services.record_access()`, an
+   `F("access_count") + 1` metering bump. Writable per-visitor sandboxes are explicitly
+   out of scope and tracked as post-beta epic #1672 — per the two-repo rule, the
+   multi-tenancy that would make them safe is an Enterprise concern, unavailable in OSS.
 
 3. **The current demo shows a Gantt and nothing else.**
    `create_demo_share_link.py` hard-codes `content_kind=ShareContentKind.SCHEDULE`
@@ -108,6 +121,33 @@ single `DEMO_LABEL` constant (line 43 — used as the idempotency match key, so 
 would otherwise collide on lookup), and the `/share/schedule/` URL path (line 133). The
 command prints both URLs. Default behavior with only the legacy token set remains
 schedule-only.
+
+### D7a — Demo mode renders a different nginx server block: an allowlist
+
+`templates/web/configmap.yaml` branches on `demo.enabled` and emits an entirely
+separate server block mirroring `nginx/demo.conf.template`, with the upstream swapped
+for the release-scoped Service DNS name. Only `^~ /api/v1/share/` and
+`= /api/v1/health/` are proxied; `/api/`, `/ws/` and `/admin/` return 404.
+
+A separate block, rather than the production one plus extra headers, because the
+difference that matters is *which routes exist* — and because a patch-style diff makes
+it far too easy to reintroduce a blanket proxy during a later edit.
+
+One deliberate divergence from the compose template: `/admin/` returns 404 rather than
+`allow 127.0.0.1; deny all;`. Behind an ingress the client IP is the ingress pod, not
+the operator, so a loopback allowlist is either useless or accidentally permissive
+depending on proxy configuration. The in-cluster equivalent of compose's SSH tunnel is
+`kubectl port-forward svc/<release>-trueppm-api 8000:8000`.
+
+**CI gate.** `scripts/check-demo-nginx-allowlist.sh` gates the compose template only,
+and the `helm:template` job previously rendered default values exclusively — so demo
+mode would have shipped entirely unvalidated. That job now also renders
+`values-demo.yaml`, runs kubeconform over it, asserts that `/admin/`, `/ws/` and
+`/api/` each return 404 while the share projections stay proxied, and asserts the
+inverse: that no demo artifact leaks into a default render. Consolidating these
+assertions into the shared allowlist script is worthwhile later; the inline form is
+deliberate for now because it also covers the leak direction, which the script does
+not model.
 
 ### D7 — `noindex` is owned by the web ConfigMap, not ingress annotations
 
@@ -260,6 +300,8 @@ ever enters the repository either.
 - #2440 — implementing issue
 - #2271 — 0.4 launch-gate checklist (unblocked by this)
 - #1487 — the Compose read-only demo this ports from
+- #1763 — the Compose nginx allowlist hardening that D7a mirrors
+- #2476 — `seed_demo_project`'s unscoped destructive delete (pre-existing; this ADR automates the command, raising its stakes)
 - #1672 — ephemeral writable trial instances (post-beta; deliberately not this)
 - ADR-0245 — public read-only board share links; owns the `TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED` kill switch
 - ADR-0265 — tokenized public schedule share links; rejected a second kill switch

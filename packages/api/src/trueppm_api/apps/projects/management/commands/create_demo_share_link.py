@@ -243,6 +243,17 @@ class Command(BaseCommand):
         token_hash = sha256_hex(token)
         link = ShareLink.objects.filter(token_hash=token_hash).first()
         if link is not None:
+            # A token already bound to the *other* kind must not be silently
+            # reported as reused: the caller would see "Reused" and exit 0 while
+            # the link they asked for was never minted. The same-run guard in
+            # handle() only catches both-tokens-equal; this catches the cross-run
+            # case (reusing a previously-pinned schedule token as a board token).
+            if link.content_kind != kind:
+                raise CommandError(
+                    f"That token is already bound to a {link.content_kind} share link "
+                    f"(id {link.id}); it cannot also back a {kind} link because "
+                    "ShareLink.token_hash is globally unique. Use a different token."
+                )
             return link, False
         link = ShareLink.objects.create(
             project=project,

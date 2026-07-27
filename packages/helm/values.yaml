@@ -615,10 +615,20 @@ admin:
 # demo resources, then re-seeds them. That is correct for a throwaway demo (state can
 # never drift) and catastrophic anywhere else. Hence the default below.
 #
-# The posture this mode assumes: zero user accounts, no login, no authenticated write
-# path. Visitors reach the instance ONLY through the anonymous read-only share links
-# printed by the hook Job. Adding any write path invalidates the security argument in
-# ADR-0658 and requires revisiting it.
+# The posture: the only PUBLICLY REACHABLE surface is the two anonymous, read-only
+# share links printed by the hook Job. Be precise about why, because the obvious
+# phrasing is wrong — a bootstrap superuser DOES exist (the api Deployment's
+# `bootstrap` initContainer runs create_admin on every deploy, exactly as
+# docker-compose.demo.yml does). What makes the demo safe is that demo mode swaps
+# the web tier's nginx config for an ALLOWLIST: /admin/, /ws/ and every /api/ route
+# except the share projections and the liveness probe return 404, so the
+# authenticated API and the admin login are simply not there from the internet.
+#
+# Two consequences. Reaching Django admin on a demo release requires
+# `kubectl port-forward svc/<release>-trueppm-api 8000:8000` — there is no public
+# path to it by design. And anything that widens that allowlist, or exposes the API
+# by another route, invalidates the security argument in ADR-0658 rather than
+# merely bending it.
 #
 # See values-demo.yaml for a ready-made fragment, and packages/helm/README.md for the
 # full walkthrough.
