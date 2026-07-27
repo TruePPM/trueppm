@@ -2,6 +2,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useShellStore } from '@/stores/shellStore';
 import { methodologyLabel } from '@/lib/methodologyLabel';
+import { Tooltip } from '@/components/Tooltip';
 import type { Methodology } from '@/types';
 
 // Compact 2-letter methodology code — the visual shorthand restored from the
@@ -37,6 +38,13 @@ const BADGE_CLASS =
  * `role="img"` + `aria-label` carries the accessible name as the full methodology
  * word ("Hybrid workspace", etc.) — the two letters are a visual shorthand only,
  * never the sole signal (WCAG 1.4.1, rule 6).
+ *
+ * That label alone used to be the *whole* story, which meant a screen-reader user
+ * heard "Waterfall workspace" and a sighted mouse user was left staring at two
+ * undecodable letters (#2389). The `Tooltip` wrapper surfaces the same string on
+ * hover, keyboard focus, and tap. `describe={false}` because the tooltip text and
+ * the `aria-label` are the same sentence — wiring `aria-describedby` as well would
+ * announce it twice.
  */
 export function MethodologyIndicator() {
   const projectId = useProjectId();
@@ -51,8 +59,10 @@ export function MethodologyIndicator() {
   const label = methodologyLabel(methodology);
 
   return (
-    <span role="img" aria-label={`${label} workspace`} className={BADGE_CLASS}>
-      {METHOD_CODE[methodology]}
-    </span>
+    <Tooltip content={`${label} workspace`} describe={false}>
+      <span role="img" aria-label={`${label} workspace`} className={BADGE_CLASS}>
+        {METHOD_CODE[methodology]}
+      </span>
+    </Tooltip>
   );
 }

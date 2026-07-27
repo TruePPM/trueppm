@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { MonteCarloTimeline } from './MonteCarloTimeline';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
@@ -11,19 +12,41 @@ describe('MonteCarloTimeline', () => {
     expect(screen.getByText(/^P95: /)).toBeInTheDocument();
   });
 
-  it('does not open a custom popover on hover (chips are static)', () => {
+  it('does not open a row-level popover or button on render', () => {
     render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    // The previous design opened a `role="dialog"` on mouseenter and that
-    // popover overlapped the unscheduled gutter above the row. The row is
-    // now non-interactive — explanation lives in a browser-native `title`.
+    // The original design opened a `role="dialog"` on the row's mouseenter and
+    // that popover overlapped the unscheduled gutter above. Neither the row nor
+    // the chips are buttons, and nothing opens until a chip is hovered/focused.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   });
 
-  it('exposes the plain-English headline as a `title` attribute on the row', () => {
+  it('no longer leans on a native `title` as the hover channel (#2389)', () => {
     const { container } = render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
     const row = container.firstChild as HTMLElement;
-    expect(row.getAttribute('title')).toMatch(/8 in 10 simulations finish by/i);
+    // `title` is invisible to keyboard focus and unreachable on touch (rule 287).
+    expect(row.getAttribute('title')).toBeNull();
+  });
+
+  it('explains each percentile on focus, not just the P80 headline', async () => {
+    const user = userEvent.setup();
+    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
+
+    await user.tab();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      '50% of simulated runs finish on or before this date',
+    );
+
+    await user.tab();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      '80% of simulated runs finish on or before this date',
+    );
+
+    await user.tab();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      '95% of simulated runs finish on or before this date',
+    );
   });
 
   it('mirrors the headline as the row aria-label for screen readers', () => {
@@ -92,11 +115,24 @@ describe('MonteCarloTimeline', () => {
       buckets: [{ weekStart: '2026-11-30', count: 1000 }],
     };
 
-    it('uses the converged-date title with a PERT-estimate hint', () => {
+    it('keeps the converged-date guidance on the row aria-label', () => {
       const { container } = render(<MonteCarloTimeline result={COLLAPSED} />);
       const row = container.firstChild as HTMLElement;
-      expect(row.getAttribute('title')).toMatch(/Every simulation finished on/i);
-      expect(row.getAttribute('title')).toMatch(/Add PERT estimates/i);
+      expect(row.getAttribute('aria-label')).toMatch(/Every simulation finished on/i);
+      expect(row.getAttribute('aria-label')).toMatch(/Add PERT estimates/i);
+    });
+
+    it('surfaces that guidance on hover, where the removed `title` used to (#2389)', async () => {
+      const user = userEvent.setup();
+      render(<MonteCarloTimeline result={COLLAPSED} />);
+
+      // A reader looking at three identical chips is asking "why are these the
+      // same?", not "what does P80 mean" — so the collapse guidance replaces the
+      // percentile sentence on every chip rather than sitting on the row alone.
+      await user.hover(screen.getByText(/^P80: /));
+      const tip = await screen.findByRole('tooltip');
+      expect(tip).toHaveTextContent(/Every simulation finished on/i);
+      expect(tip).toHaveTextContent(/Add PERT estimates/i);
     });
 
     it('still renders the three chips even when their dates are identical', () => {
