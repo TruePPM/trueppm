@@ -2253,9 +2253,9 @@ def _validate_monte_carlo_args(
 ) -> None:
     """Validate ``monte_carlo()``'s own parameters before any network work.
 
-    Covers the run count, the per-task-calendars restriction, the seed, the
-    embedding-layer caps, and the non-empty requirement. The schedule payload
-    itself is validated separately by :func:`_validate_project`.
+    Covers the run count, the seed, the embedding-layer caps, and the non-empty
+    requirement. The schedule payload itself is validated separately by
+    :func:`_validate_project`.
     """
     # ``runs`` is a documented public int param that sizes ``np.empty((runs, ...))``.
     # A non-int leaked a bare TypeError (a str from ``runs < 1``, a float from
@@ -2266,19 +2266,6 @@ def _validate_monte_carlo_args(
         raise InvalidScheduleInput(f"runs must be a positive integer (got {runs!r}).")
     if runs < 1:
         raise InvalidScheduleInput(f"runs must be a positive integer (got {runs}).")
-    if project.calendars:
-        # ADR-0120 D3: schedule() resolves a per-task calendar for every node
-        # (_resolve_task_calendars); this vectorised pass shares one working-day
-        # index and one lag-delta table across all tasks, so it cannot honor them.
-        # Simulating anyway would silently disagree with schedule() on P50/P80/P95
-        # (issue #1566) — reject loudly instead of guessing on the wrong calendar.
-        raise InvalidScheduleInput(
-            "monte_carlo() does not support per-task calendars (Project.calendars "
-            f"declares {len(project.calendars)} calendar(s)). Per-task calendars are "
-            "honored by schedule() only; remove Project.calendars/Task.calendar_id "
-            "to run a Monte Carlo simulation on this project, or simulate the "
-            "sub-project(s) individually on their own calendar."
-        )
     # seed is passed straight to np.random.default_rng(seed); a negative int raises
     # a bare numpy ValueError and a float/non-int a bare TypeError, both escaping the
     # documented SchedulerError contract for a documented public parameter (#1453).
@@ -2432,12 +2419,13 @@ def _snapped_offsets(
 def _build_lag_delta(
     dt: DependencyType,
     lag: timedelta,
-    wd_ord: np.ndarray,
+    wd_ord_pred: np.ndarray,
+    wd_ord_succ: np.ndarray,
     k_arange: np.ndarray,
     index_size: int,
-    last_off: int,
+    last_off_succ: int,
 ) -> np.ndarray:
-    """Per-anchor-offset lag delta array for one ``(dep_type, lag)`` key.
+    """Per-anchor-offset lag delta array for one ``(dep_type, lag, pred_cal, succ_cal)`` key.
 
     Vectorised equivalent of the former per-cell loop (#1205): for each anchor
     offset k the delta is the snapped successor offset minus the plain-add
@@ -2445,61 +2433,87 @@ def _build_lag_delta(
     k=0 cell stays 0 and the array is filled from index 1; SS/SF anchor on
     wd_index[k] over the full range. This reproduces the scalar ``_offset_after``
     arithmetic exactly (asserted byte-for-byte in the tests).
+
+    Per-task calendars (ADR-0120 D3, #1385): the anchor is read in the
+    *predecessor's* working-day space (``wd_ord_pred``) and the snap lands in the
+    *successor's* (``wd_ord_succ``), because lag is consumed on the successor's
+    calendar — the same rule ``_forward_pass`` applies, where the node being
+    computed owns the snap of every incoming constraint. The delta therefore
+    carries the whole cross-calendar hop, which is what lets the vectorised
+    forward pass stay calendar-agnostic: it still evaluates ``anchor +
+    delta[round(anchor)]`` and lands in successor space. When both calendars are
+    the same object the two arrays are identical and the arithmetic is
+    byte-for-byte what it was before per-task calendars existed.
     """
     arr = np.zeros(index_size, dtype=np.float64)
     lag_days = lag.days
     if dt == DependencyType.FS:
         # k = exclusive EF offset; EF date = wd_index[k-1]; shift = 1 + lag.
-        off = _snapped_offsets(wd_ord, last_off, wd_ord[:-1], 1 + lag_days)
+        off = _snapped_offsets(wd_ord_succ, last_off_succ, wd_ord_pred[:-1], 1 + lag_days)
         arr[1:] = off - k_arange[1:]
     elif dt == DependencyType.FF:
         # Anchor k is the exclusive EF offset (inclusive last day = wd_index[k-1]);
         # the inclusive→exclusive +1 is folded into the -(k-1) baseline.
-        off = _snapped_offsets(wd_ord, last_off, wd_ord[:-1], lag_days)
+        off = _snapped_offsets(wd_ord_succ, last_off_succ, wd_ord_pred[:-1], lag_days)
         arr[1:] = off - k_arange[: index_size - 1]
     elif dt == DependencyType.SS:
         # Start-anchored ES constraint; both sides are inclusive starts.
-        arr[:] = _snapped_offsets(wd_ord, last_off, wd_ord, lag_days) - k_arange
+        arr[:] = _snapped_offsets(wd_ord_succ, last_off_succ, wd_ord_pred, lag_days) - k_arange
     else:  # SF
         # Start-anchored EF constraint: succ.EF (exclusive) must clear the snapped
         # predecessor-start+lag day (inclusive), so +1 converts the inclusive
         # constraint day to the exclusive EF offset. FF gets this +1 for free via
         # its exclusive-EF anchor; SF does not, and dropping it finished SF
         # successors one working day early (#824).
-        arr[:] = _snapped_offsets(wd_ord, last_off, wd_ord, lag_days) + 1.0 - k_arange
+        arr[:] = (
+            _snapped_offsets(wd_ord_succ, last_off_succ, wd_ord_pred, lag_days) + 1.0 - k_arange
+        )
     return arr
 
 
 def _build_lag_delta_table(
-    g: nx.DiGraph[str], wd_index: list[date], index_size: int
-) -> dict[tuple[DependencyType, timedelta], np.ndarray | None]:
-    """One shared lag-delta array per *distinct* ``(dep_type, lag)`` key (#1201).
+    g: nx.DiGraph[str],
+    wd_ord_by_cal: dict[int, np.ndarray],
+    index_size: int,
+    cal_key_of: dict[str, int],
+) -> dict[tuple[DependencyType, timedelta, int, int], np.ndarray | None]:
+    """One shared lag-delta array per *distinct* ``(dep_type, lag, pred_cal, succ_cal)`` key.
 
-    The array content depends ONLY on ``(dep_type, lag)`` — ``wd_index`` and the
-    calendar are fixed for the whole simulation — so N identical SF/lag-0 edges (or
-    any repeated key) cost a single array, not N. ``None`` means "no adjustment" (a
-    plain offset add) — used for lag-free FS/SS/FF. SF always carries a delta array
-    even at zero lag (its exclusive-EF-on-inclusive-start +1 conversion, issue #824).
+    The array content depends ONLY on that key (#1201) — the working-day indices are
+    fixed for the whole simulation — so N identical SF/lag-0 edges (or any repeated
+    key) cost a single array, not N. ``None`` means "no adjustment" (a plain offset
+    add) — used for lag-free FS/SS/FF **within one calendar**. SF always carries a
+    delta array even at zero lag (its exclusive-EF-on-inclusive-start +1 conversion,
+    issue #824).
+
+    Per-task calendars (#1385): an edge whose endpoints resolve to *different*
+    calendars can never take the ``None`` short-circuit, even at zero lag — the
+    delta is what converts the predecessor's working-day offset into the
+    successor's, and those spaces are not the same ruler. Keying on both calendar
+    identities keeps the sharing intact within each calendar pair.
+
     The remaining cost — distinct keys x ``index_size`` — is capped explicitly
     because ``MAX_PROJECT_SPAN_DAYS`` bounds Σlag but not this product, and an
-    SF/lag-0 edge contributes 0 to Σlag.
+    SF/lag-0 edge contributes 0 to Σlag. With per-task calendars the number of
+    distinct keys is multiplied by the number of calendar *pairs* actually joined
+    by an edge, so the same cap now also bounds cross-calendar fan-out.
     """
-    # Working-day ordinals for the whole index, so each per-(dep_type, lag) delta
-    # array is built with a single vectorised searchsorted instead of an
-    # ``index_size``-long pure-Python loop of ``_next_working_day`` snaps (#1205).
-    wd_ord = np.fromiter((d.toordinal() for d in wd_index), dtype=np.int64, count=len(wd_index))
-    last_off = len(wd_index) - 1
     k_arange = np.arange(index_size, dtype=np.float64)
 
-    delta_by_key: dict[tuple[DependencyType, timedelta], np.ndarray | None] = {}
-    for _u, _v, data in g.edges(data=True):
+    delta_by_key: dict[tuple[DependencyType, timedelta, int, int], np.ndarray | None] = {}
+    for u, v, data in g.edges(data=True):
         d = data["dep"]
-        key = (d.dep_type, d.lag)
+        pred_key = cal_key_of[u]
+        succ_key = cal_key_of[v]
+        key = (d.dep_type, d.lag, pred_key, succ_key)
         if key in delta_by_key:
             continue
-        if d.lag == timedelta(0) and d.dep_type != DependencyType.SF:
+        same_calendar = pred_key == succ_key
+        if same_calendar and d.lag == timedelta(0) and d.dep_type != DependencyType.SF:
             delta_by_key[key] = None
             continue
+        wd_ord_pred = wd_ord_by_cal[pred_key]
+        wd_ord_succ = wd_ord_by_cal[succ_key]
         # Reject before materialising the offending array: distinct keys x
         # index_size cells is the cost the span guard does not bound (#1201).
         non_null = sum(1 for arr in delta_by_key.values() if arr is not None) + 1
@@ -2511,7 +2525,13 @@ def _build_lag_delta_table(
                 "span involved — reduce the variety of lags or split the project."
             )
         delta_by_key[key] = _build_lag_delta(
-            d.dep_type, d.lag, wd_ord, k_arange, index_size, last_off
+            d.dep_type,
+            d.lag,
+            wd_ord_pred,
+            wd_ord_succ,
+            k_arange,
+            index_size,
+            len(wd_ord_succ) - 1,
         )
     return delta_by_key
 
@@ -2607,9 +2627,10 @@ def _completed_offsets(
 def _completed_edge_constraints(
     g: nx.DiGraph[str],
     completed_dates: dict[str, tuple[date, date]],
-    calendar: Calendar,
-    offset_of: dict[date, int],
-    wd_index: list[date],
+    cal_of: dict[str, Calendar],
+    cal_key_of: dict[str, int],
+    offset_of_by_cal: dict[int, dict[date, int]],
+    wd_index_by_cal: dict[int, list[date]],
 ) -> dict[tuple[str, str], tuple[bool, float]]:
     """Constant ``(is_ef_constraint, offset)`` a completed predecessor imposes per edge.
 
@@ -2625,6 +2646,13 @@ def _completed_edge_constraints(
     formulas below are the FS/SS/FF/SF branches of :func:`_forward_pass` verbatim;
     FF/SF produce an *inclusive* constraint date, so ``+ 1`` converts it to the
     exclusive-EF offset space the Monte Carlo pass works in.
+
+    Per-task calendars (#1385): the snap and the resulting offset both belong to the
+    **successor**, because lag is consumed on the successor's calendar and the
+    successor's column is the one this constraint is compared against. The completed
+    predecessor contributes only a raw date — which is precisely why the verbatim
+    dates, not its offsets, are what cross the edge. This is the scalar counterpart
+    of the same rule :func:`_build_lag_delta` encodes for live predecessors.
     """
     constraints: dict[tuple[str, str], tuple[bool, float]] = {}
     for u, v, data in g.edges(data=True):
@@ -2634,19 +2662,23 @@ def _completed_edge_constraints(
             continue
         dep: Dependency = data["dep"]
         pred_es, pred_ef = completed_dates[u]
+        succ_cal = cal_of[v]
+        succ_key = cal_key_of[v]
+        offset_of = offset_of_by_cal[succ_key]
+        wd_index = wd_index_by_cal[succ_key]
         if dep.dep_type == DependencyType.FS:
             imposed = _next_working_day(
-                _safe_offset(pred_ef, timedelta(days=1) + dep.lag), calendar
+                _safe_offset(pred_ef, timedelta(days=1) + dep.lag), succ_cal
             )
             constraints[(u, v)] = (False, _index_offset(imposed, offset_of, wd_index))
         elif dep.dep_type == DependencyType.SS:
-            imposed = _advance_calendar_days(pred_es, dep.lag, calendar)
+            imposed = _advance_calendar_days(pred_es, dep.lag, succ_cal)
             constraints[(u, v)] = (False, _index_offset(imposed, offset_of, wd_index))
         elif dep.dep_type == DependencyType.FF:
-            imposed = _advance_calendar_days(pred_ef, dep.lag, calendar)
+            imposed = _advance_calendar_days(pred_ef, dep.lag, succ_cal)
             constraints[(u, v)] = (True, _index_offset(imposed, offset_of, wd_index) + 1.0)
         else:  # SF
-            imposed = _advance_calendar_days(pred_es, dep.lag, calendar)
+            imposed = _advance_calendar_days(pred_es, dep.lag, succ_cal)
             constraints[(u, v)] = (True, _index_offset(imposed, offset_of, wd_index) + 1.0)
     return constraints
 
@@ -2654,58 +2686,81 @@ def _completed_edge_constraints(
 def _mc_progress_state(
     project: Project,
     task_map: dict[str, Task],
-    calendar: Calendar,
-    offset_of: dict[date, int],
-    wd_index: list[date],
+    cal_of: dict[str, Calendar],
+    cal_key_of: dict[str, int],
+    offset_of_by_cal: dict[int, dict[date, int]],
+    wd_index_by_cal: dict[int, list[date]],
 ) -> tuple[
     dict[str, float],
-    float,
     dict[str, tuple[float, float]],
     dict[str, tuple[date, date]],
     dict[str, float],
 ]:
     """Precompute the per-run-invariant floors and progress pins (ADR-0132/0136).
 
-    Returns ``(snet_floor, status_floor, completed_offsets, completed_dates,
-    elapsed_days)``. Completed tasks are pinned to a constant offset pair (not
-    re-sampled) and carry their verbatim ``(early_start, early_finish)`` dates for
-    the scalar constraint/floor paths; in-progress tasks record their fixed elapsed
-    portion so only the remaining work carries uncertainty; SNET pins and the data
-    date floor every not-yet-finished task. None of these vary across runs, so they
-    are computed once.
+    Returns ``(es_floor, completed_offsets, completed_dates, elapsed_days)``.
+    Completed tasks are pinned to a constant offset pair (not re-sampled) and carry
+    their verbatim ``(early_start, early_finish)`` dates for the scalar
+    constraint/floor paths; in-progress tasks record their fixed elapsed portion so
+    only the remaining work carries uncertainty; SNET pins and the data date floor
+    every not-yet-finished task. None of these vary across runs, so they are
+    computed once.
+
+    Per-task calendars (#1385): every offset here is expressed in the *owning
+    task's* working-day space, because that is the space its column of the forward
+    pass lives in. ``es_floor`` therefore merges the SNET pin and the data-date
+    floor per task rather than carrying a single project-wide status floor — with
+    mixed calendars the same data date snaps to a different offset in each one.
+    ``completed_dates`` is the exception that proves the rule: it is scalar
+    ``date`` space precisely so it is calendar-neutral and can cross an edge into
+    a successor on a different working week.
     """
+
+    def _snap_offset(d: date, tid: str) -> float:
+        """Offset of the next working day on ``tid``'s own calendar, index-clamped."""
+        cal_key = cal_key_of[tid]
+        snapped = _next_working_day(d, cal_of[tid])
+        off = offset_of_by_cal[cal_key].get(snapped)
+        return float(off) if off is not None else float(len(wd_index_by_cal[cal_key]) - 1)
+
     # planned_start (SNET) floors, mirroring the deterministic forward pass (#1068):
     # a pinned task may not start before its pin regardless of network logic. A pin
     # at or before project start is the 0 floor every task already has. The index was
-    # sized to cover the furthest pin, so the lookup is total.
-    snet_floor: dict[str, float] = {}
+    # sized to cover the furthest pin, so the lookup is total. The data date floors
+    # all not-yet-finished work: nothing remaining can be sampled before "as of now".
+    # Both are ES lower bounds on the same task, so they merge to one floor here and
+    # the forward pass reads a single number.
+    es_floor: dict[str, float] = {}
+    status_date = project.status_date
     for t in task_map.values():
+        floor = 0.0
         if t.planned_start is not None and t.planned_start > project.start_date:
-            snapped = _next_working_day(t.planned_start, calendar)
-            off = offset_of.get(snapped)
-            snet_floor[t.id] = float(off) if off is not None else float(len(wd_index) - 1)
+            floor = _snap_offset(t.planned_start, t.id)
+        if status_date is not None and status_date > project.start_date:
+            floor = max(floor, _snap_offset(status_date, t.id))
+        if floor:
+            es_floor[t.id] = floor
 
-    # The data date floors all not-yet-finished work: nothing remaining can be
-    # sampled before "as of now". Mirrors the deterministic forward pass.
-    status_floor = 0.0
-    if project.status_date is not None and project.status_date > project.start_date:
-        snapped_sd = _next_working_day(project.status_date, calendar)
-        sd_off = offset_of.get(snapped_sd)
-        status_floor = float(sd_off) if sd_off is not None else float(len(wd_index) - 1)
-
-    # The verbatim dates schedule() gives each completed task. Everything downstream
-    # that must agree with schedule() — the successor constraints, the terminal
-    # finish floor — is derived from THESE, in scalar date space, rather than
-    # re-derived in offset space where a non-working date cannot be represented
+    # The verbatim dates schedule() gives each completed task, resolved on the task's
+    # OWN calendar (the same one _forward_pass lays its duration back on). Everything
+    # downstream that must agree with schedule() — the successor constraints, the
+    # terminal finish floor — is derived from THESE, in scalar date space, rather
+    # than re-derived in offset space where a non-working date cannot be represented
     # (#2460/#2461).
     completed_dates: dict[str, tuple[date, date]] = {
-        t.id: _completed_dates(t, calendar, project.start_date)
+        t.id: _completed_dates(t, cal_of[t.id], project.start_date)
         for t in task_map.values()
         if _is_complete(t)
     }
 
     completed_offsets: dict[str, tuple[float, float]] = {
-        tid: _completed_offsets(es_date, ef_date, calendar, offset_of, wd_index)
+        tid: _completed_offsets(
+            es_date,
+            ef_date,
+            cal_of[tid],
+            offset_of_by_cal[cal_key_of[tid]],
+            wd_index_by_cal[cal_key_of[tid]],
+        )
         for tid, (es_date, ef_date) in completed_dates.items()
     }
 
@@ -2720,7 +2775,7 @@ def _mc_progress_state(
                 int(t.duration.days * min(t.percent_complete, 100.0) / 100.0)
             )
 
-    return snet_floor, status_floor, completed_offsets, completed_dates, elapsed_days
+    return es_floor, completed_offsets, completed_dates, elapsed_days
 
 
 def _mc_forward_pass(
@@ -2730,8 +2785,7 @@ def _mc_forward_pass(
     task_idx: dict[str, int],
     edge_lag_delta: dict[tuple[str, str], np.ndarray | None],
     dur_matrix: np.ndarray,
-    snet_floor: dict[str, float],
-    status_floor: float,
+    es_floor: dict[str, float],
     completed_offsets: dict[str, tuple[float, float]],
     completed_edge: dict[tuple[str, str], tuple[bool, float]],
     elapsed_days: dict[str, float],
@@ -2743,6 +2797,14 @@ def _mc_forward_pass(
     0 has EF=5, and its FS successor starts at offset 5). Each column is filled in
     ``topo_order`` so every predecessor is resolved before its successors. Returns
     the ``(runs, n_tasks)`` ES and EF matrices.
+
+    Per-task calendars (#1385) are deliberately invisible here. A task's own column
+    is expressed in its own calendar's working-day space, and each edge's delta
+    array already carries the hop from the predecessor's space into the
+    successor's (see :func:`_build_lag_delta`), so this loop needs no calendar
+    argument at all — duration still adds in the successor's own space and every
+    constraint arrives pre-converted. The caller reconciles the columns into one
+    comparable space before taking the project maximum.
     """
     n_tasks = len(topo_order)
     es_mat = np.zeros((runs, n_tasks), dtype=np.float64)
@@ -2757,7 +2819,7 @@ def _mc_forward_pass(
             ef_mat[:, col] = ef_off
             continue
 
-        es_constraints = np.full(runs, max(snet_floor.get(tid, 0.0), status_floor))
+        es_constraints = np.full(runs, es_floor.get(tid, 0.0))
         ef_constraints = np.zeros(runs)
         has_ef_constraint = False
 
@@ -2826,6 +2888,51 @@ def _mc_forward_pass(
         ef_mat[:, col] = ef
 
     return es_mat, ef_mat
+
+
+def _to_reference_offset(ef: np.ndarray, wd_ord_own: np.ndarray, ref_ord: np.ndarray) -> np.ndarray:
+    """Re-express exclusive-EF offsets from one calendar's space in the reference space.
+
+    Working-day offsets are only comparable within the calendar that produced
+    them: offset 20 on a Mon-Fri week and offset 20 on a seven-day week are
+    different dates. Taking ``max`` across tasks on mixed calendars therefore has
+    to happen against a shared ruler, and the finish *date* is the only thing the
+    spaces agree on.
+
+    That ruler cannot be the project calendar. A task on a seven-day week can
+    finish on a Sunday, which has no offset at all in a Mon-Fri space — mapping
+    into it would silently report the previous Friday. The reference is instead the
+    **union** of every calendar's working days (see :func:`_build_reference_index`),
+    so every reachable finish date has an offset and the conversion is lossless.
+
+    The fractional part of the offset is carried through untouched: sampled PERT
+    durations are continuous, and dropping the fraction would quantise the
+    distribution the percentiles interpolate over.
+    """
+    k = np.rint(ef)
+    ki = np.clip(k.astype(np.int64), 0, len(wd_ord_own))
+    # Inclusive last working day of the task, mirroring _offset_to_date's key - 1.
+    own_ord = wd_ord_own[np.clip(ki - 1, 0, len(wd_ord_own) - 1)]
+    # side="right" counts the reference working days at or before that date, which
+    # IS the exclusive-EF offset in the reference space.
+    ref = np.searchsorted(ref_ord, own_ord, side="right").astype(np.float64) + (ef - k)
+    # A zero offset is a degenerate pin (a completed zero-duration milestone at the
+    # project start); it has no "previous working day" to map through, and the
+    # generic path would round it up to 1. Keep it where it is.
+    return np.where(k <= 0, ef, ref)
+
+
+def _build_reference_index(wd_ord_by_cal: dict[int, np.ndarray]) -> tuple[np.ndarray, list[date]]:
+    """Union every calendar's working days into one ruler for the project maximum.
+
+    A day is a reference working day iff *some* task's calendar treats it as one,
+    which is the opposite of :meth:`Calendar.compose` (that unions non-working
+    time, for overlaying constraints onto one resource). Here the requirement is
+    representability, not constraint: every date any task can finish on must have
+    an offset, or converting into the space would move the date.
+    """
+    ref_ord = np.unique(np.concatenate(list(wd_ord_by_cal.values())))
+    return ref_ord, [date.fromordinal(int(o)) for o in ref_ord]
 
 
 def _offset_to_date(
@@ -2909,16 +3016,15 @@ def monte_carlo(
     :func:`schedule` — a fully deterministic project (no estimates,
     no velocity signal) simulates to precisely the CPM finish date.
 
-    Per-task calendars (ADR-0120 D3) are **not** honored here: the vectorised pass
-    shares one project-wide working-day index and one set of lag-delta arrays across
-    every task and run, and :func:`schedule` gets per-task calendars "for free" only
-    because its forward/backward passes stay in scalar ``date`` arithmetic per node.
-    Rather than silently simulate a ``Project.calendars`` project on the wrong
-    calendar (P50/P80/P95 disagreeing with :func:`schedule` with no error), a
-    project that declares a non-empty ``calendars`` registry is rejected outright —
-    see ``Raises`` below. Cross-project/program projects that need calendar-aware
-    probabilistic bands must wait for that support; deterministic :func:`schedule`
-    is unaffected and already honors ``Project.calendars`` in full.
+    Per-task calendars (ADR-0120 D3) are honored, on the same rule
+    :func:`schedule` applies: a task's duration expands on its own calendar, and
+    lag is consumed on the **successor's**. Each task's offsets live in its own
+    calendar's working-day space; every edge carries the conversion between two
+    spaces, and the per-run project maximum is taken after off-calendar columns are
+    re-expressed against the project calendar — offsets from different working
+    weeks are not otherwise comparable. A program-scoped project whose member
+    projects each keep their own working week therefore gets a probabilistic band
+    that agrees with its deterministic finish, rather than being refused (#1385).
     Computation is vectorised with numpy:
     10 000 runs on a 200-task project completes in well under 100 ms, so the
     library imposes **no** run or task cap by default — ``monte_carlo(project,
@@ -2953,12 +3059,10 @@ def monte_carlo(
         SimulationCapExceeded: If ``runs`` exceeds ``max_runs`` or the project
             has more tasks than ``max_tasks``.
         CyclicDependencyError: If the dependency graph contains a cycle.
-        InvalidScheduleInput: If the calendar has no working day, a duration
+        InvalidScheduleInput: If a calendar has no working day, a duration
             or lag is negative/out of range, the project has no tasks,
-            ``runs`` is less than 1, ``seed`` is not a non-negative int or
-            ``None``, or the project declares a non-empty ``calendars``
-            registry (per-task calendars are not honored by this pass — see
-            the note above).
+            ``runs`` is less than 1, or ``seed`` is not a non-negative int or
+            ``None``.
     """
     _validate_monte_carlo_args(project, runs, seed, max_runs, max_tasks)
     _validate_project(project)
@@ -2997,32 +3101,67 @@ def monte_carlo(
     # reference date (issue #824). The same index is reused for the offset→date
     # conversion below.
     index_size = _mc_index_size(project, task_map, g, n_tasks)
-    wd_index = _build_working_day_index(project.start_date, calendar, index_size)
-    offset_of = {d: i for i, d in enumerate(wd_index)}
 
-    # One shared lag-delta array per distinct (dep_type, lag) key, then a per-edge
-    # lookup mapping each edge to its (possibly shared, possibly None) array.
-    delta_by_key = _build_lag_delta_table(g, wd_index, index_size)
+    # Per-task calendars (ADR-0120 D3, #1385): one working-day index per *distinct*
+    # calendar, keyed by object identity — Calendar holds a mutable exceptions list
+    # and is not hashable, and the resolved objects are stable for this call (the
+    # same convention _forward_pass uses for its per-calendar snap memo, #1824).
+    # A project with no registry resolves every task to the pass-level calendar, so
+    # exactly one index is built and every downstream lookup is what it was before.
+    task_calendars = _resolve_task_calendars(project)
+    cal_of: dict[str, Calendar] = {
+        tid: (calendar if task_calendars is None else task_calendars.get(tid, calendar))
+        for tid in topo_order
+    }
+    cal_key_of = {tid: id(cal) for tid, cal in cal_of.items()}
+    distinct_cals: dict[int, Calendar] = {id(calendar): calendar}
+    distinct_cals.update({key: cal_of[tid] for tid, key in cal_key_of.items()})
+    # Each index is sized by the same project-wide bound, so every calendar's index
+    # spans at least as many calendar days as the offsets ever reach.
+    wd_index_by_cal = {
+        key: _build_working_day_index(project.start_date, cal, index_size)
+        for key, cal in distinct_cals.items()
+    }
+    offset_of_by_cal = {
+        key: {d: i for i, d in enumerate(idx)} for key, idx in wd_index_by_cal.items()
+    }
+    # Working-day ordinals per calendar, so each delta array is built with a single
+    # vectorised searchsorted instead of an ``index_size``-long pure-Python loop of
+    # ``_next_working_day`` snaps (#1205).
+    wd_ord_by_cal = {
+        key: np.fromiter((d.toordinal() for d in idx), dtype=np.int64, count=len(idx))
+        for key, idx in wd_index_by_cal.items()
+    }
+    proj_cal_key = id(calendar)
+    wd_index = wd_index_by_cal[proj_cal_key]
+
+    # One shared lag-delta array per distinct (dep_type, lag, pred_cal, succ_cal)
+    # key, then a per-edge lookup mapping each edge to its (possibly shared,
+    # possibly None) array.
+    delta_by_key = _build_lag_delta_table(g, wd_ord_by_cal, index_size, cal_key_of)
     edge_lag_delta: dict[tuple[str, str], np.ndarray | None] = {
-        (u, v): delta_by_key[(data["dep"].dep_type, data["dep"].lag)]
+        (u, v): delta_by_key[(data["dep"].dep_type, data["dep"].lag, cal_key_of[u], cal_key_of[v])]
         for u, v, data in g.edges(data=True)
     }
 
     # Per-run-invariant floors and progress pins (SNET, data date, completed pins,
     # in-progress elapsed) — computed once, since none of them vary across runs.
     (
-        snet_floor,
-        status_floor,
+        es_floor,
         completed_offsets,
         completed_dates,
         elapsed_days,
-    ) = _mc_progress_state(project, task_map, calendar, offset_of, wd_index)
+    ) = _mc_progress_state(project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal)
 
     # A completed task's dates are run-invariant, so both the constraints it imposes
     # on live successors and its own contribution to the project finish are resolved
     # once, in scalar date space, from the verbatim dates schedule() would give it
-    # (#2460/#2461).
-    completed_edge = _completed_edge_constraints(g, completed_dates, calendar, offset_of, wd_index)
+    # (#2460/#2461). Scalar dates are also what makes this survive mixed calendars:
+    # each constraint is snapped into its own successor's space, and the floor below
+    # is a date, so neither depends on the offsets being mutually comparable.
+    completed_edge = _completed_edge_constraints(
+        g, completed_dates, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal
+    )
     completed_finish_floor = (
         max(ef_date for _es_date, ef_date in completed_dates.values()) if completed_dates else None
     )
@@ -3034,14 +3173,26 @@ def monte_carlo(
         task_idx,
         edge_lag_delta,
         dur_matrix,
-        snet_floor,
-        status_floor,
+        es_floor,
         completed_offsets,
         completed_edge,
         elapsed_days,
     )
 
     # --- Project completion offset = max EF across all tasks per run ---
+    # With one calendar every column is already on the same ruler and the maximum
+    # is taken exactly as it always was. With several, each column is re-expressed
+    # against the union-of-working-days reference index first — raw offsets from
+    # different working weeks are not comparable, and the larger offset is often
+    # the earlier date.
+    if len(wd_index_by_cal) > 1:
+        ref_ord, wd_index = _build_reference_index(wd_ord_by_cal)
+        ef_mat = np.column_stack(
+            [
+                _to_reference_offset(ef_mat[:, col], wd_ord_by_cal[cal_key_of[tid]], ref_ord)
+                for col, tid in enumerate(topo_order)
+            ]
+        )
     completion_offsets = ef_mat.max(axis=1)  # shape (runs,)
 
     # Convert offsets back to dates via the working-day index (reused from above).
