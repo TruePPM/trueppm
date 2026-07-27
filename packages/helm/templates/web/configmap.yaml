@@ -30,6 +30,21 @@ data:
         server_name _;
         root /usr/share/nginx/html;
         index index.html;
+{{- if .Values.demo.enabled }}
+
+        # Demo mode (#2440, ADR-0658): keep the public demo out of search indexes.
+        # `always` so the header is present on error responses too, and none of the
+        # locations below declare their own add_header — an add_header inside a
+        # location resets the inherited set, which would silently drop this.
+        add_header X-Robots-Tag "noindex, nofollow, noarchive" always;
+
+        # Exact-match wins over the SPA fallback regardless of ordering, so a
+        # crawler gets a real robots.txt instead of index.html.
+        location = /robots.txt {
+            default_type text/plain;
+            return 200 "User-agent: *\nDisallow: /\n";
+        }
+{{- end }}
 
         # Proxy API calls to the Django backend (release-scoped Service DNS).
         location /api/ {

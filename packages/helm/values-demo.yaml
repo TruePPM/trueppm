@@ -1,0 +1,124 @@
+# Public read-only demo overlay (#2440, ADR-0658).
+#
+# A fragment layered on values.yaml, matching the values-dev.yaml convention:
+#
+#     helm install trueppm ./packages/helm \
+#       -f packages/helm/values-demo.yaml \
+#       --set demo.baseUrl=https://demo.example.com \
+#       --set demo.shareToken.schedule=$SCHEDULE_TOKEN \
+#       --set demo.shareToken.board=$BOARD_TOKEN
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT THIS IS
+#
+# A throwaway instance whose only entry points are two anonymous, read-only share
+# links. There are no user accounts, no login form in use, and no authenticated
+# write path. The one mutation any visitor can cause is an access-counter bump on
+# the share link itself.
+#
+# WHAT THIS IS NOT
+#
+# A production deployment, and not a base to build one from. `demo.enabled` runs a
+# destructive seeder on every install AND every upgrade — it deletes any project
+# named "Platform Migration" or "Pilot Deployment" and re-creates it. Never point
+# this at a cluster holding real data.
+# ─────────────────────────────────────────────────────────────────────────────
+
+demo:
+  enabled: true
+
+  # REQUIRED — no default is shipped, and the chart render fails without them.
+  #
+  # baseUrl: the public origin, no trailing slash (e.g. https://demo.example.com).
+  # shareToken.*: two DIFFERENT pinned tokens. Both are public URL components, not
+  #   credentials (the server persists only sha256(token)), but they are left empty
+  #   on purpose — a shipped default would hand every deployment the same guessable
+  #   URL. Generate each with:
+  #
+  #     openssl rand -base64 32 | tr -d '=+/'
+  #
+  # Pinning is mandatory, not cosmetic: the seed is destructive and
+  # ShareLink.project is on_delete=CASCADE, so every `helm upgrade` drops the links.
+  # Pinned tokens recreate them at identical URLs; unpinned ones would silently
+  # change the public URL each upgrade.
+  baseUrl: ""
+  shareToken:
+    schedule: ""
+    board: ""
+
+# The share endpoints are gated instance-wide by this switch (ADR-0245; ADR-0265
+# deliberately reuses the same one for schedule links rather than adding a second).
+# It already defaults to "true" in values.yaml — asserted here so the dependency is
+# explicit and a future change to that default cannot silently 404 every demo URL.
+env:
+  TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED: "true"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECRETS
+#
+# This file deliberately bakes NO secrets, unlike docker-compose.demo.yml. That
+# file's baked SECRET_KEY / INTEGRATION_ENCRYPTION_KEY are safe under its
+# no-accounts premise, but a values file is copied and adapted far more often than
+# a demo compose file, and a known SECRET_KEY reaching a real deployment is a much
+# worse outcome than one extra setup step here.
+#
+# So demo mode uses the chart's normal secret path. Create the Secret first:
+#
+#   kubectl create secret generic trueppm-env \
+#     --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
+#     --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python -c \
+#       'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
+#     --from-literal=ALLOWED_HOSTS="demo.example.com"
+#
+# then leave the envFrom reference below in place.
+# ─────────────────────────────────────────────────────────────────────────────
+envFrom:
+  - secretRef:
+      name: trueppm-env
+
+# Single-node sizing. Celery stays enabled — ADR-0658 D4 keeps demo mode on the
+# production topology rather than carving an exception to ADR-0081 (Beat is a silent
+# SPOF; drains, purges and health depend on it). It is sized down instead, since a
+# demo with no write path enqueues almost nothing.
+replicaCount: 1
+
+resources:
+  api:
+    requests:
+      cpu: 100m
+      memory: 384Mi
+      ephemeral-storage: 128Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+      ephemeral-storage: 512Mi
+  worker:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+      ephemeral-storage: 64Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 256Mi
+  beat:
+    requests:
+      cpu: 25m
+      memory: 96Mi
+      ephemeral-storage: 64Mi
+    limits:
+      cpu: 100m
+      memory: 192Mi
+      ephemeral-storage: 128Mi
+
+# A single-node demo has nothing to fail over to, so the HA machinery is noise:
+# a PDB with one replica blocks node drains, and autoscaling has no headroom.
+autoscaling:
+  enabled: false
+podDisruptionBudget:
+  enabled: false
+
+# Backups are for data worth keeping. Demo state is regenerated destructively on
+# every upgrade by definition.
+backup:
+  enabled: false
