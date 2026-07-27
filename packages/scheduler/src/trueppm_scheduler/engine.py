@@ -819,16 +819,7 @@ def _forward_pass(
     the successor *is* the node here. ``task_calendars=None`` (or any task absent
     from it) falls back to ``calendar``, making the single-calendar path identical.
     """
-    # Memoize the project-start (and status-date) snap per calendar (#1824): each is
-    # identical for every task sharing a calendar, so re-snapping it per task made the
-    # forward pass O(tasks · scan_depth). A valid calendar whose exceptions blanket a
-    # ~36k-day gap after the start (one working day just past it, so validation's
-    # reachability probe passes) then turned even a few hundred tasks into a
-    # multi-second spin — every task repeating the same 36k-day walk. One snap per
-    # distinct calendar instead. Keyed by object identity: Calendar holds a mutable
-    # exceptions list and isn't hashable, and the resolved objects are stable here.
-    start_base_by_cal: dict[int, date] = {}
-    status_snap_by_cal: dict[int, date] = {}
+    floors: dict[int, tuple[date, date]] = {}
     for node_id in topo_order:
         task = task_map[node_id]
         # The node being computed is the successor of all its incoming edges, so a
@@ -836,56 +827,18 @@ def _forward_pass(
         # every predecessor constraint (lag is consumed on the successor's
         # calendar). With no per-task calendars this is always ``calendar``.
         cal = calendar if task_calendars is None else task_calendars.get(node_id, calendar)
+        start_base, start = _calendar_floors(cal, project_start, status_date, floors)
 
-        # The project-start floor (and the data-date floor) snap to *this* task's
-        # calendar — a task can never begin on its own non-working day. With one
-        # project calendar every task resolves the same value the pre-ADR-0120 pass
-        # hoisted out of the loop; the result is byte-identical. Memoized per calendar
-        # (#1824) so the snap runs once per distinct calendar, not once per task.
-        cal_key = id(cal)
-        start_base = start_base_by_cal.get(cal_key)
-        if start_base is None:
-            start_base = _next_working_day(project_start, cal)
-            start_base_by_cal[cal_key] = start_base
-        # The data date floors all not-yet-finished work: nothing remaining can be
-        # scheduled before "as of now". A status date at or before project start is
-        # already covered by the project-start floor. Completed work is historical
-        # and is deliberately *not* floored at the data date (handled below).
-        start = start_base
-        if status_date is not None:
-            status_snap = status_snap_by_cal.get(cal_key)
-            if status_snap is None:
-                status_snap = _next_working_day(status_date, cal)
-                status_snap_by_cal[cal_key] = status_snap
-            start = max(start_base, status_snap)
+        pinned = _pinned_placement(task, cal)
+        if pinned is not None:
+            task.early_start, task.early_finish = pinned
+            continue
 
-        # Completed (actual_finish set, or percent_complete >= 100): laid out at its
-        # FULL duration so the bar keeps its shape (ADR-0136). Whatever actuals exist
-        # anchor the span; a missing endpoint is derived from full duration. Actuals
-        # are truth, so a pinned task is taken out of network logic entirely (it may
-        # even sit before a predecessor — out-of-sequence reality is surfaced).
         if _is_complete(task):
-            full_days = task.duration.days
-            if task.actual_finish is not None:
-                # Finish is known; start is the recorded actual, else a full
-                # duration back from the finish (the actual_finish drives FS
-                # successors, the resolved start drives SS/SF successors).
-                task.early_finish = task.actual_finish
-                task.early_start = (
-                    task.actual_start
-                    if task.actual_start is not None
-                    else _start_from_finish(task.actual_finish, full_days, cal)
-                )
-                continue
-            if task.actual_start is not None:
-                # Start is known (e.g. a REVIEW task: done, awaiting sign-off);
-                # lay the full duration forward from it.
-                task.early_start = task.actual_start
-                task.early_finish = _finish_from_start(task.actual_start, full_days, cal)
-                continue
-            # No actuals recorded: a full-duration CPM planning position, anchored at
-            # the un-floored project start rather than the data date.
-            duration_days = full_days
+            # Complete but with no actuals recorded: a full-duration CPM planning
+            # position, anchored at the un-floored project start rather than the
+            # data date (completed work is historical and is never floored at it).
+            duration_days = task.duration.days
             es_constraints: list[date] = [start_base]
         else:
             # In-progress work contributes only what is left, laid forward from the
@@ -893,35 +846,13 @@ def _forward_pass(
             duration_days = _effective_duration_days(task)
             es_constraints = [start]
 
-        # Collect ES and EF constraints from all predecessor dependencies.
         # planned_start (SNET) is an additional ES lower-bound: the task may
         # not start before this date regardless of network logic.
         if task.planned_start is not None:
             es_constraints.append(_next_working_day(task.planned_start, cal))
-        ef_constraints: list[date] = []
 
-        for pred_id in g.predecessors(node_id):
-            pred = task_map[pred_id]
-            dep: Dependency = g[pred_id][node_id]["dep"]
-            lag = dep.lag  # timedelta (calendar days)
-            # Predecessors are visited first in topological order, so these are always set.
-            assert pred.early_start is not None and pred.early_finish is not None
-
-            if dep.dep_type == DependencyType.FS:
-                # Successor cannot start until the day after predecessor finishes + lag.
-                # EF is inclusive, so add 1 day to move past it, then add lag.
-                es_constraints.append(
-                    _next_working_day(_safe_offset(pred.early_finish, timedelta(days=1) + lag), cal)
-                )
-            elif dep.dep_type == DependencyType.SS:
-                # Successor cannot start before predecessor starts + lag.
-                es_constraints.append(_advance_calendar_days(pred.early_start, lag, cal))
-            elif dep.dep_type == DependencyType.FF:
-                # Successor cannot finish before predecessor finishes + lag.
-                ef_constraints.append(_advance_calendar_days(pred.early_finish, lag, cal))
-            elif dep.dep_type == DependencyType.SF:
-                # Successor cannot finish before predecessor starts + lag.
-                ef_constraints.append(_advance_calendar_days(pred.early_start, lag, cal))
+        pred_es, ef_constraints = _forward_edge_constraints(node_id, task_map, g, cal)
+        es_constraints.extend(pred_es)
 
         # ES = latest of all ES constraints.
         task.early_start = max(es_constraints)
@@ -941,6 +872,120 @@ def _forward_pass(
                     _finish_from_start(task.early_start, duration_days, cal),
                     min_ef,
                 )
+
+
+def _calendar_floors(
+    cal: Calendar,
+    project_start: date,
+    status_date: date | None,
+    cache: dict[int, tuple[date, date]],
+) -> tuple[date, date]:
+    """The project-start floor and the data-date floor for ``cal``, memoized (#1824).
+
+    Both floors snap to the task's *own* calendar — a task can never begin on its own
+    non-working day. With one project calendar every task resolves the same value the
+    pre-ADR-0120 pass hoisted out of the loop, so the result is byte-identical.
+
+    Memoized because both are identical for every task sharing a calendar, and
+    re-snapping per task made the forward pass O(tasks · scan_depth): a valid calendar
+    whose exceptions blanket a ~36k-day gap after the start (one working day just past
+    it, so validation's reachability probe passes) turned even a few hundred tasks into
+    a multi-second spin — every task repeating the same 36k-day walk. Keyed by object
+    identity: Calendar holds a mutable exceptions list and isn't hashable, and the
+    resolved objects are stable here.
+
+    Returns ``(start_base, start)`` — the project-start floor, and that floor raised to
+    the data date when one is set. A status date at or before project start is already
+    covered by the project-start floor.
+    """
+    key = id(cal)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    start_base = _next_working_day(project_start, cal)
+    start = start_base
+    if status_date is not None:
+        # The data date floors all not-yet-finished work: nothing remaining can be
+        # scheduled before "as of now".
+        start = max(start_base, _next_working_day(status_date, cal))
+    cache[key] = (start_base, start)
+    return start_base, start
+
+
+def _pinned_placement(task: Task, cal: Calendar) -> tuple[date, date] | None:
+    """Early window for a task whose recorded actuals pin it out of network logic.
+
+    A completed task (``actual_finish`` set, or ``percent_complete >= 100``) is laid
+    out at its FULL duration so the bar keeps its shape (ADR-0136). Whatever actuals
+    exist anchor the span; a missing endpoint is derived from full duration. Actuals
+    are truth, so a pinned task leaves network logic entirely — it may even sit before
+    a predecessor, surfacing out-of-sequence reality rather than smoothing it away.
+
+    Returns ``None`` — "schedule this one through the network" — when the task is not
+    complete, and for the complete-with-no-actuals case, which takes a full-duration
+    planning position instead.
+    """
+    if not _is_complete(task):
+        return None
+
+    full_days = task.duration.days
+    if task.actual_finish is not None:
+        # Finish is known; start is the recorded actual, else a full duration back
+        # from the finish (the actual_finish drives FS successors, the resolved
+        # start drives SS/SF successors).
+        start = (
+            task.actual_start
+            if task.actual_start is not None
+            else _start_from_finish(task.actual_finish, full_days, cal)
+        )
+        return start, task.actual_finish
+    if task.actual_start is not None:
+        # Start is known (e.g. a REVIEW task: done, awaiting sign-off); lay the full
+        # duration forward from it.
+        return task.actual_start, _finish_from_start(task.actual_start, full_days, cal)
+    return None
+
+
+def _forward_edge_constraints(
+    node_id: str,
+    task_map: dict[str, Task],
+    g: nx.DiGraph[str],
+    cal: Calendar,
+) -> tuple[list[date], list[date]]:
+    """Split a node's incoming edges into early-start and early-finish constraints.
+
+    FS/SS bound when the successor may *start*; FF/SF bound when it may *finish*. All
+    snapping uses ``cal`` — the successor's calendar — because lag is consumed on the
+    successor's calendar and the successor is the node being computed.
+    """
+    es_constraints: list[date] = []
+    ef_constraints: list[date] = []
+
+    for pred_id in g.predecessors(node_id):
+        pred = task_map[pred_id]
+        dep: Dependency = g[pred_id][node_id]["dep"]
+        lag = dep.lag  # timedelta (calendar days)
+        # Predecessors are visited first in topological order, so these are always set.
+        assert pred.early_start is not None and pred.early_finish is not None
+
+        if dep.dep_type == DependencyType.FS:
+            # Successor cannot start until the day after predecessor finishes + lag.
+            # EF is inclusive, so add 1 day to move past it, then add lag.
+            es_constraints.append(
+                _next_working_day(_safe_offset(pred.early_finish, timedelta(days=1) + lag), cal)
+            )
+        elif dep.dep_type == DependencyType.SS:
+            # Successor cannot start before predecessor starts + lag.
+            es_constraints.append(_advance_calendar_days(pred.early_start, lag, cal))
+        elif dep.dep_type == DependencyType.FF:
+            # Successor cannot finish before predecessor finishes + lag.
+            ef_constraints.append(_advance_calendar_days(pred.early_finish, lag, cal))
+        elif dep.dep_type == DependencyType.SF:
+            # Successor cannot finish before predecessor starts + lag.
+            ef_constraints.append(_advance_calendar_days(pred.early_start, lag, cal))
+
+    return es_constraints, ef_constraints
 
 
 def _backward_pass(
@@ -1620,138 +1665,170 @@ def _validate_agile_inputs(project: Project) -> None:
 
 
 def _validate_tasks(project: Project) -> None:
+    """Reject structurally impossible task input, one concern per guard.
+
+    The guards run in a fixed order and that order is observable — the contract and
+    fuzz suites assert *which* message a malformed task produces, so a task tripping
+    two guards must keep tripping the earlier one.
+    """
     for t in project.tasks:
-        # Type guards for the direct-object API (#1209): the from_dict/from_json path
-        # already coerces these, but a caller building Task objects by hand can pass
-        # the wrong type, which otherwise leaks AttributeError/TypeError from deep in
-        # a pass instead of the documented InvalidScheduleInput. datetime is a date
-        # subclass but mixes badly with date arithmetic, so reject it for the date
-        # pins — planned_start and the recorded actuals — alike.
-        if not isinstance(t.duration, timedelta):
-            raise InvalidScheduleInput(
-                f"Task {t.id!r} duration must be a timedelta (got {t.duration!r})."
-            )
-        if t.planned_start is not None and (
-            not isinstance(t.planned_start, date) or isinstance(t.planned_start, datetime)
-        ):
-            raise InvalidScheduleInput(
-                f"Task {t.id!r} planned_start must be a date, not {type(t.planned_start).__name__}."
-            )
-        # actual_start/actual_finish (ADR-0136) feed the same date arithmetic as the
-        # span guard below (_start_from_finish / abs((actual - start).days)); a datetime
-        # there raises a bare TypeError mixing date and datetime, so reject it here for
-        # the documented InvalidScheduleInput contract (#1209).
-        for actual_name, actual_value in (
-            ("actual_start", t.actual_start),
-            ("actual_finish", t.actual_finish),
-        ):
-            if actual_value is not None and (
-                not isinstance(actual_value, date) or isinstance(actual_value, datetime)
-            ):
-                raise InvalidScheduleInput(
-                    f"Task {t.id!r} {actual_name} must be a date, "
-                    f"not {type(actual_value).__name__}."
-                )
-        # A recorded pair of actuals must be internally ordered. ADR-0136 keeps a
-        # completed task's actuals VERBATIM (early_start = actual_start,
-        # early_finish = actual_finish) so out-of-sequence reality — a task sitting
-        # before its predecessor — is surfaced rather than normalized away. But a
-        # single task claiming it finished BEFORE it started is not out-of-sequence
-        # truth; it is physically impossible input, in the same class as a negative
-        # duration. Left unchecked it produces an inverted early window
-        # (early_start > early_finish) that every downstream consumer — the Gantt
-        # renderer, float math, Monte Carlo, the API serializer — reads as garbage;
-        # the contract fuzz suite caught it as an _assert_schedule_invariants
-        # violation (#2119). Reject it here so the inversion never leaves the
-        # boundary, mirroring the three-point-estimate ordering guard below.
-        if (
-            t.actual_start is not None
-            and t.actual_finish is not None
-            and t.actual_start > t.actual_finish
-        ):
-            raise InvalidScheduleInput(
-                f"Task {t.id!r} actual_start must not be after actual_finish "
-                f"(got {t.actual_start.isoformat()} > {t.actual_finish.isoformat()})."
-            )
-        # calendar_id (ADR-0120 D3) is looked up as a dict key against the project's
-        # calendar registry; a non-string id can never match an entry and would
-        # silently fall back to the default calendar, so reject it explicitly to
-        # surface the caller's mistake rather than schedule on the wrong calendar.
-        if t.calendar_id is not None and not isinstance(t.calendar_id, str):
-            raise InvalidScheduleInput(
-                f"Task {t.id!r} calendar_id must be a string or None, "
-                f"not {type(t.calendar_id).__name__}."
-            )
-        _check_duration(t.duration, f"Task {t.id!r} duration")
-        for field_name, value in (
-            ("optimistic_duration", t.optimistic_duration),
-            ("most_likely_duration", t.most_likely_duration),
-            ("pessimistic_duration", t.pessimistic_duration),
-        ):
-            if value is not None:
-                _check_duration(value, f"Task {t.id!r} {field_name}")
-        # A complete three-point estimate must be ordered. An inconsistent one
-        # (most_likely outside [optimistic, pessimistic], or optimistic above
-        # pessimistic) used to be silently "handled" by _sample_pert's degenerate
-        # fallback — every run sampling the constant most_likely, possibly beyond
-        # the user's own pessimistic bound (#1069). Partial estimates are not
-        # validated: Monte Carlo only samples when all three are present.
-        if (
-            t.optimistic_duration is not None
-            and t.most_likely_duration is not None
-            and t.pessimistic_duration is not None
-        ):
-            o = t.optimistic_duration.days
-            m = t.most_likely_duration.days
-            pe = t.pessimistic_duration.days
-            if not o <= m <= pe:
-                raise InvalidScheduleInput(
-                    f"Task {t.id!r} three-point estimates must satisfy "
-                    f"optimistic <= most_likely <= pessimistic "
-                    f"(got {o} <= {m} <= {pe} days)."
-                )
-        if t.story_points is not None and (
-            isinstance(t.story_points, bool)
-            or not isinstance(t.story_points, (int, float))
-            or not math.isfinite(t.story_points)
-        ):
-            raise InvalidScheduleInput(
-                f"Task {t.id!r} story_points must be a finite number (got {t.story_points!r})."
-            )
-        # percent_complete (ADR-0132/0136) feeds _effective_duration_days
-        # (``int(duration * pct/100)``) and _is_complete (``pct >= 100``); a NaN there
-        # raised a bare ValueError from int(nan) and a non-numeric value a bare
-        # TypeError from the ``>= 100`` compare, while monte_carlo's own ``pct > 0``
-        # gate silently ignored the same NaN — so schedule() and monte_carlo()
-        # diverged on identical input (#1452). The from_dict/from_json path already
-        # rejects non-finite here (models.py); this closes the direct-object gap to
-        # match it. None is tolerated (read as not-started, as both passes already
-        # do) and finite out-of-range values (<0, >100) are deliberately *clamped*
-        # by both passes (``min(pct, 100)``; a negative pct reads as not-started),
-        # consistent with from_dict — so only non-finite / non-numeric input, which
-        # breaks the documented contract, is rejected here.
-        if t.percent_complete is not None and (
-            isinstance(t.percent_complete, bool)
-            or not isinstance(t.percent_complete, (int, float))
-            or not math.isfinite(t.percent_complete)
-        ):
-            raise InvalidScheduleInput(
-                f"Task {t.id!r} percent_complete must be a finite number "
-                f"(got {t.percent_complete!r})."
-            )
-        # planned_start (SNET) extends the schedule directly, so it is bounded by
-        # the same span cap as durations and lags — otherwise a pin in year 9999
-        # is accepted and drives the Monte Carlo working-day index build into a
-        # multi-million-entry walk (#1068).
-        if (
-            t.planned_start is not None
-            and (t.planned_start - project.start_date).days > MAX_PROJECT_SPAN_DAYS
-        ):
-            raise InvalidScheduleInput(
-                f"Task {t.id!r} planned_start is more than {MAX_PROJECT_SPAN_DAYS} days "
-                "after the project start; the schedule cannot be computed within a "
-                "representable date range."
-            )
+        _validate_task_date_types(t)
+        _validate_task_actual_order(t)
+        _validate_task_calendar_id(t)
+        _validate_task_durations(t)
+        _validate_task_numerics(t)
+        _validate_task_span(t, project.start_date)
+
+
+def _require_plain_date(value: object, label: str) -> None:
+    """Reject a ``datetime`` (or non-date) where a plain ``date`` is required.
+
+    ``datetime`` is a ``date`` subclass but mixes badly with date arithmetic — a
+    ``datetime`` in ``_start_from_finish`` or the span guard raises a bare TypeError
+    from deep inside a pass instead of the documented ``InvalidScheduleInput`` (#1209).
+    """
+    if value is None:
+        return
+    if not isinstance(value, date) or isinstance(value, datetime):
+        raise InvalidScheduleInput(f"{label} must be a date, not {type(value).__name__}.")
+
+
+def _validate_task_date_types(t: Task) -> None:
+    """Type guards for the direct-object API (#1209).
+
+    The ``from_dict``/``from_json`` path already coerces these, but a caller building
+    ``Task`` objects by hand can pass the wrong type, which otherwise leaks
+    AttributeError/TypeError from deep in a pass. ``actual_start``/``actual_finish``
+    (ADR-0136) feed the same date arithmetic as the span guard, so they are held to
+    the same contract as ``planned_start``.
+    """
+    if not isinstance(t.duration, timedelta):
+        raise InvalidScheduleInput(
+            f"Task {t.id!r} duration must be a timedelta (got {t.duration!r})."
+        )
+    _require_plain_date(t.planned_start, f"Task {t.id!r} planned_start")
+    _require_plain_date(t.actual_start, f"Task {t.id!r} actual_start")
+    _require_plain_date(t.actual_finish, f"Task {t.id!r} actual_finish")
+
+
+def _validate_task_actual_order(t: Task) -> None:
+    """A recorded pair of actuals must be internally ordered.
+
+    ADR-0136 keeps a completed task's actuals VERBATIM (early_start = actual_start,
+    early_finish = actual_finish) so out-of-sequence reality — a task sitting before
+    its predecessor — is surfaced rather than normalized away. But a single task
+    claiming it finished BEFORE it started is not out-of-sequence truth; it is
+    physically impossible input, in the same class as a negative duration. Left
+    unchecked it produces an inverted early window (early_start > early_finish) that
+    every downstream consumer — the Gantt renderer, float math, Monte Carlo, the API
+    serializer — reads as garbage; the contract fuzz suite caught it as an
+    ``_assert_schedule_invariants`` violation (#2119). Reject it here so the inversion
+    never leaves the boundary.
+    """
+    if t.actual_start is None or t.actual_finish is None:
+        return
+    if t.actual_start > t.actual_finish:
+        raise InvalidScheduleInput(
+            f"Task {t.id!r} actual_start must not be after actual_finish "
+            f"(got {t.actual_start.isoformat()} > {t.actual_finish.isoformat()})."
+        )
+
+
+def _validate_task_calendar_id(t: Task) -> None:
+    """``calendar_id`` (ADR-0120 D3) must be a string or None.
+
+    It is looked up as a dict key against the project's calendar registry; a
+    non-string id can never match an entry and would silently fall back to the default
+    calendar, so reject it explicitly rather than schedule on the wrong calendar.
+    """
+    if t.calendar_id is not None and not isinstance(t.calendar_id, str):
+        raise InvalidScheduleInput(
+            f"Task {t.id!r} calendar_id must be a string or None, "
+            f"not {type(t.calendar_id).__name__}."
+        )
+
+
+def _validate_task_durations(t: Task) -> None:
+    """Duration bounds, plus the ordering of a complete three-point estimate.
+
+    An inconsistent triple (most_likely outside [optimistic, pessimistic], or
+    optimistic above pessimistic) used to be silently "handled" by ``_sample_pert``'s
+    degenerate fallback — every run sampling the constant most_likely, possibly beyond
+    the user's own pessimistic bound (#1069). Partial estimates are not validated:
+    Monte Carlo only samples when all three are present.
+    """
+    _check_duration(t.duration, f"Task {t.id!r} duration")
+    for field_name, value in (
+        ("optimistic_duration", t.optimistic_duration),
+        ("most_likely_duration", t.most_likely_duration),
+        ("pessimistic_duration", t.pessimistic_duration),
+    ):
+        if value is not None:
+            _check_duration(value, f"Task {t.id!r} {field_name}")
+
+    if (
+        t.optimistic_duration is None
+        or t.most_likely_duration is None
+        or t.pessimistic_duration is None
+    ):
+        return
+    o = t.optimistic_duration.days
+    m = t.most_likely_duration.days
+    pe = t.pessimistic_duration.days
+    if not o <= m <= pe:
+        raise InvalidScheduleInput(
+            f"Task {t.id!r} three-point estimates must satisfy "
+            f"optimistic <= most_likely <= pessimistic "
+            f"(got {o} <= {m} <= {pe} days)."
+        )
+
+
+def _is_finite_number(value: object) -> bool:
+    """``True`` for a real finite int/float. ``bool`` is excluded deliberately."""
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+
+def _validate_task_numerics(t: Task) -> None:
+    """``story_points`` and ``percent_complete`` must be finite numbers when set.
+
+    ``percent_complete`` (ADR-0132/0136) feeds ``_effective_duration_days``
+    (``int(duration * pct/100)``) and ``_is_complete`` (``pct >= 100``); a NaN there
+    raised a bare ValueError from ``int(nan)`` and a non-numeric value a bare TypeError
+    from the ``>= 100`` compare, while monte_carlo's own ``pct > 0`` gate silently
+    ignored the same NaN — so ``schedule()`` and ``monte_carlo()`` diverged on
+    identical input (#1452). The ``from_dict``/``from_json`` path already rejects
+    non-finite here (models.py); this closes the direct-object gap to match it.
+
+    ``None`` is tolerated (read as not-started, as both passes already do) and finite
+    out-of-range values (<0, >100) are deliberately *clamped* by both passes
+    (``min(pct, 100)``; a negative pct reads as not-started), consistent with
+    ``from_dict`` — so only non-finite / non-numeric input is rejected.
+    """
+    if t.story_points is not None and not _is_finite_number(t.story_points):
+        raise InvalidScheduleInput(
+            f"Task {t.id!r} story_points must be a finite number (got {t.story_points!r})."
+        )
+    if t.percent_complete is not None and not _is_finite_number(t.percent_complete):
+        raise InvalidScheduleInput(
+            f"Task {t.id!r} percent_complete must be a finite number (got {t.percent_complete!r})."
+        )
+
+
+def _validate_task_span(t: Task, project_start: date) -> None:
+    """``planned_start`` (SNET) extends the schedule directly, so the span cap applies.
+
+    Otherwise a pin in year 9999 is accepted and drives the Monte Carlo working-day
+    index build into a multi-million-entry walk (#1068).
+    """
+    if (
+        t.planned_start is not None
+        and (t.planned_start - project_start).days > MAX_PROJECT_SPAN_DAYS
+    ):
+        raise InvalidScheduleInput(
+            f"Task {t.id!r} planned_start is more than {MAX_PROJECT_SPAN_DAYS} days "
+            "after the project start; the schedule cannot be computed within a "
+            "representable date range."
+        )
 
 
 def _validate_dependencies(project: Project) -> None:
