@@ -24,6 +24,21 @@ export interface WebhooksManagerProps {
   scope: IntegrationScope;
 }
 
+/** How long the "tested" confirmation stays lit on a webhook row. */
+const TEST_FLASH_MS = 3000;
+
+/**
+ * Updater that clears the "tested" flash for `id` — unless another webhook has
+ * since been tested and claimed the flag, in which case the newer flash wins and
+ * this stale timer must not cancel it.
+ *
+ * Module-scope so the timeout below doesn't have to nest the updater as a fifth
+ * function level (Sonar S2004).
+ */
+function clearedIfStill(id: string) {
+  return (current: string | null) => (current === id ? null : current);
+}
+
 export function WebhooksManager({ scope }: WebhooksManagerProps) {
   const { data: webhooks, isLoading, isError, refetch } = useWebhooks(scope);
   const del = useDeleteWebhook(scope);
@@ -38,7 +53,7 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
     test.mutate(wh.id, {
       onSuccess: () => {
         setTestedId(wh.id);
-        window.setTimeout(() => setTestedId((cur) => (cur === wh.id ? null : cur)), 3000);
+        window.setTimeout(() => setTestedId(clearedIfStill(wh.id)), TEST_FLASH_MS);
       },
     });
   }

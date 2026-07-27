@@ -125,6 +125,42 @@ function CalendarLegend() {
   );
 }
 
+/**
+ * One milestone diamond inside a day cell.
+ *
+ * Its own component rather than inline JSX because the day cell already sits
+ * three maps deep (weeks → days → marks); an inline `onClick` handler there is
+ * the fifth function level (Sonar S2004).
+ */
+function MilestoneMarkButton({
+  mark,
+  onTaskClick,
+}: {
+  mark: MilestoneMark;
+  onTaskClick: (taskId: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onTaskClick(mark.taskId)}
+      aria-label={`Milestone: ${mark.taskName}`}
+      title={mark.taskName}
+      className="flex items-center gap-1 mt-0.5 w-full text-left
+        focus-visible:outline-none focus-visible:ring-2
+        focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+    >
+      <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"
+        className="flex-shrink-0 text-brand-accent fill-current"
+      >
+        <polygon points="5,0 10,5 5,10 0,5" />
+      </svg>
+      <span className="text-xs text-brand-accent-dark truncate leading-tight">
+        {mark.taskName}
+      </span>
+    </button>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main grid
 // ---------------------------------------------------------------------------
@@ -268,25 +304,11 @@ export function CalendarGrid({
 
                       {/* Milestone diamonds in this day cell */}
                       {dayMarks.map((mark) => (
-                        <button
+                        <MilestoneMarkButton
                           key={mark.taskId}
-                          type="button"
-                          onClick={() => onTaskClick(mark.taskId)}
-                          aria-label={`Milestone: ${mark.taskName}`}
-                          title={mark.taskName}
-                          className="flex items-center gap-1 mt-0.5 w-full text-left
-                            focus-visible:outline-none focus-visible:ring-2
-                            focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-                        >
-                          <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"
-                            className="flex-shrink-0 text-brand-accent fill-current"
-                          >
-                            <polygon points="5,0 10,5 5,10 0,5" />
-                          </svg>
-                          <span className="text-xs text-brand-accent-dark truncate leading-tight">
-                            {mark.taskName}
-                          </span>
-                        </button>
+                          mark={mark}
+                          onTaskClick={onTaskClick}
+                        />
                       ))}
 
                       {overflow > 0 && (

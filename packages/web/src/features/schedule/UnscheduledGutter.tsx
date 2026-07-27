@@ -182,6 +182,40 @@ export function UnscheduledGutter({
     [],
   );
 
+  /**
+   * Promote a backlog idea onto the schedule (decision A2): the explicit
+   * NOT_STARTED skips the server's date-gated → IN_PROGRESS bump, so the chip
+   * lands deterministically in To Do.
+   *
+   * Lives at component scope rather than inline in the drop handler so its
+   * success/error callbacks aren't nested five function levels deep inside the
+   * `setDrag` updater inside `onUp` inside the effect (Sonar S2004).
+   */
+  const promoteBacklogTask = useCallback(
+    (task: Task, dropDate: string) => {
+      promoteMutation.mutate(
+        { id: task.id, projectId, planned_start: dropDate, status: 'NOT_STARTED' },
+        {
+          onSuccess: () => {
+            const label = formatShortDate(dropDate);
+            setActionToast({
+              message: `Added '${task.name}' to the ${itl.lower}, starting ${label}`,
+            });
+            if (ariaLiveRef.current) {
+              ariaLiveRef.current.textContent = `Added ${task.name} to the ${itl.lower}, starting ${label}.`;
+            }
+          },
+          onError: () => {
+            if (ariaLiveRef.current) {
+              ariaLiveRef.current.textContent = `Could not add ${task.name} to the ${itl.lower}.`;
+            }
+          },
+        },
+      );
+    },
+    [projectId, promoteMutation, setActionToast, itl.lower],
+  );
+
   // --- Global pointer move/up during drag ---
   useEffect(() => {
     if (!drag) return;
@@ -218,27 +252,7 @@ export function UnscheduledGutter({
           const dropDate = d.dropDate;
           const task = d.task;
           if (d.isBacklog) {
-            // Promote a backlog idea (decision A2): explicit NOT_STARTED skips
-            // the server's date-gated → IN_PROGRESS bump → deterministic To Do.
-            promoteMutation.mutate(
-              { id: task.id, projectId, planned_start: dropDate, status: 'NOT_STARTED' },
-              {
-                onSuccess: () => {
-                  const label = formatShortDate(dropDate);
-                  setActionToast({
-                    message: `Added '${task.name}' to the ${itl.lower}, starting ${label}`,
-                  });
-                  if (ariaLiveRef.current) {
-                    ariaLiveRef.current.textContent = `Added ${task.name} to the ${itl.lower}, starting ${label}.`;
-                  }
-                },
-                onError: () => {
-                  if (ariaLiveRef.current) {
-                    ariaLiveRef.current.textContent = `Could not add ${task.name} to the ${itl.lower}.`;
-                  }
-                },
-              },
-            );
+            promoteBacklogTask(task, dropDate);
           } else {
             // To Do path unchanged — only planned_start; server owns the bump.
             promoteMutation.mutate({ id: task.id, projectId, planned_start: dropDate });
@@ -261,7 +275,7 @@ export function UnscheduledGutter({
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [drag, canvasScrollRef, scaleData, projectId, promoteMutation, setActionToast, itl.lower]);
+  }, [drag, canvasScrollRef, scaleData, projectId, promoteMutation, promoteBacklogTask]);
 
   const handleSetDate = useCallback((task: Task, date: string) => {
     if (!navigator.onLine) return;
