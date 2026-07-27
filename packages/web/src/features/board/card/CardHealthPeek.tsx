@@ -1,5 +1,7 @@
 import type { Task } from '@/types';
 import { ClockIcon, WarningIcon } from '@/components/Icons';
+import { Tooltip } from '@/components/Tooltip';
+import { ABBREVIATIONS } from '@/lib/abbreviations';
 import { formatShortDate } from '@/features/schedule/scheduleUtils';
 import { fmtCurrency } from './cardFormat';
 import type { BoardCardView } from './useBoardCardView';
@@ -90,13 +92,22 @@ function SpiChip({ view }: { view: BoardCardView }) {
   if (!view.showSpiChip || view.spi === null) return null;
   return (
     <div className="mt-1">
-      <span
-        className={[CHIP, spiToneClass(view.spiBand)].join(' ')}
-        title={`Schedule Performance Index: ${view.spi.toFixed(2)}`}
-        aria-label={`SPI ${view.spi.toFixed(2)} — ${spiBandLabel(view.spiBand)}`}
-      >
-        <span className="tppm-mono">SPI {view.spi.toFixed(2)}</span>
-      </span>
+      {/* The `title` this replaces expanded the acronym on lingering hover only —
+          not on keyboard focus, not on touch (#2389, rule 287). `describe` stays
+          on because the tooltip says more than the aria-label: the label reports
+          the band, the tooltip explains what the ratio measures. */}
+      <Tooltip content={ABBREVIATIONS.SPI}>
+        <span
+          className={[
+            CHIP,
+            spiToneClass(view.spiBand),
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+          ].join(' ')}
+          aria-label={`SPI ${view.spi.toFixed(2)} — ${spiBandLabel(view.spiBand)}`}
+        >
+          <span className="tppm-mono">SPI {view.spi.toFixed(2)}</span>
+        </span>
+      </Tooltip>
     </div>
   );
 }
@@ -106,13 +117,18 @@ function CpiChip({ view }: { view: BoardCardView }) {
   if (!view.showCpiChip || view.cpi === null) return null;
   return (
     <div className="mt-1">
-      <span
-        className={[CHIP, cpiToneClass(view.cpi)].join(' ')}
-        title={`Cost Performance Index: ${view.cpi.toFixed(2)}`}
-        aria-label={`CPI ${view.cpi.toFixed(2)} — ${cpiLabel(view.cpi)}`}
-      >
-        <span className="tppm-mono">CPI {view.cpi.toFixed(2)}</span>
-      </span>
+      <Tooltip content={ABBREVIATIONS.CPI}>
+        <span
+          className={[
+            CHIP,
+            cpiToneClass(view.cpi),
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+          ].join(' ')}
+          aria-label={`CPI ${view.cpi.toFixed(2)} — ${cpiLabel(view.cpi)}`}
+        >
+          <span className="tppm-mono">CPI {view.cpi.toFixed(2)}</span>
+        </span>
+      </Tooltip>
     </div>
   );
 }

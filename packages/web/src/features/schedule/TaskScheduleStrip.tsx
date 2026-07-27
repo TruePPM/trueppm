@@ -5,6 +5,8 @@ import { useEffectiveDurationPolicy } from '@/hooks/useProject';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { PencilIcon, WarningIcon } from '@/components/Icons';
 import { Button } from '@/components/Button';
+import { Tooltip } from '@/components/Tooltip';
+import { ABBREVIATIONS } from '@/lib/abbreviations';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { parseDurationInput } from './buildMode/EditableCell';
 import { RecalcPercentChip } from './RecalcPercentChip';
@@ -36,18 +38,26 @@ interface CellProps {
   critical?: boolean;
   /** Hides the right divider on the last cell. */
   last?: boolean;
+  /** Plain-English reading for a jargon label, surfaced on hover/focus/tap. */
+  explain?: string;
 }
 
-function Cell({ label, children, critical, last }: CellProps) {
+function Cell({ label, children, critical, last, explain }: CellProps) {
+  const heading = (
+    <div className="text-xs tracking-wider uppercase text-neutral-text-secondary mb-0.5">
+      {label}
+    </div>
+  );
   return (
     <div
       role="group"
       aria-label={label}
       className={['px-3.5 py-2.5', last ? '' : 'border-r border-neutral-border'].join(' ')}
     >
-      <div className="text-xs tracking-wider uppercase text-neutral-text-secondary mb-0.5">
-        {label}
-      </div>
+      {/* "Float" is scheduling jargon — a PM knows it, the team member reading
+          their own task does not (rule 287). Only cells whose label is jargon
+          take `explain`; "Start" and "Finish" say what they mean. */}
+      {explain ? <Tooltip content={explain}>{heading}</Tooltip> : heading}
       <div
         className={[
           'tppm-mono text-sm font-semibold',
@@ -360,20 +370,27 @@ function StripFrame({
           label="Float"
           critical={task.isCritical || (typeof float === 'number' && float < 0)}
           last
+          explain={ABBREVIATIONS.FLOAT}
         >
           {float === null || float === undefined ? (
             dash
           ) : (
             <span className="inline-flex flex-wrap items-center gap-1">
-              <span
-                title={
-                  task.isCritical
-                    ? 'This task is on the critical path — a delay here delays the project end date'
-                    : undefined
-                }
-              >
-                {float}d{task.isCritical ? ' · CP' : ''}
-              </span>
+              {/* `CP` was explained by a native `title` only — invisible to keyboard
+                  focus and unreachable on touch, which is exactly the population
+                  least likely to already know the term (#2389, rule 287). The
+                  tooltip is attached only in the critical case, matching the
+                  conditional `title` it replaces: on a non-critical task there is
+                  no `CP` on screen and nothing to decode. */}
+              {task.isCritical ? (
+                <Tooltip content={ABBREVIATIONS.CRITICAL}>
+                  <span className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1">
+                    {float}d · CP
+                  </span>
+                </Tooltip>
+              ) : (
+                <span>{float}d</span>
+              )}
               <span
                 className="rounded-chip px-1 py-px text-xs uppercase bg-neutral-surface-sunken text-neutral-text-secondary font-normal"
                 aria-hidden="true"

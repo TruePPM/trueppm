@@ -372,6 +372,11 @@ export function OutlineMode({
           text-neutral-text-secondary"
         aria-hidden="true"
       >
+        {/* Deliberately NOT given the rule-287 `Tooltip` treatment its Flat/Grouped
+            siblings get: this row is `aria-hidden`, and a tooltip trigger is a tab
+            stop, which would put focusable content inside a hidden subtree. The
+            same abbreviations are explained on the Flat and Grouped headers, and
+            this outline's tree rows carry their own accessible names. */}
         <span className="w-4 flex-shrink-0" />
         <span className="w-4 flex-shrink-0" />
         <span className="w-14 flex-shrink-0 text-right pr-3">WBS</span>

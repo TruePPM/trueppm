@@ -43,6 +43,8 @@ import { BoardZoomControl } from './BoardZoomControl';
 import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
 import type { ApiSprint } from '@/types';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { Tooltip } from '@/components/Tooltip';
+import { ABBREVIATIONS } from '@/lib/abbreviations';
 import {
   ToolbarOverflowMenu,
   type ToolbarOverflowItem,
@@ -818,7 +820,14 @@ export function CalmToolbar(props: CalmToolbarProps) {
               ariaLabel="Cap tall cells — collapse calm overflow past six cards per cell"
             />
             <label className="flex items-center justify-between gap-2 px-2 py-1 text-xs text-neutral-text-primary">
-              <span>EVM</span>
+              {/* A bare "EVM" in a display menu is the hardest kind of token to
+                  decode — there is no value beside it to infer meaning from
+                  (#2389, rule 287). */}
+              <Tooltip content={ABBREVIATIONS.EVM}>
+                <span className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1">
+                  EVM
+                </span>
+              </Tooltip>
               <select
                 value={props.evmMode}
                 onChange={(e) => props.onEvmChange(e.target.value as EvmMode)}
