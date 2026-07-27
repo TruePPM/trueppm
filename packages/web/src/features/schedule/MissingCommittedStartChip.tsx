@@ -145,7 +145,11 @@ export function MissingCommittedStartChip({
             aria-labelledby={headingId}
             tabIndex={-1}
             style={popoverStyle}
-            className="z-50 flex flex-col gap-2 rounded-lg border border-semantic-at-risk bg-semantic-at-risk-bg p-3 shadow-pop focus-visible:outline-none motion-safe:animate-empty-state-in"
+            // Opaque `bg-neutral-surface`, not the translucent `bg-semantic-at-risk-bg`
+            // (web-rule 286): this is portaled over the task list, so a 10–15%-alpha
+            // fill lets the rows behind it read straight through the copy. Warning
+            // tone is carried by the border, icon and heading instead.
+            className="z-50 flex flex-col gap-2 rounded-lg border border-semantic-at-risk bg-neutral-surface p-3 shadow-pop focus-visible:outline-none motion-safe:animate-empty-state-in"
           >
             <h2 id={headingId} className="flex items-center gap-1.5 text-sm font-semibold text-semantic-at-risk">
               <WarningIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
