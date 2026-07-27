@@ -237,7 +237,8 @@ def test_member_cannot_read_or_write_detail(member: Any, admin: Any) -> None:
     client = api_client(member)
     assert client.get(DETAIL).status_code == 403
     assert client.put(DETAIL, {"display_name": "x"}, format="json").status_code == 403
-    assert client.delete(DETAIL).status_code == 403
+    deleted = client.delete(DETAIL)
+    assert deleted.status_code == 403
 
 
 @pytest.mark.django_db

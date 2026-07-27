@@ -140,7 +140,8 @@ def test_pin_then_unpin_a_project(member, project):
     assert c.post(_pin_url(str(project.pk))).status_code == 200
     assert c.get(f"/api/v1/projects/{project.pk}/").data["is_pinned"] is True
 
-    assert c.delete(_pin_url(str(project.pk))).status_code == 204
+    unpinned = c.delete(_pin_url(str(project.pk)))
+    assert unpinned.status_code == 204
     assert c.get(f"/api/v1/projects/{project.pk}/").data["is_pinned"] is False
 
 
@@ -152,9 +153,11 @@ def test_pin_is_idempotent_in_both_directions(member, project):
     assert c.post(_pin_url(str(project.pk))).status_code == 200
     assert UserPin.objects.filter(user=member, project=project).count() == 1
 
-    assert c.delete(_pin_url(str(project.pk))).status_code == 204
+    first_unpin = c.delete(_pin_url(str(project.pk)))
+    assert first_unpin.status_code == 204
     # Unpinning something already unpinned is a 204, not a 404.
-    assert c.delete(_pin_url(str(project.pk))).status_code == 204
+    repeat_unpin = c.delete(_pin_url(str(project.pk)))
+    assert repeat_unpin.status_code == 204
 
 
 @pytest.mark.django_db
@@ -201,10 +204,12 @@ def test_pin_then_unpin_a_program(program_member, program):
     assert c.post(_program_pin_url(str(program.pk))).status_code == 200
     assert UserPin.objects.filter(user=program_member, program=program).count() == 1
 
-    assert c.delete(_program_pin_url(str(program.pk))).status_code == 204
+    first_unpin = c.delete(_program_pin_url(str(program.pk)))
+    assert first_unpin.status_code == 204
     assert UserPin.objects.filter(user=program_member, program=program).count() == 0
     # Unpinning something already unpinned is a 204, not a 404.
-    assert c.delete(_program_pin_url(str(program.pk))).status_code == 204
+    repeat_unpin = c.delete(_program_pin_url(str(program.pk)))
+    assert repeat_unpin.status_code == 204
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +257,8 @@ def test_at_cap_a_user_can_still_unpin_and_repin(member, project):
     assert c.post(_pin_url(str(project.pk))).status_code == 200
     # Already pinned — a repeat must not trip the cap.
     assert c.post(_pin_url(str(project.pk))).status_code == 200
-    assert c.delete(_pin_url(str(project.pk))).status_code == 204
+    unpinned = c.delete(_pin_url(str(project.pk)))
+    assert unpinned.status_code == 204
     assert c.post(_pin_url(str(project.pk))).status_code == 200
 
 

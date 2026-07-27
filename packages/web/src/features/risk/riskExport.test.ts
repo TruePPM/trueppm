@@ -34,7 +34,13 @@ function makeRisk(overrides: Partial<Risk> = {}): Risk {
 function parseCsvLine(line: string): string[] {
   const cells: string[] = [];
   let i = 0;
-  while (i <= line.length) {
+  // A field is "owed" at the start of the line and after every comma we consume,
+  // which is how a trailing comma still yields a final empty cell. Driving the
+  // loop on that instead of `i <= line.length` is what stops a quoted last field
+  // from falling through for one more pass and appending a phantom empty cell.
+  let fieldPending = true;
+  while (fieldPending) {
+    fieldPending = false;
     if (line[i] === '"') {
       i++; // opening quote
       let cell = '';
@@ -44,12 +50,13 @@ function parseCsvLine(line: string): string[] {
         else { cell += line[i++]; }
       }
       cells.push(cell);
-      if (line[i] === ',') i++;
+      if (line[i] === ',') { i++; fieldPending = true; }
     } else {
       const end = line.indexOf(',', i);
       if (end === -1) { cells.push(line.slice(i)); break; }
       cells.push(line.slice(i, end));
       i = end + 1;
+      fieldPending = true;
     }
   }
   return cells;
@@ -60,6 +67,29 @@ function parseCsv(csv: string): string[][] {
   const clean = csv.replace(/^\uFEFF/, '');
   return clean.split('\r\n').map(parseCsvLine);
 }
+
+// ---------------------------------------------------------------------------
+// parseCsvLine — the harness itself
+// ---------------------------------------------------------------------------
+
+// Every assertion below about column counts and cell contents is only as good as
+// this helper. It shipped with an off-by-one that appended a phantom empty cell
+// whenever a row's last field was quoted — which is most rows here, since titles
+// and descriptions get quoted — so the shape being asserted was wrong (#2475).
+describe('parseCsvLine — test harness', () => {
+  it.each([
+    ['a,b', ['a', 'b']],
+    ['a,"b"', ['a', 'b']],
+    ['"a",b', ['a', 'b']],
+    ['"a,b",c', ['a,b', 'c']],
+    ['a,b,', ['a', 'b', '']],
+    ['a,"b",', ['a', 'b', '']],
+    ['"say ""hi"""', ['say "hi"']],
+    ['', ['']],
+  ])('parses %j', (line, expected) => {
+    expect(parseCsvLine(line)).toEqual(expected);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // generateRisksCSV — pure string generation (no DOM / Blob needed)
