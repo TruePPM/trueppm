@@ -12321,6 +12321,75 @@
                 }
             }
         },
+        "/api/v1/programs/import/validate/": {
+            "post": {
+                "operationId": "v1_programs_import_validate_create",
+                "description": "Runs the full seed validator — JSON-Schema conformance, referential integrity, node budgets, three-point estimate ordering — and returns every diagnostic it finds. **Persists nothing.**\n\nA document that fails validation is `200 {\"valid\": false}`, not a `400`: the request succeeded, the *document* is what failed, and the caller needs the diagnostics either way. A `400` here means the request itself was unusable (upload over the size ceiling).\n\nSame authorization as `POST /programs/import/` — a dry run parses an untrusted document and is not a lighter-privilege surface.",
+                "summary": "Dry-run: validate a JSON seed bundle without importing it",
+                "tags": [
+                    "import-export"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SeedValidateResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/programs/load-sample/": {
             "post": {
                 "operationId": "v1_programs_load_sample_create",
@@ -52106,6 +52175,51 @@
                 ],
                 "type": "string",
                 "description": "* `legacy:full` - legacy:full\n* `mcp:read` - mcp:read"
+            },
+            "SeedValidateResponse": {
+                "type": "object",
+                "properties": {
+                    "valid": {
+                        "type": "boolean"
+                    },
+                    "errors": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "schema_version": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "program_slug": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "program_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "project_count": {
+                        "type": "integer"
+                    },
+                    "task_count": {
+                        "type": "integer"
+                    },
+                    "resource_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "errors",
+                    "program_name",
+                    "program_slug",
+                    "project_count",
+                    "resource_count",
+                    "schema_version",
+                    "task_count",
+                    "valid"
+                ]
             },
             "ShareLink": {
                 "type": "object",

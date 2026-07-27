@@ -3,6 +3,7 @@
 Usage::
 
     python manage.py import_seed <path> [--owner <username>] [--create-users]
+    python manage.py import_seed <path> --check
 
 Loads a seed document into the database via ``import_seed``. Re-running with the
 same file rebuilds the program subtree idempotently on the program slug; note
@@ -11,6 +12,12 @@ so re-import can accumulate global resource rows — the deliberate cost of neve
 rebinding a pre-existing resource into the importer's program (#1004).
 ``--create-users`` mints any accounts the seed references that do not yet exist
 (intended for ``make seed`` and local demos, not production).
+
+``--check`` is the dry run (#2418): validate the file, print every diagnostic,
+exit 0/1, and touch neither the database nor the program slug the document
+names. Because the import is wipe-then-recreate on that slug (ADR-0109), this
+is how an operator answers *"will this be accepted?"* before pointing a
+destructive operation at a live program.
 """
 
 from __future__ import annotations
@@ -22,13 +29,13 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from trueppm_api.apps.projects.models import Project
-from trueppm_api.apps.projects.seed import SeedValidationError, import_seed
+from trueppm_api.apps.projects.seed import SeedValidationError, import_seed, inspect_seed
 
 User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = "Import a TruePPM JSON seed file into the database."
+    help = "Import a TruePPM JSON seed file into the database, or --check it without importing."
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("path", help="Path to the JSON seed file.")
@@ -41,6 +48,14 @@ class Command(BaseCommand):
             action="store_true",
             help="Create accounts referenced by the seed if they do not exist.",
         )
+        parser.add_argument(
+            "--check",
+            action="store_true",
+            help=(
+                "Validate the file and report every problem without importing it. "
+                "Exits 1 if the document is invalid. Writes nothing."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         path = options["path"]
@@ -52,6 +67,14 @@ class Command(BaseCommand):
         except json.JSONDecodeError as exc:
             raise CommandError(f"Seed file is not valid JSON: {exc}") from exc
 
+        if options["check"]:
+            self._check(path, payload)
+            return
+
+        # Owner resolution is deliberately *after* the --check branch: a dry run
+        # must work on an instance with no superuser (a self-hoster validating a
+        # file before the first real import), and resolving an owner it would
+        # never use would fail that case for no reason.
         owner = self._resolve_owner(options.get("owner"))
 
         try:
@@ -67,6 +90,37 @@ class Command(BaseCommand):
                 f"with {project_count} project(s)."
             )
         )
+
+    def _check(self, path: str, payload: Any) -> None:
+        """Report validation diagnostics for ``payload`` and exit 0/1.
+
+        Leads with what the file *claims* to be, because the first thing a dry
+        run has to answer is "did I grab the right file?" — the program slug in
+        particular, since that is what the real import would wipe and rebuild.
+        """
+        report = inspect_seed(payload)
+
+        self.stdout.write(f"Checked {path}")
+        self.stdout.write(f"  schema_version: {report.schema_version or '(missing)'}")
+        self.stdout.write(f"  program:        {report.program_name or '(unnamed)'}")
+        self.stdout.write(f"  slug:           {report.program_slug or '(missing)'}")
+        self.stdout.write(
+            f"  contents:       {report.project_count} project(s), "
+            f"{report.task_count} task(s), {report.resource_count} resource(s)"
+        )
+
+        if report.valid:
+            self.stdout.write(self.style.SUCCESS("Valid. No problems found."))
+            return
+
+        count = len(report.errors)
+        noun = "problem" if count == 1 else "problems"
+        self.stdout.write("")
+        for error in report.errors:
+            self.stdout.write(self.style.ERROR(f"  {error}"))
+        # CommandError is how a management command exits non-zero without a
+        # traceback; --check's contract is an exit code a CI job can gate on.
+        raise CommandError(f"Invalid seed document: {count} {noun} found.")
 
     def _resolve_owner(self, username: str | None) -> Any:
         if username:

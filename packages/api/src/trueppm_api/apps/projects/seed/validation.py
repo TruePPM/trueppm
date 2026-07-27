@@ -10,6 +10,19 @@ Both the structural and referential phases collect *all* failures before
 raising, so a seed author fixing a hand-written file sees every problem at
 once rather than one-per-run. Every error is anchored to a JSON path so the
 offending location is obvious.
+
+Two entry points share one implementation:
+
+``inspect_seed``
+    Pure and total — never raises for a bad document. Returns a
+    :class:`SeedReport` carrying every diagnostic plus what the file *claims*
+    to be (version, program slug, entity counts). This is what the dry-run
+    endpoint and ``manage.py import_seed --check`` call (#2418).
+``validate_seed``
+    The original raise-on-invalid contract the importer depends on, now a thin
+    wrapper over ``inspect_seed``. Its behavior is unchanged in the only way
+    that matters: a document that failed before still fails, with at least the
+    same diagnostics.
 """
 
 from __future__ import annotations
@@ -77,30 +90,133 @@ def _json_path(absolute_path: Any) -> str:
     return out
 
 
-def validate_seed(payload: Any) -> None:
-    """Validate a parsed seed document. Returns ``None`` on success.
+@dataclass(frozen=True)
+class SeedReport:
+    """The full result of inspecting a seed document, without importing it.
+
+    ``errors`` is the same JSON-path-anchored list :class:`SeedValidationError`
+    carries. The remaining fields echo back what the *document claims to be* so
+    an operator running a dry run can confirm they grabbed the right file
+    before pointing a wipe-then-recreate import at a live program slug
+    (ADR-0109). They are read defensively: a malformed document still produces
+    a report, with ``None``/``0`` where a claim could not be read.
+    """
+
+    valid: bool
+    errors: list[str]
+    schema_version: str | None
+    program_slug: str | None
+    program_name: str | None
+    project_count: int
+    task_count: int
+    resource_count: int
+
+
+def inspect_seed(payload: Any) -> SeedReport:
+    """Inspect a parsed seed document and report every problem found.
+
+    Total by construction — a document this rejects still yields a report
+    rather than an exception, because the dry-run caller needs the diagnostics
+    precisely when the document is bad (#2418).
 
     Args:
-        payload: the already-parsed JSON (a ``dict``), not a raw string.
+        payload: the already-parsed JSON, not a raw string. Any type is
+            accepted; a non-object is itself reported as a diagnostic.
 
-    Raises:
-        SeedValidationError: with one message per problem found.
+    Returns:
+        A :class:`SeedReport` whose ``valid`` is ``True`` only when ``errors``
+        is empty.
     """
     if not isinstance(payload, dict):
-        raise SeedValidationError(["$: seed document must be a JSON object"])
+        return SeedReport(
+            valid=False,
+            errors=["$: seed document must be a JSON object"],
+            schema_version=None,
+            program_slug=None,
+            program_name=None,
+            project_count=0,
+            task_count=0,
+            resource_count=0,
+        )
 
-    # Version gate first — a mismatched major means the rest of the schema may
-    # not apply, so fail fast with a clear message before structural checks.
+    errors = _document_errors(payload)
+    return SeedReport(
+        valid=not errors,
+        errors=errors,
+        schema_version=payload.get("schema_version")
+        if isinstance(payload.get("schema_version"), str)
+        else None,
+        **_claimed_shape(payload),
+    )
+
+
+def _claimed_shape(payload: dict[str, Any]) -> dict[str, Any]:
+    """Read the program identity + entity counts a document claims to carry.
+
+    Every access is defensive: this runs on documents that have already failed
+    validation, where ``program`` may be absent or the wrong type entirely.
+    """
+    program = payload.get("program")
+    program = program if isinstance(program, dict) else {}
+    projects = payload.get("projects")
+    projects = projects if isinstance(projects, list) else []
+    resources = payload.get("resources")
+    resources = resources if isinstance(resources, list) else []
+
+    task_count = 0
+    for project in projects:
+        if isinstance(project, dict) and isinstance(project.get("tasks"), list):
+            task_count += len(project["tasks"])
+
+    return {
+        "program_slug": program.get("slug") if isinstance(program.get("slug"), str) else None,
+        "program_name": program.get("name") if isinstance(program.get("name"), str) else None,
+        "project_count": len(projects),
+        "task_count": task_count,
+        "resource_count": len(resources),
+    }
+
+
+def _document_errors(payload: dict[str, Any]) -> list[str]:
+    """Collect every diagnostic for an object-shaped document.
+
+    Version handling is the one place the passes are *not* purely additive, and
+    the two failure modes are deliberately asymmetric (#2418):
+
+    - **Missing** ``schema_version`` — the version is reported, and the
+      structural pass still runs against the newest supported schema. v2 is an
+      additive superset of v1 (ADR-0114), so a v1-shaped document validated
+      against v2 still passes structurally; running it is what lets a
+      version-less file report its *other* twenty problems in the same pass
+      instead of hiding them behind one line. The version is injected into a
+      shallow copy for that pass only — both bundled schemas list
+      ``schema_version`` as required, so without the injection the schema would
+      re-report the same problem in less specific language.
+    - **Unsupported** major — reported, and the structural pass is *skipped*.
+      Here there is no defensible schema to substitute: checking a 3.x document
+      against the v2 schema would bury the one diagnostic that matters under a
+      wall of misleading ones.
+    """
     version = payload.get("schema_version")
     if version is None:
-        raise SeedValidationError(["$.schema_version: required and missing"])
+        latest = SUPPORTED_MAJORS[-1]
+        return [
+            "$.schema_version: required and missing",
+            *_schema_errors({**payload, "schema_version": f"{latest}.0"}, latest),
+        ]
+
     major = version.split(".")[0] if isinstance(version, str) else None
     if major not in _SCHEMA_PATH_BY_MAJOR:
         supported = ", ".join(f"{m}.x" for m in SUPPORTED_MAJORS)
-        raise SeedValidationError(
-            [f"$.schema_version: unsupported version {version!r}; this build supports {supported}"]
-        )
+        return [
+            f"$.schema_version: unsupported version {version!r}; this build supports {supported}"
+        ]
 
+    return _schema_errors(payload, major)
+
+
+def _schema_errors(payload: dict[str, Any], major: str) -> list[str]:
+    """Run the structural pass, then the semantic passes it is a precondition for."""
     errors: list[str] = [
         f"{_json_path(e.absolute_path)}: {e.message}"
         for e in sorted(_validator(major).iter_errors(payload), key=lambda e: list(e.absolute_path))
@@ -114,8 +230,21 @@ def validate_seed(payload: Any) -> None:
         if major == "2":
             errors.extend(_event_errors(payload))
 
-    if errors:
-        raise SeedValidationError(errors)
+    return errors
+
+
+def validate_seed(payload: Any) -> None:
+    """Validate a parsed seed document. Returns ``None`` on success.
+
+    Args:
+        payload: the already-parsed JSON (a ``dict``), not a raw string.
+
+    Raises:
+        SeedValidationError: with one message per problem found.
+    """
+    report = inspect_seed(payload)
+    if not report.valid:
+        raise SeedValidationError(report.errors)
 
 
 # Which target kind each event action addresses. Every replayed action carries a

@@ -3,7 +3,9 @@
 The seed format and its design rationale are specified in ADR-0109. This
 subpackage owns the three consumers of that format:
 
-- ``validation`` (#614) — ``validate_seed`` and the bundled JSON Schema.
+- ``validation`` (#614) — ``validate_seed`` / ``inspect_seed`` and the bundled
+  JSON Schema. ``inspect_seed`` is the non-raising form backing the dry run
+  (#2418).
 - ``importer`` (#615) — load a seed document into a workspace.
 - ``exporter`` (#616) — serialize a live program back to the seed format.
 """
@@ -14,7 +16,9 @@ from typing import TYPE_CHECKING
 
 from trueppm_api.apps.projects.seed.validation import (
     SUPPORTED_MAJORS,
+    SeedReport,
     SeedValidationError,
+    inspect_seed,
     validate_seed,
 )
 
@@ -47,9 +51,11 @@ def __getattr__(name: str) -> object:
 
 __all__ = [
     "SUPPORTED_MAJORS",
+    "SeedReport",
     "SeedValidationError",
     "export_program",
     "export_project",
     "import_seed",
+    "inspect_seed",
     "validate_seed",
 ]
