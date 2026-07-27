@@ -13,16 +13,12 @@ import { useBulkDeleteTasks, useBulkRestoreTasks } from '@/hooks/useTaskMutation
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { exportTasksToCsv } from '@/utils/exportCsv';
-import { TaskFormModal } from '@/features/board/TaskFormModal';
 import type { Task, TaskStatus } from '@/types';
 import { ModeToggle } from './ModeToggle';
 import { GroupBySelector } from './GroupBySelector';
 import { ChipStrip } from './ChipStrip';
 import { ConfirmDeleteStrip } from './ConfirmDeleteStrip';
 import { GridEmptyState, GridFilteredEmptyState } from './GridEmptyState';
-import { FlatMode } from './FlatMode';
-import { GroupedMode } from './GroupedMode';
-import { OutlineMode } from './OutlineMode';
 import {
   loadMode,
   saveMode,
@@ -32,30 +28,18 @@ import {
   type GridGroupBy,
 } from './persistence';
 import { methodologyDefaultMode } from './methodologyDefaults';
+import { useGridUrlFilters } from './useGridUrlFilters';
+import {
+  GridAddTaskModal,
+  GridFacetRow,
+  GridLoadingSkeleton,
+  GridModeBody,
+  GridToast,
+} from './GridViewParts';
 import { emptyFilters, matchesFilters, type GridFilterState } from './filters';
-import { CheckIcon } from '@/components/Icons';
-import { LabelFacet } from '@/components/filters/LabelFacet';
-import { OwnerFacet } from '@/components/filters/OwnerFacet';
-import { StatusFacet } from '@/components/filters/StatusFacet';
-import {
-  LABEL_PARAM,
-  countTasksByLabel,
-  parseLabelIds,
-  pruneUnknownLabelIds,
-  serializeLabelIds,
-} from '@/components/filters/labelFilter';
-import {
-  OWNER_PARAM,
-  STATUS_PARAM,
-  parseIdList,
-  serializeIdList,
-} from '@/components/filters/facetParams';
+import { countTasksByLabel, pruneUnknownLabelIds } from '@/components/filters/labelFilter';
 import { countTasksByOwner, ownerDisplayName } from '@/components/filters/ownerFilter';
-import {
-  countTasksByStatus,
-  parseStatuses,
-  statusDisplayName,
-} from '@/components/filters/statusFilter';
+import { countTasksByStatus, statusDisplayName } from '@/components/filters/statusFilter';
 import { useLabels } from '@/hooks/useLabels';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { useFilterAnnouncement } from '@/hooks/useFilterAnnouncement';
@@ -73,6 +57,90 @@ type DeletePhase = 'idle' | 'confirming' | 'deleting';
  * mode falls back to a methodology-specific value when no persisted selection
  * exists (WATERFALL/HYBRID → outline, AGILE → flat).
  */
+interface FacetDescriptor {
+  key: string;
+  label: string;
+  only: Partial<GridFilterState>;
+  clear: Partial<GridFilterState>;
+  onDrop: () => void;
+}
+
+/**
+ * The currently-applied facets, described so the filtered-empty state can say what
+ * each one costs.
+ *
+ * `only` is that facet applied alone (how many rows would it show by itself);
+ * `clear` is everything-except-it (how many rows come back if you drop it). The
+ * caller counts against both.
+ */
+function activeFacetDescriptors(args: {
+  search: string;
+  ownerIds: string[];
+  statuses: TaskStatus[];
+  appliedLabelIds: string[];
+  overdue: boolean;
+  ownerChips: { name: string }[];
+  statusChips: { name: string }[];
+  labelChips: { name: string }[];
+  onClearSearch: () => void;
+  onClearOwners: () => void;
+  onClearStatuses: () => void;
+  onClearLabels: () => void;
+  onClearOverdue: () => void;
+}): FacetDescriptor[] {
+  const active: FacetDescriptor[] = [];
+  if (args.search)
+    active.push({
+      key: 'search',
+      label: `"${args.search}"`,
+      only: { search: args.search },
+      clear: { search: '' },
+      onDrop: args.onClearSearch,
+    });
+  if (args.ownerIds.length > 0)
+    active.push({
+      key: 'owner',
+      label: `Owner: ${summarizeValues(args.ownerChips.map((c) => c.name))}`,
+      only: { ownerIds: args.ownerIds },
+      clear: { ownerIds: [] },
+      onDrop: args.onClearOwners,
+    });
+  if (args.statuses.length > 0)
+    active.push({
+      key: 'status',
+      label: `Status: ${summarizeValues(args.statusChips.map((c) => c.name))}`,
+      only: { statuses: args.statuses },
+      clear: { statuses: [] },
+      onDrop: args.onClearStatuses,
+    });
+  if (args.appliedLabelIds.length > 0)
+    active.push({
+      key: 'label',
+      label: `Label: ${summarizeValues(args.labelChips.map((c) => c.name))}`,
+      only: { labelIds: args.appliedLabelIds },
+      clear: { labelIds: [] },
+      onDrop: args.onClearLabels,
+    });
+  if (args.overdue)
+    active.push({
+      key: 'overdue',
+      label: 'Overdue',
+      only: { dueFilter: 'overdue' as const },
+      clear: { dueFilter: 'all' as const },
+      onDrop: args.onClearOverdue,
+    });
+  return active;
+}
+
+/** Live-region copy for a mode switch. */
+function modeSwitchAnnouncement(next: GridMode, taskCount: number, groupBy: GridGroupBy): string {
+  if (next === 'flat') {
+    return `Switched to flat mode. ${taskCount} task${taskCount === 1 ? '' : 's'} shown.`;
+  }
+  if (next === 'outline') return 'Switched to outline mode.';
+  return `Switched to grouped mode. Grouped by ${groupBy}.`;
+}
+
 export function GridView() {
   const projectId = useProjectId() ?? null;
   const project = useProject(projectId);
@@ -143,63 +211,27 @@ export function GridView() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  // Filter state — search, owner, status, due. Seeded from the URL; owner+status
-  // also set programmatically; the chip strip exposes the active set with × to
-  // clear individual filters.
-  const [search, setSearch] = useState(() => searchParams.get('q') ?? '');
-  const [searchDraft, setSearchDraft] = useState(() => searchParams.get('q') ?? '');
-  // Owner and Status are multi-select as of #2387 (ADR-0624). A pre-existing
-  // single-value link is a one-item list, so `?owner=Alice&status=IN_PROGRESS`
-  // parses and resolves exactly as it did before.
-  const [ownerIds, setOwnerIds] = useState(() => parseIdList(searchParams.get(OWNER_PARAM)));
-  const [statuses, setStatuses] = useState<TaskStatus[]>(() =>
-    parseStatuses(parseIdList(searchParams.get(STATUS_PARAM))),
-  );
-  // Label facet (`?fl=`, ADR-0620). The param name is the Board's, adopted
-  // verbatim so one bookmark format works on every view — and this is purely
-  // additive: an existing `?owner=…&status=…` link with no `fl` is untouched.
-  const [labelIds, setLabelIds] = useState(() => parseLabelIds(searchParams.get(LABEL_PARAM)));
-  const ownerTriggerRef = useRef<HTMLButtonElement>(null);
-  const statusTriggerRef = useRef<HTMLButtonElement>(null);
-  const labelTriggerRef = useRef<HTMLButtonElement>(null);
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // One panel at a time: opening Status closes Owner. Held here rather than in
-  // each facet because only the shared parent can know a sibling opened.
-  const [openFacet, setOpenFacet] = useState<'owner' | 'status' | 'label' | null>(null);
-
-  // Mirror the applied filters into the URL. Empty values drop their key so a
-  // clean grid has a clean URL. `search` (not the debounced `searchDraft`) is the
-  // authoritative value, so the link reflects what the grid is actually showing.
-  useEffect(() => {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        const setParam = (key: string, value: string) => {
-          if (value) next.set(key, value);
-          else next.delete(key);
-        };
-        setParam('q', search);
-        setParam(OWNER_PARAM, serializeIdList(ownerIds));
-        setParam(STATUS_PARAM, serializeIdList(statuses));
-        setParam(LABEL_PARAM, serializeLabelIds(labelIds));
-        return next;
-      },
-      { replace: true },
-    );
-  }, [search, ownerIds, statuses, labelIds, setSearchParams]);
-
-  // `?due=overdue` deep-link — the Overview "Tasks late" card drills in here so
-  // the count it shows and the rows the grid shows use the same late definition
-  // (filters.ts `isTaskOverdue` mirrors the server's `tasks_late_count`). The URL
-  // param is the source of truth so the filter is shareable and survives reload.
-  const overdue = searchParams.get('due') === 'overdue';
-
-  const setOverdue = useCallback(
-    (next: boolean) => {
-      setSearchParam(setSearchParams, 'due', next ? 'overdue' : null);
-    },
-    [setSearchParams],
-  );
+  // Filter vocabulary + URL round-trip (#2046) — see useGridUrlFilters.
+  const {
+    search,
+    searchDraft,
+    ownerIds,
+    statuses,
+    labelIds,
+    overdue,
+    setOwnerIds,
+    setStatuses,
+    setLabelIds,
+    setOverdue,
+    onSearchChange: handleSearchChange,
+    clearSearch: handleClearSearch,
+    clearAll: handleClearFilters,
+    openFacet,
+    setOpenFacet,
+    ownerTriggerRef,
+    statusTriggerRef,
+    labelTriggerRef,
+  } = useGridUrlFilters();
 
   // Arriving via the overdue drill-down shows the late tasks as a single clean,
   // clickable flat list rather than scattered through the outline/grouped
@@ -305,23 +337,6 @@ export function GridView() {
     if (!gridTaskConsumedRef.current) return;
     setSearchParam(setSearchParams, 'task', drawerTask?.id ?? null);
   }, [drawerTask, setSearchParams]);
-
-  const handleSearchChange = (v: string) => {
-    setSearchDraft(v);
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => setSearch(v), 250);
-  };
-
-  // "Clear all" — every facet, labels included, so the strip unmounts entirely
-  // and reclaims its row-2 height.
-  const handleClearFilters = () => {
-    setSearch('');
-    setSearchDraft('');
-    setOwnerIds([]);
-    setStatuses([]);
-    setOverdue(false);
-    setLabelIds([]);
-  };
 
   // Imperative expand-all / collapse-all signal for OutlineMode.
   const [expandAllCounter, setExpandAllCounter] = useState(0);
@@ -462,58 +477,26 @@ export function GridView() {
    */
   const emptyStateFacets = useMemo(() => {
     if (!tasks || filteredCount > 0) return [];
-    const base = emptyFilters();
-    const active: {
-      key: string;
-      label: string;
-      only: Partial<GridFilterState>;
-      clear: Partial<GridFilterState>;
-      onDrop: () => void;
-    }[] = [];
-    if (search)
-      active.push({
-        key: 'search',
-        label: `"${search}"`,
-        only: { search },
-        clear: { search: '' },
-        onDrop: () => {
-          setSearch('');
-          setSearchDraft('');
-        },
-      });
-    if (ownerIds.length > 0)
-      active.push({
-        key: 'owner',
-        label: `Owner: ${summarizeValues(ownerChips.map((c) => c.name))}`,
-        only: { ownerIds },
-        clear: { ownerIds: [] },
-        onDrop: () => setOwnerIds([]),
-      });
-    if (statuses.length > 0)
-      active.push({
-        key: 'status',
-        label: `Status: ${summarizeValues(statusChips.map((c) => c.name))}`,
-        only: { statuses },
-        clear: { statuses: [] },
-        onDrop: () => setStatuses([]),
-      });
-    if (appliedLabelIds.length > 0)
-      active.push({
-        key: 'label',
-        label: `Label: ${summarizeValues(labelChips.map((c) => c.name))}`,
-        only: { labelIds: appliedLabelIds },
-        clear: { labelIds: [] },
-        onDrop: () => setLabelIds([]),
-      });
-    if (overdue)
-      active.push({
-        key: 'overdue',
-        label: 'Overdue',
-        only: { dueFilter: 'overdue' as const },
-        clear: { dueFilter: 'all' as const },
-        onDrop: () => setOverdue(false),
-      });
+    const active = activeFacetDescriptors({
+      search,
+      ownerIds,
+      statuses,
+      appliedLabelIds,
+      overdue,
+      ownerChips,
+      statusChips,
+      labelChips,
+      onClearSearch: handleClearSearch,
+      onClearOwners: () => setOwnerIds([]),
+      onClearStatuses: () => setStatuses([]),
+      onClearLabels: () => setLabelIds([]),
+      onClearOverdue: () => setOverdue(false),
+    });
+    // One active facet can't have "recovered by dropping the other" semantics —
+    // the empty state only explains a multi-facet intersection.
     if (active.length < 2) return [];
+
+    const base = emptyFilters();
     return active.map((f) => ({
       key: f.key,
       label: f.label,
@@ -533,6 +516,10 @@ export function GridView() {
     ownerChips,
     statusChips,
     labelChips,
+    handleClearSearch,
+    setOwnerIds,
+    setStatuses,
+    setLabelIds,
     setOverdue,
   ]);
 
@@ -557,14 +544,7 @@ export function GridView() {
     setManualModeSinceDrill(true);
     setDeletePhase('idle');
     if (next !== 'outline') clearSelection();
-    const taskCount = tasks?.length ?? 0;
-    setModeAnnouncement(
-      next === 'flat'
-        ? `Switched to flat mode. ${taskCount} task${taskCount === 1 ? '' : 's'} shown.`
-        : next === 'outline'
-          ? `Switched to outline mode.`
-          : `Switched to grouped mode. Grouped by ${groupBy}.`,
-    );
+    setModeAnnouncement(modeSwitchAnnouncement(next, tasks?.length ?? 0, groupBy));
   };
 
   const handleGroupByChange = (next: GridGroupBy) => {
@@ -581,17 +561,7 @@ export function GridView() {
   }
 
   if (isLoading || !tasks) {
-    return (
-      <div className="flex h-full flex-col bg-neutral-surface p-3 gap-1" aria-busy="true">
-        {Array.from({ length: 10 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-11 rounded motion-safe:animate-pulse bg-neutral-surface-sunken"
-            style={{ marginLeft: effectiveMode === 'outline' ? `${(i % 3) * 16}px` : 0 }}
-          />
-        ))}
-      </div>
-    );
+    return <GridLoadingSkeleton outline={effectiveMode === 'outline'} />;
   }
 
   if (tasks.length === 0) {
@@ -638,18 +608,16 @@ export function GridView() {
               : undefined
           }
         />
-        {showAddForm && projectId && (
-          <TaskFormModal
-            projectId={projectId}
-            task={null}
-            parentId={addFormParentId ?? undefined}
-            isMobile={isMobile}
-            onClose={() => {
-              setShowAddForm(false);
-              setAddFormParentId(null);
-            }}
-          />
-        )}
+        <GridAddTaskModal
+          show={showAddForm}
+          projectId={projectId}
+          parentId={addFormParentId}
+          isMobile={isMobile}
+          onClose={() => {
+            setShowAddForm(false);
+            setAddFormParentId(null);
+          }}
+        />
       </div>
     );
   }
@@ -693,43 +661,28 @@ export function GridView() {
         onCsvExport={exportFilteredTasks}
         canExport={filteredCount > 0}
         facets={
-          <>
-            {/* Owner · Status · Label, left→right — the same order the chip
-                strip lists them in below. One `openFacet` means opening any of
-                the three closes the other two. */}
-            <OwnerFacet
-              triggerRef={ownerTriggerRef}
-              candidates={ownerCandidates}
-              counts={ownerCounts}
-              selected={ownerIds}
-              onChange={setOwnerIds}
-              open={openFacet === 'owner'}
-              onOpenChange={(next) => setOpenFacet(next ? 'owner' : null)}
-              presentation={facetPresentation}
-            />
-            <StatusFacet
-              triggerRef={statusTriggerRef}
-              counts={statusCounts}
-              selected={statuses}
-              onChange={setStatuses}
-              open={openFacet === 'status'}
-              onOpenChange={(next) => setOpenFacet(next ? 'status' : null)}
-              presentation={facetPresentation}
-            />
-            <LabelFacet
-              triggerRef={labelTriggerRef}
-              labels={labels}
-              counts={labelCounts}
-              selected={labelIds}
-              onChange={setLabelIds}
-              open={openFacet === 'label'}
-              onOpenChange={(next) => setOpenFacet(next ? 'label' : null)}
-              presentation={facetPresentation}
-              onOpenLabelSettings={
-                projectId ? () => void navigate(`/projects/${projectId}/settings/labels`) : undefined
-              }
-            />
-          </>
+          <GridFacetRow
+            ownerTriggerRef={ownerTriggerRef}
+            statusTriggerRef={statusTriggerRef}
+            labelTriggerRef={labelTriggerRef}
+            ownerCandidates={ownerCandidates}
+            ownerCounts={ownerCounts}
+            ownerIds={ownerIds}
+            setOwnerIds={setOwnerIds}
+            statusCounts={statusCounts}
+            statuses={statuses}
+            setStatuses={setStatuses}
+            labels={labels}
+            labelCounts={labelCounts}
+            labelIds={labelIds}
+            setLabelIds={setLabelIds}
+            openFacet={openFacet}
+            setOpenFacet={setOpenFacet}
+            presentation={facetPresentation}
+            onOpenLabelSettings={
+              projectId ? () => void navigate(`/projects/${projectId}/settings/labels`) : undefined
+            }
+          />
         }
         canEdit={canEdit}
       />
@@ -755,10 +708,7 @@ export function GridView() {
             ? `Offline — filtering the ${tasks.length} rows already loaded`
             : undefined
         }
-        onRemoveSearch={() => {
-          setSearch('');
-          setSearchDraft('');
-        }}
+        onRemoveSearch={handleClearSearch}
         onRemoveOwner={(id) => setOwnerIds((prev) => prev.filter((v) => v !== id))}
         onRemoveStatus={(id) => setStatuses((prev) => prev.filter((v) => v !== id))}
         onRemoveLabel={(id) => setLabelIds((prev) => prev.filter((v) => v !== id))}
@@ -766,78 +716,37 @@ export function GridView() {
         onClearAll={handleClearFilters}
       />
 
-      {effectiveMode === 'flat' && (
-        <FlatMode
-          filters={filters}
-          onClearFilters={handleClearFilters}
-          filteredEmptyState={filteredEmptyState}
-          onOpenDetail={handleOpenDetail}
-          canEdit={canEdit}
-        />
-      )}
-      {effectiveMode === 'outline' && (
-        <OutlineMode
-          filters={filters}
-          onClearFilters={handleClearFilters}
-          filteredEmptyState={filteredEmptyState}
-          expandAllCounter={expandAllCounter}
-          collapseAllCounter={collapseAllCounter}
-        />
-      )}
-      {effectiveMode === 'grouped' && (
-        <GroupedMode
-          groupBy={groupBy}
-          filters={filters}
-          onClearFilters={handleClearFilters}
-          filteredEmptyState={filteredEmptyState}
-          onOpenDetail={handleOpenDetail}
-          canEdit={canEdit}
-        />
-      )}
+      <GridModeBody
+        mode={effectiveMode}
+        groupBy={groupBy}
+        filters={filters}
+        onClearFilters={handleClearFilters}
+        filteredEmptyState={filteredEmptyState}
+        onOpenDetail={handleOpenDetail}
+        canEdit={canEdit}
+        expandAllCounter={expandAllCounter}
+        collapseAllCounter={collapseAllCounter}
+      />
 
-      {showAddForm && projectId && (
-        <TaskFormModal
-          projectId={projectId}
-          task={null}
-          parentId={addFormParentId ?? undefined}
-          isMobile={isMobile}
-          onClose={() => {
-            setShowAddForm(false);
-            setAddFormParentId(null);
-            // Outline-mode "+ Child" leaves selection in place; nothing else to reset.
-            if (effectiveMode !== 'outline') setOutlineSelectedTaskId(null);
-          }}
-        />
-      )}
+      <GridAddTaskModal
+        show={showAddForm}
+        projectId={projectId}
+        parentId={addFormParentId}
+        isMobile={isMobile}
+        onClose={() => {
+          setShowAddForm(false);
+          setAddFormParentId(null);
+          // Outline-mode "+ Child" leaves selection in place; nothing else to reset.
+          if (effectiveMode !== 'outline') setOutlineSelectedTaskId(null);
+        }}
+      />
 
       {/* Shell-level live region — mode + group-by announcements. */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {modeAnnouncement}
       </div>
 
-      {toast && (
-        <div
-          role={toast.isError ? 'alert' : 'status'}
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-50
-            flex items-center gap-2 px-4 py-2 rounded
-            bg-neutral-surface-raised border border-neutral-border
-            text-xs text-neutral-text-primary whitespace-nowrap"
-        >
-          {!toast.isError && (
-            <CheckIcon className="text-semantic-on-track inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
-          )}
-          {toast.text}
-          {toast.onUndo && (
-            <button
-              type="button"
-              onClick={toast.onUndo}
-              className="ml-1 font-semibold text-brand-primary underline underline-offset-2 hover:no-underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control"
-            >
-              Undo
-            </button>
-          )}
-        </div>
-      )}
+      <GridToast toast={toast} />
     </div>
   );
 }
