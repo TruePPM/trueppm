@@ -11,6 +11,10 @@ it and the release it is planned for, or says plainly that it is not planned. Wh
 gap closes, the row moves to the [roadmap](/overview/roadmap/) as shipped and comes
 off this page.
 
+This page covers capability that was never built. For things that *are* built but are
+wrong, incomplete, or slower than they should be, see
+[Known Issues](/overview/known-issues/).
+
 :::caution[Read the version status first]
 TruePPM is pre-GA. The current shipped release is an alpha, and the first beta is
 0.4. Anything below marked for 0.5 or later is planned, not built. The
