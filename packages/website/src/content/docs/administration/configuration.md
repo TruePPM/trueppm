@@ -397,6 +397,57 @@ talk to the API:
 
 Also set `CSRF_TRUSTED_ORIGINS` (above) for any split-origin deploy.
 
+## In-product feedback ("Report a bug")
+
+TruePPM shows a **Report a bug** entry in the account menu and the command
+palette. Choosing it opens a dialog containing the exact text that would be
+submitted; the user can edit it, then continue to your tracker in a new tab.
+
+**It is a link, not a beacon.** TruePPM sends nothing on this path. Rendering the
+control makes no network request, opening the dialog makes no network request,
+and there is no background telemetry attached to it. The context travels only as
+query parameters in a URL the user can read before submitting, and the link
+carries `rel="noopener noreferrer"` so the tracker is not even handed the page
+URL the user came from.
+
+**What is included** — the minimum that makes a report actionable:
+
+- the TruePPM version, edition, and build SHA;
+- the *screen* the user was on, as a route shape (`/projects/:id/board`);
+- the browser's user-agent string.
+
+**What is not included** — and cannot be, by construction:
+
+- any workspace, program, project, task, or user identifier;
+- the user's name or email address;
+- any query string, search term, or filter value;
+- any schedule, comment, or attachment content.
+
+Identifiers are stripped from the route before the body is assembled: the query
+string and fragment are dropped entirely, and any path segment that looks like an
+identifier is replaced with `:id`.
+
+Two settings, under **Settings → System → Feedback** (workspace admin only):
+
+| Setting | Default | Effect |
+|---|---|---|
+| **Report a bug control** | Shown | Hides the entry entirely — from the account menu *and* the command palette — when set to Hidden. A locked-down install does not advertise a route it has closed. |
+| **Tracker URL** | *(blank)* | Where the control points. Blank means the public TruePPM issue tracker. Set it to your own tracker or helpdesk to keep reports internal. |
+
+The default tracker URL is **not stored** in the database. A blank value means
+"use the built-in default", so an operator who never touched the setting follows
+the default wherever it moves in a future release, rather than being pinned to
+whatever it was at install time.
+
+The prefilled title and description are passed as `issue[title]` and
+`issue[description]` query parameters (GitLab's new-issue form). A tracker that
+does not understand them ignores them and simply opens its own blank form, so
+repointing at an arbitrary helpdesk URL still works.
+
+:::note[Ships in 0.4]
+The in-product feedback control and both settings above ship in 0.4.
+:::
+
 ## First user setup
 
 No manual steps are needed: the api container runs migrations and the `create_admin` bootstrap automatically on startup. Retrieve the generated admin password as described in [Admin password setup](/administration/admin-password/).

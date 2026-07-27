@@ -551,6 +551,14 @@ export interface WorkspaceSettings {
    *  allow-list seeded from the system default (the security denylist is always
    *  subtracted server-side). */
   attachmentsEnabled: boolean;
+  /**
+   * In-product feedback / report-a-bug control (#2392). `feedbackEnabled` false
+   * hides it entirely for locked-down installs; `feedbackUrl` repoints it at the
+   * operator's own tracker. An empty URL means the built-in public tracker —
+   * resolved client-side, never stored, so an upgrade can move the default.
+   */
+  feedbackEnabled: boolean;
+  feedbackUrl: string;
   allowedAttachmentTypes: string[];
   /** `suggest`/`inherit` (OSS) let lower scopes override freely; `enforce` is the
    *  Enterprise hard lock (stored, never enforced in OSS). */

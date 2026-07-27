@@ -162,6 +162,12 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             # locks the affordance; ENFORCE = Enterprise lock, no-op in OSS).
             "calendar",
             "calendar_override_policy",
+            # In-product feedback / report-a-bug control (#2392). `feedback_enabled`
+            # hides it entirely for locked-down installs; `feedback_url` repoints it
+            # at the operator's own tracker or helpdesk. Empty URL = the built-in
+            # public tracker (never stored, so an upgrade can move the default).
+            "feedback_enabled",
+            "feedback_url",
             # Public serve-endpoint URL for the uploaded workspace logo (ADR-0149,
             # #969), or null when unset. Read-only; mutated via /workspace/logo/.
             "logo_url",

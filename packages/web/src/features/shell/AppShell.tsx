@@ -17,6 +17,7 @@ import { useCommandPaletteHotkey } from './commandPalette/useCommandPaletteHotke
 import { useSidebarCollapseHotkey } from './useSidebarCollapseHotkey';
 import { SettingsHotkey } from './useSettingsHotkey';
 import { PinMigration } from './PinMigration';
+import { FeedbackDialogHost } from './FeedbackDialogHost';
 import { useHelpShortcut } from '@/hooks/useHelpShortcut';
 import { useShortcutsModalStore } from '@/stores/shortcutsModalStore';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
@@ -98,6 +99,9 @@ export function AppShell() {
       {/* One-time upload of this device's legacy localStorage pins (#2390).
           Inside the provider — it invalidates the pins query (#2298). */}
       <PinMigration />
+      {/* Feedback dialog, opened from the user menu or ⌘K (#2392). Mounted once
+          here and INSIDE the provider — it reads the workspace setting (#2298). */}
+      <FeedbackDialogHost />
       <div className="flex flex-col h-screen overflow-hidden">
         {/* Skip link (WCAG 2.4.1 Bypass Blocks) — first focusable element; lets
             keyboard users jump past the sidebar/topbar straight to content. */}
