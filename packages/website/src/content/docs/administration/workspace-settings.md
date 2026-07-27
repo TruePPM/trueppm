@@ -17,6 +17,59 @@ one workspace per deployment.
 
 ---
 
+## In-product help
+
+:::note[Ships in 0.4]
+The contextual-help affordance described here ships in **0.4**, the first beta. It
+is not part of the 0.3 alpha line.
+:::
+
+Settings fields that carry jargon, a policy choice, or an inheritance cascade also
+carry a contextual-help affordance — a circled **ⓘ** in the field's label row.
+Opening it explains the setting in plain language and, where a deeper guide exists,
+deep-links to it via **Learn more →**.
+
+The ⓘ *supplements* the always-visible hint beneath each field rather than replacing
+it. The hint answers "what does my current pick mean"; the popover answers "what are
+all my choices".
+
+Three behaviors are worth knowing:
+
+- **It is a non-modal dialog, not a tooltip.** The panel contains a link, and a link
+  inside an `aria-describedby` tooltip cannot be reached, so the affordance is a
+  `role="dialog"` with `aria-modal="false"`. Focus moves into the panel on open,
+  **Tab** reaches the **Learn more →** link, and **Esc** closes the panel and returns
+  focus to the ⓘ. Opened from inside a settings modal, **Esc** peels one layer at a
+  time — the popover first, the modal second.
+- **There is no permission gate.** The help renders regardless of role, so a member
+  with read-only access can understand a setting without the rights to change it.
+- **Its screen-reader name is the field.** The trigger announces as "About the
+  *&lt;field&gt;* options" rather than as an unlabeled icon button.
+
+On the General page the ⓘ appears on these fields:
+
+| Field | Learn more → |
+|---|---|
+| Default timezone | [Timezone & date format](/features/timezone-and-date-format/#timezone) |
+| Fiscal year starts | [Fiscal year start](#fiscal-year-start) |
+| Work week | [Working calendars](/administration/working-calendars/) |
+| Default project view | This page |
+| Iteration terminology | [Methodology preset](/features/methodology-preset/#iteration-terminology) |
+| Allow guests | [Sharing & access](/administration/sharing-and-access/) |
+| Public sharing | [Sharing & access](/administration/sharing-and-access/) |
+| Keep Monte Carlo run history | [Forecast history](/features/monte-carlo/#forecast-history) |
+| Run history limit | [Forecast history](/features/monte-carlo/#forecast-history) |
+| Run attribution visible to | [Forecast history](/features/monte-carlo/#forecast-history) |
+| Duration change → percent complete | This page |
+| Program & project overrides | This page |
+| Forecast-history overrides | [Retention](/administration/retention/#forecast-snapshots) |
+
+The same affordance appears throughout the
+[program](/administration/program-settings/) and
+[project](/administration/project-settings/) settings pages.
+
+---
+
 ## General (`/settings/general`)
 
 ### Fields

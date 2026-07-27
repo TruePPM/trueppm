@@ -11,6 +11,11 @@ lifecycle. This page covers the settings that are available today.
 Project settings are part of the **Community (OSS)** edition.
 :::
 
+Fields carrying jargon, a policy choice, or an inheritance cascade also carry a
+circled **ⓘ** contextual-help affordance that explains the setting and deep-links to
+the relevant guide. See [In-product help](/administration/workspace-settings/#in-product-help)
+for how it behaves.
+
 ## Copy settings from an existing project
 
 When you create a project, the **New project** dialog has an optional **Copy settings
