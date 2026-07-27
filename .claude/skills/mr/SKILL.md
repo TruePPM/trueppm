@@ -80,6 +80,13 @@ Using the research results from Step 1, analyse the commits and diff to produce:
 - [ ] <another verification step>
 - [ ] Confirm CI pipeline is green
 
+## Gates
+<!-- machine-readable; one line per gate. Format: `gate: <name> — <outcome>` -->
+- gate: <name> — <N> findings
+- gate: <name> — 0 findings
+- gate: <name> — n/a (<why this gate does not apply to this diff>)
+- gate: <name> — skipped (<user's reason>)
+
 ## Notes
 <optional: migration steps, feature flags, known limitations, follow-up issues>
 ```
@@ -89,6 +96,38 @@ Rules for the description:
 - Link closing issues with `Closes #N` on a line after the Notes section if applicable
 - If it's a UI change, add a Screenshots section placeholder: `## Screenshots\n<!-- attach before/after -->`
 - Do not pad with filler text
+
+### The Gates section
+
+Every MR that ran any agent gate carries this section. It costs nothing to author — the
+gates already ran, and their outcomes are already known — and it is the **only** record
+of gate *yield*. Without it, a gate that runs on every MR and never finds anything is
+indistinguishable from a gate that catches real defects: both look like compliance.
+`/kaizen` parses these lines across recent MRs to identify gates that have earned a
+fast-path exemption (see its gate-yield signal).
+
+Rules:
+
+- **One line per gate that ran**, using the gate's skill name exactly (`regression-check`,
+  `security-review`, `rbac-check`, `perf-check`, `broadcast-check`, `migration-check`,
+  `architect`, `ux-design`, `ux-review`, `voc`, `test-scaffold`, `enterprise-check`,
+  `api-docs`, `dependency`). Exact names matter — the parser matches on them.
+- **`0 findings` is a real and expected outcome — record it.** The temptation is to omit
+  a gate that found nothing because the line looks like noise. That omission is precisely
+  what destroys the metric: zeros are the signal that a gate has stopped earning its
+  slot. Never drop a zero.
+- **A finding is something that changed the branch or was consciously accepted** — a bug
+  fixed, a permission tightened, a query batched, a risk documented. Restating what the
+  diff already does is not a finding; count it as 0.
+- **`n/a` and `skipped` are different.** `n/a` means the fast-path table or the gate's own
+  scope excludes this diff (no models changed → `migration-check — n/a`). `skipped` means
+  the gate applied and was deliberately not run — only ever at the user's request, and
+  the reason is theirs, quoted. Do not use `skipped` to mean `n/a`.
+- **Never inflate a count.** This section exists to let gates be *removed* when they stop
+  paying for themselves. Padding it defeats its only purpose and quietly re-imposes
+  ceremony the fast-path table was written to strip out.
+- Omit the whole section only for MRs where no gate applied at all (a pure chore or CI
+  config branch).
 
 ---
 

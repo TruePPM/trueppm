@@ -12,12 +12,16 @@ You are running a kaizen review of the TruePPM **development harness** — the a
 **Scope discipline.** Kaizen audits the *process*, not the *codebase*. Findings about insecure code, slow endpoints, missing tests, or stale docs belong in `/pre-release` and the day-to-day agents. Findings here are limited to:
 
 - Agent gate mandates that are routinely skipped (signal: the rule is ceremonial)
-- Agent gate mandates that catch nothing in practice (signal: the rule is redundant)
+- Agent gate mandates that catch nothing in practice — **measured, not guessed** (signal 1g: the rule is redundant)
+- Gates whose findings are rule-shaped enough to belong in CI instead of an agent read
 - CI jobs whose duration dominates pipeline time
 - `make pre-push` jobs that have crept past their budget
 - MR cycle-time anomalies (retries, long sit times, frequent rebases)
+- Flow-metric drift: WIP above the documented cap, worktrees aging without a push
 - Documentation drift between `~/.claude/CLAUDE.md` rules and actual workflow
+- A stated policy that practice has abandoned — including one kaizen itself declared
 - Missing escape hatches (rules that have no documented "skip" path for low-risk changes)
+- Stale process-validation loops: a calibration or review ledger that has gone unwritten for a full cycle
 
 If a finding does not fit one of those buckets, drop it. Kaizen with a wide aperture becomes a whack-a-mole loop and stops being useful.
 
@@ -60,8 +64,7 @@ Run these queries in parallel. Do not interpret yet — collect data first, reas
 ### 1a. MR cycle-time signals (last 30 merged MRs)
 
 ```bash
-glab mr list --repo trueppm/trueppm --state merged --per-page 30 \
-  --output json 2>/dev/null \
+glab mr list -R trueppm/trueppm -M -P 30 -F json 2>/dev/null \
   | python3 -c "
 import json, sys
 from datetime import datetime
@@ -148,7 +151,7 @@ git log origin/main -50 --pretty=format:'%h %s%n%b' \
 Also check the last 20 merged MR descriptions for "skipped X inline" patterns:
 
 ```bash
-glab mr list --repo trueppm/trueppm --state merged --per-page 20 --output json 2>/dev/null \
+glab mr list -R trueppm/trueppm -M -P 20 -F json 2>/dev/null \
   | python3 -c "
 import json, sys
 for mr in json.load(sys.stdin):
@@ -182,11 +185,140 @@ For each "always use the X agent" rule in `~/.claude/CLAUDE.md`, look for eviden
 
 Diff `~/.claude/CLAUDE.md` and `CLAUDE.md` against actual recent practice surfaced in 1c–1e. Flag any mandate that practice has clearly abandoned.
 
+### 1g. Gate yield — find-rate, not just skip-rate
+
+1c measures how often a gate is **skipped**. This measures how often a gate that ran
+**found anything**. The two catch opposite failure modes, and only this one catches the
+worse of the pair: a gate that runs on every applicable MR, always reports clean, and
+therefore looks maximally compliant while contributing nothing. Skip-rate is blind to it
+by construction — the gate is never skipped.
+
+The `/mr` skill emits a machine-readable `## Gates` section (one `gate: <name> — <N>
+findings` line per gate run). Parse it across recent MRs:
+
+```bash
+glab mr list -R trueppm/trueppm -M -P 50 -F json 2>/dev/null \
+  | python3 -c "
+import json, re, sys
+from collections import defaultdict
+stats = defaultdict(lambda: {'ran': 0, 'found': 0, 'findings': 0, 'na': 0, 'skipped': 0})
+for mr in json.load(sys.stdin):
+    for name, outcome in re.findall(r'^\s*[-*]\s*gate:\s*([a-z-]+)\s*[—-]\s*(.+)$',
+                                    mr.get('description') or '', re.M):
+        s = stats[name]
+        o = outcome.strip().lower()
+        if o.startswith('n/a'):     s['na'] += 1
+        elif o.startswith('skip'):  s['skipped'] += 1
+        else:
+            n = int(m.group(1)) if (m := re.match(r'(\d+)', o)) else 0
+            s['ran'] += 1; s['findings'] += n; s['found'] += 1 if n else 0
+print(f\"{'gate':<20}{'ran':>5}{'found>0':>9}{'yield':>8}{'total':>7}{'n/a':>6}{'skip':>6}\")
+for name, s in sorted(stats.items(), key=lambda kv: -kv[1]['ran']):
+    y = f\"{100*s['found']/s['ran']:.0f}%\" if s['ran'] else '—'
+    print(f\"{name:<20}{s['ran']:>5}{s['found']:>9}{y:>8}{s['findings']:>7}{s['na']:>6}{s['skipped']:>6}\")
+"
+```
+
+Read it against these thresholds, applied only to gates with **≥ 10 runs** (below that
+the sample says nothing and the correct finding is "not enough data yet"):
+
+- **0% yield over ≥ 10 runs** → strong fast-path candidate. The gate has never changed an
+  MR. Propose a fast-path row that exempts the change class it keeps clearing, not
+  deletion of the gate — the goal is narrowing scope to where it still bites.
+- **< 10% yield** → candidate for demotion to opt-in, or for folding into a neighboring
+  gate that already reads the same diff.
+- **High yield (> 50%)** → the opposite finding, and worth stating explicitly in the
+  report: this gate is load-bearing, and any proposal to trim it elsewhere should be
+  resisted. Kaizen exists to remove friction, not protection.
+- **High yield *and* rule-shaped findings** → see the CI-migration test in Step 2.
+
+**Caveats to state in the report, every time:**
+
+- The ledger is self-reported by the agent that ran the gate. It is honest-effort data,
+  not instrumentation, and it cannot detect a gate whose findings were real but recorded
+  as 0.
+- Yield is only meaningful within a gate's applicable scope. A gate correctly marked
+  `n/a` on most MRs is not low-yield; those runs are excluded above by design.
+- A 0%-yield gate may be doing its job as a **deterrent** — the code was written
+  correctly *because* the author knew the gate would run. This is not measurable here,
+  and it is a reason to narrow scope rather than delete.
+
+If most MRs have no `## Gates` section, that is itself the finding — report the adoption
+gap and stop, rather than drawing conclusions from a handful of MRs.
+
+### 1h. Flow metrics — WIP level and worktree age
+
+Cycle time (1a) measures MRs that finished. This measures work that hasn't.
+
+```bash
+scripts/wt list
+```
+
+Read three things:
+
+- **WIP vs the documented cap.** `scripts/wt` documents a cap (default 10, override
+  `TRUEPPM_WT_CAP`). If the live count exceeds it, the cap is being routinely overridden
+  and the *stated* policy no longer describes practice. Report the gap and the trend
+  across runs. Do not propose raising the cap to match reality by default — a cap that
+  is redefined whenever it binds is a description, not a limit. Propose it only if the
+  user has said the higher number is the real intent.
+- **Worktree age without a push.** A worktree several days old with `pushed=no` is
+  aged WIP: work that is neither finished nor abandoned, holding a `status::wip` claim
+  that blocks anyone else from picking the issue up. List the oldest three.
+- **Aging trend.** If median worktree age is climbing run over run, work is being started
+  faster than it is being finished — the standard signal to pull the intake rate down
+  rather than push throughput up.
+
+### 1i. Process-validation freshness
+
+Some loops in this harness validate the harness itself and are only worth anything if
+they actually run. Check that each has been written in the last cycle:
+
+- `.claude/persona-calibration.md` — does it have an entry for the most recent release
+  that reached real users? If a release shipped to users and no calibration entry
+  followed, the VoC panel is running unchecked against reality. That is a finding, and
+  it belongs in the report even though it is not a speed win — an unvalidated model
+  steering the backlog costs more than a slow CI job.
+- Prior kaizen findings — were the issues filed last run acted on, closed, or silently
+  dropped? A kaizen that files issues nobody works is itself ceremony, and kaizen must be
+  willing to report that about itself.
+
 ---
 
 ## Step 2 — Rank by cycle-time impact
 
 For each candidate finding, estimate **minutes saved per MR** if fixed. Order the report by that estimate, not by severity. Speed wins compound — a 2-minute saving across 50 MRs/year is bigger than a 30-minute one-off.
+
+**Two finding classes rank outside the minutes-saved ordering** and go at the top of the
+report regardless of their speed impact, because they concern whether the harness is
+telling the truth about itself:
+
+- A **stated policy that practice has abandoned** (1f, 1h) — a documented cap, budget, or
+  mandate that no longer describes what happens. Costs nothing per MR and undermines
+  every other claim the harness makes.
+- A **stale process-validation loop** (1i) — a calibration or review ledger that stopped
+  being written. An unvalidated model steering decisions is a correctness problem, not a
+  speed one.
+
+Both are cheap to fix and are exactly what an outside evaluator finds first.
+
+### The CI-migration test
+
+For every gate finding, ask: **could this gate's checks be a deterministic CI job instead
+of an agent read?** A check that is rule-shaped — a grep, an AST query, a schema
+comparison, a permission-matrix assertion — is cheaper, faster, and more reliable in the
+pipeline than as a judgment call at author time, and it cannot be skipped under deadline
+pressure.
+
+Split the gate rather than moving it wholesale. Most gates are a mix: `rbac-check` asking
+"does every viewset declare a permission class" is mechanizable; `rbac-check` asking
+"is this the *right* role for this action" is not. Propose migrating the mechanical half
+into CI and leaving the judgment half as an agent read with a narrower brief. A gate that
+loses its mechanical half usually drops far enough in cost to stop being friction at all.
+
+Do not propose this for a gate whose findings are consistently judgment calls — moving
+those to CI produces a check that is either trivially satisfiable or constantly wrong,
+and the false-positive tax exceeds the gate it replaced.
 
 Cap the report at the **top 5 findings**. Below 5 is fine; above 5 is noise. If the audit surfaces more, list the rest under "Other observations (not ranked)" without proposed fixes.
 
@@ -221,6 +353,22 @@ Print this format to the user:
 - Last M main-branch pipelines
 - Last K commit messages and MR descriptions
 - `make pre-push` runtime: <Xs> (budget: 60s) <ok|over>
+- Gate ledger coverage: <X of N merged MRs carried a `## Gates` section>
+
+### Gate yield (1g)
+<the find-rate table; mark any gate with <10 runs as "insufficient data">
+<one line naming any gate at 0% over ≥10 runs, and any gate above 50% — the second is
+as important to report as the first>
+
+### Flow (1a, 1h)
+- Median MR cycle time: <Xh> · MRs over 48h: <N>
+- WIP: <N>/<cap> active worktrees <ok | over cap by N>
+- Oldest unpushed worktree: <branch, age>
+- Trend vs last run: <rising | flat | falling | first run>
+
+### Truthfulness findings (unranked — report first)
+<stated policies that practice has abandoned; stale validation loops. Empty is a good
+result and should be stated as "none" rather than omitted.>
 
 ### Top findings (ranked by min/MR saved)
 <5 ranked findings as above>

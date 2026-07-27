@@ -69,13 +69,13 @@ Wait for the user's choice before proceeding.
 Before launching any agents, check whether a recent pre-release audit has already been run and its findings already filed as GitLab issues for the current working release.
 
 ```bash
-glab issue list --repo trueppm/trueppm --state opened --label "$WORKING_RELEASE" --search "audit" 2>/dev/null | head -20
-glab issue list --repo trueppm/trueppm --state opened --label "$WORKING_RELEASE" 2>/dev/null | head -30
+glab issue list --repo trueppm/trueppm --label "$WORKING_RELEASE" --search "audit" 2>/dev/null | head -20
+glab issue list --repo trueppm/trueppm --label "$WORKING_RELEASE" 2>/dev/null | head -30
 ```
 
 Also check for recently closed audit issues (resolved since last run):
 ```bash
-glab issue list --repo trueppm/trueppm --state closed --label "$WORKING_RELEASE" --updated-after "$(date -v-7d +%Y-%m-%d 2>/dev/null || date -d '7 days ago' +%Y-%m-%d 2>/dev/null || date +%Y-%m-%d)" 2>/dev/null | head -20
+glab issue list --repo trueppm/trueppm -c --label "$WORKING_RELEASE" --order updated_at 2>/dev/null | head -20
 ```
 
 **If open `$WORKING_RELEASE` issues exist from a prior audit:**
@@ -334,7 +334,7 @@ After all agents complete, before writing the report, **cross-reference every fi
 
 For each finding, run:
 ```bash
-glab issue list --repo trueppm/trueppm --state all --search "<keyword>" 2>/dev/null | head -20
+glab issue list --repo trueppm/trueppm -A --search "<keyword>" 2>/dev/null | head -20
 ```
 
 Annotate every finding in the report with one of these tags:
@@ -385,7 +385,7 @@ After the report:
 
 1. Query GitLab for **both open and closed** issues related to each 🔴 and 🟡 finding. A closed match often represents a prior decision (fixed, won't-fix, or deferred) — re-filing without context turns the audit into a whack-a-mole loop and erases prior reasoning.
    ```bash
-   glab issue list --repo trueppm/trueppm --state all --search "<keyword>" 2>/dev/null | head -20
+   glab issue list --repo trueppm/trueppm -A --search "<keyword>" 2>/dev/null | head -20
    ```
    Extract 2–3 keywords per finding (file path stem, endpoint, error class, security term) and run the search for each. For multi-faceted findings, run more than one query.
 
