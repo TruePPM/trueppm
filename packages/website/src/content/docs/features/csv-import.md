@@ -161,7 +161,45 @@ With no evidence either way it assumes month/day/year and **tells you which
 convention it used** in the import warnings — a silently-guessed date order is
 a data-integrity bug, not a formatting detail.
 
+## The wizard
+
+Open a project's **Schedule**, then **Project actions → Import from spreadsheet
+(CSV/Excel)…**. The wizard walks the three steps below so you never have to call
+the API yourself.
+
+**Step 1 — Upload.** Drag a `.csv`, `.tsv`, `.txt`, `.xlsx`, or `.xlsm` file onto
+the drop zone, or pick one. Files over the size cap are rejected before the
+upload runs, so you do not wait on a request that is certain to fail.
+
+**Step 2 — Map columns.** Every detected column is listed with the TruePPM field
+it will import into, already filled in from auto-detection — you confirm rather
+than map from scratch. Change any dropdown that is wrong, or set one to
+**Don't import** to ignore that column. The first parsed rows sit underneath, so
+you can see what the mapping actually produces.
+
+If a **required** field has no column mapped to it, **Next is disabled** and the
+wizard says which field is missing. This is deliberate: a spreadsheet with no
+recognizable task-name column imports *zero tasks*, and a silent no-op is a worse
+outcome than a blocked button.
+
+Changing a mapping and pressing **Re-check mapping** re-runs the preview **on the
+server**, so what you confirm on step 3 is what the parser genuinely produced —
+not a client-side guess at what your change would do.
+
+**Step 3 — Confirm and import.** The wizard shows the row count, how many tasks
+and resources will be created, and **names every column that will not be
+imported** rather than dropping them quietly. Rows that will be *lost* and rows
+that will merely *land with a field defaulted* are counted separately, because
+they are different decisions.
+
+**When it finishes**, you get the number of tasks created and, if any rows had
+problems, a list of them **by spreadsheet line number** so you can fix them at
+source. **View schedule** takes you to the imported plan.
+
 ## The three steps
+
+The wizard is a client of the same three endpoints, documented here for anyone
+scripting an import.
 
 ### 1. Preview — nothing is saved
 

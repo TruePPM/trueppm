@@ -45,7 +45,7 @@ import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useBaselines, useCreateBaseline } from '@/hooks/useBaselines';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
-import { ROLE_ADMIN, ROLE_MEMBER, canEditTask } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_MEMBER, ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
 import { SubtreeDeleteConfirmDialog } from './SubtreeDeleteConfirmDialog';
@@ -68,6 +68,7 @@ import {
   type ToolbarOverflowItem,
 } from '@/components/toolbar/ToolbarOverflowMenu';
 import { ImportModal } from '@/components/import/ImportModal';
+import { CsvImportWizard } from '@/components/import/CsvImportWizard';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
 import { QueryErrorState } from '@/components/QueryErrorState';
@@ -1032,7 +1033,10 @@ export function ScheduleView() {
 
     // The rows that will actually be on screen at scrollTop = 0 — the ones whose
     // emptiness the user reads as "the schedule is broken" (#2423).
-    const rowsInView = Math.max(1, Math.ceil((container.clientHeight - HEADER_HEIGHT) / ROW_HEIGHT));
+    const rowsInView = Math.max(
+      1,
+      Math.ceil((container.clientHeight - HEADER_HEIGHT) / ROW_HEIGHT),
+    );
     const bars: (RowBar | null)[] = visibleTasks.slice(0, rowsInView).map((t) => {
       if (!t.start || !t.finish) return null;
       return { x0: dateToLeft(t.start, scheduleScales), x1: dateToLeft(t.finish, scheduleScales) };
@@ -1223,6 +1227,12 @@ export function ScheduleView() {
   // useCurrentUserRole pessimistic-gating contract. The server is authoritative.
   const [importOpen, setImportOpen] = useState(false);
   const canImport = currentRole !== null && currentRole >= ROLE_ADMIN;
+  // CSV/Excel import (#746) is gated one rung lower than MS Project — at
+  // Scheduler — because that is what ITS server requires (IsProjectScheduler,
+  // ADR-0632). Same "match the server" rule as above, different server floor:
+  // gating the wizard at Admin would hide it from Schedulers the API accepts.
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
+  const canImportCsv = currentRole !== null && currentRole >= ROLE_SCHEDULER;
   // Public share links (#1486): mint/manage is Admin+ (mirrors board sharing). The
   // instance/workspace kill switch is enforced server-side — the dialog surfaces the
   // verbatim 403 detail if sharing is off, so the button never silently no-ops.
@@ -1912,6 +1922,8 @@ export function ScheduleView() {
         canShare={canShare}
         canCaptureBaseline={canCaptureBaseline}
         setImportOpen={setImportOpen}
+        canImportCsv={canImportCsv}
+        setCsvImportOpen={setCsvImportOpen}
         setShareOpen={setShareOpen}
         setCaptureBaselineConfirmOpen={setCaptureBaselineConfirmOpen}
         setBaselineManagerOpen={setBaselineManagerOpen}
@@ -2046,6 +2058,8 @@ export function ScheduleView() {
         projectId={projectId}
         importOpen={importOpen}
         setImportOpen={setImportOpen}
+        csvImportOpen={csvImportOpen}
+        setCsvImportOpen={setCsvImportOpen}
         shareOpen={shareOpen}
         setShareOpen={setShareOpen}
         baselineManagerOpen={baselineManagerOpen}
@@ -2112,6 +2126,8 @@ interface ScheduleOverlayLayerProps {
   projectId: string | null;
   importOpen: boolean;
   setImportOpen: (v: boolean) => void;
+  csvImportOpen: boolean;
+  setCsvImportOpen: (v: boolean) => void;
   shareOpen: boolean;
   setShareOpen: (v: boolean) => void;
   baselineManagerOpen: boolean;
@@ -2162,6 +2178,8 @@ function ScheduleOverlayLayer({
   scheduleError,
   projectId,
   importOpen,
+  csvImportOpen,
+  setCsvImportOpen,
   setImportOpen,
   shareOpen,
   setShareOpen,
@@ -2285,6 +2303,11 @@ function ScheduleOverlayLayer({
       {/* MS Project import modal (#68) — opened from the Project actions menu. */}
       {importOpen && projectId && (
         <ImportModal projectId={projectId} onClose={() => setImportOpen(false)} />
+      )}
+
+      {/* CSV/Excel import wizard (#746) — 3-step upload → map → confirm. */}
+      {csvImportOpen && projectId && (
+        <CsvImportWizard projectId={projectId} onClose={() => setCsvImportOpen(false)} />
       )}
 
       {/* Public schedule share dialog (#1486) — create/reveal/manage in one surface. */}
@@ -2452,6 +2475,8 @@ function buildProjectActionsItems(ctx: {
   exportProject: ReturnType<typeof useExportMsProject>['exportProject'];
   scheduleExport: ReturnType<typeof useScheduleExport>;
   setImportOpen: (v: boolean) => void;
+  canImportCsv: boolean;
+  setCsvImportOpen: (v: boolean) => void;
   setShareOpen: (v: boolean) => void;
   setCaptureBaselineConfirmOpen: (v: boolean) => void;
   setBaselineManagerOpen: (v: boolean) => void;
@@ -2465,6 +2490,16 @@ function buildProjectActionsItems(ctx: {
             id: 'import-msproject',
             label: 'Import from MS Project…',
             onSelect: () => ctx.setImportOpen(true),
+          },
+        ]
+      : []),
+    ...(projectId && ctx.canImportCsv
+      ? [
+          {
+            kind: 'action' as const,
+            id: 'import-csv',
+            label: 'Import from spreadsheet (CSV/Excel)…',
+            onSelect: () => ctx.setCsvImportOpen(true),
           },
         ]
       : []),
@@ -2570,6 +2605,8 @@ interface ScheduleToolbarProps {
   canShare: boolean;
   canCaptureBaseline: boolean;
   setImportOpen: Dispatch<SetStateAction<boolean>>;
+  canImportCsv: boolean;
+  setCsvImportOpen: Dispatch<SetStateAction<boolean>>;
   setShareOpen: Dispatch<SetStateAction<boolean>>;
   setCaptureBaselineConfirmOpen: Dispatch<SetStateAction<boolean>>;
   setBaselineManagerOpen: Dispatch<SetStateAction<boolean>>;
@@ -2617,6 +2654,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     canShare,
     canCaptureBaseline,
     setImportOpen,
+    canImportCsv,
+    setCsvImportOpen,
     setShareOpen,
     setCaptureBaselineConfirmOpen,
     setBaselineManagerOpen,
@@ -2755,6 +2794,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
             exportProject,
             scheduleExport,
             setImportOpen,
+            canImportCsv,
+            setCsvImportOpen,
             setShareOpen,
             setCaptureBaselineConfirmOpen,
             setBaselineManagerOpen,
