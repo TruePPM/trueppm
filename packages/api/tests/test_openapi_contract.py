@@ -309,3 +309,66 @@ def test_mark_all_read_returns_counter(schema: dict) -> None:
     ref = sch.get("$ref", "")
     props = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["properties"]
     assert "updated" in props
+
+
+def test_program_export_get_is_the_seed_document_not_a_program(schema: dict) -> None:
+    """GET program export returns the canonical seed doc, not a Program row (#2455).
+
+    The `pin` action was inserted between this action's stacked ``@extend_schema``
+    blocks and ``def export``, so Python applied both to ``pin`` and the export
+    path fell back to ``serializer_class`` — publishing ``Program``, whose
+    required ``calendar_source`` the real ``{schema_version, program, projects,
+    accounts}`` body has no reason to carry. That is what the nightly fuzzer's
+    ``response_schema_conformance`` check caught.
+    """
+    op = schema["paths"]["/api/v1/programs/{id}/export/"]["get"]
+    assert op.get("summary"), "GET program export must keep its summary (#2455)."
+    sch = _response_2xx_schema(schema, "/api/v1/programs/{id}/export/", "get")
+    assert "Program" not in json.dumps(sch), (
+        "GET program export must not reference the Program schema — the body is a seed "
+        "document (#2455)."
+    )
+    assert sch.get("type") == "object"
+
+
+def test_program_export_post_returns_the_async_job(schema: dict) -> None:
+    """POST program export queues a job: 202 ProgramExportJob, never 200 Program (#2455)."""
+    op = schema["paths"]["/api/v1/programs/{id}/export/"]["post"]
+    assert "202" in op["responses"], "POST program export must document its 202 (#2455)."
+    assert "200" not in op["responses"], "POST program export never returns 200 (#2455)."
+    ref = op["responses"]["202"]["content"]["application/json"]["schema"].get("$ref", "")
+    assert ref.endswith("/ProgramExportJob"), f"expected ProgramExportJob, got {ref!r} (#2455)."
+
+
+def test_program_pin_documents_the_pin_contract(schema: dict) -> None:
+    """The program pin path documents pinning — not a program export bundle (#2455).
+
+    While the export annotations were orphaned onto ``pin``, ``POST
+    /programs/{id}/pin/`` publicly advertised "Queue a richer asynchronous program
+    export bundle" with a ``202 ProgramExportJob`` body. Any integrator reading the
+    schema was told the wrong thing about a write endpoint.
+    """
+    for method in ("post", "delete"):
+        op = schema["paths"]["/api/v1/programs/{id}/pin/"][method]
+        assert "export" not in op["summary"].lower(), (
+            f"{method.upper()} program pin summary must describe pinning, not export (#2455)."
+        )
+        assert "202" not in op["responses"], f"{method.upper()} program pin has no 202 (#2455)."
+        ref = op["responses"]["200"]["content"]["application/json"]["schema"].get("$ref", "")
+        assert ref.endswith("/ProgramPinResponse"), f"expected ProgramPinResponse, got {ref!r}."
+        assert "204" in op["responses"], f"{method.upper()} program pin must document 204."
+
+
+def test_pin_endpoints_document_the_limit_rejection(schema: dict) -> None:
+    """Both pin paths document the 400 a client must handle (#2455).
+
+    ``set_pin`` raises ``PinLimitReached`` -> ``400 {detail, code}``. Neither pin
+    endpoint declared it, so a generated client had no typed branch for the one
+    failure the endpoint actually has.
+    """
+    for path in ("/api/v1/projects/{id}/pin/", "/api/v1/programs/{id}/pin/"):
+        op = schema["paths"][path]["post"]
+        assert "400" in op["responses"], f"{path} must document the pin-limit 400 (#2455)."
+        ref = op["responses"]["400"]["content"]["application/json"]["schema"].get("$ref", "")
+        props = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["properties"]
+        assert {"detail", "code"} <= set(props), f"{path} 400 must carry detail + code (#2455)."

@@ -235,6 +235,23 @@ PIN_ENDPOINT_DESCRIPTION = (
     "writer may toggle and every project member can see."
 )
 
+# Declared as named components rather than anonymous inline schemas so the two pin
+# paths (project, program) publish one documented acknowledgement shape each
+# instead of two structurally-identical unnamed blobs an integrator has to diff.
+PROJECT_PIN_RESPONSE = inline_serializer(
+    name="ProjectPinResponse", fields={"is_pinned": serializers.BooleanField()}
+)
+PROGRAM_PIN_RESPONSE = inline_serializer(
+    name="ProgramPinResponse", fields={"is_pinned": serializers.BooleanField()}
+)
+# Shared by both pin endpoints' 400. ``code`` is the machine-readable
+# discriminator; a client must never string-match ``detail``, which is human copy
+# and will change with the wording or the locale.
+PIN_LIMIT_RESPONSE = inline_serializer(
+    name="PinLimitReachedResponse",
+    fields={"detail": serializers.CharField(), "code": serializers.CharField()},
+)
+
 # Allow-list pattern for the X-Source request header value (ADR-0065 Gap 2).
 # Lower-case ASCII letters and underscores, 1–64 chars. Any other input is
 # coerced to "unknown" before reaching the stored webhook payload — protects
@@ -1691,11 +1708,12 @@ class ProjectViewSet(
         description=PIN_ENDPOINT_DESCRIPTION,
         request=None,
         responses={
-            200: inline_serializer(
-                name="ProjectPinResponse",
-                fields={"is_pinned": serializers.BooleanField()},
-            ),
+            200: PROJECT_PIN_RESPONSE,
             204: None,
+            400: OpenApiResponse(
+                response=PIN_LIMIT_RESPONSE,
+                description="Pin limit reached (`code: pin_limit_reached`).",
+            ),
         },
     )
     @action(detail=True, methods=["post", "delete"], url_path="pin")
