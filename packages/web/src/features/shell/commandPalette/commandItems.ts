@@ -30,6 +30,11 @@ export type CommandGroup =
   | 'person'
   | 'epic'
   | 'story'
+  // Global omni-search tiers (ADR-0662). `omniTask` is deliberately distinct from
+  // `task`, whose "Tasks" header means "in this project" — one header cannot carry
+  // two scopes.
+  | 'milestone'
+  | 'omniTask'
   | 'pinned'
   | 'recent'
   | 'jump'

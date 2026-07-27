@@ -12,6 +12,7 @@ dependency, and anyone with the venv can reproduce a published number.
 
 Usage::
 
+    export TRUEPPM_CAPACITY_PASSWORD=...   # required; see owner_password()
     python packages/api/perf/capacity/run_capacity.py --dimension tasks
     python packages/api/perf/capacity/run_capacity.py --dimension concurrency
     python packages/api/perf/capacity/run_capacity.py --dimension all --out results/
@@ -40,7 +41,11 @@ import requests
 
 BASE_URL = "http://127.0.0.1:28000"
 OWNER_EMAIL = "capacity@trueppm.local"
-OWNER_PASSWORD = "capacity-load-driver"
+
+# Supplied from the environment, never committed. `seed_capacity` reads the same
+# variable to create the account, so the two sides agree without a shared
+# constant in the tree — which is what this replaces (#2457).
+OWNER_PASSWORD_ENV = "TRUEPPM_CAPACITY_PASSWORD"
 
 COMPOSE_FILE = Path(__file__).parent / "docker-compose.capacity.yml"
 
@@ -199,6 +204,25 @@ def summarize(step: int | str, label: str, samples: list[Sample], notes: str = "
 _TOKEN_CACHE: dict[str, str] = {}
 
 
+def owner_password() -> str:
+    """The load driver's password, or a hard stop explaining how to mint one.
+
+    Also called once from `main()` rather than only lazily at first login: the
+    failure has to land before the sweep brings a stack up and seeds it, not
+    several minutes in.
+    """
+    password = os.environ.get(OWNER_PASSWORD_ENV, "").strip()
+    if not password:
+        raise SystemExit(
+            f"{OWNER_PASSWORD_ENV} is not set — the capacity owner's password is "
+            "supplied from the environment, never committed. Mint a throwaway one:\n"
+            f"  export {OWNER_PASSWORD_ENV}=$(python3 -c "
+            "'import secrets; print(secrets.token_urlsafe(16))')\n"
+            "See packages/api/perf/capacity/README.md."
+        )
+    return password
+
+
 class Client:
     """Thin authenticated API client."""
 
@@ -214,7 +238,7 @@ class Client:
         for attempt in range(6):
             r = requests.post(
                 f"{self.base_url}/api/v1/auth/token/",
-                json={"username": OWNER_EMAIL, "password": OWNER_PASSWORD},
+                json={"username": OWNER_EMAIL, "password": owner_password()},
                 timeout=30,
             )
             if r.status_code == 200:
@@ -529,6 +553,10 @@ def main() -> int:
     )
     parser.add_argument("--out", type=Path, help="Directory to write the JSON result into.")
     args = parser.parse_args()
+
+    # Before any stack work: a missing credential should cost a second, not the
+    # several minutes it takes to seed the first step and then fail to log in.
+    owner_password()
 
     names = list(DIMENSIONS) if args.dimension == "all" else [args.dimension]
     results: list[dict[str, Any]] = []

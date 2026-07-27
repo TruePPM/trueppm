@@ -25,6 +25,12 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
   person: 'People',
   epic: 'Epics',
   story: 'Stories',
+  milestone: 'Milestones',
+  // Scope-qualified because `task` above is already 'Tasks' (this project's tasks);
+  // two identical headers spanning different scopes is the redundancy defect the
+  // 2026-07-26 red team flagged. 'Milestones' needs no qualifier — nothing competes
+  // with it, and a word that carries no information is noise (ADR-0662 D3).
+  omniTask: 'Tasks in all projects',
   pinned: 'Pinned',
   recent: 'Recent',
   jump: 'Jump to',
@@ -51,6 +57,8 @@ const GROUP_ORDER: CommandItem['group'][] = [
   'person',
   'epic',
   'story',
+  'milestone',
+  'omniTask',
   'pinned',
   'recent',
   'jump',
@@ -79,6 +87,11 @@ const PERSON_RESULT_CAP = 6;
  *  people. The endpoint is the source of truth for access scope; this is display. */
 const EPIC_RESULT_CAP = 6;
 const STORY_RESULT_CAP = 6;
+/** Global omni-search task/milestone caps (#2442). Six to match the other global
+ *  tiers (person/epic/story) — deliberately NOT TASK_RESULT_CAP, which belongs to
+ *  the project-scoped tier and its scope-relaxation story. */
+const MILESTONE_RESULT_CAP = 6;
+const OMNI_TASK_RESULT_CAP = 6;
 
 /**
  * Apply the per-section result caps to the filtered list, preserving order so the
@@ -102,6 +115,8 @@ const RESULT_CAPS: Partial<Record<CommandItem['group'], number>> = {
   person: PERSON_RESULT_CAP,
   epic: EPIC_RESULT_CAP,
   story: STORY_RESULT_CAP,
+  milestone: MILESTONE_RESULT_CAP,
+  omniTask: OMNI_TASK_RESULT_CAP,
 };
 /** Groups shown only once a query is typed — a cold palette never dumps them. */
 const QUERY_ONLY_GROUPS = new Set<CommandItem['group']>([
@@ -109,6 +124,10 @@ const QUERY_ONLY_GROUPS = new Set<CommandItem['group']>([
   'task',
   'epic',
   'story',
+  // Global tasks/milestones are query-gated for the same reason as epic/story: a
+  // cold palette must never dump every task the user can see (ADR-0662 D3).
+  'milestone',
+  'omniTask',
   // Settings sections (ADR-0606/#2319) surface only when typing — cold, the palette
   // shows the three top-level `jump` settings targets, not ~20 section rows.
   'settings',

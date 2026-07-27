@@ -9,16 +9,30 @@ a different database than its label claims.
 
 from __future__ import annotations
 
+import secrets
+
 import pytest
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.management.commands.seed_capacity import (
     CAPACITY_OWNER_EMAIL,
+    CAPACITY_OWNER_PASSWORD_ENV,
     CAPACITY_PROGRAM_CODE,
 )
 from trueppm_api.apps.projects.models import Dependency, Program, Project, Task
+
+# Generated rather than a literal so this file never carries a credential-shaped
+# string of its own — the whole point of #2457.
+TEST_PASSWORD = secrets.token_urlsafe(16)
+
+
+@pytest.fixture(autouse=True)
+def _capacity_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The owner password comes from the environment, so every seed needs it set."""
+    monkeypatch.setenv(CAPACITY_OWNER_PASSWORD_ENV, TEST_PASSWORD)
 
 
 @pytest.mark.django_db
@@ -135,6 +149,52 @@ def test_rejects_non_positive_sizes(tasks: int, projects: int) -> None:
 def test_rejects_negative_edge_ratio() -> None:
     with pytest.raises(CommandError):
         call_command("seed_capacity", tasks=5, projects=1, edge_ratio=-1.0)
+
+
+@pytest.mark.django_db
+def test_requires_the_password_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """There is no committed default — an unset variable must stop the seed (#2457)."""
+    monkeypatch.delenv(CAPACITY_OWNER_PASSWORD_ENV, raising=False)
+
+    with pytest.raises(CommandError, match=CAPACITY_OWNER_PASSWORD_ENV):
+        call_command("seed_capacity", tasks=5, projects=1)
+
+    assert not Project.objects.exists()
+
+
+@pytest.mark.django_db
+def test_rejects_a_password_that_fails_the_project_validators(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator-supplied value is arbitrary, so a weak one must not stand up a login."""
+    monkeypatch.setenv(CAPACITY_OWNER_PASSWORD_ENV, "1234")
+
+    with pytest.raises(CommandError, match=CAPACITY_OWNER_PASSWORD_ENV):
+        call_command("seed_capacity", tasks=5, projects=1)
+
+
+@pytest.mark.django_db
+def test_owner_can_authenticate_with_the_supplied_password() -> None:
+    """The load driver logs in with this exact value — a mismatch fails every sweep."""
+    call_command("seed_capacity", tasks=5, projects=1)
+
+    owner = get_user_model().objects.get(email=CAPACITY_OWNER_EMAIL)
+    assert owner.check_password(TEST_PASSWORD)
+
+
+@pytest.mark.django_db
+def test_reseeding_rotates_the_owner_password_to_the_current_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale password on a pre-existing owner would fail the runner's login."""
+    call_command("seed_capacity", tasks=5, projects=1)
+
+    rotated = secrets.token_urlsafe(16)
+    monkeypatch.setenv(CAPACITY_OWNER_PASSWORD_ENV, rotated)
+    call_command("seed_capacity", tasks=5, projects=1, reset=True)
+
+    owner = get_user_model().objects.get(email=CAPACITY_OWNER_EMAIL)
+    assert owner.check_password(rotated)
 
 
 @pytest.mark.django_db

@@ -9,9 +9,13 @@ const OMNI_SEARCH_MIN_Q = 2;
 /** Debounce window (ms). The palette query updates on every keystroke; hold the
  *  request until typing pauses so a fast typist fires one search, not one per key. */
 const OMNI_SEARCH_DEBOUNCE_MS = 200;
-/** Default agile kinds requested — the marquee "Epic ▸ Story" ask (ADR-0508 D4).
- *  `task` is deliberately excluded so the palette omni-search stays Epic/Story. */
-const OMNI_SEARCH_DEFAULT_TYPES = 'epic,story';
+/** Kinds requested by default (ADR-0662). Was `epic,story` — but a waterfall project
+ *  has no epics or stories at all, so typing a real task name into the product's one
+ *  global search returned zero results and read as "the tool doesn't have my data"
+ *  (#2442). Milestones were unreachable from global search entirely. The dump the
+ *  narrow default guarded against is still prevented by the 2-char floor, the server's
+ *  per-source scan cap, and the palette's per-group caps. */
+const OMNI_SEARCH_DEFAULT_TYPES = 'epic,story,task,milestone';
 
 /**
  * GET /api/v1/me/search/?q=&type= — the ⌘K palette's global cross-program

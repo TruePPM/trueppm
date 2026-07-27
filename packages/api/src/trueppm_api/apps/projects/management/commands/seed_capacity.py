@@ -2,6 +2,7 @@
 
 Usage::
 
+    export TRUEPPM_CAPACITY_PASSWORD=...   # required; see _resolve_password
     python manage.py seed_capacity --projects 1 --tasks 4000 --edge-ratio 1.2
     python manage.py seed_capacity --reset
 
@@ -27,12 +28,14 @@ Fidelity caveats — these are stated in the published envelope, not hidden here
 
 from __future__ import annotations
 
+import os
 import random
 from datetime import date
 from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
@@ -43,7 +46,17 @@ User = get_user_model()
 
 CAPACITY_PROGRAM_CODE = "CAPACITY"
 CAPACITY_OWNER_EMAIL = "capacity@trueppm.local"
-CAPACITY_OWNER_PASSWORD = "capacity-load-driver"
+
+# The owner is a real, loginable account, so its password is supplied from the
+# environment rather than committed — a fixed credential in a tracked file is a
+# secret-scanner finding however disposable the stack is (#2457). Same reasoning
+# and same `${VAR:?}` compose pattern already used for CAPACITY_INTEGRATION_KEY.
+CAPACITY_OWNER_PASSWORD_ENV = "TRUEPPM_CAPACITY_PASSWORD"
+
+MINT_HINT = (
+    f"  export {CAPACITY_OWNER_PASSWORD_ENV}=$(python3 -c "
+    "'import secrets; print(secrets.token_urlsafe(16))')"
+)
 
 # Fixed seed so two runs of the same size produce the same graph — a capacity
 # number that moves between runs must be the code changing, not the fixture.
@@ -129,28 +142,55 @@ class Command(BaseCommand):
     # Build steps
     # ──────────────────────────────────────────────────────────────────
 
+    def _resolve_password(self) -> str:
+        """The load driver's password, from the environment or not at all.
+
+        There is deliberately no default. The alternative — a committed constant
+        shared with ``run_capacity.py`` so both sides agree — is what this
+        replaces: a fixed password for a real, loginable account is a finding in
+        a public tree regardless of how disposable the stack it runs against is
+        (#2457). Failing loudly here is also the only way the operator learns the
+        runner will fail the same way three steps later.
+        """
+        password = os.environ.get(CAPACITY_OWNER_PASSWORD_ENV, "").strip()
+        if not password:
+            raise CommandError(
+                f"{CAPACITY_OWNER_PASSWORD_ENV} is not set — the capacity owner's "
+                "password is supplied from the environment, never committed. "
+                f"Mint a throwaway one:\n{MINT_HINT}\n"
+                "See packages/api/perf/capacity/README.md."
+            )
+        return password
+
     def _resolve_owner(self) -> Any:
         """The account the load driver authenticates as.
 
-        The password is fixed and weak on purpose: this command only ever runs
-        against a disposable local capacity stack that is torn down with
-        ``down -v``. It must never be pointed at a real deployment — hence the
-        dedicated ``capacity@trueppm.local`` identity rather than reusing an
-        existing superuser.
+        This command only ever runs against a disposable local capacity stack
+        that is torn down with ``down -v``. It must never be pointed at a real
+        deployment — hence the dedicated ``capacity@trueppm.local`` identity
+        rather than reusing an existing superuser.
         """
+        password = self._resolve_password()
+        # Held to the configured validators like any other credential, on both
+        # paths: an operator-supplied value is arbitrary, so a weak one must fail
+        # here rather than quietly standing up a guessable login.
         owner = User.objects.filter(email=CAPACITY_OWNER_EMAIL).first()
+        try:
+            validate_password(password, user=owner)
+        except ValidationError as exc:
+            raise CommandError(
+                f"The value of {CAPACITY_OWNER_PASSWORD_ENV} does not clear this "
+                f"project's password validators: {'; '.join(exc.messages)}\n"
+                f"Mint one that does:\n{MINT_HINT}"
+            ) from exc
         if owner is None:
             owner = User.objects.create_user(
                 username=CAPACITY_OWNER_EMAIL,
                 email=CAPACITY_OWNER_EMAIL,
-                password=CAPACITY_OWNER_PASSWORD,
+                password=password,
             )
         else:
-            # Held to the configured validators like any other credential: the
-            # constant is weak by design but must still clear the project's bar,
-            # so weakening it later fails here rather than silently shipping.
-            validate_password(CAPACITY_OWNER_PASSWORD, user=owner)
-            owner.set_password(CAPACITY_OWNER_PASSWORD)
+            owner.set_password(password)
             owner.save(update_fields=["password"])
         return owner
 

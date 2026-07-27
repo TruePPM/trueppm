@@ -14,12 +14,35 @@ import type { CommandGroup, CommandItem } from './commandItems';
  *  for — an explicit parent→child reading, never a WBS code. */
 const SEP = ' ▸ ';
 
-/** Which palette group a result lands in — keyed on the agile `type`, so a task
- *  epic and a backlog epic share the "Epics" group. Anything that is not an epic
- *  (story, or a task if ever requested) falls to Stories. */
-export function omniSearchGroup(result: OmniSearchResult): CommandGroup {
-  return result.type === 'epic' ? 'epic' : 'story';
+/** Which palette group a result lands in — keyed on `type`, so a task epic and a
+ *  backlog epic share the "Epics" group. Plain tasks and milestones get their own
+ *  groups rather than the project-scoped `task` group, whose "Tasks" header means
+ *  "in this project" (ADR-0662 D3). An unrecognized type falls to Stories, matching
+ *  the previous catch-all rather than dropping the row. */
+export function omniSearchGroup(result: OmniSearchResult): OmniSearchGroup {
+  switch (result.type) {
+    case 'epic':
+      return 'epic';
+    case 'milestone':
+      return 'milestone';
+    case 'task':
+      return 'omniTask';
+    default:
+      return 'story';
+  }
 }
+
+/** The four palette groups the omni-search tier can produce — a subset of
+ *  {@link CommandGroup}, narrowed so the chip map below is exhaustive by type. */
+type OmniSearchGroup = Extract<CommandGroup, 'epic' | 'story' | 'milestone' | 'omniTask'>;
+
+/** The vocabulary chip per omni-search group. */
+const OMNI_SEARCH_TAG: Record<OmniSearchGroup, string> = {
+  epic: 'Epic',
+  story: 'Story',
+  milestone: 'Milestone',
+  omniTask: 'Task',
+};
 
 /** The muted breadcrumb subtitle — agile vocabulary only (program ▸ project ▸
  *  parent epic), never a WBS code. A backlog item is program-level intake, so it
@@ -67,8 +90,8 @@ export function buildOmniSearchItems(
       id: `omni:${result.kind}:${result.id}`,
       label: result.title,
       group,
-      // Agile vocabulary chip — "Epic" / "Story" — never a WBS type.
-      tag: group === 'epic' ? 'Epic' : 'Story',
+      // Vocabulary chip — "Epic" / "Story" / "Milestone" / "Task" — never a WBS type.
+      tag: OMNI_SEARCH_TAG[group],
       detail: omniSearchBreadcrumb(result),
       keywords: [
         result.type,

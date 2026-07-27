@@ -18,6 +18,7 @@
  * be repaired later (or by someone else). Only the first two actions write.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { compareCodeUnits } from '@/lib/compareStrings';
 import { toast } from '@/components/Toast';
 import { useCreateLabel } from '@/hooks/useLabels';
 import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
@@ -39,9 +40,16 @@ function readDismissed(): string[] {
 /**
  * Keyed on view **and** the specific missing ids, so a view that later loses a
  * *different* label speaks up again instead of inheriting an old dismissal.
+ *
+ * The sort canonicalizes the id set so `[a, b]` and `[b, a]` yield one key — it
+ * is not an alphabetical ordering anyone reads. `compareCodeUnits`, never
+ * `localeCompare`: this key is persisted and later compared for exact equality,
+ * so a collation that shifts with the user's locale or a browser's ICU version
+ * would produce a second key for the same set and silently resurrect a notice
+ * the user already dismissed.
  */
 export function dismissKeyFor(viewId: string, missingIds: string[]): string {
-  return `${viewId}:${[...missingIds].sort().join(',')}`;
+  return `${viewId}:${[...missingIds].sort(compareCodeUnits).join(',')}`;
 }
 
 export function isNoticeDismissed(viewId: string, missingIds: string[]): boolean {

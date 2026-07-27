@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import datetime
 import functools
 import logging
@@ -233,6 +234,23 @@ PIN_ENDPOINT_DESCRIPTION = (
     "Note this is **not** the same concept as `TaskNote.pinned` or "
     "`TaskAttachment.is_pinned`, which are *shared* curation that any project "
     "writer may toggle and every project member can see."
+)
+
+# Declared as named components rather than anonymous inline schemas so the two pin
+# paths (project, program) publish one documented acknowledgement shape each
+# instead of two structurally-identical unnamed blobs an integrator has to diff.
+PROJECT_PIN_RESPONSE = inline_serializer(
+    name="ProjectPinResponse", fields={"is_pinned": serializers.BooleanField()}
+)
+PROGRAM_PIN_RESPONSE = inline_serializer(
+    name="ProgramPinResponse", fields={"is_pinned": serializers.BooleanField()}
+)
+# Shared by both pin endpoints' 400. ``code`` is the machine-readable
+# discriminator; a client must never string-match ``detail``, which is human copy
+# and will change with the wording or the locale.
+PIN_LIMIT_RESPONSE = inline_serializer(
+    name="PinLimitReachedResponse",
+    fields={"detail": serializers.CharField(), "code": serializers.CharField()},
 )
 
 # Allow-list pattern for the X-Source request header value (ADR-0065 Gap 2).
@@ -1691,11 +1709,12 @@ class ProjectViewSet(
         description=PIN_ENDPOINT_DESCRIPTION,
         request=None,
         responses={
-            200: inline_serializer(
-                name="ProjectPinResponse",
-                fields={"is_pinned": serializers.BooleanField()},
-            ),
+            200: PROJECT_PIN_RESPONSE,
             204: None,
+            400: OpenApiResponse(
+                response=PIN_LIMIT_RESPONSE,
+                description="Pin limit reached (`code: pin_limit_reached`).",
+            ),
         },
     )
     @action(detail=True, methods=["post", "delete"], url_path="pin")
@@ -12511,18 +12530,66 @@ class MeRecentProjectsView(APIView):
 # Global cross-program Epic/Story omni-search (ADR-0508 D4, #2103)
 # ---------------------------------------------------------------------------
 
+
 # The agile-taxonomy values the palette omni-search understands. Each maps 1:1 onto
 # a ``TaskType`` and a ``BacklogItemType`` value (they share the string literals), so
 # one requested set filters both sources uniformly.
-_OMNI_SEARCH_TYPES: dict[str, tuple[str, str]] = {
-    "epic": (TaskType.EPIC, BacklogItemType.EPIC),
-    "story": (TaskType.STORY, BacklogItemType.STORY),
-    "task": (TaskType.TASK, BacklogItemType.TASK),
+@dataclasses.dataclass(frozen=True)
+class _OmniSearchKind:
+    """How one ``?type=`` key selects rows from each omni-search source (ADR-0662).
+
+    Replaces the original ``(TaskType, BacklogItemType)`` tuple because ``milestone``
+    is **not** a ``TaskType``: milestone-ness is the coupled tri-state invariant
+    ``is_milestone=True`` ⟺ ``delivery_mode='milestone'`` ⟺ ``duration=0`` (#1773), so a
+    milestone ``Task`` still carries an independent ``type``. A predicate per key
+    expresses that; a type tuple cannot.
+
+    Carrying a ``Q`` (rather than special-casing ``milestone`` inside
+    ``_task_results``) keeps every key inside the **one** membership-gated queryset. A
+    second branch would be a second queryset that must independently re-apply the 🔴
+    IDOR membership re-filter — the forgotten-gate class ADR-0104 §risk-1 documents.
+    """
+
+    #: Task-side predicate; ``None`` means this key never matches a ``Task``.
+    task_filter: Q | None
+    #: Matching ``BacklogItemType``; ``None`` means this key never matches a
+    #: ``BacklogItem``. A milestone is a schedule artifact, never program intake.
+    backlog_type: str | None
+
+
+# The kinds the palette omni-search understands. Every agile key excludes milestones and
+# the ``milestone`` key requires one, so the keys are **mutually exclusive by
+# construction** — no requested combination can return the same row twice with two
+# different chips, and no merge-time dedup pass is needed (ADR-0662 D2).
+_OMNI_SEARCH_TYPES: dict[str, _OmniSearchKind] = {
+    "epic": _OmniSearchKind(
+        task_filter=Q(type=TaskType.EPIC, is_milestone=False),
+        backlog_type=BacklogItemType.EPIC,
+    ),
+    "story": _OmniSearchKind(
+        task_filter=Q(type=TaskType.STORY, is_milestone=False),
+        backlog_type=BacklogItemType.STORY,
+    ),
+    "task": _OmniSearchKind(
+        task_filter=Q(type=TaskType.TASK, is_milestone=False),
+        backlog_type=BacklogItemType.TASK,
+    ),
+    "milestone": _OmniSearchKind(task_filter=Q(is_milestone=True), backlog_type=None),
 }
-# Default result kinds when ``?type`` is absent — the marquee "Epic ▸ Story" ask
-# (ADR-0508 D4). ``task`` is opt-in via ``?type=…,task`` so a cold search never
-# dumps every plain task the user can see.
-_OMNI_SEARCH_DEFAULT_TYPES = ("epic", "story")
+# Relative rank per kind, used only as a tiebreaker *within* a prefix-match class so an
+# exact prefix hit is never buried under an alphabetically-earlier epic (ADR-0662 D4).
+# Milestones outrank plain tasks: a milestone is the governance unit a PMO director or
+# sponsor asks about by name.
+_OMNI_SEARCH_TYPE_RANK: dict[str, int] = {"epic": 0, "story": 1, "milestone": 2, "task": 3}
+# Default result kinds when ``?type`` is absent. Originally ``epic,story`` with ``task``
+# opt-in "so a cold search never dumps every plain task" — but a waterfall project has no
+# epics or stories at all, so that default returned **zero results** for a plain task
+# name and read as "the tool doesn't have my data" (#2442). The dump it guarded against is
+# still prevented by three bounds that all remain: the 2-char ``_OMNI_SEARCH_MIN_Q``
+# floor, the ``_OMNI_SEARCH_SCAN_CAP`` per-source bound, and prefix-first ranking. The
+# server default matches the palette's so an MCP agent calling ``/me/search/?q=`` gets the
+# same search the UI does rather than a narrower one.
+_OMNI_SEARCH_DEFAULT_TYPES = ("epic", "story", "task", "milestone")
 # Minimum query length. A one-character search is not selective enough to be useful
 # and would scan a large fraction of the trigram index; mirror the user_search /
 # board-search floor.
@@ -12539,14 +12606,15 @@ _OMNI_SEARCH_SCAN_CAP = 100
 
 
 class MeSearchView(McpReadableViewMixin, APIView):
-    """``GET /api/v1/me/search/`` — global cross-program Epic/Story omni-search (ADR-0508 D4).
+    """``GET /api/v1/me/search/`` — global cross-program work-item omni-search (ADR-0508 D4).
 
-    The ⌘K palette's Epic/Story result type (the marquee #1557 VoC ask). Spans two
+    The ⌘K palette's global result tier (the marquee #1557 VoC ask). Spans two
     sources with **different** RBAC scopes and merges them into one ranked, paginated
     list, each row carrying an **agile-vocabulary** breadcrumb (program / project /
     parent epic) — never a WBS code (the Product-Owner persona's hard-NO):
 
-    * committed ``Task`` rows of type EPIC / STORY / TASK — **project-membership** scope;
+    * committed ``Task`` rows of type EPIC / STORY / TASK, plus milestones
+      (``is_milestone=True``, reported as type ``milestone``) — **project-membership** scope;
     * program ``BacklogItem`` intake rows — **program-membership** scope.
 
     **🔴 RBAC / IDOR contract**: every row is filtered to the requesting user's *live*
@@ -12562,16 +12630,18 @@ class MeSearchView(McpReadableViewMixin, APIView):
       * ``q`` — the search term. Fewer than :data:`_OMNI_SEARCH_MIN_Q` characters
         (after trim) returns an empty page; the term is truncated to
         :data:`_OMNI_SEARCH_MAX_Q` characters as a DoS guard.
-      * ``type`` — comma-separated agile kinds to include, from
-        ``epic`` / ``story`` / ``task``. Unknown values are ignored; an empty/absent
-        value defaults to ``epic,story`` (:data:`_OMNI_SEARCH_DEFAULT_TYPES`).
+      * ``type`` — comma-separated kinds to include, from ``epic`` / ``story`` /
+        ``task`` / ``milestone``. Unknown values are ignored; an empty/absent value
+        defaults to all four (:data:`_OMNI_SEARCH_DEFAULT_TYPES`). The kinds are
+        mutually exclusive: every agile kind excludes milestones and ``milestone``
+        requires one, so no combination returns a row twice (ADR-0662).
       * ``page`` — standard DRF page number over the merged result list.
 
     **Response**: the standard ``{count, next, previous, results}`` envelope where each
     result is an :class:`~trueppm_api.apps.projects.serializers.OmniSearchResultSerializer`
     row. Results are bounded to the top :data:`_OMNI_SEARCH_SCAN_CAP` matches per source
-    (a search palette reads only the first page), ranked title-prefix-first then
-    alphabetically.
+    (a search palette reads only the first page), ranked title-prefix-first, then by kind
+    (epic, story, milestone, task), then alphabetically.
 
     **API-first / agent**: ``McpReadableViewMixin`` exposes the read to a personal
     ``mcp:read`` token so an MCP agent can resolve "find the Login epic" under its own
@@ -12595,10 +12665,26 @@ class MeSearchView(McpReadableViewMixin, APIView):
         return allowed or list(_OMNI_SEARCH_DEFAULT_TYPES)
 
     def _task_results(self, user_pk: Any, q: str, types: list[str]) -> list[dict[str, Any]]:
-        task_types = [_OMNI_SEARCH_TYPES[t][0] for t in types]
+        # OR the requested kinds' predicates into the single membership-gated queryset
+        # (ADR-0662 D1), so the 🔴 IDOR filter below is written once and a new kind
+        # cannot be added in a way that bypasses it.
+        selector = Q()
+        matched = False
+        for t in types:
+            kind = _OMNI_SEARCH_TYPES[t]
+            if kind.task_filter is not None:
+                selector |= kind.task_filter
+                matched = True
+        # Fail closed. An empty ``Q()`` matches *everything*, so a request naming only
+        # kinds with no task predicate must return nothing rather than every task the
+        # caller can see. Unreachable today (all four kinds define ``task_filter``) and
+        # deliberately kept: it is the guard that makes adding a backlog-only kind safe
+        # instead of catastrophic.
+        if not matched:
+            return []
         rows = (
             Task.objects.filter(
-                type__in=task_types,
+                selector,
                 name__icontains=q,
                 is_deleted=False,
                 project__is_deleted=False,
@@ -12619,7 +12705,11 @@ class MeSearchView(McpReadableViewMixin, APIView):
                 {
                     "id": str(task.id),
                     "kind": "task",
-                    "type": task.type,
+                    # Report milestone-ness as the row's identity. Derived from the row
+                    # rather than the matching key so the value is correct for any
+                    # requested combination, and safe because the serializer field is a
+                    # plain CharField — no OpenAPI enum to rename (ADR-0662 D2).
+                    "type": "milestone" if task.is_milestone else task.type,
                     "title": task.name,
                     "program_id": str(program.id) if program else None,
                     "program_name": program.name if program else None,
@@ -12632,7 +12722,15 @@ class MeSearchView(McpReadableViewMixin, APIView):
         return results
 
     def _backlog_results(self, user_pk: Any, q: str, types: list[str]) -> list[dict[str, Any]]:
-        item_types = [_OMNI_SEARCH_TYPES[t][1] for t in types]
+        # Kinds with no backlog analogue (``milestone`` — a schedule artifact, never
+        # program intake) contribute nothing here.
+        item_types = [
+            kind.backlog_type
+            for t in types
+            if (kind := _OMNI_SEARCH_TYPES[t]).backlog_type is not None
+        ]
+        if not item_types:
+            return []
         rows = (
             BacklogItem.objects.filter(
                 item_type__in=item_types,
@@ -12665,7 +12763,7 @@ class MeSearchView(McpReadableViewMixin, APIView):
         ]
 
     @extend_schema(
-        summary="Global cross-program Epic/Story omni-search",
+        summary="Global cross-program work-item omni-search",
         # Pinned: switching the 200 from a many=True serializer to the inline
         # envelope below flips drf-spectacular's heuristic operationId from
         # `_list` to `_retrieve` (misleading for a search-list, and a needless
@@ -12686,8 +12784,10 @@ class MeSearchView(McpReadableViewMixin, APIView):
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Comma-separated agile kinds to include, from epic,story,task. "
-                    "Absent defaults to epic,story."
+                    "Comma-separated kinds to include, from epic,story,task,milestone. "
+                    "Absent defaults to all four. Kinds are mutually exclusive: a "
+                    "milestone is returned only under 'milestone', never under its "
+                    "underlying agile type."
                 ),
             ),
         ],
@@ -12730,12 +12830,16 @@ class MeSearchView(McpReadableViewMixin, APIView):
         types = self._requested_types()
 
         merged = self._task_results(user_pk, q, types) + self._backlog_results(user_pk, q, types)
-        # Rank: exact prefix matches first (what the user most likely means), then
-        # alphabetically, then id for a stable total order across pages.
+        # Rank: exact prefix matches first (what the user most likely means), then by
+        # kind, then alphabetically, then id for a stable total order across pages.
+        # Kind is deliberately a tiebreaker *inside* a prefix class, not above it — an
+        # exact prefix-matching task is far more likely to be what the user meant than an
+        # alphabetically-first epic, so type rank must never bury it (ADR-0662 D4).
         lowered = q.lower()
         merged.sort(
             key=lambda r: (
                 0 if r["title"].lower().startswith(lowered) else 1,
+                _OMNI_SEARCH_TYPE_RANK.get(r["type"], len(_OMNI_SEARCH_TYPE_RANK)),
                 r["title"].lower(),
                 r["id"],
             )

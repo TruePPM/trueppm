@@ -225,6 +225,83 @@ test.describe('command palette', () => {
     await expect(page).toHaveURL(/\/projects\/cmdk-proj-apollo\/schedule\?task=epic-login/);
   });
 
+  // A waterfall project has no epics or stories at all, so the old epic,story default
+  // returned ZERO results for a real task name — which reads as "the tool doesn't have
+  // my data" rather than "you asked for the wrong type" (#2442, ADR-0662).
+  test('waterfall tier: a task and a milestone get their own groups and navigate (#2442)', async ({
+    page,
+  }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECTS[0].id });
+
+    let requestedType: string | null = null;
+    await page.route('**/api/v1/me/search/**', (route) => {
+      requestedType = new URL(route.request().url()).searchParams.get('type');
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 2,
+          next: null,
+          previous: null,
+          results: [
+            {
+              id: 'ms-q4',
+              kind: 'task',
+              type: 'milestone',
+              title: 'Foundation sign-off',
+              program_id: 'prog-1',
+              program_name: 'Platform',
+              project_id: 'cmdk-proj-apollo',
+              project_name: 'Apollo Redesign',
+              parent_epic_id: null,
+              parent_epic_name: null,
+            },
+            {
+              id: 'task-pour',
+              kind: 'task',
+              type: 'task',
+              title: 'Foundation pour',
+              program_id: 'prog-1',
+              program_name: 'Platform',
+              project_id: 'cmdk-proj-apollo',
+              project_name: 'Apollo Redesign',
+              parent_epic_id: null,
+              parent_epic_name: null,
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.goto('/me/work');
+    await expect(page.getByRole('button', { name: /command palette/i })).toBeVisible();
+    await page.keyboard.press('Control+k');
+    const dialog = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(dialog).toBeVisible();
+    await page.getByRole('combobox').fill('foundation');
+
+    // Both new groups render under scope-explicit headers. "Tasks in all projects" is
+    // qualified so it cannot be confused with the project-scoped "Tasks" tier.
+    await expect(dialog.getByText('Milestones', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('Tasks in all projects', { exact: true })).toBeVisible();
+    // Chips read from the type, not the old epic/story catch-all.
+    const milestoneRow = dialog.getByRole('option', {
+      name: /Foundation sign-off.*Platform.*Apollo.*Milestone/,
+    });
+    await expect(milestoneRow).toBeVisible();
+    await expect(
+      dialog.getByRole('option', { name: /Foundation pour.*Platform.*Apollo.*Task/ }),
+    ).toBeVisible();
+
+    // The client asked for the widened kind set — the actual #2442 defect.
+    expect(requestedType).toBe('epic,story,task,milestone');
+
+    await milestoneRow.click();
+    await expect(page).toHaveURL(/\/projects\/cmdk-proj-apollo\/schedule\?task=ms-q4/);
+  });
+
   test('jump-to-task opens the task drawer inline (no navigation)', async ({ page }) => {
     await setupAuth(page);
     await setupCatchAll(page);

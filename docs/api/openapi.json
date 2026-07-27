@@ -5483,8 +5483,8 @@
         "/api/v1/me/search/": {
             "get": {
                 "operationId": "v1_me_search_list",
-                "description": "``GET /api/v1/me/search/`` — global cross-program Epic/Story omni-search (ADR-0508 D4).\n\nThe ⌘K palette's Epic/Story result type (the marquee #1557 VoC ask). Spans two\nsources with **different** RBAC scopes and merges them into one ranked, paginated\nlist, each row carrying an **agile-vocabulary** breadcrumb (program / project /\nparent epic) — never a WBS code (the Product-Owner persona's hard-NO):\n\n* committed ``Task`` rows of type EPIC / STORY / TASK — **project-membership** scope;\n* program ``BacklogItem`` intake rows — **program-membership** scope.\n\n**🔴 RBAC / IDOR contract**: every row is filtered to the requesting user's *live*\nmembership — a ``Task`` only via ``project__memberships__user`` (project not\ndeleted, membership not deleted) and a ``BacklogItem`` only via\n``program__memberships__user`` (program not deleted, membership not deleted). There\nis no ``?user=`` / ``?project=`` / ``?program=`` escape hatch: the search is keyed\non ``request.user`` alone, so it can never surface an epic/story/backlog title from\na project or program the caller is not a member of. Mirrors the membership\nre-filter of ``MeWorkView`` / ``/me/recent-projects/``.\n\n**Query params**:\n  * ``q`` — the search term. Fewer than :data:`_OMNI_SEARCH_MIN_Q` characters\n    (after trim) returns an empty page; the term is truncated to\n    :data:`_OMNI_SEARCH_MAX_Q` characters as a DoS guard.\n  * ``type`` — comma-separated agile kinds to include, from\n    ``epic`` / ``story`` / ``task``. Unknown values are ignored; an empty/absent\n    value defaults to ``epic,story`` (:data:`_OMNI_SEARCH_DEFAULT_TYPES`).\n  * ``page`` — standard DRF page number over the merged result list.\n\n**Response**: the standard ``{count, next, previous, results}`` envelope where each\nresult is an :class:`~trueppm_api.apps.projects.serializers.OmniSearchResultSerializer`\nrow. Results are bounded to the top :data:`_OMNI_SEARCH_SCAN_CAP` matches per source\n(a search palette reads only the first page), ranked title-prefix-first then\nalphabetically.\n\n**API-first / agent**: ``McpReadableViewMixin`` exposes the read to a personal\n``mcp:read`` token so an MCP agent can resolve \"find the Login epic\" under its own\nowner-scoped token — the resolution fact is not stranded in the web client.",
-                "summary": "Global cross-program Epic/Story omni-search",
+                "description": "``GET /api/v1/me/search/`` — global cross-program work-item omni-search (ADR-0508 D4).\n\nThe ⌘K palette's global result tier (the marquee #1557 VoC ask). Spans two\nsources with **different** RBAC scopes and merges them into one ranked, paginated\nlist, each row carrying an **agile-vocabulary** breadcrumb (program / project /\nparent epic) — never a WBS code (the Product-Owner persona's hard-NO):\n\n* committed ``Task`` rows of type EPIC / STORY / TASK, plus milestones\n  (``is_milestone=True``, reported as type ``milestone``) — **project-membership** scope;\n* program ``BacklogItem`` intake rows — **program-membership** scope.\n\n**🔴 RBAC / IDOR contract**: every row is filtered to the requesting user's *live*\nmembership — a ``Task`` only via ``project__memberships__user`` (project not\ndeleted, membership not deleted) and a ``BacklogItem`` only via\n``program__memberships__user`` (program not deleted, membership not deleted). There\nis no ``?user=`` / ``?project=`` / ``?program=`` escape hatch: the search is keyed\non ``request.user`` alone, so it can never surface an epic/story/backlog title from\na project or program the caller is not a member of. Mirrors the membership\nre-filter of ``MeWorkView`` / ``/me/recent-projects/``.\n\n**Query params**:\n  * ``q`` — the search term. Fewer than :data:`_OMNI_SEARCH_MIN_Q` characters\n    (after trim) returns an empty page; the term is truncated to\n    :data:`_OMNI_SEARCH_MAX_Q` characters as a DoS guard.\n  * ``type`` — comma-separated kinds to include, from ``epic`` / ``story`` /\n    ``task`` / ``milestone``. Unknown values are ignored; an empty/absent value\n    defaults to all four (:data:`_OMNI_SEARCH_DEFAULT_TYPES`). The kinds are\n    mutually exclusive: every agile kind excludes milestones and ``milestone``\n    requires one, so no combination returns a row twice (ADR-0662).\n  * ``page`` — standard DRF page number over the merged result list.\n\n**Response**: the standard ``{count, next, previous, results}`` envelope where each\nresult is an :class:`~trueppm_api.apps.projects.serializers.OmniSearchResultSerializer`\nrow. Results are bounded to the top :data:`_OMNI_SEARCH_SCAN_CAP` matches per source\n(a search palette reads only the first page), ranked title-prefix-first, then by kind\n(epic, story, milestone, task), then alphabetically.\n\n**API-first / agent**: ``McpReadableViewMixin`` exposes the read to a personal\n``mcp:read`` token so an MCP agent can resolve \"find the Login epic\" under its own\nowner-scoped token — the resolution fact is not stranded in the web client.",
+                "summary": "Global cross-program work-item omni-search",
                 "parameters": [
                     {
                         "in": "query",
@@ -5500,7 +5500,7 @@
                         "schema": {
                             "type": "string"
                         },
-                        "description": "Comma-separated agile kinds to include, from epic,story,task. Absent defaults to epic,story."
+                        "description": "Comma-separated kinds to include, from epic,story,task,milestone. Absent defaults to all four. Kinds are mutually exclusive: a milestone is returned only under 'milestone', never under its underlying agile type."
                     }
                 ],
                 "tags": [
@@ -6996,6 +6996,7 @@
             "get": {
                 "operationId": "v1_programs_export_retrieve",
                 "description": "GET: synchronous JSON seed (#616). POST: queue the async bundle (#1958).\n\nBoth paths are Admin+ (#1957, see get_permissions). The GET path returns the\ncanonical JSON seed as a synchronous attachment; the POST path (ADR-0219)\nenqueues the richer async ``.tar.gz`` bundle across every member project and\nreturns ``202`` with the job row.",
+                "summary": "Export the program as a downloadable JSON seed file",
                 "parameters": [
                     {
                         "in": "path",
@@ -7027,11 +7028,12 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "A downloadable canonical JSON seed document describing this program and its member projects, delivered as a file attachment. Round-trips back through the importer."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -7049,12 +7051,12 @@
                             }
                         }
                     }
-                },
-                "summary": "Retrieve export"
+                }
             },
             "post": {
                 "operationId": "v1_programs_export_create",
                 "description": "GET: synchronous JSON seed (#616). POST: queue the async bundle (#1958).\n\nBoth paths are Admin+ (#1957, see get_permissions). The GET path returns the\ncanonical JSON seed as a synchronous attachment; the POST path (ADR-0219)\nenqueues the richer async ``.tar.gz`` bundle across every member project and\nreturns ``202`` with the job row.",
+                "summary": "Queue a richer asynchronous program export bundle",
                 "parameters": [
                     {
                         "in": "path",
@@ -7070,26 +7072,6 @@
                 "tags": [
                     "import-export"
                 ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
                 "security": [
                     {
                         "projectApiTokenAuth": []
@@ -7102,15 +7084,15 @@
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "202": {
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "$ref": "#/components/schemas/ProgramExportJob"
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "An async program export job (ADR-0219, #1958). The job builds a .tar.gz containing the canonical JSON seed plus, per member project, MS Project XML, task attachments, time entries, and the audit/change history. Poll GET .../export/jobs/{job_id}/ until status is 'success', then fetch download_url. Admin+ only; an in-flight job is returned rather than queuing a duplicate build."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -7128,8 +7110,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Export program"
+                }
             }
         },
         "/api/v1/programs/{id}/export/jobs/": {
@@ -7453,7 +7434,7 @@
             "post": {
                 "operationId": "v1_programs_pin_create",
                 "description": "Pins or unpins this item **for the requesting user only**. A pin is a private, per-user wayfinding preference: it is visible to nobody else, it grants no access, and it changes nothing about the item itself. The operation is idempotent and reversible — re-pinning is a no-op and unpinning something that was never pinned succeeds. No endpoint reports who pinned an item or how many users pinned it.\n\nNote this is **not** the same concept as `TaskNote.pinned` or `TaskAttachment.is_pinned`, which are *shared* curation that any project writer may toggle and every project member can see.",
-                "summary": "Queue a richer asynchronous program export bundle",
+                "summary": "Pin or unpin this program for the requesting user",
                 "parameters": [
                     {
                         "in": "path",
@@ -7481,15 +7462,28 @@
                     }
                 ],
                 "responses": {
-                    "202": {
+                    "200": {
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ProgramExportJob"
+                                    "$ref": "#/components/schemas/ProgramPinResponse"
                                 }
                             }
                         },
-                        "description": "An async program export job (ADR-0219, #1958). The job builds a .tar.gz containing the canonical JSON seed plus, per member project, MS Project XML, task attachments, time entries, and the audit/change history. Poll GET .../export/jobs/{job_id}/ until status is 'success', then fetch download_url. Admin+ only; an in-flight job is returned rather than queuing a duplicate build."
+                        "description": ""
+                    },
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                }
+                            }
+                        },
+                        "description": "Pin limit reached (`code: pin_limit_reached`)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -7541,12 +7535,26 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Pinned. Body carries `is_pinned: true`."
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramPinResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "204": {
-                        "description": "Unpinned."
+                        "description": "No response body"
                     },
                     "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                }
+                            }
+                        },
                         "description": "Pin limit reached (`code: pin_limit_reached`)."
                     },
                     "429": {
@@ -16015,6 +16023,16 @@
                     "204": {
                         "description": "No response body"
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                }
+                            }
+                        },
+                        "description": "Pin limit reached (`code: pin_limit_reached`)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -16076,6 +16094,16 @@
                     },
                     "204": {
                         "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                }
+                            }
+                        },
+                        "description": "Pin limit reached (`code: pin_limit_reached`)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -47991,6 +48019,21 @@
                     "name"
                 ]
             },
+            "PinLimitReachedResponse": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail"
+                ]
+            },
             "PinnedItem": {
                 "type": "object",
                 "description": "One entry in ``GET /auth/me/pinned/`` — a project or a program (#2390).\n\nA merged shape rather than two lists: the rail renders one flat jump group,\nand ``kind`` is what the client switches on for the route and the glyph.\n\n``pinned_at`` appears on this serializer and nowhere else. It is the caller's\nown timestamp on their own pin; putting it on a shared Project/Program\npayload would make \"she hasn't pinned it in weeks\" expressible to a\nteammate, which ADR-0627 §D5 forecloses.",
@@ -48861,6 +48904,17 @@
                 "required": [
                     "role",
                     "user"
+                ]
+            },
+            "ProgramPinResponse": {
+                "type": "object",
+                "properties": {
+                    "is_pinned": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "is_pinned"
                 ]
             },
             "ProgramRequest": {

@@ -648,6 +648,8 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
       : [];
     const epicItems = omniItems.filter((i) => i.group === 'epic');
     const storyItems = omniItems.filter((i) => i.group === 'story');
+    const milestoneItems = omniItems.filter((i) => i.group === 'milestone');
+    const omniTaskItems = omniItems.filter((i) => i.group === 'omniTask');
 
     const pinnedRows = buildPinnedItems(pinnedEnabled, pinnedItems, go);
     const recentItems = buildRecentItems(recentEnabled, recentProjects, go);
@@ -671,6 +673,8 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
       ...peopleItems,
       ...epicItems,
       ...storyItems,
+      ...milestoneItems,
+      ...omniTaskItems,
       ...pinnedRows,
       ...recentItems,
       ...jumps,
