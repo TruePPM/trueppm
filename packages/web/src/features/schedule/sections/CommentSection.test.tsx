@@ -445,3 +445,421 @@ describe('CommentSection — interactions', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Body rendering edge branches — the segment splitter has boundary cases that
+// only show up when a ref/mention sits at position 0 or runs to end-of-string.
+// ---------------------------------------------------------------------------
+
+const ATT_ID = '00000000-0000-4000-8000-000000000001';
+
+describe('CommentSection — body rendering boundaries', () => {
+  it('renders a body that is nothing but an attachment ref (no leading/trailing text)', () => {
+    useAttachmentsMock.mockReturnValue({
+      attachments: [attachment(ATT_ID, 'plan.pdf')],
+      isLoading: false,
+      error: null,
+    });
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ body: `[[attachment:${ATT_ID}]]` })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" />);
+    expect(screen.getByTitle('Attachment: plan.pdf')).toBeInTheDocument();
+  });
+
+  it('renders two attachment refs back to back with the text between them', () => {
+    const second = '00000000-0000-4000-8000-000000000002';
+    useAttachmentsMock.mockReturnValue({
+      attachments: [attachment(ATT_ID, 'a.pdf'), attachment(second, 'b.pdf')],
+      isLoading: false,
+      error: null,
+    });
+    useCommentsMock.mockReturnValue({
+      comments: [
+        comment({ body: `[[attachment:${ATT_ID}]] and [[attachment:${second}]] done` }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" />);
+    expect(screen.getByTitle('Attachment: a.pdf')).toBeInTheDocument();
+    expect(screen.getByTitle('Attachment: b.pdf')).toBeInTheDocument();
+    expect(screen.getByText(/done/)).toBeInTheDocument();
+  });
+
+  it('labels an external-link attachment chip by its title', () => {
+    useAttachmentsMock.mockReturnValue({
+      attachments: [
+        {
+          ...attachment(ATT_ID, ''),
+          external_url: 'https://example.test/spec',
+          external_title: 'Spec doc',
+        },
+      ],
+      isLoading: false,
+      error: null,
+    });
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ body: `see [[attachment:${ATT_ID}]]` })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" />);
+    expect(screen.getByTitle('Attachment: Spec doc')).toBeInTheDocument();
+  });
+
+  it('falls back to the raw URL when an external attachment has no title', () => {
+    useAttachmentsMock.mockReturnValue({
+      attachments: [
+        {
+          ...attachment(ATT_ID, ''),
+          external_url: 'https://example.test/spec',
+          external_title: '',
+        },
+      ],
+      isLoading: false,
+      error: null,
+    });
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ body: `see [[attachment:${ATT_ID}]]` })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" />);
+    expect(screen.getByTitle('Attachment: https://example.test/spec')).toBeInTheDocument();
+  });
+
+  it('renders a comment whose body is empty without crashing the row', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ body: '' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" />);
+    // The row still identifies its author even with nothing to render inside.
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Comment by Alice/)).toBeInTheDocument();
+  });
+
+  it('highlights a mention that starts the body and runs to the very end', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ body: '@bob' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" />);
+    expect(screen.getByTitle('Mention: @bob')).toBeInTheDocument();
+  });
+
+  it('highlights every mention in a body with several of them', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ body: 'hi @ann and @bob' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" />);
+    expect(screen.getByTitle('Mention: @ann')).toBeInTheDocument();
+    expect(screen.getByTitle('Mention: @bob')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Inline edit — save guards, pending, and error surfaces.
+// ---------------------------------------------------------------------------
+
+function freshOwnComment(overrides: Partial<TaskComment> = {}): TaskComment {
+  return comment({ created_at: new Date().toISOString(), ...overrides });
+}
+
+describe('CommentSection — inline edit branches', () => {
+  it('surfaces the edit-window error when the update mutation failed', () => {
+    useUpdateCommentMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: true });
+    useCommentsMock.mockReturnValue({
+      comments: [freshOwnComment()],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('Edit this comment'));
+    expect(screen.getByRole('alert').textContent).toContain('15-minute edit window');
+  });
+
+  it('shows "Saving…" and locks both buttons while the update is in flight', () => {
+    useUpdateCommentMock.mockReturnValue({ mutate: vi.fn(), isPending: true, isError: false });
+    useCommentsMock.mockReturnValue({
+      comments: [freshOwnComment()],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('Edit this comment'));
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  });
+
+  it('disables Save when the draft is whitespace only', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [freshOwnComment({ body: 'typo' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('Edit this comment'));
+    fireEvent.change(screen.getByLabelText('Edit comment'), { target: { value: '   ' } });
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('refuses to save a draft longer than the 10 000-char cap', () => {
+    const mutate = vi.fn();
+    useUpdateCommentMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useCommentsMock.mockReturnValue({
+      comments: [freshOwnComment({ body: 'short' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('Edit this comment'));
+    fireEvent.change(screen.getByLabelText('Edit comment'), {
+      target: { value: 'x'.repeat(10_001) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('Cancel discards the draft and restores the original body', () => {
+    const mutate = vi.fn();
+    useUpdateCommentMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useCommentsMock.mockReturnValue({
+      comments: [freshOwnComment({ body: 'original text' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('Edit this comment'));
+    fireEvent.change(screen.getByLabelText('Edit comment'), { target: { value: 'scrapped' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByLabelText('Edit comment')).toBeNull();
+    expect(mutate).not.toHaveBeenCalled();
+    // Re-opening the editor shows the server body again, not the discarded draft.
+    fireEvent.click(screen.getByLabelText('Edit this comment'));
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Edit comment').value).toBe('original text');
+  });
+
+  it('closes the editor once the save succeeds', () => {
+    const mutate = vi.fn(
+      (
+        _vars: { projectId: string; taskId: string; commentId: string; body: string },
+        opts?: { onSuccess?: () => void },
+      ) => opts?.onSuccess?.(),
+    );
+    useUpdateCommentMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useCommentsMock.mockReturnValue({
+      comments: [freshOwnComment({ body: 'typo here' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('Edit this comment'));
+    fireEvent.change(screen.getByLabelText('Edit comment'), { target: { value: 'fixed now' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    // Editor collapses back to the read view; the action bar returns.
+    expect(screen.queryByLabelText('Edit comment')).toBeNull();
+    expect(screen.getByLabelText('Acknowledge this comment')).toBeInTheDocument();
+  });
+
+  it('hides the whole action bar while the editor is open', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [freshOwnComment()],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('Edit this comment'));
+    expect(screen.queryByLabelText('Acknowledge this comment')).toBeNull();
+    expect(screen.queryByLabelText('React with 👍')).toBeNull();
+    expect(screen.queryByLabelText('Delete this comment')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Action-bar branches: already-acknowledged, in-flight mutations, confirm exit.
+// ---------------------------------------------------------------------------
+
+describe('CommentSection — action bar branches', () => {
+  it('un-acknowledges when the viewer already acknowledged', () => {
+    const mutate = vi.fn();
+    useAckMock.mockReturnValue({ mutate, isPending: false });
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ acknowledged_count: 3, has_my_acknowledgement: true })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    const btn = screen.getByLabelText('Remove your acknowledgement');
+    expect(btn).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(btn);
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ commentId: 'c1', acknowledge: false }),
+    );
+  });
+
+  it('POSTs a fresh reaction when has_my_reaction is set but the id is missing', () => {
+    const mutate = vi.fn();
+    useReactMock.mockReturnValue({ mutate, isPending: false });
+    useCommentsMock.mockReturnValue({
+      // Defensive shape: the flag is on but the server sent no reaction id.
+      comments: [comment({ has_my_reaction: true, my_reaction_id: null })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('Remove your 👍 reaction'));
+    expect(mutate).toHaveBeenCalledWith({
+      projectId: 'p1',
+      taskId: 't1',
+      commentId: 'c1',
+      emoji: '👍',
+    });
+  });
+
+  it('disables ack / react / delete while their mutations are in flight', () => {
+    useAckMock.mockReturnValue({ mutate: vi.fn(), isPending: true });
+    useReactMock.mockReturnValue({ mutate: vi.fn(), isPending: true });
+    useDeleteCommentMock.mockReturnValue({ mutate: vi.fn(), isPending: true });
+    useCommentsMock.mockReturnValue({
+      comments: [comment()],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.getByLabelText('Acknowledge this comment')).toBeDisabled();
+    expect(screen.getByLabelText('React with 👍')).toBeDisabled();
+    expect(screen.getByLabelText('Delete this comment')).toBeDisabled();
+  });
+
+  it('hides the count chips when acknowledgements and reactions are zero', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ acknowledged_count: 0, reaction_count: 0 })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.getByLabelText('Acknowledge this comment').textContent).toBe('✅');
+    expect(screen.getByLabelText('React with 👍').textContent).toBe('👍');
+  });
+
+  it('"Keep it" dismisses the confirm without deleting (#2171)', () => {
+    const mutate = vi.fn();
+    useDeleteCommentMock.mockReturnValue({ mutate, isPending: false });
+    useCommentsMock.mockReturnValue({
+      comments: [
+        comment({ id: 'p1c', body: 'parent' }),
+        comment({ id: 'r1', parent: 'p1c', body: 'reply' }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getAllByLabelText('Delete this comment')[0]);
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('closes the reply composer when it is cancelled', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [comment()],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    fireEvent.click(screen.getByLabelText('Reply to this comment'));
+    expect(screen.getAllByRole('combobox')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getAllByRole('combobox')).toHaveLength(1);
+  });
+
+  it('gives a reply row no Reply button — nesting stops at one level', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [
+        comment({ id: 'p1c', body: 'parent' }),
+        comment({ id: 'r1', parent: 'p1c', body: 'reply' }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.getAllByLabelText('Reply to this comment')).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Viewer-permission branches on the section itself.
+// ---------------------------------------------------------------------------
+
+describe('CommentSection — permission branches', () => {
+  it('shows the read-only empty copy and no composer for a non-editor', () => {
+    useCommentsMock.mockReturnValue({ comments: [], isLoading: false, error: null });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit={false} />);
+    expect(screen.getByText('No comments yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  it('hides every write affordance from a non-editor viewing an existing thread', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ body: 'read me' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit={false} />);
+    expect(screen.getByText('read me')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Acknowledge this comment')).toBeNull();
+    expect(screen.queryByLabelText('React with 👍')).toBeNull();
+    expect(screen.queryByLabelText('Reply to this comment')).toBeNull();
+  });
+
+  it('falls back to the client role rule when the server sent no canEdit verdict', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ created_at: new Date().toISOString() })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" userRole={ROLE_ADMIN} />);
+    // ADMIN can edit tasks → the action bar is live even with canEdit undefined.
+    expect(screen.getByLabelText('Acknowledge this comment')).toBeInTheDocument();
+    expect(screen.getByLabelText('Edit this comment')).toBeInTheDocument();
+  });
+
+  it('withholds Edit and Delete while the current user is still unknown', () => {
+    useCurrentUserMock.mockReturnValue({ user: undefined });
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ created_at: new Date().toISOString() })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.queryByLabelText('Edit this comment')).toBeNull();
+    expect(screen.queryByLabelText('Delete this comment')).toBeNull();
+    // Ack/react stay available — they are not author-scoped.
+    expect(screen.getByLabelText('Acknowledge this comment')).toBeInTheDocument();
+  });
+
+  it('names the list with the total comment count including replies', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [
+        comment({ id: 'p1c', body: 'parent' }),
+        comment({ id: 'r1', parent: 'p1c', body: 'reply' }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" />);
+    expect(screen.getByRole('list', { name: 'Comments — 2 total' })).toBeInTheDocument();
+  });
+});

@@ -312,6 +312,162 @@ describe('TaskRow', () => {
       // on pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7).
       expect(row.className).toMatch(/focus:ring-2/);
     });
+
+    it('a second click restarts the delay so the detail opens exactly once', () => {
+      vi.useFakeTimers();
+      try {
+        const onOpenDetail = vi.fn();
+        const task = makeTask({ id: 't1', wbs: '1.1' });
+        render(<TaskRow {...baseProps} task={task} phase="—" onOpenDetail={onOpenDetail} />);
+        const row = screen.getByRole('row');
+        fireEvent.click(row);
+        vi.advanceTimersByTime(100);
+        fireEvent.click(row); // cancels the first pending open, arms a fresh one
+        vi.advanceTimersByTime(219); // past the first timer's deadline, short of the second
+        expect(onOpenDetail).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(2);
+        expect(onOpenDetail).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('double-click with no pending open still renames a leaf', () => {
+      vi.useFakeTimers();
+      try {
+        const onOpenDetail = vi.fn();
+        const onStartRename = vi.fn();
+        const task = makeTask({ id: 't1', wbs: '1.1' });
+        render(
+          <TaskRow
+            {...baseProps}
+            task={task}
+            phase="—"
+            onOpenDetail={onOpenDetail}
+            onStartRename={onStartRename}
+          />,
+        );
+        fireEvent.doubleClick(screen.getByRole('row'));
+        vi.advanceTimersByTime(400);
+        expect(onStartRename).toHaveBeenCalledTimes(1);
+        expect(onOpenDetail).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('double-click on a summary cancels the pending open without renaming', () => {
+      vi.useFakeTimers();
+      try {
+        const onOpenDetail = vi.fn();
+        const onStartRename = vi.fn();
+        const task = makeTask({ id: 'p1', wbs: '1', isSummary: true });
+        render(
+          <TaskRow
+            {...baseProps}
+            task={task}
+            phase="—"
+            onOpenDetail={onOpenDetail}
+            onStartRename={onStartRename}
+          />,
+        );
+        const row = screen.getByRole('row');
+        fireEvent.click(row);
+        fireEvent.doubleClick(row);
+        vi.advanceTimersByTime(400);
+        expect(onStartRename).not.toHaveBeenCalled();
+        expect(onOpenDetail).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('unmounting before the delay elapses cancels the pending open', () => {
+      vi.useFakeTimers();
+      try {
+        const onOpenDetail = vi.fn();
+        const task = makeTask({ id: 't1', wbs: '1.1' });
+        const { unmount } = render(
+          <TaskRow {...baseProps} task={task} phase="—" onOpenDetail={onOpenDetail} />,
+        );
+        fireEvent.click(screen.getByRole('row'));
+        unmount();
+        vi.advanceTimersByTime(400);
+        expect(onOpenDetail).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('Space opens detail (keyboard equivalent of Enter)', () => {
+      const onOpenDetail = vi.fn();
+      const task = makeTask({ id: 't1', wbs: '1.1' });
+      render(<TaskRow {...baseProps} task={task} phase="—" onOpenDetail={onOpenDetail} />);
+      fireEvent.keyDown(screen.getByRole('row'), { key: ' ' });
+      expect(onOpenDetail).toHaveBeenCalledTimes(1);
+    });
+
+    it('Enter raised from the select checkbox does not open detail', () => {
+      const onOpenDetail = vi.fn();
+      const task = makeTask({ id: 't1', wbs: '1.1', name: 'Build' });
+      render(<TaskRow {...baseProps} task={task} phase="—" onOpenDetail={onOpenDetail} />);
+      fireEvent.keyDown(screen.getByLabelText('Select Build'), { key: 'Enter' });
+      expect(onOpenDetail).not.toHaveBeenCalled();
+    });
+
+    it('Enter while renaming does not open detail', () => {
+      const onOpenDetail = vi.fn();
+      const task = makeTask({ id: 't1', wbs: '1.1' });
+      render(
+        <TaskRow {...baseProps} task={task} phase="—" isRenaming onOpenDetail={onOpenDetail} />,
+      );
+      fireEvent.keyDown(screen.getByRole('row'), { key: 'Enter' });
+      expect(onOpenDetail).not.toHaveBeenCalled();
+    });
+
+    it('Enter is inert when the row has no detail target', () => {
+      const onStartRename = vi.fn();
+      const task = makeTask({ id: 't1', wbs: '1.1' });
+      render(<TaskRow {...baseProps} task={task} phase="—" onStartRename={onStartRename} />);
+      fireEvent.keyDown(screen.getByRole('row'), { key: 'Enter' });
+      expect(onStartRename).not.toHaveBeenCalled();
+    });
+
+    it('an unrelated key on the row does nothing', () => {
+      const onOpenDetail = vi.fn();
+      const onStartRename = vi.fn();
+      const task = makeTask({ id: 't1', wbs: '1.1' });
+      render(
+        <TaskRow
+          {...baseProps}
+          task={task}
+          phase="—"
+          onOpenDetail={onOpenDetail}
+          onStartRename={onStartRename}
+        />,
+      );
+      fireEvent.keyDown(screen.getByRole('row'), { key: 'ArrowDown' });
+      expect(onOpenDetail).not.toHaveBeenCalled();
+      expect(onStartRename).not.toHaveBeenCalled();
+    });
+
+    it('F2 still renames on an interactive (click-to-open) row', () => {
+      const onOpenDetail = vi.fn();
+      const onStartRename = vi.fn();
+      const task = makeTask({ id: 't1', wbs: '1.1' });
+      render(
+        <TaskRow
+          {...baseProps}
+          task={task}
+          phase="—"
+          onOpenDetail={onOpenDetail}
+          onStartRename={onStartRename}
+        />,
+      );
+      fireEvent.keyDown(screen.getByRole('row'), { key: 'F2' });
+      expect(onStartRename).toHaveBeenCalledTimes(1);
+      expect(onOpenDetail).not.toHaveBeenCalled();
+    });
   });
 
   it('keys other than Enter/Escape inside the rename input are ignored', () => {
@@ -331,6 +487,88 @@ describe('TaskRow', () => {
     fireEvent.keyDown(screen.getByLabelText('Rename task'), { key: 'a' });
     expect(onRename).not.toHaveBeenCalled();
     expect(onCancelRename).not.toHaveBeenCalled();
+  });
+
+  it('blur with NO relatedTarget (click on inert chrome) commits the rename', () => {
+    const onRename = vi.fn();
+    const task = makeTask({ id: 't1', wbs: '1.1' });
+    render(<TaskRow {...baseProps} task={task} phase="—" isRenaming onRename={onRename} />);
+    const input = screen.getByLabelText<HTMLInputElement>('Rename task');
+    fireEvent.change(input, { target: { value: 'Committed' } });
+    fireEvent.blur(input);
+    expect(onRename).toHaveBeenCalledWith('Committed');
+  });
+
+  it('omits the select checkbox entirely when selectable is false (#2145)', () => {
+    const task = makeTask({ id: 't1', wbs: '1.1', name: 'Build' });
+    render(<TaskRow {...baseProps} task={task} phase="—" selectable={false} />);
+    expect(screen.queryByLabelText('Select Build')).not.toBeInTheDocument();
+    // The remaining cells are untouched — the row still renders its data.
+    expect(screen.getByText('Build')).toBeInTheDocument();
+  });
+
+  it('renders the select checkbox by default (selectable defaults true)', () => {
+    const task = makeTask({ id: 't1', wbs: '1.1', name: 'Build' });
+    render(<TaskRow {...baseProps} task={task} phase="—" />);
+    expect(screen.getByLabelText<HTMLInputElement>('Select Build').checked).toBe(false);
+  });
+
+  it('reflects the selected state on the select checkbox', () => {
+    const task = makeTask({ id: 't1', wbs: '1.1', name: 'Build' });
+    render(<TaskRow {...baseProps} task={task} phase="—" isSelected />);
+    expect(screen.getByLabelText<HTMLInputElement>('Select Build').checked).toBe(true);
+  });
+
+  it('critical styling wins over selected styling on the same row', () => {
+    const task = makeTask({ id: 't1', wbs: '1.1', isCritical: true });
+    render(<TaskRow {...baseProps} task={task} phase="—" isSelected />);
+    const row = screen.getByRole('row');
+    expect(row.className).toContain('bg-semantic-critical-bg');
+    expect(row.className).not.toContain('bg-brand-primary/10');
+  });
+
+  it('a selected non-critical row reads brand-tinted rather than zebra-striped', () => {
+    const task = makeTask({ id: 't1', wbs: '1.1' });
+    render(<TaskRow {...baseProps} task={task} phase="—" rowIndex={1} isSelected />);
+    const row = screen.getByRole('row');
+    expect(row.className).toContain('bg-brand-primary/10');
+    expect(row.className).not.toContain('bg-neutral-surface-raised');
+  });
+
+  it('renders a summary task name in bold and a leaf name unbolded', () => {
+    const summary = makeTask({ id: 'p1', wbs: '1', name: 'Phase 1', isSummary: true });
+    const { unmount } = render(<TaskRow {...baseProps} task={summary} phase="—" />);
+    expect(screen.getByText('Phase 1').className).toContain('font-semibold');
+    unmount();
+
+    const leaf = makeTask({ id: 't1', wbs: '1.1', name: 'Leaf' });
+    render(<TaskRow {...baseProps} task={leaf} phase="—" />);
+    expect(screen.getByText('Leaf').className).not.toContain('font-semibold');
+  });
+
+  it('folds the phase into the name cell accessible name only when a phase exists', () => {
+    const task = makeTask({ id: 't1', wbs: '1.1', name: 'Build' });
+    const { unmount } = render(<TaskRow {...baseProps} task={task} phase="Discovery" />);
+    expect(screen.getByLabelText('Build, Discovery')).toBeInTheDocument();
+    unmount();
+
+    render(<TaskRow {...baseProps} task={task} phase="—" />);
+    expect(screen.getByLabelText('Build')).toBeInTheDocument();
+  });
+
+  it('renders the dates, duration and rounded progress cells', () => {
+    const task = makeTask({
+      id: 't1',
+      wbs: '1.1',
+      duration: 12,
+      progress: 33.4,
+      start: '2026-05-01',
+      finish: '2026-05-12',
+    });
+    render(<TaskRow {...baseProps} task={task} phase="—" />);
+    expect(screen.getByText('12d')).toBeInTheDocument();
+    expect(screen.getByText('33%')).toBeInTheDocument();
+    expect(screen.getByText('1.1')).toBeInTheDocument();
   });
 
   describe('responsive layout (#1701)', () => {

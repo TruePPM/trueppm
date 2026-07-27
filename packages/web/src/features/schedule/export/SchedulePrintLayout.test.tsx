@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { SchedulePrintLayout } from './SchedulePrintLayout';
-import { buildSchedulePrintData } from './schedulePrintData';
+import { buildSchedulePrintData, type SchedulePrintData } from './schedulePrintData';
 import { planSheetColumns } from './scheduleSheetPlan';
 import type { Task, TaskLink } from '@/types';
 
@@ -448,5 +448,241 @@ describe('SchedulePrintLayout', () => {
     expect(card!.querySelectorAll('[data-print-text="unscheduled"]').length).toBeGreaterThanOrEqual(2);
     // The carved-out backlog row is NOT charted as a blank Gantt row.
     expect(printData.rows.map((r) => r.id)).toEqual(['a']);
+  });
+});
+
+// ── Branch-targeted coverage: optional masthead lines, include toggles, row
+//    kinds, out-of-span data dates, and the unscheduled plural / no-sprint bucket ──
+
+const rowsRegionOf = (c: HTMLElement) =>
+  c.querySelector('[data-print-vmark="gantt-rows"]') as HTMLElement;
+
+describe('SchedulePrintLayout — masthead provenance lines', () => {
+  it('renders org, baseline, project key, and workspace URL when the caller supplies them', () => {
+    const traceable = buildSchedulePrintData({
+      projectName: 'Apollo',
+      orgName: 'Acme Corp',
+      baselineLabel: 'Baseline B3',
+      projectKey: 'APL-2026',
+      workspaceUrl: 'acme.trueppm.example',
+      tasks: [task('a', { wbs: '1', name: 'Design', start: '2026-04-01', finish: '2026-04-08' })],
+      links: [],
+      userName: 'Jane',
+      generatedAtLabel: 'Jun 30, 2026',
+    });
+    render(<SchedulePrintLayout data={traceable} />);
+    expect(screen.getByText('Acme Corp')).toBeInTheDocument();
+    expect(screen.getByText('Baseline B3')).toBeInTheDocument();
+    expect(screen.getByText('APL-2026')).toBeInTheDocument();
+    expect(screen.getByText('acme.trueppm.example')).toBeInTheDocument();
+  });
+
+  it('omits every optional provenance line when it is absent, keeping the export date', () => {
+    render(<SchedulePrintLayout data={data()} />);
+    expect(screen.queryByText('Acme Corp')).toBeNull();
+    expect(screen.queryByText('Baseline B3')).toBeNull();
+    expect(screen.queryByText('APL-2026')).toBeNull();
+    expect(screen.getByText(/^Exported /)).toBeInTheDocument();
+  });
+});
+
+describe('SchedulePrintLayout — issue-1438 include toggles', () => {
+  function withOwners() {
+    return buildSchedulePrintData({
+      projectName: 'Apollo',
+      tasks: [
+        task('a', {
+          wbs: '1',
+          name: 'Design',
+          start: '2026-04-01',
+          finish: '2026-04-08',
+          assignees: [{ resourceId: 'r1', name: 'Ada Lovelace', units: 1 }],
+        }),
+        task('b', { wbs: '2', name: 'Build', start: '2026-04-09', finish: '2026-04-20' }),
+      ],
+      links: [],
+      userName: 'Jane',
+      generatedAtLabel: 'Jun 30, 2026',
+    });
+  }
+
+  it('renders the Owner header and the assignee initials when the column is on', () => {
+    render(<SchedulePrintLayout data={withOwners()} />);
+    expect(screen.getByText('Owner')).toBeInTheDocument();
+    expect(screen.getByText('AL')).toBeInTheDocument();
+  });
+
+  it('drops the Owner header and initials when the column is off', () => {
+    render(<SchedulePrintLayout data={withOwners()} includeOwnerColumn={false} />);
+    expect(screen.queryByText('Owner')).toBeNull();
+    expect(screen.queryByText('AL')).toBeNull();
+    // The activity itself still lists — only the owner gutter is dropped.
+    expect(screen.getByTitle('Design')).toBeInTheDocument();
+  });
+
+  it('yields the freed gutter width to the chart when the owner column is dropped', () => {
+    const { container, unmount } = render(<SchedulePrintLayout data={withOwners()} />);
+    const wide = Number((container.firstChild as HTMLElement).dataset.printLabelStripPx);
+    unmount();
+    const { container: narrowed } = render(
+      <SchedulePrintLayout data={withOwners()} includeOwnerColumn={false} />,
+    );
+    const narrow = Number((narrowed.firstChild as HTMLElement).dataset.printLabelStripPx);
+    expect(narrow).toBe(wide - 40);
+  });
+
+  it('hides the dependency-arrow overlay when arrows are off', () => {
+    const { container } = render(<SchedulePrintLayout data={data()} includeArrows={false} />);
+    expect(rowsRegionOf(container).querySelectorAll('path')).toHaveLength(0);
+    // Bars and labels are untouched.
+    expect(screen.getByTitle('Design')).toBeInTheDocument();
+  });
+
+  it('hides the critical-path summary box and its row-count stamp when it is off', () => {
+    const { container } = render(<SchedulePrintLayout data={data()} includeCpSummary={false} />);
+    expect(screen.queryByText('Critical path chain')).toBeNull();
+    expect(container.querySelector('[data-print-vmark="cp"]')).toBeNull();
+    expect((container.firstChild as HTMLElement).dataset.printCpRowCount).toBeUndefined();
+  });
+});
+
+describe('SchedulePrintLayout — data date outside the plotted span', () => {
+  it('omits the data-date pill and line when the date sits past the timeline', () => {
+    const { container } = render(<SchedulePrintLayout data={richData()} dataDate="2028-01-01" />);
+    const pill = Array.from(container.querySelectorAll('span.bg-brand-primary')).find(
+      (s) => (s.textContent ?? '').trim().length > 0,
+    );
+    expect(pill).toBeUndefined();
+    expect(rowsRegionOf(container).querySelector('span[title="Data date"]')).toBeNull();
+    // Everything is overdue against a far-future data date, so the overrun tails
+    // still paint — clamped to the chart edge rather than off the sheet.
+    const tails = Array.from(rowsRegionOf(container).querySelectorAll('line')).filter(
+      (l) => l.getAttribute('stroke-dasharray') === '2 2',
+    );
+    expect(tails.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('omits the data-date line and every overdue marker when the date precedes the timeline', () => {
+    const { container } = render(<SchedulePrintLayout data={richData()} dataDate="2020-01-01" />);
+    expect(rowsRegionOf(container).querySelector('span[title="Data date"]')).toBeNull();
+    const tails = Array.from(rowsRegionOf(container).querySelectorAll('line')).filter(
+      (l) => l.getAttribute('stroke-dasharray') === '2 2',
+    );
+    expect(tails).toHaveLength(0);
+  });
+});
+
+describe('SchedulePrintLayout — row kinds', () => {
+  function mixed() {
+    return buildSchedulePrintData({
+      projectName: 'Apollo',
+      tasks: [
+        task('p', {
+          wbs: '1',
+          name: 'Phase one',
+          isSummary: true,
+          start: '2026-04-01',
+          finish: '2026-04-20',
+        }),
+        task('t', { wbs: '1.1', name: 'Design', start: '2026-04-01', finish: '2026-04-08' }),
+        task('met', {
+          wbs: '1.2',
+          name: 'Gate met',
+          isMilestone: true,
+          progress: 100,
+          start: '2026-04-10',
+          finish: '2026-04-10',
+        }),
+        task('und', {
+          wbs: '2',
+          name: 'Unplaced',
+          status: 'IN_PROGRESS',
+          start: '',
+          finish: '',
+        }),
+      ],
+      links: [],
+      userName: null,
+      generatedAtLabel: 'Jun 30, 2026',
+    });
+  }
+
+  it('draws a summary row as a thin phase bracket, not a risk-framed task bar', () => {
+    const { container } = render(<SchedulePrintLayout data={mixed()} />);
+    const bracket = rowsRegionOf(container).querySelector('span[title="Phase one"]');
+    expect(bracket).toBeTruthy();
+    // A phase bracket carries no bar border and no progress fill.
+    expect(bracket!.className).not.toContain('border-2');
+    expect(bracket!.querySelector('.bg-semantic-on-track')).toBeNull();
+  });
+
+  it('bolds the phase label in the gutter and leaves task labels at normal weight', () => {
+    const { container } = render(<SchedulePrintLayout data={mixed()} />);
+    const labels = Array.from(container.querySelectorAll('[data-print-text="row"]'));
+    const phase = labels.find((d) => d.textContent?.includes('Phase one'));
+    const leaf = labels.find((d) => d.textContent?.includes('Design'));
+    expect(phase!.className).toContain('font-semibold');
+    expect(leaf!.className).not.toContain('font-semibold');
+  });
+
+  it('marks a completed milestone as met in its tooltip', () => {
+    const { container } = render(<SchedulePrintLayout data={mixed()} />);
+    expect(rowsRegionOf(container).querySelector('span[title$="· met"]')).toBeTruthy();
+  });
+
+  it('treats a milestone with an unknown met state as pending', () => {
+    // `milestoneMet` is `boolean | null` on the print row — a null (unknown)
+    // value must read as pending, never crash or render as met.
+    const base = mixed();
+    const unknownMet: SchedulePrintData = {
+      ...base,
+      rows: base.rows.map((r) => (r.id === 'met' ? { ...r, milestoneMet: null } : r)),
+    };
+    const { container } = render(<SchedulePrintLayout data={unknownMet} />);
+    expect(rowsRegionOf(container).querySelector('span[title$="· pending"]')).toBeTruthy();
+    expect(rowsRegionOf(container).querySelector('span[title$="· met"]')).toBeNull();
+  });
+
+  it('lists an undated row in the gutter but draws no alignment leader for it', () => {
+    const { container } = render(<SchedulePrintLayout data={mixed()} />);
+    expect(screen.getByTitle('Unplaced')).toBeInTheDocument();
+    const leaders = rowsRegionOf(container).querySelectorAll('line[stroke-dasharray="0.5 4"]');
+    // Only the three dated rows get a leader; the undated one has no bar to point at.
+    expect(leaders).toHaveLength(3);
+  });
+
+  it('skips a dependency arrow whose endpoint is not a charted row', () => {
+    const base = data();
+    const dangling: SchedulePrintData = {
+      ...base,
+      links: [...base.links, { id: 'ghost', fromId: 'a', toId: 'not-charted', type: 'FS', hard: true }],
+    };
+    const { container } = render(<SchedulePrintLayout data={dangling} />);
+    // The resolvable link still paints; the dangling one is dropped, not thrown on.
+    expect(rowsRegionOf(container).querySelectorAll('path')).toHaveLength(1);
+  });
+});
+
+describe('SchedulePrintLayout — unscheduled planned work grouping (#1799)', () => {
+  it('pluralizes the item count and buckets sprint-less rows under "No sprint"', () => {
+    const printData = buildSchedulePrintData({
+      projectName: 'Apollo',
+      tasks: [
+        task('a', { wbs: '1', name: 'Design', start: '2026-04-01', finish: '2026-04-05' }),
+        task('u1', { wbs: '2', name: 'Contact dedupe', status: 'BACKLOG', start: '', finish: '' }),
+        task('u2', { wbs: '3', name: 'Data cleanup', status: 'NOT_STARTED', start: '', finish: '' }),
+      ],
+      links: [],
+      userName: null,
+      generatedAtLabel: 'Jun 30, 2026',
+    });
+    render(<SchedulePrintLayout data={printData} />);
+
+    expect(screen.getByText(/2 items · planned, not a committed date/)).toBeInTheDocument();
+    // No target sprint → the trailing bucket, with no state qualifier appended.
+    expect(screen.getByText('No sprint')).toBeInTheDocument();
+    expect(screen.queryByText(/^Targeted:/)).toBeNull();
+    expect(screen.getByTitle('Contact dedupe')).toBeInTheDocument();
+    expect(screen.getByTitle('Data cleanup')).toBeInTheDocument();
   });
 });

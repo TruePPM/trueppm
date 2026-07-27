@@ -71,6 +71,14 @@ describe('compareWbs', () => {
     expect(compareWbs('1.1', '1')).toBeGreaterThan(0);
     expect(compareWbs('1.2', '1.2')).toBe(0);
   });
+
+  it('treats an empty path as the shortest possible prefix (sorts first, ties with itself)', () => {
+    // A task with no WBS code yet (a fresh row, or an import that lost the path)
+    // must still sort deterministically instead of throwing on `''.split()`.
+    expect(compareWbs('', '1')).toBeLessThan(0);
+    expect(compareWbs('1', '')).toBeGreaterThan(0);
+    expect(compareWbs('', '')).toBe(0);
+  });
 });
 
 describe('classifyLinkHardness', () => {
@@ -104,6 +112,13 @@ describe('buildSchedulePrintData — rows', () => {
     expect(row.depth).toBe(5);
     expect(row.indentLevel).toBe(MAX_INDENT_LEVELS);
     expect(row.wbsCode).toBe('1.2.3.4.5');
+  });
+
+  it('gives a row with no WBS code depth 0 and no indent', () => {
+    const data = build({ tasks: [task('orphan', { wbs: '' })] });
+    expect(data.rows[0].depth).toBe(0);
+    expect(data.rows[0].indentLevel).toBe(0);
+    expect(data.rows[0].wbsCode).toBe('');
   });
 
   it('derives owner initials from the first assignee', () => {
@@ -230,6 +245,23 @@ describe('isRowOverdue', () => {
       true,
     );
   });
+
+  it('falls back to a milestone start when it carries no finish date', () => {
+    // A zero-duration milestone can arrive with only a start; it must still be
+    // able to read as past-due rather than silently never flagging.
+    const ms = row({ isMilestone: true, milestoneMet: false, finish: null, start: '2026-04-10' });
+    expect(isRowOverdue(ms, '2026-04-15')).toBe(true);
+    expect(isRowOverdue({ ...ms, start: '2026-04-20' }, '2026-04-15')).toBe(false);
+  });
+
+  it('never marks a milestone that has no date at all', () => {
+    const undatedMs = row({ isMilestone: true, milestoneMet: false, finish: null, start: null });
+    expect(isRowOverdue(undatedMs, '2026-04-15')).toBe(false);
+  });
+
+  it('never marks an undated task, however far past the data date', () => {
+    expect(isRowOverdue(row({ finish: null, pctComplete: 0 }), '2026-12-31')).toBe(false);
+  });
 });
 
 describe('buildSchedulePrintData — links', () => {
@@ -319,6 +351,125 @@ describe('buildSchedulePrintData — KPIs', () => {
     const data = build({ tasks: [task('a')] });
     expect(data.kpis.forecastP80.value).toBe('—');
     expect(data.kpis.forecastP80.sub).toBeNull();
+  });
+
+  describe('forecast slip vs CPM', () => {
+    const forecastWith = (deltaP80: number | null, hasDelta = true): MonteCarloResult =>
+      ({
+        projectId: 'p',
+        runs: 1000,
+        p50: '2026-05-10',
+        p80: '2026-05-20',
+        p95: '2026-05-30',
+        buckets: [],
+        cpmFinish: '2026-05-15',
+        deltaVsCpm: hasDelta ? { p50: null, p80: deltaP80, p95: null } : null,
+        confidenceCurve: [],
+        sensitivity: [],
+      }) as unknown as MonteCarloResult;
+
+    it('renders a negative slip as an unsigned ahead-of-CPM delta', () => {
+      const data = build({ forecast: forecastWith(-3), tasks: [task('a')] });
+      expect(data.kpis.forecastP80.sub).toBe('-3d vs CPM');
+    });
+
+    it('renders a zero slip as "on CPM finish" rather than "+0d"', () => {
+      const data = build({ forecast: forecastWith(0), tasks: [task('a')] });
+      expect(data.kpis.forecastP80.sub).toBe('on CPM finish');
+    });
+
+    it('omits the slip line when the run carries no p80 delta', () => {
+      const data = build({ forecast: forecastWith(null), tasks: [task('a')] });
+      expect(data.kpis.forecastP80.value).not.toBe('—');
+      expect(data.kpis.forecastP80.sub).toBeNull();
+    });
+
+    it('omits the slip line when the run carries no CPM comparison at all', () => {
+      const data = build({ forecast: forecastWith(null, false), tasks: [task('a')] });
+      expect(data.kpis.forecastP80.sub).toBeNull();
+    });
+  });
+
+  it('singularizes the critical-path cell for a one-task chain', () => {
+    const data = build({ tasks: [task('a', { isCritical: true, totalFloat: 0 })] });
+    expect(data.kpis.criticalPath.value).toBe('1 task');
+  });
+
+  it('treats a critical row with no computed float as zero float', () => {
+    // Pre-CPM rows carry totalFloat === undefined; the cell must still read a
+    // number rather than "undefined d float".
+    const data = build({ tasks: [task('a', { isCritical: true, totalFloat: undefined })] });
+    expect(data.kpis.criticalPath.sub).toBe('0d float');
+  });
+
+  it('computes the window duration from full ISO timestamps, not only date-only strings', () => {
+    const data = build({
+      tasks: [task('a', { start: '2026-04-01T09:00:00Z', finish: '2026-04-03T17:00:00Z' })],
+    });
+    expect(data.kpis.window.sub).toBe('3d');
+  });
+
+  it('reports an em-dash window and no duration when nothing is dated', () => {
+    const data = build({
+      tasks: [task('a', { status: 'IN_PROGRESS', start: '', finish: '' })],
+    });
+    expect(data.kpis.window.value).toBe('—');
+    expect(data.kpis.window.sub).toBeNull();
+  });
+
+  it('omits the next-milestone hint when every pending milestone is undated', () => {
+    const data = build({
+      tasks: [
+        task('m1', { wbs: '1', isMilestone: true, progress: 0, start: '', finish: '', status: 'IN_PROGRESS' }),
+      ],
+    });
+    expect(data.kpis.milestones.value).toBe('0 / 1 met');
+    expect(data.kpis.milestones.sub).toBeNull();
+  });
+});
+
+describe('buildSchedulePrintData — critical-path chain ordering edges', () => {
+  it('sorts undated CP rows first, then by start, then finish, then WBS', () => {
+    const data = build({
+      tasks: [
+        // Same start — the earlier finish must lead.
+        task('lateFinish', { wbs: '1', isCritical: true, start: '2026-04-01', finish: '2026-04-05' }),
+        task('earlyFinish', { wbs: '2', isCritical: true, start: '2026-04-01', finish: '2026-04-03' }),
+        // Same (absent) start AND finish — the WBS code is the final tiebreak.
+        // IN_PROGRESS keeps them out of the "unscheduled planned work" carve-out.
+        task('u3', { wbs: '3', isCritical: true, status: 'IN_PROGRESS', start: '', finish: '' }),
+        task('u4', { wbs: '4', isCritical: true, status: 'IN_PROGRESS', start: '', finish: '' }),
+      ],
+    });
+    expect(data.cpChain.map((t) => t.id)).toEqual(['u3', 'u4', 'earlyFinish', 'lateFinish']);
+    expect(data.cpChain.map((t) => t.seq)).toEqual([1, 2, 3, 4]);
+    expect(data.cpChain[0].start).toBeNull();
+    expect(data.cpChain[0].finish).toBeNull();
+  });
+
+  it('keeps the finish tiebreak stable regardless of the incoming WBS order', () => {
+    // Same test as above with the two same-start rows swapped in WBS order: the
+    // chain order is driven by the finish date, never by the arrival order.
+    const data = build({
+      tasks: [
+        task('earlyFinish', { wbs: '1', isCritical: true, start: '2026-04-01', finish: '2026-04-03' }),
+        task('lateFinish', { wbs: '2', isCritical: true, start: '2026-04-01', finish: '2026-04-05' }),
+      ],
+    });
+    expect(data.cpChain.map((t) => t.id)).toEqual(['earlyFinish', 'lateFinish']);
+  });
+});
+
+describe('scheduleContentSha — undated rows', () => {
+  it('fingerprints a row with no dates and shifts once that row is scheduled', () => {
+    const undated = build({
+      tasks: [task('a', { status: 'IN_PROGRESS', start: '', finish: '' })],
+    }).footer.contentSha;
+    const dated = build({
+      tasks: [task('a', { status: 'IN_PROGRESS', start: '2026-04-01', finish: '2026-04-02' })],
+    }).footer.contentSha;
+    expect(undated).toMatch(/^[0-9a-f]{8}$/);
+    expect(undated).not.toBe(dated);
   });
 });
 
@@ -548,5 +699,98 @@ describe('buildSchedulePrintData — Unscheduled — Planned Work (#1799)', () =
     const data = build({ tasks: [task('1')] });
     expect(data.unscheduled.count).toBe(0);
     expect(data.unscheduled.groups).toHaveLength(0);
+  });
+});
+
+describe('buildSchedulePrintData — unscheduled group labeling (#1799)', () => {
+  const undated = (id: string, overrides: Partial<Task> = {}) =>
+    task(id, { status: 'BACKLOG', start: '', finish: '', plannedStart: null, ...overrides });
+
+  const sprint = (id: string, over: Record<string, unknown> = {}) =>
+    ({
+      id,
+      name: `Sprint ${id}`,
+      state: 'PLANNED',
+      start_date: '2026-07-17',
+      finish_date: '2026-07-30',
+      ...over,
+    }) as unknown as import('@/types').ApiSprint;
+
+  it('carries owner initials onto an unscheduled row', () => {
+    const data = build({
+      tasks: [
+        undated('u1', { assignees: [{ resourceId: 'r1', name: 'Ada Lovelace', units: 1 }] }),
+        undated('u2'),
+      ],
+    });
+    const bucket = data.unscheduled.groups[0].tasks;
+    expect(bucket.map((t) => t.ownerInitials)).toEqual(['AL', null]);
+  });
+
+  it('labels a group whose sprint is not in the sprint list generically', () => {
+    // Sprints are optional on the export args, so a sprint-assigned backlog row
+    // can reference an id the caller never supplied — it must still group and
+    // render, just without a window or state.
+    const data = build({ tasks: [undated('u1', { sprintId: 'ghost' })], sprints: [] });
+    const group = data.unscheduled.groups[0];
+    expect(group.key).toBe('ghost');
+    expect(group.sprintName).toBe('Sprint');
+    expect(group.windowLabel).toBeNull();
+    expect(group.stateLabel).toBeNull();
+  });
+
+  it('omits the window label when the sprint has no dates and title-cases its state', () => {
+    const data = build({
+      tasks: [undated('u1', { sprintId: 's1' })],
+      sprints: [
+        sprint('s1', { name: 'Hardening', start_date: '', finish_date: '', state: 'ACTIVE' }),
+      ],
+    });
+    const group = data.unscheduled.groups[0];
+    expect(group.sprintName).toBe('Hardening');
+    expect(group.windowLabel).toBeNull();
+    expect(group.stateLabel).toBe('Active');
+  });
+
+  it('orders sprint groups by sprint start date', () => {
+    const data = build({
+      tasks: [
+        undated('a', { sprintId: 'late' }),
+        undated('b', { sprintId: 'early' }),
+        undated('c', { sprintId: 'ghost1' }),
+        undated('d', { sprintId: 'ghost2' }),
+      ],
+      sprints: [
+        sprint('late', { start_date: '2026-09-01', finish_date: '2026-09-14' }),
+        sprint('early', { start_date: '2026-07-01', finish_date: '2026-07-14' }),
+      ],
+    });
+    const keys = data.unscheduled.groups.map((g) => g.key);
+    expect(keys).toHaveLength(4);
+    expect(keys.indexOf('early')).toBeLessThan(keys.indexOf('late'));
+    expect(data.unscheduled.count).toBe(4);
+  });
+
+  it('excludes a To Do row that already carries a PM-committed planned start', () => {
+    const data = build({
+      tasks: [undated('u1', { plannedStart: '2026-05-01', status: 'NOT_STARTED' })],
+    });
+    expect(data.unscheduled.count).toBe(0);
+    // It stays a chart row (blank bar) rather than moving to the section.
+    expect(data.rows.map((r) => r.id)).toEqual(['u1']);
+  });
+
+  it('excludes an undated summary row and a sprint-assigned To Do row', () => {
+    const data = build({
+      tasks: [
+        undated('summary', { wbs: '1', isSummary: true }),
+        // NOT_STARTED + a sprint is an active-sprint commitment, not backlog intake.
+        undated('sprinted', { wbs: '2', status: 'NOT_STARTED', sprintId: 's1' }),
+        // …and a status outside the tray predicate never qualifies.
+        undated('doing', { wbs: '3', status: 'IN_PROGRESS' }),
+      ],
+    });
+    expect(data.unscheduled.count).toBe(0);
+    expect(data.rows.map((r) => r.id)).toEqual(['summary', 'sprinted', 'doing']);
   });
 });

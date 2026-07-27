@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProgramGeneralPage } from './ProgramGeneralPage';
 import { useSettingsSaveStore } from '../hooks/useSettingsSaveStore';
+import type { ProgramExportJob } from '../hooks/useProgramExport';
 import type { Program } from '@/api/types';
 
 const useProgram = vi.fn();
@@ -35,6 +36,61 @@ vi.mock('../hooks/useWorkspaceSettings', () => ({
 vi.mock('@/features/programs/hooks/useProgramMembers', () => ({
   useProgramMembers: () => ({ data: [], isLoading: false }),
 }));
+
+// --- Export controls -------------------------------------------------------
+// Both export cards are driven by network hooks. Swap the hooks for plain
+// scriptable objects so each lifecycle state (idle / queuing / building /
+// ready / failed) is reachable without a server or a polling clock. The
+// factories read the state objects lazily (inside the returned closures), which
+// is what keeps them out of the vi.mock hoisting TDZ.
+
+const seedMutate = vi.fn<(input: { programId: string; code?: string | null }) => void>();
+const exportSeedState = { mutate: seedMutate, isPending: false, isError: false };
+vi.mock('@/hooks/useProgramSeedIo', async (orig) => {
+  const actual = await orig<typeof import('@/hooks/useProgramSeedIo')>();
+  return { ...actual, useExportProgramSeed: () => exportSeedState };
+});
+
+const startMutate =
+  vi.fn<(vars: void, opts?: { onSuccess?: (job: ProgramExportJob) => void }) => void>();
+const startState: { mutate: typeof startMutate; isPending: boolean; error: unknown } = {
+  mutate: startMutate,
+  isPending: false,
+  error: null,
+};
+const jobState: { data: ProgramExportJob | undefined } = { data: undefined };
+const downloadMock =
+  vi.fn<(programId: string, job: ProgramExportJob, code?: string | null) => Promise<void>>();
+
+vi.mock('../hooks/useProgramExport', async (orig) => {
+  const actual = await orig<typeof import('../hooks/useProgramExport')>();
+  return {
+    ...actual,
+    useStartProgramExport: () => startState,
+    // Mirrors the real hook's `enabled: jobId != null` gate — no job is polled
+    // until the queue mutation reports one.
+    useProgramExportJob: (_programId: string, jobId: string | null) => ({
+      data: jobId ? jobState.data : undefined,
+    }),
+    downloadProgramExport: (programId: string, job: ProgramExportJob, code?: string | null) =>
+      downloadMock(programId, job, code),
+  };
+});
+
+function makeJob(over: Partial<ProgramExportJob> = {}): ProgramExportJob {
+  return {
+    id: 'job-1',
+    status: 'pending',
+    fileSize: null,
+    errorDetail: '',
+    expiresAt: null,
+    createdAt: '2026-05-18T00:00:00Z',
+    startedAt: null,
+    completedAt: null,
+    downloadUrl: null,
+    ...over,
+  };
+}
 
 function makeProgram(overrides: Partial<Program> = {}): Program {
   return {
@@ -113,6 +169,24 @@ function renderPage() {
   );
 }
 
+/**
+ * The same page mounted outside the `/programs/:programId/…` tree, so
+ * `useParams()` yields no program id — the shape every "guard" branch on the
+ * page keys off.
+ */
+function renderPageWithoutProgramId() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/settings/general']}>
+        <Routes>
+          <Route path="/settings/general" element={<ProgramGeneralPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
 describe('ProgramGeneralPage (settings)', () => {
   beforeEach(() => {
     useProgram.mockReset();
@@ -121,6 +195,18 @@ describe('ProgramGeneralPage (settings)', () => {
     useWorkspaceSettings.mockReturnValue({
       data: { methodologyOverridePolicy: 'suggest' },
     });
+    seedMutate.mockReset();
+    exportSeedState.isPending = false;
+    exportSeedState.isError = false;
+    startMutate.mockReset();
+    // The real mutation reports the queued job through onSuccess; the control
+    // stores its id and starts polling.
+    startMutate.mockImplementation((_vars, opts) => opts?.onSuccess?.(makeJob()));
+    startState.isPending = false;
+    startState.error = null;
+    jobState.data = undefined;
+    downloadMock.mockReset();
+    downloadMock.mockResolvedValue(undefined);
     // The settings save store is module-scoped; reset between tests so a prior
     // page mount cannot leak its registered handlers into the next test.
     useSettingsSaveStore.getState().reset();
@@ -529,5 +615,288 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByRole('radio', { name: 'Agile', checked: false })).toBeInTheDocument();
     // Other fields remain editable for the Admin.
     expect(screen.getByLabelText('Program name')).not.toBeDisabled();
+  });
+
+  it('shows the workspace-resolved default in the locked picker before the record loads', () => {
+    // Under the INHERIT lock the picker shows `effective_methodology`; with no
+    // record yet there is nothing to show, so it must fall back to the page's own
+    // default rather than rendering an unchecked radiogroup.
+    useWorkspaceSettings.mockReturnValue({
+      data: { methodologyOverridePolicy: 'inherit' },
+    });
+    useProgram.mockReturnValue({ data: undefined });
+    renderPage();
+
+    expect(screen.getByRole('radio', { name: 'Hybrid', checked: true })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Hybrid' })).toBeDisabled();
+  });
+
+  // ----- Loading / partial records ------------------------------------------
+
+  it('falls back to the shipped defaults for every inheritable field before the record loads', () => {
+    useProgram.mockReturnValue({ data: undefined });
+    renderPage();
+
+    expect(screen.getByLabelText('Program name')).toHaveValue('');
+    // No record → no role → the read-only indicators render, each showing the
+    // value the program WOULD inherit rather than a blank.
+    expect(
+      screen.getByLabelText(/^Keep Monte Carlo run history: On, inherited from the workspace/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/^Allow guest access: Off, inherited from the workspace/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/^Allow public link sharing: Off, inherited from the workspace/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/^Run history limit: 100, inherited from the workspace/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/^Run attribution visible to: Admins & owners, inherited/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/^Duration change percent policy: Keep entered %, inherited/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Estimation scale: Fibonacci/)).toBeInTheDocument();
+    // Iteration terminology inherits the shipped default term.
+    expect(screen.getByText(/\(Sprint\)/)).toBeInTheDocument();
+
+    // Nothing to save against yet, so the save bar must not arm.
+    expect(useSettingsSaveStore.getState().apiReady).toBe(false);
+  });
+
+  it('seeds blank inputs for a program record that omits description and code', () => {
+    // A sparse payload (older server, partial serializer) must render empty
+    // inputs, not "undefined".
+    useProgram.mockReturnValue({
+      data: makeProgram({ description: undefined, code: undefined }),
+    });
+    renderPage();
+    expect(screen.getByLabelText('Description')).toHaveValue('');
+    expect(screen.getByLabelText('Program code')).toHaveValue('');
+  });
+
+  it('refuses every program-scoped action when the route carries no program id', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPageWithoutProgramId();
+
+    // The synchronous seed export needs an id, so its control stays disabled…
+    expect(screen.getByRole('button', { name: /Export to JSON/i })).toBeDisabled();
+    // …and the async bundle card is not rendered at all.
+    expect(
+      screen.queryByRole('button', { name: /Export program bundle/i }),
+    ).not.toBeInTheDocument();
+
+    // A dirty form still refuses to PATCH — there is no program to PATCH.
+    await user.type(screen.getByLabelText('Program name'), '!');
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  // ----- Field edits reaching the patch -------------------------------------
+
+  it('carries edited code and description into the save payload', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    const code = screen.getByLabelText('Program code');
+    await user.clear(code);
+    await user.type(code, 'APOLLO');
+    const description = screen.getByLabelText('Description');
+    await user.clear(description);
+    await user.type(description, 'Rebuilt on the new stack');
+    expect(code).toHaveValue('APOLLO');
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    const saved = mutateAsync.mock.calls.at(-1)?.[0] as {
+      patch: { code: string; description: string };
+    };
+    expect(saved.patch.code).toBe('APOLLO');
+    expect(saved.patch.description).toBe('Rebuilt on the new stack');
+  });
+
+  it('switches the methodology and saves the chosen model', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    await user.click(screen.getByRole('radio', { name: 'Agile' }));
+    expect(screen.getByRole('radio', { name: 'Agile', checked: true })).toBeInTheDocument();
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    const saved = mutateAsync.mock.calls.at(-1)?.[0] as { patch: { methodology: string } };
+    expect(saved.patch.methodology).toBe('AGILE');
+  });
+
+  it('clears the accent from the Clear action beside the swatches', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram({ color: '#7C3AED' }) });
+    renderPage();
+
+    expect(screen.getByRole('button', { name: /Accent color #7C3AED/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+    expect(screen.getByRole('button', { name: /Accent color #7C3AED/i })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    // With no accent left there is nothing to clear — the action retires.
+    expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument();
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    const saved = mutateAsync.mock.calls.at(-1)?.[0] as { patch: { color: string | null } };
+    expect(saved.patch.color).toBeNull();
+  });
+
+  it('saves a custom iteration label verbatim (ADR-0116)', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram({ iteration_label: 'Cycle' }) });
+    renderPage();
+
+    await user.type(screen.getByLabelText('Program name'), '!');
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    const saved = mutateAsync.mock.calls.at(-1)?.[0] as {
+      patch: { iteration_label: string | null };
+    };
+    expect(saved.patch.iteration_label).toBe('Cycle');
+  });
+
+  it('normalizes a whitespace-only iteration label back to inherit (ADR-0116)', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram({ iteration_label: '   ' }) });
+    renderPage();
+
+    await user.type(screen.getByLabelText('Program name'), '!');
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    const saved = mutateAsync.mock.calls.at(-1)?.[0] as {
+      patch: { iteration_label: string | null };
+    };
+    // A blank override is "inherit", never an empty string the serializer rejects.
+    expect(saved.patch.iteration_label).toBeNull();
+  });
+
+  // ----- Synchronous JSON seed export (#616) --------------------------------
+
+  it('exports the program seed using the program code as the filename hint', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    await user.click(screen.getByRole('button', { name: 'Export to JSON' }));
+    expect(seedMutate).toHaveBeenCalledWith({ programId: 'p-1', code: 'PH2' });
+  });
+
+  it('locks the seed export button while the download is being produced', () => {
+    exportSeedState.isPending = true;
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    expect(screen.getByRole('button', { name: 'Exporting…' })).toBeDisabled();
+  });
+
+  it('surfaces a failed seed export', () => {
+    exportSeedState.isError = true;
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    expect(screen.getByRole('alert')).toHaveTextContent('Export failed — please try again.');
+  });
+
+  // ----- Async export bundle (#1958) ----------------------------------------
+
+  it('queues an export bundle and reports build progress', async () => {
+    const user = userEvent.setup();
+    jobState.data = makeJob({ status: 'running' });
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Export program bundle/ }));
+    expect(startMutate).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Building bundle…')).toBeInTheDocument();
+    // Busy → the control refuses a second queue request.
+    expect(screen.getByRole('button', { name: 'Working…' })).toBeDisabled();
+  });
+
+  it('offers a download once the bundle is ready, and can rebuild it', async () => {
+    const user = userEvent.setup();
+    const readyJob = makeJob({ status: 'success', downloadUrl: '/media/exports/job-1.tar.gz' });
+    jobState.data = readyJob;
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Export program bundle/ }));
+    const download = screen.getByRole('button', { name: 'Download bundle' });
+    expect(download).toBeEnabled();
+
+    await user.click(download);
+    // Streamed through the authenticated client, named from the program code.
+    expect(downloadMock).toHaveBeenCalledWith('p-1', readyJob, 'PH2');
+
+    await user.click(screen.getByRole('button', { name: 'Rebuild' }));
+    expect(startMutate).toHaveBeenCalledTimes(2);
+  });
+
+  it('tells the user to rebuild when an expired link fails to download', async () => {
+    const user = userEvent.setup();
+    downloadMock.mockRejectedValue(new Error('410 Gone'));
+    jobState.data = makeJob({ status: 'success', downloadUrl: '/media/exports/job-1.tar.gz' });
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Export program bundle/ }));
+    await user.click(screen.getByRole('button', { name: 'Download bundle' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Download failed — the link may have expired. Build a new bundle.',
+    );
+  });
+
+  it('does not offer a download until the archive URL is present', async () => {
+    const user = userEvent.setup();
+    // A success status with no URL is not downloadable — offering the button
+    // would produce a dead click.
+    jobState.data = makeJob({ status: 'success', downloadUrl: null });
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Export program bundle/ }));
+    expect(screen.queryByRole('button', { name: 'Download bundle' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rebuild' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Export program bundle/ })).toBeEnabled();
+  });
+
+  it('reports a failed build with the server-supplied detail', async () => {
+    const user = userEvent.setup();
+    jobState.data = makeJob({ status: 'failed', errorDetail: 'archive exceeded the size limit' });
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Export program bundle/ }));
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Export failed: archive exceeded the size limit. Try again.',
+    );
+  });
+
+  it('reports a failure to even queue the bundle', () => {
+    startState.error = new Error('Export queue is unavailable');
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    expect(screen.getByRole('alert')).toHaveTextContent('Export queue is unavailable');
   });
 });

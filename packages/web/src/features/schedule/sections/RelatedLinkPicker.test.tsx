@@ -22,7 +22,11 @@ const { mutateSpy, refetchSpy, searchState } = vi.hoisted(() => ({
     },
   ),
   refetchSpy: vi.fn(),
-  searchState: { data: [] as ProgramTaskResult[], isLoading: false, isError: false },
+  searchState: {
+    data: [] as ProgramTaskResult[] | undefined,
+    isLoading: false,
+    isError: false,
+  },
 }));
 
 vi.mock('@/hooks/useTaskRelations', () => ({
@@ -506,6 +510,25 @@ describe('RelatedLinkPicker — dialog chrome', () => {
     expect(screen.getByRole('dialog', { name: /Link a task to .Ship it./ })).toBeInTheDocument();
   });
 
+  it('ignores Enter when there is nothing to pick', () => {
+    const onClose = vi.fn();
+    wrap(
+      <RelatedLinkPicker
+        task={makeTask()}
+        projectId="p1"
+        programId={null}
+        allTasks={LOCAL_TASKS}
+        // Every candidate is already related → empty list.
+        excludedIds={new Set(['t-local-1', 't-local-2'])}
+        onClose={onClose}
+      />,
+    );
+    expect(screen.getByText(/No matching tasks\. Try a different search\./)).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Enter' });
+    expect(mutateSpy).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('closes via the scrim, the header close button, and Escape', () => {
     const onClose = vi.fn();
     wrap(
@@ -522,5 +545,151 @@ describe('RelatedLinkPicker — dialog chrome', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(3);
+  });
+});
+
+/** A task with neither a shortId nor a WBS code — the hex column has no source. */
+function makeCodelessTask(id: string, name: string): Task {
+  return { ...makeTask({ id, name }), wbs: undefined as unknown as string, shortId: undefined };
+}
+
+describe('RelatedLinkPicker — result row rendering and hover', () => {
+  it('shows an em-dash when a task has neither a short id nor a WBS code', () => {
+    wrap(
+      <RelatedLinkPicker
+        task={makeTask()}
+        projectId="p1"
+        programId={null}
+        allTasks={[makeCodelessTask('nc', 'Loose task')]}
+        excludedIds={new Set()}
+        onClose={vi.fn()}
+      />,
+    );
+    const option = screen.getByRole('option', { name: /Loose task/ });
+    expect(within(option).getByText('—')).toBeInTheDocument();
+  });
+
+  it('searches a task with no WBS code without crashing, and reports no match', () => {
+    wrap(
+      <RelatedLinkPicker
+        task={makeTask()}
+        projectId="p1"
+        programId={null}
+        allTasks={[makeCodelessTask('nc', 'Loose task')]}
+        excludedIds={new Set()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'zzz' } });
+    const listbox = screen.getByRole('listbox', { name: 'Task results' });
+    expect(within(listbox).queryByRole('option')).not.toBeInTheDocument();
+    expect(screen.getByText(/No matching tasks\. Try a different search\./)).toBeInTheDocument();
+  });
+
+  it('makes a hovered This-project row the active option', () => {
+    wrap(
+      <RelatedLinkPicker
+        task={makeTask()}
+        projectId="p1"
+        programId={null}
+        allTasks={LOCAL_TASKS}
+        excludedIds={new Set()}
+        onClose={vi.fn()}
+      />,
+    );
+    // First row starts active.
+    expect(screen.getByRole('option', { name: /Design review/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /Build feature/ }));
+    expect(screen.getByRole('option', { name: /Build feature/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByRole('option', { name: /Design review/ })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    );
+    // Enter now adds the hovered row, not the first one.
+    fireEvent.keyDown(document, { key: 'Enter' });
+    expect(mutateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 't-local-2' }),
+      expect.any(Object),
+    );
+  });
+
+  it('makes a hovered program row the active option across group boundaries', async () => {
+    searchState.data = CROSS_ROWS;
+    wrap(
+      <RelatedLinkPicker
+        task={makeTask()}
+        projectId="p1"
+        programId="prog-1"
+        allTasks={LOCAL_TASKS}
+        excludedIds={new Set()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'sec' } });
+    // 'Legal go-ahead' is the third flat item, in the second project group.
+    fireEvent.mouseEnter(await screen.findByRole('button', { name: /Legal go-ahead/ }));
+    expect(screen.getByRole('option', { name: /Legal go-ahead/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByRole('option', { name: /Security sign-off/ })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    );
+    fireEvent.keyDown(document, { key: 'Enter' });
+    expect(mutateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'x3' }),
+      expect.any(Object),
+    );
+  });
+});
+
+describe('RelatedLinkPicker — scope round-trip and absent program data', () => {
+  it('returns to Program scope after switching to This project', () => {
+    wrap(
+      <RelatedLinkPicker
+        task={makeTask()}
+        projectId="p1"
+        programId="prog-1"
+        allTasks={LOCAL_TASKS}
+        excludedIds={new Set()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'This project' }));
+    expect(screen.getByPlaceholderText('Search tasks…')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Program' }));
+    expect(screen.getByRole('tab', { name: 'Program', selected: true })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search tasks in this program…')).toBeInTheDocument();
+    // Back on the program tab with an empty query → the prompt, not local results.
+    expect(
+      screen.getByText(/Search for a task in another project of this program to link\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('listbox', { name: 'Task results' })).not.toBeInTheDocument();
+  });
+
+  it('treats an absent program response as an empty result set', async () => {
+    searchState.data = undefined;
+    wrap(
+      <RelatedLinkPicker
+        task={makeTask()}
+        projectId="p1"
+        programId="prog-1"
+        allTasks={LOCAL_TASKS}
+        excludedIds={new Set()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'sec' } });
+    expect(
+      await screen.findByText(/No matching tasks in this program\. Try a different search\./),
+    ).toBeInTheDocument();
   });
 });

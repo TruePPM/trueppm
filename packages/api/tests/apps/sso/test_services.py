@@ -682,3 +682,626 @@ def test_local_login_allowed_fails_open_on_raise() -> None:
 
     extensions.register_local_login_policy_provider(_boom)
     assert extensions.local_login_allowed(object()) is True
+
+
+# ---------------------------------------------------------------------------
+# Error taxonomy — OIDCError carries a stable machine code + HTTP status
+# ---------------------------------------------------------------------------
+
+
+def test_oidc_error_defaults_come_from_the_class() -> None:
+    """A bare ``OIDCError`` reports the class-level code and status."""
+    exc = services.OIDCError()
+    assert exc.code == "oidc_error"
+    assert exc.http_status == 400
+    assert str(exc) == "oidc_error"
+
+
+def test_oidc_error_overrides_code_and_status() -> None:
+    """Explicit ``code`` / ``http_status`` override the class defaults per-instance."""
+    exc = services.OIDCError("boom", code="custom_code", http_status=418)
+    assert exc.code == "custom_code"
+    assert exc.http_status == 418
+    assert str(exc) == "boom"
+    # The override is instance-scoped — the class default is untouched.
+    assert services.OIDCError.code == "oidc_error"
+
+
+def test_oidc_error_subclass_codes_are_stable() -> None:
+    """The SPA-facing codes are part of the contract; pin them."""
+    assert (services.OIDCNotConfigured.code, services.OIDCNotConfigured.http_status) == (
+        "sso_not_configured",
+        400,
+    )
+    assert (services.OIDCEmailUnverified.code, services.OIDCEmailUnverified.http_status) == (
+        "email_unverified",
+        403,
+    )
+    assert (services.OIDCNoMember.code, services.OIDCNoMember.http_status) == ("sso_no_member", 403)
+    assert (
+        services.OIDCProviderUnreachable.code,
+        services.OIDCProviderUnreachable.http_status,
+    ) == ("provider_unreachable", 502)
+
+
+# ---------------------------------------------------------------------------
+# Egress response helpers for the failure-path tests
+# ---------------------------------------------------------------------------
+
+
+def _egress_response(status: int = 200, *, payload: Any = None, body: bytes | None = None) -> Any:
+    """Build an :class:`EgressResponse` from a JSON payload or a raw body."""
+    import json
+
+    from trueppm_api.apps.integrations import http as egress
+
+    if body is None:
+        body = json.dumps(payload if payload is not None else {}).encode()
+    return egress.EgressResponse(status=status, body=body, headers={})
+
+
+def _raiser(exc: Exception) -> Any:
+    def _boom(*args: Any, **kwargs: Any) -> Any:
+        raise exc
+
+    return _boom
+
+
+# ---------------------------------------------------------------------------
+# Discovery — every rejection path (a malformed or hostile IdP fails closed)
+# ---------------------------------------------------------------------------
+
+
+def test_discovery_non_200_raises_provider_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(503))
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services.get_discovery_document(ISSUER)
+
+
+def test_discovery_timeout_raises_provider_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(services.egress, "get", _raiser(egress.EgressTimeout("slow idp")))
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services.get_discovery_document(ISSUER)
+
+
+def test_discovery_transport_error_raises_provider_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(services.egress, "get", _raiser(egress.EgressError("connection reset")))
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services.get_discovery_document(ISSUER)
+
+
+def test_discovery_non_json_body_raises_id_token_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 200 carrying an HTML login page is not a discovery document."""
+    monkeypatch.setattr(
+        services.egress, "get", lambda url, **kw: _egress_response(200, body=b"<html>hi</html>")
+    )
+    with pytest.raises(services.OIDCIDTokenError):
+        services.get_discovery_document(ISSUER)
+
+
+@pytest.mark.parametrize("missing", ["authorization_endpoint", "token_endpoint", "jwks_uri"])
+def test_discovery_missing_required_endpoint_raises(
+    monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    doc = discovery_doc()
+    doc.pop(missing)
+    monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(payload=doc))
+    with pytest.raises(services.OIDCIDTokenError):
+        services.get_discovery_document(ISSUER)
+
+
+def test_discovery_failure_is_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rejected document must never poison the cache for the next attempt."""
+    monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(503))
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services.get_discovery_document(ISSUER)
+    assert cache.get(services._DISCOVERY_KEY_PREFIX + ISSUER) is None
+
+
+# ---------------------------------------------------------------------------
+# State — the empty-state branch is distinct from "unknown state"
+# ---------------------------------------------------------------------------
+
+
+def test_consume_state_empty_string_raises() -> None:
+    """A callback with no ``state`` at all fails closed (CSRF defense)."""
+    with pytest.raises(services.OIDCStateError):
+        services.consume_state("")
+
+
+# ---------------------------------------------------------------------------
+# OIDC token exchange — transport + malformed-body failures
+# ---------------------------------------------------------------------------
+
+
+def test_exchange_code_ssrf_block_raises_provider_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(
+        services.egress, "post_form", _raiser(egress.EgressBlocked("private address"))
+    )
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services.exchange_code(
+            unsaved_oidc_ctx(),
+            discovery_doc(),
+            code="c",
+            redirect_uri="https://app/cb/",
+            verifier="v",
+        )
+
+
+def test_exchange_code_timeout_raises_provider_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(services.egress, "post_form", _raiser(egress.EgressTimeout("timed out")))
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services.exchange_code(
+            unsaved_oidc_ctx(),
+            discovery_doc(),
+            code="c",
+            redirect_uri="https://app/cb/",
+            verifier="v",
+        )
+
+
+def test_exchange_code_non_json_body_raises_token_exchange_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        services.egress,
+        "post_form",
+        lambda url, **kw: _egress_response(200, body=b"not json at all"),
+    )
+    with pytest.raises(services.OIDCTokenExchangeError):
+        services.exchange_code(
+            unsaved_oidc_ctx(),
+            discovery_doc(),
+            code="c",
+            redirect_uri="https://app/cb/",
+            verifier="v",
+        )
+
+
+# ---------------------------------------------------------------------------
+# JWKS retrieval — the key-selection path is a security boundary
+# ---------------------------------------------------------------------------
+
+
+def _jwks_only(monkeypatch: pytest.MonkeyPatch, response: Any) -> None:
+    """Serve ``response`` for the JWKS fetch and no-op the SSRF pre-check."""
+    monkeypatch.setattr(services.egress, "get", lambda url, **kw: response)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+
+
+def test_signing_key_ssrf_block_raises_provider_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(
+        services.egress, "assert_url_allowed", _raiser(egress.EgressBlocked("blocked jwks host"))
+    )
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services._signing_key_for(f"{ISSUER}/jwks", make_id_token())
+
+
+def test_signing_key_timeout_raises_provider_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    monkeypatch.setattr(services.egress, "get", _raiser(egress.EgressTimeout("slow jwks")))
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services._signing_key_for(f"{ISSUER}/jwks", make_id_token())
+
+
+def test_signing_key_non_200_raises_provider_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    _jwks_only(monkeypatch, _egress_response(500))
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services._signing_key_for(f"{ISSUER}/jwks", make_id_token())
+
+
+@pytest.mark.parametrize("document", [{}, {"keys": []}])
+def test_signing_key_empty_jwks_raises_id_token_error(
+    monkeypatch: pytest.MonkeyPatch, document: dict[str, Any]
+) -> None:
+    _jwks_only(monkeypatch, _egress_response(payload=document))
+    with pytest.raises(services.OIDCIDTokenError):
+        services._signing_key_for(f"{ISSUER}/jwks", make_id_token())
+
+
+def test_signing_key_unusable_jwks_raises_id_token_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A JWKS whose entries cannot be parsed is an IdP/config error, not a 502."""
+    _jwks_only(monkeypatch, _egress_response(payload={"keys": [{"kty": "NOPE"}]}))
+    with pytest.raises(services.OIDCIDTokenError):
+        services._signing_key_for(f"{ISSUER}/jwks", make_id_token())
+
+
+def test_signing_key_unparseable_token_header_raises_id_token_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from .conftest import JWKS
+
+    _jwks_only(monkeypatch, _egress_response(payload=JWKS))
+    with pytest.raises(services.OIDCIDTokenError):
+        services._signing_key_for(f"{ISSUER}/jwks", "this-is-not-a-jwt")
+
+
+def test_signing_key_unknown_kid_raises_id_token_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A token whose ``kid`` names no key in the JWKS must not fall back to key[0]."""
+    from .conftest import JWKS
+
+    _jwks_only(monkeypatch, _egress_response(payload=JWKS))
+    token = jwt.encode({"sub": "x"}, "irrelevant", algorithm="HS256", headers={"kid": "unknown"})
+    with pytest.raises(services.OIDCIDTokenError):
+        services._signing_key_for(f"{ISSUER}/jwks", token)
+
+
+def test_validate_id_token_surfaces_jwks_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The JWKS failure propagates out of ``validate_id_token`` unchanged."""
+    _jwks_only(monkeypatch, _egress_response(payload={"keys": []}))
+    with pytest.raises(services.OIDCIDTokenError):
+        services.validate_id_token(
+            unsaved_oidc_ctx(), discovery_doc(), make_id_token(), expected_nonce="n0nce"
+        )
+
+
+def test_validate_id_token_empty_expected_nonce_fails(patch_jwks: None) -> None:
+    """An absent stored nonce can never satisfy the replay check."""
+    with pytest.raises(services.OIDCIDTokenError):
+        services.validate_id_token(
+            unsaved_oidc_ctx(), discovery_doc(), make_id_token(nonce=""), expected_nonce=""
+        )
+
+
+# ---------------------------------------------------------------------------
+# GitHub token exchange — transport + protocol failures
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_github_exchange_ssrf_block_raises_provider_unreachable(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(services.egress, "post_form", _raiser(egress.EgressBlocked("blocked")))
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services.exchange_github_code(github_ctx, code="c", redirect_uri="https://app/cb/")
+
+
+@pytest.mark.django_db
+def test_github_exchange_timeout_raises_provider_unreachable(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(services.egress, "post_form", _raiser(egress.EgressTimeout("timed out")))
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services.exchange_github_code(github_ctx, code="c", redirect_uri="https://app/cb/")
+
+
+@pytest.mark.django_db
+def test_github_exchange_non_json_body_raises(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        services.egress, "post_form", lambda url, **kw: _egress_response(200, body=b"<html>")
+    )
+    with pytest.raises(services.OIDCTokenExchangeError):
+        services.exchange_github_code(github_ctx, code="c", redirect_uri="https://app/cb/")
+
+
+@pytest.mark.django_db
+def test_github_exchange_oauth_error_raises(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GitHub answers 200 with an ``error`` body on a bad code — still a failure."""
+    monkeypatch.setattr(
+        services.egress,
+        "post_form",
+        lambda url, **kw: _egress_response(200, payload={"error": "bad_verification_code"}),
+    )
+    with pytest.raises(services.OIDCTokenExchangeError):
+        services.exchange_github_code(github_ctx, code="c", redirect_uri="https://app/cb/")
+
+
+@pytest.mark.django_db
+def test_github_exchange_missing_access_token_raises(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        services.egress, "post_form", lambda url, **kw: _egress_response(200, payload={"ok": True})
+    )
+    with pytest.raises(services.OIDCTokenExchangeError):
+        services.exchange_github_code(github_ctx, code="c", redirect_uri="https://app/cb/")
+
+
+# ---------------------------------------------------------------------------
+# GitHub user API — transport + malformed-profile failures
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_github_identity_ssrf_block_raises_provider_unreachable(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(services.egress, "get", _raiser(egress.EgressBlocked("blocked")))
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services.fetch_github_identity(github_ctx, "gho_x")
+
+
+@pytest.mark.django_db
+def test_github_identity_timeout_raises_provider_unreachable(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(services.egress, "get", _raiser(egress.EgressTimeout("timed out")))
+    with pytest.raises(services.OIDCProviderUnreachable):
+        services.fetch_github_identity(github_ctx, "gho_x")
+
+
+@pytest.mark.django_db
+def test_github_identity_user_endpoint_error_status_raises(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub_github_egress(monkeypatch, user={"id": 1}, user_status=401)
+    with pytest.raises(services.OIDCTokenExchangeError):
+        services.fetch_github_identity(github_ctx, "gho_x")
+
+
+@pytest.mark.django_db
+def test_github_identity_profile_without_id_raises(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub_github_egress(monkeypatch, user={"login": "no-id-here"})
+    with pytest.raises(services.OIDCIDTokenError):
+        services.fetch_github_identity(github_ctx, "gho_x")
+
+
+@pytest.mark.django_db
+def test_github_identity_falls_back_to_profile_email_unverified(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When ``/user/emails`` is unavailable the public email is reported unverified."""
+    stub_github_egress(
+        monkeypatch,
+        user={"id": 3, "login": "u", "email": "public@example.com"},
+        emails_status=404,
+    )
+    claims = services.fetch_github_identity(github_ctx, "gho_x")
+    assert claims["email"] == "public@example.com"
+    assert claims["email_verified"] is False
+
+
+@pytest.mark.django_db
+def test_github_identity_no_primary_entry_falls_back(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 200 emails list with no ``primary`` entry is not an authoritative answer."""
+    stub_github_egress(
+        monkeypatch,
+        user={"id": 4, "login": "u", "email": "public@example.com"},
+        emails=[{"email": "secondary@example.com", "primary": False, "verified": True}],
+    )
+    claims = services.fetch_github_identity(github_ctx, "gho_x")
+    assert claims["email"] == "public@example.com"
+    assert claims["email_verified"] is False
+
+
+@pytest.mark.django_db
+def test_github_identity_splits_full_name(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub_github_egress(
+        monkeypatch,
+        user={"id": 5, "login": "u", "name": "Ada Byron Lovelace"},
+        emails=[{"email": "ada@example.com", "primary": True, "verified": True}],
+    )
+    claims = services.fetch_github_identity(github_ctx, "gho_x")
+    assert claims["given_name"] == "Ada"
+    assert claims["family_name"] == "Byron Lovelace"
+
+
+@pytest.mark.django_db
+def test_github_identity_without_name_yields_empty_name_claims(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub_github_egress(
+        monkeypatch,
+        user={"id": 6, "login": "u"},
+        emails=[{"email": "u@example.com", "primary": True, "verified": True}],
+    )
+    claims = services.fetch_github_identity(github_ctx, "gho_x")
+    assert claims["given_name"] == ""
+    assert claims["family_name"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Identity resolution — subject gate + username collision
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_resolve_without_subject_raises(provider_ctx: services.ProviderContext) -> None:
+    """No ``sub`` means no durable key — the flow must not fall back to email."""
+    with pytest.raises(services.OIDCIDTokenError):
+        services.resolve_user(provider_ctx, {"email": "alice@example.com", "email_verified": True})
+    assert not SocialAccount.objects.exists()
+
+
+@pytest.mark.django_db
+def test_auto_create_username_collision_gets_suffix(
+    provider_ctx: services.ProviderContext,
+) -> None:
+    """A taken local-part username never blocks (or silently reuses) an SSO join."""
+    User.objects.create_user(username="carol", email="carol@other.example", password="pw")
+    resolved, created = services.resolve_user(
+        provider_ctx,
+        {"sub": "sub-collide", "email": "carol@example.com", "email_verified": True},
+    )
+    assert created is True
+    assert resolved.username != "carol"
+    assert resolved.username.startswith("carol-")
+    assert User.objects.filter(username="carol").count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Test connection (admin "Test connection" button)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_check_reachability_oidc_ok(
+    provider_ctx: services.ProviderContext, patch_jwks: None
+) -> None:
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is True
+    assert result["issuer"] == ISSUER
+    assert result["endpoints"]["token_endpoint"] == f"{ISSUER}/token"
+    assert result["endpoints"]["jwks_uri"] == f"{ISSUER}/jwks"
+
+
+@pytest.mark.django_db
+def test_check_reachability_oidc_discovery_failure_reports_code(
+    provider_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A discovery failure never raises — it becomes a structured ``ok: False``."""
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(services.egress, "get", _raiser(egress.EgressBlocked("private host")))
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is False
+    assert result["error"] == services.OIDCProviderUnreachable.code
+    assert result["detail"]
+
+
+@pytest.mark.django_db
+def test_check_reachability_oidc_jwks_unreachable(
+    provider_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from trueppm_api.apps.integrations import http as egress
+
+    def _get(url: str, **kwargs: Any) -> Any:
+        if url.endswith("/.well-known/openid-configuration"):
+            return _egress_response(payload=json.loads(json.dumps(discovery_doc())))
+        raise egress.EgressTimeout("jwks timed out")
+
+    monkeypatch.setattr(services.egress, "get", _get)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is False
+    assert result["error"] == "jwks_unreachable"
+
+
+@pytest.mark.django_db
+def test_check_reachability_oidc_jwks_empty(
+    provider_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _get(url: str, **kwargs: Any) -> Any:
+        if url.endswith("/.well-known/openid-configuration"):
+            return _egress_response(payload=discovery_doc())
+        return _egress_response(payload={"keys": []})
+
+    monkeypatch.setattr(services.egress, "get", _get)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is False
+    assert result["error"] == "jwks_empty"
+
+
+@pytest.mark.django_db
+def test_check_reachability_oidc_jwks_non_200_is_empty(
+    provider_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-200 JWKS is indistinguishable from an empty one for the probe."""
+
+    def _get(url: str, **kwargs: Any) -> Any:
+        if url.endswith("/.well-known/openid-configuration"):
+            return _egress_response(payload=discovery_doc())
+        return _egress_response(500)
+
+    monkeypatch.setattr(services.egress, "get", _get)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is False
+    assert result["error"] == "jwks_empty"
+
+
+@pytest.mark.django_db
+def test_check_reachability_oidc_bypasses_the_discovery_cache(
+    provider_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ "Test connection" must re-fetch, or an admin's fix looks like it did nothing."""
+    cache.set(services._DISCOVERY_KEY_PREFIX + ISSUER, {"issuer": "stale"}, 300)
+    calls = {"n": 0}
+
+    def _get(url: str, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if url.endswith("/.well-known/openid-configuration"):
+            return _egress_response(payload=discovery_doc())
+        from .conftest import JWKS
+
+        return _egress_response(payload=JWKS)
+
+    monkeypatch.setattr(services.egress, "get", _get)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is True
+    assert calls["n"] == 2  # discovery re-fetched despite the pre-seeded cache, then jwks
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", [200, 401])
+def test_check_reachability_github_ok(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    """An unauthenticated 401 still proves the GitHub API host is reachable."""
+    monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(status))
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    result = services.check_provider_reachability(github_ctx)
+    assert result["ok"] is True
+    assert result["issuer"] == services.GITHUB_ISSUER
+    assert result["endpoints"]["token_endpoint"] == services.GITHUB_TOKEN_URL
+    assert result["endpoints"]["jwks_uri"] == ""
+
+
+@pytest.mark.django_db
+def test_check_reachability_github_unexpected_status_is_failure(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(services.egress, "get", lambda url, **kw: _egress_response(503))
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    result = services.check_provider_reachability(github_ctx)
+    assert result["ok"] is False
+    assert result["error"] == "github_unreachable"
+    assert "detail" not in result
+
+
+@pytest.mark.django_db
+def test_check_reachability_github_blocked_reports_detail(
+    github_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(
+        services.egress, "assert_url_allowed", _raiser(egress.EgressBlocked("blocked host"))
+    )
+    result = services.check_provider_reachability(github_ctx)
+    assert result["ok"] is False
+    assert result["error"] == "github_unreachable"
+    assert "blocked host" in result["detail"]

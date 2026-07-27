@@ -177,6 +177,50 @@ describe('useCreateBoardItem', () => {
     const cached = qc.getQueryData<RetroBoardResponse>(boardKey('s1'));
     expect(cached?.items.map((i) => i.id)).toEqual(['existing']);
   });
+
+  it('leaves the other stickies untouched when the placeholder is swapped in', async () => {
+    postMock.mockResolvedValueOnce({ data: item({ id: 'real-1', text: 'New idea' }) });
+    const qc = makeQC();
+    qc.setQueryData<RetroBoardResponse>(boardKey('s1'), board([item({ id: 'peer', text: 'Peer' })]));
+    const { result } = renderHook(() => useCreateBoardItem('s1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ column: 'ideas', text: 'New idea', tempId: 'tmp-1' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const cached = qc.getQueryData<RetroBoardResponse>(boardKey('s1'));
+    expect(cached?.items.map((i) => i.id)).toEqual(['peer', 'real-1']);
+    expect(cached?.items[0].text).toBe('Peer');
+  });
+
+  it('writes no placeholder — and needs no rollback — when the board is not cached yet', async () => {
+    // A writer whose board read has not resolved still gets the POST through;
+    // there is simply no cache entry to optimistically decorate or restore.
+    postMock.mockRejectedValueOnce(new Error('boom'));
+    const qc = makeQC();
+    const { result } = renderHook(() => useCreateBoardItem('s1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ column: 'ideas', text: 'New idea', tempId: 'tmp-1' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(postMock).toHaveBeenCalledWith('/sprints/s1/retro-board/', {
+      column: 'ideas',
+      text: 'New idea',
+    });
+    expect(qc.getQueryData<RetroBoardResponse>(boardKey('s1'))).toBeUndefined();
+  });
+
+  it('does not seed a board cache from a create that succeeds before the read lands', async () => {
+    // The swap-in-place updater must not fabricate a board out of the single
+    // created row — the query owns that key and will populate it on its own.
+    postMock.mockResolvedValueOnce({ data: item({ id: 'real-1' }) });
+    const qc = makeQC();
+    const { result } = renderHook(() => useCreateBoardItem('s1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ column: 'ideas', text: 'New idea', tempId: 'tmp-1' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(qc.getQueryData<RetroBoardResponse>(boardKey('s1'))).toBeUndefined();
+  });
 });
 
 describe('useUpdateBoardItem', () => {
@@ -206,6 +250,54 @@ describe('useUpdateBoardItem', () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
     const cached = qc.getQueryData<RetroBoardResponse>(boardKey('s1'));
     expect(cached?.items[0]).toMatchObject({ text: 'old', column: 'went_well' });
+  });
+
+  it('replaces only the edited sticky with the server row on success', async () => {
+    patchMock.mockResolvedValueOnce({
+      data: item({ id: 'i1', text: 'edited', color: 'amber', updated_at: '2026-06-26T00:00:00Z' }),
+    });
+    const qc = makeQC();
+    qc.setQueryData<RetroBoardResponse>(
+      boardKey('s1'),
+      board([item({ id: 'i1', text: 'old' }), item({ id: 'i2', text: 'peer' })]),
+    );
+    const { result } = renderHook(() => useUpdateBoardItem('s1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ id: 'i1', text: 'edited', color: 'amber' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(patchMock).toHaveBeenCalledWith('/retro-items/i1/', { text: 'edited', color: 'amber' });
+    const cached = qc.getQueryData<RetroBoardResponse>(boardKey('s1'));
+    expect(cached?.items[0]).toMatchObject({
+      id: 'i1',
+      text: 'edited',
+      color: 'amber',
+      updated_at: '2026-06-26T00:00:00Z',
+    });
+    expect(cached?.items[1]).toMatchObject({ id: 'i2', text: 'peer' });
+  });
+
+  it('PATCHes without an optimistic write when the board is not cached yet', async () => {
+    patchMock.mockRejectedValueOnce(new Error('boom'));
+    const qc = makeQC();
+    const { result } = renderHook(() => useUpdateBoardItem('s1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ id: 'i1', text: 'edited' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(patchMock).toHaveBeenCalledWith('/retro-items/i1/', { text: 'edited' });
+    expect(qc.getQueryData<RetroBoardResponse>(boardKey('s1'))).toBeUndefined();
+  });
+
+  it('does not seed a board cache from a successful PATCH', async () => {
+    patchMock.mockResolvedValueOnce({ data: item({ id: 'i1', text: 'edited' }) });
+    const qc = makeQC();
+    const { result } = renderHook(() => useUpdateBoardItem('s1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ id: 'i1', text: 'edited' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(qc.getQueryData<RetroBoardResponse>(boardKey('s1'))).toBeUndefined();
   });
 });
 
@@ -242,6 +334,18 @@ describe('useDeleteBoardItem', () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
     const cached = qc.getQueryData<RetroBoardResponse>(boardKey('s1'));
     expect(cached?.items.map((i) => i.id)).toEqual(['i1', 'i2']);
+  });
+
+  it('DELETEs without an optimistic removal when the board is not cached yet', async () => {
+    deleteMock.mockRejectedValueOnce(new Error('boom'));
+    const qc = makeQC();
+    const { result } = renderHook(() => useDeleteBoardItem('s1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate('i1');
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(deleteMock).toHaveBeenCalledWith('/retro-items/i1/');
+    expect(qc.getQueryData<RetroBoardResponse>(boardKey('s1'))).toBeUndefined();
   });
 });
 
@@ -331,6 +435,26 @@ describe('useUpsertPulse', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(qc.getQueryData<PulseResponse | null>(pulseKey('s1'))).toEqual(prior);
+  });
+
+  it('keeps the tapped answer visible when a first-ever PUT fails (nothing to roll back to)', async () => {
+    // No cached pulse read yet → the captured snapshot is `undefined`, which is
+    // NOT the same as the "answered nothing" sentinel `null`: writing it back
+    // would blank the poll the respondent just tapped.
+    putMock.mockRejectedValueOnce(new Error('boom'));
+    const qc = makeQC();
+    const { result } = renderHook(() => useUpsertPulse('s1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ mood: 5, energy: 4, confidence: 2 });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    const cached = qc.getQueryData<PulseResponse | null>(pulseKey('s1'));
+    expect(cached).toMatchObject({ id: 'optimistic', retro: '', mood: 5, energy: 4, confidence: 2 });
+    expect(putMock).toHaveBeenCalledWith('/sprints/s1/pulse/', {
+      mood: 5,
+      energy: 4,
+      confidence: 2,
+    });
   });
 
   it('writes the server answer and refetches the privacy-gated trend on success', async () => {

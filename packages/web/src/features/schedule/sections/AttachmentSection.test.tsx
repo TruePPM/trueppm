@@ -301,6 +301,20 @@ describe('AttachmentSection — offline guard', () => {
     expect(screen.getByRole('status').textContent).toMatch(/offline/i);
   });
 
+  it('assumes online when the environment exposes no navigator (SSR/prerender)', () => {
+    // `typeof navigator !== 'undefined'` guards a non-browser render; without a
+    // navigator the section must default to ONLINE rather than blocking uploads.
+    vi.stubGlobal('navigator', undefined);
+    try {
+      useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+      render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+      expect(screen.getByText('+ Attach file')).not.toBeDisabled();
+      expect(screen.queryByRole('status')).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('updates the offline state on window online/offline events', () => {
     const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
@@ -647,5 +661,142 @@ describe('AttachmentSection — upload progress + error surfacing', () => {
     fireEvent.change(urlInput, { target: { value: 'https://figma.com/x' } });
     fireEvent.submit(container.querySelector('form')!);
     expect(screen.getByRole('alert').textContent).toBe('Pin link failed.');
+  });
+
+  it('falls back to a generic "Upload failed." when the upload error carries no message', () => {
+    const mutate = vi.fn((_vars: unknown, opts?: { onError?: (e: Error) => void }) => {
+      opts?.onError?.(new Error(''));
+    });
+    useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['x'], 'doc.pdf', { type: 'application/pdf' })] },
+    });
+    expect(screen.getByRole('alert').textContent).toBe('Upload failed.');
+  });
+
+  it('falls back to a generic "Pin link failed." when the pin error carries no message', () => {
+    const mutate = vi.fn((_vars: unknown, opts?: { onError?: (e: Error) => void }) => {
+      opts?.onError?.(new Error(''));
+    });
+    useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
+    fireEvent.click(screen.getByText('+ Pin link'));
+    const urlInput = container.querySelector<HTMLInputElement>('input[type="url"]')!;
+    fireEvent.change(urlInput, { target: { value: 'https://figma.com/x' } });
+    fireEvent.submit(container.querySelector('form')!);
+    expect(screen.getByRole('alert').textContent).toBe('Pin link failed.');
+  });
+});
+
+describe('AttachmentSection — add-control affordances', () => {
+  beforeEach(() => {
+    useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+  });
+
+  it('opens the hidden file picker when "+ Attach file" is clicked', () => {
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const clickSpy = vi.spyOn(fileInput, 'click');
+    fireEvent.click(screen.getByText('+ Attach file'));
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the pin-link modal when its Cancel button is used', () => {
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByText('+ Pin link'));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('Pin a link')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('ignores a file-picker change that carries no FileList', () => {
+    const mutate = vi.fn();
+    useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    // `HTMLInputElement.files` is nullable in the DOM spec; a null selection must
+    // not throw and must not fire a mutation or a validation error.
+    Object.defineProperty(fileInput, 'files', { value: null, configurable: true });
+    fireEvent.change(fileInput);
+    expect(mutate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('AttachmentSection — external link display name', () => {
+  it('falls back to the raw URL when a pinned link carries no title', () => {
+    useListMock.mockReturnValue({
+      attachments: [
+        attachment({
+          file_name: '',
+          file_mime: '',
+          external_url: 'https://example.com/spec',
+          external_title: '',
+        }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByLabelText('Attachment: https://example.com/spec')).toBeInTheDocument();
+    expect(screen.getByLabelText('Open https://example.com/spec')).toBeInTheDocument();
+  });
+});
+
+describe('AttachmentSection — pinned-first ordering is direction-independent', () => {
+  it('keeps a pinned attachment first when the server already returned it first', () => {
+    // The comparator must return the pinned row first regardless of which side of
+    // the comparison it lands on — a stale optimistic mutation can hand us either
+    // input order.
+    useListMock.mockReturnValue({
+      attachments: [
+        attachment({ id: 'a1', file_name: 'pinned.pdf', is_pinned: true }),
+        attachment({ id: 'a2', file_name: 'plain.pdf', is_pinned: false }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    const items = screen.getByLabelText(/Attachments — 2 total/).querySelectorAll('li');
+    expect(items[0].textContent).toContain('pinned.pdf');
+    expect(items[1].textContent).toContain('plain.pdf');
+  });
+});
+
+describe('AttachmentSection — attachment policy still loading (#976)', () => {
+  it('keeps the add-controls visible but rejects every type until the allow-list arrives', () => {
+    // The project query has not resolved: uploads default to ENABLED (permissive,
+    // the server is authoritative) with an EMPTY allow-list, so no add-controls
+    // flash away and no disallowed file slips past the client mirror.
+    useProjectMock.mockReturnValue({ data: undefined });
+    const mutate = vi.fn();
+    useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
+
+    expect(screen.getByText('+ Attach file')).toBeInTheDocument();
+    expect(screen.queryByRole('note')).toBeNull();
+
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['x'], 'doc.pdf', { type: 'application/pdf' })] },
+    });
+    expect(mutate).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toMatch(/No file types are allowed/);
   });
 });

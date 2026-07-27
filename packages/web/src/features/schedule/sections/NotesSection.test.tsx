@@ -183,6 +183,16 @@ describe('NotesSection — dim-search', () => {
     );
   });
 
+  it('leaves the query alone for keys other than Escape', () => {
+    useNotesMock.mockReturnValue({ notes: twoNotes(), isLoading: false, error: null });
+    render(<NotesSection taskId="t1" projectId="p1" />);
+    const input = screen.getByLabelText<HTMLInputElement>('Search notes');
+    fireEvent.change(input, { target: { value: 'migration' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(input.value).toBe('migration');
+    expect(screen.getByRole('status').textContent).toContain('1 of 2 notes');
+  });
+
   it('wraps the matched body substring in a <mark>', () => {
     useNotesMock.mockReturnValue({ notes: twoNotes(), isLoading: false, error: null });
     const { container } = render(<NotesSection taskId="t1" projectId="p1" />);
@@ -329,6 +339,264 @@ describe('NotesSection — list semantics', () => {
     render(<NotesSection taskId="t1" projectId="p1" />);
     const list = screen.getByRole('list', { name: 'Notes — 2 total' });
     expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+  });
+});
+
+describe('NotesSection — row metadata', () => {
+  it('falls back to "Unknown" when the note has no author', () => {
+    useNotesMock.mockReturnValue({
+      notes: [note({ author: null, body: 'orphaned note' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
+    expect(screen.getByRole('listitem', { name: /^Note by Unknown,/ })).toBeTruthy();
+    // An author-less note is not "yours", so no Delete for a plain member.
+    expect(screen.queryByLabelText('Delete this note')).toBeNull();
+  });
+
+  it('marks an edited note in the row label and inline', () => {
+    useNotesMock.mockReturnValue({
+      notes: [note({ edited_at: '2026-05-19T00:05:00Z' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" />);
+    expect(screen.getByRole('listitem', { name: /, edited$/ })).toBeTruthy();
+    expect(screen.getByText('· edited')).toBeTruthy();
+  });
+
+  it('omits the edited marker on a never-edited note', () => {
+    useNotesMock.mockReturnValue({
+      notes: [note({ edited_at: null })],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" />);
+    expect(screen.queryByText('· edited')).toBeNull();
+    expect(screen.queryByTitle('Pinned')).toBeNull();
+    expect(screen.queryByTitle('Decision')).toBeNull();
+  });
+
+  it('hides the search box entirely when there are no notes', () => {
+    useNotesMock.mockReturnValue({ notes: [], isLoading: false, error: null });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.queryByLabelText('Search notes')).toBeNull();
+  });
+});
+
+describe('NotesSection — highlight segmentation', () => {
+  it('marks every occurrence and keeps the surrounding text intact', () => {
+    useNotesMock.mockReturnValue({
+      notes: [note({ body: 'aa bb aa cc' })],
+      isLoading: false,
+      error: null,
+    });
+    const { container } = render(<NotesSection taskId="t1" projectId="p1" />);
+    fireEvent.change(screen.getByLabelText('Search notes'), { target: { value: 'aa' } });
+
+    const marks = Array.from(container.querySelectorAll('mark'));
+    expect(marks.map((m) => m.textContent)).toEqual(['aa', 'aa']);
+    const row = screen.getByRole('listitem', { name: /Note by Alice/ });
+    expect(row.textContent).toContain('aa bb aa cc');
+  });
+
+  it('emits no trailing segment when the match ends the body', () => {
+    useNotesMock.mockReturnValue({
+      notes: [note({ body: 'plan aa' })],
+      isLoading: false,
+      error: null,
+    });
+    const { container } = render(<NotesSection taskId="t1" projectId="p1" />);
+    fireEvent.change(screen.getByLabelText('Search notes'), { target: { value: 'aa' } });
+
+    const marks = Array.from(container.querySelectorAll('mark'));
+    expect(marks.map((m) => m.textContent)).toEqual(['aa']);
+    expect(screen.getByRole('listitem', { name: /Note by Alice/ }).textContent).toContain(
+      'plan aa',
+    );
+  });
+
+  it('renders the body unmarked when the query only matches the author', () => {
+    useNotesMock.mockReturnValue({
+      notes: [note({ body: 'no needle here' })],
+      isLoading: false,
+      error: null,
+    });
+    const { container } = render(<NotesSection taskId="t1" projectId="p1" />);
+    fireEvent.change(screen.getByLabelText('Search notes'), { target: { value: 'Alice' } });
+
+    expect(container.querySelectorAll('mark')).toHaveLength(0);
+    expect(screen.getByRole('status').textContent).toContain('1 of 1 notes');
+  });
+});
+
+describe('NotesSection — editable fallback', () => {
+  it('derives write access from the role when canEdit is not threaded', () => {
+    useNotesMock.mockReturnValue({ notes: [note()], isLoading: false, error: null });
+    render(<NotesSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByLabelText('Pin this note')).toBeTruthy();
+    expect(screen.getByLabelText('Note composer')).toBeTruthy();
+  });
+
+  it('denies write access for a viewer role when canEdit is not threaded', () => {
+    useNotesMock.mockReturnValue({ notes: [note()], isLoading: false, error: null });
+    render(<NotesSection taskId="t1" projectId="p1" userRole={ROLE_VIEWER} />);
+    expect(screen.queryByLabelText('Pin this note')).toBeNull();
+    expect(screen.queryByLabelText('Note composer')).toBeNull();
+  });
+
+  it('lets the server verdict override a low client role', () => {
+    useNotesMock.mockReturnValue({ notes: [note()], isLoading: false, error: null });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_VIEWER} />);
+    expect(screen.getByLabelText('Pin this note')).toBeTruthy();
+  });
+
+  it('hides Edit and Delete while the current user is still unknown', () => {
+    useCurrentUserMock.mockReturnValue({ user: null, isLoading: true });
+    useNotesMock.mockReturnValue({
+      notes: [note({ created_at: new Date().toISOString() })],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
+    expect(screen.queryByLabelText('Edit this note')).toBeNull();
+    expect(screen.queryByLabelText('Delete this note')).toBeNull();
+    // Pin and decision remain available — they need no ownership.
+    expect(screen.getByLabelText('Pin this note')).toBeTruthy();
+  });
+});
+
+describe('NotesSection — write actions', () => {
+  it('calls the delete mutation with the note id', () => {
+    const mutate = vi.fn<(vars: { noteId: string }) => void>();
+    useDeleteMock.mockReturnValue({ mutate, isPending: false });
+    useNotesMock.mockReturnValue({
+      notes: [note({ id: 'n7' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByLabelText('Delete this note'));
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'p1', taskId: 't1', noteId: 'n7' }),
+    );
+  });
+
+  it('disables the row actions while their mutations are in flight', () => {
+    usePinMock.mockReturnValue({ mutate: vi.fn(), isPending: true });
+    useDecisionMock.mockReturnValue({ mutate: vi.fn(), isPending: true });
+    useDeleteMock.mockReturnValue({ mutate: vi.fn(), isPending: true });
+    useNotesMock.mockReturnValue({ notes: [note()], isLoading: false, error: null });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
+
+    expect(screen.getByLabelText('Pin this note')).toHaveProperty('disabled', true);
+    expect(screen.getByLabelText('Mark as decision')).toHaveProperty('disabled', true);
+    expect(screen.getByLabelText('Delete this note')).toHaveProperty('disabled', true);
+  });
+});
+
+describe('NotesSection — inline edit', () => {
+  type UpdateVars = { projectId: string; taskId: string; noteId: string; body: string };
+  type UpdateOpts = { onSuccess?: () => void };
+
+  function freshOwnNote(body = 'original body') {
+    return note({ id: 'n5', body, created_at: new Date().toISOString() });
+  }
+
+  function openEditor(body = 'original body') {
+    useNotesMock.mockReturnValue({
+      notes: [freshOwnNote(body)],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByLabelText('Edit this note'));
+    return screen.getByLabelText<HTMLTextAreaElement>('Edit note');
+  }
+
+  it('swaps the body for a textarea seeded with the note and hides the row actions', () => {
+    const textarea = openEditor();
+    expect(textarea.value).toBe('original body');
+    expect(screen.queryByLabelText('Pin this note')).toBeNull();
+    expect(screen.queryByLabelText('Delete this note')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+  });
+
+  it('saves the trimmed draft and leaves edit mode on success', () => {
+    const mutate = vi.fn<(vars: UpdateVars, opts?: UpdateOpts) => void>((_vars, opts) =>
+      opts?.onSuccess?.(),
+    );
+    useUpdateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+
+    const textarea = openEditor();
+    fireEvent.change(textarea, { target: { value: '  revised body  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(mutate).toHaveBeenCalledWith(
+      { projectId: 'p1', taskId: 't1', noteId: 'n5', body: 'revised body' },
+      expect.anything(),
+    );
+    // onSuccess closed the editor and the read view is back.
+    expect(screen.queryByLabelText('Edit note')).toBeNull();
+    expect(screen.getByLabelText('Pin this note')).toBeTruthy();
+  });
+
+  it('disables Save on a whitespace-only draft', () => {
+    const mutate = vi.fn<(vars: UpdateVars, opts?: UpdateOpts) => void>();
+    useUpdateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+
+    const textarea = openEditor();
+    fireEvent.change(textarea, { target: { value: '   ' } });
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toHaveProperty('disabled', true);
+    fireEvent.click(save);
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('refuses to submit a draft over the 10,000-character cap', () => {
+    const mutate = vi.fn<(vars: UpdateVars, opts?: UpdateOpts) => void>();
+    useUpdateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+
+    const textarea = openEditor();
+    fireEvent.change(textarea, { target: { value: 'x'.repeat(10_001) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(mutate).not.toHaveBeenCalled();
+    // Still in edit mode — nothing was silently discarded.
+    expect(screen.getByLabelText('Edit note')).toBeTruthy();
+  });
+
+  it('restores the original body on Cancel', () => {
+    const textarea = openEditor('original body');
+    fireEvent.change(textarea, { target: { value: 'scrapped' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByLabelText('Edit note')).toBeNull();
+    expect(screen.getByRole('listitem', { name: /Note by Alice/ }).textContent).toContain(
+      'original body',
+    );
+    // Reopening shows the original, not the scrapped draft.
+    fireEvent.click(screen.getByLabelText('Edit this note'));
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Edit note').value).toBe('original body');
+  });
+
+  it('shows a pending label and locks both buttons while saving', () => {
+    useUpdateMock.mockReturnValue({ mutate: vi.fn(), isPending: true, isError: false });
+    openEditor();
+    expect(screen.getByRole('button', { name: 'Saving…' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty('disabled', true);
+  });
+
+  it('surfaces the closed-window error and stays in edit mode', () => {
+    useUpdateMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: true });
+    openEditor();
+    expect(screen.getByRole('alert').textContent).toContain('15-minute edit window');
+    expect(screen.getByLabelText('Edit note')).toBeTruthy();
+  });
+
+  it('shows no error banner on a clean editor', () => {
+    openEditor();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
 
