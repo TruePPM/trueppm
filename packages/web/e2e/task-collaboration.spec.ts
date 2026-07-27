@@ -627,7 +627,9 @@ const SECTION_TAB: Record<string, string> = {
   'External links': 'Files',
   Notes: 'Activity',
   Comments: 'Activity',
-  Activity: 'Activity',
+  // The merged feed's header is "All events", not "Activity" (#2448) — a section
+  // must never repeat the name of the tab that owns it.
+  'All events': 'Activity',
 };
 
 /** Switch to the tab that owns `name`, then expand its (possibly collapsed) section. */
