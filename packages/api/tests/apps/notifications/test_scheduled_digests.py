@@ -259,7 +259,7 @@ def test_next_week_sends_again(janet: Any, program: Program, late_project: Proje
 
 @pytest.mark.django_db
 def test_empty_digest_is_still_sent(janet: Any, program: Program, calendar: Calendar):
-    """"Nothing at risk" is a complete report, not a suppressed one."""
+    """A digest with nothing at risk is a complete report, not a suppressed one."""
     # A program with a healthy project — no task is overdue, so health is not at_risk.
     Project.objects.create(
         name="Healthy",
