@@ -58,6 +58,277 @@ class UpsertResult:
     assignee_resolved: bool
 
 
+@dataclass(frozen=True)
+class _Resolved:
+    """One inbound payload, normalized and resolved against the project.
+
+    Everything here is derived before the ``select_for_update()`` row lock is
+    taken, so the create and update branches operate on identical values and
+    neither needs the raw payload.  ``pending_email`` is the assignee address
+    that did *not* resolve to a project member — kept on the link row so a later
+    push (or an invite acceptance) can complete the assignment.
+    """
+
+    source: str
+    external_id: str
+    name: str
+    description: str
+    story_points: int | None
+    external_url: str | None
+    parent_external_id: str | None
+    assignee_email: str | None
+    status: str
+    assignee: Any | None
+    pending_email: str | None
+    parent_wbs: str | None
+
+
+def _resolve_payload(
+    project: Project, token: ProjectApiToken, payload: dict[str, Any]
+) -> _Resolved:
+    """Normalize the payload and resolve status, assignee, and parent WBS."""
+    source = payload["source"]
+    external_id = payload["external_id"]
+    parent_external_id = payload.get("parent_external_id") or None
+    assignee_email = payload.get("assignee_email") or None
+    assignee_user, pending_email = _resolve_assignee(assignee_email, project)
+    return _Resolved(
+        source=source,
+        external_id=external_id,
+        name=payload.get("name") or external_id,  # name is recommended but not required
+        description=payload.get("description") or "",
+        story_points=payload.get("story_points"),
+        external_url=payload.get("external_url") or None,
+        parent_external_id=parent_external_id,
+        assignee_email=assignee_email,
+        status=_resolve_status(payload.get("status"), token),
+        assignee=assignee_user,
+        pending_email=pending_email,
+        parent_wbs=_resolve_parent_wbs(project, source, parent_external_id),
+    )
+
+
+def _allocate_wbs(project: Project, parent_wbs: str | None) -> tuple[str | None, bool]:
+    """Pick the WBS path for a newly-created inbound task.
+
+    We don't reuse ``Task.save()``'s WBS logic because inbound tasks always land
+    in the project's flat backlog area — they aren't part of the PM's planned WBS
+    structure unless they have a resolved parent.
+    """
+    if parent_wbs is None:
+        # Let Task.save() leave WBS unset; backlog tasks don't need a path.
+        return None, False
+
+    # Count direct children of the parent (one segment deeper, e.g. "1.2.X"
+    # for parent "1.2") via a regex that matches the exact depth.  The
+    # earlier startswith+exclude version was broken — `wbs_path__contains="."`
+    # was true for every multi-segment path, so it never excluded anything.
+    # Scope is project_id+regex; the project_id filter is indexed so the
+    # regex runs only over this project's tasks.
+    import re
+
+    child_pattern = rf"^{re.escape(parent_wbs)}\.[^.]+$"
+    child_count = Task.objects.filter(
+        project=project,
+        wbs_path__regex=child_pattern,
+        is_deleted=False,
+    ).count()
+    return f"{parent_wbs}.{child_count + 1}", True
+
+
+def _create_inbound_task(
+    project: Project, token: ProjectApiToken, resolved: _Resolved
+) -> tuple[Task, InboundTaskLink]:
+    """Create the Task and its link row for a first-time external id."""
+    wbs_path, is_subtask = _allocate_wbs(project, resolved.parent_wbs)
+
+    # Hybrid-by-construction note (#1665): this agent write path creates only
+    # Tasks — never Dependency edges — so there is no dependency graph to
+    # validate here and the shared cycle/self-reference guard
+    # (scheduling.graph_guard.validate_task_graph) is vacuous. If inbound sync
+    # ever grows dependency writes, route the proposed edges through that guard
+    # before persisting, exactly as the offline importer (#1664) does, so an
+    # agent principal is governed identically to the human write path.
+    task = Task.objects.create(
+        project=project,
+        name=resolved.name[:512],
+        assignee=resolved.assignee,
+        status=resolved.status,
+        story_points=resolved.story_points,
+        wbs_path=wbs_path,
+        is_subtask=is_subtask,
+        notes=resolved.description,
+    )
+    link = InboundTaskLink.objects.create(
+        project=project,
+        task=task,
+        source=resolved.source,
+        external_id=resolved.external_id,
+        external_url=resolved.external_url,
+        parent_external_id=resolved.parent_external_id,
+        pending_assignee_email=resolved.pending_email,
+        created_via_token=token,
+        last_synced_via_token=token,
+    )
+    return task, link
+
+
+def _status_transition_fields(
+    task: Task, old_status: str, new_status: str, story_points: int | None
+) -> dict[str, Any]:
+    """Re-apply the actual-date / percent coercions the bulk UPDATE bypasses.
+
+    ``Task.save()`` and ``TaskSerializer.update()`` perform these on the REST
+    path; the write-through ``.update()`` below skips both (#1767). Without them,
+    a task marked "Done" by an external system lands in the Done column at 0%
+    with no actual dates — EVM/burndown under-count it.
+    """
+    from django.utils import timezone as _tz
+
+    today = _tz.localdate()
+    fields: dict[str, Any] = {"status": new_status, "status_changed_at": _tz.now()}
+
+    if old_status == TaskStatus.COMPLETE.value:
+        # Reopened from COMPLETE — clear the finish stamp and restore
+        # remaining effort from the commitment baseline (the COMPLETE
+        # transition zeroed it). Mirrors TaskSerializer.update(). Uses the
+        # story_points being written on this push (falls back to the stored
+        # value) so burndown counts the reopened work again.
+        fields["actual_finish"] = None
+        fields["remaining_points"] = story_points if story_points is not None else task.story_points
+    if new_status == TaskStatus.IN_PROGRESS.value and task.actual_start is None:
+        fields["actual_start"] = today
+    elif new_status == TaskStatus.COMPLETE.value:
+        if task.actual_finish is None:
+            fields["actual_finish"] = today
+        fields["remaining_points"] = 0
+    if new_status in (TaskStatus.REVIEW.value, TaskStatus.COMPLETE.value):
+        fields["percent_complete"] = 100.0
+    return fields
+
+
+def _update_inbound_task(
+    link: InboundTaskLink, token: ProjectApiToken, resolved: _Resolved
+) -> Task:
+    """Write through the mutable fields onto an already-linked task.
+
+    Uses a bulk UPDATE so we increment ``server_version`` exactly once and avoid
+    the ``status_changed_at`` side effect (``Task.save()`` resets it on a status
+    transition; we want "when status flipped in the external system", not "when
+    the webhook arrived").
+    """
+    task = link.task
+    old_status = task.status
+    new_status = resolved.status
+    status_changed = old_status != new_status
+
+    update_fields: dict[str, Any] = {
+        "name": resolved.name[:512],
+        "notes": resolved.description,
+        "story_points": resolved.story_points,
+        "server_version": F("server_version") + 1,
+    }
+    # Only set assignee on resolve — never overwrite an existing assignment.
+    if task.assignee_id is None and resolved.assignee is not None:
+        update_fields["assignee"] = resolved.assignee
+    if status_changed:
+        update_fields.update(
+            _status_transition_fields(task, old_status, new_status, resolved.story_points)
+        )
+    Task.objects.filter(pk=task.pk).update(**update_fields)
+    # Refresh task to get post-update field values for downstream callers.
+    task.refresh_from_db()
+
+    # The bulk .update() above is deliberate (single server_version bump,
+    # externally-supplied status_changed_at preserved — see the write-through
+    # docstring), but it also bypasses django-simple-history's post_save
+    # receiver, so without this no HistoricalTask row is written and
+    # external-system/agent edits are invisible in every activity/history
+    # surface (#1876). Record the post-update state explicitly through
+    # simple_history's own bulk machinery (the same path
+    # bulk_update_with_history uses): it respects the model's
+    # excluded_fields and only INSERTs a history row — the task row itself
+    # is untouched, so server_version is not double-bumped and
+    # status_changed_at keeps its .update() semantics. history_user resolves
+    # through simple_history's middleware context to request.user, which
+    # ProjectApiTokenAuthentication sets to token.created_by — identical to
+    # the attribution the create branch's post_save "+" row already gets
+    # (and None outside a request). The change reason carries the external
+    # source tag so the feed can tell an inbound edit from a direct one.
+    get_history_manager_for_model(Task).bulk_history_create(
+        [task],
+        update=True,
+        default_change_reason=f"inbound sync: {resolved.source}",
+    )
+
+    if status_changed:
+        # task_status_changed is the OSS extension point Task.save() emits on a
+        # status transition — it drives real-time burndown upserts today and is
+        # the documented hook other OSS/Enterprise receivers register against.
+        # The bulk .update() above skips it, so fire it explicitly here (#1767).
+        # send_robust: a raising third-party/Enterprise receiver must never
+        # propagate out of and break this OSS write path (mirrors Task.save()).
+        from trueppm_api.apps.projects.signals import task_status_changed
+
+        task_status_changed.send_robust(
+            sender=Task, task=task, old_status=old_status, new_status=new_status
+        )
+
+    # Link row updates: refresh URL + last_synced_via_token, clear
+    # pending_assignee_email if we just resolved it.
+    link.external_url = resolved.external_url
+    link.last_synced_via_token = token
+    if resolved.assignee is not None and link.pending_assignee_email == resolved.assignee_email:
+        link.pending_assignee_email = None
+    link.save()
+    return task
+
+
+def _defer_side_effects(
+    project: Project, task: Task, resolved: _Resolved, *, created: bool
+) -> None:
+    """Queue the post-commit CPM recalc, board broadcast, and webhook dispatch."""
+    from trueppm_api.apps.scheduling.services import (
+        enqueue_recalculate as _enqueue_recalculate,
+    )
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+    project_id = str(project.pk)
+    task_id = str(task.pk)
+    event_type = "task_created" if created else "task_updated"
+    webhook_event = "task.created" if created else "task.updated"
+    webhook_payload = {
+        "id": task_id,
+        "short_id": task.short_id,
+        "name": task.name,
+        "status": task.status,
+        "source": resolved.source,  # X-Source semantics per ADR-0065 addendum
+    }
+
+    # Bind each lambda's captured values via default arguments so closure
+    # late-binding can never substitute a different value if this function
+    # is extended later to register multiple branches per call.
+    def _recalc(pid: str = project_id) -> None:
+        _enqueue_recalculate(pid)
+
+    def _broadcast(
+        pid: str = project_id, et: str = event_type, tid: str = task_id, src: str = resolved.source
+    ) -> None:
+        broadcast_board_event(pid, et, {"id": tid, "source": src})
+
+    def _dispatch(
+        pid: str = project_id,
+        we: str = webhook_event,
+        wp: dict[str, Any] = webhook_payload,
+    ) -> None:
+        dispatch_webhooks(pid, we, wp)
+
+    transaction.on_commit(_recalc)
+    transaction.on_commit(_broadcast)
+    transaction.on_commit(_dispatch)
+
+
 def _resolve_status(payload_status: str | None, token: ProjectApiToken) -> str:
     """Translate the external status string into a TaskStatus value.
 
@@ -176,192 +447,25 @@ def upsert_inbound_task(
 
     Writes an ApiTokenAuditEntry "used" row inside the same transaction.
     """
-    from trueppm_api.apps.scheduling.services import (
-        enqueue_recalculate as _enqueue_recalculate,
-    )
-    from trueppm_api.apps.sync.broadcast import broadcast_board_event
-    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
-
-    source = payload["source"]
-    external_id = payload["external_id"]
-    name = payload.get("name") or external_id  # name is recommended but not required
-    description = payload.get("description") or ""
-    story_points = payload.get("story_points")
-    external_url = payload.get("external_url") or None
-    parent_external_id = payload.get("parent_external_id") or None
-    assignee_email = payload.get("assignee_email") or None
-
-    status_value = _resolve_status(payload.get("status"), token)
-    assignee_user, pending_email = _resolve_assignee(assignee_email, project)
-    parent_wbs = _resolve_parent_wbs(project, source, parent_external_id)
+    resolved = _resolve_payload(project, token, payload)
 
     link = (
         InboundTaskLink.objects.select_for_update()
         .select_related("task")
-        .filter(project=project, source=source, external_id=external_id, is_deleted=False)
+        .filter(
+            project=project,
+            source=resolved.source,
+            external_id=resolved.external_id,
+            is_deleted=False,
+        )
         .first()
     )
 
     created = link is None
-    if created:
-        # Allocate a WBS path: under the parent if one was resolved, else as
-        # a new root-level number.  We don't reuse Task.save()'s WBS logic
-        # because inbound tasks always land in the project's flat backlog
-        # area — they aren't part of the PM's planned WBS structure unless
-        # they have a resolved parent.
-        if parent_wbs is not None:
-            # Count direct children of the parent (one segment deeper, e.g. "1.2.X"
-            # for parent "1.2") via a regex that matches the exact depth.  The
-            # earlier startswith+exclude version was broken — `wbs_path__contains="."`
-            # was true for every multi-segment path, so it never excluded anything.
-            # Scope is project_id+regex; the project_id filter is indexed so the
-            # regex runs only over this project's tasks.
-            import re
-
-            escaped = re.escape(parent_wbs)
-            child_pattern = rf"^{escaped}\.[^.]+$"
-            child_count = Task.objects.filter(
-                project=project,
-                wbs_path__regex=child_pattern,
-                is_deleted=False,
-            ).count()
-            wbs_path = f"{parent_wbs}.{child_count + 1}"
-            is_subtask = True
-        else:
-            wbs_path = None  # let Task.save() leave WBS unset; backlog tasks don't need a path
-            is_subtask = False
-
-        # Hybrid-by-construction note (#1665): this agent write path creates only
-        # Tasks — never Dependency edges — so there is no dependency graph to
-        # validate here and the shared cycle/self-reference guard
-        # (scheduling.graph_guard.validate_task_graph) is vacuous. If inbound sync
-        # ever grows dependency writes, route the proposed edges through that guard
-        # before persisting, exactly as the offline importer (#1664) does, so an
-        # agent principal is governed identically to the human write path.
-        task = Task.objects.create(
-            project=project,
-            name=name[:512],
-            assignee=assignee_user,
-            status=status_value,
-            story_points=story_points,
-            wbs_path=wbs_path,
-            is_subtask=is_subtask,
-            notes=description,
-        )
-        link = InboundTaskLink.objects.create(
-            project=project,
-            task=task,
-            source=source,
-            external_id=external_id,
-            external_url=external_url,
-            parent_external_id=parent_external_id,
-            pending_assignee_email=pending_email,
-            created_via_token=token,
-            last_synced_via_token=token,
-        )
+    if link is None:
+        task, link = _create_inbound_task(project, token, resolved)
     else:
-        # link is guaranteed non-None on this branch (created is False); narrow
-        # the type for mypy.
-        assert link is not None
-        task = link.task
-        # Write-through fields — overwritten on every push.  Use bulk UPDATE
-        # so we increment server_version exactly once and avoid the
-        # status_changed_at side effect (Task.save() resets it on status
-        # transition; we want to preserve "when status flipped in the external
-        # system" semantics, not "when the webhook arrived").
-        new_status = status_value
-        update_fields: dict[str, Any] = {
-            "name": name[:512],
-            "notes": description,
-            "story_points": story_points,
-            "server_version": F("server_version") + 1,
-        }
-        # Only set assignee on resolve — never overwrite an existing assignment.
-        if task.assignee_id is None and assignee_user is not None:
-            update_fields["assignee"] = assignee_user
-        old_status = task.status
-        status_changed = old_status != new_status
-        if status_changed:
-            from django.utils import timezone as _tz
-
-            update_fields["status"] = new_status
-            update_fields["status_changed_at"] = _tz.now()
-
-            # Re-apply the actual-date / percent coercions that Task.save() and
-            # TaskSerializer.update() perform on the REST path but that this bulk
-            # .update() bypasses (#1767). Without them, a task marked "Done" by an
-            # external system lands in the Done column at 0% with no actual dates —
-            # EVM/burndown under-count it. Mirrors the status-transition rules in
-            # TaskSerializer.update() and the REVIEW/COMPLETE percent coercion in
-            # Task.save().
-            today = _tz.localdate()
-            if old_status == TaskStatus.COMPLETE.value:
-                # Reopened from COMPLETE — clear the finish stamp and restore
-                # remaining effort from the commitment baseline (the COMPLETE
-                # transition zeroed it). Mirrors TaskSerializer.update(). Uses the
-                # story_points being written on this push (falls back to the stored
-                # value) so burndown counts the reopened work again.
-                update_fields["actual_finish"] = None
-                update_fields["remaining_points"] = (
-                    story_points if story_points is not None else task.story_points
-                )
-            if new_status == TaskStatus.IN_PROGRESS.value and task.actual_start is None:
-                update_fields["actual_start"] = today
-            elif new_status == TaskStatus.COMPLETE.value:
-                if task.actual_finish is None:
-                    update_fields["actual_finish"] = today
-                update_fields["remaining_points"] = 0
-            if new_status in (TaskStatus.REVIEW.value, TaskStatus.COMPLETE.value):
-                update_fields["percent_complete"] = 100.0
-        Task.objects.filter(pk=task.pk).update(**update_fields)
-        # Refresh task to get post-update field values for downstream callers.
-        task.refresh_from_db()
-
-        # The bulk .update() above is deliberate (single server_version bump,
-        # externally-supplied status_changed_at preserved — see the write-through
-        # comment), but it also bypasses django-simple-history's post_save
-        # receiver, so without this no HistoricalTask row is written and
-        # external-system/agent edits are invisible in every activity/history
-        # surface (#1876). Record the post-update state explicitly through
-        # simple_history's own bulk machinery (the same path
-        # bulk_update_with_history uses): it respects the model's
-        # excluded_fields and only INSERTs a history row — the task row itself
-        # is untouched, so server_version is not double-bumped and
-        # status_changed_at keeps its .update() semantics. history_user resolves
-        # through simple_history's middleware context to request.user, which
-        # ProjectApiTokenAuthentication sets to token.created_by — identical to
-        # the attribution the create branch's post_save "+" row already gets
-        # (and None outside a request). The change reason carries the external
-        # source tag so the feed can tell an inbound edit from a direct one.
-        get_history_manager_for_model(Task).bulk_history_create(
-            [task],
-            update=True,
-            default_change_reason=f"inbound sync: {source}",
-        )
-
-        if status_changed:
-            # task_status_changed is the OSS extension point Task.save() emits on a
-            # status transition — it drives real-time burndown upserts today and is
-            # the documented hook other OSS/Enterprise receivers register against.
-            # The bulk .update() above skips it, so fire it explicitly here (#1767).
-            # send_robust: a raising third-party/Enterprise receiver must never
-            # propagate out of and break this OSS write path (mirrors Task.save()).
-            from trueppm_api.apps.projects.signals import task_status_changed
-
-            task_status_changed.send_robust(
-                sender=Task,
-                task=task,
-                old_status=old_status,
-                new_status=new_status,
-            )
-
-        # Link row updates: refresh URL + last_synced_via_token, clear
-        # pending_assignee_email if we just resolved it.
-        link.external_url = external_url
-        link.last_synced_via_token = token
-        if assignee_user is not None and link.pending_assignee_email == assignee_email:
-            link.pending_assignee_email = None
-        link.save()
+        task = _update_inbound_task(link, token, resolved)
 
     # Audit row — same transaction; survives even if downstream broadcast fails.
     ApiTokenAuditEntry.objects.create(
@@ -372,52 +476,18 @@ def upsert_inbound_task(
         action=ApiTokenAuditAction.USED.value,
         source_ip=source_ip,
         detail={
-            "source": source,
-            "external_id": external_id,
+            "source": resolved.source,
+            "external_id": resolved.external_id,
             "created": created,
-            "assignee_resolved": assignee_user is not None,
+            "assignee_resolved": resolved.assignee is not None,
         },
     )
 
-    project_id = str(project.pk)
-    task_id = str(task.pk)
-    event_type = "task_created" if created else "task_updated"
-    webhook_event = "task.created" if created else "task.updated"
-    webhook_payload = {
-        "id": task_id,
-        "short_id": task.short_id,
-        "name": task.name,
-        "status": task.status,
-        "source": source,  # X-Source semantics per ADR-0065 addendum
-    }
+    _defer_side_effects(project, task, resolved, created=created)
 
-    # Bind each lambda's captured values via default arguments so closure
-    # late-binding can never substitute a different value if this function
-    # is extended later to register multiple branches per call.
-    def _recalc(pid: str = project_id) -> None:
-        _enqueue_recalculate(pid)
-
-    def _broadcast(
-        pid: str = project_id, et: str = event_type, tid: str = task_id, src: str = source
-    ) -> None:
-        broadcast_board_event(pid, et, {"id": tid, "source": src})
-
-    def _dispatch(
-        pid: str = project_id,
-        we: str = webhook_event,
-        wp: dict[str, Any] = webhook_payload,
-    ) -> None:
-        dispatch_webhooks(pid, we, wp)
-
-    transaction.on_commit(_recalc)
-    transaction.on_commit(_broadcast)
-    transaction.on_commit(_dispatch)
-
-    # link is non-None on both create and update branches by construction.
-    assert link is not None
     return UpsertResult(
         task=task,
         link=link,
         created=created,
-        assignee_resolved=assignee_user is not None,
+        assignee_resolved=resolved.assignee is not None,
     )

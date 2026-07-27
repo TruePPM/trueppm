@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 from trueppm_api.apps.projects.models import RiskCategory, RiskResponse, RiskStatus
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from django.contrib.auth.models import User
 
 # Hard limits — this is a one-time onboarding import, not a bulk pipeline.
@@ -160,6 +162,159 @@ def _parse_pi(raw: str, label: str, row_num: int, plan: ImportPlan) -> int | Non
     return parsed
 
 
+def _decode(raw: bytes) -> str:
+    """Decode the upload, stripping a spreadsheet-written BOM."""
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise RiskImportError(
+            "File is not valid UTF-8 text. Export it as CSV (UTF-8) and try again."
+        ) from exc
+
+
+def _read_header(reader: Iterator[list[str]]) -> dict[int, str]:
+    """Consume the header row into a column index → canonical key map.
+
+    Ignored (``ID``/``Severity``) and unrecognized columns are dropped rather
+    than reported, so a verbatim export round-trips without "unknown column"
+    noise. Title is the one column the import cannot proceed without.
+    """
+    try:
+        header = next(reader)
+    except StopIteration as exc:
+        raise RiskImportError("The file is empty.") from exc
+
+    col_keys: dict[int, str] = {}
+    for idx, name in enumerate(header):
+        key = _HEADER_ALIASES.get(name.strip().lower())
+        if key and key != "_ignored":
+            col_keys[idx] = key
+    if "title" not in col_keys.values():
+        raise RiskImportError(
+            "Missing required 'Title' column. The first row must be a header that "
+            "includes Title (an unmodified export works as-is)."
+        )
+    return col_keys
+
+
+def _row_values(cells: list[str], col_keys: dict[int, str]) -> dict[str, str]:
+    """Project one CSV line onto its canonical keys, tolerating short rows."""
+    return {key: cells[idx].strip() for idx, key in col_keys.items() if idx < len(cells)}
+
+
+def _lookup_choice(
+    raw: str,
+    mapping: dict[str, str],
+    *,
+    label: str,
+    noun: str,
+    consequence: str,
+    row_num: int,
+    plan: ImportPlan,
+) -> str | None:
+    """Resolve a choice cell against ``mapping``, warning when it doesn't match.
+
+    Status, Category, and Response share one policy — blank means "not supplied"
+    and is silent; a value the map doesn't know is coerced (to the caller's
+    fallback) with a warning rather than failing the row, because a single odd
+    label is far more likely to be a stale spreadsheet than a mis-mapped file.
+    """
+    if not raw:
+        return None
+    mapped = mapping.get(raw.lower())
+    if mapped is None:
+        plan.warnings.append(
+            ImportIssue(row_num, label, f"Unrecognized {noun} '{raw}' — {consequence}.")
+        )
+    return mapped
+
+
+def _resolve_due_date(raw: str, row_num: int, plan: ImportPlan) -> date | None:
+    if not raw:
+        return None
+    parsed = _parse_date(raw)
+    if parsed is None:
+        plan.warnings.append(
+            ImportIssue(row_num, "Mitigation Due Date", f"Couldn't read date '{raw}' — left blank.")
+        )
+    return parsed
+
+
+def _resolve_owner(
+    raw: str, owner_index: dict[str, User], row_num: int, plan: ImportPlan
+) -> User | None:
+    if not raw:
+        return None
+    owner = owner_index.get(raw.lower())
+    if owner is None:
+        plan.warnings.append(
+            ImportIssue(row_num, "Owner", f"No project member matches '{raw}' — left unassigned.")
+        )
+    return owner
+
+
+def _draft_from_row(
+    values: dict[str, str],
+    row_num: int,
+    owner_index: dict[str, User],
+    plan: ImportPlan,
+) -> RiskDraft | None:
+    """Build one draft, or return ``None`` when the row has a skipping error.
+
+    Only two conditions skip a row: a missing Title (nothing to name the risk)
+    and an out-of-range P/I (see :func:`_parse_pi`). Everything else coerces
+    with a warning so one bad cell can't cost the operator the whole row.
+    """
+    title = values.get("title", "")
+    if not title:
+        plan.errors.append(ImportIssue(row_num, "Title", "Title is required."))
+        return None
+
+    prob = _parse_pi(values.get("probability", ""), "P", row_num, plan)
+    imp = _parse_pi(values.get("impact", ""), "I", row_num, plan)
+    if prob is None or imp is None:
+        return None
+
+    status_val = _lookup_choice(
+        values.get("status", ""),
+        _STATUS_MAP,
+        label="Status",
+        noun="status",
+        consequence="defaulted to Open",
+        row_num=row_num,
+        plan=plan,
+    )
+    return RiskDraft(
+        title=title[:512],  # mirror the model's max_length
+        description=values.get("description", ""),
+        status=status_val or RiskStatus.OPEN,
+        probability=prob,
+        impact=imp,
+        category=_lookup_choice(
+            values.get("category", ""),
+            _CATEGORY_MAP,
+            label="Category",
+            noun="category",
+            consequence="left blank",
+            row_num=row_num,
+            plan=plan,
+        ),
+        response=_lookup_choice(
+            values.get("response", ""),
+            _RESPONSE_MAP,
+            label="Response",
+            noun="response",
+            consequence="left blank",
+            row_num=row_num,
+            plan=plan,
+        ),
+        mitigation_due_date=_resolve_due_date(values.get("mitigation_due_date", ""), row_num, plan),
+        trigger=values.get("trigger", ""),
+        contingency=values.get("contingency", ""),
+        owner=_resolve_owner(values.get("owner", ""), owner_index, row_num, plan),
+    )
+
+
 def parse_risk_csv(raw: bytes, owner_index: dict[str, User]) -> ImportPlan:
     """Parse and validate a risk CSV into a create plan.
 
@@ -178,30 +333,8 @@ def parse_risk_csv(raw: bytes, owner_index: dict[str, User]) -> ImportPlan:
         RiskImportError: file-level failure (undecodable, empty, no Title
             column, or more than :data:`MAX_ROWS` rows).
     """
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise RiskImportError(
-            "File is not valid UTF-8 text. Export it as CSV (UTF-8) and try again."
-        ) from exc
-
-    reader = csv.reader(io.StringIO(text))
-    try:
-        header = next(reader)
-    except StopIteration as exc:
-        raise RiskImportError("The file is empty.") from exc
-
-    # Column index → canonical key, skipping ignored and unknown columns.
-    col_keys: dict[int, str] = {}
-    for idx, name in enumerate(header):
-        key = _HEADER_ALIASES.get(name.strip().lower())
-        if key and key != "_ignored":
-            col_keys[idx] = key
-    if "title" not in col_keys.values():
-        raise RiskImportError(
-            "Missing required 'Title' column. The first row must be a header that "
-            "includes Title (an unmodified export works as-is)."
-        )
+    reader = csv.reader(io.StringIO(_decode(raw)))
+    col_keys = _read_header(reader)
 
     plan = ImportPlan()
     data_rows = 0
@@ -216,100 +349,9 @@ def parse_risk_csv(raw: bytes, owner_index: dict[str, User]) -> ImportPlan:
             )
         row_num = offset + 2  # header is row 1; first data row is row 2
 
-        values: dict[str, str] = {}
-        for idx, key in col_keys.items():
-            if idx < len(cells):
-                values[key] = cells[idx].strip()
-
-        title = values.get("title", "")
-        if not title:
-            plan.errors.append(ImportIssue(row_num, "Title", "Title is required."))
-            continue
-
-        prob = _parse_pi(values.get("probability", ""), "P", row_num, plan)
-        imp = _parse_pi(values.get("impact", ""), "I", row_num, plan)
-        if prob is None or imp is None:
-            continue
-
-        # Status: blank → Open silently (expected); unrecognized → warn + Open.
-        status_raw = values.get("status", "")
-        status_val: str = RiskStatus.OPEN
-        if status_raw:
-            mapped = _STATUS_MAP.get(status_raw.lower())
-            if mapped is None:
-                plan.warnings.append(
-                    ImportIssue(
-                        row_num,
-                        "Status",
-                        f"Unrecognized status '{status_raw}' — defaulted to Open.",
-                    )
-                )
-            else:
-                status_val = mapped
-
-        category_val: str | None = None
-        category_raw = values.get("category", "")
-        if category_raw:
-            category_val = _CATEGORY_MAP.get(category_raw.lower())
-            if category_val is None:
-                plan.warnings.append(
-                    ImportIssue(
-                        row_num, "Category", f"Unrecognized category '{category_raw}' — left blank."
-                    )
-                )
-
-        response_val: str | None = None
-        response_raw = values.get("response", "")
-        if response_raw:
-            response_val = _RESPONSE_MAP.get(response_raw.lower())
-            if response_val is None:
-                plan.warnings.append(
-                    ImportIssue(
-                        row_num, "Response", f"Unrecognized response '{response_raw}' — left blank."
-                    )
-                )
-
-        due_val: date | None = None
-        due_raw = values.get("mitigation_due_date", "")
-        if due_raw:
-            due_val = _parse_date(due_raw)
-            if due_val is None:
-                plan.warnings.append(
-                    ImportIssue(
-                        row_num,
-                        "Mitigation Due Date",
-                        f"Couldn't read date '{due_raw}' — left blank.",
-                    )
-                )
-
-        owner_val: User | None = None
-        owner_raw = values.get("owner", "")
-        if owner_raw:
-            owner_val = owner_index.get(owner_raw.lower())
-            if owner_val is None:
-                plan.warnings.append(
-                    ImportIssue(
-                        row_num,
-                        "Owner",
-                        f"No project member matches '{owner_raw}' — left unassigned.",
-                    )
-                )
-
-        plan.drafts.append(
-            RiskDraft(
-                title=title[:512],  # mirror the model's max_length
-                description=values.get("description", ""),
-                status=status_val,
-                probability=prob,
-                impact=imp,
-                category=category_val,
-                response=response_val,
-                mitigation_due_date=due_val,
-                trigger=values.get("trigger", ""),
-                contingency=values.get("contingency", ""),
-                owner=owner_val,
-            )
-        )
+        draft = _draft_from_row(_row_values(cells, col_keys), row_num, owner_index, plan)
+        if draft is not None:
+            plan.drafts.append(draft)
 
     if data_rows == 0:
         raise RiskImportError("No data rows found below the header.")
