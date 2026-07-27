@@ -1,0 +1,49 @@
+# OSV-Scanner suppressions for the mobile app's locked dependency set
+# (packages/mobile/package-lock.json), auto-discovered by the security:osv CI job.
+#
+# Same accepted-risk contract as packages/web/osv-scanner.toml,
+# packages/api/osv-scanner.toml and packages/scheduler/osv-scanner.toml: every
+# entry carries a `reason` and an expiry, so a suppression stays documented and
+# rots on its own instead of silently masking a future advisory.
+#
+# These are `[[PackageOverrides]]` rather than `[[IgnoredVulns]]` on purpose.
+# An `IgnoredVulns` entry suppresses an advisory ID across *every* version of
+# every package, which here would also mask the `brace-expansion` 5.x line that
+# we do keep patched. Pinning `name` + `version` keeps the suppression scoped to
+# the exact unfixable resolutions, so a future advisory against the version we
+# actually upgrade still blocks the pipeline.
+
+# GHSA-mh99-v99m-4gvg — brace-expansion DoS via unbounded expansion length
+# (HIGH, CVSS 7.5, availability-only). `expand()` caps the *number* of results
+# but not their length, so chained brace groups exhaust memory and kill the Node
+# process with a fatal, uncatchable OOM.
+#
+# Fixed in 5.0.8 only; the 1.x and 2.x maintenance lines have no patched
+# release. We take 5.0.8 on the hoisted resolution and suppress the one that
+# cannot be reached, which arrives on two distinct paths:
+#
+#   1.1.16 <- minimatch@3.1.5 <- eslint, @eslint/config-array, @eslint/eslintrc,
+#             eslint-plugin-react                             (devDependencies)
+#   1.1.16 <- minimatch@3.1.5 <- glob <- react-native, @react-native/codegen,
+#             rimraf; and <- test-exclude <- babel-plugin-istanbul
+#
+# The second path is marked non-dev only because react-native declares its own
+# build tooling (codegen, the metro/babel chain) in `dependencies`. None of it
+# is bundled into the app: codegen and istanbul instrumentation run on the build
+# machine, and the brace patterns reaching `expand()` come from our own eslint
+# config and from react-native's internal glob patterns, never from user or
+# network input. The DoS therefore has no reachable trigger — the only processes
+# at risk run locally and in CI.
+#
+# There is no upstream fix to wait on: the pin is minimatch@^3 inside eslint's
+# plugin ecosystem and inside react-native's own toolchain. Re-evaluate when
+# react-native moves off glob@<9, or when the eslint plugins drop minimatch@3.
+# Tracked in #2477; the web-side equivalent is #2363.
+
+[[PackageOverrides]]
+name = "brace-expansion"
+version = "1.1.16"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2026-12-31
+reason = "GHSA-mh99-v99m-4gvg: no patched 1.x release exists. Build-time only, via minimatch@3 under eslint and its plugins, and under react-native's own codegen/metro toolchain (glob, test-exclude). Not bundled into the app; brace patterns come from our own eslint config and react-native's internal globs, not from user input."
