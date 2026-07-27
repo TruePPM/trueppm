@@ -930,6 +930,8 @@ function DrawerContent({
   // resolved at the render boundary, ADR-0111/#862).
   const revealed = useDrawerSectionStore((s) => s.revealed);
   const revealSection = useDrawerSectionStore((s) => s.reveal);
+  // Used by the "Activity →" handoff to open the feed it navigates to (#2448).
+  const openSection = useDrawerSectionStore((s) => s.setOpen);
   const iterationLabel = useIterationLabel(projectId);
 
   // Which staged fields changed — names the bar's scope for sighted users (the
@@ -1223,7 +1225,18 @@ function DrawerContent({
                   <DrawerRecentActivity
                     projectId={projectId}
                     taskId={task.id}
-                    onViewActivity={() => onTabChange('activity')}
+                    // Switch to the Activity tab AND open the merged feed (#2448).
+                    // The button promises "view all activity", but every section on
+                    // that tab starts collapsed (ADR-0050), so it used to land the
+                    // user on four closed headers — and since the feed is now titled
+                    // "All events", not one of them even echoes the word the button
+                    // used. Opening it costs no extra request: DrawerRecentActivity
+                    // already read `useTaskHistory` for its 3-row digest, so the
+                    // section mounts against a warm cache.
+                    onViewActivity={() => {
+                      openSection('activity', true);
+                      onTabChange('activity');
+                    }}
                   />
                   <TaskSummaryStrip task={task} />
                   <TaskScheduleStrip task={task} projectId={projectId} canEdit={canEdit} />

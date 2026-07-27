@@ -221,13 +221,23 @@ export function registerOssDrawerSections(): void {
     tab: 'activity',
   });
 
-  // Activity (issue 307, unified per ADR-0096 Part 2 / issue 869) — one
+  // "All events" (issue 307, unified per ADR-0096 Part 2 / issue 869) — one
   // chronological timeline merging task history + comments, with field-group +
   // per-person filters. Replaces the former split Activity (issue 307) +
   // History (issue 874) sections.
+  //
+  // Titled "All events", not "Activity" (#2448): this section lives on the tab
+  // *named* Activity, so repeating the word gave the reader `Activity / Activity`
+  // — a header that named its container instead of its own scope, and read as a
+  // duplicated section rather than a distinct one. "All events" states what is
+  // actually different about it: it is the superset — every field diff, system
+  // recalc, schedule/risk/time/attachment event AND the comment lifecycle — where
+  // the Comments section above it holds only the discussion. It also matches the
+  // section's own leading `All · N` filter chip. The section id stays `activity`
+  // (persisted open/closed state + the Enterprise registry contract key).
   registry.register('task_detail.section', {
     id: 'activity',
-    title: 'Activity',
+    title: 'All events',
     component: ActivityTimeline,
     priority: 600,
     tab: 'activity',

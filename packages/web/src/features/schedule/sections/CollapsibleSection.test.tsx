@@ -94,11 +94,11 @@ describe('CollapsibleSection', () => {
 
     // A different, never-touched section still honors its collapsed default.
     render(
-      <CollapsibleSection id="activity" title="Activity">
+      <CollapsibleSection id="activity" title="All events">
         <p>activity body</p>
       </CollapsibleSection>,
     );
-    expect(screen.getByRole('button', { name: 'Activity' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'All events' })).toHaveAttribute(
       'aria-expanded',
       'false',
     );
