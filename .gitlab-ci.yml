@@ -1094,11 +1094,21 @@ helm:template:
         grep -A1 -F "$closed" /tmp/rendered-demo.yaml | grep -q 'return 404' \
           || { echo "DEMO ALLOWLIST REGRESSION: '$closed' no longer returns 404"; exit 1; }
       done
-    - grep -q 'location \^~ /api/v1/share/' /tmp/rendered-demo.yaml || { echo "DEMO BROKEN: share projections not proxied"; exit 1; }
-    - grep -q 'X-Robots-Tag' /tmp/rendered-demo.yaml || { echo "DEMO REGRESSION: noindex header missing"; exit 1; }
+    # Block scalars, not plain ones: an unquoted YAML scalar cannot contain ": ",
+    # so the message text would be parsed as a mapping and reject the whole file.
+    - |
+      grep -q 'location \^~ /api/v1/share/' /tmp/rendered-demo.yaml \
+        || { echo "DEMO BROKEN: share projections not proxied"; exit 1; }
+    - |
+      grep -q 'X-Robots-Tag' /tmp/rendered-demo.yaml \
+        || { echo "DEMO REGRESSION: noindex header missing"; exit 1; }
     # And the inverse: none of this may leak into a normal deploy.
-    - grep -q 'demo-seed' /tmp/rendered.yaml && { echo "LEAK: demo Job rendered with demo.enabled=false"; exit 1; } || true
-    - grep -q 'X-Robots-Tag' /tmp/rendered.yaml && { echo "LEAK: demo noindex rendered into a non-demo release"; exit 1; } || true
+    - |
+      grep -q 'demo-seed' /tmp/rendered.yaml \
+        && { echo "LEAK: demo Job rendered with demo.enabled=false"; exit 1; } || true
+    - |
+      grep -q 'X-Robots-Tag' /tmp/rendered.yaml \
+        && { echo "LEAK: demo noindex rendered into a non-demo release"; exit 1; } || true
 
 ci:build-deploy-images:
   # Build the deployable api + web runtime images from the CURRENT COMMIT's code
