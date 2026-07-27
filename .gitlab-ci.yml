@@ -3155,7 +3155,7 @@ scheduler:sbom:
 
 security:osv:
   # Unified SCA across the committed lockfiles using the OSV database:
-  #   - npm:    packages/web, packages/website
+  #   - npm:    packages/web, packages/website, packages/mobile
   #   - Cargo:  packages/wasm-scheduler
   #   - Python: packages/api (uv.lock), packages/scheduler (uv.lock)
   # Replaces the per-package npm-audit jobs (former web:security + website:security)
@@ -3167,6 +3167,15 @@ security:osv:
   # pip-audit job (#1153 step 1); the scheduler joined once it committed its own
   # uv.lock (#1153 scheduler half), retiring security:pip-audit:scheduler. OSV
   # can only scan a lockfile, so each ecosystem joins here as it commits one.
+  #
+  # packages/mobile joined late (#2477) and is the cautionary tale for this list:
+  # it had committed a lockfile since its first commit but was never added here,
+  # so nothing in CI looked at it. GHSA-mh99-v99m-4gvg was caught on web by this
+  # job and fixed (#2363) while the identical advisory sat open against mobile
+  # for days — visible only as a Dependabot alert on the GitHub mirror, which
+  # blocks nothing. A package with a lockfile and no `-L` entry is unscanned, and
+  # nothing else in the pipeline will tell you. When adding a package that
+  # commits a lockfile, add it here in the same MR.
   #
   # Severity gate (#2261): OSV-Scanner has no native severity threshold — it
   # exits non-zero on ANY non-ignored advisory (confirmed on v2.3.8: no
@@ -3226,6 +3235,7 @@ security:osv:
     - osv-scanner scan source
         -L packages/web/package-lock.json
         -L packages/website/package-lock.json
+        -L packages/mobile/package-lock.json
         -L packages/wasm-scheduler/Cargo.lock
         -L packages/api/uv.lock
         -L packages/scheduler/uv.lock
