@@ -15,6 +15,52 @@ deployment/operations surface (Persona 10). The **AI-agent actor note** at the e
 not a persona at all — it is a user *class* (an agent acting via the API) whose hard NOs
 `/voc` and `/ai-review` apply as a cross-cutting constraint.
 
+## What these personas are — and are not
+
+**These are modeled personas, not research subjects.** Every persona below was written
+from domain knowledge of the P3M market, competitor pain points, and practitioner
+literature. None was derived from an interview, a survey, a usability session, or a
+support ticket from a named individual. Janet, Marcus, Sarah, Priya and the rest are
+composite hypotheses about who this product is for.
+
+That makes them genuinely useful and genuinely limited, and the two must not be
+confused:
+
+- **Useful** — they force a feature to be argued from a specific point of view instead
+  of the builder's own, they surface cross-persona tensions early, and they are
+  available before a single user exists. For a pre-launch product this is the best
+  available proxy.
+- **Limited** — a panel of modeled personas can only return the assumptions already
+  encoded here. It cannot discover a need nobody thought of, it cannot be surprised,
+  and it will never tell you that the whole premise is wrong. Its agreement is not
+  evidence; it is consistency with our own priors.
+
+**The standing rule: real signal always supersedes modeled signal.** Where a real user
+report, support conversation, or usage measurement exists on a question, it decides —
+the panel does not get a vote against it. The panel governs only the space where no
+real signal exists yet, and that space is meant to shrink every release.
+
+### Grounding tier
+
+Each persona carries a grounding tier stating how much real evidence stands behind it.
+Tiers are raised only by naming the evidence, never by accumulated familiarity.
+
+| Tier | Meaning |
+|------|---------|
+| **T0 — modeled** | Composite written from domain knowledge. No contact with a real user of this product. |
+| **T1 — corroborated** | At least one real report (bug, feature request, demo conversation, forum thread) independently matches a documented pain point. Cite it. |
+| **T2 — grounded** | A named real user or measured behavior confirms the persona's top-3 evaluation criteria. Cite it. |
+
+**Every persona in this file is currently T0.** TruePPM has not shipped a beta. Raising
+a tier requires editing that persona's header to cite the specific evidence — an issue
+number, a report reference, a metric. A tier claim without a citation is invalid, and
+any reader may demote it back to T0.
+
+Once real beta signal starts arriving, `/voc-audit` reconciles what the panel predicted
+against what users actually reported, and the result is recorded in
+`.claude/persona-calibration.md`. That ledger — not the panel's internal confidence — is
+the measure of whether these personas are any good.
+
 ## TruePPM Collaboration Philosophy
 
 TruePPM is built for **collaborative planning and autonomous execution**. Every persona
@@ -97,29 +143,57 @@ Impact ▲
 
 ## VoC Scoring Rubric
 
-When `/voc` produces a 1–10 score for a persona, use this scale — do not invent ad-hoc criteria per run.
+The score is a **modeled adoption-likelihood estimate** — how strongly this persona's
+documented criteria are met by the feature as described. It is not a measurement of
+sentiment, satisfaction, or willingness to pay, because no one has been asked. Read
+every row below as prefixed by "the model predicts that a person like this would…".
 
-| Score | Meaning |
-|-------|---------|
-| 10    | Public reference — they would put their name on a case study |
-| 8–9   | Champion — would pitch internally and push to adopt |
-| 6–7   | Will adopt **if conditions are met** (e.g. SSO, Jira sync, mobile parity) |
-| 4–5   | Useful but not switching — a nice-to-have, not a budget line |
-| 2–3   | Nice demo, won't pay or won't use |
-| 1     | Dealbreaker triggered — actively negative reaction |
+Use this scale — do not invent ad-hoc criteria per run.
+
+| Score | Predicted response |
+|-------|--------------------|
+| 10    | Every top-3 criterion met with no hard NO in reach — the anchor case |
+| 8–9   | All top-3 criteria met; would plausibly advocate internally |
+| 6–7   | Adoption predicted **conditional** on a named unmet criterion (e.g. SSO, Jira sync, mobile parity) |
+| 4–5   | Some criteria met, none of the top-3 — predicted useful, not decisive |
+| 2–3   | No documented criterion meaningfully addressed |
+| 1     | A documented hard NO is triggered |
 
 **Severity tags** (use alongside the numeric score):
 
-- 🔴 **Blocker** — a hard NO is triggered, or a top-3 evaluation criterion is missed (e.g. Marcus without SSO, Sarah without offline). Must be resolved before architect handoff.
+- 🔴 **Blocker** — a hard NO is triggered, or a top-3 evaluation criterion is missed (e.g. Marcus without SSO, Sarah without offline). Must be resolved or explicitly accepted before architect handoff.
 - 🟡 **Concern** — soft pain not addressed; would lower the score but not kill adoption. Flag and triage.
 - 🟢 **Win** — directly resolves a top-3 evaluation criterion or hits a 10/10 anchor.
 
-**Panel-average heuristics**:
-- Average ≥ 8: ship with confidence.
-- Average 6–7: ship if no 🔴 blockers; address 🟡 concerns in the same milestone.
-- Average < 6: rethink scope before invoking architect — feature does not earn its build cost.
+**Every 🔴 must be falsifiable.** State, in one line, the real-world observation that
+would confirm or refute it — "no beta operator reports this in their first week",
+"three of five demo conversations raise it unprompted", "the metric shows nobody uses
+the fallback path". A blocker nobody could ever check is an opinion wearing a severity
+tag, and it must be demoted to 🟡 or dropped. These falsification lines are what
+`/voc-audit` scores against real reports later; without them the calibration loop has
+nothing to grade.
 
-A single 🔴 blocker outweighs a high panel average. Do not average away a hard NO.
+**What the panel average may and may not do.**
+
+The average routes attention. It does not authorize anything. There is no score at which
+the panel approves a feature, because a modeled panel cannot approve a feature — it can
+only tell you where its own assumptions are strained.
+
+- Average < 6 → **stop and re-read the assumptions** before invoking architect. A low
+  score means the feature contradicts our documented model of who this is for; either
+  the feature is wrong or the model is. Decide which before building.
+- Average 6–7 → normal. Proceed, carrying the 🟡 concerns as named risks.
+- Average ≥ 8 → **treat with suspicion, not confidence.** A modeled panel agreeing
+  strongly with a feature its own authors scoped most often means the panel is
+  restating the brief back. Ask what a real user could say that this panel structurally
+  cannot, and record it as an open question.
+
+A single 🔴 blocker outweighs the average in every direction. Do not average away a hard
+NO — and do not let a high average retire one.
+
+Never report a panel average outside a VoC context, and never carry one into an issue
+title, MR description, ADR, or any user-facing document as a justification. It is an
+internal attention-routing number with no external meaning.
 
 ### Specialist panelists and the agent-actor constraint
 

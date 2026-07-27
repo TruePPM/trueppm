@@ -176,6 +176,54 @@ def compute_program_rollup(program: Program) -> dict[str, Any]:
     }
 
 
+def top_contributing_project(program: Program) -> dict[str, Any] | None:
+    """Return the project dragging ``program``'s health down, or ``None``.
+
+    "Top contributing" = worst :func:`_schedule_health_by_project` band, tie-broken
+    by the larger count of open critical-path tasks, then by name for stability.
+    Lives here rather than in the digest builder (ADR-0663) so it reuses the *same*
+    per-project bands the Program Overview renders — a digest that named a different
+    project than the screen it deep-links to would be worse than no digest at all.
+
+    Returns ``{"id", "name", "health"}`` for the worst project, or ``None`` when the
+    program has no projects or every project's band is ``unknown`` (no data to
+    attribute the program's state to).
+    """
+    today = timezone.localdate()
+    project_ids = list(
+        Project.objects.filter(program=program, is_deleted=False).values_list("id", flat=True)
+    )
+    if not project_ids:
+        return None
+
+    bands = _schedule_health_by_project(project_ids, today)
+    ranked = [(pid, band) for pid, band in bands.items() if band in _HEALTH_ORDINAL]
+    if not ranked:
+        return None
+
+    critical_counts = {
+        r["project_id"]: r["c"]
+        for r in (
+            Task.objects.filter(project_id__in=project_ids, is_deleted=False, is_critical=True)
+            .exclude(status__in=_ACTIVE_EXCLUDE)
+            .values("project_id")
+            .annotate(c=Count("id"))
+        )
+    }
+    names = dict(Project.objects.filter(id__in=project_ids).values_list("id", "name"))
+
+    # Sort by (health ordinal asc = worst first, critical count desc, name asc).
+    ranked.sort(
+        key=lambda pair: (
+            _HEALTH_ORDINAL[pair[1]],
+            -critical_counts.get(pair[0], 0),
+            names.get(pair[0], ""),
+        )
+    )
+    worst_id, worst_band = ranked[0]
+    return {"id": worst_id, "name": names.get(worst_id, ""), "health": worst_band}
+
+
 # ---------------------------------------------------------------------------
 # Per-project metric maps (grouped queries — no per-project loop)
 # ---------------------------------------------------------------------------

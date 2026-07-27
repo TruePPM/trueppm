@@ -641,8 +641,11 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     // ADR-0508 D4/#2103. Server-ranked, membership-scoped results split into the
     // `epic` and `story` groups by agile type; each row carries an agile-vocabulary
     // "program ▸ project ▸ epic" breadcrumb (never a WBS code) and deep-links to the
-    // schedule drawer (a task) or the program backlog (an intake item).
-    const omniItems: CommandItem[] = omniEnabled ? buildOmniSearchItems(omniResults ?? [], go) : [];
+    // task drawer on the lens's own landing view (#2441) or the program backlog (an
+    // intake item).
+    const omniItems: CommandItem[] = omniEnabled
+      ? buildOmniSearchItems(omniResults ?? [], go, user?.role_context ?? 'unified')
+      : [];
     const epicItems = omniItems.filter((i) => i.group === 'epic');
     const storyItems = omniItems.filter((i) => i.group === 'story');
 

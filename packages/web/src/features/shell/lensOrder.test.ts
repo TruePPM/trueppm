@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { applyRoleContextLensOrder, lensDefaultView } from './lensOrder';
+import {
+  applyRoleContextLensOrder,
+  lensDefaultView,
+  lensTaskDeepLinkView,
+  taskDeepLinkPath,
+} from './lensOrder';
 import type { VisibleViewGroup } from './methodologyTabs';
 
 /** A HYBRID-shaped bar (every view visible) to exercise the ordering — ADR-0195/0203 layout:
@@ -88,5 +93,27 @@ describe('applyRoleContextLensOrder', () => {
     applyRoleContextLensOrder(input, 'scrum_master');
     expect(input[0].visibleViews).toBe(planRef);
     expect(input[0].visibleViews).toEqual(['schedule', 'grid', 'calendar']);
+  });
+});
+
+describe('lensTaskDeepLinkView (#2441)', () => {
+  it('sends a task deep-link to the lens landing view when it has a task drawer', () => {
+    expect(lensTaskDeepLinkView('pm')).toBe('schedule');
+    expect(lensTaskDeepLinkView('scrum_master')).toBe('board');
+  });
+
+  it('falls back to the schedule when the landing view has no task drawer', () => {
+    // `unified` lands on Today (ADR-0180), which never reads `?task=` — sending the
+    // drawer link there would silently drop it.
+    expect(lensDefaultView('unified')).toBe('today');
+    expect(lensTaskDeepLinkView('unified')).toBe('schedule');
+  });
+});
+
+describe('taskDeepLinkPath (#2441)', () => {
+  it('composes the lens-appropriate drawer deep-link', () => {
+    expect(taskDeepLinkPath('p1', 't1', 'scrum_master')).toBe('/projects/p1/board?task=t1');
+    expect(taskDeepLinkPath('p1', 't1', 'pm')).toBe('/projects/p1/schedule?task=t1');
+    expect(taskDeepLinkPath('p1', 't1', 'unified')).toBe('/projects/p1/schedule?task=t1');
   });
 });

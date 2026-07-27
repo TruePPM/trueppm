@@ -142,3 +142,80 @@ test.describe('Methodology indicator at the rail-open default (≥1024px) — no
     await expect(badge).toHaveText('WF');
   });
 });
+
+/**
+ * The sighted half of the signal (#2389).
+ *
+ * The badge shipped with `role="img"` + `aria-label="Waterfall workspace"` and
+ * nothing else, so a screen-reader user was told what `WF` meant and a sighted
+ * mouse user was not. These cover the three input paths the shared `Tooltip`
+ * primitive (rule 287) has to serve — and the mouse path alone is not enough,
+ * because a `title` or a `group-hover` class would pass it while still failing
+ * keyboard and touch. That is exactly why all three are asserted here.
+ *
+ * These locate the panel by attribute (`[role="tooltip"]`) rather than by ARIA
+ * role. This badge's tooltip repeats its own `aria-label` verbatim, so it ships
+ * `aria-hidden` to keep assistive tech from announcing the same sentence twice —
+ * which also removes it from the accessibility tree that `getByRole` queries. The
+ * element is the assertion target here precisely because the sighted channel, not
+ * the ARIA one, is what #2389 was filed about.
+ */
+const tooltipPanel = (page: Page) => page.locator('[role="tooltip"]');
+test.describe('the WF/AG/HY code explains itself to sighted users (#2389)', () => {
+  test('hovering the badge reveals the full methodology word', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 900 });
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    const badge = page.getByRole('img', { name: 'Waterfall workspace' });
+    await expect(badge).toBeVisible({ timeout: 10_000 });
+    await expect(tooltipPanel(page)).toHaveCount(0);
+
+    await badge.hover();
+    await expect(tooltipPanel(page)).toHaveText('Waterfall workspace');
+  });
+
+  test('keyboard focus reveals it too — the path a native `title` never served', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 900, height: 900 });
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    const badge = page.getByRole('img', { name: 'Waterfall workspace' });
+    await expect(badge).toBeVisible({ timeout: 10_000 });
+
+    // The chip is a <span>, so it only has a tab stop because Tooltip gave it
+    // one. Focusing it directly (rather than tabbing the whole shell) keeps the
+    // assertion about the affordance instead of about shell tab order.
+    await badge.focus();
+    await expect(tooltipPanel(page)).toHaveText('Waterfall workspace');
+
+    await page.keyboard.press('Escape');
+    await expect(tooltipPanel(page)).toHaveCount(0);
+  });
+
+  // `hasTouch` must be on the browser CONTEXT — `page.touchscreen` throws
+  // without it, and a spec that quietly fell back to `.click()` would report a
+  // green touch path while never testing one (the whole point of this case).
+  test.describe('on a touch context', () => {
+    test.use({ hasTouch: true });
+
+    test('tapping reveals it, where hover never fires', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 900 });
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    const badge = page.getByRole('img', { name: 'Waterfall workspace' });
+    await expect(badge).toBeVisible({ timeout: 10_000 });
+
+    // A real touch sequence, not `.click()` — a synthetic click reports
+    // `pointerType: 'mouse'` and would exercise the hover path instead.
+    const box = await badge.boundingBox();
+    if (!box) throw new Error('methodology badge has no bounding box');
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+
+    await expect(tooltipPanel(page)).toHaveText('Waterfall workspace');
+    });
+  });
+});

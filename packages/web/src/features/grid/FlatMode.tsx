@@ -4,6 +4,8 @@ import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import { useProjectId } from '@/hooks/useProjectId';
+import { Tooltip } from '@/components/Tooltip';
+import { ABBREVIATIONS } from '@/lib/abbreviations';
 import type { Task } from '@/types';
 import { sortTasks, type SortCol, type SortDir } from './sortHelpers';
 import { getPhase } from './getPhase';
@@ -156,14 +158,12 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
 }
 
 function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
-  const colHeader = (col: SortCol, label: string, className: string) => (
-    <span
-      role="columnheader"
-      aria-sort={sortCol === col ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-      className={className}
-    >
-      {/* Sort column-header button: focus: (not focus-visible:) so the ring shows on
-          pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7). */}
+  // `explain` is the plain-English reading for an abbreviated header (rule 287).
+  // Only the abbreviated ones take it — a tooltip on "Name" would be noise.
+  const colHeader = (col: SortCol, label: string, className: string, explain?: string) => {
+    const button = (
+      /* Sort column-header button: focus: (not focus-visible:) so the ring shows on
+         pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7). */
       <button
         type="button"
         onClick={() => onSort(col)}
@@ -181,8 +181,17 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
         {label}
         <SortIndicator active={sortCol === col} dir={sortDir} />
       </button>
-    </span>
-  );
+    );
+    return (
+      <span
+        role="columnheader"
+        aria-sort={sortCol === col ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+        className={className}
+      >
+        {explain ? <Tooltip content={explain}>{button}</Tooltip> : button}
+      </span>
+    );
+  };
 
   return (
     <div
@@ -192,14 +201,14 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
         text-neutral-text-secondary"
     >
       <span className="w-4 flex-shrink-0" />
-      {colHeader('wbs', 'WBS', 'w-14 flex-shrink-0 text-right pr-2')}
+      {colHeader('wbs', 'WBS', 'w-14 flex-shrink-0 text-right pr-2', ABBREVIATIONS.WBS)}
       {colHeader('name', 'Name', 'flex-1 min-w-0')}
       <span role="columnheader" className="w-10 flex-shrink-0 text-center">
         Owner
       </span>
       {colHeader('start', 'Start', 'w-20 flex-shrink-0 text-right pr-2')}
       {colHeader('finish', 'Finish', 'w-20 flex-shrink-0 text-right pr-2')}
-      {colHeader('duration', 'Dur', 'w-12 flex-shrink-0 text-right pr-2')}
+      {colHeader('duration', 'Dur', 'w-12 flex-shrink-0 text-right pr-2', ABBREVIATIONS.DURATION)}
       {colHeader('progress', 'Progress', 'w-28 flex-shrink-0')}
       <span role="columnheader" className="w-28 flex-shrink-0">
         Status

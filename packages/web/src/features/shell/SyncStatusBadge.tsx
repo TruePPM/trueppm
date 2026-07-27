@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Tooltip } from '@/components/Tooltip';
 import { useSyncStatus, useRetrySync } from '@/hooks/useSyncStatus';
 import { syncStatusPresentation, type SyncStatusKind } from './syncStatus';
 import { SyncStatusModal } from './SyncStatusModal';
@@ -151,28 +152,37 @@ export function SyncStatusBadge() {
         {aria}
       </span>
 
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label={aria}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        title={label}
-        className={[
-          'inline-flex h-11 items-center gap-1.5 rounded-control px-2 md:h-8',
-          'text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
-          style.wrapper,
-        ].join(' ')}
-      >
-        <StateIcon icon={style.icon} colorClass={style.iconColor} />
-        {/* Label hidden below md (phones): the fixed-width right cluster can't
-            compress (TopBar rule 174), so on a phone the word would push the tail
-            of the cluster (bell, user menu) off the right edge (#1788). The icon +
-            color keep the state legible, the aria-label + sr-only status carry the
-            full word for assistive tech, and the button stays a ≥44px touch target
-            via h-11. The word returns at md+ where there is room. */}
-        <span className="hidden md:inline">{label}</span>
-      </button>
+      {/* The state sentence (`aria`) is richer than the one-word chip label — it
+          names what is and isn't saved. It reached screen readers via aria-label
+          and the sr-only status from day one, and sighted users only via a native
+          `title`, which is invisible to keyboard focus and unreachable on touch
+          (#2389, rule 287). That gap bit hardest exactly where it mattered most:
+          below md the word is hidden entirely, so a phone user staring at a bare
+          amber cloud icon had no way at all to find out what it meant.
+          `describe={false}` — the same sentence is already the accessible name. */}
+      <Tooltip content={aria} describe={false}>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label={aria}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className={[
+            'inline-flex h-11 items-center gap-1.5 rounded-control px-2 md:h-8',
+            'text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+            style.wrapper,
+          ].join(' ')}
+        >
+          <StateIcon icon={style.icon} colorClass={style.iconColor} />
+          {/* Label hidden below md (phones): the fixed-width right cluster can't
+              compress (TopBar rule 174), so on a phone the word would push the tail
+              of the cluster (bell, user menu) off the right edge (#1788). The icon +
+              color keep the state legible, the aria-label + sr-only status carry the
+              full word for assistive tech, and the button stays a ≥44px touch target
+              via h-11. The word returns at md+ where there is room. */}
+          <span className="hidden md:inline">{label}</span>
+        </button>
+      </Tooltip>
 
       {open && (
         <SyncStatusModal

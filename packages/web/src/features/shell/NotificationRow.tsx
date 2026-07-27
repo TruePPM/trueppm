@@ -12,6 +12,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from '@/components/Toast/toast';
+import { taskDeepLinkPath } from '@/features/shell/lensOrder';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
   type NotificationRow as NotificationRowType,
   type NotificationSnoozePreset,
@@ -41,6 +43,8 @@ const actionBtn =
 
 export function NotificationRow({ notification, onNavigate }: Props) {
   const navigate = useNavigate();
+  const { user } = useCurrentUser();
+  const lens = user?.role_context ?? 'unified';
   const update = useUpdateNotification();
   const snooze = useSnoozeNotification();
   const mute = useMuteNotificationType();
@@ -81,7 +85,10 @@ export function NotificationRow({ notification, onNavigate }: Props) {
       // gap ADR-0104 Amendment B closes). Settings sections are anchors (web-rule 195).
       void navigate(`/projects/${notification.project}/settings#signal-privacy`);
     } else if (notification.task_id) {
-      void navigate(`/projects/${notification.project}/schedule?task=${notification.task_id}`);
+      // Open the drawer on the lens's own landing view, not a hardcoded Schedule: a
+      // Scrum Master clicking a story on their board should stay on the board rather
+      // than being teleported onto the CPM Gantt (#2441).
+      void navigate(taskDeepLinkPath(notification.project, notification.task_id, lens));
     } else {
       void navigate(`/projects/${notification.project}/board`);
     }

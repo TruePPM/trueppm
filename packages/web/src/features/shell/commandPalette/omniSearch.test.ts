@@ -79,26 +79,38 @@ describe('omniSearchBreadcrumb', () => {
 });
 
 describe('omniSearchRoute', () => {
-  it('deep-links a task to the schedule with the drawer opened', () => {
-    expect(omniSearchRoute(taskResult())).toBe(
-      '/projects/proj-1/schedule?task=task-1',
+  it('deep-links a task to the PM lens landing view with the drawer opened', () => {
+    expect(omniSearchRoute(taskResult(), 'pm')).toBe('/projects/proj-1/schedule?task=task-1');
+  });
+
+  // The lens work personalized project *entry* but every deep-link hardcoded
+  // Schedule, so an agile user searching in agile vocabulary landed on the CPM
+  // Gantt (#2441).
+  it('deep-links a task to the Board for the Scrum Master lens', () => {
+    expect(omniSearchRoute(taskResult(), 'scrum_master')).toBe(
+      '/projects/proj-1/board?task=task-1',
     );
   });
 
+  it('falls back to the schedule for a lens whose landing view has no task drawer', () => {
+    // `unified` lands on Today, which does not read `?task=`.
+    expect(omniSearchRoute(taskResult(), 'unified')).toBe('/projects/proj-1/schedule?task=task-1');
+  });
+
   it('routes a backlog item to its program backlog', () => {
-    expect(omniSearchRoute(backlogResult())).toBe('/programs/prog-2/backlog');
+    expect(omniSearchRoute(backlogResult(), 'pm')).toBe('/programs/prog-2/backlog');
   });
 
   it('returns null when a task has no project or a backlog item no program', () => {
-    expect(omniSearchRoute(taskResult({ project_id: null }))).toBeNull();
-    expect(omniSearchRoute(backlogResult({ program_id: null }))).toBeNull();
+    expect(omniSearchRoute(taskResult({ project_id: null }), 'pm')).toBeNull();
+    expect(omniSearchRoute(backlogResult({ program_id: null }), 'pm')).toBeNull();
   });
 });
 
 describe('buildOmniSearchItems', () => {
   it('maps results to grouped command items with agile chips and breadcrumbs', () => {
     const go = vi.fn((path: string) => () => path);
-    const items = buildOmniSearchItems([taskResult(), backlogResult()], go);
+    const items = buildOmniSearchItems([taskResult(), backlogResult()], go, 'pm');
 
     expect(items).toHaveLength(2);
     const [story, epic] = items;
@@ -120,7 +132,7 @@ describe('buildOmniSearchItems', () => {
 
   it('drops results that cannot be routed rather than rendering dead rows', () => {
     const go = vi.fn((path: string) => () => path);
-    const items = buildOmniSearchItems([taskResult({ project_id: null })], go);
+    const items = buildOmniSearchItems([taskResult({ project_id: null })], go, 'pm');
     expect(items).toEqual([]);
   });
 
@@ -132,6 +144,7 @@ describe('buildOmniSearchItems', () => {
         taskResult({ id: 'b', title: 'Beta' }),
       ],
       go,
+      'pm',
     );
     expect(items.map((i) => i.label)).toEqual(['Alpha', 'Beta']);
   });

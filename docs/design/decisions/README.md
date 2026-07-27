@@ -9,9 +9,11 @@ expected to hold. The invariants live in
 
 Rule numbers are unchanged from the original file, so an existing `rule 176`
 reference in code, an ADR, or an MR description still resolves. The one
-exception is rule **286**, which the source file numbered `122` — a collision
+exception is rule **288**, which the source file numbered `122` — a collision
 with the disabled-placeholder recipe that every `rule 122` citation in the
-codebase actually means, so that rule kept the number.
+codebase actually means, so that rule kept the number. It takes 288 rather than
+the next number after 285 because 286 (#2447) and 287 (#2389) landed on `main`
+while this split was open.
 
 ## Index by original section
 
@@ -177,7 +179,7 @@ codebase actually means, so that rule kept the number.
 - **123** — [Entity shells suppress their working chrome on /settings routes](123-entity-shells-suppress-their-working-chrome-on-settings-rout.md)
 - **124** — [The settings context pill is a searchable entity switcher, and its chevron means "switchable"](124-the-settings-context-pill-is-a-searchable-entity-switcher-an.md)
 - **125** — [The SCOPE switcher never navigates to a blank page; unavailable scopes are disabled, not faked](125-the-scope-switcher-never-navigates-to-a-blank-page-unavailab.md)
-- **286** — [SettingsShell scroll containers reserve a stable scrollbar gutter](286-settingsshell-scroll-containers-reserve-a-stable-scrollbar-g.md)
+- **288** — [SettingsShell scroll containers reserve a stable scrollbar gutter](288-settingsshell-scroll-containers-reserve-a-stable-scrollbar-g.md)
 
 ### Program Navigation (Issue #790, ADR-0095)
 

@@ -92,4 +92,51 @@ test.describe('Role-context lens (ADR-0162)', () => {
       await expect(rendered(page)).toBeVisible({ timeout: 10_000 });
     });
   }
+
+  // Project *entry* was lens-aware from the start, but every deep-link hardcoded
+  // Schedule — so a Scrum Master who found a story in the ⌘K palette (which speaks
+  // deliberate agile vocabulary) was dropped onto the CPM Gantt (#2441).
+  test('the scrum_master lens deep-links a palette story result to the Board drawer', async ({
+    page,
+  }) => {
+    await setup(page, 'scrum_master');
+    await page.route('**/api/v1/me/search/**', (route) =>
+      route.fulfill(
+        json({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [
+            {
+              id: 'story-login',
+              kind: 'task',
+              type: 'story',
+              title: 'Login form validation',
+              program_id: 'prog-1',
+              program_name: 'Platform',
+              project_id: PROJECT_ID,
+              project_name: 'Apollo Platform',
+              parent_epic_id: 'epic-login',
+              parent_epic_name: 'Login flow',
+            },
+          ],
+        }),
+      ),
+    );
+
+    await page.goto('/me/work');
+    await expect(page.getByRole('button', { name: /command palette/i })).toBeVisible();
+    await page.keyboard.press('Control+k');
+    const dialog = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(dialog).toBeVisible();
+    await page.getByRole('combobox').fill('login');
+
+    const storyRow = dialog.getByRole('option', { name: /Login form validation.*Story/ });
+    await expect(storyRow).toBeVisible();
+    await storyRow.click();
+
+    // Board, not schedule — and the drawer parameter survives the jump.
+    await page.waitForURL(`**/projects/${PROJECT_ID}/board?task=story-login`);
+    await expect(page.getByRole('heading', { name: /To Do/ })).toBeVisible({ timeout: 10_000 });
+  });
 });

@@ -7,11 +7,17 @@ const mutateMock = vi.hoisted(() => vi.fn());
 const snoozeMock = vi.hoisted(() => vi.fn());
 const muteMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
+/** Mutable so a test can switch lens without re-mocking (#2441). */
+const lensMock = vi.hoisted(() => ({ current: 'pm' as 'pm' | 'scrum_master' | 'unified' }));
 
 vi.mock('@/hooks/useNotifications', () => ({
   useUpdateNotification: () => ({ mutate: mutateMock, isPending: false }),
   useSnoozeNotification: () => ({ mutate: snoozeMock, isPending: false }),
   useMuteNotificationType: () => ({ mutate: muteMock, isPending: false }),
+}));
+
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { role_context: lensMock.current } }),
 }));
 
 vi.mock('react-router', async () => {
@@ -50,6 +56,7 @@ function row(overrides = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  lensMock.current = 'pm';
 });
 
 describe('NotificationRow', () => {
@@ -78,6 +85,23 @@ describe('NotificationRow', () => {
     expect(screen.getByText(/moved from 2026-06-10 to 2026-06-17/)).toBeTruthy();
     expect(screen.queryByText(/mentioned/)).toBeNull();
     fireEvent.click(screen.getByText('Login API rescheduled in Sprint 4'));
+    expect(navigateMock).toHaveBeenCalledWith('/projects/p1/schedule?task=t9');
+  });
+
+  // Entry was already lens-personalized while every deep-link hardcoded Schedule, so
+  // clicking a notification about your own board story teleported you off the board
+  // and onto the CPM Gantt (#2441).
+  it('deep-links a task to the lens landing view, not a hardcoded Schedule (#2441)', () => {
+    lensMock.current = 'scrum_master';
+    renderWithRouter(<NotificationRow notification={row({ task_id: 't9' })} />);
+    fireEvent.click(screen.getByText('Bob mentioned you'));
+    expect(navigateMock).toHaveBeenCalledWith('/projects/p1/board?task=t9');
+  });
+
+  it('falls back to the schedule for a lens whose landing view has no task drawer', () => {
+    lensMock.current = 'unified';
+    renderWithRouter(<NotificationRow notification={row({ task_id: 't9' })} />);
+    fireEvent.click(screen.getByText('Bob mentioned you'));
     expect(navigateMock).toHaveBeenCalledWith('/projects/p1/schedule?task=t9');
   });
 

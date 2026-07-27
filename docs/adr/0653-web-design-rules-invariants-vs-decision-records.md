@@ -40,8 +40,8 @@ Split the corpus by **what kind of claim a rule makes**, not by subject area.
 ### 1. Invariants stay in `packages/web/CLAUDE.md`
 
 An **invariant** is a rule that is (a) generalisable beyond the surface that
-produced it, and (b) still correct for a surface that does not exist yet. **60 of
-the 288 qualify**: token discipline (8/8a/8b/8c), the focus-ring form matrix
+produced it, and (b) still correct for a surface that does not exist yet. **62 of
+the 290 qualify**: token discipline (8/8a/8b/8c), the focus-ring form matrix
 (4/214), the surface-state quartet (248 / 177 / 246 / 224), canvas channel
 orthogonality (235), the `useAnchoredPopover` contract (260), the dialog
 commit/discard contract (217), the redundancy rule (284).
@@ -105,7 +105,8 @@ the `SettingsShell` scrollbar-gutter rule and the disabled-placeholder recipe. S
 "rule 122" was ambiguous in every citation — a defect a 1151-line file hides and
 the split makes obvious, which is itself evidence for the change. Every `rule 122`
 reference in the codebase means the disabled-placeholder recipe, so that rule keeps
-the number and the scrollbar-gutter rule became **286**.
+the number and the scrollbar-gutter rule became **288** — 286 (#2447) and 287
+(#2389) were claimed by rules that landed on `main` while this split was open.
 
 ## Alternatives considered
 

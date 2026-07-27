@@ -18,6 +18,9 @@
  * discipline as `wip.ts` / `boardGrid.ts`).
  */
 
+import type { ComponentType } from 'react';
+import { BanIcon, BoltIcon, FlagIcon, TrendDownIcon, type IconProps } from '@/components/Icons';
+
 /** Severity tone — maps to the design-system `-bg` token pairing (rule 8b). */
 export type CardSignalTone = 'critical' | 'at-risk';
 
@@ -58,8 +61,19 @@ export interface CardSignalInput {
 /** The resolved worst-offender signal, or `null` when the card is on track. */
 export interface CardSignal {
   tier: CardSignalTier;
-  /** Decorative glyph (always paired with `label` — never color-only, rule 12). */
-  glyph: string;
+  /**
+   * Decorative icon component (always paired with `label` — never color-only,
+   * rule 12).
+   *
+   * A **component**, not an emoji string (#1749): the glyph is a functional
+   * status affordance, and an emoji renders at the mercy of the platform font —
+   * different shape, different color, sometimes a tofu box on Linux. Rendering it
+   * as a house SVG makes the mark identical everywhere and lets it inherit
+   * `currentColor` from the signal tone. Render sites destructure it as a
+   * capitalized binding (`const { Icon } = signal`) so JSX treats it as a
+   * component rather than an intrinsic element.
+   */
+  Icon: ComponentType<IconProps>;
   /** Short visible badge label, e.g. "Blocked · 2 deps", "3d late", "Stale 6d". */
   label: string;
   tone: CardSignalTone;
@@ -87,7 +101,7 @@ export function classifyCardSignal(input: CardSignalInput): CardSignal | null {
         : '';
     return {
       tier: 'blocked',
-      glyph: '⛔',
+      Icon: BanIcon,
       label: `Blocked${deps}`,
       tone: 'critical',
       srText: `Blocked${srDeps}`,
@@ -102,7 +116,7 @@ export function classifyCardSignal(input: CardSignalInput): CardSignal | null {
     const days = input.daysAgo ?? 0;
     return {
       tier: 'stale',
-      glyph: '⚡',
+      Icon: BoltIcon,
       label: `${input.isPastTwiceSla ? 'Very stale' : 'Stale'} ${days}d`,
       tone: input.isPastTwiceSla ? 'critical' : 'at-risk',
       srText: `Stale, ${days} days in column${input.isPastTwiceSla ? ', over twice the limit' : ''}`,
@@ -116,7 +130,7 @@ export function classifyCardSignal(input: CardSignalInput): CardSignal | null {
     const srText = negativeFloat
       ? `${Math.abs(input.floatDays as number)} days behind, negative float`
       : 'On the critical path';
-    return { tier: 'critical', glyph: '⚑', label, tone: 'critical', srText };
+    return { tier: 'critical', Icon: FlagIcon, label, tone: 'critical', srText };
   }
 
   // 4. Behind on earned value — slipping but not yet schedule-critical.
@@ -125,7 +139,7 @@ export function classifyCardSignal(input: CardSignalInput): CardSignal | null {
     const hard = input.spiBand === 'behind' || cpiBehind;
     return {
       tier: 'behind',
-      glyph: '📉',
+      Icon: TrendDownIcon,
       label: hard ? 'Behind' : 'At risk',
       tone: hard ? 'critical' : 'at-risk',
       srText: hard ? 'Behind schedule on earned value' : 'Schedule at risk on earned value',

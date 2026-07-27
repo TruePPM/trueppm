@@ -388,7 +388,9 @@ describe('BoardCard', () => {
     expect(screen.getByText('Backend Implementation')).toBeInTheDocument();
     // On the compact bar the badge is glyph-only (#1925): the glyph renders, the
     // word does not compete with the title, and the accessible name is preserved.
-    expect(screen.getByText('⚑')).toBeInTheDocument();
+    // Since #1749 the glyph is a house SVG, not an emoji, so assert on the icon
+    // rather than on a character the platform font may not even have.
+    expect(screen.getByTestId('card-signal-icon')).toBeInTheDocument();
     expect(screen.getByLabelText('On the critical path')).toBeInTheDocument();
     expect(screen.queryByText('Critical path')).not.toBeInTheDocument();
   });
