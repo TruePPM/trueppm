@@ -85,8 +85,12 @@ const FIXTURE_TASKS = [
     is_blocked: true,
     linked_risks_count: 1,
     linked_risks_max_severity: 18,
-    // v2 identity meta (issue 1230): visible short id, story-points pill, stream tag.
-    short_id: 'b3build01',
+    // v2 identity meta (issue 1230): visible task reference, story-points pill,
+    // stream tag. `short_id` is the raw stored hex; the card renders the
+    // server-formatted refs below, never the raw value (#2430).
+    short_id: '0000000A',
+    short_id_display: 'T-10',
+    qualified_id: 'ENG-2026-10',
     story_points: 5,
     parent_epic: 'epic-alpha',
   },
@@ -384,8 +388,20 @@ test.describe('Board view', () => {
     await expect(page.getByRole('button', { name: /^Build, 60% complete/ })).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByText('b3build01')).toBeVisible();
+    // The server-formatted, project-code-prefixed reference — never the raw
+    // stored hex `short_id` (#2430).
+    await expect(page.getByText('ENG-2026-10')).toBeVisible();
+    await expect(page.getByText('0000000A')).toHaveCount(0);
     await expect(page.getByLabel('5 story points')).toBeVisible();
+  });
+
+  // ── Card noise (#2430) ────────────────────────────────────────────────────
+
+  test('the dwell line reads in outcome language, not "Entered at N%"', async ({ page }) => {
+    // "Entered at 100% · 42d ago" named neither the event nor what the percentage
+    // measured. The line now leads with how long the card has sat where it is.
+    await expect(page.getByText(/in this column/).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/Entered at/)).toHaveCount(0);
   });
 
   test('? opens the keyboard cheatsheet and Esc closes it (issue #195)', async ({ page }) => {
@@ -710,5 +726,59 @@ test.describe('Board view — fetch error', () => {
     await expect(alert.getByRole('button', { name: 'Retry' })).toBeVisible();
     // Not silently rendered as an empty/ready board.
     await expect(page.getByText('Alpha Phase')).toHaveCount(0);
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// Readiness chip is comparative (#2430)
+// ---------------------------------------------------------------------------
+
+/**
+ * Re-serve the board's tasks with readiness values applied to the leaf cards.
+ *
+ * Registered after `setup` so it wins (last-registered wins), and it *fulfills
+ * directly* from `FIXTURE_TASKS` rather than `route.fetch()`-ing the mocked URL —
+ * `route.fetch()` goes to the network, not to the earlier handler, so it would
+ * never see the fixture payload.
+ */
+async function serveTasksWithReadiness(
+  page: import('@playwright/test').Page,
+  readinessByIndex: (i: number) => string,
+): Promise<void> {
+  let leafIndex = 0;
+  const results = FIXTURE_TASKS.map((t) =>
+    t.is_summary ? t : { ...t, readiness: readinessByIndex(leafIndex++) },
+  );
+  await page.route('**/api/v1/tasks/**', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: results.length, next: null, previous: null, results }),
+    });
+  });
+}
+
+test.describe('Board card readiness chip (#2430)', () => {
+  test('is suppressed when it is true of every card in view', async ({ page }) => {
+    // A chip on 100% of cards conveys nothing — it is noise until it is not
+    // universal, and it costs a line of the card's scarcest resource.
+    await setup(page);
+    await serveTasksWithReadiness(page, () => 'baselined');
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('Build')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByText('baselined', { exact: true })).toHaveCount(0);
+  });
+
+  test('is kept as soon as it distinguishes one card from another', async ({ page }) => {
+    // Same board, one card differing: readiness now carries signal, so it renders.
+    await setup(page);
+    await serveTasksWithReadiness(page, (i) => (i === 0 ? 'ready' : 'baselined'));
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('Build')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByText('baselined', { exact: true }).first()).toBeVisible();
   });
 });

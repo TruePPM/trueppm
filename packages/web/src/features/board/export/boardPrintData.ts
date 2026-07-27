@@ -75,7 +75,10 @@ function toPrintCard(task: Task): BoardPrintCard {
   const assignee = task.assignees[0]?.name ?? null;
   return {
     id: task.id,
-    shortId: task.shortId ?? null,
+    // The server-formatted reference, never the raw hex `shortId` (#2430) — the
+    // project code Settings → General collects promises it prefixes "task IDs
+    // and exports", and a printed board is an export.
+    shortId: task.qualifiedId ?? task.shortIdDisplay ?? null,
     name: task.name,
     status: task.status,
     assignee,

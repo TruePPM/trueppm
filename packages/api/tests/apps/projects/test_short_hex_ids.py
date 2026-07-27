@@ -236,3 +236,141 @@ def test_sync_risk_serializer_includes_short_id(project: Project, user: object) 
     r = Risk.objects.create(project=project, title="R1", probability=2, impact=3, created_by=user)
     data = SyncRiskSerializer(r).data
     assert data["short_id"] == "1"
+
+
+# ---------------------------------------------------------------------------
+# API — server-owned task display references (#2430)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_task_display_refs_decode_the_hex_sequence(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """``short_id_display`` reads as a task number, not a padded hex string.
+
+    The stored ``short_id`` is ``{object_sequence:08X}``, so the tenth task is
+    ``0000000A`` — which leaked onto board cards as an internal identifier (#2430).
+    The display form decodes the sequence back to the integer it always was.
+    """
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        for i in range(10):
+            Task.objects.create(project=project, name=f"T{i}", duration=1)
+    tenth = Task.objects.get(project=project, short_id="0000000A")
+
+    r = client.get(f"/api/v1/tasks/?project={project.pk}")
+    assert r.status_code == 200
+    results = r.data.get("results", r.data)
+    row = next(item for item in results if item["id"] == str(tenth.pk))
+    # Raw identity is preserved (no migration), the display form is derived.
+    assert row["short_id"] == "0000000A"
+    assert row["short_id_display"] == "T-10"
+
+
+@pytest.mark.django_db
+def test_qualified_id_uses_the_project_code_settings_promises(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """Settings → General says the code prefixes task IDs — this is what keeps it."""
+    project.code = "ENG-2026"
+    project.save(update_fields=["code"])
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        t = Task.objects.create(project=project, name="T1", duration=1)
+
+    r = client.get(f"/api/v1/tasks/?project={project.pk}")
+    row = next(item for item in r.data.get("results", r.data) if item["id"] == str(t.pk))
+    assert row["qualified_id"] == "ENG-2026-1"
+    assert row["short_id_display"] == "T-1"
+
+
+@pytest.mark.django_db
+def test_qualified_id_falls_back_to_compact_form_without_a_code(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """The project code is optional (#520) — the reference is never blank for lack of it."""
+    assert project.code == ""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        t = Task.objects.create(project=project, name="T1", duration=1)
+
+    r = client.get(f"/api/v1/tasks/?project={project.pk}")
+    row = next(item for item in r.data.get("results", r.data) if item["id"] == str(t.pk))
+    assert row["qualified_id"] == "T-1"
+
+
+@pytest.mark.django_db
+def test_task_display_refs_are_read_only(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    t = Task.objects.create(project=project, name="T1", duration=1)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = client.patch(
+            f"/api/v1/tasks/{t.pk}/",
+            {"short_id_display": "T-999", "qualified_id": "NOPE-999"},
+            format="json",
+        )
+    assert r.status_code == 200
+    assert r.data["short_id_display"] == "T-1"
+    assert r.data["qualified_id"] == "T-1"
+
+
+@pytest.mark.django_db
+def test_qualified_id_costs_one_project_query_for_a_whole_list(project: Project) -> None:
+    """``qualified_id`` must not be one query per row on a list without ``select_related``.
+
+    Not every TaskSerializer caller selects ``project`` — the grooming board builds a
+    fresh serializer per row over a hand-assembled queryset — so reading ``obj.project``
+    for the code was an N+1 that only surfaced as a failing perf test. The code is
+    memoized on the shared context, so N rows of one project cost one lookup, not N.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+
+    project.code = "ENG"
+    project.save(update_fields=["code"])
+    for i in range(6):
+        Task.objects.create(project=project, name=f"T{i}", duration=1)
+
+    # Filtering by project does not populate the FK cache, so this mirrors a caller
+    # that never selected the relation. A fresh serializer per row over one shared
+    # context is the grooming board's exact shape.
+    tasks = list(Task.objects.filter(project=project).order_by("short_id"))
+    ctx: dict[str, object] = {}
+    with CaptureQueriesContext(connection) as captured:
+        refs = [TaskSerializer(t, context=ctx).data["qualified_id"] for t in tasks]
+
+    assert refs == [f"ENG-{i}" for i in range(1, 7)]
+    # Scoped to the code lookup this field owns — the broader per-row project load
+    # this bare queryset also provokes predates #2430 and does not fire on the real
+    # endpoints (their perf tests pin that separately).
+    code_lookups = [
+        q for q in captured.captured_queries if 'projects_project"."code" AS' in q["sql"]
+    ]
+    assert len(code_lookups) == 1, (
+        f"qualified_id N+1: {len(code_lookups)} code lookups for 6 tasks — "
+        "the memo must be shared across rows, not per serializer instance"
+    )
+
+
+@pytest.mark.django_db
+def test_task_display_ref_survives_a_non_hex_short_id(project: Project) -> None:
+    """A hand-seeded / imported row must not blank its reference."""
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+
+    t = Task.objects.create(project=project, name="T1", duration=1)
+    Task.objects.filter(pk=t.pk).update(short_id="ZZZ")
+    t.refresh_from_db()
+    assert TaskSerializer(t).data["short_id_display"] == "T-ZZZ"

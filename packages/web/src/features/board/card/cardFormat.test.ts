@@ -6,6 +6,7 @@ import {
   entryStamp,
   fmtCurrency,
   initials,
+  readinessIsInformative,
   riskChipToneClass,
 } from './cardFormat';
 
@@ -51,7 +52,7 @@ describe('entryStamp', () => {
     );
     expect(stamp.daysAgo).toBe(9);
     expect(stamp.isStalled).toBe(true);
-    expect(stamp.text).toBe('Entered at 40% · 9d ago — stalled');
+    expect(stamp.text).toBe('9d in this column · 40% done — stalled');
   });
 
   it('derives dwell from statusEnteredAt when the server fields are absent', () => {
@@ -59,7 +60,7 @@ describe('entryStamp', () => {
     vi.setSystemTime(new Date('2026-01-06T00:00:00Z'));
     const stamp = entryStamp(makeTask({ statusEnteredAt: '2026-01-05T00:00:00Z' }));
     expect(stamp.daysAgo).toBe(1);
-    expect(stamp.text).toBe('Entered at 40% · 1d ago');
+    expect(stamp.text).toBe('1d in this column · 40% done');
     expect(stamp.isStalled).toBe(false);
   });
 
@@ -73,7 +74,34 @@ describe('entryStamp', () => {
       }),
     );
     expect(stamp.isStalled).toBe(false);
-    expect(stamp.text).toBe('Entered at 100% · 40d ago');
+    // No progress clause at 100%: a card sitting in Done already says it is done,
+    // so "100% done" would be a tautology on the scarcest line of the card (#2430).
+    expect(stamp.text).toBe('40d in this column');
+  });
+
+  // #2430 — the line used to read "Entered at 100% · 42d ago", which named neither
+  // what was entered nor what the percentage measured. These pin the outcome
+  // language so it cannot regress to data-model phrasing.
+  it('omits the progress clause at 0% — there is nothing to report yet', () => {
+    const stamp = entryStamp(
+      makeTask({ progress: 0, statusEnteredAt: '2026-01-01T00:00:00Z', dwellDays: 2 }),
+    );
+    expect(stamp.text).toBe('2d in this column');
+  });
+
+  it('reads "Moved here today" rather than "0d" on the day it lands', () => {
+    const stamp = entryStamp(
+      makeTask({ statusEnteredAt: '2026-01-01T00:00:00Z', dwellDays: 0 }),
+    );
+    expect(stamp.text).toBe('Moved here today · 40% done');
+  });
+
+  it('never says "Entered at" or dates an unnamed event', () => {
+    const stamp = entryStamp(
+      makeTask({ statusEnteredAt: '2026-01-01T00:00:00Z', dwellDays: 9 }),
+    );
+    expect(stamp.text).not.toContain('Entered at');
+    expect(stamp.text).not.toContain('ago');
   });
 });
 
@@ -121,5 +149,55 @@ describe('cardTitleToneClass', () => {
     expect(cardTitleToneClass(true, true)).toBe('text-semantic-critical font-semibold');
     expect(cardTitleToneClass(false, true)).toBe('text-neutral-text-disabled italic');
     expect(cardTitleToneClass(false, false)).toBe('text-neutral-text-primary');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readinessIsInformative (#2430)
+// ---------------------------------------------------------------------------
+
+describe('readinessIsInformative', () => {
+  it('is false when every card shares one readiness — the chip conveys nothing', () => {
+    // The board state the issue reported: a `baselined` chip on 100% of cards.
+    const tasks = [
+      makeTask({ id: 'a', readiness: 'baselined' }),
+      makeTask({ id: 'b', readiness: 'baselined' }),
+      makeTask({ id: 'c', readiness: 'baselined' }),
+    ];
+    expect(readinessIsInformative(tasks)).toBe(false);
+  });
+
+  it('is true as soon as two readiness values are present', () => {
+    const tasks = [
+      makeTask({ id: 'a', readiness: 'baselined' }),
+      makeTask({ id: 'b', readiness: 'ready' }),
+    ];
+    expect(readinessIsInformative(tasks)).toBe(true);
+  });
+
+  it('is false for an empty board', () => {
+    expect(readinessIsInformative([])).toBe(false);
+  });
+
+  it('is false when no card carries a readiness at all', () => {
+    expect(readinessIsInformative([makeTask({ id: 'a' }), makeTask({ id: 'b' })])).toBe(false);
+  });
+
+  it('ignores summary rows so structure cannot resurrect a universal chip', () => {
+    // A differently-ready summary is structure, not work — it must not put the
+    // chip back on every leaf card.
+    const tasks = [
+      makeTask({ id: 's', readiness: 'idea', isSummary: true }),
+      makeTask({ id: 'a', readiness: 'baselined' }),
+      makeTask({ id: 'b', readiness: 'baselined' }),
+    ];
+    expect(readinessIsInformative(tasks)).toBe(false);
+  });
+
+  it('still counts a single distinct value among many as uninformative', () => {
+    const tasks = Array.from({ length: 50 }, (_, i) =>
+      makeTask({ id: `t${i}`, readiness: 'estimated' }),
+    );
+    expect(readinessIsInformative(tasks)).toBe(false);
   });
 });
