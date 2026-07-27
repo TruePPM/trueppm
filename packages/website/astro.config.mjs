@@ -213,11 +213,14 @@ export default defineConfig({
             { slug: "overview/why-now" },
             { slug: "overview/principles" },
             { slug: "overview/computed-not-guessed" },
-            // Evaluation pair: the named comparison and the maintained gap list
-            // sit next to each other on purpose — an evaluator who reads one
-            // should not have to hunt for the other.
+            // Evaluation trio: the named comparison, the maintained gap list, and
+            // the defect list sit next to each other on purpose — an evaluator who
+            // reads one should not have to hunt for the others. The two lists are
+            // deliberately separate: what-it-does-not-do is capability absent by
+            // plan, known-issues is something built that is wrong or incomplete.
             { slug: "overview/how-it-compares" },
             { slug: "overview/what-it-does-not-do" },
+            { slug: "overview/known-issues" },
             { slug: "overview/sso-is-not-enterprise" },
             { slug: "overview/team-ownership-not-surveillance" },
             { slug: "overview/how-this-was-built" },
