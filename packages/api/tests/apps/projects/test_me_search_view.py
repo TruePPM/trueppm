@@ -28,6 +28,7 @@ from trueppm_api.apps.projects.models import (
     BacklogItem,
     BacklogItemType,
     Calendar,
+    DeliveryMode,
     Program,
     Project,
     Task,
@@ -85,6 +86,24 @@ def _program_member(program: Program, user: object, role: int = Role.MEMBER) -> 
 
 def _task(project: Project, name: str, task_type: str = TaskType.STORY, **kw: object) -> Task:
     return Task.objects.create(project=project, name=name, type=task_type, **kw)
+
+
+def _milestone(project: Project, name: str, task_type: str = TaskType.TASK) -> Task:
+    """A milestone in its canonical coupled state (#1773).
+
+    ``is_milestone`` alone is not a milestone: the invariant is
+    ``is_milestone=True`` <=> ``delivery_mode='milestone'`` <=> ``duration=0``, and it is
+    normalized by the write paths (serializer, importers) rather than ``Task.save()``.
+    Seeding all three keeps these tests faithful to what a real row looks like.
+    """
+    return Task.objects.create(
+        project=project,
+        name=name,
+        type=task_type,
+        is_milestone=True,
+        delivery_mode=DeliveryMode.MILESTONE,
+        duration=0,
+    )
 
 
 def _item(program: Program, title: str, item_type: str = BacklogItemType.STORY) -> BacklogItem:
@@ -190,24 +209,109 @@ def test_no_wbs_code_in_breadcrumb_fields(calendar: Calendar, alice: object) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_default_type_is_epic_and_story_only(calendar: Calendar, alice: object) -> None:
+def test_default_type_includes_tasks_and_milestones(calendar: Calendar, alice: object) -> None:
+    """The default must cover a waterfall project, which has no epics or stories at all.
+
+    Was ``epic,story``, which returned zero results for a plain task name and read as
+    "the tool doesn't have my data" (#2442, ADR-0662 D4).
+    """
     project = _project(calendar, "Web", program=_program("P"))
     _project_member(project, alice)
     _task(project, "Zeta epic", TaskType.EPIC)
     _task(project, "Zeta story", TaskType.STORY)
     _task(project, "Zeta task", TaskType.TASK)
+    _milestone(project, "Zeta gate")
 
-    resp = _client(alice).get(f"{URL}?q=zeta")  # no ?type → epic,story default
-    assert _titles(resp) == {"Zeta epic", "Zeta story"}
+    resp = _client(alice).get(f"{URL}?q=zeta")  # no ?type → all four kinds
+    assert _titles(resp) == {"Zeta epic", "Zeta story", "Zeta task", "Zeta gate"}
 
 
-def test_task_type_is_opt_in(calendar: Calendar, alice: object) -> None:
+def test_type_filter_still_narrows(calendar: Calendar, alice: object) -> None:
+    project = _project(calendar, "Web", program=_program("P"))
+    _project_member(project, alice)
+    _task(project, "Zeta epic", TaskType.EPIC)
+    _task(project, "Zeta task", TaskType.TASK)
+
+    assert _titles(_client(alice).get(f"{URL}?q=zeta&type=task")) == {"Zeta task"}
+    assert _titles(_client(alice).get(f"{URL}?q=zeta&type=epic")) == {"Zeta epic"}
+
+
+# ---------------------------------------------------------------------------
+# Milestones (#2442, ADR-0662)
+# ---------------------------------------------------------------------------
+
+
+def test_milestone_returned_and_reports_type_milestone(calendar: Calendar, alice: object) -> None:
+    """A milestone must read as a milestone, not as its underlying agile type.
+
+    Marcus and Janet ask about "the Q4 gate" by name; a row chipped "Task" is the
+    original complaint in a new costume.
+    """
+    project = _project(calendar, "Web", program=_program("P"))
+    _project_member(project, alice)
+    _milestone(project, "Q4 gate")
+
+    resp = _client(alice).get(f"{URL}?q=q4&type=milestone")
+    rows = _results(resp)
+    assert [r["title"] for r in rows] == ["Q4 gate"]
+    assert rows[0]["type"] == "milestone"
+    assert rows[0]["kind"] == "task"
+
+
+def test_milestone_excluded_from_agile_types(calendar: Calendar, alice: object) -> None:
+    """Agile keys exclude milestones, so the kinds are disjoint (ADR-0662 D2)."""
+    project = _project(calendar, "Web", program=_program("P"))
+    _project_member(project, alice)
+    _milestone(project, "Zeta gate", TaskType.TASK)
+    _milestone(project, "Zeta story gate", TaskType.STORY)
+
+    assert _titles(_client(alice).get(f"{URL}?q=zeta&type=task")) == set()
+    assert _titles(_client(alice).get(f"{URL}?q=zeta&type=story")) == set()
+    assert _titles(_client(alice).get(f"{URL}?q=zeta&type=milestone")) == {
+        "Zeta gate",
+        "Zeta story gate",
+    }
+
+
+def test_no_duplicate_rows_across_all_kinds(calendar: Calendar, alice: object) -> None:
+    """The disjointness invariant: one row, one identity, for any requested set.
+
+    A milestone Task satisfies ``is_milestone=True`` AND carries a ``type``, so without
+    mutually exclusive predicates ``?type=task,milestone`` would return it twice with two
+    different chips.
+    """
     project = _project(calendar, "Web", program=_program("P"))
     _project_member(project, alice)
     _task(project, "Zeta task", TaskType.TASK)
+    _milestone(project, "Zeta gate")
 
-    assert _titles(_client(alice).get(f"{URL}?q=zeta")) == set()
-    assert _titles(_client(alice).get(f"{URL}?q=zeta&type=task")) == {"Zeta task"}
+    resp = _client(alice).get(f"{URL}?q=zeta&type=epic,story,task,milestone")
+    ids = [r["id"] for r in _results(resp)]
+    assert len(ids) == len(set(ids)) == 2
+
+
+def test_milestone_never_matches_backlog_items(calendar: Calendar, alice: object) -> None:
+    """A milestone is a schedule artifact, never program intake — so the backlog source
+    contributes nothing for ``?type=milestone`` and must not fall through to every item."""
+    program = _program("P")
+    _program_member(program, alice)
+    project = _project(calendar, "Web", program=program)
+    _project_member(project, alice)
+    _item(program, "Zeta intake", BacklogItemType.TASK)
+
+    assert _titles(_client(alice).get(f"{URL}?q=zeta&type=milestone")) == set()
+
+
+def test_milestone_scoped_to_project_membership(
+    calendar: Calendar, alice: object, bob: object
+) -> None:
+    """🔴 IDOR: the new kind inherits the membership gate, not a bypass of it."""
+    theirs = _project(calendar, "Theirs", program=_program("T"))
+    _project_member(theirs, bob)
+    _milestone(theirs, "Zeta gate")
+
+    assert _titles(_client(alice).get(f"{URL}?q=zeta&type=milestone")) == set()
+    assert _titles(_client(bob).get(f"{URL}?q=zeta&type=milestone")) == {"Zeta gate"}
 
 
 def test_unknown_type_ignored_falls_back_to_default(calendar: Calendar, alice: object) -> None:
@@ -215,7 +319,7 @@ def test_unknown_type_ignored_falls_back_to_default(calendar: Calendar, alice: o
     _project_member(project, alice)
     _task(project, "Zeta epic", TaskType.EPIC)
 
-    # Present-but-unrecognized filter falls back to the epic,story default.
+    # Present-but-unrecognized filter falls back to the default kind set.
     resp = _client(alice).get(f"{URL}?q=zeta&type=bogus")
     assert _titles(resp) == {"Zeta epic"}
 
@@ -313,6 +417,34 @@ def test_prefix_matches_rank_first(calendar: Calendar, alice: object) -> None:
     resp = _client(alice).get(f"{URL}?q=login&type=epic,story")
     titles = [r["title"] for r in _results(resp)]
     assert titles[0] == "Login epic"  # prefix ranks above the contains match
+
+
+def test_kind_ranks_within_a_prefix_class_not_above_it(calendar: Calendar, alice: object) -> None:
+    """Kind is a tiebreaker inside a prefix class, never above it (ADR-0662 D4).
+
+    A prefix-matching task must still outrank a merely-containing epic — burying an exact
+    prefix hit under alphabetical epics would make the search worse at its primary job.
+    """
+    project = _project(calendar, "Web", program=_program("P"))
+    _project_member(project, alice)
+    _task(project, "Improve login epic", TaskType.EPIC)  # contains, not prefix
+    _task(project, "Login task", TaskType.TASK)  # prefix match, lowest kind rank
+
+    titles = [r["title"] for r in _results(_client(alice).get(f"{URL}?q=login"))]
+    assert titles[0] == "Login task"
+
+
+def test_kind_orders_equal_prefix_matches(calendar: Calendar, alice: object) -> None:
+    """Within one prefix class the order is epic, story, milestone, task."""
+    project = _project(calendar, "Web", program=_program("P"))
+    _project_member(project, alice)
+    _task(project, "Login task", TaskType.TASK)
+    _milestone(project, "Login gate")
+    _task(project, "Login story", TaskType.STORY)
+    _task(project, "Login epic", TaskType.EPIC)
+
+    types = [r["type"] for r in _results(_client(alice).get(f"{URL}?q=login"))]
+    assert types == ["epic", "story", "milestone", "task"]
 
 
 def test_paginated_envelope_and_page_two(calendar: Calendar, alice: object) -> None:
