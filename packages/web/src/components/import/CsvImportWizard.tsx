@@ -219,7 +219,7 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
         aria-labelledby="csv-import-title"
         tabIndex={-1}
         className="flex max-h-[90vh] w-full max-w-2xl flex-col gap-4 overflow-y-auto rounded-card
-          border border-neutral-border bg-neutral-surface p-5 shadow-lg focus:outline-none"
+          border border-neutral-border bg-neutral-surface p-5 shadow-pop focus:outline-none"
       >
         <header className="flex flex-col gap-3">
           <h2 id="csv-import-title" className="text-base font-semibold text-neutral-text-primary">
