@@ -1,0 +1,291 @@
+import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures/api-mocks';
+
+/**
+ * CSV / Excel import wizard E2E (#746, ADR-0632).
+ *
+ * Golden path: open the wizard from the project actions menu, upload a file,
+ * confirm the detected mapping, commit, and land on the terminal result.
+ * Error path: a required field left unmapped blocks Next with a reason, which
+ * is the guard that stops a spreadsheet with no name column importing zero
+ * tasks.
+ */
+
+const PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000001';
+
+type Page = import('@playwright/test').Page;
+
+const PREVIEW_BODY = {
+  filename: 'plan.csv',
+  headers: ['Title', 'Days', 'Notes'],
+  columns: [
+    { index: 0, header: 'Title', field: 'name', confidence: 0.95 },
+    { index: 1, header: 'Days', field: 'duration', confidence: 0.8 },
+    { index: 2, header: 'Notes', field: '', confidence: 0 },
+  ],
+  sample_rows: [['Foundation pour', '5', 'concrete']],
+  row_count: 12,
+  truncated_rows: 0,
+  task_count: 12,
+  resource_count: 3,
+  row_errors: [{ row: 4, message: 'Duration is not a number' }],
+  error_count: 1,
+  warning_count: 2,
+  warnings: [],
+  available_fields: [
+    { field: 'name', label: 'Task name', required: true, multi: false },
+    { field: 'duration', label: 'Duration', required: false, multi: false },
+  ],
+};
+
+const DONE_STATUS = {
+  id: 'imp-1',
+  status: 'done',
+  filename: 'plan.csv',
+  summary: {
+    tasks_created: 11,
+    row_errors: [{ row: 4, message: 'Duration is not a number' }],
+  },
+  requested_at: '2026-07-27T00:00:00Z',
+};
+
+async function gotoSchedule(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'trueppm-auth',
+      JSON.stringify({
+        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+        version: 0,
+      }),
+    );
+  });
+  const pj = (d: unknown) => JSON.stringify(d);
+  const emptyList = { count: 0, next: null, previous: null, results: [] };
+
+  await setupCatchAll(page);
+  await page.route('**/api/v1/projects/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        count: 1,
+        next: null,
+        previous: null,
+        results: [
+          {
+            id: PROJECT_ID,
+            name: 'Alpha Platform Upgrade',
+            description: '',
+            start_date: '2026-01-01',
+            calendar: 'default',
+          },
+        ],
+      }),
+    }),
+  );
+  // Object-shaped, not the catch-all list: ProjectShell gates every project
+  // route on this read and a list shape crashes the app (#1190).
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        id: PROJECT_ID,
+        name: 'Alpha Platform Upgrade',
+        description: '',
+        start_date: '2026-01-01',
+        calendar: 'default',
+        estimation_mode: 'OPEN',
+        agile_features: false,
+        methodology: 'WATERFALL',
+        code: '',
+        health: 'AUTO',
+        visibility: 'WORKSPACE',
+        timezone: '',
+        default_view: 'SCHEDULE',
+        lead: null,
+        lead_detail: null,
+        iteration_label: 'Sprint',
+        is_archived: false,
+        archived_at: null,
+        archived_by: null,
+        recalculated_at: null,
+        is_sample: false,
+        program_detail: null,
+        server_version: 1,
+      }),
+    }),
+  );
+  // Scheduler (200) — the CSV wizard's own server floor, one rung below the
+  // Admin gate the MS Project import uses.
+  await page.route('**/api/v1/projects/*/members/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj([{ role: 200 }]) }),
+  );
+  await page.route('**/api/v1/projects/*/presence/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+  );
+  await page.route('**/api/v1/projects/*/status-summary/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        task_count: 0,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/tasks/**', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        count: 1,
+        next: null,
+        previous: null,
+        results: [
+          {
+            id: 't1',
+            wbs_path: '1',
+            name: 'Alpha Platform Upgrade',
+            early_start: '2026-10-05',
+            early_finish: '2026-11-14',
+            duration: 30,
+            percent_complete: 40,
+            is_critical: false,
+            is_milestone: false,
+          },
+        ],
+      }),
+    }),
+  );
+  await page.route('**/api/v1/dependencies/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(emptyList) }),
+  );
+  await page.routeWebSocket('**/ws/v1/projects/**', () => {
+    /* accept and hold open */
+  });
+  await page.goto(`/projects/${PROJECT_ID}/schedule`);
+}
+
+/**
+ * Register the import routes.
+ *
+ * MUST run AFTER `gotoSchedule` (and therefore after `setupCatchAll`):
+ * Playwright matches routes in REVERSE registration order, so the catch-all
+ * would otherwise swallow these and answer with its "unmocked" stub.
+ */
+async function routeImport(
+  page: Page,
+  opts: { preview: { status: number; body: unknown }; commit?: boolean },
+) {
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/preview/`, (r) =>
+    r.fulfill({
+      status: opts.preview.status,
+      contentType: 'application/json',
+      body: JSON.stringify(opts.preview.body),
+    }),
+  );
+  if (opts.commit) {
+    // Status route first; the commit glob would otherwise also match it.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/imp-1/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(DONE_STATUS),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/`, (r) =>
+      r.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          detail: 'Import queued.',
+          queued: true,
+          import_request_id: 'imp-1',
+        }),
+      }),
+    );
+  }
+}
+
+async function openWizard(page: Page) {
+  // Gate on the schedule having painted before touching toolbar chrome.
+  await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Project actions' }).click();
+  await page.getByRole('menuitem', { name: /Import from spreadsheet/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Import from a spreadsheet' })).toBeVisible();
+}
+
+async function pickFile(page: Page) {
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'plan.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('Title,Days,Notes\nFoundation pour,5,concrete\n'),
+  });
+}
+
+test.describe('CSV/Excel import wizard (#746)', () => {
+  test('upload → map → confirm → import lands on the result', async ({ page }) => {
+    await gotoSchedule(page);
+    await routeImport(page, { preview: { status: 200, body: PREVIEW_BODY }, commit: true });
+    await openWizard(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+
+    // Step 1 — upload.
+    await pickFile(page);
+    await dialog.getByRole('button', { name: 'Next' }).click();
+
+    // Step 2 — the detected mapping, pre-selected.
+    await expect(dialog.getByLabel('TruePPM field for column Title')).toHaveValue('name');
+    await dialog.getByRole('button', { name: 'Next' }).click();
+
+    // Step 3 — confirm, with the unmapped column named rather than silently dropped.
+    await expect(dialog.getByText(/1 column will not be imported/)).toBeVisible();
+    await dialog.getByRole('button', { name: /Import 12 tasks/ }).click();
+
+    // Terminal — partial success is a RESULT: the valid rows landed and the
+    // failed one is addressable by line number.
+    await expect(dialog.getByText(/Imported 11 tasks/)).toBeVisible();
+    await expect(dialog.getByText(/Row 4/)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'View schedule' })).toBeVisible();
+  });
+
+  test('an unmapped required field blocks Next with a reason', async ({ page }) => {
+    await gotoSchedule(page);
+    await routeImport(page, { preview: { status: 200, body: PREVIEW_BODY } });
+    await openWizard(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+    await pickFile(page);
+    await dialog.getByRole('button', { name: 'Next' }).click();
+
+    // Clearing the only name column would import zero tasks — the wizard must
+    // say so rather than letting the operator commit a no-op.
+    await dialog.getByLabel('TruePPM field for column Title').selectOption('');
+
+    await expect(dialog.getByRole('button', { name: 'Next' })).toBeDisabled();
+    await expect(dialog.getByRole('alert')).toContainText('Task name');
+  });
+
+  test('a preview failure surfaces the server reason', async ({ page }) => {
+    await gotoSchedule(page);
+    await routeImport(page, {
+      preview: { status: 400, body: { detail: 'No readable header row.' } },
+    });
+    await openWizard(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+    await pickFile(page);
+    await dialog.getByRole('button', { name: 'Next' }).click();
+
+    await expect(dialog.getByRole('alert')).toContainText('No readable header row.');
+  });
+});
