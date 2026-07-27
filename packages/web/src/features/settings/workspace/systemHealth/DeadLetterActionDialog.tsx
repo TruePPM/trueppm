@@ -34,6 +34,46 @@ export interface DeadLetterActionDialogProps {
   onConfirm: (opts: { backoffSeconds: number; note: string }) => void;
 }
 
+interface DialogCopy {
+  title: string;
+  body: string;
+  confirmLabel: string;
+}
+
+/**
+ * Every user-facing string for one (kind × scope × busy) combination.
+ *
+ * One lookup rather than three parallel nested ternaries: the three strings must
+ * always agree on kind and scope, and reading them off a single branch makes a
+ * mismatch — a "Requeue" title over a "Drop" body — impossible to write by
+ * accident. `busy` only ever replaces the confirm label with its progress form.
+ */
+function dialogCopy(
+  kind: DeadLetterActionKind,
+  bulkCount: number | undefined,
+  busy: boolean,
+): DialogCopy {
+  const isBulk = typeof bulkCount === 'number';
+  const plural = bulkCount === 1 ? '' : 's';
+
+  if (kind === 'requeue') {
+    return {
+      title: isBulk ? `Requeue ${bulkCount} task${plural}?` : 'Requeue task?',
+      body: isBulk
+        ? 'Every dead or pending task in the current filter will be re-enqueued through the durable workflow backend (bounded per run).'
+        : 'This task will be re-enqueued through the durable workflow backend with the chosen backoff.',
+      confirmLabel: busy ? 'Requeuing…' : isBulk ? `Requeue ${bulkCount}` : 'Requeue',
+    };
+  }
+  return {
+    title: isBulk ? `Drop ${bulkCount} task${plural}?` : 'Drop task?',
+    body: isBulk
+      ? 'Every task in the current filter will be removed from the active queue. The records are kept for audit — they are not deleted.'
+      : 'This task will be removed from the active queue. The record is kept for audit — it is not deleted.',
+    confirmLabel: busy ? 'Dropping…' : isBulk ? `Drop ${bulkCount}` : 'Drop',
+  };
+}
+
 export function DeadLetterActionDialog({
   kind,
   bulkCount,
@@ -51,40 +91,8 @@ export function DeadLetterActionDialog({
   const [note, setNote] = useState<string>('');
   const fieldId = useId();
 
-  const isBulk = typeof bulkCount === 'number';
   const isRequeue = kind === 'requeue';
-
-  const title = isRequeue
-    ? isBulk
-      ? `Requeue ${bulkCount} task${bulkCount === 1 ? '' : 's'}?`
-      : 'Requeue task?'
-    : isBulk
-      ? `Drop ${bulkCount} task${bulkCount === 1 ? '' : 's'}?`
-      : 'Drop task?';
-
-  const body = isRequeue
-    ? isBulk
-      ? `Every dead or pending task in the current filter will be re-enqueued through the durable workflow backend (bounded per run).`
-      : `This task will be re-enqueued through the durable workflow backend with the chosen backoff.`
-    : isBulk
-      ? `Every task in the current filter will be removed from the active queue. The records are kept for audit — they are not deleted.`
-      : `This task will be removed from the active queue. The record is kept for audit — it is not deleted.`;
-
-  const confirmLabel = isRequeue
-    ? isBulk
-      ? busy
-        ? 'Requeuing…'
-        : `Requeue ${bulkCount}`
-      : busy
-        ? 'Requeuing…'
-        : 'Requeue'
-    : isBulk
-      ? busy
-        ? 'Dropping…'
-        : `Drop ${bulkCount}`
-      : busy
-        ? 'Dropping…'
-        : 'Drop';
+  const { title, body, confirmLabel } = dialogCopy(kind, bulkCount, busy);
 
   return (
     <div

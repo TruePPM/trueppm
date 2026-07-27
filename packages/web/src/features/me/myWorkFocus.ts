@@ -253,91 +253,20 @@ export function buildMyWorkFocusCards(
   const blockedCount = tasks.filter((t) => t.is_blocked).length;
   const criticalCount = tasks.filter((t) => t.is_critical).length;
   const openCount = tasks.filter((t) => OPEN_STATUSES.has(t.status)).length;
-  const attentionCount = blockedCount + criticalCount;
 
-  // ── Card 1: Needs attention ─────────────────────────────────────────────
-  const attentionVariant: OverviewMetricVariant = blockedCount
-    ? 'critical'
-    : criticalCount
-      ? 'at-risk'
-      : 'on-track';
-  const attentionDelta = blockedCount
-    ? `${blockedCount} blocked`
-    : criticalCount
-      ? 'on the critical path'
-      : 'nothing flagged';
-  const needsAttention: MyWorkFocusCard = {
-    key: 'needs_attention',
-    label: 'Needs attention',
-    value: String(attentionCount),
-    delta: attentionDelta,
-    variant: attentionVariant,
-  };
-  // Real cross-program schedule-health figure (#1236) as a labeled detail line —
-  // separate tone so it never masks the blocked/critical value color above it.
-  const health = signals?.schedule_health;
-  if (health) {
-    const band = HEALTH_BAND[health.band];
-    needsAttention.detail = {
-      text: `Schedule ${band.label.toLowerCase()} · ${health.project_count} project${
-        health.project_count === 1 ? '' : 's'
-      }`,
-      tone: band.tone,
-    };
-  }
-
-  // ── Card 2: method-driven (sprint → critical-path fallback) ─────────────
-  let methodCard: MyWorkFocusCard;
-  if (activeSprints.length > 0) {
-    // Soonest-ending sprint leads — the one whose clock matters most.
-    const sprint = [...activeSprints].sort((a, b) => a.days_remaining - b.days_remaining)[0];
-    // Approximate completion as the share of this user's open work that is NOT
-    // in this sprint — an honest local signal (we have no server burndown
-    // cross-program). When we can't infer any progress the spark sits low.
-    const sprintTasks = tasks.filter((t) => t.sprint_id === sprint.id);
-    const sprintOpen = sprintTasks.filter((t) => OPEN_STATUSES.has(t.status)).length;
-    const completedShare = sprintTasks.length
-      ? (sprintTasks.length - sprintOpen) / sprintTasks.length
-      : 0;
-    const daysVariant: OverviewMetricVariant =
-      sprint.days_remaining <= 1 ? 'at-risk' : 'neutral';
-    // Prefer the server's real burndown series (#1236) when it is for THIS lead
-    // sprint; else fall back to the honest direction-only completion ramp.
-    const burndown =
-      signals?.sprint_burndown?.sprint_id === sprint.id ? signals.sprint_burndown : undefined;
-    const realSpark = burndown
-      ? burndownSpark(burndown.series, burndown.committed_points)
-      : undefined;
-    methodCard = {
-      key: 'sprint',
-      label: sprint.name,
-      value: `${sprint.days_remaining}d`,
-      delta:
-        sprint.days_remaining === 1
-          ? '1 day left'
-          : sprint.days_remaining <= 0
-            ? 'ends today'
-            : 'days left',
-      variant: daysVariant,
-      spark: realSpark ?? sprintSpark(completedShare),
-      // Real burn pace as the detail line — omitted when there's no baseline.
-      detail: burndown ? burnPaceDetail(burndown.burn_status, burndown.trend_points) : undefined,
-    };
-  } else {
-    methodCard = {
-      key: 'critical_path',
-      label: 'On the critical path',
-      value: String(criticalCount),
-      delta: criticalCount ? 'a delay here slips the date' : 'none of yours',
-      variant: criticalCount ? 'at-risk' : 'neutral',
-    };
-  }
+  const cards: MyWorkFocusCard[] = [
+    needsAttentionCard(blockedCount, criticalCount, signals?.schedule_health),
+    // Card 2 is method-driven: an active sprint owns the slot, else the
+    // critical-path count stands in.
+    activeSprints.length > 0
+      ? sprintCard(tasks, activeSprints, signals)
+      : criticalPathCard(criticalCount),
+  ];
 
   // ── Card 3: Your load ───────────────────────────────────────────────────
   // Honest cross-program load = your open assigned-task count. No utilization %
   // is available across programs, so we count work rather than capacity. Drop
   // the card entirely (2-up) when there is no open work to weigh.
-  const cards: MyWorkFocusCard[] = [needsAttention, methodCard];
   if (openCount > 0) {
     cards.push({
       key: 'load',
@@ -355,6 +284,100 @@ export function buildMyWorkFocusCards(
   if (utilization) cards.push(utilization);
 
   return cards;
+}
+
+/**
+ * Card 1 — blocked work leads, then critical-path work, then the calm state.
+ *
+ * The value counts both, so the variant and delta name *which* of the two is
+ * driving it; a blocked task always outranks a merely-critical one.
+ */
+function needsAttentionCard(
+  blockedCount: number,
+  criticalCount: number,
+  health: MyWorkSignals['schedule_health'],
+): MyWorkFocusCard {
+  let variant: OverviewMetricVariant = 'on-track';
+  let delta = 'nothing flagged';
+  if (blockedCount) {
+    variant = 'critical';
+    delta = `${blockedCount} blocked`;
+  } else if (criticalCount) {
+    variant = 'at-risk';
+    delta = 'on the critical path';
+  }
+
+  const card: MyWorkFocusCard = {
+    key: 'needs_attention',
+    label: 'Needs attention',
+    value: String(blockedCount + criticalCount),
+    delta,
+    variant,
+  };
+  // Real cross-program schedule-health figure (#1236) as a labeled detail line —
+  // separate tone so it never masks the blocked/critical value color above it.
+  if (health) {
+    const band = HEALTH_BAND[health.band];
+    card.detail = {
+      text: `Schedule ${band.label.toLowerCase()} · ${health.project_count} project${
+        health.project_count === 1 ? '' : 's'
+      }`,
+      tone: band.tone,
+    };
+  }
+  return card;
+}
+
+/** Card 2a — the soonest-ending active sprint, the one whose clock matters most. */
+function sprintCard(
+  tasks: MyWorkTask[],
+  activeSprints: MyWorkActiveSprint[],
+  signals: MyWorkSignals | undefined,
+): MyWorkFocusCard {
+  const sprint = [...activeSprints].sort((a, b) => a.days_remaining - b.days_remaining)[0];
+  // Approximate completion as the share of this user's open work that is NOT
+  // in this sprint — an honest local signal (we have no server burndown
+  // cross-program). When we can't infer any progress the spark sits low.
+  const sprintTasks = tasks.filter((t) => t.sprint_id === sprint.id);
+  const sprintOpen = sprintTasks.filter((t) => OPEN_STATUSES.has(t.status)).length;
+  const completedShare = sprintTasks.length
+    ? (sprintTasks.length - sprintOpen) / sprintTasks.length
+    : 0;
+  // Prefer the server's real burndown series (#1236) when it is for THIS lead
+  // sprint; else fall back to the honest direction-only completion ramp.
+  const burndown =
+    signals?.sprint_burndown?.sprint_id === sprint.id ? signals.sprint_burndown : undefined;
+  const realSpark = burndown
+    ? burndownSpark(burndown.series, burndown.committed_points)
+    : undefined;
+
+  return {
+    key: 'sprint',
+    label: sprint.name,
+    value: `${sprint.days_remaining}d`,
+    delta: sprintDaysDelta(sprint.days_remaining),
+    variant: sprint.days_remaining <= 1 ? 'at-risk' : 'neutral',
+    spark: realSpark ?? sprintSpark(completedShare),
+    // Real burn pace as the detail line — omitted when there's no baseline.
+    detail: burndown ? burnPaceDetail(burndown.burn_status, burndown.trend_points) : undefined,
+  };
+}
+
+function sprintDaysDelta(daysRemaining: number): string {
+  if (daysRemaining === 1) return '1 day left';
+  if (daysRemaining <= 0) return 'ends today';
+  return 'days left';
+}
+
+/** Card 2b — the fallback when no sprint is active. */
+function criticalPathCard(criticalCount: number): MyWorkFocusCard {
+  return {
+    key: 'critical_path',
+    label: 'On the critical path',
+    value: String(criticalCount),
+    delta: criticalCount ? 'a delay here slips the date' : 'none of yours',
+    variant: criticalCount ? 'at-risk' : 'neutral',
+  };
 }
 
 /**
