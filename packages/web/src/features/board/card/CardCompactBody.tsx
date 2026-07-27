@@ -43,13 +43,17 @@ function CompactSignalBadge({
   coarsePointer: boolean;
 }) {
   const toneClass = cardSignalToneClass(cardSignal.tone);
+  // Capitalized binding so JSX resolves it as a component, not an element.
+  const { Icon: SignalIcon } = cardSignal;
   if (coarsePointer) {
     return (
       <CardPeekButton
         ariaLabel={`${cardSignal.label}. What does this mean?`}
         peekAriaLabel={`${cardSignal.label} — explanation`}
         triggerClassName={`shrink-0 px-1 py-px rounded-chip text-xs border font-medium ${toneClass}`}
-        triggerContent={<span aria-hidden="true">{cardSignal.glyph}</span>}
+        triggerContent={
+          <SignalIcon aria-hidden="true" className="h-3 w-3" data-testid="card-signal-icon" />
+        }
       >
         {cardSignal.srText}
       </CardPeekButton>
@@ -61,7 +65,7 @@ function CompactSignalBadge({
       title={cardSignal.srText}
       aria-label={cardSignal.srText}
     >
-      <span aria-hidden="true">{cardSignal.glyph}</span>
+      <SignalIcon aria-hidden="true" className="h-3 w-3" data-testid="card-signal-icon" />
     </span>
   );
 }

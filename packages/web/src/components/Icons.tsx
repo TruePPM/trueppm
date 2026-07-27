@@ -1306,3 +1306,65 @@ export function ShareIcon({ className, ...rest }: IconProps) {
     </svg>
   );
 }
+
+/** Bolt — the board's "stale" signal: work sitting in a column past its SLA. */
+export function BoltIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M8.75 1.5 3.5 9h3.5l-.75 5.5L12.5 7H9l-.25-5.5Z" />
+    </svg>
+  );
+}
+
+/** Flag — the board's critical-path / negative-float signal. */
+export function FlagIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <line x1="3.75" y1="1.75" x2="3.75" y2="14.25" />
+      <path d="M3.75 2.75h7.5l-1.75 3 1.75 3h-7.5" />
+    </svg>
+  );
+}
+
+/** Trending down — the board's behind-on-earned-value signal. */
+export function TrendDownIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M1.75 4.5 6 8.75l2.5-2.5 5.75 5.75" />
+      <polyline points="14.25,8 14.25,12 10.25,12" />
+    </svg>
+  );
+}
