@@ -1,0 +1,23 @@
+{
+  "id": "p-ptc-fs-lag",
+  "name": "Per-task calendars: FS lag snaps on the successor's calendar, both directions",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "Mon-Fri predecessor", "duration": 432000.0},
+    {"id": "B", "name": "Seven-day successor", "duration": 259200.0, "calendar_id": "seven"},
+    {"id": "C", "name": "Mon-Fri successor", "duration": 172800.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 86400.0},
+    {"predecessor_id": "B", "successor_id": "C", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  },
+  "calendars": {
+    "seven": {"working_days": 127, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+  }
+}

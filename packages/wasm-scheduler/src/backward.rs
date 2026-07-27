@@ -9,7 +9,7 @@ use petgraph::Direction;
 
 use crate::calendar::{
     checked_offset_days, finish_from_start, prev_working_day, retreat_calendar_days,
-    start_from_finish,
+    start_from_finish, PassCalendars,
 };
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
@@ -31,10 +31,17 @@ pub fn backward_pass(
     pg: &ProjectGraph,
     deps: &[Dependency],
     project_finish: NaiveDate,
-    calendar: &Calendar,
+    cals: &PassCalendars,
 ) -> Result<(), String> {
     for &idx in topo_order.iter().rev() {
         let i = idx.index();
+        // This node is the predecessor of its outgoing edges; its own calendar lays
+        // out its duration, floors its late finish at the project finish, and snaps
+        // every successor-derived constraint. Snapping those on the *successor's*
+        // calendar instead was the Python engine's #1490: it could place a
+        // predecessor's own late date before its early date, under-report float,
+        // and pull spurious tasks onto the critical path.
+        let node_cal = cals.for_node(i);
         // Completed: late == early, so the task carries zero float and never
         // distorts the critical path. The forward pass already resolved its
         // full-duration span (ADR-0136).
@@ -57,14 +64,14 @@ pub fn backward_pass(
         // a day this node cannot work (a completed task's weekend actual_finish),
         // overstating float and propagating upstream (#1820). A no-op when
         // project_finish is already a working day.
-        let mut lf_constraints: Vec<NaiveDate> = vec![prev_working_day(project_finish, calendar)?];
+        let mut lf_constraints: Vec<NaiveDate> = vec![prev_working_day(project_finish, node_cal)?];
         let (succ_lf_constraints, ls_constraints) =
-            successor_constraints(idx, tasks, pg, deps, calendar)?;
+            successor_constraints(idx, tasks, pg, deps, node_cal)?;
         lf_constraints.extend(succ_lf_constraints);
 
         // LF = earliest of all LF constraints.
         let lf = *lf_constraints.iter().min().unwrap();
-        let mut ls = start_from_finish(lf, duration_days, calendar)?;
+        let mut ls = start_from_finish(lf, duration_days, node_cal)?;
 
         // Apply LS constraints (from SS/SF dependencies).
         let mut final_lf = lf;
@@ -72,7 +79,7 @@ pub fn backward_pass(
             let max_ls = *ls_constraints.iter().min().unwrap();
             if max_ls < ls {
                 ls = max_ls;
-                let fwd_finish = finish_from_start(ls, duration_days, calendar)?;
+                let fwd_finish = finish_from_start(ls, duration_days, node_cal)?;
                 final_lf = fwd_finish.min(*lf_constraints.iter().min().unwrap());
             }
         }
@@ -90,12 +97,16 @@ pub fn backward_pass(
 /// *finish*; SS/SF bound when it may *start*. The successor's late dates are
 /// unwrapped unconditionally because the reversed topological order guarantees
 /// every successor was scheduled on an earlier iteration.
+///
+/// `node_cal` is the calendar of the node *being computed* — the predecessor —
+/// not the successor's. Every retreat here produces a date that predecessor must
+/// be able to work (ADR-0120 D3, Python #1490).
 fn successor_constraints(
     idx: NodeIndex,
     tasks: &[Task],
     pg: &ProjectGraph,
     deps: &[Dependency],
-    calendar: &Calendar,
+    node_cal: &Calendar,
 ) -> Result<(Vec<NaiveDate>, Vec<NaiveDate>), String> {
     let mut lf_constraints: Vec<NaiveDate> = Vec::new();
     let mut ls_constraints: Vec<NaiveDate> = Vec::new();
@@ -120,17 +131,17 @@ fn successor_constraints(
                 // Predecessor must finish the day before successor's late start minus lag.
                 lf_constraints.push(prev_working_day(
                     checked_offset_days(succ_ls, -(1 + lag_days))?,
-                    calendar,
+                    node_cal,
                 )?);
             }
             DependencyType::SS => {
-                ls_constraints.push(retreat_calendar_days(succ_ls, lag_days, calendar)?);
+                ls_constraints.push(retreat_calendar_days(succ_ls, lag_days, node_cal)?);
             }
             DependencyType::FF => {
-                lf_constraints.push(retreat_calendar_days(succ_lf, lag_days, calendar)?);
+                lf_constraints.push(retreat_calendar_days(succ_lf, lag_days, node_cal)?);
             }
             DependencyType::SF => {
-                ls_constraints.push(retreat_calendar_days(succ_lf, lag_days, calendar)?);
+                ls_constraints.push(retreat_calendar_days(succ_lf, lag_days, node_cal)?);
             }
         }
     }

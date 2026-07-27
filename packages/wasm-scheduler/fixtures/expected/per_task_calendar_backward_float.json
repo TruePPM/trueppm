@@ -1,0 +1,69 @@
+{
+  "project_id": "p-ptc-backward-float",
+  "project_start": "2026-03-02",
+  "project_finish": "2026-03-20",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2026-03-02",
+      "early_finish": "2026-03-06",
+      "late_start": "2026-03-02",
+      "late_finish": "2026-03-06",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    },
+    {
+      "id": "B",
+      "early_start": "2026-03-07",
+      "early_finish": "2026-03-08",
+      "late_start": "2026-03-17",
+      "late_finish": "2026-03-18",
+      "total_float": 864000.0,
+      "free_float": 864000.0,
+      "is_critical": false
+    },
+    {
+      "id": "C",
+      "early_start": "2026-03-09",
+      "early_finish": "2026-03-18",
+      "late_start": "2026-03-09",
+      "late_finish": "2026-03-18",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    },
+    {
+      "id": "D",
+      "early_start": "2026-03-19",
+      "early_finish": "2026-03-20",
+      "late_start": "2026-03-19",
+      "late_finish": "2026-03-20",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    }
+  ],
+  "critical_path": [
+    "A",
+    "C",
+    "D"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "B",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "A",
+      "successor_id": "C",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "C",
+      "successor_id": "D",
+      "dep_type": "FS"
+    }
+  ]
+}

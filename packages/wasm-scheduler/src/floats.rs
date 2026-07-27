@@ -7,7 +7,8 @@ use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 
 use crate::calendar::{
-    checked_offset_days, prev_working_day, retreat_calendar_days, WorkingDayCounter,
+    checked_offset_days, prev_working_day, retreat_calendar_days, working_days_between,
+    PassCalendars, WorkingDayCounter,
 };
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
@@ -30,9 +31,22 @@ pub fn compute_floats(
     topo_order: &[NodeIndex],
     pg: &ProjectGraph,
     deps: &[Dependency],
-    calendar: &Calendar,
+    cals: &PassCalendars,
 ) -> Result<Vec<DrivingEdge>, String> {
+    let calendar = cals.default_calendar();
     let counter = WorkingDayCounter::build(tasks, calendar)?;
+    // Span counts go through the O(log n) counter only when the node's calendar
+    // IS the project calendar the counter was built over; a per-task calendar
+    // falls back to the O(span) scalar reference. Both return identical counts —
+    // this mirrors the Python `_wdb` helper's `cal is calendar` test exactly, so
+    // the single-calendar path keeps using the counter for every span (#1534).
+    let wdb = |start, end, cal: &Calendar| -> Result<i32, String> {
+        if std::ptr::eq(cal, calendar) {
+            counter.between(start, end)
+        } else {
+            working_days_between(start, end, cal)
+        }
+    };
     let mut driving_edges: Vec<DrivingEdge> = Vec::new();
     for &idx in topo_order {
         let i = idx.index();
@@ -40,9 +54,13 @@ pub fn compute_floats(
         let ef = tasks[i].early_finish.unwrap();
         let ls = tasks[i].late_start.unwrap();
         let pred_id = tasks[i].id.clone();
+        // Every span below is measured on *this* task's own calendar: the slip is
+        // counted in the days this task can actually work, and each constraint is
+        // snapped on the same calendar, mirroring the backward pass (ADR-0120 D3).
+        let node_cal = cals.for_node(i);
 
         // Total float: working days between ES and LS.
-        let tf_days = counter.between(es, ls)?;
+        let tf_days = wdb(es, ls, node_cal)?;
         // A completed task is never on the critical path. The backward pass pins a
         // done task to late == early (ADR-0132/0136), mechanically yielding zero
         // total float — but a finished task has no remaining work and no slack to
@@ -79,13 +97,13 @@ pub fn compute_floats(
             let (anchor, latest) = match dep.dep_type {
                 DependencyType::FS => (
                     ef,
-                    prev_working_day(checked_offset_days(succ_es, -1 - lag_days)?, calendar)?,
+                    prev_working_day(checked_offset_days(succ_es, -1 - lag_days)?, node_cal)?,
                 ),
-                DependencyType::SS => (es, retreat_calendar_days(succ_es, lag_days, calendar)?),
-                DependencyType::FF => (ef, retreat_calendar_days(succ_ef, lag_days, calendar)?),
-                DependencyType::SF => (es, retreat_calendar_days(succ_ef, lag_days, calendar)?),
+                DependencyType::SS => (es, retreat_calendar_days(succ_es, lag_days, node_cal)?),
+                DependencyType::FF => (ef, retreat_calendar_days(succ_ef, lag_days, node_cal)?),
+                DependencyType::SF => (es, retreat_calendar_days(succ_ef, lag_days, node_cal)?),
             };
-            let slack = counter.between(anchor, latest)?;
+            let slack = wdb(anchor, latest, node_cal)?;
             ff_days = ff_days.min(slack.max(0));
             // Zero relationship free float ⇒ this link drives the successor's early
             // date (#2095). The forward pass guarantees slack >= 0, so the exact

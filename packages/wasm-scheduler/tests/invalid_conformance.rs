@@ -7,12 +7,13 @@
 //! panic on a `chrono` date overflow. Both suites iterate the directory (#1505),
 //! so a new adversarial fixture is auto-checked by both engines.
 //!
-//! `fixtures/rust_rejects/` — inputs that are *valid for Python* but which the
-//! Rust engine cannot faithfully honor (per-task calendars, agile Monte Carlo
-//! fields). With `#[serde(deny_unknown_fields)]` on the input structs (#1505),
-//! Rust must reject these at parse time rather than silently schedule on the
-//! wrong calendar. These are one-sided (Rust-only) rejections, so they live
-//! outside `invalid/` and Python never loads them.
+//! There is deliberately no `rust_rejects/` directory any more. It existed for
+//! inputs that were *valid for Python* but which the Rust engine could not
+//! faithfully honor — in practice only per-task calendars (ADR-0120 D3). With
+//! #1504 the Rust engine honors those, so the last one-sided rejection is gone
+//! and its fixture was promoted into the ordinary two-engine conformance set
+//! (`fixtures/per_task_calendar_six_day.json`). Re-introducing a Rust-only
+//! rejection would be a parity regression: prefer implementing the semantics.
 //!
 //! `fixtures/parse_rejects/` — documents that must fail *deserialization* in
 //! both engines (#1861): dates in lenient ISO-8601 forms (compact `20260401`,
@@ -67,39 +68,6 @@ fn all_invalid_fixtures_rejected() {
         assert!(
             schedule_impl(&project).is_err(),
             "{stem}: expected schedule_impl to reject degenerate input, got Ok"
-        );
-    }
-}
-
-/// Every `fixtures/rust_rejects/*.json` is valid for the Python engine but must
-/// be rejected by Rust because it *sets* a field this engine cannot honor
-/// (per-task calendars, ADR-0120 D3). Since #1816 these fields are *parsed* (so the
-/// canonical `Project.to_json()` output — which emits them as `null` — is accepted),
-/// so the rejection moved from parse time (`deny_unknown_fields`) to schedule time
-/// (`validate_project`). The fixture parses cleanly and `schedule_impl` returns
-/// `Err` — the honest alternative to silently scheduling on the wrong calendar.
-#[test]
-fn rust_rejects_unhonorable_inputs() {
-    let dir = fixtures_dir().join("rust_rejects");
-    let stems = json_stems(&dir);
-    assert!(
-        !stems.is_empty(),
-        "no rust_rejects fixtures found in {} — path break? (#1506)",
-        dir.display()
-    );
-
-    for stem in &stems {
-        let path = dir.join(format!("{stem}.json"));
-        let json = fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("{stem}: failed to read fixture: {e}"));
-        // Parses (the Python-only keys are now declared, #1816) but is rejected at
-        // schedule time because it *sets* a per-task calendar this engine can't honor.
-        let project: Project = serde_json::from_str(&json)
-            .unwrap_or_else(|e| panic!("{stem}: fixture should parse since #1816, got {e}"));
-        assert!(
-            schedule_impl(&project).is_err(),
-            "{stem}: Rust must reject an input that sets a per-task calendar it cannot \
-             honor — it would otherwise silently schedule on the wrong calendar (#1505/#1816)."
         );
     }
 }

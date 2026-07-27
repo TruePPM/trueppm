@@ -59,8 +59,7 @@ def fixture_names() -> list[str]:
     """Discover all valid fixture JSON files (top-level only).
 
     ``glob("*.json")`` is deliberately non-recursive: it excludes the
-    ``expected/``, ``invalid/``, ``parse_rejects/``, and ``rust_rejects/``
-    subdirectories.
+    ``expected/``, ``invalid/``, and ``parse_rejects/`` subdirectories.
     """
     return sorted(p.stem for p in FIXTURES_DIR.glob("*.json"))
 

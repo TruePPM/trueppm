@@ -1,0 +1,19 @@
+{
+  "id": "p-ptc-duration",
+  "name": "Per-task calendars: duration expands on the task's own calendar",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "WEEKDAY", "name": "Mon-Fri task", "duration": 518400.0},
+    {"id": "EVERYDAY", "name": "Seven-day task", "duration": 518400.0, "calendar_id": "seven"}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  },
+  "calendars": {
+    "seven": {"working_days": 127, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+  }
+}

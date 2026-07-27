@@ -1,0 +1,18 @@
+{
+  "id": "p-six-day-mask",
+  "name": "Six-day working week (Mon-Sat) with a lagged SS link",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0},
+    {"id": "B", "name": "Task B", "duration": 259200.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "SS", "lag": 259200.0}
+  ],
+  "calendar": {
+    "working_days": 63,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

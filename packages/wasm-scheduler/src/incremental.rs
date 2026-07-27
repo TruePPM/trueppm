@@ -53,13 +53,16 @@ pub(crate) fn compute_downstream(
     // Run full CPM on a dense `Vec<Task>` indexed by node position (#1535).
     let mut tasks: Vec<crate::models::Task> = project.tasks.clone();
 
+    // Per-task calendars (ADR-0120 D3); uniform = single-calendar fast path.
+    let cals = crate::calendar::PassCalendars::resolve(project);
+
     forward_pass(
         &mut tasks,
         &pg.topo_order,
         pg,
         &project.dependencies,
         project.start_date,
-        &project.calendar,
+        &cals,
         project.status_date,
     )?;
 
@@ -71,7 +74,7 @@ pub(crate) fn compute_downstream(
         pg,
         &project.dependencies,
         project_finish,
-        &project.calendar,
+        &cals,
     )?;
 
     // compute_floats runs over the full topo order, so the driving edges it
@@ -82,7 +85,7 @@ pub(crate) fn compute_downstream(
         &pg.topo_order,
         pg,
         &project.dependencies,
-        &project.calendar,
+        &cals,
     )?;
 
     // Collect results for downstream tasks only

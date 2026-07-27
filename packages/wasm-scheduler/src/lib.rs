@@ -382,13 +382,17 @@ pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<Sched
     // index it by `NodeIndex::index()`, never by string id (#1535).
     let mut tasks: Vec<models::Task> = project.tasks.clone();
 
+    // Per-task calendars (ADR-0120 D3). Uniform when the project declares no
+    // registry — the single-calendar fast path, byte-identical to before.
+    let cals = calendar::PassCalendars::resolve(project);
+
     forward_pass(
         &mut tasks,
         &pg.topo_order,
         pg,
         &project.dependencies,
         project.start_date,
-        &project.calendar,
+        &cals,
         project.status_date,
     )?;
 
@@ -404,7 +408,7 @@ pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<Sched
         pg,
         &project.dependencies,
         project_finish,
-        &project.calendar,
+        &cals,
     )?;
 
     let driving_edges = compute_floats(
@@ -412,7 +416,7 @@ pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<Sched
         &pg.topo_order,
         pg,
         &project.dependencies,
-        &project.calendar,
+        &cals,
     )?;
 
     // Deterministic, topologically-valid critical-path order keyed by

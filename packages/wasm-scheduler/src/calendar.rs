@@ -6,8 +6,86 @@
 
 use chrono::{Datelike, Duration, NaiveDate};
 
-use crate::models::{Calendar, DateRange, Task};
+use crate::models::{Calendar, DateRange, Project, Task};
 use crate::validate::{MAX_CALENDAR_SCAN_DAYS, MAX_PROJECT_SPAN_DAYS};
+
+/// Map each task to the calendar its own date arithmetic should use (ADR-0120 D3).
+///
+/// Mirrors the Python `_resolve_task_calendars`. Returns `None` when the project
+/// declares no per-task `calendars` registry — the signal for the passes to take
+/// the single-calendar fast path that is byte-for-byte identical to the
+/// pre-ADR-0120 behavior. Otherwise every task resolves to its
+/// `Project.calendars[task.calendar_id]` entry, falling back to the pass-level
+/// `project.calendar` when `calendar_id` is unset or names no known calendar (a
+/// fall-back, not an error — a stray id never breaks a pass).
+///
+/// The returned vector is indexed by **node position**, which is the same as the
+/// task's position in `project.tasks` (the graph adds nodes in task order and the
+/// passes carry a dense `Vec<Task>` cloned from it, #1535).
+///
+/// This map governs a task's *own* arithmetic. Every pass applies the same rule:
+/// the node being computed uses its own calendar for all of its arithmetic —
+/// duration expansion *and* the snap of every constraint it derives. In the
+/// forward pass that node is the successor of its incoming edges (so lag lands on
+/// the successor's calendar); in the backward pass and the float pass it is the
+/// predecessor of its outgoing edges.
+pub fn resolve_task_calendars(project: &Project) -> Option<Vec<&Calendar>> {
+    let calendars = project.calendars.as_ref()?;
+    if calendars.is_empty() {
+        return None;
+    }
+    Some(
+        project
+            .tasks
+            .iter()
+            .map(|t| {
+                t.calendar_id
+                    .as_ref()
+                    .and_then(|id| calendars.get(id))
+                    .unwrap_or(&project.calendar)
+            })
+            .collect(),
+    )
+}
+
+/// The calendars a CPM pass schedules against: the pass-level one, plus the
+/// optional per-node override map (ADR-0120 D3).
+///
+/// Bundled into one value so each pass takes a single calendar argument rather
+/// than a `(calendar, task_calendars)` pair — which also keeps every pass under
+/// the clippy `too_many_arguments` bound.
+pub struct PassCalendars<'a> {
+    default: &'a Calendar,
+    per_node: Option<Vec<&'a Calendar>>,
+}
+
+impl<'a> PassCalendars<'a> {
+    /// Resolve a project's calendars once, before the passes run.
+    pub fn resolve(project: &'a Project) -> Self {
+        Self {
+            default: &project.calendar,
+            per_node: resolve_task_calendars(project),
+        }
+    }
+
+    /// The pass-level calendar (`Project.calendar`).
+    #[inline]
+    pub fn default_calendar(&self) -> &'a Calendar {
+        self.default
+    }
+
+    /// The calendar governing node `i`'s own arithmetic.
+    ///
+    /// No registry, or a node absent from the map, resolves to the pass-level
+    /// calendar — which is what keeps the single-calendar path identical.
+    #[inline]
+    pub fn for_node(&self, i: usize) -> &'a Calendar {
+        match &self.per_node {
+            Some(cals) => cals.get(i).copied().unwrap_or(self.default),
+            None => self.default,
+        }
+    }
+}
 
 /// Ceiling on any single day-by-day working-day walk (#1858).
 ///
