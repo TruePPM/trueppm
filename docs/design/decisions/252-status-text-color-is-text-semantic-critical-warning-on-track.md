@@ -1,0 +1,7 @@
+# Rule 252 — Status text color is text-semantic-{critical|warning|on-track|at-risk} — there is NO -text suffix variant
+
+> **Decision record.** Moved out of `packages/web/CLAUDE.md` by #2433 (ADR-0653): precedent bound to one surface, not a general invariant. It is still binding for the surface it governs.
+>
+> Original section: *Semantic status text token has no `-text` suffix (Issue #1392)*
+
+**Status text color is `text-semantic-{critical|warning|on-track|at-risk}` — there is NO `-text` suffix variant.** The `semantic` palette in `tailwind.config.ts` defines exactly the four foreground tokens (`semantic-critical`, `semantic-warning`, `semantic-on-track`, `semantic-at-risk`) plus their `-bg` tint variants (`semantic-critical-bg`, …) for pill/card fills. There is no `semantic-*-text` key, so a class like `text-semantic-on-track-text` or `text-semantic-critical-text` compiles to **nothing** — Tailwind silently emits no CSS for an undefined token (rule 40), and the element falls back to inherited color, dropping the status-color intent while still *looking* fine to a casual glance. Use `text-semantic-critical` for red status text on a `bg-semantic-critical-bg` tint, etc. (A pre-existing instance of this latent bug lives in `WorkspaceEmailPage.tsx`'s send-test result and `HealthChip` map — left untouched by #1392's scope, but the same fix applies.) Reference: `components/OSSChip.tsx`, `features/auth/SsoCompletePage.tsx`, `features/settings/workspace/WorkspaceSsoPage.tsx`.

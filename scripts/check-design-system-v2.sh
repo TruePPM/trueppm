@@ -25,6 +25,14 @@
 #   3b. inline `rgba(0,0,0,α)` color values — the "black on blue" antipattern
 #      (issue 1638): a fixed black value that renders invisible on the dark navy
 #      surfaces. The #-hex ratchet (check 2) does not see these. RATCHET.
+#   4b. sub-floor type outside the sanctioned settings tree — `text-[10px]` (rule 50
+#      floor is text-xs/12px; rule 118 carves out `features/settings/` only) and
+#      `text-[9px]` or smaller ANYWHERE (prohibited with no exception). ZERO
+#      RATCHET: two decorative, `aria-hidden` occurrences predate the check (see
+#      BASELINE_TINY_TEXT). New code adds zero (#2433).
+#   4c. a bare text node as a `<Suspense fallback>` — rule 248 wants a skeleton that
+#      mirrors the surface's shape, never a naked "Loading…" line, so the layout
+#      does not jump when the chunk lands. ZERO TOLERANCE (#2431/#2433).
 #   4. dark-chrome-on-light — a hardcoded dark navy SURFACE on the shell chrome that
 #      is not `dark:`-gated, i.e. the "dark sidebar on a light app" antipattern
 #      (ADR-0126 §4). ZERO TOLERANCE: any occurrence fails. Chrome must use the
@@ -66,6 +74,17 @@ BASELINE_SHADOW=0
 # value with its COLOR_DARK / forced-colors counterparts, same accepted pattern as
 # its palette siblings (rowBandAlt / weekend / gridLine).
 BASELINE_BLACK=6
+# Sub-floor type outside the sanctioned settings tree (check 4b). The two survivors
+# are both DECORATIVE text inside an `aria-hidden` element, where the accessible
+# name is carried by a sibling — so neither is a literal WCAG 1.4.3 failure, but
+# both sit below the type floor and should trend to zero:
+#   · TaskSummaryStrip  — 10px initials inside a 20px avatar circle (aria-hidden;
+#     the owner's name renders beside it).
+#   · ProgramIdentitySquare `xs-label` — 7px code inside a 16px square (aria-hidden
+#     by rule 158; the program name is the accessible signal).
+# A zero-tolerance gate here would have failed every unrelated MR on day one, so
+# this ratchets like its siblings above.
+BASELINE_TINY_TEXT=2
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'
 
@@ -104,6 +123,22 @@ black_rgba_count() {
   g -rIE "rgba\(0, ?0, ?0, ?[0-9]?\.[0-9]" \
     "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | g -vE "$EXCLUDE" | wc -l | tr -d ' '
 }
+# Sub-floor type. `text-[10px]` is permitted ONLY inside features/settings (the
+# compact-admin density carve-out, rule 118); `text-[9px]` and below are prohibited
+# everywhere, settings included. Both are a WCAG 1.4.3 risk, which is why the
+# exception is a named tree rather than a per-component judgement call.
+tiny_text_offenders() {
+  g -rInE "text-\[([0-9]|10)px\]" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \
+    | g -vE "$EXCLUDE" \
+    | g -vE "^$WEB_SRC/features/settings/.*text-\[10px\]"
+}
+# A Suspense fallback that is a DOM element wrapping immediate text — i.e. a bare
+# "Loading…" line where rule 248 requires a shape-mirroring skeleton.
+bare_suspense_fallback_offenders() {
+  g -rInE "fallback=\{<(div|span|p|section)[^>]*>[[:space:]]*[A-Za-z]" \
+    "$WEB_SRC" --include="*.tsx" 2>/dev/null | g -vE "$EXCLUDE"
+}
+
 # Lines in the shell that apply a raw dark navy SURFACE not gated by `dark:`.
 # (bg-black scrims are intentionally NOT matched — only navy chrome surfaces.)
 dark_chrome_offenders() {
@@ -119,8 +154,10 @@ arb=$(arbitrary_count)
 shadow=$(shadow_count)
 black=$(black_rgba_count)
 dark_chrome=$(dark_chrome_offenders | wc -l | tr -d ' ')
+tiny_text=$(tiny_text_offenders | wc -l | tr -d ' ')
+bare_suspense=$(bare_suspense_fallback_offenders | wc -l | tr -d ' ')
 
-echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · dark-chrome=$dark_chrome (=0)"
+echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0)"
 
 if (( arb > BASELINE_ARBITRARY )); then
   echo "::error:: $arb arbitrary Tailwind color value classes (baseline $BASELINE_ARBITRARY)."
@@ -164,6 +201,22 @@ if (( dark_chrome > 0 )); then
   echo "::error:: $dark_chrome dark-chrome-on-light occurrence(s) in $SHELL_SRC (ADR-0126 §4 — never a dark sidebar on a light app)."
   echo "  Shell chrome must use the adaptive 'bg-chrome-surface' token (it swaps with the .dark class), not a raw dark navy fill. Offenders:"
   dark_chrome_offenders | sed 's/^/    /'
+  fail=1
+fi
+
+if (( tiny_text > BASELINE_TINY_TEXT )); then
+  echo "::error:: $tiny_text sub-floor type occurrence(s) (baseline $BASELINE_TINY_TEXT) — the type floor is text-xs (12px, rule 50)."
+  echo "  text-[10px] is permitted only inside features/settings (rule 118); text-[9px] and below are prohibited everywhere. Offenders:"
+  tiny_text_offenders | sed 's/^/    /'
+  fail=1
+elif (( tiny_text < BASELINE_TINY_TEXT )); then
+  echo "::notice:: sub-floor type dropped to $tiny_text — lower BASELINE_TINY_TEXT in $(basename "$0") to $tiny_text to lock the gain."
+fi
+
+if (( bare_suspense > 0 )); then
+  echo "::error:: $bare_suspense bare text node(s) used as a Suspense fallback (rule 248)."
+  echo "  Render a skeleton that mirrors the surface's shape so the layout does not jump when the chunk lands. Offenders:"
+  bare_suspense_fallback_offenders | sed 's/^/    /'
   fail=1
 fi
 

@@ -1,0 +1,7 @@
+# Rule 221 — A control that is the *sole* affordance for a primary action meets the ≥44px touch target even on a desktop-dense data surface — density is not a licence to shrink the only way to do the thing
+
+> **Decision record.** Moved out of `packages/web/CLAUDE.md` by #2433 (ADR-0653): precedent bound to one surface, not a general invariant. It is still binding for the surface it governs.
+>
+> Original section: *Mobile bottom rail caps at 5 slots; overflow goes to a BottomSheet, never a scroller (Issue #1464)*
+
+**A control that is the *sole* affordance for a primary action meets the ≥44px touch target even on a desktop-dense data surface — density is not a licence to shrink the only way to do the thing.** A glyph-only stepper/pager (`‹` / `›`), the single button that changes the data the whole view is about, must have a ≥44px hit area regardless of how compact the surrounding grid is; `px-2 py-1` around a one-character glyph (~22px) is a ux-review finding even under a 2.1-AA scope because on the mobile/tablet horizontal-scroll layout it is the primary navigation. Give each button `inline-flex min-h-[44px] min-w-[44px] items-center justify-center` and center the glyph; let the *content cells* be dense (a spreadsheet row may be `h-9`), but never the sole navigation control. Reference: the timesheet week-stepper (`features/timesheet/TimesheetPage.tsx`, #1435) — contrast the dense `h-9` grid cells in the same feature, which are acceptable because they are not a sole affordance.

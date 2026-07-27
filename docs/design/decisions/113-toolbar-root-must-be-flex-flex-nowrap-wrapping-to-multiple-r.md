@@ -1,0 +1,7 @@
+# Rule 113 — Toolbar root must be flex flex-nowrap — wrapping to multiple rows is a bug
+
+> **Decision record.** Moved out of `packages/web/CLAUDE.md` by #2433 (ADR-0653): precedent bound to one surface, not a general invariant. It is still binding for the surface it governs.
+>
+> Original section: *Toolbar Responsive Rules (Issue #568)*
+
+**Toolbar root must be `flex flex-nowrap` — wrapping to multiple rows is a bug.** The fixed height is `h-10` for view-level toolbars (Schedule, Board, Resource) and `h-7` for sub-toolbars (GanttToolbar secondary row). If a toolbar wraps, it is missing breakpoint collapse rules (rule 111). `flex-nowrap` is explicit so lint / visual review surfaces the problem immediately rather than silently producing a two-row layout. **Documented carve-out (#1708): the bespoke Grid `Toolbar` (`features/grid/GridView.tsx`) intentionally `flex-wrap`s below `md`** — it predates the rules 110–112 `ToolbarOverflowMenu` pattern and was never migrated to it. Because it wraps on a phone, its root uses `min-h-9 md:h-9` (grow to contain the wrapped rows) rather than a fixed `h-9` that would clamp the height and let the wrapped rows overflow onto the task list (the #1708 overlap bug). It stays `md:flex-nowrap` at desktop. Do **not** "correct" it back to `flex-nowrap` at all widths — that reintroduces the overlap. Migrating it to the rule 111/112 overflow-collapse pattern is the proper long-term fix (tracked in #1710); until then this wrap is deliberate.

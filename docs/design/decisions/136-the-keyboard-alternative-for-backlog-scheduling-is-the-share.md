@@ -1,0 +1,7 @@
+# Rule 136 — The keyboard alternative for backlog scheduling is the shared ScheduleTaskDialog (the rule-105 parallel)
+
+> **Decision record.** Moved out of `packages/web/CLAUDE.md` by #2433 (ADR-0653): precedent bound to one surface, not a general invariant. It is still binding for the surface it governs.
+>
+> Original section: *Schedule Backlog-Promote Rules (Issue #318)*
+
+**The keyboard alternative for backlog scheduling is the shared `ScheduleTaskDialog` (the rule-105 parallel).** `features/schedule/ScheduleTaskDialog.tsx` (`role="dialog" aria-modal="true"`, ~360px, `bg-neutral-surface border border-neutral-border rounded-lg`, no shadow) is reachable from **two** entry points but is a single component: the gutter backlog chip's `···` menu (replaces the inline form; the To Do row keeps its inline form) and the Board `BacklogCard`'s `···` action (mounted once in `BoardView`, single instance like `BacklogDemoteConfirmDialog`, passed down via `BacklogBand`'s `onSchedule`). The date input defaults to today (local ISO) and is focus-first; focus is trapped; Esc + ✕ cancel and **return focus to the trigger** (copy `BacklogDemoteConfirmDialog`'s pattern). Schedule issues the same A2 PATCH (`{ planned_start, status: 'NOT_STARTED' }`) and the same success toast + aria-live "Scheduled {name} for {date}."; on error it stays open with an inline `text-xs text-semantic-critical` message; offline disables the Schedule button with a `title`.

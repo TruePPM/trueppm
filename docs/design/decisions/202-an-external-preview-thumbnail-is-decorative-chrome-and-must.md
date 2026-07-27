@@ -1,0 +1,7 @@
+# Rule 202 — An external preview thumbnail is DECORATIVE chrome and MUST carry an onError glyph fallback — never render a remote <img> from an unfurled URL without one
+
+> **Decision record.** Moved out of `packages/web/CLAUDE.md` by #2433 (ADR-0653): precedent bound to one surface, not a general invariant. It is still binding for the surface it governs.
+>
+> Original section: *Cloud-file link preview (#571, ADR-0163)*
+
+**An external preview thumbnail is DECORATIVE chrome and MUST carry an `onError` glyph fallback — never render a remote `<img>` from an unfurled URL without one.** In `FilePreview`, the thumbnail `<img>` uses `alt=""` + `aria-hidden="true"` (the link title + description carry the meaning) + `loading="lazy"`, plus an `onError` handler that flips to a `preview_type` glyph placeholder (`previewTypeGlyph`, `text-xl`, `aria-hidden`). The fallback is load-bearing, not polish: the image host is external, so it fails **offline** (the card still renders from the synced `thumbnail_url`/`description`/`preview_type` fields — only the `<img>` fetch fails) and for **private files** (no `og:image`). The same glyph box renders directly (no `<img>`) when `thumbnail_url` is empty. `FilePreview` mounts only when `description || thumbnail_url` is present, so a not-yet-refreshed link adds no empty box and keeps the row's `gap-1` rhythm; it adds **no new focusable element**, so keyboard tab order is unchanged. `thumbnail_url` is https-only (enforced server-side) — assume the server already dropped non-https; do not client-sanitize-and-trust.

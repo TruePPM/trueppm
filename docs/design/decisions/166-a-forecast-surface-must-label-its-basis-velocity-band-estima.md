@@ -1,0 +1,7 @@
+# Rule 166 — A forecast surface must label its basis (velocity-band estimate vs Monte Carlo) with *visible* text — never a title tooltip alone, and reserve P50/P80/P95 percentile vocabulary for real simulation
+
+> **Decision record.** Moved out of `packages/web/CLAUDE.md` by #2433 (ADR-0653): precedent bound to one surface, not a general invariant. It is still binding for the surface it governs.
+>
+> Original section: *Forecast basis labeling (Issue #1094)*
+
+**A forecast surface must label its basis (velocity-band estimate vs Monte Carlo) with *visible* text — never a `title` tooltip alone, and reserve P50/P80/P95 percentile vocabulary for real simulation.** The bridge reforecast (`PercentileBar` in `PromoteMilestoneDialog.tsx`, `MilestoneForecast` in `VelocityForecastLine.tsx`) is a deterministic velocity-band heuristic, not a Monte Carlo distribution; presenting its dates as "P80" is false precision (the #1094 VoC finding). When `basis === 'velocity_band'`, drop percentile labels (use `Early`/`Likely`/`Late` and `est. {date}–{date}`) and show an on-screen `Estimate — velocity-based, not simulated.` caption / `(velocity estimate)` qualifier — not a `title` (which is not exposed to keyboard or screen readers, rules 22a/121). Keep `P50`/`P80`/`P95` only when `basis === 'monte_carlo'`. Same single-basis source drives both the dialog bar and the panel forecast line so the two never disagree.
