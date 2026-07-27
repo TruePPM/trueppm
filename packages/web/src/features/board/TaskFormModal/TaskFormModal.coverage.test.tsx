@@ -22,11 +22,15 @@ import type {
 import { TaskFormModal } from './index';
 
 // --- Mutable fixtures ------------------------------------------------------
-let mockTasks: Array<Partial<Task>> = [];
-let mockLinks: Array<{ sourceId: string; targetId: string }> = [];
+// `undefined` models the pre-resolve window of the schedule / resource queries —
+// the modal must render before those lists exist.
+let mockTasks: Array<Partial<Task>> | undefined = [];
+let mockLinks: Array<{ sourceId: string; targetId: string }> | undefined = [];
 let mockProject: Record<string, unknown> = { agile_features: false };
 let mockUserRole = 300;
-let mockPool: Array<{ resource: { id: string; name: string }; roleTitle: string }> = [];
+let mockPool: Array<{ resource: { id: string; name: string }; roleTitle: string }> | undefined = [];
+let mockCreatePending = false;
+let mockUpdatePending = false;
 let mockSprints: Array<{ id: string; name: string; state: string }> = [];
 let mockHistory: Array<{ history_date: string; history_user: string | null; diff: unknown[] }> = [];
 let mockServerPredecessors: Array<{ id: string; predecessorId: string; successorId: string }> = [];
@@ -83,8 +87,8 @@ const mockParseAnchor = vi.hoisted(() =>
   vi.fn<() => ProgressAnchorError | null>(() => null),
 );
 vi.mock('@/hooks/useTaskMutations', () => ({
-  useCreateTask: () => ({ mutate: vi.fn(), mutateAsync: createMutate, isPending: false }),
-  useUpdateTask: () => ({ mutate: vi.fn(), mutateAsync: updateMutate, isPending: false }),
+  useCreateTask: () => ({ mutate: vi.fn(), mutateAsync: createMutate, isPending: mockCreatePending }),
+  useUpdateTask: () => ({ mutate: vi.fn(), mutateAsync: updateMutate, isPending: mockUpdatePending }),
   useDeleteTask: () => ({ mutate: vi.fn(), mutateAsync: deleteMutate, isPending: false }),
   useAddDependency: () => ({ mutate: vi.fn(), mutateAsync: addDependencyMutate, isPending: false }),
   useRemoveDependency: () => ({ mutate: vi.fn(), mutateAsync: removeDependencyMutate, isPending: false }),
@@ -154,6 +158,8 @@ beforeEach(() => {
   mockServerPredecessors = [];
   mockPredsResolved = true;
   mockPredsError = null;
+  mockCreatePending = false;
+  mockUpdatePending = false;
   mockParseCyclic.mockReturnValue(null);
   mockParseAnchor.mockReturnValue(null);
 });
@@ -678,4 +684,227 @@ it('does not wipe hydrated predecessors when a later dependency resolve returns 
   );
   // Guard #2 skips the overwrite — the predecessor stays visible.
   expect(screen.getByText(/Predecessor A/)).toBeInTheDocument();
+});
+
+// ----- Dependent queries that have not resolved yet (#2459) ----------------
+// `useScheduleTasks`, `useProjectResourcePool` and friends return undefined
+// until their first response lands. The modal has to be usable in that window.
+
+describe('unresolved dependent queries', () => {
+  beforeEach(() => {
+    mockTasks = undefined;
+    mockLinks = undefined;
+    mockPool = undefined;
+  });
+
+  it('create mode: renders without a parent picker until the schedule resolves', () => {
+    renderModal();
+    expect(screen.queryByLabelText(/Parent phase/)).not.toBeInTheDocument();
+    // The rest of the form is still usable.
+    expect(screen.getByLabelText('Task name *')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Predecessors' })).toBeInTheDocument();
+  });
+
+  it('edit mode: defers predecessor hydration until the task list is available', () => {
+    mockServerPredecessors = [
+      { id: 'dep-1', predecessorId: 'pred-a', successorId: 'edit-task-id' },
+    ];
+    renderModal({ task: baseTask() });
+    // Hydration needs the task list to resolve names — nothing is seeded yet.
+    expect(screen.queryByText(/Predecessor A/)).not.toBeInTheDocument();
+  });
+
+  it('edit mode: the assignee picker offers an empty pool rather than crashing', () => {
+    renderModal({ task: baseTask() });
+    expect(screen.getByLabelText('Search people to assign')).toBeInTheDocument();
+  });
+
+  it('delete confirm claims no cascade when the schedule cache holds nothing', () => {
+    mockUserRole = 400;
+    renderModal({ task: baseTask({ name: 'Orphan', wbs: '' }) });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(
+      within(dialog).getByText('“Orphan” will be permanently removed. This can’t be undone.'),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText(/subtask|dependency link/)).not.toBeInTheDocument();
+  });
+});
+
+// ----- Predecessor whose task is not in the schedule cache ------------------
+
+it('labels a hydrated predecessor by id when its task is missing from the schedule', async () => {
+  mockServerPredecessors = [
+    { id: 'dep-9', predecessorId: 'ghost-task-9999', successorId: 'edit-task-id' },
+  ];
+  renderModal({ task: baseTask() });
+  expect(await screen.findByText(/Task ghost-/)).toBeInTheDocument();
+});
+
+// ----- Prefill fallbacks ---------------------------------------------------
+
+it('edit mode: a task with no planned start opens with an empty date field', () => {
+  renderModal({ task: baseTask({ plannedStart: null }) });
+  expect(screen.getByLabelText<HTMLInputElement>('Planned start').value).toBe('');
+});
+
+it('edit mode: saving a task that never had a planned start sends planned_start: null', async () => {
+  renderModal({ task: baseTask({ plannedStart: null }) });
+  fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Still undated' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+  await Promise.resolve();
+  expect(updateMutate).toHaveBeenCalledWith(expect.objectContaining({ planned_start: null }));
+});
+
+it('renders an empty type hint when the stored type is outside the catalog', () => {
+  renderModal({ task: baseTask({ taskType: 'legacy_kind' as Task['taskType'] }) });
+  const hint = document.getElementById('task-type-hint');
+  expect(hint).not.toBeNull();
+  expect(hint?.textContent).toBe('');
+});
+
+it('create mode: an explicitly null defaultSprintId leaves the sprint unset', () => {
+  mockProject = { agile_features: true };
+  mockSprints = [{ id: 'sprint-1', name: 'Sprint One', state: 'PLANNED' }];
+  renderModal({ defaultSprintId: null });
+  expect(screen.getByLabelText<HTMLSelectElement>('Sprint').value).toBe('');
+});
+
+// ----- Keyboard handler guards ---------------------------------------------
+
+describe('document keydown guards', () => {
+  it('⌘+S does nothing while the form is invalid', async () => {
+    renderModal();
+    fireEvent.keyDown(document, { key: 's', metaKey: true });
+    await Promise.resolve();
+    expect(createMutate).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('⌘+S does nothing for a read-only viewer', async () => {
+    mockUserRole = 0;
+    renderModal({ task: baseTask() });
+    fireEvent.keyDown(document, { key: 's', metaKey: true });
+    await Promise.resolve();
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it('an unrelated key neither submits nor closes', async () => {
+    const onClose = vi.fn();
+    renderModal({ task: baseTask(), onClose });
+    fireEvent.keyDown(document, { key: 'k' });
+    await Promise.resolve();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+});
+
+// ----- Save sequencer: rows that need no write ------------------------------
+
+it('leaves an untouched assignee alone on save', async () => {
+  renderModal({
+    task: baseTask({ assignees: [{ resourceId: 'r1', name: 'Alice', units: 0.5 }] }),
+  });
+  fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Renamed only' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+  await waitFor(() => expect(updateMutate).toHaveBeenCalled());
+  expect(addAssignmentMutate).not.toHaveBeenCalled();
+  expect(updateAssignmentMutate).not.toHaveBeenCalled();
+  expect(removeAssignmentMutate).not.toHaveBeenCalled();
+});
+
+it('leaves an untouched predecessor alone on save', async () => {
+  mockServerPredecessors = [
+    { id: 'dep-1', predecessorId: 'pred-a', successorId: 'edit-task-id' },
+  ];
+  const onClose = vi.fn();
+  renderModal({ task: baseTask(), onClose });
+  await screen.findByText(/Predecessor A/);
+  fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Renamed only' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+  await waitFor(() => expect(onClose).toHaveBeenCalled());
+  expect(addDependencyMutate).not.toHaveBeenCalled();
+  expect(removeDependencyMutate).not.toHaveBeenCalled();
+});
+
+// ----- Invalid submits + non-Error delete rejection -------------------------
+
+it('submitting the form while the name is empty is a guarded no-op', async () => {
+  const onClose = vi.fn();
+  const { container } = renderModal({ onClose });
+  const form = container.ownerDocument.getElementById('task-form');
+  expect(form).not.toBeNull();
+  fireEvent.submit(form!);
+  await Promise.resolve();
+  expect(createMutate).not.toHaveBeenCalled();
+  expect(onClose).not.toHaveBeenCalled();
+});
+
+it('shows the generic delete-failure copy when the rejection is not an Error', async () => {
+  mockUserRole = 400;
+  deleteMutate.mockRejectedValueOnce('nope');
+  renderModal({ task: baseTask() });
+  fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(await screen.findByText('Couldn’t delete the task.')).toBeInTheDocument();
+  // The confirm dialog is dismissed so the form is reachable again.
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+});
+
+// ----- Conflict banner without a field list ---------------------------------
+
+it('conflict banner falls back to "this task" when the server names no fields', async () => {
+  updateMutate.mockRejectedValueOnce(
+    makeConflictError({ conflict_fields: [], server_value: {} }),
+  );
+  renderModal({ task: baseTask({ serverVersion: 3 }) });
+  fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Mine' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+  const banner = await screen.findByRole('alert');
+  expect(banner).toHaveTextContent(/Someone else changed this task while you were editing/);
+  expect(within(banner).queryByRole('listitem')).not.toBeInTheDocument();
+});
+
+// ----- Header fallback + pending submit labels ------------------------------
+
+it('edit mode: an unnamed task falls back to the generic modal heading', () => {
+  renderModal({ task: baseTask({ name: '' }) });
+  expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Add task');
+  expect(screen.getByText('EDIT TASK')).toBeInTheDocument();
+});
+
+describe('in-flight submit labels', () => {
+  it('create mode reads "Creating…" and blocks a second submit', () => {
+    mockCreatePending = true;
+    renderModal();
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Anything' } });
+    expect(screen.getByRole('button', { name: 'Creating…' })).toBeDisabled();
+  });
+
+  it('edit mode reads "Saving…" and blocks a second submit', () => {
+    mockUpdatePending = true;
+    renderModal({ task: baseTask() });
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+  });
+
+  it('milestone create mode also reads "Creating…" while in flight', () => {
+    mockCreatePending = true;
+    renderModal({ isMilestone: true });
+    expect(screen.getByRole('button', { name: 'Creating…' })).toBeInTheDocument();
+  });
+});
+
+// ----- Blast radius counts both edge directions ----------------------------
+
+it('delete confirm counts dependency edges where the task is the successor', () => {
+  mockUserRole = 400;
+  mockTasks = [{ id: 'edit-task-id', wbs: '1.1', name: 'Existing task' } as Partial<Task>];
+  mockLinks = [
+    { sourceId: 'upstream', targetId: 'edit-task-id' },
+    { sourceId: 'unrelated-a', targetId: 'unrelated-b' },
+  ];
+  renderModal({ task: baseTask() });
+  fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
+  const dialog = screen.getByRole('alertdialog');
+  expect(within(dialog).getByText(/1 dependency link/)).toBeInTheDocument();
 });

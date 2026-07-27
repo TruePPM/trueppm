@@ -6,7 +6,7 @@ import { createElement } from 'react';
 import { useScheduleCommit } from './useScheduleCommit';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { GanttEngineStub } from './engine';
-import type { GanttEngineEventMap, GanttScaleData } from './engine';
+import type { GanttEngine, GanttEngineEventMap, GanttScaleData } from './engine';
 import type { Task, ApiSprint } from '@/types';
 
 const { patchMock } = vi.hoisted(() => ({
@@ -28,7 +28,7 @@ const MOCK_SCALES: GanttScaleData = {
 
 class ControllableEngine extends GanttEngineStub {
   private _map = new Map<string, Set<(p: unknown) => void>>();
-  override readonly scales: GanttScaleData = MOCK_SCALES;
+  override readonly scales: GanttScaleData | null = MOCK_SCALES;
   override readonly scrollLeft: number = 0;
   updateTaskCalls: Array<{ id: string; patch: Partial<Task> }> = [];
 
@@ -125,6 +125,11 @@ function makeContainerRef(): MutableRefObject<HTMLDivElement | null> {
   return ref;
 }
 
+/** An engine that has not laid out its scales yet — every gesture must no-op. */
+class ScalelessEngine extends ControllableEngine {
+  override readonly scales: GanttScaleData | null = null;
+}
+
 function renderCommit(
   engine: ControllableEngine,
   opts: {
@@ -140,9 +145,13 @@ function renderCommit(
     /** Force a container ref whose `.current` is null (computeAnchor bails). */
     nullContainer?: boolean;
     projectId?: string | null;
+    /** Force an aria-live ref whose `.current` is null (announcements skipped). */
+    nullAria?: boolean;
   } = {},
 ) {
-  const ariaAssertiveRef = makeAriaRef();
+  const ariaAssertiveRef = opts.nullAria
+    ? (createRef<HTMLDivElement>() as MutableRefObject<HTMLDivElement | null>)
+    : makeAriaRef();
   const canvasContainerRef = opts.nullContainer
     ? (createRef<HTMLDivElement>() as MutableRefObject<HTMLDivElement | null>)
     : makeContainerRef();
@@ -752,5 +761,358 @@ describe('useScheduleCommit', () => {
         'Resize cancelled — change not saved.',
       );
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Subscription guards — the hook must not react to engine gestures at all when
+// it has nothing to commit against (no project) or nothing to measure against
+// (no laid-out scales).
+// ---------------------------------------------------------------------------
+
+describe('useScheduleCommit — subscription guards', () => {
+  it('ignores drag and resize gestures when there is no projectId', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, { projectId: null });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+    act(() => engine.emit('resize-task-end', { id: 't1', right: 19, cancelled: false }));
+    expect(result.current.state).toBeNull();
+    expect(engine.updateTaskCalls).toHaveLength(0);
+  });
+
+  it('ignores drag and resize gestures before the engine has laid out its scales', () => {
+    const engine = new ScalelessEngine();
+    const { result } = renderCommit(engine);
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+    act(() => engine.emit('resize-task-end', { id: 't1', right: 19, cancelled: false }));
+    expect(result.current.state).toBeNull();
+    expect(engine.updateTaskCalls).toHaveLength(0);
+  });
+
+  it('does not open the popover on a cancelled resize-task-end', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine);
+    act(() => engine.emit('resize-task-end', { id: 't1', right: 19, cancelled: true }));
+    expect(result.current.state).toBeNull();
+    expect(engine.updateTaskCalls).toHaveLength(0);
+  });
+
+  it('resize-end whose task is not in the visible rows moves the bar but opens no popover', () => {
+    // Mirror of the drag-side case: computeAnchor returns null (rowIndex < 0) so
+    // the popover is suppressed even though the preview has already moved.
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, { visibleTasks: [] });
+    act(() => engine.emit('resize-task-end', { id: 't1', right: 19, cancelled: false }));
+    expect(engine.updateTaskCalls).toHaveLength(1);
+    expect(result.current.state).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Announcements are best-effort — every flow must still work when the host has
+// not mounted the aria-live region (ref.current === null).
+// ---------------------------------------------------------------------------
+
+describe('useScheduleCommit — missing aria-live region', () => {
+  it('drag → cancel still reverts the bar with no live region mounted', () => {
+    const engine = new ControllableEngine();
+    const { result, ariaAssertiveRef } = renderCommit(engine, { nullAria: true });
+    expect(ariaAssertiveRef.current).toBeNull();
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+    expect(result.current.state).not.toBeNull();
+    act(() => result.current.handleCancel());
+    expect(result.current.state).toBeNull();
+    expect(engine.updateTaskCalls[1]?.patch.start).toBe('2026-01-10');
+  });
+
+  it('resize → click-outside still toasts with no live region mounted', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, { nullAria: true });
+    act(() => engine.emit('resize-task-end', { id: 't1', right: 19, cancelled: false }));
+    expect(result.current.state).not.toBeNull();
+    act(() => result.current.handleDismissByOutsideClick());
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+      'Resize cancelled — change not saved.',
+    );
+    expect(result.current.state).toBeNull();
+  });
+
+  it('drag → confirm still PATCHes with no live region mounted', async () => {
+    const engine = new ControllableEngine();
+    const onCommitSuccess = vi.fn();
+    const { result } = renderCommit(engine, { nullAria: true, onCommitSuccess });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    await waitFor(() => expect(onCommitSuccess).toHaveBeenCalled());
+    expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' });
+  });
+
+  it('before-start prompt → snap → cancel all work with no live region mounted', async () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, {
+      nullAria: true,
+      projectStartDate: '2026-01-20',
+    });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    expect(result.current.beforeStartPrompt).not.toBeNull();
+    act(() => result.current.handleSnapToProjectStart());
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-20' }),
+    );
+    await waitFor(() => expect(result.current.beforeStartPrompt).toBeNull());
+  });
+
+  it('move-project-start succeeds with no live region mounted', async () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, {
+      nullAria: true,
+      projectStartDate: '2026-01-20',
+    });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    act(() => result.current.handleMoveProjectStart());
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/projects/p1/', { start_date: '2026-01-06' }),
+    );
+    await waitFor(() => expect(result.current.beforeStartPrompt).toBeNull());
+  });
+
+  it('cancel-before-start still toasts with no live region mounted', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, {
+      nullAria: true,
+      projectStartDate: '2026-01-20',
+    });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    act(() => result.current.handleCancelBeforeStart());
+    expect(result.current.beforeStartPrompt).toBeNull();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+      'Reschedule cancelled — change not saved.',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The engine can be torn down (canvas unmount / re-init) while a popover or
+// floor prompt is still open. Every handler must degrade to "state only".
+// ---------------------------------------------------------------------------
+
+/** Render with a swappable engine so a test can drop it to null mid-flow. */
+function renderCommitWithSwappableEngine(opts: { projectStartDate?: string | null } = {}) {
+  const engine = new ControllableEngine();
+  const ariaAssertiveRef = makeAriaRef();
+  const canvasContainerRef = makeContainerRef();
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+
+  function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: qc }, children);
+  }
+
+  const view = renderHook(
+    ({ engine: current }: { engine: GanttEngine | null }) =>
+      useScheduleCommit({
+        engine: current,
+        projectId: 'p1',
+        projectStartDate: opts.projectStartDate ?? null,
+        effectiveFloorDate: null,
+        visibleTasks: [TASK_A],
+        allTasks: [TASK_A],
+        sprints: [],
+        canvasContainerRef,
+        ariaAssertiveRef,
+      }),
+    { wrapper: Wrapper, initialProps: { engine: engine as GanttEngine | null } },
+  );
+
+  return { ...view, engine, ariaAssertiveRef };
+}
+
+describe('useScheduleCommit — engine torn down mid-flow', () => {
+  it('Cancel clears the popover without a revert when the engine is gone', () => {
+    const { result, rerender, engine } = renderCommitWithSwappableEngine();
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+    expect(engine.updateTaskCalls).toHaveLength(1);
+    rerender({ engine: null });
+    act(() => result.current.handleCancel());
+    expect(result.current.state).toBeNull();
+    // No second updateTask: there is no engine left to revert.
+    expect(engine.updateTaskCalls).toHaveLength(1);
+  });
+
+  it('offline Snap clears the prompt without a revert when the engine is gone', () => {
+    const onlineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const { result, rerender, engine } = renderCommitWithSwappableEngine({
+      projectStartDate: '2026-01-20',
+    });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    rerender({ engine: null });
+    onlineSpy.mockReturnValue(false);
+    act(() => result.current.handleSnapToProjectStart());
+    expect(result.current.beforeStartPrompt).toBeNull();
+    expect(useScheduleStore.getState().scheduleError).toBe("You're offline — change not saved.");
+    expect(engine.updateTaskCalls).toHaveLength(1);
+    expect(patchMock).not.toHaveBeenCalled();
+    onlineSpy.mockRestore();
+  });
+
+  it('online Snap still PATCHes when the engine is gone (no preview to move)', async () => {
+    const { result, rerender, engine } = renderCommitWithSwappableEngine({
+      projectStartDate: '2026-01-20',
+    });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    rerender({ engine: null });
+    act(() => result.current.handleSnapToProjectStart());
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-20' }),
+    );
+    expect(engine.updateTaskCalls).toHaveLength(1);
+  });
+
+  it('offline move-project-start clears the prompt when the engine is gone', () => {
+    const onlineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const { result, rerender, engine } = renderCommitWithSwappableEngine({
+      projectStartDate: '2026-01-20',
+    });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    rerender({ engine: null });
+    onlineSpy.mockReturnValue(false);
+    act(() => result.current.handleMoveProjectStart());
+    expect(result.current.beforeStartPrompt).toBeNull();
+    expect(useScheduleStore.getState().scheduleError).toBe("You're offline — change not saved.");
+    expect(patchMock).not.toHaveBeenCalled();
+    onlineSpy.mockRestore();
+  });
+
+  it('Cancel-before-start clears the prompt and toasts when the engine is gone', () => {
+    const { result, rerender, engine } = renderCommitWithSwappableEngine({
+      projectStartDate: '2026-01-20',
+    });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    rerender({ engine: null });
+    act(() => result.current.handleCancelBeforeStart());
+    expect(result.current.beforeStartPrompt).toBeNull();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+      'Reschedule cancelled — change not saved.',
+    );
+    expect(engine.updateTaskCalls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A user who cancels before an in-flight PATCH settles must not have the
+// popover/prompt resurrected by the late failure.
+// ---------------------------------------------------------------------------
+
+describe('useScheduleCommit — late failures after the user has moved on', () => {
+  it('a confirm rejection after Cancel does not re-open the popover', async () => {
+    const engine = new ControllableEngine();
+    let rejectPatch: (reason: unknown) => void = () => {};
+    patchMock.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectPatch = reject;
+        }),
+    );
+    const { result } = renderCommit(engine);
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    // onMutate awaits cancelQueries, so the PATCH is issued a microtask later.
+    await waitFor(() => expect(patchMock).toHaveBeenCalled());
+    act(() => result.current.handleCancel());
+    expect(result.current.state).toBeNull();
+
+    await act(async () => {
+      rejectPatch({ response: { data: { detail: 'Task is locked.' } } });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+    expect(result.current.state).toBeNull();
+  });
+
+  it('a snap rejection after Cancel does not re-open the floor prompt', async () => {
+    const engine = new ControllableEngine();
+    let rejectPatch: (reason: unknown) => void = () => {};
+    patchMock.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectPatch = reject;
+        }),
+    );
+    const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    act(() => result.current.handleSnapToProjectStart());
+    await waitFor(() => expect(patchMock).toHaveBeenCalled());
+    act(() => result.current.handleCancelBeforeStart());
+    expect(result.current.beforeStartPrompt).toBeNull();
+
+    await act(async () => {
+      rejectPatch({ response: { data: { detail: 'Still too early.' } } });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.beforeStartPending).toBe(false));
+    expect(result.current.beforeStartPrompt).toBeNull();
+  });
+
+  it('a project-start rejection after Cancel does not re-open the floor prompt', async () => {
+    const engine = new ControllableEngine();
+    let rejectPatch: (reason: unknown) => void = () => {};
+    patchMock.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectPatch = reject;
+        }),
+    );
+    const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    act(() => result.current.handleMoveProjectStart());
+    await waitFor(() => expect(patchMock).toHaveBeenCalled());
+    act(() => result.current.handleCancelBeforeStart());
+    expect(result.current.beforeStartPrompt).toBeNull();
+
+    await act(async () => {
+      rejectPatch({ response: { data: { detail: 'Admins only.' } } });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.beforeStartPending).toBe(false));
+    expect(result.current.beforeStartPrompt).toBeNull();
+  });
+
+  it('a task rejection after a successful project move does not re-open a cancelled prompt', async () => {
+    const engine = new ControllableEngine();
+    let rejectTask: (reason: unknown) => void = () => {};
+    patchMock.mockImplementation((url: string) =>
+      url.startsWith('/projects/')
+        ? Promise.resolve({ data: {} })
+        : new Promise((_resolve, reject) => {
+            rejectTask = reject;
+          }),
+    );
+    const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    act(() => result.current.handleMoveProjectStart());
+    // Wait for step 1 (project PATCH) to settle and step 2 (task PATCH) to fire.
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-06' }),
+    );
+    act(() => result.current.handleCancelBeforeStart());
+    expect(result.current.beforeStartPrompt).toBeNull();
+
+    await act(async () => {
+      rejectTask({ response: { data: {} } });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.beforeStartPending).toBe(false));
+    expect(result.current.beforeStartPrompt).toBeNull();
   });
 });

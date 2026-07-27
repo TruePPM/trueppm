@@ -1,7 +1,8 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
+import { registry } from '@/lib/widget-registry';
 import { useShellStore } from '@/stores/shellStore';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { Sidebar } from './Sidebar';
@@ -46,7 +47,8 @@ vi.mock('@/hooks/useProgramId', () => ({ useProgramId: vi.fn(() => undefined) })
  * `/auth/me/pinned/` would return; `mockTogglePin` records what a click sends.
  */
 const mockTogglePin = vi.fn();
-let mockPinned: { kind: string; id: string; name: string; code: string | null }[] = [];
+let mockPinned: { kind: string; id: string; name: string; code: string | null }[] | undefined =
+  [];
 let mockPinsState = { isLoading: false, isError: false };
 vi.mock('@/hooks/usePins', () => ({
   usePinned: () => ({ data: mockPinned, ...mockPinsState }),
@@ -98,19 +100,32 @@ vi.mock('./NewProjectModal', () => ({
   ),
 }));
 vi.mock('@/features/programs/NewProgramModal', () => ({
-  NewProgramModal: ({ onCreated }: { onCreated: (id: string) => void }) => (
-    <button type="button" onClick={() => onCreated('npg1')}>
-      stub-program-created
-    </button>
+  NewProgramModal: ({
+    onCreated,
+    onClose,
+  }: {
+    onCreated: (id: string) => void;
+    onClose: () => void;
+  }) => (
+    <div>
+      <button type="button" onClick={() => onCreated('npg1')}>
+        stub-program-created
+      </button>
+      <button type="button" onClick={onClose}>
+        stub-program-close
+      </button>
+    </div>
   ),
 }));
 vi.mock('@/components/import/ImportProjectModal', () => ({
   ImportProjectModal: ({
     onCreated,
     onProgramImported,
+    onClose,
   }: {
     onCreated: (id: string) => void;
     onProgramImported: (id: string) => void;
+    onClose: () => void;
   }) => (
     <div>
       <button type="button" onClick={() => onCreated('imp1')}>
@@ -118,6 +133,9 @@ vi.mock('@/components/import/ImportProjectModal', () => ({
       </button>
       <button type="button" onClick={() => onProgramImported('impg1')}>
         stub-import-program
+      </button>
+      <button type="button" onClick={onClose}>
+        stub-import-close
       </button>
     </div>
   ),
@@ -200,6 +218,24 @@ function renderRail(props = {}) {
     </MemoryRouter>,
   );
 }
+
+/** Same rail, mounted at a specific route so NavLink active states resolve. */
+function renderRailAt(path: string, props = {}) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Sidebar {...props} />
+    </MemoryRouter>,
+  );
+}
+
+// The cross-program Portfolio rollup renders through an extension-point slot the
+// enterprise module registers against (rule 231 / ADR-0266); register a stand-in
+// once so the OSS rail's empty-slot mapping is exercised.
+registry.register('nav.portfolio_section', {
+  id: 'test-portfolio-slot',
+  priority: 10,
+  component: () => <div>ee-portfolio-slot</div>,
+});
 
 const HYBRID_PROJECT = {
   id: 'p1',
@@ -908,5 +944,402 @@ describe('Sidebar rail — pinned-band navigation and pin writes', () => {
     mockPinsState = { isLoading: false, isError: true };
     renderRail();
     expect(screen.getByText(/Couldn.t load pins/)).toBeInTheDocument();
+  });
+});
+
+// ── Branch coverage (#2459): switcher outside-click dismissal, the zero-project
+//    first-run CTA and its demo loader, drawer close-on-navigate, active-row
+//    states, and the not-yet-loaded fallbacks for every data source. ──────────
+
+describe('Sidebar Browse switcher dismissal', () => {
+  it('closes on a pointer press outside the panel', () => {
+    renderRail();
+    openSwitcher();
+    expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('link', { name: 'Resources catalog' })).not.toBeInTheDocument();
+  });
+
+  it('stays open on a pointer press inside the panel', () => {
+    renderRail();
+    openSwitcher();
+    fireEvent.mouseDown(screen.getByRole('link', { name: 'Resources catalog' }));
+    expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
+  });
+
+  it('stays open on a pointer press on its own trigger (the click toggles it)', () => {
+    renderRail();
+    const trigger = screen.getByRole('button', { name: 'Browse projects and programs' });
+    fireEvent.click(trigger);
+    fireEvent.mouseDown(trigger);
+    expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
+  });
+
+  it('renders the enterprise portfolio slot registration inside the switcher', () => {
+    renderRail();
+    openSwitcher();
+    expect(screen.getByText('ee-portfolio-slot')).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar zero-project first run (#2034)', () => {
+  beforeEach(() => {
+    mockUseProjects.mockReturnValue({ data: [], count: 0 });
+    mockUsePrograms.mockReturnValue({ data: [] });
+  });
+
+  it('offers create + demo instead of the "pin something" advice', () => {
+    renderRail();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No projects yet — create one or load a demo.',
+    );
+    expect(screen.queryByText(/Pin a project from its Overview/)).not.toBeInTheDocument();
+  });
+
+  it('opens the New project modal from the empty-state CTA', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: '+ New project' }));
+    expect(screen.getByRole('button', { name: 'stub-project-created' })).toBeInTheDocument();
+  });
+
+  it('lands the user on the board holding their freshly assigned sprint', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Load a demo' }));
+    expect(loadSampleMutate).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      loadSampleMutate.mock.calls[0][1].onSuccess({
+        program: { id: 'demo-prog' },
+        landing_project_id: 'demo-proj',
+        sample_key: 'construction',
+      });
+    });
+    expect(navigateSpy).toHaveBeenCalledWith('/projects/demo-proj/board', {
+      state: { startExploringSample: 'construction' },
+    });
+  });
+
+  it('falls back to the program overview when the sample has no landing project', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Load a demo' }));
+
+    act(() => {
+      loadSampleMutate.mock.calls[0][1].onSuccess({
+        program: { id: 'demo-prog' },
+        landing_project_id: null,
+        sample_key: 'software',
+      });
+    });
+    expect(navigateSpy).toHaveBeenCalledWith('/programs/demo-prog/overview', {
+      state: { startExploringSample: 'software' },
+    });
+  });
+
+  it('surfaces a toast and stays put when the demo fails to load', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Load a demo' }));
+
+    act(() => {
+      loadSampleMutate.mock.calls[0][1].onError(new Error('boom'));
+    });
+    expect(toastError).toHaveBeenCalledWith("Couldn't load the demo — please try again.");
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('disables the demo action while the sample is loading', () => {
+    mockUseLoadSample.mockReturnValue({ mutate: loadSampleMutate, isPending: true });
+    renderRail();
+    const demo = screen.getByRole('button', { name: 'Loading demo…' });
+    expect(demo).toBeDisabled();
+  });
+});
+
+describe('Sidebar drawer close-on-navigate', () => {
+  const drawerProps = (onClose: () => void) => ({ isDrawer: true, onClose });
+
+  it('closes the drawer when a personal destination is chosen', () => {
+    const onClose = vi.fn();
+    renderRail(drawerProps(onClose));
+    fireEvent.click(screen.getByRole('link', { name: 'My Work, 3 due today' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('closes the drawer when a project view row is chosen', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    const onClose = vi.fn();
+    renderRail(drawerProps(onClose));
+    fireEvent.click(screen.getByRole('link', { name: 'Board' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('closes the drawer when the project Settings row is chosen', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    const onClose = vi.fn();
+    renderRail(drawerProps(onClose));
+    fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('closes the drawer when a program view row is chosen', () => {
+    mockUseProgramId.mockReturnValue('prog1');
+    const onClose = vi.fn();
+    renderRail(drawerProps(onClose));
+    const nav = screen.getByRole('navigation', { name: 'Program' });
+    fireEvent.click(within(nav).getByRole('link', { name: 'Backlog' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('closes the drawer when the settings gear is chosen', () => {
+    const onClose = vi.fn();
+    renderRail(drawerProps(onClose));
+    fireEvent.click(screen.getByRole('link', { name: 'Personal settings' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('closes the drawer after creating a project, a program, or importing', () => {
+    const onClose = vi.fn();
+    renderRail(drawerProps(onClose));
+
+    fireEvent.click(screen.getByRole('button', { name: '+ New project' }));
+    fireEvent.click(screen.getByRole('button', { name: 'stub-project-created' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'New program' }));
+    fireEvent.click(screen.getByRole('button', { name: 'stub-program-created' }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(navigateSpy).toHaveBeenCalledWith('/programs/npg1/projects');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import a project from a file' }));
+    fireEvent.click(screen.getByRole('button', { name: 'stub-import-project' }));
+    expect(onClose).toHaveBeenCalledTimes(3);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import a project from a file' }));
+    fireEvent.click(screen.getByRole('button', { name: 'stub-import-program' }));
+    expect(onClose).toHaveBeenCalledTimes(4);
+    expect(navigateSpy).toHaveBeenCalledWith('/programs/impg1/overview');
+  });
+
+  it('dismisses the New program and Import modals without navigating', () => {
+    renderRail();
+    openSwitcher();
+
+    fireEvent.click(screen.getByRole('button', { name: 'New program' }));
+    fireEvent.click(screen.getByRole('button', { name: 'stub-program-close' }));
+    expect(screen.queryByRole('button', { name: 'stub-program-created' })).not.toBeInTheDocument();
+
+    // The switcher stayed open — opening a modal is not navigation.
+    fireEvent.click(screen.getByRole('button', { name: 'Import a project from a file' }));
+    fireEvent.click(screen.getByRole('button', { name: 'stub-import-close' }));
+    expect(screen.queryByRole('button', { name: 'stub-import-project' })).not.toBeInTheDocument();
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('Sidebar active-row states', () => {
+  it('marks the active personal row in the You card', () => {
+    renderRailAt('/me/work');
+    expect(screen.getByRole('link', { name: 'My Work, 3 due today' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('marks the settings gear active on the workspace settings route', () => {
+    mockUseCurrentUser.mockReturnValue({ user: { ...DEFAULT_USER.user, workspace_role: 300 } });
+    renderRailAt('/settings');
+    expect(screen.getByRole('link', { name: 'Workspace settings' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('marks the active Organization row inside the switcher', () => {
+    renderRailAt('/resources');
+    openSwitcher();
+    expect(screen.getByRole('link', { name: 'Resources catalog' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('marks the Programs gateway link active on /programs', () => {
+    renderRailAt('/programs');
+    openSwitcher();
+    expect(screen.getByRole('link', { name: 'Programs' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('marks the active project view row', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    renderRailAt('/projects/p1/board');
+    expect(screen.getByRole('link', { name: 'Board' })).toHaveAttribute('aria-current', 'page');
+  });
+});
+
+describe('Sidebar health dots and open-task counts', () => {
+  it('renders a critical project and pluralizes a single open task correctly', () => {
+    mockUseProjects.mockReturnValue({
+      data: [
+        {
+          id: 'c1',
+          name: 'Red Project',
+          programId: null,
+          healthState: 'critical',
+          openTaskCount: 1,
+        },
+        { id: 'c2', name: 'Unknown Project', programId: null, openTaskCount: null },
+      ],
+      count: undefined,
+    });
+    renderRail();
+    openSwitcher();
+
+    expect(
+      screen.getByRole('button', { name: 'Red Project, critical, 1 open task' }),
+    ).toBeInTheDocument();
+    // No health field at all → the honest hollow dot + "health unknown" wording.
+    expect(
+      screen.getByRole('button', { name: 'Unknown Project, health unknown' }),
+    ).toBeInTheDocument();
+  });
+
+  it('renders a pinned project with a zero open-task count without a badge', () => {
+    mockPinned = [{ kind: 'project', id: 'p2', name: 'Beta Migration', code: null }];
+    renderRail();
+    // p2 is on-track with 0 open tasks — the count rides the aria-label only.
+    expect(
+      screen.getByRole('button', { name: 'Beta Migration, on track, 0 open tasks' }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar pinned items not present in the loaded lists (#2390)', () => {
+  it('renders a pinned program from the pin payload alone and still jumps to it', () => {
+    mockUsePrograms.mockReturnValue({ data: [] });
+    mockPinned = [{ kind: 'program', id: 'ghost', name: 'Ghost Program', code: null }];
+    renderRail();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ghost Program' }));
+    expect(navigateSpy).toHaveBeenCalledWith('/programs/ghost/overview');
+  });
+});
+
+describe('Sidebar before any data source has loaded', () => {
+  beforeEach(() => {
+    mockUseProjects.mockReturnValue({ data: undefined, count: undefined });
+    mockUsePrograms.mockReturnValue({ data: undefined });
+    mockUseMyWork.mockReturnValue({ data: undefined });
+    mockPinned = undefined;
+  });
+
+  it('renders the rail with no badges and no tree rows', () => {
+    renderRail();
+    // No due-today count → the plain accessible name, no numeric badge.
+    expect(screen.getAllByRole('link', { name: 'My Work' })).toHaveLength(1);
+    expect(screen.getByText('Pinned')).toBeInTheDocument();
+    openSwitcher();
+    expect(screen.queryByRole('button', { name: /Expand/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Projects')).not.toBeInTheDocument();
+  });
+
+  it('falls back to neutral project-tier copy while the project is still loading', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    mockUseProject.mockReturnValue({ data: undefined, isLoading: true, error: null });
+    renderRail();
+
+    expect(screen.getByText('Project')).toBeInTheDocument();
+    // No resolved methodology yet → the HYBRID default, and an unknown health dot.
+    expect(screen.getByText('Hybrid workspace')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'health unknown' })).toBeInTheDocument();
+  });
+
+  it('falls back to neutral program-tier copy while the program list is still loading', () => {
+    mockUseProgramId.mockReturnValue('prog1');
+    renderRail();
+    expect(screen.getByText('Program')).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Program' })).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar dismissal key filtering', () => {
+  it('leaves the drawer open for keys other than Escape', () => {
+    const onClose = vi.fn();
+    renderRail({ isDrawer: true, onClose });
+    fireEvent.keyDown(document, { key: 'a' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('leaves the Browse switcher open for keys other than Escape', () => {
+    renderRail();
+    openSwitcher();
+    fireEvent.keyDown(document, { key: 'Enter' });
+    expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar desktop rail never fires the drawer-close callback', () => {
+  it('keeps onClose untouched when navigating from the desktop rail', () => {
+    const onClose = vi.fn();
+    mockUseProjectId.mockReturnValue('p1');
+    renderRail({ onClose });
+
+    fireEvent.click(screen.getByRole('link', { name: 'My Work, 3 due today' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Board' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Personal settings' }));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('keeps onClose untouched when navigating the program tier on desktop', () => {
+    const onClose = vi.fn();
+    mockUseProgramId.mockReturnValue('prog1');
+    renderRail({ onClose });
+
+    const nav = screen.getByRole('navigation', { name: 'Program' });
+    fireEvent.click(within(nav).getByRole('link', { name: 'Backlog' }));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('Sidebar program tree with an unloaded project list', () => {
+  beforeEach(() => {
+    mockUseProjects.mockReturnValue({ data: undefined, count: 12 });
+  });
+
+  it('shows a zero child count, an empty expansion, and an honest overflow cue', () => {
+    renderRail();
+    openSwitcher();
+
+    fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
+    expect(screen.getByText('No projects')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Showing 0 of 12 projects — search in ⌘K/ }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar unannotated rows', () => {
+  it('renders a program child with no health field as health unknown', () => {
+    mockUseProjects.mockReturnValue({
+      data: [{ id: 'k1', name: 'Kid Project', programId: 'prog1', openTaskCount: 2 }],
+      count: undefined,
+    });
+    renderRail();
+    openSwitcher();
+    fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
+
+    expect(
+      screen.getByRole('button', { name: 'Kid Project, health unknown, 2 open tasks' }),
+    ).toBeInTheDocument();
+  });
+
+  it('treats an unrecognized project health value as unknown in the project tier', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    mockUseProject.mockReturnValue({
+      data: { ...HYBRID_PROJECT, health: 'RETIRED' },
+      isLoading: false,
+      error: null,
+    });
+    renderRail();
+    expect(screen.getByRole('img', { name: 'health unknown' })).toBeInTheDocument();
   });
 });

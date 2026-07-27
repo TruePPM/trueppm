@@ -8,13 +8,15 @@
  *  - per-section role="status" empty rows (never hide one while the other fills)
  *  - backlog chips carry the dashed left edge + readiness label variant
  */
-import { screen, within, waitFor, fireEvent, render as rtlRender } from '@testing-library/react';
+import { act, screen, within, waitFor, fireEvent, render as rtlRender } from '@testing-library/react';
 import { renderWithProviders as render } from '@/test/utils';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createRef, type ReactElement } from 'react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createRef, type ReactElement, type RefObject } from 'react';
 import type { ApiSprint, Task } from '@/types';
+import type { GanttScaleData } from './engine';
 import { UnscheduledGutter } from './UnscheduledGutter';
+import { formatShortDate } from './scheduleUtils';
 import { useScheduleStore } from '@/stores/scheduleStore';
 
 const { patchMock } = vi.hoisted(() => ({
@@ -368,5 +370,380 @@ describe('UnscheduledGutter — backlog Schedule… dialog (rule 135)', () => {
     // clicking either dismisses it.
     fireEvent.click(within(dialog).getAllByRole('button', { name: 'Cancel' })[0]);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drag-to-promote harness
+// ---------------------------------------------------------------------------
+
+/**
+ * 1 logical pixel === 1 calendar day anchored at 2026-08-01, so a pointer at
+ * canvas X=5 resolves to 2026-08-06. Keeping the scale trivially linear lets
+ * every drop assertion name a real date instead of a magic pixel.
+ */
+const SCALE: GanttScaleData = {
+  start: new Date('2026-08-01T00:00:00Z'),
+  end: new Date('2026-12-31T00:00:00Z'),
+  totalWidth: 800,
+  zoomLevel: 'week',
+  pxPerMs: 1 / 86_400_000,
+};
+
+/** X=5 on the canvas → five days after the scale origin. */
+const DROP_DATE = '2026-08-06';
+
+const CANVAS_RECT: DOMRect = {
+  x: 0,
+  y: 0,
+  left: 0,
+  top: 0,
+  right: 800,
+  bottom: 400,
+  width: 800,
+  height: 400,
+  toJSON: () => ({}),
+};
+
+function makeCanvasRef(): RefObject<HTMLDivElement | null> {
+  const el = document.createElement('div');
+  el.getBoundingClientRect = () => CANVAS_RECT;
+  document.body.appendChild(el);
+  return { current: el };
+}
+
+function renderDraggableGutter(
+  tasks: Task[],
+  { scaleData = SCALE }: { scaleData?: GanttScaleData | null } = {},
+): { canvasRef: RefObject<HTMLDivElement | null> } & ReturnType<typeof render> {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const canvasRef = makeCanvasRef();
+  const utils = render(
+    <QueryClientProvider client={qc}>
+      <UnscheduledGutter
+        tasks={tasks}
+        projectId="proj1"
+        scaleData={scaleData}
+        canvasScrollRef={canvasRef}
+        taskListWidth={200}
+      />
+    </QueryClientProvider>,
+  );
+  return { canvasRef, ...utils };
+}
+
+/** The gutter row element that owns the pointer handlers for `name`. */
+function rowFor(name: string): HTMLElement {
+  const label = screen.getByText(name);
+  const row = label.parentElement;
+  if (!row) throw new Error(`no row element for "${name}"`);
+  return row;
+}
+
+/** Press on a chip and move past the 4px threshold so the drag begins. */
+function beginDrag(row: HTMLElement): void {
+  fireEvent.pointerDown(row, { clientX: 10, clientY: 10, button: 0, pointerId: 1 });
+  fireEvent.pointerMove(row, { clientX: 40, clientY: 10, pointerId: 1 });
+}
+
+const PREVIEW_TEXT = 'Drop on timeline · Esc to cancel';
+
+describe('UnscheduledGutter — drag onto the timeline', () => {
+  beforeEach(() => {
+    // jsdom implements neither pointer-capture method; the row calls both
+    // unconditionally on press/threshold.
+    Element.prototype.setPointerCapture = function () {};
+    Element.prototype.releasePointerCapture = function () {};
+  });
+
+  it('PATCHes only planned_start when a To Do chip is dropped on the canvas', async () => {
+    renderDraggableGutter([makeTask({ id: 'todo-1', name: 'Wire login', status: 'NOT_STARTED' })]);
+
+    beginDrag(rowFor('Wire login'));
+    // The floating preview tracks the pointer as soon as the drag starts.
+    expect(screen.getByText(PREVIEW_TEXT)).toBeInTheDocument();
+
+    fireEvent.pointerMove(window, { clientX: 5, clientY: 50 });
+    // Over the canvas with a resolvable date → the drop guide names the day.
+    const indicator = screen.getByTestId('schedule-drop-indicator');
+    expect(within(indicator).getByText(formatShortDate(DROP_DATE))).toBeInTheDocument();
+
+    fireEvent.pointerUp(window);
+
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+    // No explicit status — the server owns the date-gated NOT_STARTED bump.
+    expect(patchMock).toHaveBeenCalledWith('/tasks/todo-1/', { planned_start: DROP_DATE });
+    // Preview and guide are torn down with the drag.
+    expect(screen.queryByText(PREVIEW_TEXT)).toBeNull();
+    expect(screen.queryByTestId('schedule-drop-indicator')).toBeNull();
+  });
+
+  it('promotes a Backlog chip with an explicit NOT_STARTED status and announces it', async () => {
+    const { container } = renderDraggableGutter([
+      makeTask({ id: 'bk-1', name: 'Spike auth', status: 'BACKLOG' }),
+    ]);
+
+    beginDrag(rowFor('Spike auth'));
+    fireEvent.pointerMove(window, { clientX: 5, clientY: 50 });
+    fireEvent.pointerUp(window);
+
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+    expect(patchMock).toHaveBeenCalledWith('/tasks/bk-1/', {
+      planned_start: DROP_DATE,
+      status: 'NOT_STARTED',
+    });
+
+    const label = formatShortDate(DROP_DATE);
+    await waitFor(() =>
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+        `Added 'Spike auth' to the sprint, starting ${label}`,
+      ),
+    );
+    expect(container.querySelector('[aria-live="polite"]')).toHaveTextContent(
+      `Added Spike auth to the sprint, starting ${label}.`,
+    );
+  });
+
+  it('announces a failure (and raises no toast) when the promote PATCH rejects', async () => {
+    patchMock.mockRejectedValueOnce(new Error('boom'));
+    const { container } = renderDraggableGutter([
+      makeTask({ id: 'bk-2', name: 'Spike auth', status: 'BACKLOG' }),
+    ]);
+
+    beginDrag(rowFor('Spike auth'));
+    fireEvent.pointerMove(window, { clientX: 5, clientY: 50 });
+    fireEvent.pointerUp(window);
+
+    await waitFor(() =>
+      expect(container.querySelector('[aria-live="polite"]')).toHaveTextContent(
+        'Could not add Spike auth to the sprint.',
+      ),
+    );
+    expect(useScheduleStore.getState().scheduleActionToast).toBeNull();
+  });
+
+  it('does not PATCH when the pointer is released outside the canvas', async () => {
+    renderDraggableGutter([makeTask({ id: 'todo-3', name: 'Wire login', status: 'NOT_STARTED' })]);
+
+    beginDrag(rowFor('Wire login'));
+    // 900 is past the canvas right edge (800) — no drop target, no guide.
+    fireEvent.pointerMove(window, { clientX: 900, clientY: 50 });
+    expect(screen.queryByTestId('schedule-drop-indicator')).toBeNull();
+
+    fireEvent.pointerUp(window);
+    await Promise.resolve();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not PATCH a canvas drop while offline — the chip stays put (rule 29)', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    renderDraggableGutter([makeTask({ id: 'todo-4', name: 'Wire login', status: 'NOT_STARTED' })]);
+
+    beginDrag(rowFor('Wire login'));
+    fireEvent.pointerMove(window, { clientX: 5, clientY: 50 });
+    fireEvent.pointerUp(window);
+
+    await Promise.resolve();
+    expect(patchMock).not.toHaveBeenCalled();
+    // The drag is still cleared so the preview does not strand on screen.
+    expect(screen.queryByText(PREVIEW_TEXT)).toBeNull();
+  });
+
+  it('tracks the pointer but resolves no drop date when there is no scale data', async () => {
+    renderDraggableGutter([makeTask({ id: 'todo-5', name: 'Wire login', status: 'NOT_STARTED' })], {
+      scaleData: null,
+    });
+
+    beginDrag(rowFor('Wire login'));
+    fireEvent.pointerMove(window, { clientX: 5, clientY: 50 });
+
+    // Preview follows, but without a scale there is no date to guide to.
+    expect(screen.getByText(PREVIEW_TEXT)).toBeInTheDocument();
+    expect(screen.queryByTestId('schedule-drop-indicator')).toBeNull();
+
+    fireEvent.pointerUp(window);
+    await Promise.resolve();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('cancels the drag on Escape and ignores unrelated keys (rule 28)', () => {
+    renderDraggableGutter([makeTask({ id: 'todo-6', name: 'Wire login', status: 'NOT_STARTED' })]);
+
+    beginDrag(rowFor('Wire login'));
+    fireEvent.pointerMove(window, { clientX: 5, clientY: 50 });
+
+    // An unrelated key leaves the drag running.
+    fireEvent.keyDown(window, { key: 'a' });
+    expect(screen.getByText(PREVIEW_TEXT)).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByText(PREVIEW_TEXT)).toBeNull();
+    expect(screen.queryByTestId('schedule-drop-indicator')).toBeNull();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('promotes once when a duplicate pointerup arrives in the same flush', async () => {
+    renderDraggableGutter([makeTask({ id: 'todo-7', name: 'Wire login', status: 'NOT_STARTED' })]);
+
+    beginDrag(rowFor('Wire login'));
+    fireEvent.pointerMove(window, { clientX: 5, clientY: 50 });
+
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup'));
+      window.dispatchEvent(new PointerEvent('pointerup'));
+    });
+
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('shows the promoting skeleton while the PATCH is in flight', async () => {
+    patchMock.mockImplementationOnce(() => new Promise<{ data: object }>(() => {}));
+    renderDraggableGutter([makeTask({ id: 'todo-8', name: 'Wire login', status: 'NOT_STARTED' })]);
+
+    beginDrag(rowFor('Wire login'));
+    fireEvent.pointerMove(window, { clientX: 5, clientY: 50 });
+    fireEvent.pointerUp(window);
+
+    expect(await screen.findByLabelText('Promoting task…')).toHaveAttribute('aria-busy', 'true');
+  });
+});
+
+describe('UnscheduledGutter — sprint group edge cases', () => {
+  it('falls back to a neutral header when the target sprint is not in the sprint list', () => {
+    // The task references a sprint the caller did not supply (out-of-window or
+    // not yet loaded): no name, no state word, no date window — and the
+    // conservative "not yet started" sub-note rather than "pending team plan".
+    renderGutter([makeTask({ id: 'sb', name: 'Orphan item', status: 'BACKLOG', sprintId: 'ghost' })]);
+
+    const group = screen.getByRole('group', { name: /Targeted for Sprint/i });
+    expect(within(group).getByText('Targeted: Sprint')).toBeInTheDocument();
+    expect(within(group).getByText('not yet started — not scheduled')).toBeInTheDocument();
+    expect(within(group).getByText('Orphan item')).toBeInTheDocument();
+    // No window pill is rendered when the sprint is unknown.
+    expect(within(group).queryByText(/–/)).toBeNull();
+  });
+
+  it('pluralizes the group label and lists every task in the group', () => {
+    renderGutter(
+      [
+        makeTask({ id: 's1', name: 'Item one', status: 'BACKLOG', sprintId: 'sp' }),
+        makeTask({ id: 's2', name: 'Item two', status: 'BACKLOG', sprintId: 'sp' }),
+      ],
+      [makeSprint({ id: 'sp', name: 'Build Sprint 4' })],
+    );
+
+    const group = screen.getByRole('group', {
+      name: /Targeted for Build Sprint 4, planned, read-only, 2 tasks/i,
+    });
+    expect(within(group).getByText('Item one')).toBeInTheDocument();
+    expect(within(group).getByText('Item two')).toBeInTheDocument();
+  });
+
+  it('orders sprint groups by start date and sinks the unknown sprint to the end', () => {
+    const { container } = renderGutter(
+      [
+        makeTask({ id: 'c', name: 'Late item', status: 'BACKLOG', sprintId: 'late' }),
+        makeTask({ id: 'a', name: 'Ghost item', status: 'BACKLOG', sprintId: 'ghost' }),
+        makeTask({ id: 'b', name: 'Early item', status: 'BACKLOG', sprintId: 'early' }),
+      ],
+      [
+        makeSprint({ id: 'late', name: 'Sprint Late', start_date: '2026-09-01' }),
+        makeSprint({ id: 'early', name: 'Sprint Early', start_date: '2026-07-01' }),
+      ],
+    );
+
+    const order = [...container.querySelectorAll('[data-sprint-group]')].map((el) =>
+      el.getAttribute('data-sprint-group'),
+    );
+    expect(order).toEqual(['early', 'late', 'ghost']);
+  });
+});
+
+describe('UnscheduledGutter — collapse preference read failure', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('falls back to "expanded when there is work" if localStorage is unreadable', () => {
+    // Safari private mode / blocked storage throws on read; the tray must still
+    // render rather than crash, and non-empty work must stay visible.
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+
+    renderGutter([makeTask({ id: 'a', name: 'Wire login', status: 'NOT_STARTED' })]);
+    expect(screen.getByText('To Do · Unscheduled (1)')).toBeInTheDocument();
+  });
+});
+
+describe('UnscheduledGutter — reveal bridge edge cases (#1798)', () => {
+  afterEach(() => {
+    // Guard against a failed assertion leaking the reduced-motion stub into the
+    // next file (all files share one process in singleFork mode).
+    vi.unstubAllGlobals();
+  });
+
+  it('expands the tray but scrolls nothing when the reveal carries no sprint id', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    localStorage.setItem('trueppm.gantt.unscheduledGutter.collapsed', 'true');
+
+    renderGutter([makeTask({ id: 'a', name: 'Wire login', status: 'NOT_STARTED' })]);
+    expect(screen.queryByText('To Do · Unscheduled (1)')).toBeNull();
+
+    act(() => {
+      useScheduleStore.getState().requestRevealGutterSprint(null);
+    });
+
+    expect(await screen.findByText('To Do · Unscheduled (1)')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('scrolls without animation when the viewer prefers reduced motion', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: /prefers-reduced-motion/.test(query),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+
+    renderGutter(
+      [makeTask({ id: 'sb', name: 'Stretch item', status: 'BACKLOG', sprintId: 's2' })],
+      [makeSprint({ id: 's2', name: 'Build Sprint 2' })],
+    );
+
+    act(() => {
+      useScheduleStore.getState().requestRevealGutterSprint('s2');
+    });
+
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'auto' });
+  });
+
+  it('cancels the pending reveal frames when the gutter unmounts first', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    const { unmount } = renderGutter(
+      [makeTask({ id: 'sb', name: 'Stretch item', status: 'BACKLOG', sprintId: 's2' })],
+      [makeSprint({ id: 's2', name: 'Build Sprint 2' })],
+    );
+
+    act(() => {
+      useScheduleStore.getState().requestRevealGutterSprint('s2');
+    });
+    unmount();
+
+    await new Promise((r) => setTimeout(r, 60));
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

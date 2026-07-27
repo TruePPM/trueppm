@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TimezoneFormatSection } from './TimezoneFormatSection';
 
@@ -45,8 +45,19 @@ describe('TimezoneFormatSection (#1953)', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     setOnline(true);
   });
+
+  /** The `<li>` the combobox currently points at via aria-activedescendant. */
+  function activeOption(): HTMLElement {
+    const search = screen.getByRole('combobox', { name: /Search timezones/i });
+    const id = search.getAttribute('aria-activedescendant');
+    expect(id).toBeTruthy();
+    const el = id === null ? null : document.getElementById(id);
+    expect(el).not.toBeNull();
+    return el as HTMLElement;
+  }
 
   it('renders the timezone trigger and the four date-format radios', () => {
     render(<TimezoneFormatSection />);
@@ -255,6 +266,123 @@ describe('TimezoneFormatSection (#1953)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
     expect(screen.getByRole('combobox', { name: /Search timezones/i })).toBeInTheDocument();
     fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('combobox', { name: /Search timezones/i })).not.toBeInTheDocument();
+  });
+
+  it('ArrowUp walks the highlight back up the option list', () => {
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    const search = screen.getByRole('combobox', { name: /Search timezones/i });
+    fireEvent.change(search, { target: { value: 'london' } });
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    expect(activeOption()).toHaveTextContent('Europe/London');
+    fireEvent.keyDown(search, { key: 'ArrowUp' });
+    expect(activeOption()).toHaveTextContent(/Automatic/);
+  });
+
+  it('ArrowUp at the top of the list clamps rather than wrapping', () => {
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    const search = screen.getByRole('combobox', { name: /Search timezones/i });
+    fireEvent.change(search, { target: { value: 'london' } });
+    fireEvent.keyDown(search, { key: 'ArrowUp' });
+    expect(activeOption()).toHaveTextContent(/Automatic/);
+  });
+
+  it('Home jumps the highlight back to the first option', () => {
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    const search = screen.getByRole('combobox', { name: /Search timezones/i });
+    fireEvent.change(search, { target: { value: 'london' } });
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    expect(activeOption()).toHaveTextContent('Europe/London');
+    fireEvent.keyDown(search, { key: 'Home' });
+    expect(activeOption()).toHaveTextContent(/Automatic/);
+  });
+
+  it('End jumps the highlight to the last option, which Enter then commits', () => {
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    const search = screen.getByRole('combobox', { name: /Search timezones/i });
+    fireEvent.change(search, { target: { value: 'london' } });
+    fireEvent.keyDown(search, { key: 'End' });
+    expect(activeOption()).toHaveTextContent('Europe/London');
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(tzMutate).toHaveBeenCalledWith('Europe/London', expect.anything());
+  });
+
+  it('an unrelated key on the trigger leaves the popover closed', () => {
+    render(<TimezoneFormatSection />);
+    fireEvent.keyDown(screen.getByRole('button', { name: /Timezone:/i }), { key: 'a' });
+    expect(screen.queryByRole('combobox', { name: /Search timezones/i })).not.toBeInTheDocument();
+  });
+
+  it('falls back to the curated zone list when Intl.supportedValuesOf is unavailable', () => {
+    const realIntl = globalThis.Intl;
+    // An engine without `supportedValuesOf` — everything else about Intl stays real
+    // so the trigger label and the date samples still format.
+    vi.stubGlobal('Intl', {
+      DateTimeFormat: realIntl.DateTimeFormat,
+      NumberFormat: realIntl.NumberFormat,
+    });
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    expect(screen.getByRole('option', { name: 'Asia/Kolkata' })).toBeInTheDocument();
+    // Present in the full IANA list, absent from the curated fallback.
+    expect(screen.queryByRole('option', { name: 'Europe/Zurich' })).not.toBeInTheDocument();
+  });
+
+  it('clears the "Saved." timezone indicator after three seconds', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(new Date('2026-07-14T12:00:00Z'));
+    tzMutate.mockImplementation((_v: string, opts: { onSuccess?: () => void }) => {
+      opts.onSuccess?.();
+    });
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    fireEvent.change(screen.getByRole('combobox', { name: /Search timezones/i }), {
+      target: { value: 'london' },
+    });
+    fireEvent.pointerDown(screen.getByRole('option', { name: /Europe\/London/i }));
+    expect(screen.getByRole('status')).toHaveTextContent('Saved.');
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Changes save automatically.');
+  });
+
+  it('clears the "Saved." date-format indicator after three seconds', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(new Date('2026-07-14T12:00:00Z'));
+    dfMutate.mockImplementation((_v: string, opts: { onSuccess?: () => void }) => {
+      opts.onSuccess?.();
+    });
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('radio', { name: /ISO 8601/i }));
+    expect(screen.getByRole('status')).toHaveTextContent('Saved.');
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Changes save automatically.');
+    // The saved selection itself survives the indicator timing out.
+    expect(screen.getByRole('radio', { name: /ISO 8601/i })).toBeChecked();
+  });
+
+  it('does not PATCH a zone picked from a popover that was open when the connection dropped', () => {
+    render(<TimezoneFormatSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Timezone:/i }));
+    setOnline(false);
+    // Any interaction re-renders, at which point the component sees the drop.
+    fireEvent.change(screen.getByRole('combobox', { name: /Search timezones/i }), {
+      target: { value: 'london' },
+    });
+    expect(screen.getByText(/You.?re offline — reconnect/i)).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole('option', { name: /Europe\/London/i }));
+    expect(tzMutate).not.toHaveBeenCalled();
+    // The stored value is untouched and the popover closed.
+    expect(
+      screen.getByRole('button', { name: /Timezone: Automatic — detected:/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: /Search timezones/i })).not.toBeInTheDocument();
   });
 });

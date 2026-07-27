@@ -690,4 +690,363 @@ describe('ExternalLinksSection — file preview image fallback', () => {
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByLabelText('File type: Document')).toBeInTheDocument();
   });
+
+  it('renders the generic file glyph for a preview with no type at all', () => {
+    // A refreshed file link whose provider returned a description but no
+    // `preview_type` — the preview block still renders, falling back to the
+    // generic file glyph rather than blanking the thumbnail slot.
+    useLinksMock.mockReturnValue({
+      links: [
+        link({
+          id: 'f2',
+          provider: 'dropbox',
+          url: 'https://www.dropbox.com/s/abc/notes.txt',
+          title: 'Notes',
+          status: 'unknown',
+          preview_type: '',
+          thumbnail_url: '',
+          description: 'Shared meeting notes',
+        }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    const { container } = render(
+      <ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
+    expect(screen.getByText('Shared meeting notes')).toBeInTheDocument();
+    expect(container.querySelector('img')).toBeNull();
+    // No type chip — the type is unknown until a refresh resolves it.
+    expect(screen.queryByText(/File type:/)).toBeNull();
+  });
+});
+
+// `mutate(vars, { onSettled })` — the delete path passes only `onSettled`.
+type SettledMutate = (vars: unknown, opts: { onSettled: () => void }) => void;
+// `mutate(vars, { onSuccess })` — the update path passes only `onSuccess`.
+type SuccessMutate = (vars: unknown, opts: { onSuccess: () => void }) => void;
+
+describe('ExternalLinksSection — cloud-file provider hints', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    baseMocks();
+    useLinksMock.mockReturnValue({ links: [], isLoading: false, error: null });
+  });
+
+  it.each<[string, string]>([
+    ['dropbox.com/s/abc/file.pdf', 'Dropbox detected · refresh loads a preview'],
+    ['app.box.com/s/abc123', 'Box detected · refresh loads a preview'],
+    ['onedrive.live.com/view.aspx?id=1', 'OneDrive detected · refresh loads a preview'],
+  ])('shows the file-preview hint for %s', (url, hint) => {
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.change(screen.getByLabelText('Add a link URL'), { target: { value: url } });
+    expect(screen.getByText(hint)).toBeInTheDocument();
+  });
+
+  it('shows no hint at all while the field is empty', () => {
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    // The hint node exists (it is the aria-describedby target) but is blank, and
+    // the progressive title/label fields stay hidden.
+    expect(screen.queryByText(/detected/)).toBeNull();
+    expect(screen.queryByLabelText('Link title')).toBeNull();
+  });
+});
+
+describe('ExternalLinksSection — add-link submit paths', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    baseMocks();
+    useLinksMock.mockReturnValue({ links: [], isLoading: false, error: null });
+  });
+
+  it('submits on Enter from the optional title field', () => {
+    const mutate = vi.fn();
+    useCreateMock.mockReturnValue({ mutate, isPending: false });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.change(screen.getByLabelText('Add a link URL'), {
+      target: { value: 'github.com/acme/api/pull/5' },
+    });
+    fireEvent.keyDown(screen.getByLabelText('Link title'), { key: 'Enter' });
+    expect(mutate).toHaveBeenCalled();
+  });
+
+  it('does not submit on other keys in either field', () => {
+    const mutate = vi.fn();
+    useCreateMock.mockReturnValue({ mutate, isPending: false });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    const urlInput = screen.getByLabelText('Add a link URL');
+    fireEvent.change(urlInput, { target: { value: 'github.com/acme/api/pull/5' } });
+    fireEvent.keyDown(urlInput, { key: 'a' });
+    fireEvent.keyDown(screen.getByLabelText('Link title'), { key: 'Tab' });
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('shows a busy Add button while the create is in flight', () => {
+    useCreateMock.mockReturnValue({ mutate: vi.fn(), isPending: true });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.change(screen.getByLabelText('Add a link URL'), {
+      target: { value: 'github.com/acme/api/pull/5' },
+    });
+    const addBtn = screen.getByRole('button', { name: 'Adding…' });
+    expect(addBtn).toBeDisabled();
+  });
+
+  it('falls back to generic copy when the create error carries no message', () => {
+    const mutate = vi.fn<LinkMutate>((_vars, opts) => opts.onError(new Error('')));
+    useCreateMock.mockReturnValue({ mutate, isPending: false });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.change(screen.getByLabelText('Add a link URL'), {
+      target: { value: 'github.com/acme/api/pull/5' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not add link.');
+  });
+
+  it('clears the labels drafted alongside a successful add', () => {
+    const mutate = vi.fn<LinkMutate>((_vars, opts) => opts.onSuccess());
+    useCreateMock.mockReturnValue({ mutate, isPending: false });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.change(screen.getByLabelText('Add a link URL'), {
+      target: { value: 'github.com/acme/api/pull/5' },
+    });
+    const labelInput = screen.getByLabelText('Add a label');
+    fireEvent.change(labelInput, { target: { value: 'infra' } });
+    fireEvent.keyDown(labelInput, { key: 'Enter' });
+    expect(screen.getByText('infra')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ labels: ['infra'] }),
+      expect.anything(),
+    );
+    // The whole draft collapses back to the single paste field.
+    expect(screen.queryByLabelText('Link title')).toBeNull();
+  });
+});
+
+describe('ExternalLinksSection — refresh timestamp and credential fallback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    baseMocks();
+  });
+
+  it('renders a relative timestamp once the link has been fetched', () => {
+    useLinksMock.mockReturnValue({
+      links: [
+        link({
+          id: 'l1',
+          title: 'MR 5',
+          fetched_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+        }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByText(/5m ago/)).toBeInTheDocument();
+    expect(screen.queryByText(/never refreshed/)).toBeNull();
+  });
+
+  it('falls back to the link provider when the 422 omits one', () => {
+    const mutate = vi.fn<LinkMutate>((_vars, opts) =>
+      opts.onError({ response: { data: { code: 'credential_required' } } }),
+    );
+    useRefreshMock.mockReturnValue({ mutate, isPending: false });
+    useLinksMock.mockReturnValue({
+      links: [link({ id: 'l1', title: 'MR 5', provider: 'gitlab' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByRole('button', { name: /Refresh status for MR 5/ }));
+    expect(screen.getByRole('link', { name: /Connect gitlab to see status/ })).toHaveAttribute(
+      'href',
+      '/me/settings/connected-accounts#gitlab',
+    );
+  });
+
+  it('clears a prior failure notice when refresh is retried', () => {
+    let fail = true;
+    const mutate = vi.fn<LinkMutate>((_vars, opts) => {
+      if (fail) opts.onError({ response: { data: {} } });
+    });
+    useRefreshMock.mockReturnValue({ mutate, isPending: false });
+    useLinksMock.mockReturnValue({
+      links: [link({ id: 'l1', title: 'MR 5' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    const btn = screen.getByRole('button', { name: /Refresh status for MR 5/ });
+    fireEvent.click(btn);
+    expect(screen.getByRole('alert')).toHaveTextContent(/Couldn.t refresh/);
+
+    fail = false;
+    fireEvent.click(btn);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('ExternalLinksSection — delete pending and settle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    baseMocks();
+    useLinksMock.mockReturnValue({
+      links: [link({ id: 'l1', title: 'MR 5' })],
+      isLoading: false,
+      error: null,
+    });
+  });
+
+  it('shows a busy confirm button while the delete is in flight', () => {
+    useDeleteMock.mockReturnValue({ mutate: vi.fn(), isPending: true, isError: false });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByRole('button', { name: /Delete MR 5/ }));
+    const confirm = screen.getByRole('button', { name: /Confirm delete MR 5/ });
+    expect(confirm).toHaveTextContent('Deleting…');
+    expect(confirm).toBeDisabled();
+  });
+
+  it('drops back out of the confirm state once the delete settles', () => {
+    const mutate = vi.fn<SettledMutate>((_vars, opts) => opts.onSettled());
+    useDeleteMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByRole('button', { name: /Delete MR 5/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Confirm delete MR 5/ }));
+    // Row still on screen (the list is server-owned); the confirm pair is gone.
+    expect(screen.queryByRole('button', { name: /Confirm delete MR 5/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Delete MR 5/ })).toBeInTheDocument();
+  });
+
+  it('hides the edit affordance while a delete is being confirmed', () => {
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByRole('button', { name: /Edit MR 5/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Delete MR 5/ }));
+    expect(screen.queryByRole('button', { name: /Edit MR 5/ })).toBeNull();
+  });
+});
+
+describe('ExternalLinksSection — edit save success', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    baseMocks();
+    useLinksMock.mockReturnValue({
+      links: [link({ id: 'l1', title: 'MR 5', custom_title: 'Old', labels: ['spec'] })],
+      isLoading: false,
+      error: null,
+    });
+  });
+
+  it('returns to the read view once the update succeeds', () => {
+    const mutate = vi.fn<SuccessMutate>((_vars, opts) => opts.onSuccess());
+    useUpdateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByRole('button', { name: /Edit Old/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.queryByLabelText('Link title')).toBeNull();
+    expect(screen.getByRole('link', { name: /Old/ })).toBeInTheDocument();
+  });
+
+  it('re-seeds the draft from the saved link each time edit is entered', () => {
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByRole('button', { name: /Edit Old/ }));
+    fireEvent.change(screen.getByLabelText('Link title'), { target: { value: 'Scratch' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Edit Old/ }));
+    expect(screen.getByLabelText<HTMLInputElement>('Link title').value).toBe('Old');
+  });
+});
+
+describe('ExternalLinksSection — LabelChipInput guards', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    baseMocks();
+  });
+
+  function editLink(labels: string[]) {
+    useLinksMock.mockReturnValue({
+      links: [link({ id: 'l1', title: 'MR 5', custom_title: 'Old', labels })],
+      isLoading: false,
+      error: null,
+    });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByRole('button', { name: /Edit Old/ }));
+  }
+
+  it('ignores a blur with an empty draft', () => {
+    editLink(['spec']);
+    fireEvent.blur(screen.getByLabelText('Add a label'));
+    expect(screen.getAllByRole('button', { name: /^Remove label/ })).toHaveLength(1);
+  });
+
+  it('ignores a whitespace-only draft on Enter', () => {
+    editLink(['spec']);
+    const input = screen.getByLabelText('Add a label');
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getAllByRole('button', { name: /^Remove label/ })).toHaveLength(1);
+    expect(screen.getByLabelText<HTMLInputElement>('Add a label').value).toBe('');
+  });
+
+  it('commits the draft on blur', () => {
+    editLink(['spec']);
+    const input = screen.getByLabelText('Add a label');
+    fireEvent.change(input, { target: { value: 'design' } });
+    fireEvent.blur(input);
+    expect(screen.getAllByRole('button', { name: /^Remove label/ })).toHaveLength(2);
+    expect(screen.getByText('design')).toBeInTheDocument();
+  });
+
+  it('commits on a comma as well as Enter', () => {
+    editLink([]);
+    const input = screen.getByLabelText('Add a label');
+    fireEvent.change(input, { target: { value: 'infra' } });
+    fireEvent.keyDown(input, { key: ',' });
+    expect(screen.getByText('infra')).toBeInTheDocument();
+  });
+
+  it('leaves the chips alone for keys that are not Enter, comma or Backspace', () => {
+    editLink(['spec', 'design']);
+    fireEvent.keyDown(screen.getByLabelText('Add a label'), { key: 'ArrowLeft' });
+    expect(screen.getAllByRole('button', { name: /^Remove label/ })).toHaveLength(2);
+  });
+
+  it('Backspace with text in the draft edits the text, not the chips', () => {
+    editLink(['spec']);
+    const input = screen.getByLabelText('Add a label');
+    fireEvent.change(input, { target: { value: 'de' } });
+    fireEvent.keyDown(input, { key: 'Backspace' });
+    expect(screen.getByText('spec')).toBeInTheDocument();
+  });
+
+  it('Backspace on an empty draft with no chips is a no-op', () => {
+    editLink([]);
+    fireEvent.keyDown(screen.getByLabelText('Add a label'), { key: 'Backspace' });
+    expect(screen.queryByRole('button', { name: /^Remove label/ })).toBeNull();
+  });
+
+  it('switches the placeholder once at least one chip exists', () => {
+    editLink([]);
+    const input = screen.getByLabelText<HTMLInputElement>('Add a label');
+    expect(input.placeholder).toBe('Add labels…');
+    fireEvent.change(input, { target: { value: 'infra' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByLabelText<HTMLInputElement>('Add a label').placeholder).toBe('Add another…');
+  });
+
+  it('truncates a very long label to the 40-character server cap', () => {
+    const mutate = vi.fn();
+    useUpdateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    editLink([]);
+    const input = screen.getByLabelText('Add a label');
+    fireEvent.change(input, { target: { value: 'x'.repeat(60) } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ labels: ['x'.repeat(40)] }),
+      expect.anything(),
+    );
+  });
 });

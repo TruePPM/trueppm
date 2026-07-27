@@ -583,6 +583,118 @@ describe('PromoteMilestoneDialog', () => {
     expect(screen.queryByText(/Current milestone/i)).toBeNull();
   });
 
+  it('a non-409 promote failure keeps the user on the promote form', async () => {
+    // Only the already-bound 409 routes to the conflict view; every other
+    // failure must leave the form (and the user's input) in place to retry.
+    h.promoteMutate.mockImplementation(
+      (_p: unknown, opts?: { onError?: (e: unknown) => void }) =>
+        opts?.onError?.({ response: { status: 500, data: {} } }),
+    );
+    const onClose = vi.fn();
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={onClose} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Create & bind/i }));
+    expect(screen.getByRole('dialog', { name: /Promote sprint to milestone/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Rebind to another/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /Create & bind/i })).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('a successful unbind reports the updated sprint and closes the dialog', async () => {
+    const unbound = makeSprint({ target_milestone: null, target_milestone_detail: null });
+    h.unbindMutate.mockImplementation(
+      (_p: unknown, opts?: { onSuccess?: (s: ApiSprint) => void }) => opts?.onSuccess?.(unbound),
+    );
+    const onBound = vi.fn<(s: ApiSprint) => void>();
+    const onClose = vi.fn();
+    const sprint = makeSprint({
+      target_milestone: 'm-fat',
+      target_milestone_detail: {
+        id: 'm-fat',
+        name: 'FAT review',
+        wbs_path: '1.3.1',
+        finish: '2026-07-18',
+      },
+    });
+    renderWithProviders(
+      <PromoteMilestoneDialog
+        projectId="proj-1"
+        sprint={sprint}
+        onClose={onClose}
+        onBound={onBound}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /^Unbind$/i }));
+    expect(onBound).toHaveBeenCalledWith(expect.objectContaining({ target_milestone: null }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('the conflict view labels the unbind action as working while it is in flight', () => {
+    h.unbind.isPending = true;
+    const sprint = makeSprint({
+      target_milestone: 'm-fat',
+      target_milestone_detail: {
+        id: 'm-fat',
+        name: 'FAT review',
+        wbs_path: '1.3.1',
+        finish: '2026-07-18',
+      },
+    });
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={sprint} onClose={vi.fn()} />,
+    );
+    expect(screen.getByRole('button', { name: /Working…/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^Unbind$/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /Keep current binding/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Rebind to another/i })).toBeDisabled();
+  });
+
+  it('switching back to Create new restores the create-mode fields', async () => {
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Bind existing/i }));
+    expect(screen.queryByDisplayValue('Close out telemetry FAT prep')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: /Create new/i }));
+    expect(screen.getByDisplayValue('Close out telemetry FAT prep')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Create & bind/i })).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Search milestones/i)).toBeNull();
+  });
+
+  it('an unrelated key on a candidate radio leaves the selection untouched', async () => {
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Bind existing/i }));
+    const fat = screen.getByRole('radio', { name: /FAT review/i });
+    await userEvent.click(fat);
+    fireEvent.keyDown(fat, { key: 'a' });
+    expect(screen.getByRole('radio', { name: /FAT review/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('radio', { name: /Phase-3 handoff/i })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+
+  it('ArrowDown with nothing selected yet advances from the first candidate', async () => {
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Bind existing/i }));
+    // No radio has been clicked — the roving tab stop sits on the first one.
+    expect(screen.getByRole('button', { name: /Bind & reforecast/i })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole('radio', { name: /FAT review/i }), { key: 'ArrowDown' });
+    expect(screen.getByRole('radio', { name: /Phase-3 handoff/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: /Bind & reforecast/i })).not.toBeDisabled();
+  });
+
   it('toggling quick mode off then on restores the reforecast preview', async () => {
     renderWithProviders(
       <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,

@@ -373,6 +373,196 @@ describe('telemetry', () => {
     });
   });
 
+  describe('send — endpoint revoked after setup', () => {
+    // `send` carries its own `if (!endpoint) return` guard. Every public caller
+    // checks first, so the only way to reach it is to turn telemetry off between
+    // observer registration and the observer firing.
+    it('drops a report queued by an observer after the endpoint is removed', () => {
+      const callbacks: Record<string, (entries: PerformanceEntry[]) => void> = {};
+      class CapturingObserver {
+        private readonly cb: PerformanceObserverCallback;
+        constructor(cb: PerformanceObserverCallback) {
+          this.cb = cb;
+        }
+        observe(init: PerformanceObserverInit & { type?: string }): void {
+          callbacks[init.type ?? ''] = (entries) =>
+            this.cb(
+              { getEntries: () => entries } as unknown as PerformanceObserverEntryList,
+              this as unknown as PerformanceObserver,
+            );
+        }
+        disconnect(): void {}
+        takeRecords(): PerformanceEntry[] {
+          return [];
+        }
+      }
+
+      enableTelemetry();
+      vi.stubGlobal('PerformanceObserver', CapturingObserver);
+      vi.spyOn(performance, 'getEntriesByType').mockReturnValue([]);
+      initWebVitals();
+
+      // Operator clears the collector URL at runtime.
+      disableTelemetry();
+
+      callbacks.paint([{ name: 'first-contentful-paint', startTime: 5 } as PerformanceEntry]);
+
+      expect(beacon).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reportError — non-Error, non-string values', () => {
+    it('stringifies a value that is neither an Error nor a string', async () => {
+      enableTelemetry();
+      reportError(42);
+      const [payload] = await beaconPayloads();
+      expect(payload).toMatchObject({ type: 'error', name: 'Error', message: '42' });
+      expect(payload.stack).toBeUndefined();
+    });
+  });
+
+  describe('fetch fallback failure', () => {
+    it('swallows a rejected fetch so a failed report never surfaces', async () => {
+      enableTelemetry();
+      Object.defineProperty(navigator, 'sendBeacon', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+      const rejecting = vi.fn<FetchFn>(() => Promise.reject(new Error('network down')));
+      vi.stubGlobal('fetch', rejecting);
+
+      expect(() => reportError(new Error('unreachable collector'))).not.toThrow();
+      expect(rejecting).toHaveBeenCalledTimes(1);
+      // Let the rejection settle — an unhandled rejection here would fail the run.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  });
+
+  describe('build metadata fallbacks', () => {
+    it('reports "unknown" for appVersion/buildSha when the build defines are absent', async () => {
+      enableTelemetry();
+      vi.stubGlobal('__APP_VERSION__', undefined);
+      vi.stubGlobal('__BUILD_SHA__', undefined);
+
+      reportError(new Error('no build metadata'));
+
+      const [payload] = await beaconPayloads();
+      expect(payload).toMatchObject({ appVersion: 'unknown', buildSha: 'unknown' });
+    });
+  });
+
+  describe('LCP with no candidate entries', () => {
+    const callbacks: Record<string, (entries: PerformanceEntry[]) => void> = {};
+    class CapturingObserver {
+      private readonly cb: PerformanceObserverCallback;
+      constructor(cb: PerformanceObserverCallback) {
+        this.cb = cb;
+      }
+      observe(init: PerformanceObserverInit & { type?: string }): void {
+        callbacks[init.type ?? ''] = (entries) =>
+          this.cb(
+            { getEntries: () => entries } as unknown as PerformanceObserverEntryList,
+            this as unknown as PerformanceObserver,
+          );
+      }
+      disconnect(): void {}
+      takeRecords(): PerformanceEntry[] {
+        return [];
+      }
+    }
+
+    it('leaves LCP unreported when the observer delivers an empty entry list', () => {
+      for (const key of Object.keys(callbacks)) delete callbacks[key];
+      enableTelemetry();
+      vi.stubGlobal('PerformanceObserver', CapturingObserver);
+      vi.spyOn(performance, 'getEntriesByType').mockReturnValue([]);
+      initWebVitals();
+
+      callbacks['largest-contentful-paint']([]);
+
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => 'hidden',
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => 'visible',
+      });
+
+      expect(beacon).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('observer registration failure', () => {
+    it('skips an unsupported entry type without aborting the remaining metrics', () => {
+      enableTelemetry();
+      class ThrowingObserver {
+        constructor(_cb: PerformanceObserverCallback) {}
+        observe(): void {
+          throw new Error('entry type not supported');
+        }
+        disconnect(): void {}
+        takeRecords(): PerformanceEntry[] {
+          return [];
+        }
+      }
+      vi.stubGlobal('PerformanceObserver', ThrowingObserver);
+      vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
+        { entryType: 'navigation', responseStart: 77 } as unknown as PerformanceEntry,
+      ]);
+
+      expect(() => initWebVitals()).not.toThrow();
+      // TTFB still went out even though every observer registration threw.
+      expect(beacon).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('non-browser globals (SSR / worker-style host)', () => {
+    it('resolves the build-time endpoint and an empty path when window is absent', async () => {
+      vi.stubEnv('VITE_TELEMETRY_ENDPOINT', ENDPOINT);
+      vi.stubGlobal('window', undefined);
+
+      expect(getTelemetryEndpoint()).toBe(ENDPOINT);
+
+      reportError(new Error('no window'));
+      const payloads = await beaconPayloads();
+      // Restore `window` before any assertion can fail — the shared afterEach
+      // touches `window` and would mask the real failure with a TypeError.
+      vi.unstubAllGlobals();
+
+      expect(payloads[0]).toMatchObject({ type: 'error', message: 'no window', path: '' });
+    });
+
+    it('registers no page-hide listeners when document and window are absent', () => {
+      vi.stubEnv('VITE_TELEMETRY_ENDPOINT', ENDPOINT);
+      const docAdd = vi.spyOn(document, 'addEventListener');
+      const winAdd = vi.spyOn(window, 'addEventListener');
+      class NoopObserver {
+        constructor(_cb: PerformanceObserverCallback) {}
+        observe(): void {}
+        disconnect(): void {}
+        takeRecords(): PerformanceEntry[] {
+          return [];
+        }
+      }
+      vi.stubGlobal('PerformanceObserver', NoopObserver);
+      vi.spyOn(performance, 'getEntriesByType').mockReturnValue([]);
+
+      vi.stubGlobal('document', undefined);
+      vi.stubGlobal('window', undefined);
+
+      expect(() => initWebVitals()).not.toThrow();
+
+      vi.unstubAllGlobals();
+      expect(docAdd).not.toHaveBeenCalledWith('visibilitychange', expect.anything());
+      expect(winAdd).not.toHaveBeenCalledWith('pagehide', expect.anything());
+    });
+  });
+
   describe('build-time endpoint fallback', () => {
     it('falls back to VITE_TELEMETRY_ENDPOINT when no runtime config is set', () => {
       disableTelemetry();

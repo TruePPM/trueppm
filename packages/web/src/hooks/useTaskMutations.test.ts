@@ -22,6 +22,9 @@ import {
   useBulkRestoreTasks,
   useReorderTasks,
   usePromoteTask,
+  useRemoveDependency,
+  useToggleComplete,
+  buildCopyName,
   parseGuardrailWarnings,
   parseGuardrailBlockedError,
 } from './useTaskMutations';
@@ -38,7 +41,15 @@ vi.mock('@/api/client', () => ({
 }));
 
 // Spy on the conflict toast so the suppress-flag branch (#2036) is observable.
-const toastActionMock = vi.hoisted(() => vi.fn());
+// Typed so the captured Reload action can be invoked without an `any` cast.
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+  ariaLabel?: string;
+}
+const toastActionMock = vi.hoisted(() =>
+  vi.fn<(message: string, action: ToastAction, opts?: { variant?: string }) => void>(),
+);
 vi.mock('@/components/Toast', () => ({
   toast: {
     action: toastActionMock,
@@ -846,5 +857,247 @@ describe('parseGuardrailBlockedError', () => {
   it('returns null for non-object input', () => {
     expect(parseGuardrailBlockedError(null)).toBeNull();
     expect(parseGuardrailBlockedError(undefined)).toBeNull();
+  });
+
+  it('returns null when the error carries no response body', () => {
+    // A transport-level failure (no HTTP response at all) must not be mistaken
+    // for a guardrail block — response?.data is undefined, not an object.
+    expect(parseGuardrailBlockedError(new Error('Network Error'))).toBeNull();
+    expect(parseGuardrailBlockedError({ response: { data: null } })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Remaining branch coverage: the "no snapshot to roll back to" error paths, the
+// non-matching-task arms of every optimistic cache map, the conflict toast's
+// Reload action, the null-projectId invalidation keys the sibling specs skip,
+// and usePromoteTask's sprint passthrough (#2170).
+// ---------------------------------------------------------------------------
+
+describe('optimistic rollback with no prior cache snapshot', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    patchMock.mockResolvedValue({ data: {} });
+  });
+
+  it('useRescheduleTask leaves the seeded empty cache alone when there was nothing to snapshot', async () => {
+    patchMock.mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({
+      id: 't1',
+      projectId: 'p1',
+      planned_start: '2026-01-05',
+      optimistic: { start: '2026-01-05' },
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    // onMutate seeded [] (no prior entry) → there is no snapshot to restore.
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toEqual([]);
+  });
+
+  it('usePromoteTask survives an error with no prior cache entry', async () => {
+    patchMock.mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ id: 't1', projectId: 'p1', planned_start: '2026-01-05' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toEqual([]);
+  });
+
+  it('useToggleComplete survives an error with no prior cache entry', async () => {
+    patchMock.mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useToggleComplete(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ id: 't1', projectId: 'p1', previousStatus: 'NOT_STARTED' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toEqual([]);
+  });
+});
+
+describe('optimistic patches never touch sibling tasks', () => {
+  let qc: QueryClient;
+  const other: Task = { ...baseTask, id: 't2', name: 'Untouched', progress: 10 };
+
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    // Hang the request so the onMutate state stays observable.
+    patchMock.mockReturnValue(new Promise(() => {}));
+  });
+  afterEach(() => {
+    patchMock.mockReset();
+    patchMock.mockResolvedValue({ data: {} });
+  });
+
+  it('useUpdateTask patches only the edited row', async () => {
+    qc.setQueryData<Task[]>(['tasks', 'p1'], [baseTask, other]);
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ id: 't1', projectId: 'p1', name: 'Renamed', percent_complete: 80 });
+
+    await waitFor(() => {
+      const cached = qc.getQueryData<Task[]>(['tasks', 'p1']);
+      expect(cached?.[0].name).toBe('Renamed');
+    });
+    const cached = qc.getQueryData<Task[]>(['tasks', 'p1']);
+    expect(cached?.[1].name).toBe('Untouched');
+    expect(cached?.[1].progress).toBe(10);
+  });
+
+  it('usePromoteTask moves only the promoted row', async () => {
+    qc.setQueryData<Task[]>(['tasks', 'p1'], [baseTask, other]);
+    const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ id: 't1', projectId: 'p1', planned_start: '2026-09-09' });
+
+    await waitFor(() => {
+      const cached = qc.getQueryData<Task[]>(['tasks', 'p1']);
+      expect(cached?.[0].plannedStart).toBe('2026-09-09');
+    });
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])?.[1].plannedStart ?? null).toBeNull();
+  });
+});
+
+describe('usePromoteTask sprint passthrough (#2170)', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    patchMock.mockReturnValue(new Promise(() => {}));
+  });
+  afterEach(() => {
+    patchMock.mockReset();
+    patchMock.mockResolvedValue({ data: {} });
+  });
+
+  it('sends the sprint in the PATCH and lands the card in that sprint optimistically', async () => {
+    qc.setQueryData<Task[]>(['tasks', 'p1'], [baseTask]);
+    const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({
+      id: 't1',
+      projectId: 'p1',
+      planned_start: '2026-09-09',
+      status: 'NOT_STARTED',
+      sprint: 'sprint-9',
+    });
+
+    await waitFor(() => {
+      const [t] = qc.getQueryData<Task[]>(['tasks', 'p1']) ?? [];
+      expect(t.sprintId).toBe('sprint-9');
+    });
+    expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', {
+      planned_start: '2026-09-09',
+      status: 'NOT_STARTED',
+      sprint: 'sprint-9',
+    });
+  });
+
+  it('clears the sprint when null is passed (unscoped promote)', async () => {
+    qc.setQueryData<Task[]>(['tasks', 'p1'], [{ ...baseTask, sprintId: 'sprint-1' }]);
+    const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({
+      id: 't1',
+      projectId: 'p1',
+      planned_start: '2026-09-09',
+      sprint: null,
+    });
+
+    await waitFor(() => {
+      const [t] = qc.getQueryData<Task[]>(['tasks', 'p1']) ?? [];
+      expect(t.sprintId).toBeNull();
+    });
+  });
+});
+
+describe('null-projectId invalidation keys', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    postMock.mockResolvedValue({ data: {} });
+    deleteMock.mockResolvedValue({ data: {} });
+  });
+
+  it('useRestoreTask coerces a null projectId to undefined on both keys', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useRestoreTask(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate('t1');
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
+    );
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-history', undefined, 't1'] });
+  });
+
+  it('useRemoveDependency coerces a null projectId to undefined', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useRemoveDependency(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 'd1', predecessor: 'a', successor: 'b' });
+
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/dependencies/d1/'));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['dependencies', undefined] });
+  });
+});
+
+describe('conflict toast Reload action (ADR-0217)', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    patchMock.mockResolvedValue({ data: {} });
+  });
+
+  it('refetches the project tasks when the user presses Reload', async () => {
+    patchMock.mockRejectedValueOnce(makeConflictError());
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ id: 't1', projectId: 'p1', name: 'Mine', baseVersion: 2 });
+    await waitFor(() => expect(toastActionMock).toHaveBeenCalled());
+
+    // Nothing is refetched until the user acts on the toast.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] });
+
+    const [, action] = toastActionMock.mock.calls[0];
+    expect(action.label).toBe('Reload');
+    action.onClick();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] });
+  });
+});
+
+describe('buildCopyName exhaustion fallback', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-05-05T12:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('falls back to a timestamped suffix once every numbered copy is taken', () => {
+    const taken = ['Foo (copy)'];
+    for (let n = 2; n < 1000; n++) taken.push(`Foo (copy ${n})`);
+
+    const name = buildCopyName('Foo', taken);
+
+    expect(name).toBe(`Foo (copy ${Date.now()})`);
+    expect(taken).not.toContain(name);
   });
 });

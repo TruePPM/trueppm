@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AxiosError, type AxiosResponse } from 'axios';
@@ -461,5 +461,180 @@ describe('SsoProviderPanel — Edit mode', () => {
     const dialog = screen.getByRole('dialog', { name: /Provider type/i });
     const learnMore = within(dialog).getByRole('link', { name: /Learn more/i });
     expect(learnMore).toHaveAttribute('href', expect.stringContaining('single-sign-on'));
+  });
+
+  it('titles the panel from the provider type when the stored display name is blank', () => {
+    renderPanel({ mode: 'edit', existing: { ...KEYCLOAK, display_name: '' } });
+    expect(screen.getByRole('heading', { name: 'Edit Keycloak' })).toBeInTheDocument();
+  });
+});
+
+describe('SsoProviderPanel — raw-issuer fallback editing', () => {
+  const RAW: SsoProvider = { ...KEYCLOAK, server_url: 'https://weird.example.com/no-realms' };
+
+  it('sends the edited raw issuer, trimmed of its trailing slashes', async () => {
+    const user = userEvent.setup();
+    renderPanel({ mode: 'edit', existing: RAW });
+    const raw = screen.getByLabelText('Issuer URL');
+    await user.clear(raw);
+    await user.type(raw, '  https://id.acme.io/oidc//  ');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    const arg = h.updateMutateAsync.mock.calls[0][0] as {
+      slug: string;
+      body: Record<string, unknown>;
+    };
+    expect(arg.body.server_url).toBe('https://id.acme.io/oidc');
+  });
+
+  it('clears the server_url error as soon as the raw issuer is edited', async () => {
+    h.updateMutateAsync.mockRejectedValue(axios400({ server_url: ['Enter a valid URL.'] }));
+    const user = userEvent.setup();
+    renderPanel({ mode: 'edit', existing: RAW });
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByText('Enter a valid URL.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Issuer URL')).toHaveAttribute('aria-invalid', 'true');
+
+    await user.type(screen.getByLabelText('Issuer URL'), 'x');
+    expect(screen.queryByText('Enter a valid URL.')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Issuer URL')).not.toHaveAttribute('aria-invalid');
+  });
+});
+
+describe('SsoProviderPanel — GitHub org restriction', () => {
+  it('sends an empty github_org when the optional org field is left blank', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.selectOptions(screen.getByLabelText('Provider type'), 'github');
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+
+    const body = h.createMutateAsync.mock.calls[0][0] as Record<string, unknown>;
+    expect(body.github_org).toBe('');
+  });
+
+  it('highlights the Organization input when the server rejects github_org', async () => {
+    h.createMutateAsync.mockRejectedValue(axios400({ github_org: ['No such organization.'] }));
+    const user = userEvent.setup();
+    renderPanel();
+    await user.selectOptions(screen.getByLabelText('Provider type'), 'github');
+    await user.type(screen.getByLabelText('Organization'), 'nope-inc');
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+
+    expect(await screen.findByText('No such organization.')).toBeInTheDocument();
+    const org = screen.getByLabelText('Organization');
+    expect(org).toHaveAttribute('aria-invalid', 'true');
+    expect(org).toHaveAttribute('aria-describedby');
+  });
+
+  it('clears the github_org error when the Organization field is edited', async () => {
+    h.createMutateAsync.mockRejectedValue(axios400({ github_org: ['No such organization.'] }));
+    const user = userEvent.setup();
+    renderPanel();
+    await user.selectOptions(screen.getByLabelText('Provider type'), 'github');
+    await user.type(screen.getByLabelText('Organization'), 'nope-inc');
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+    expect(await screen.findByText('No such organization.')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Organization'), '2');
+    expect(screen.queryByText('No such organization.')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Organization')).not.toHaveAttribute('aria-invalid');
+  });
+});
+
+describe('SsoProviderPanel — enable toggle', () => {
+  it('sends enabled:true once the provider is switched on', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.type(screen.getByLabelText('Base URL'), 'https://id.example.com');
+    await user.type(screen.getByLabelText('Realm'), 'main');
+    await user.click(screen.getByRole('switch', { name: 'Enable this SSO provider' }));
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+
+    const body = h.createMutateAsync.mock.calls[0][0] as Record<string, unknown>;
+    expect(body.enabled).toBe(true);
+  });
+
+  it('clears the enable-guard error when the admin toggles the provider back off', async () => {
+    h.createMutateAsync.mockRejectedValue(
+      axios400({ enabled: ['Cannot enable SSO until configured: missing client_id.'] }),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    const toggle = screen.getByRole('switch', { name: 'Enable this SSO provider' });
+    await user.click(toggle);
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+    expect(
+      await screen.findByText('Cannot enable SSO until configured: missing client_id.'),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('switch', { name: 'Enable this SSO provider' }));
+    expect(
+      screen.queryByText('Cannot enable SSO until configured: missing client_id.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('leaves an unrelated field error standing when a different field is edited', async () => {
+    // clearError(key) is a no-op on the field map when that key carries no
+    // message — only the banner goes away, the highlighted field stays flagged.
+    h.createMutateAsync.mockRejectedValue(axios400({ server_url: ['Enter a valid URL.'] }));
+    const user = userEvent.setup();
+    renderPanel();
+    await user.type(screen.getByLabelText('Base URL'), 'https://id.example.com');
+    await user.type(screen.getByLabelText('Realm'), 'main');
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+    expect(await screen.findByText('Enter a valid URL.')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Display name'), 'Acme');
+    expect(screen.queryByRole('alert', { name: '' })).not.toHaveTextContent(
+      'Please correct the highlighted fields below.',
+    );
+    expect(screen.getByText('Enter a valid URL.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Base URL')).toHaveAttribute('aria-invalid', 'true');
+  });
+});
+
+describe('SsoProviderPanel — connection-test result variants', () => {
+  it('falls back to the error field when the server sends no detail', () => {
+    h.testData = { ok: false, error: 'dns failure' };
+    renderPanel({ mode: 'edit', existing: KEYCLOAK });
+    expect(screen.getByText('dns failure')).toBeInTheDocument();
+  });
+
+  it('falls back to a generic "Not reachable." when neither detail nor error is set', () => {
+    h.testData = { ok: false };
+    renderPanel({ mode: 'edit', existing: KEYCLOAK });
+    expect(screen.getByText('Not reachable.')).toBeInTheDocument();
+  });
+
+  it('reports nothing before a test has been run', () => {
+    renderPanel({ mode: 'edit', existing: KEYCLOAK });
+    expect(screen.queryByText('Reachable.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not reachable.')).not.toBeInTheDocument();
+  });
+});
+
+describe('SsoProviderPanel — copy confirmation lifetime', () => {
+  it('reverts the Copy button from its confirmation after two seconds', async () => {
+    vi.useFakeTimers();
+    try {
+      renderPanel();
+      // fireEvent (not userEvent) so the click is synchronous under fake timers;
+      // the clipboard write resolves on a microtask, which the act() flushes.
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+        await Promise.resolve();
+      });
+      expect(screen.getByRole('button', { name: /Copied/ })).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+        await Promise.resolve();
+      });
+      expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+      expect(screen.queryByText('Copied')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

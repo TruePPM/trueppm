@@ -713,3 +713,176 @@ describe('OutlineMode — handler guard branches', () => {
     expect(payload.ordered_ids).toEqual(['t2', 't1']);
   });
 });
+
+// ===========================================================================
+// Root-level (parentId === null) fixtures.
+//
+// Every reorder path in OutlineMode has a "parent or root" fork:
+//   - the announcement says "under <parent name>" or "under root"
+//   - `parent_path` is the parent's WBS code, or '' at root
+// The shared mockTasks fixture has no root-level *leaves* (its two root rows
+// are both summaries, which take the reparent path instead), so these branches
+// need their own task list. The WBS codes are deliberately ragged ('', '3',
+// '3.1') to exercise compareTasksByWbs's empty-code fallback, its short-path
+// padding, and its equal-code tie.
+// ===========================================================================
+function leafTask(id: string, wbs: string, name: string, parentId: string | null): Task {
+  return {
+    id, wbs, name, start: '2026-05-01', finish: '2026-05-02',
+    duration: 1, progress: 0, parentId,
+    isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
+    status: 'NOT_STARTED', assignees: [], notes: '',
+  };
+}
+
+// Sorted by compareTasksByWbs this is [r4, r5, r2, r1, r3]:
+//   '' and '' both normalise to '0' and tie (equal-code path)
+//   '3' sorts before '3.1' (missing segment padded to 0)
+//   '3.1' before '3.2'
+const rootLeaves: Task[] = [
+  leafTask('r4', '', 'Root Blank A', null),
+  leafTask('r5', '', 'Root Blank B', null),
+  leafTask('r1', '3.1', 'Root Deep', null),
+  leafTask('r2', '3', 'Root Shallow', null),
+  leafTask('r3', '3.2', 'Root Deeper', null),
+];
+
+describe('OutlineMode — root-level reorder ("under root" fallbacks)', () => {
+  it('drag-reordering two root leaves announces "under root" and sends an empty parent_path', () => {
+    currentTasks = rootLeaves;
+    reorderMutate.mockImplementation(
+      (
+        _payload: { parent_path: string; ordered_ids: string[] },
+        opts?: { onSuccess?: () => void; onError?: () => void },
+      ) => {
+        opts?.onSuccess?.();
+      },
+    );
+    renderOutline();
+    // Drop 'Root Deep' (index 3 in WBS order) onto 'Root Deeper' (index 4).
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('r1', 'r3')));
+
+    expect(screen.getByText('Root Deep moved to position 5 under root')).toBeInTheDocument();
+    const payload = reorderMutate.mock.calls[0]?.[0] as { parent_path: string; ordered_ids: string[] };
+    expect(payload.parent_path).toBe('');
+    expect(payload.ordered_ids).toEqual(['r4', 'r5', 'r2', 'r3', 'r1']);
+  });
+
+  it('falls back to "under root" when the recorded parent id is not in the task list', () => {
+    // Both rows claim a parent that no longer exists, so the parent lookup
+    // misses and the announcement/parent_path fall back to the root wording.
+    currentTasks = [
+      leafTask('o1', '1.1', 'Orphan A', 'ghost-parent'),
+      leafTask('o2', '1.2', 'Orphan B', 'ghost-parent'),
+    ];
+    renderOutline();
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('o1', 'o2')));
+
+    expect(screen.getByText('Orphan A moved to position 2 under root')).toBeInTheDocument();
+    const payload = reorderMutate.mock.calls[0]?.[0] as { parent_path: string; ordered_ids: string[] };
+    expect(payload.parent_path).toBe('');
+    expect(payload.ordered_ids).toEqual(['o2', 'o1']);
+  });
+
+  it('Alt+ArrowDown on a root leaf reorders at root level', () => {
+    currentTasks = rootLeaves;
+    reorderMutate.mockImplementation(
+      (
+        _payload: { parent_path: string; ordered_ids: string[] },
+        opts?: { onSuccess?: () => void; onError?: () => void },
+      ) => {
+        opts?.onSuccess?.();
+      },
+    );
+    renderOutline();
+    act(() => useWbsStore.setState({ selectedTaskId: 'r2' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
+
+    expect(screen.getByText('Root Shallow moved down')).toBeInTheDocument();
+    const payload = reorderMutate.mock.calls[0]?.[0] as { parent_path: string; ordered_ids: string[] };
+    expect(payload.parent_path).toBe('');
+    expect(payload.ordered_ids).toEqual(['r4', 'r5', 'r1', 'r2', 'r3']);
+  });
+
+  it('Alt+ArrowDown does not dispatch a reorder when there is no active project id', () => {
+    currentProjectId = null;
+    renderOutline();
+    act(() => useWbsStore.setState({ expandedIds: new Set(['p1']), selectedTaskId: 't1' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
+    expect(reorderMutate).not.toHaveBeenCalled();
+    expect(screen.queryByText(/moved down/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('OutlineMode — empty task list', () => {
+  it('renders an empty tree and swallows arrow keys when there is nothing to select', () => {
+    // No summaries → the first-load auto-expand does nothing; no visible rows →
+    // arrow navigation finds no row to move to and leaves the selection alone.
+    currentTasks = [];
+    renderOutline();
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    fireEvent.keyDown(grid, { key: 'ArrowUp' });
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    expect(useWbsStore.getState().selectedTaskId).toBeNull();
+    expect(useWbsStore.getState().expandedIds.size).toBe(0);
+    expect(screen.queryAllByRole('row')).toHaveLength(0);
+  });
+});
+
+describe('OutlineMode — reparent target highlight lifecycle', () => {
+  function rowFor(taskId: string): HTMLElement {
+    const row = screen
+      .getAllByRole('row')
+      .find((r) => r.getAttribute('data-task-id') === taskId);
+    if (!row) throw new Error(`no row for ${taskId}`);
+    return row;
+  }
+
+  it('drops the highlight when the pointer moves off a summary onto a leaf', () => {
+    renderOutline();
+    act(() => capturedHandlers.onDragOver?.(dragEvent('t1', 'p2') as DragOverEvent));
+    expect(rowFor('p2')).toHaveClass('bg-brand-primary/5');
+
+    // Moving onto a leaf clears the target without announcing a new reparent.
+    act(() => capturedHandlers.onDragOver?.(dragEvent('t1', 't2') as DragOverEvent));
+    expect(rowFor('p2')).not.toHaveClass('bg-brand-primary/5');
+  });
+
+  it('leaving the drop zone with no target set announces nothing', () => {
+    renderOutline();
+    act(() => capturedHandlers.onDragOver?.(dragEvent('t1', null) as DragOverEvent));
+    expect(screen.queryByText(/will become child of/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('OutlineMode — indent / outdent success announcements', () => {
+  it('announces a plain outdent when the server reports no assignment warning', () => {
+    outdentMutate.mockImplementation(
+      (_id: string, opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void }) => {
+        opts?.onSuccess?.({ warning: null });
+      },
+    );
+    renderOutline();
+    act(() => useWbsStore.setState({ selectedTaskId: 't1' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    fireEvent.keyDown(grid, { key: 'ArrowLeft', altKey: true });
+    expect(screen.getByText('Task outdented')).toBeInTheDocument();
+  });
+
+  it('appends the parent-assignment warning to the indent announcement', () => {
+    indentMutate.mockImplementation(
+      (_id: string, opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void }) => {
+        opts?.onSuccess?.({ warning: 'has_assignments' });
+      },
+    );
+    renderOutline();
+    act(() => useWbsStore.setState({ selectedTaskId: 't2' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    fireEvent.keyDown(grid, { key: 'ArrowRight', altKey: true });
+    expect(
+      screen.getByText('Task indented — warning: parent task had resource assignments'),
+    ).toBeInTheDocument();
+  });
+});

@@ -1,5 +1,5 @@
 import { screen, waitFor, fireEvent, within } from '@testing-library/react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, MemoryRouter } from 'react-router';
@@ -10,8 +10,13 @@ import { ProjectOverviewPage, CriticalPathPanel } from './ProjectOverviewPage';
 // Mocks
 // ---------------------------------------------------------------------------
 
+// Mutable so a test can exercise the pre-route "no project id yet" render, where
+// every query is disabled and the KPI cards must fall back to a static,
+// non-clickable placeholder set.
+const projectIdRef = vi.hoisted(() => ({ current: 'proj-1' as string | undefined }));
+
 vi.mock('@/hooks/useProjectId', () => ({
-  useProjectId: () => 'proj-1',
+  useProjectId: () => projectIdRef.current,
 }));
 
 const mockedGet = vi.fn();
@@ -83,7 +88,10 @@ function headerHookResponse(url: string): { data: unknown } | null {
 }
 
 beforeEach(() => {
+  projectIdRef.current = 'proj-1';
   mockedPatch.mockReset();
+  mockedPost.mockReset();
+  mockedPost.mockResolvedValue({ data: {} });
   mockedGet.mockImplementation((url: string) => {
     const header = headerHookResponse(url);
     if (header) return Promise.resolve(header);
@@ -1227,5 +1235,488 @@ describe('ProjectOverviewPage — team utilization (#2428)', () => {
     renderPage();
     expect(await screen.findByText('92%')).toBeInTheDocument();
     expect(screen.getByText('of capacity this week')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared endpoint mock — every Overview read, with per-test overrides.
+// ---------------------------------------------------------------------------
+
+interface EndpointOverrides {
+  overview?: () => Promise<unknown>;
+  attention?: () => Promise<unknown>;
+  myTasks?: () => Promise<unknown>;
+  cpTasks?: () => Promise<unknown>;
+  monteCarlo?: () => Promise<unknown>;
+  project?: () => Promise<unknown>;
+  role?: number;
+}
+
+function mockOverviewEndpoints(overrides: EndpointOverrides = {}) {
+  mockedGet.mockImplementation((url: string): Promise<unknown> => {
+    if (url === '/projects/proj-1/')
+      return overrides.project?.() ?? Promise.resolve({ data: PROJECT_DETAIL });
+    if (url.endsWith('/members/'))
+      return Promise.resolve({ data: [{ id: 'me', role: overrides.role ?? 100 }] });
+    if (url.endsWith('/overview/'))
+      return overrides.overview?.() ?? Promise.resolve({ data: OVERVIEW_RESPONSE });
+    if (url.endsWith('/attention/'))
+      return overrides.attention?.() ?? Promise.resolve({ data: ATTENTION_RESPONSE });
+    if (url.endsWith('/my-tasks/'))
+      return overrides.myTasks?.() ?? Promise.resolve({ data: MY_TASKS_RESPONSE });
+    if (url === '/tasks/')
+      return overrides.cpTasks?.() ?? Promise.resolve({ data: CP_TASKS_RESPONSE });
+    if (url.endsWith('/monte-carlo/latest/'))
+      return overrides.monteCarlo?.() ?? Promise.reject(new Error('404'));
+    return Promise.reject(new Error(`Unexpected URL: ${url}`));
+  });
+}
+
+/** A resolved Monte Carlo payload with the given optional extras. */
+function mcResult(extra: Record<string, unknown> = {}) {
+  return {
+    project_id: 'proj-1',
+    p50: '2026-06-01',
+    p80: '2026-06-15',
+    p95: '2026-06-30',
+    runs: 1000,
+    distribution: [],
+    histogram_buckets: [],
+    ...extra,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Critical-path ordering — the comparator in useCriticalPathTasks
+// ---------------------------------------------------------------------------
+
+describe('critical path ordering', () => {
+  it('sorts by total slack ascending and sinks unknown-slack tasks to the bottom', async () => {
+    // Most negative float = longest delay, so it must lead. Tasks whose float the
+    // scheduler could not compute are a weaker signal and go last.
+    mockOverviewEndpoints({
+      cpTasks: () =>
+        Promise.resolve({
+          data: {
+            count: 4,
+            next: null,
+            previous: null,
+            results: [
+              { id: 'n1', name: 'Unknown slack A', duration: 4, total_float: null },
+              { id: 'p1', name: 'Positive slack', duration: 5, total_float: 5 },
+              { id: 'n2', name: 'Unknown slack B', duration: 6, total_float: null },
+              { id: 'w1', name: 'Worst slack', duration: 10, total_float: -2 },
+            ],
+          },
+        }),
+    });
+    renderPage();
+    const list = await screen.findByRole('list', { name: /critical path tasks/i });
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows[0]).toHaveTextContent('Worst slack');
+    expect(rows[1]).toHaveTextContent('Positive slack');
+    // Both unknown-slack rows tie and stay after the known-float ones.
+    expect(`${rows[2].textContent ?? ''}${rows[3].textContent ?? ''}`).toContain('Unknown slack A');
+    expect(`${rows[2].textContent ?? ''}${rows[3].textContent ?? ''}`).toContain('Unknown slack B');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Header subtitle
+// ---------------------------------------------------------------------------
+
+describe('ProjectHeader subtitle', () => {
+  it('uses the singular "task" for a one-task project', async () => {
+    mockOverviewEndpoints({
+      overview: () => Promise.resolve({ data: { ...OVERVIEW_RESPONSE, total_tasks: 1 } }),
+    });
+    renderPage();
+    expect(await screen.findByText(/1 task ·/)).toBeInTheDocument();
+  });
+
+  it('falls back to an em-dash when the project has no owner', async () => {
+    mockOverviewEndpoints({
+      overview: () => Promise.resolve({ data: { ...OVERVIEW_RESPONSE, owner_name: null } }),
+    });
+    renderPage();
+    expect(await screen.findByText(/Owner: —/)).toBeInTheDocument();
+  });
+
+  it('closes the Update Status dialog again from its own close action', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /update status/i }));
+    const dialog = await screen.findByRole('dialog', { name: /update project status/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: /close|cancel/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /update project status/i })).toBeNull();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Schedule-health metric copy
+// ---------------------------------------------------------------------------
+
+describe('Schedule health metric', () => {
+  it.each([
+    ['at_risk', 'At risk'],
+    ['critical', 'Critical'],
+  ])('reads "Behind schedule" for %s health', async (schedule_health, label) => {
+    mockOverviewEndpoints({
+      overview: () => Promise.resolve({ data: { ...OVERVIEW_RESPONSE, schedule_health } }),
+    });
+    renderPage();
+    expect(await screen.findByText('Behind schedule')).toBeInTheDocument();
+    expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+  });
+
+  it('reads "Not yet computed" for unknown health and still links to the schedule', async () => {
+    mockOverviewEndpoints({
+      overview: () => Promise.resolve({ data: { ...OVERVIEW_RESPONSE, schedule_health: 'unknown' } }),
+    });
+    renderPage();
+    expect(await screen.findByText('Not yet computed')).toBeInTheDocument();
+    // `unknown` is not a dead end — the schedule view is where the scheduler runs.
+    expect(
+      await screen.findByRole('link', { name: /schedule health.*view the schedule/i }),
+    ).toHaveAttribute('href', '/projects/proj-1/schedule');
+  });
+
+  it('omits the SPI explainer title when the payload has no SPI', async () => {
+    const { container } = (() => {
+      mockOverviewEndpoints({
+        overview: () => Promise.resolve({ data: { ...OVERVIEW_RESPONSE, spi: null } }),
+      });
+      return renderPage();
+    })();
+    await screen.findByText('On schedule');
+    expect(container.querySelector('[title*="Schedule Performance Index"]')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Team utilization variants
+// ---------------------------------------------------------------------------
+
+describe('Team utilization variants', () => {
+  it('renders an over-capacity team in the critical tone', async () => {
+    mockOverviewEndpoints({
+      overview: () =>
+        Promise.resolve({ data: { ...OVERVIEW_RESPONSE, team_utilization_pct: 120 } }),
+    });
+    renderPage();
+    expect((await screen.findByText('120%')).className).toContain('text-semantic-critical');
+  });
+
+  it('renders a nearly-full team in the at-risk tone', async () => {
+    mockOverviewEndpoints({
+      overview: () => Promise.resolve({ data: { ...OVERVIEW_RESPONSE, team_utilization_pct: 90 } }),
+    });
+    renderPage();
+    expect((await screen.findByText('90%')).className).toContain('text-semantic-at-risk');
+  });
+
+  it('renders a comfortable team in the on-track tone', async () => {
+    mockOverviewEndpoints();
+    renderPage();
+    expect((await screen.findByText('78%')).className).toContain('text-semantic-on-track');
+  });
+
+  it('falls back to a generic sentence when the server sends no reason at all', async () => {
+    // Rule 119: a blank card always explains itself, even when the server omits
+    // the machine code entirely.
+    mockOverviewEndpoints({
+      overview: () =>
+        Promise.resolve({ data: { ...OVERVIEW_RESPONSE, team_utilization_pct: null } }),
+    });
+    renderPage();
+    expect(await screen.findByText('Not available yet')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Next-milestone countdown copy
+// ---------------------------------------------------------------------------
+
+describe('Next milestone countdown', () => {
+  beforeEach(() => {
+    // Pin the clock: the countdown is a date subtraction, and a real "now" makes
+    // the Today/in-Nd boundary depend on the runner's wall clock and time zone.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-27T00:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function withMilestone(date: string) {
+    mockOverviewEndpoints({
+      overview: () =>
+        Promise.resolve({
+          data: {
+            ...OVERVIEW_RESPONSE,
+            next_milestone: { id: 'm1', name: 'Phase gate', date, percent_complete: 0 },
+          },
+        }),
+    });
+  }
+
+  it('reads "Today" for a milestone due today', async () => {
+    withMilestone('2026-07-27');
+    renderPage();
+    expect(await screen.findByText('Today')).toBeInTheDocument();
+  });
+
+  it('counts forward for a future milestone', async () => {
+    withMilestone('2026-08-01');
+    renderPage();
+    expect(await screen.findByText('in 5d')).toBeInTheDocument();
+  });
+
+  it('counts backward for a milestone already past', async () => {
+    withMilestone('2026-07-20');
+    renderPage();
+    expect(await screen.findByText('7d ago')).toBeInTheDocument();
+  });
+
+  it('omits the countdown from the card label when the milestone has no date', async () => {
+    mockOverviewEndpoints({
+      overview: () =>
+        Promise.resolve({
+          data: {
+            ...OVERVIEW_RESPONSE,
+            next_milestone: { id: 'm1', name: 'Phase gate', date: '', percent_complete: 0 },
+          },
+        }),
+    });
+    renderPage();
+    // Still a drill-down, but the accessible name carries no dangling subtitle.
+    const link = await screen.findByRole('link', { name: /next milestone.*view the milestone/i });
+    expect(link).toHaveAccessibleName('Next milestone: Phase gate. View the milestone.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Monte Carlo widget — rerun / run interactions
+// ---------------------------------------------------------------------------
+
+describe('Monte Carlo widget interactions', () => {
+  it('posts a run and shows "Running…" from the empty state', async () => {
+    mockedPost.mockReturnValue(new Promise(() => {}));
+    mockOverviewEndpoints();
+    renderPage();
+    const run = await screen.findByRole('button', { name: /^run forecast$/i });
+    fireEvent.click(run);
+    expect(await screen.findByRole('button', { name: /running…/i })).toBeDisabled();
+    await waitFor(() => {
+      expect(mockedPost).toHaveBeenCalledWith('/projects/proj-1/monte-carlo/', {});
+    });
+  });
+
+  it('shows "Rerunning…" while a rerun of a cached forecast is in flight', async () => {
+    mockedPost.mockReturnValue(new Promise(() => {}));
+    mockOverviewEndpoints({ monteCarlo: () => Promise.resolve({ data: mcResult() }) });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /rerun forecast/i }));
+    expect(await screen.findByRole('button', { name: /rerunning…/i })).toBeDisabled();
+  });
+
+  it('surfaces an inline alert when the rerun request fails', async () => {
+    mockedPost.mockRejectedValue(new Error('500'));
+    mockOverviewEndpoints({ monteCarlo: () => Promise.resolve({ data: mcResult() }) });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /rerun forecast/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not rerun. Try again.');
+  });
+
+  it('omits the last-run line when the cached result carries no timestamp', async () => {
+    mockOverviewEndpoints({ monteCarlo: () => Promise.resolve({ data: mcResult() }) });
+    renderPage();
+    await screen.findByRole('button', { name: /rerun forecast/i });
+    expect(screen.queryByText(/last run/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a busy placeholder instead of the forecast while it loads', async () => {
+    mockOverviewEndpoints({ monteCarlo: () => new Promise(() => {}) });
+    renderPage();
+    const section = await screen.findByRole('region', { name: /monte carlo forecast/i });
+    // Neither the result chips nor the empty-state CTA — a loading forecast is
+    // its own state, not "no forecast available".
+    expect(within(section).queryByRole('button', { name: /forecast/i })).toBeNull();
+    expect(within(section).queryByText(/no forecast available/i)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// My tasks — critical-path chip inside the my-tasks list
+// ---------------------------------------------------------------------------
+
+describe('My tasks critical-path chip', () => {
+  function withMyTask(extra: Record<string, unknown>) {
+    mockOverviewEndpoints({
+      myTasks: () =>
+        Promise.resolve({
+          data: {
+            tasks: [
+              {
+                id: 't1',
+                name: 'Write specs',
+                due: '2026-04-18',
+                status: 'IN_PROGRESS',
+                percent_complete: 40,
+                is_critical: false,
+                ...extra,
+              },
+            ],
+          },
+        }),
+    });
+  }
+
+  it('flags a critical-path task with a CP chip and names it in the row label', async () => {
+    withMyTask({ is_critical: true });
+    renderPage();
+    const list = await screen.findByRole('list', { name: /my tasks due this week/i });
+    expect(within(list).getByText('CP')).toBeInTheDocument();
+    expect(
+      within(list).getByRole('link', { name: /Write specs, 40% complete, on the critical path/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('omits the CP chip for an off-critical-path task', async () => {
+    withMyTask({ is_critical: false });
+    renderPage();
+    const list = await screen.findByRole('list', { name: /my tasks due this week/i });
+    expect(within(list).queryByText('CP')).toBeNull();
+    expect(
+      within(list).getByRole('link', { name: /^Write specs, 40% complete\. View task\.$/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('omits the due column when a task has no due date', async () => {
+    withMyTask({ due: null });
+    renderPage();
+    const list = await screen.findByRole('list', { name: /my tasks due this week/i });
+    expect(within(list).queryByText('2026-04-18')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retry — every panel's error banner must actually refetch (#1764)
+// ---------------------------------------------------------------------------
+
+describe('panel retry actions', () => {
+  /** Reject the first read of `key`, then serve its normal payload — so the
+   *  Retry button's refetch is what actually recovers the panel. */
+  function setupFailOnce(key: 'overview' | 'attention' | 'myTasks' | 'cpTasks') {
+    let calls = 0;
+    const payload = {
+      overview: { data: OVERVIEW_RESPONSE },
+      attention: { data: ATTENTION_RESPONSE },
+      myTasks: { data: MY_TASKS_RESPONSE },
+      cpTasks: { data: CP_TASKS_RESPONSE },
+    }[key];
+    mockOverviewEndpoints({
+      [key]: () => {
+        calls += 1;
+        return calls === 1 ? Promise.reject(new Error('500')) : Promise.resolve(payload);
+      },
+    });
+  }
+
+  it('recovers the project-health row when Retry is pressed', async () => {
+    setupFailOnce('overview');
+    renderPage();
+    const health = await screen.findByRole('region', { name: /project health/i });
+    fireEvent.click(await within(health).findByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('On schedule')).toBeInTheDocument();
+  });
+
+  it('recovers the attention panel when Retry is pressed', async () => {
+    setupFailOnce('attention');
+    renderPage();
+    const attention = await screen.findByRole('region', { name: /attention items/i });
+    fireEvent.click(await within(attention).findByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText(/no items need attention/i)).toBeInTheDocument();
+  });
+
+  it('recovers the my-tasks panel when Retry is pressed', async () => {
+    setupFailOnce('myTasks');
+    renderPage();
+    const mine = await screen.findByRole('region', { name: /my tasks this week/i });
+    await waitFor(() => {
+      expect(within(mine).getByRole('status')).toHaveTextContent(/Couldn't load your tasks\./);
+    });
+    fireEvent.click(within(mine).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText(/no tasks assigned/i)).toBeInTheDocument();
+  });
+
+  it('recovers the critical-path panel when Retry is pressed', async () => {
+    setupFailOnce('cpTasks');
+    renderPage();
+    const cp = await screen.findByRole('region', { name: /^critical path$/i });
+    await waitFor(() => {
+      expect(within(cp).getByRole('status')).toHaveTextContent(/Couldn't load the critical path\./);
+    });
+    fireEvent.click(within(cp).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText(/no critical path tasks found/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Independent panel loading states
+// ---------------------------------------------------------------------------
+
+describe('independent panel loading states', () => {
+  it('keeps the my-tasks panel busy while the attention panel has already resolved', async () => {
+    mockOverviewEndpoints({ myTasks: () => new Promise(() => {}) });
+    renderPage();
+    expect(await screen.findByText(/no items need attention/i)).toBeInTheDocument();
+    const mine = screen.getByRole('region', { name: /my tasks this week/i });
+    // Still loading: no list, no empty copy, no error banner.
+    expect(within(mine).queryByRole('list')).toBeNull();
+    expect(within(mine).queryByText(/no tasks assigned/i)).toBeNull();
+    expect(within(mine).queryByRole('status')).toBeNull();
+  });
+
+  it('keeps the attention panel busy while the my-tasks panel has already resolved', async () => {
+    mockOverviewEndpoints({ attention: () => new Promise(() => {}) });
+    renderPage();
+    expect(await screen.findByText(/no tasks assigned/i)).toBeInTheDocument();
+    const attention = screen.getByRole('region', { name: /attention items/i });
+    expect(within(attention).queryByText(/no items need attention/i)).toBeNull();
+    expect(within(attention).queryByRole('list')).toBeNull();
+  });
+
+  it('keeps the critical-path panel busy until its fetch resolves', async () => {
+    mockOverviewEndpoints({ cpTasks: () => new Promise(() => {}) });
+    renderPage();
+    const cp = await screen.findByRole('region', { name: /^critical path$/i });
+    expect(within(cp).queryByText(/no critical path tasks found/i)).toBeNull();
+    expect(within(cp).queryByRole('list')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// No project id yet — the pre-route placeholder set (rule 172)
+// ---------------------------------------------------------------------------
+
+describe('Overview with no resolved project id', () => {
+  it('renders a static, non-clickable placeholder KPI set', async () => {
+    projectIdRef.current = undefined;
+    mockOverviewEndpoints();
+    renderPage();
+
+    // The calm heading, not an alarm — an unknown project is not a bad project.
+    expect(await screen.findByRole('region', { name: /project health/i })).toBeInTheDocument();
+    expect(screen.getByText(/^Schedule health$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Forecast finish$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Next milestone$/)).toBeInTheDocument();
+
+    // Nothing is addressable yet, so no card may be a drill-down link.
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
+    // …and none of the project-scoped panels mount.
+    expect(screen.queryByRole('region', { name: /attention items/i })).toBeNull();
+    expect(screen.queryByRole('region', { name: /burn-up chart/i })).toBeNull();
   });
 });

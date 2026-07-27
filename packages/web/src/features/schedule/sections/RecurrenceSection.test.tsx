@@ -18,7 +18,13 @@ type MutateOptions = { onSuccess?: () => void; onError?: (error: unknown) => voi
 const mockMutate = vi.fn<(vars: unknown, opts?: MutateOptions) => void>();
 const mockCreate = { mutate: mockMutate, isPending: false };
 const mockUpdate = { mutate: mockMutate, isPending: false };
-const mockRemove = { mutate: vi.fn(), isPending: false, isError: false };
+type DeleteVars = { ruleId: string; taskId: string };
+type DeleteOptions = { onSuccess?: () => void; onSettled?: () => void };
+const mockRemove = {
+  mutate: vi.fn<(vars: DeleteVars, opts?: DeleteOptions) => void>(),
+  isPending: false,
+  isError: false,
+};
 
 vi.mock('@/hooks/useRecurrenceRule', () => ({
   useRecurrenceRule: () => mockRecurrence,
@@ -35,6 +41,7 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 
+const ROLE_VIEWER = 0;
 const ROLE_MEMBER = 100;
 const ROLE_OWNER = 400;
 
@@ -515,5 +522,251 @@ describe('RecurrenceSection — role gating edge cases', () => {
     mockRecurrence.rule = fixtureRule();
     render(false);
     expect(screen.queryByRole('button', { name: 'Edit recurrence' })).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Environment fallbacks: the timezone probes degrade to UTC / the local zone
+// when the JS engine gives us nothing useful.
+// ---------------------------------------------------------------------------
+
+type DateTimeFormatCtor = typeof Intl.DateTimeFormat;
+type IntlWithSupported = { supportedValuesOf?: (key: string) => string[] };
+
+function withDateTimeFormat(stub: DateTimeFormatCtor, run: () => void) {
+  const real = Intl.DateTimeFormat;
+  Object.defineProperty(Intl, 'DateTimeFormat', { value: stub, configurable: true });
+  try {
+    run();
+  } finally {
+    Object.defineProperty(Intl, 'DateTimeFormat', { value: real, configurable: true });
+  }
+}
+
+describe('RecurrenceForm — timezone environment fallbacks', () => {
+  it('falls back to UTC when the engine reports no resolved time zone', () => {
+    const blank = (() => ({ resolvedOptions: () => ({ timeZone: '' }) })) as unknown as
+      DateTimeFormatCtor;
+    withDateTimeFormat(blank, () => {
+      render(true);
+      fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
+      expect(screen.getByLabelText<HTMLSelectElement>('Timezone').value).toBe('UTC');
+    });
+  });
+
+  it('falls back to UTC when resolving the time zone throws', () => {
+    const boom = (() => {
+      throw new Error('Intl unavailable');
+    }) as unknown as DateTimeFormatCtor;
+    withDateTimeFormat(boom, () => {
+      render(true);
+      fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
+      expect(screen.getByLabelText<HTMLSelectElement>('Timezone').value).toBe('UTC');
+    });
+  });
+
+  it('offers only the local zone when the engine cannot enumerate IANA zones', () => {
+    const intl = Intl as unknown as IntlWithSupported;
+    const real = intl.supportedValuesOf;
+    delete intl.supportedValuesOf;
+    try {
+      render(true);
+      fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
+      const select = screen.getByLabelText<HTMLSelectElement>('Timezone');
+      expect(select.options).toHaveLength(1);
+      expect(select.value).toBe(select.options[0].value);
+    } finally {
+      if (real) intl.supportedValuesOf = real;
+    }
+  });
+
+  it('lists the full IANA set and lets the zone be changed', () => {
+    render(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
+    const select = screen.getByLabelText<HTMLSelectElement>('Timezone');
+    expect(select.options.length).toBeGreaterThan(1);
+    // Pick any offered zone other than the one the draft already holds.
+    const other = Array.from(select.options).find((o) => o.value !== select.value);
+    expect(other).toBeDefined();
+    fireEvent.change(select, { target: { value: other!.value } });
+    expect(select.value).toBe(other!.value);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Validation + error-message branches not reachable from the happy path.
+// ---------------------------------------------------------------------------
+
+describe('RecurrenceForm — interval validation on a stored rule', () => {
+  it('blocks the save when an existing rule carries a sub-1 interval', () => {
+    mockRecurrence.rule = fixtureRule({ frequency: 'DAILY', weekdays: 0, interval: 0 });
+    render(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit recurrence' }));
+    expect(screen.getByRole('button', { name: 'Save recurrence' })).toBeDisabled();
+    expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  it('allows the save once the interval is at least 1', () => {
+    mockRecurrence.rule = fixtureRule({ frequency: 'DAILY', weekdays: 0, interval: 1 });
+    render(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit recurrence' }));
+    expect(screen.getByRole('button', { name: 'Save recurrence' })).toBeEnabled();
+  });
+});
+
+describe('RecurrenceForm — unreadable server error bodies', () => {
+  it('falls back to the generic message when the body holds no strings or lists', () => {
+    mockMutate.mockImplementation((_vars, opts) =>
+      opts?.onError?.({ response: { data: { retry_after: 30, meta: { nested: true } } } }),
+    );
+    render(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Daily' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/Could not save the recurrence/i);
+  });
+
+  it('falls back to the generic message when the body is not an object at all', () => {
+    mockMutate.mockImplementation((_vars, opts) =>
+      opts?.onError?.({ response: { data: 'plain text' } }),
+    );
+    render(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Daily' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/Could not save the recurrence/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Remaining form controls / lifecycle branches.
+// ---------------------------------------------------------------------------
+
+describe('RecurrenceForm — additional controls', () => {
+  function openCreate() {
+    render(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
+  }
+
+  it('clearing a chosen end date re-invalidates the ON_DATE rule', () => {
+    openCreate();
+    fireEvent.click(screen.getByRole('button', { name: 'Daily' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'On' }));
+    const dateInput = screen.getByLabelText<HTMLInputElement>('End date');
+    fireEvent.change(dateInput, { target: { value: '2027-05-31' } });
+    expect(screen.getByRole('button', { name: 'Add recurrence' })).toBeEnabled();
+    fireEvent.change(dateInput, { target: { value: '' } });
+    expect(dateInput.value).toBe('');
+    expect(screen.getByRole('button', { name: 'Add recurrence' })).toBeDisabled();
+  });
+
+  it('toggling "Inherit attachments" on is carried into the create payload', () => {
+    openCreate();
+    fireEvent.click(screen.getByRole('button', { name: 'Daily' }));
+    const attachments = screen.getByRole<HTMLInputElement>('checkbox', {
+      name: /Inherit attachments/i,
+    });
+    expect(attachments.checked).toBe(false);
+    fireEvent.click(attachments);
+    expect(attachments.checked).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
+    expect(mockMutate.mock.calls[0][0]).toMatchObject({ inherit_attachments: true });
+  });
+});
+
+describe('RecurrenceForm — stop flow completion', () => {
+  function openEdit() {
+    mockRecurrence.rule = fixtureRule();
+    render(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit recurrence' }));
+  }
+
+  it('a successful stop closes the editor back to the configured view', () => {
+    mockRemove.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.();
+      opts?.onSettled?.();
+    });
+    openEdit();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop recurring' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm stop' }));
+    expect(screen.getByRole('button', { name: 'Edit recurrence' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirm stop' })).not.toBeInTheDocument();
+  });
+
+  it('a non-Escape key on the confirm button leaves the confirm in place', () => {
+    openEdit();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop recurring' }));
+    const confirm = screen.getByRole('button', { name: 'Confirm stop' });
+    fireEvent.keyDown(confirm, { key: 'Enter' });
+    expect(screen.getByRole('button', { name: 'Confirm stop' })).toBeInTheDocument();
+    expect(mockRemove.mutate).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describeRule branches the existing summary suite doesn't reach.
+// ---------------------------------------------------------------------------
+
+describe('RecurrenceReadOnly — further summary variants', () => {
+  const showSummary = (overrides: Partial<TaskRecurrenceRule>) => {
+    mockRole.role = ROLE_MEMBER;
+    mockRecurrence.rule = fixtureRule(overrides);
+    render();
+  };
+
+  it('pluralizes months and dashes an absent day-of-month', () => {
+    showSummary({ frequency: 'MONTHLY', interval: 2, weekdays: 0, day_of_month: null });
+    expect(screen.getByText(/Every 2 months on day — at 09:00/i)).toBeInTheDocument();
+  });
+
+  it('keeps "day" singular for a custom every-1-day rule', () => {
+    showSummary({ frequency: 'CUSTOM', interval: 1, weekdays: 0 });
+    expect(screen.getByText(/Every 1 day at 09:00/i)).toBeInTheDocument();
+  });
+
+  it('omits the weekday clause for a weekly rule with no days set', () => {
+    showSummary({ frequency: 'WEEKLY', interval: 1, weekdays: 0 });
+    expect(screen.getByText(/^Every week at 09:00$/i)).toBeInTheDocument();
+  });
+
+  it('falls back to a bare "Recurring" label for an unrecognized frequency', () => {
+    showSummary({
+      frequency: 'YEARLY' as unknown as TaskRecurrenceRule['frequency'],
+      weekdays: 0,
+    });
+    expect(screen.getByText(/^Recurring at 09:00$/i)).toBeInTheDocument();
+  });
+
+  it('drops the end clause when ON_DATE carries no date', () => {
+    showSummary({ frequency: 'DAILY', weekdays: 0, end_type: 'ON_DATE', end_date: null });
+    expect(screen.getByText(/^Every day at 09:00$/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The client-role fallback used when the drawer passes no server verdict.
+// ---------------------------------------------------------------------------
+
+describe('RecurrenceSection — client role fallback (canEdit absent)', () => {
+  const renderWithRole = (userRole: number | null) =>
+    renderWithProviders(<RecurrenceSection taskId="t1" projectId="p1" userRole={userRole} />);
+
+  it('an Owner may edit when no server verdict was threaded down', () => {
+    mockRole.role = ROLE_OWNER;
+    renderWithRole(ROLE_OWNER);
+    expect(screen.getByRole('button', { name: 'Add recurrence' })).toBeInTheDocument();
+  });
+
+  it('a Viewer may not edit when no server verdict was threaded down', () => {
+    mockRole.role = ROLE_OWNER;
+    renderWithRole(ROLE_VIEWER);
+    expect(screen.queryByRole('button', { name: 'Add recurrence' })).not.toBeInTheDocument();
+    expect(screen.getByText(/doesn't repeat/i)).toBeInTheDocument();
+  });
+
+  it('shows the skeleton while the viewer role is still resolving', () => {
+    mockRole.isLoading = true;
+    render(true);
+    expect(screen.getByLabelText('Loading recurrence')).toBeInTheDocument();
   });
 });

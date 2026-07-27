@@ -85,6 +85,8 @@ function renderPanel(opts: {
   role?: number | null;
   velocity?: Partial<ProjectVelocity>;
   tasks?: Task[];
+  /** Drive the `tasks` hook's not-yet-loaded state (`tasks === undefined`). */
+  tasksUnloaded?: boolean;
 } = {}) {
   const {
     methodology = 'AGILE',
@@ -93,9 +95,12 @@ function renderPanel(opts: {
     role = ROLE_SCHEDULER,
     velocity,
     tasks = [],
+    tasksUnloaded = false,
   } = opts;
   useActiveSprintMock.mockReturnValue({ sprint, isLoading: false });
-  useScheduleTasksMock.mockReturnValue({ tasks } as unknown as ReturnType<typeof useScheduleTasks>);
+  useScheduleTasksMock.mockReturnValue({
+    tasks: tasksUnloaded ? undefined : tasks,
+  } as unknown as ReturnType<typeof useScheduleTasks>);
   useCurrentUserRoleMock.mockReturnValue({ role, isLoading: role === null });
   useProjectVelocityMock.mockReturnValue({
     data: velocity as ProjectVelocity | undefined,
@@ -122,6 +127,16 @@ function renderPanel(opts: {
  */
 function expandPanel() {
   fireEvent.click(screen.getByRole('button', { name: /expand sprint panel/i }));
+}
+
+/** Local-zone YYYY-MM-DD `offset` days from today — the basis `daysUntil` uses. */
+function localIsoOffsetDays(offset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 beforeEach(() => {
@@ -645,5 +660,214 @@ describe('SprintPanel velocity + forecast (#607)', () => {
     // Neither the chart nor the forecast line render in the gated state.
     expect(screen.queryByTestId('velocity-sparkline')).toBeNull();
     expect(screen.queryByTestId('velocity-forecast-line')).toBeNull();
+  });
+});
+
+describe('SprintPanel while the viewer role is still resolving', () => {
+  it('renders the header collapsed and defers the stored-state restore until the role lands', () => {
+    window.localStorage.setItem('trueppm.board.p1.sprintPanel.open', 'true');
+    renderPanel({ role: null });
+
+    // The stored "expanded" choice is NOT applied while role is unknown — the
+    // effect bails so the header's role-gated affordances and the body resolve
+    // together rather than flashing open and then re-rendering.
+    const toggle = screen.getByRole('button', { name: /expand sprint panel/i });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('sprint-burndown-toggle')).not.toBeVisible();
+    // Schedule-authoring affordances stay hidden for an unresolved role.
+    expect(screen.queryByRole('button', { name: /link to milestone/i })).toBeNull();
+  });
+
+  it('expands from the unresolved (null) state when the chevron is pressed', () => {
+    renderPanel({ role: null });
+    fireEvent.click(screen.getByRole('button', { name: /expand sprint panel/i }));
+    expect(screen.getByTestId('sprint-burndown-toggle')).toBeVisible();
+    expect(window.localStorage.getItem('trueppm.board.p1.sprintPanel.open')).toBe('true');
+  });
+});
+
+describe('SprintPanel header edge branches', () => {
+  it('falls back to the sprint name when the sprint has no goal', () => {
+    renderPanel({
+      sprint: makeSprint({ state: 'ACTIVE', goal: '', name: 'Hardening iteration' }),
+    });
+    expect(screen.getByText('Hardening iteration')).toBeInTheDocument();
+  });
+
+  it('uses the singular "day left" on the final day of the sprint', () => {
+    renderPanel({
+      sprint: makeSprint({
+        state: 'ACTIVE',
+        start_date: localIsoOffsetDays(-5),
+        finish_date: localIsoOffsetDays(1),
+      }),
+    });
+    expect(screen.getByText('day left')).toBeInTheDocument();
+    expect(screen.queryByText('days left')).toBeNull();
+  });
+
+  it('uses the singular "task" when exactly one in-sprint task is critical (#549)', () => {
+    renderPanel({
+      sprint: makeSprint({ state: 'ACTIVE', id: 'sp-1' }),
+      tasks: [makeTask({ id: 't1', sprintId: 'sp-1', isCritical: true })],
+    });
+    expect(screen.getByLabelText('1 task on the critical path')).toBeInTheDocument();
+  });
+
+  it('omits the critical-path chip while the task list has not loaded yet', () => {
+    renderPanel({ sprint: makeSprint({ state: 'ACTIVE', id: 'sp-1' }), tasksUnloaded: true });
+    expect(screen.queryByText(/on critical path/i)).not.toBeInTheDocument();
+  });
+
+  it('treats an absent wip_count as zero in flight', () => {
+    renderPanel({
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 5, wip_count: undefined }),
+    });
+    const chip = screen.getByTestId('sprint-wip-chip');
+    expect(chip).toHaveTextContent('WIP 0/5');
+    expect(chip).toHaveAttribute('aria-label', expect.stringMatching(/within limit/i));
+  });
+
+  it('omits the pending-scope caption when pending_count is absent', () => {
+    renderPanel({
+      sprint: makeSprint({ state: 'ACTIVE', committed_points: 21, pending_count: undefined }),
+    });
+    expect(screen.getByText(/21 pts committed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/pending acceptance/i)).not.toBeInTheDocument();
+  });
+
+  it('does not collapse an already-expanded panel when the WIP chip is clicked', () => {
+    window.localStorage.setItem('trueppm.board.p1.sprintPanel.open', 'true');
+    renderPanel({
+      role: ROLE_VIEWER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 4, wip_count: 6 }),
+    });
+    expect(screen.getByTestId('sprint-burndown-toggle')).toBeVisible();
+
+    fireEvent.click(screen.getByTestId('sprint-wip-chip'));
+
+    // The chip only ever opens the panel — it is not a toggle (#546).
+    expect(screen.getByTestId('sprint-burndown-toggle')).toBeVisible();
+    expect(screen.getByRole('button', { name: /collapse sprint panel/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+});
+
+describe('SprintPanel promote dialog dismissal (#1052)', () => {
+  it('closes the promote dialog when the dialog asks to close', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', target_milestone: null }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /link to milestone/i }));
+    expect(screen.getByRole('dialog', { name: /promote dialog stub/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'close stub' }));
+
+    expect(screen.queryByRole('dialog', { name: /promote dialog stub/i })).toBeNull();
+    // The entry point comes back so the action can be retried.
+    expect(screen.getByRole('button', { name: /link to milestone/i })).toBeInTheDocument();
+  });
+});
+
+describe('SprintPanel persisted state edge branches', () => {
+  it('restores a stored collapsed state without reopening the panel', () => {
+    window.localStorage.setItem('trueppm.board.p1.sprintPanel.open', 'false');
+    renderPanel({ role: ROLE_SCHEDULER });
+    expect(screen.getByRole('button', { name: /expand sprint panel/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(screen.getByTestId('sprint-burndown-toggle')).not.toBeVisible();
+  });
+
+  it('still renders a working collapsed panel when localStorage reads throw', () => {
+    const getItem = vi
+      .spyOn(Storage.prototype, 'getItem')
+      .mockImplementation(() => {
+        throw new Error('storage denied');
+      });
+    try {
+      renderPanel({ role: ROLE_SCHEDULER });
+      // Both the panel state and the burndown disclosure fall back to closed.
+      expect(screen.getByRole('button', { name: /expand sprint panel/i })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+      expandPanel();
+      expect(screen.getByTestId('sprint-burndown-toggle')).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+      expect(screen.queryByTestId('burn-chart')).toBeNull();
+      // …and the disclosure still works in memory.
+      fireEvent.click(screen.getByTestId('sprint-burndown-toggle'));
+      expect(screen.getByTestId('burn-chart')).toBeVisible();
+    } finally {
+      getItem.mockRestore();
+    }
+  });
+});
+
+describe('SprintPanel inline editor edge branches', () => {
+  it('reports a save failure on the WIP limit (#2150)', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: null, wip_count: 1 }),
+    });
+    expandPanel();
+    fireEvent.click(screen.getByRole('button', { name: /set wip limit/i }));
+    const input = screen.getByLabelText(/wip limit/i);
+    fireEvent.change(input, { target: { value: '4' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    const opts = updateSprintMock.mock.calls[0][1] as { onError: () => void };
+    opts.onError();
+    expect(toastErrorMock).toHaveBeenCalledWith("Couldn't save the WIP limit — try again.");
+  });
+
+  it('keeps the capacity editor open on keys other than Enter/Escape', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', capacity_points: 20 }),
+    });
+    expandPanel();
+    fireEvent.click(screen.getByRole('button', { name: /edit planned story-point capacity/i }));
+    const input = screen.getByLabelText<HTMLInputElement>('Planned story-point capacity');
+    fireEvent.change(input, { target: { value: '25' } });
+    fireEvent.keyDown(input, { key: 'a' });
+
+    expect(updateSprintMock).not.toHaveBeenCalled();
+    expect(screen.getByLabelText<HTMLInputElement>('Planned story-point capacity').value).toBe(
+      '25',
+    );
+  });
+
+  it('keeps the WIP editor open on keys other than Enter/Escape', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 3, wip_count: 1 }),
+    });
+    expandPanel();
+    fireEvent.click(screen.getByRole('button', { name: /edit wip limit/i }));
+    const input = screen.getByLabelText<HTMLInputElement>('WIP limit (in-progress task ceiling)');
+    fireEvent.change(input, { target: { value: '7' } });
+    fireEvent.keyDown(input, { key: 'Tab' });
+
+    expect(updateSprintMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByLabelText<HTMLInputElement>('WIP limit (in-progress task ceiling)').value,
+    ).toBe('7');
+  });
+
+  it('reports 100% over when capacity is planned at zero but work is committed', () => {
+    renderPanel({
+      role: ROLE_MEMBER,
+      sprint: makeSprint({ state: 'ACTIVE', capacity_points: 0, committed_points: 5 }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /expand sprint panel/i }));
+    expect(screen.getByText(/Over by 5 \(\+100%\)/)).toBeInTheDocument();
   });
 });

@@ -13,7 +13,11 @@ const {
   setFontSize,
   setTextColor,
   autoPrint,
+  line,
+  setDrawColor,
+  setLineWidth,
   dispatchPrintViaIframe,
+  pdfCaps,
 } = vi.hoisted(() => ({
   toPng: vi.fn(),
   addImage: vi.fn(),
@@ -24,7 +28,15 @@ const {
   setFontSize: vi.fn(),
   setTextColor: vi.fn(),
   autoPrint: vi.fn(),
+  line: vi.fn(),
+  setDrawColor: vi.fn(),
+  setLineWidth: vi.fn(),
   dispatchPrintViaIframe: vi.fn(),
+  // Which OPTIONAL jsPDF surfaces this test's double exposes. Every stamp helper
+  // in the exporter is `typeof`-guarded so a leaner PDF object still exports;
+  // flipping these drives the guarded-off legs. Defaults mirror the historical
+  // double (text + autoPrint present, no vector line API).
+  pdfCaps: { text: true, autoPrint: true, line: false },
 }));
 vi.mock('html-to-image', () => ({ toPng }));
 vi.mock('jspdf', () => ({
@@ -33,14 +45,28 @@ vi.mock('jspdf', () => ({
     addPage = addPage;
     save = save;
     output = output;
-    // Real jsPDF exposes a text layer; the banded path stamps "Sheet n of N".
-    text = text;
     setFontSize = setFontSize;
     setTextColor = setTextColor;
-    // Embeds the auto-print OpenAction on the print destination (#1970).
-    autoPrint = autoPrint;
     // A4 landscape in points; the mock ignores the `format` option.
     internal = { pageSize: { getWidth: () => 841.89, getHeight: () => 595.28 } };
+    // Optional surfaces — attached per `pdfCaps` so tests can exercise a jsPDF
+    // double that lacks them.
+    text?: typeof text;
+    autoPrint?: typeof autoPrint;
+    line?: typeof line;
+    setDrawColor?: typeof setDrawColor;
+    setLineWidth?: typeof setLineWidth;
+    constructor() {
+      // Real jsPDF exposes a text layer; the banded path stamps "Sheet n of N".
+      if (pdfCaps.text) this.text = text;
+      // Embeds the auto-print OpenAction on the print destination (#1970).
+      if (pdfCaps.autoPrint) this.autoPrint = autoPrint;
+      if (pdfCaps.line) {
+        this.line = line;
+        this.setDrawColor = setDrawColor;
+        this.setLineWidth = setLineWidth;
+      }
+    }
   },
 }));
 // The print destination dispatches through this shared helper; assert on the call,
@@ -89,7 +115,13 @@ beforeEach(() => {
   setFontSize.mockClear();
   setTextColor.mockClear();
   autoPrint.mockClear();
+  line.mockClear();
+  setDrawColor.mockClear();
+  setLineWidth.mockClear();
   dispatchPrintViaIframe.mockClear();
+  pdfCaps.text = true;
+  pdfCaps.autoPrint = true;
+  pdfCaps.line = false;
 });
 
 afterEach(() => {
@@ -540,5 +572,639 @@ describe('scheduledPdfFileName', () => {
     expect(scheduledPdfFileName('  ***  ', '2026-01-02T00:00:00Z')).toBe(
       'Project_Schedule_2026-01-02.pdf',
     );
+  });
+
+  it('truncates a very long project name to a workable file name', () => {
+    const name = 'A'.repeat(80);
+    const out = scheduledPdfFileName(name, '2026-03-04T12:00:00Z');
+    expect(out).toBe(`${'A'.repeat(48)}_Schedule_2026-03-04.pdf`);
+  });
+
+  it('trims the leading and trailing separators the collapse leaves behind', () => {
+    expect(scheduledPdfFileName('!Apollo!', '2026-03-04')).toBe(
+      'Apollo_Schedule_2026-03-04.pdf',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared builders for the branch-coverage suites below
+// ---------------------------------------------------------------------------
+
+/** A DOMRect stub carrying only the fields the geometry readers touch. */
+function vRect(top: number, bottom: number): DOMRect {
+  return {
+    top,
+    bottom,
+    height: bottom - top,
+    left: 0,
+    right: 0,
+    width: 0,
+    x: 0,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+/** A print surface stamped with the horizontal band geometry (CSS px). */
+function bandSurface(overrides: Record<string, string> = {}): HTMLElement {
+  const node = document.createElement('div');
+  node.dataset.printLabelStripPx = '150'; // ×2 → 300 img px
+  node.dataset.printWeekPx = '35'; // ×2 → 70 img px per week
+  node.dataset.printPageWidthPx = '500'; // ×2 → 1000 img px per sheet
+  for (const [key, value] of Object.entries(overrides)) {
+    node.dataset[key] = value;
+  }
+  return node;
+}
+
+interface VflowSpec {
+  /** `data-print-vmark` name → [top, bottom] in CSS px. */
+  marks: Record<string, [number, number]>;
+  ganttRowCount?: number;
+  cpRowCount?: number;
+}
+
+/** A print surface carrying the vertical-flow markers and stamped row counts. */
+function vflowSurface({ marks, ganttRowCount, cpRowCount }: VflowSpec): HTMLElement {
+  const root = document.createElement('div');
+  if (ganttRowCount !== undefined) root.dataset.printGanttRowCount = String(ganttRowCount);
+  if (cpRowCount !== undefined) root.dataset.printCpRowCount = String(cpRowCount);
+  root.getBoundingClientRect = () => vRect(0, 0);
+  for (const [mark, [top, bottom]] of Object.entries(marks)) {
+    const el = document.createElement('div');
+    el.dataset.printVmark = mark;
+    el.getBoundingClientRect = () => vRect(top, bottom);
+    root.appendChild(el);
+  }
+  return root;
+}
+
+/** A tall single-column report: Gantt rows overflow several pages. */
+function tallVflowSurface(): HTMLElement {
+  return vflowSurface({
+    ganttRowCount: 30,
+    cpRowCount: 4,
+    marks: {
+      gantt: [45, 400],
+      'gantt-rows': [63, 820],
+      cp: [825, 900],
+      'cp-list': [840, 880],
+      footer: [885, 895],
+    },
+  });
+}
+
+/** Abort as soon as the last band/page reports progress, before the save step. */
+function abortAfterLastBand(controller: AbortController) {
+  return (p: ExportProgress) => {
+    if (p.phase === 'paginate' && p.done === p.total) controller.abort();
+  };
+}
+
+/** Captions stamped through the real text surface, in call order. */
+function captions(): string[] {
+  return text.mock.calls.map((c) => String(c[0]));
+}
+
+describe('exportSchedulePdf — band geometry validation (issue 1440)', () => {
+  beforeEach(() => {
+    stubImage(2000, 400);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+  });
+
+  it('bands the timeline when the surface reports a complete geometry', async () => {
+    const result = await exportSchedulePdf(bandSurface(), { fileName: 'ok.pdf' });
+    expect(result.pageCount).toBe(3);
+  });
+
+  it('accepts a zero week pitch and bands on the raw available width', async () => {
+    const result = await exportSchedulePdf(bandSurface({ printWeekPx: '0' }), {
+      fileName: 'noweek.pdf',
+    });
+    expect(result.pageCount).toBe(3);
+  });
+
+  const rejected: [string, Record<string, string>][] = [
+    ['a missing label-strip width', { printLabelStripPx: '' }],
+    ['a non-numeric label-strip width', { printLabelStripPx: 'abc' }],
+    ['a zero label-strip width', { printLabelStripPx: '0' }],
+    ['a missing page width', { printPageWidthPx: '' }],
+    ['a zero page width', { printPageWidthPx: '0' }],
+    ['a negative week pitch', { printWeekPx: '-5' }],
+  ];
+  for (const [label, overrides] of rejected) {
+    it(`falls back to the plain single-sheet path with ${label}`, async () => {
+      const result = await exportSchedulePdf(bandSurface(overrides), { fileName: 'bad.pdf' });
+
+      expect(result.pageCount).toBe(1);
+      expect(addPage).not.toHaveBeenCalled();
+      expect(captions().some((c) => c.startsWith('Sheet'))).toBe(false);
+      expect(save).toHaveBeenCalledWith('bad.pdf');
+    });
+  }
+
+  it('never bands when the label strip is wider than the rasterized bitmap', async () => {
+    // 1500 CSS px → 3000 img px, clamped to the 2000px bitmap: no chart region left.
+    const result = await exportSchedulePdf(bandSurface({ printLabelStripPx: '1500' }), {
+      fileName: 'clamped.pdf',
+    });
+    expect(result.pageCount).toBe(1);
+    expect(captions().some((c) => c.startsWith('Sheet'))).toBe(false);
+  });
+
+  it('excludes the scale buffer so trailing whitespace never spills onto a sheet', async () => {
+    // Content ends 200 CSS px (400 img px) past the label strip; the remaining
+    // 1300 img px of the bitmap is the scale's endless-scroll buffer.
+    const result = await exportSchedulePdf(bandSurface({ printChartContentPx: '200' }), {
+      fileName: 'short.pdf',
+    });
+
+    expect(result.pageCount).toBe(1);
+    expect(captions().some((c) => c.startsWith('Sheet'))).toBe(false);
+  });
+
+  it('treats a zero content width as unknown and bands the whole bitmap', async () => {
+    const result = await exportSchedulePdf(bandSurface({ printChartContentPx: '0' }), {
+      fileName: 'unknown.pdf',
+    });
+    expect(result.pageCount).toBe(3);
+  });
+
+  it('clamps a content width that overruns the bitmap', async () => {
+    const result = await exportSchedulePdf(bandSurface({ printChartContentPx: '5000' }), {
+      fileName: 'over.pdf',
+    });
+    expect(result.pageCount).toBe(3);
+  });
+
+});
+
+describe('exportSchedulePdf — banding without a canvas', () => {
+  it('falls through to the plain path when the band canvas has no 2D context', async () => {
+    stubImage(2000, 400);
+    installFakeCanvas(null);
+
+    const result = await exportSchedulePdf(bandSurface(), { fileName: 'noctx-band.pdf' });
+
+    expect(result.pageCount).toBe(1);
+    expect(captions().some((c) => c.startsWith('Sheet'))).toBe(false);
+    expect(save).toHaveBeenCalledWith('noctx-band.pdf');
+  });
+});
+
+describe('exportSchedulePdf — banded sheets over multiple rows', () => {
+  it('emits a column × row grid of sheets for a wide AND tall timeline', async () => {
+    stubImage(2000, 1200); // 3 week-snapped columns × 2 page rows
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+
+    const result = await exportSchedulePdf(bandSurface(), { fileName: 'grid.pdf' });
+
+    expect(result.pageCount).toBe(6);
+    expect(addPage).toHaveBeenCalledTimes(5);
+    expect(captions()).toContain('Sheet 6 of 6');
+  });
+
+  it('still bands when the PDF surface exposes no text API', async () => {
+    pdfCaps.text = false;
+    stubImage(2000, 400);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+
+    const result = await exportSchedulePdf(bandSurface(), { fileName: 'notext.pdf' });
+
+    expect(result.pageCount).toBe(3);
+    expect(text).not.toHaveBeenCalled();
+    expect(save).toHaveBeenCalledWith('notext.pdf');
+  });
+
+  it('discards the whole banded export when canceled after the last sheet', async () => {
+    stubImage(2000, 400);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+    const controller = new AbortController();
+
+    const result = await exportSchedulePdf(bandSurface(), {
+      fileName: 'late-cancel.pdf',
+      signal: controller.signal,
+      onProgress: abortAfterLastBand(controller),
+    });
+
+    expect(result).toMatchObject({ canceled: true, pageCount: 0, byteSize: 0 });
+    expect(save).not.toHaveBeenCalled();
+  });
+});
+
+describe('exportSchedulePdf — plain bitmap banding', () => {
+  it('discards the export when canceled after the last band is composited', async () => {
+    stubImage(1600, 400); // 2 bands at bandWidthPx 800
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+    const controller = new AbortController();
+
+    const result = await exportSchedulePdf(document.createElement('div'), {
+      fileName: 'late-plain.pdf',
+      bandWidthPx: 800,
+      signal: controller.signal,
+      onProgress: abortAfterLastBand(controller),
+    });
+
+    expect(result.canceled).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('ignores a band width wider than the bitmap and emits one page', async () => {
+    stubImage(800, 400);
+    const result = await exportSchedulePdf(document.createElement('div'), {
+      fileName: 'toowide.pdf',
+      bandWidthPx: 5000,
+    });
+
+    expect(result.pageCount).toBe(1);
+    expect(addPage).not.toHaveBeenCalled();
+  });
+});
+
+describe('exportSchedulePdf — rasterizer failures and mid-flight cancellation', () => {
+  it('rejects when the snapshot cannot be decoded', async () => {
+    class BrokenImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      width = 0;
+      height = 0;
+      set src(_v: string) {
+        queueMicrotask(() => this.onerror?.());
+      }
+    }
+    vi.stubGlobal('Image', BrokenImage);
+
+    await expect(
+      exportSchedulePdf(document.createElement('div'), { fileName: 'broken.pdf' }),
+    ).rejects.toThrow('Failed to decode schedule snapshot');
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('stops right after rasterizing when the signal aborts during the snapshot', async () => {
+    stubImage(800, 400);
+    const controller = new AbortController();
+    toPng.mockImplementation(() => {
+      controller.abort();
+      return Promise.resolve('data:image/png;base64,abc');
+    });
+
+    const result = await exportSchedulePdf(document.createElement('div'), {
+      fileName: 'abort-raster.pdf',
+      signal: controller.signal,
+    });
+
+    expect(result).toMatchObject({ canceled: true, pageCount: 0 });
+    expect(addImage).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('stops right after decoding when the signal aborts while the image loads', async () => {
+    const controller = new AbortController();
+    class AbortingImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      width = 800;
+      height = 400;
+      set src(_v: string) {
+        controller.abort();
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal('Image', AbortingImage);
+
+    const result = await exportSchedulePdf(document.createElement('div'), {
+      fileName: 'abort-decode.pdf',
+      signal: controller.signal,
+    });
+
+    expect(result).toMatchObject({ canceled: true, pageCount: 0 });
+    expect(toPng).toHaveBeenCalled();
+    expect(addImage).not.toHaveBeenCalled();
+  });
+});
+
+describe('exportSchedulePdf — blob and destination edge cases', () => {
+  beforeEach(() => {
+    stubImage(800, 400);
+  });
+
+  it('reports a zero byte size when the PDF blob cannot be materialized', async () => {
+    output.mockImplementation(() => {
+      throw new Error('no blob in jsdom');
+    });
+
+    const result = await exportSchedulePdf(document.createElement('div'), { fileName: 'x.pdf' });
+
+    expect(result).toMatchObject({ byteSize: 0, blobUrl: null, pageCount: 1 });
+    expect(save).toHaveBeenCalledWith('x.pdf');
+  });
+
+  it('reports a zero byte size when the blob carries no size', async () => {
+    output.mockImplementation(() => ({}));
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:sized', revokeObjectURL: vi.fn() });
+
+    const result = await exportSchedulePdf(document.createElement('div'), { fileName: 'x.pdf' });
+
+    expect(result.byteSize).toBe(0);
+    expect(result.blobUrl).toBe('blob:sized');
+  });
+
+  it('omits the viewer URL when object URLs are unavailable', async () => {
+    vi.stubGlobal('URL', {});
+
+    const result = await exportSchedulePdf(document.createElement('div'), { fileName: 'x.pdf' });
+
+    expect(result.blobUrl).toBeNull();
+    expect(result.byteSize).toBe(2048);
+  });
+
+  it('cannot dispatch to the printer without an object URL, and never downloads instead', async () => {
+    vi.stubGlobal('URL', {});
+
+    const result = await exportSchedulePdf(document.createElement('div'), {
+      fileName: 'x.pdf',
+      destination: 'print',
+    });
+
+    expect(dispatchPrintViaIframe).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ destination: 'print', blobUrl: null, canceled: false });
+  });
+
+  it('cannot dispatch to the printer when the blob itself is unavailable', async () => {
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:print', revokeObjectURL: vi.fn() });
+    output.mockImplementation(() => {
+      throw new Error('no blob in jsdom');
+    });
+
+    const result = await exportSchedulePdf(document.createElement('div'), {
+      fileName: 'x.pdf',
+      destination: 'print',
+    });
+
+    expect(dispatchPrintViaIframe).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ destination: 'print', pageCount: 1, byteSize: 0 });
+  });
+
+  it('still prints when the PDF surface exposes no autoPrint action', async () => {
+    pdfCaps.autoPrint = false;
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:print', revokeObjectURL: vi.fn() });
+
+    const result = await exportSchedulePdf(document.createElement('div'), {
+      fileName: 'x.pdf',
+      destination: 'print',
+    });
+
+    expect(autoPrint).not.toHaveBeenCalled();
+    expect(dispatchPrintViaIframe).toHaveBeenCalledWith('blob:print');
+    expect(result.destination).toBe('print');
+  });
+});
+
+describe('exportSchedulePdf — vertical flow geometry validation (ADR-0276)', () => {
+  /** Marks for a report whose Gantt rows overflow, minus whichever mark is dropped. */
+  function marksWithout(dropped: string): Record<string, [number, number]> {
+    const all: Record<string, [number, number]> = {
+      gantt: [45, 400],
+      'gantt-rows': [63, 820],
+      footer: [885, 895],
+    };
+    delete all[dropped];
+    return all;
+  }
+
+  beforeEach(() => {
+    stubImage(1000, 1800);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+  });
+
+  const rejected: [string, VflowSpec][] = [
+    ['the Gantt marker is missing', { ganttRowCount: 30, marks: marksWithout('gantt') }],
+    ['the rows marker is missing', { ganttRowCount: 30, marks: marksWithout('gantt-rows') }],
+    ['the footer marker is missing', { ganttRowCount: 30, marks: marksWithout('footer') }],
+    [
+      'the rows region is unmeasured',
+      {
+        ganttRowCount: 30,
+        marks: { gantt: [45, 400], 'gantt-rows': [63, 63], footer: [885, 895] },
+      },
+    ],
+    [
+      'the row count is absent',
+      { marks: { gantt: [45, 400], 'gantt-rows': [63, 820], footer: [885, 895] } },
+    ],
+    [
+      'the row count is zero',
+      {
+        ganttRowCount: 0,
+        marks: { gantt: [45, 400], 'gantt-rows': [63, 820], footer: [885, 895] },
+      },
+    ],
+  ];
+  for (const [label, spec] of rejected) {
+    it(`paginates with the plain bitmap bands when ${label}`, async () => {
+      const result = await exportSchedulePdf(vflowSurface(spec), { fileName: 'plain.pdf' });
+
+      // The plain path slices at fixed page heights and stamps no page furniture.
+      expect(result.pageCount).toBeGreaterThan(1);
+      expect(captions().some((c) => c.startsWith('Page '))).toBe(false);
+      expect(save).toHaveBeenCalledWith('plain.pdf');
+    });
+  }
+
+  it('paginates the report when the CP row count is missing', async () => {
+    const result = await exportSchedulePdf(
+      vflowSurface({
+        ganttRowCount: 30,
+        marks: {
+          gantt: [45, 400],
+          'gantt-rows': [63, 820],
+          cp: [825, 900],
+          'cp-list': [840, 880],
+          footer: [885, 895],
+        },
+      }),
+      { fileName: 'nocp.pdf' },
+    );
+
+    expect(result.pageCount).toBeGreaterThan(1);
+    expect(captions()).toContain(`Page ${String(result.pageCount)} of ${String(result.pageCount)}`);
+  });
+
+  it('paginates the report when the CP list is unmeasured', async () => {
+    const result = await exportSchedulePdf(
+      vflowSurface({
+        ganttRowCount: 30,
+        cpRowCount: 4,
+        marks: {
+          gantt: [45, 400],
+          'gantt-rows': [63, 820],
+          cp: [825, 900],
+          'cp-list': [840, 840],
+          footer: [885, 895],
+        },
+      }),
+      { fileName: 'flatcp.pdf' },
+    );
+
+    expect(result.pageCount).toBeGreaterThan(1);
+    expect(captions().filter((c) => c === 'Critical Path Chain (Continued)')).toHaveLength(0);
+  });
+});
+
+describe('exportSchedulePdf — vertical pagination behavior (ADR-0276)', () => {
+  it('places the bitmap directly when the whole report fits one page', async () => {
+    stubImage(1000, 600);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+
+    const result = await exportSchedulePdf(
+      vflowSurface({
+        ganttRowCount: 3,
+        marks: { gantt: [20, 60], 'gantt-rows': [30, 60], footer: [280, 295] },
+      }),
+      { fileName: 'short.pdf' },
+    );
+
+    expect(result.pageCount).toBe(1);
+    expect(addPage).not.toHaveBeenCalled();
+    // The raster is embedded as-is — no canvas round-trip, no page furniture.
+    expect(addImage).toHaveBeenCalledTimes(1);
+    expect(addImage.mock.calls[0][0]).toBe('data:image/png;base64,abc');
+    expect(captions().some((c) => c.startsWith('Page '))).toBe(false);
+  });
+
+  it('falls back to a single oversized page when no 2D context is available', async () => {
+    stubImage(1000, 1800);
+    installFakeCanvas(null);
+
+    const result = await exportSchedulePdf(tallVflowSurface(), { fileName: 'noctx-v.pdf' });
+
+    expect(result.pageCount).toBe(1);
+    expect(addPage).not.toHaveBeenCalled();
+    expect(addImage.mock.calls[0][0]).toBe('data:image/png;base64,abc');
+    expect(save).toHaveBeenCalledWith('noctx-v.pdf');
+  });
+
+  it('discards the report when canceled between pages', async () => {
+    stubImage(1000, 1800);
+    const controller = new AbortController();
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn(() => controller.abort()) });
+
+    const result = await exportSchedulePdf(tallVflowSurface(), {
+      fileName: 'cancel-v.pdf',
+      signal: controller.signal,
+    });
+
+    expect(result).toMatchObject({ canceled: true, pageCount: 0 });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('discards the report when canceled after the last page is composited', async () => {
+    stubImage(1000, 1800);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+    const controller = new AbortController();
+
+    const result = await exportSchedulePdf(tallVflowSurface(), {
+      fileName: 'late-cancel-v.pdf',
+      signal: controller.signal,
+      onProgress: abortAfterLastBand(controller),
+    });
+
+    expect(result.canceled).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('rules off the reserved footer band when the PDF surface can draw vectors', async () => {
+    pdfCaps.line = true;
+    stubImage(1000, 1800);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+
+    const result = await exportSchedulePdf(tallVflowSurface(), { fileName: 'rule.pdf' });
+
+    // One hairline per non-final page, at the reserved band's top edge (36pt up).
+    expect(line).toHaveBeenCalledTimes(result.pageCount - 1);
+    expect(line).toHaveBeenCalledWith(24, 595.28 - 36, 841.89 - 24, 595.28 - 36);
+    expect(setDrawColor).toHaveBeenCalled();
+    expect(setLineWidth).toHaveBeenCalledWith(0.5);
+  });
+
+  it('paginates without page furniture when the PDF surface exposes no text API', async () => {
+    pdfCaps.text = false;
+    stubImage(1000, 1760);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+
+    // Small Gantt, long CP list → a CP continuation page, whose running header and
+    // footer captions are all text-only and therefore skipped here.
+    const result = await exportSchedulePdf(
+      vflowSurface({
+        ganttRowCount: 4,
+        cpRowCount: 40,
+        marks: {
+          gantt: [45, 130],
+          'gantt-rows': [63, 130],
+          cp: [135, 850],
+          'cp-list': [150, 850],
+          footer: [855, 870],
+        },
+      }),
+      { fileName: 'notext-v.pdf' },
+    );
+
+    expect(result.pageCount).toBeGreaterThan(1);
+    expect(text).not.toHaveBeenCalled();
+    expect(line).not.toHaveBeenCalled();
+    expect(save).toHaveBeenCalledWith('notext-v.pdf');
+  });
+
+  it('starts the unscheduled-work card on a fresh page rather than splitting it (#1799)', async () => {
+    // Gantt rows end at img y 120; the keep-together card spans img y 600..1200.
+    stubImage(1000, 1400);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+
+    const result = await exportSchedulePdf(
+      vflowSurface({
+        ganttRowCount: 4,
+        marks: {
+          gantt: [10, 60],
+          'gantt-rows': [20, 60],
+          unscheduled: [300, 600],
+          footer: [610, 690],
+        },
+      }),
+      { fileName: 'unscheduled.pdf' },
+    );
+
+    const scale = 841.89 / 1000;
+    expect(result.pageCount).toBe(3);
+    // Page 1 runs to the card's top edge (img y 600) — the break moved down from the
+    // last Gantt row so the card is not split.
+    expect(addImage.mock.calls[0][5]).toBeCloseTo(600 * scale, 1);
+    // Page 2 carries the whole card plus the gap to the footer (img y 600 → 1220).
+    expect(addImage.mock.calls[1][5]).toBeCloseTo(620 * scale, 1);
+  });
+
+  it('breaks at the last Gantt row when the unscheduled card is unmeasured', async () => {
+    stubImage(1000, 1400);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+
+    const result = await exportSchedulePdf(
+      vflowSurface({
+        ganttRowCount: 4,
+        marks: {
+          gantt: [10, 60],
+          'gantt-rows': [20, 60],
+          unscheduled: [300, 300], // zero-height (never laid out) → no block
+          footer: [610, 690],
+        },
+      }),
+      { fileName: 'no-unscheduled.pdf' },
+    );
+
+    const scale = 841.89 / 1000;
+    expect(result.pageCount).toBe(3);
+    // Without the card's boundaries as break candidates, page 1 ends at the last
+    // Gantt row (img y 120).
+    expect(addImage.mock.calls[0][5]).toBeCloseTo(120 * scale, 1);
   });
 });

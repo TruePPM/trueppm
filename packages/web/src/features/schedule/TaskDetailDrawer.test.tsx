@@ -6,8 +6,10 @@ import { useState } from 'react';
 
 import type { Task } from '@/types';
 import { registry, type DrawerSectionContext } from '@/lib/widget-registry';
+import { useDrawerSectionStore } from '@/stores/drawerSectionStore';
 import { TaskDetailDrawer, SectionList } from './TaskDetailDrawer';
 import { useReportComposerDirty } from './ComposerDirtyContext';
+import { useTaskDraft } from './TaskDraftContext';
 
 // `delay: null` dispatches keystrokes with no inter-event setTimeout so the
 // whole `user.type()` resolves within one flush. With the default delay, the
@@ -42,10 +44,15 @@ vi.mock('react-router', async (importOriginal) => {
   return { ...actual, useNavigate: () => navigateSpy };
 });
 
-let TASKS: Partial<Task>[] = [];
+let TASKS: Partial<Task>[] | undefined = [];
 vi.mock('@/hooks/useScheduleTasks', () => ({
   useScheduleTasks: () => ({ tasks: TASKS, isLoading: false }),
 }));
+// The drawer is a desktop non-modal inspector at `md`+ and a modal bottom sheet
+// at `sm`; the breakpoint drives the focus-trap and the focus-restore ladder, so
+// it is mutable per test rather than fixed at the jsdom default.
+let mockBreakpoint: 'sm' | 'md' | 'lg' = 'lg';
+vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: () => mockBreakpoint }));
 vi.mock('@/hooks/useCurrentUserRole', () => ({
   // Scheduler (3) can edit — canEditTask(userRole) is true.
   useCurrentUserRole: () => ({ role: 3 }),
@@ -56,13 +63,41 @@ vi.mock('@/hooks/useIterationLabel', () => ({
 // Keep the render a unit: no registered sections, stub the two heavy children.
 vi.mock('./sections', () => ({ registerOssDrawerSections: () => {} }));
 vi.mock('./TaskScheduleStrip', () => ({ TaskScheduleStrip: () => <div /> }));
-vi.mock('./TaskDescriptionField', () => ({ TaskDescriptionField: () => <div /> }));
+// A minimal controlled stand-in for the real field (which owns a read/edit mode
+// plus scroll restoration, covered by its own suite). It keeps the ONE thing the
+// drawer contract depends on — value in / onChange out — so the notes half of the
+// deferred draft (patch key, conflict label, unsaved marker) is exercisable here.
+vi.mock('./TaskDescriptionField', () => ({
+  TaskDescriptionField: ({
+    value,
+    onChange,
+    readOnly,
+  }: {
+    value: string;
+    onChange: (v: string) => void;
+    readOnly?: boolean;
+  }) => (
+    <textarea
+      aria-label="Description"
+      value={value}
+      readOnly={readOnly}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ),
+}));
 // The header chip calls useProject (a real useQuery); this suite mocks data
 // hooks rather than providing a QueryClient, so stub the chip like the strip.
 vi.mock('./HeaderEstimateChip', () => ({ HeaderEstimateChip: () => <div /> }));
 // Reads useTaskHistory (a real query); this suite mocks data hooks rather than
-// providing a QueryClient, so stub it like the strip/description.
-vi.mock('./DrawerRecentActivity', () => ({ DrawerRecentActivity: () => <div /> }));
+// providing a QueryClient, so stub it — but keep the "view all activity" handoff
+// callable, since the drawer (not the digest) owns what that button does (#2448).
+vi.mock('./DrawerRecentActivity', () => ({
+  DrawerRecentActivity: ({ onViewActivity }: { onViewActivity: () => void }) => (
+    <button type="button" onClick={onViewActivity}>
+      view-all-activity
+    </button>
+  ),
+}));
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -87,6 +122,11 @@ afterEach(() => {
   TASKS = [];
   mockIsSaving = false;
   mockIsError = false;
+  mockBreakpoint = 'lg';
+  // The section open/reveal store is module-global and session-scoped by design,
+  // so clear it between cases or a reveal leaks into the next test.
+  useDrawerSectionStore.setState({ overrides: {}, revealed: {} });
+  document.querySelectorAll('main').forEach((el) => el.remove());
   vi.clearAllMocks();
 });
 
@@ -118,6 +158,71 @@ beforeAll(() => {
   // exactly as CommentComposer / NotesComposer do, so the drawer's guard wiring
   // can be exercised without mounting the full composer + its hooks. Scoped to
   // task id 'composertest'.
+  // Progressive-disclosure fixtures (ADR-0605), scoped to task id 'disclosure':
+  // an Overview section (rendered inline, not behind an accordion), one populated
+  // section, one section with no `tab` (the backward-compatible default), and two
+  // EMPTY optional sections — one of which is 'sprint', whose label resolves to
+  // the configured iteration label rather than its static registered title.
+  const onlyDisclosure = (ctx: unknown): boolean =>
+    (ctx as DrawerSectionContext).task != null &&
+    ((ctx as DrawerSectionContext).task as Task).id === 'disclosure';
+  registry.register('task_detail.section', {
+    id: 'overview',
+    priority: 100,
+    title: 'Overview',
+    tab: 'details',
+    component: ({ canEdit }: { canEdit?: boolean }) => (
+      <div>overview-body:{canEdit ? 'editable' : 'readonly'}</div>
+    ),
+    canRender: onlyDisclosure,
+  });
+  registry.register('task_detail.section', {
+    id: 'dependencies',
+    priority: 200,
+    title: 'Dependencies',
+    tab: 'details',
+    component: () => <div>dependencies-body</div>,
+    canRender: onlyDisclosure,
+    isPopulated: () => true,
+  });
+  registry.register('task_detail.section', {
+    id: 'untabbed',
+    priority: 250,
+    title: 'Untabbed',
+    // No `tab` — must fall into `details` (the extension-point default).
+    component: () => <div>untabbed-body</div>,
+    canRender: onlyDisclosure,
+  });
+  registry.register('task_detail.section', {
+    id: 'sprint',
+    priority: 300,
+    title: 'Static sprint title (ignored)',
+    tab: 'details',
+    component: () => <div>sprint-body</div>,
+    canRender: onlyDisclosure,
+    isPopulated: () => false,
+  });
+  registry.register('task_detail.section', {
+    id: 'recurring',
+    priority: 700,
+    title: 'Recurring',
+    tab: 'details',
+    component: () => <div>recurring-body</div>,
+    canRender: onlyDisclosure,
+    isPopulated: () => false,
+  });
+  // Estimate-draft consumer (#1985) — the contract EstimatesTab opts into, so
+  // the drawer's staged estimate binding can be driven without the real tab.
+  registry.register('task_detail.section', {
+    id: 'test-estimates',
+    priority: 800,
+    title: 'Estimates',
+    tab: 'details',
+    component: () => <EstimateProbe />,
+    canRender: (ctx: unknown) =>
+      (ctx as DrawerSectionContext).task != null &&
+      ((ctx as DrawerSectionContext).task as Task).id === 'estimatetest',
+  });
   registry.register('task_detail.section', {
     id: 'test-composer',
     priority: 5,
@@ -129,6 +234,38 @@ beforeAll(() => {
       ((ctx as DrawerSectionContext).task as Task).id === 'composertest',
   });
 });
+
+/**
+ * Stands in for EstimatesTab: binds the three staged estimate fields through
+ * TaskDraftContext (never through its own endpoint), so Save must carry them.
+ */
+function EstimateProbe() {
+  const binding = useTaskDraft();
+  if (!binding) return <div>estimate-probe-unbound</div>;
+  return (
+    <div>
+      <input
+        aria-label="probe optimistic"
+        value={binding.values.optimistic}
+        onChange={(e) => binding.setField('optimistic', e.target.value)}
+      />
+      <input
+        aria-label="probe most likely"
+        value={binding.values.mostLikely}
+        onChange={(e) => binding.setField('mostLikely', e.target.value)}
+      />
+      <input
+        aria-label="probe pessimistic"
+        value={binding.values.pessimistic}
+        onChange={(e) => binding.setField('pessimistic', e.target.value)}
+      />
+      <button type="button" onClick={() => binding.commitField('mostLikely', '42')}>
+        probe-rebaseline
+      </button>
+      <span>{binding.changed.optimistic ? 'optimistic-changed' : 'optimistic-clean'}</span>
+    </div>
+  );
+}
 
 function ComposerProbe() {
   const [text, setText] = useState('');
@@ -893,5 +1030,599 @@ describe('SectionList', () => {
       />,
     );
     expect(screen.getByRole('button', { name: /Dependencies/ })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Branch coverage (#2459): the deferred notes/estimate draft keys, the conflict
+// wording, the focus-restore ladder, the mobile sheet, progressive disclosure,
+// and the remaining guard early-returns.
+// ---------------------------------------------------------------------------
+
+function renderDrawerWith(
+  task: Task,
+  props: {
+    onClose?: () => void;
+    getRestoreTarget?: (taskId: string) => HTMLElement | null;
+  } = {},
+) {
+  return render(
+    <MemoryRouter>
+      <TaskDetailDrawer
+        task={task}
+        projectId="p1"
+        onClose={props.onClose ?? (() => {})}
+        getRestoreTarget={props.getRestoreTarget}
+      />
+    </MemoryRouter>,
+  );
+}
+
+/** jsdom performs no layout, so `offsetParent` is always null — the drawer's
+ *  "is this node still usable as a focus target" probe needs it stubbed. */
+function makeVisible(el: HTMLElement): HTMLElement {
+  Object.defineProperty(el, 'offsetParent', { value: document.body, configurable: true });
+  return el;
+}
+
+describe('TaskDetailDrawer description (deferred notes draft)', () => {
+  it('batches a description edit into the same PATCH as the name', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ notes: 'pour the slab' } as Partial<Task>);
+    TASKS = [task];
+    renderDrawer(task);
+
+    await user.clear(desktop().getByLabelText('Description'));
+    await user.type(desktop().getByLabelText('Description'), 'pour and cure');
+    await user.type(desktop().getByLabelText('Task name'), '!');
+    await waitFor(() =>
+      expect(desktop().getByLabelText<HTMLTextAreaElement>('Description').value).toBe(
+        'pour and cure',
+      ),
+    );
+    await user.click(desktop().getByRole('button', { name: 'Save' }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toMatchObject({
+      name: 'Foundation!',
+      notes: 'pour and cure',
+    });
+  });
+
+  it('names Description (not Name) in the unsaved-scope announcement', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ notes: '' } as Partial<Task>);
+    TASKS = [task];
+    renderDrawer(task);
+
+    await user.type(desktop().getByLabelText('Description'), 'a note');
+    expect(screen.getAllByText('Unsaved changes: Description')[0]).toBeInTheDocument();
+  });
+
+  it('renders the description read-only for a non-editable task', () => {
+    const task = makeTask({ canEdit: false });
+    TASKS = [task];
+    renderDrawer(task);
+    expect(desktop().getByLabelText('Description')).toHaveAttribute('readonly');
+  });
+});
+
+describe('TaskDetailDrawer staged estimates (#1985)', () => {
+  async function openEstimates(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(desktop().getByRole('button', { name: /^Estimates$/i }));
+  }
+
+  it('carries all three estimate columns in the batched PATCH', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 'estimatetest' });
+    TASKS = [task];
+    renderDrawer(task);
+
+    await openEstimates(user);
+    await user.type(desktop().getByLabelText('probe optimistic'), '2');
+    await user.type(desktop().getByLabelText('probe most likely'), '4');
+    await user.type(desktop().getByLabelText('probe pessimistic'), '6');
+    await waitFor(() =>
+      expect(desktop().getByLabelText<HTMLInputElement>('probe pessimistic').value).toBe('6'),
+    );
+    // The per-field dirty flag the section renders its "•" marker from.
+    expect(desktop().getByText('optimistic-changed')).toBeInTheDocument();
+
+    await user.click(desktop().getByRole('button', { name: 'Save' }));
+    expect(mutate.mock.calls[0][0]).toMatchObject({
+      optimistic_duration: 2,
+      most_likely_duration: 4,
+      pessimistic_duration: 6,
+    });
+  });
+
+  it('stages a non-numeric estimate as null rather than NaN', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 'estimatetest' });
+    TASKS = [task];
+    renderDrawer(task);
+
+    await openEstimates(user);
+    await user.type(desktop().getByLabelText('probe optimistic'), 'abc');
+    await waitFor(() =>
+      expect(desktop().getByLabelText<HTMLInputElement>('probe optimistic').value).toBe('abc'),
+    );
+    await user.click(desktop().getByRole('button', { name: 'Save' }));
+
+    expect(mutate.mock.calls[0][0]).toMatchObject({ optimistic_duration: null });
+  });
+
+  it('re-baselines a single field via commitField without raising the save bar', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 'estimatetest' });
+    TASKS = [task];
+    renderDrawer(task);
+
+    await openEstimates(user);
+    await user.click(desktop().getByRole('button', { name: 'probe-rebaseline' }));
+
+    await waitFor(() =>
+      expect(desktop().getByLabelText<HTMLInputElement>('probe most likely').value).toBe('42'),
+    );
+    // A side-write that the server already applied is not a pending edit.
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+  });
+});
+
+describe('TaskDetailDrawer conflict wording (#2172)', () => {
+  const dirtyTask = () =>
+    makeTask({
+      name: 'Foundation',
+      notes: 'orig',
+      optimisticDuration: 1,
+      mostLikelyDuration: 2,
+      pessimisticDuration: 3,
+    } as Partial<Task>);
+
+  it('joins two drifted fields with "and" and pluralizes the overwrite warning', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = dirtyTask();
+    TASKS = [task];
+    const { rerender } = renderDrawer(task);
+
+    await user.type(desktop().getByLabelText('Task name'), ' mine');
+    await user.type(desktop().getByLabelText('Description'), ' mine');
+    await waitFor(() =>
+      expect(desktop().getByLabelText('Task name')).toHaveValue('Foundation mine'),
+    );
+
+    const serverEdit = makeTask({
+      name: 'Server rename',
+      notes: 'server note',
+      optimisticDuration: 1,
+      mostLikelyDuration: 2,
+      pessimisticDuration: 3,
+    } as Partial<Task>);
+    TASKS = [serverEdit];
+    rerender(
+      <MemoryRouter>
+        <TaskDetailDrawer task={serverEdit} projectId="p1" onClose={() => {}} />
+      </MemoryRouter>,
+    );
+
+    const alert = screen.getAllByRole('alert')[0];
+    expect(alert).toHaveTextContent(/Name and Description changed elsewhere/i);
+    expect(alert).toHaveTextContent(/overwrite those changes/i);
+  });
+
+  it('uses a serial join for three drifted fields', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = dirtyTask();
+    TASKS = [task];
+    const { rerender } = renderDrawer(task);
+
+    await user.type(desktop().getByLabelText('Task name'), ' mine');
+    await user.type(desktop().getByLabelText('Description'), ' mine');
+    await waitFor(() =>
+      expect(desktop().getByLabelText('Task name')).toHaveValue('Foundation mine'),
+    );
+
+    const serverEdit = makeTask({
+      name: 'Server rename',
+      notes: 'server note',
+      optimisticDuration: 5,
+      mostLikelyDuration: 6,
+      pessimisticDuration: 7,
+    } as Partial<Task>);
+    TASKS = [serverEdit];
+    rerender(
+      <MemoryRouter>
+        <TaskDetailDrawer task={serverEdit} projectId="p1" onClose={() => {}} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByRole('alert')[0]).toHaveTextContent(
+      /Name, Description and Estimates changed elsewhere/i,
+    );
+  });
+});
+
+describe('TaskDetailDrawer focus restore on close (web-rule 264d)', () => {
+  it('returns focus to the element that opened the drawer', async () => {
+    const user = userEvent.setup({ delay: null });
+    const opener = makeVisible(document.createElement('button'));
+    opener.textContent = 'opener';
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const task = makeTask();
+    TASKS = [task];
+    renderDrawerWith(task);
+
+    await user.click(screen.getAllByRole('button', { name: 'Close task detail' })[0]);
+    expect(opener).toHaveFocus();
+    opener.remove();
+  });
+
+  it('falls back to the host-provided restore target when there is no usable opener', async () => {
+    const user = userEvent.setup({ delay: null });
+    const hostTarget = makeVisible(document.createElement('button'));
+    document.body.appendChild(hostTarget);
+    const getRestoreTarget = vi.fn<(taskId: string) => HTMLElement | null>(() => hostTarget);
+
+    const task = makeTask({ id: 't1' });
+    TASKS = [task];
+    renderDrawerWith(task, { getRestoreTarget });
+
+    await user.click(screen.getAllByRole('button', { name: 'Close task detail' })[0]);
+    expect(getRestoreTarget).toHaveBeenCalledWith('t1');
+    expect(hostTarget).toHaveFocus();
+    hostTarget.remove();
+  });
+
+  it('falls back to <main> and makes it programmatically focusable', async () => {
+    const user = userEvent.setup({ delay: null });
+    const main = document.createElement('main');
+    document.body.appendChild(main);
+
+    const task = makeTask();
+    TASKS = [task];
+    renderDrawerWith(task, { getRestoreTarget: () => null });
+
+    await user.click(screen.getAllByRole('button', { name: 'Close task detail' })[0]);
+    expect(main).toHaveAttribute('tabindex', '-1');
+    expect(main).toHaveFocus();
+  });
+
+  it('leaves an already-focusable <main> tabindex untouched', async () => {
+    const user = userEvent.setup({ delay: null });
+    const main = document.createElement('main');
+    main.setAttribute('tabindex', '0');
+    document.body.appendChild(main);
+
+    const task = makeTask();
+    TASKS = [task];
+    renderDrawerWith(task);
+
+    await user.click(screen.getAllByRole('button', { name: 'Close task detail' })[0]);
+    expect(main).toHaveAttribute('tabindex', '0');
+    expect(main).toHaveFocus();
+  });
+
+  it('does not run the desktop ladder on mobile — the sheet trap owns restore', async () => {
+    mockBreakpoint = 'sm';
+    const user = userEvent.setup({ delay: null });
+    const main = document.createElement('main');
+    document.body.appendChild(main);
+
+    const task = makeTask();
+    TASKS = [task];
+    renderDrawerWith(task);
+
+    await user.click(screen.getAllByRole('button', { name: 'Close task detail' })[0]);
+    expect(main).not.toHaveAttribute('tabindex');
+  });
+});
+
+describe('TaskDetailDrawer keyboard details', () => {
+  it('blurs the name input on Enter instead of submitting anything', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask();
+    TASKS = [task];
+    renderDrawer(task);
+
+    const name = desktop().getByLabelText('Task name');
+    name.focus();
+    await user.keyboard('{Enter}');
+    expect(name).not.toHaveFocus();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('ignores non-arrow keys on the tab strip', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 'tabtest' });
+    TASKS = [task];
+    renderDrawer(task);
+
+    const details = desktop().getByRole('tab', { name: 'Details' });
+    details.focus();
+    await user.keyboard('{End}');
+    expect(details).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('wraps to the last tab on ArrowLeft from the first', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 'tabtest' });
+    TASKS = [task];
+    renderDrawer(task);
+
+    desktop().getByRole('tab', { name: 'Details' }).focus();
+    await user.keyboard('{ArrowLeft}');
+    expect(desktop().getByRole('tab', { name: /Activity/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+});
+
+describe('TaskDetailDrawer Cmd+S guards', () => {
+  it('does not save on Cmd+S while the estimate triple is out of order', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({
+      optimisticDuration: 10,
+      mostLikelyDuration: 5,
+      pessimisticDuration: 1,
+    } as Partial<Task>);
+    TASKS = [task];
+    renderDrawer(task);
+
+    await user.type(desktop().getByLabelText('Task name'), ' x');
+    await user.keyboard('{Control>}s{/Control}');
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('does not save on Cmd+S once the task was deleted out from under the draft', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 't1' });
+    const sibling = makeTask({ id: 't2', name: 'Framing' });
+    TASKS = [task, sibling];
+    const { rerender } = renderDrawer(task);
+
+    await user.type(desktop().getByLabelText('Task name'), ' x');
+    await waitFor(() => expect(desktop().getByLabelText('Task name')).toHaveValue('Foundation x'));
+
+    TASKS = [sibling];
+    rerender(
+      <MemoryRouter>
+        <TaskDetailDrawer task={null} projectId="p1" onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    await screen.findAllByRole('alert');
+
+    await user.keyboard('{Meta>}s{/Meta}');
+    expect(mutate).not.toHaveBeenCalled();
+  });
+});
+
+describe('TaskDetailDrawer deleted-banner verbs (#2054)', () => {
+  async function deleteUnderDirtyDraft(user: ReturnType<typeof userEvent.setup>, name = ' x') {
+    const task = makeTask({ id: 't1', name: 'Foundation' });
+    const sibling = makeTask({ id: 't2', name: 'Framing' });
+    TASKS = [task, sibling];
+    const onClose = vi.fn();
+    const ui = (t: Task | null) => (
+      <MemoryRouter>
+        <TaskDetailDrawer task={t} projectId="p1" onClose={onClose} />
+      </MemoryRouter>
+    );
+    const { rerender } = render(ui(task));
+    if (name === '') {
+      await user.clear(desktop().getByLabelText('Task name'));
+      await waitFor(() => expect(desktop().getByLabelText('Task name')).toHaveValue(''));
+    } else {
+      await user.type(desktop().getByLabelText('Task name'), name);
+      await waitFor(() =>
+        expect(desktop().getByLabelText('Task name')).toHaveValue(`Foundation${name}`),
+      );
+    }
+    TASKS = [sibling];
+    rerender(ui(null));
+    await screen.findAllByRole('alert');
+    return onClose;
+  }
+
+  it('tears the orphaned drawer down on Dismiss', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onClose = await deleteUnderDirtyDraft(user);
+
+    await user.click(screen.getAllByRole('button', { name: 'Dismiss' })[0]);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels an empty name draft as "Untitled task" in the rescued text', async () => {
+    const user = userEvent.setup({ delay: null });
+    await deleteUnderDirtyDraft(user, '');
+
+    await user.click(screen.getAllByRole('button', { name: 'Copy my text' })[0]);
+    expect(await navigator.clipboard.readText()).toContain('Untitled task');
+  });
+
+  it('keeps the banner usable when the clipboard write is blocked', async () => {
+    const user = userEvent.setup({ delay: null });
+    await deleteUnderDirtyDraft(user);
+    const writeText = vi
+      .spyOn(navigator.clipboard, 'writeText')
+      .mockRejectedValue(new Error('blocked'));
+
+    await user.click(screen.getAllByRole('button', { name: 'Copy my text' })[0]);
+    // No crash, no false "Copied" confirmation — the text stays on screen.
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(screen.getAllByRole('button', { name: 'Copy my text' })[0]).toBeInTheDocument();
+    writeText.mockRestore();
+  });
+});
+
+describe('TaskDetailDrawer swap guard edges (#1978)', () => {
+  it('ignores Escape while a Save & open is in flight', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 't1', name: 'Foundation' });
+    const next = makeTask({ id: 't2', name: 'Framing' });
+    TASKS = [task, next];
+    const { rerenderTask, onSwapCanceled } = renderDrawerHarness(task);
+
+    await user.type(desktop().getByLabelText('Task name'), ' edit');
+    mockIsSaving = true;
+    rerenderTask(next);
+
+    await user.keyboard('{Escape}');
+    // Canceling now would race the in-flight onSuccess and desync the host.
+    expect(onSwapCanceled).not.toHaveBeenCalled();
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
+  it('shows the save error inside the swap dialog and keeps the pending task', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 't1', name: 'Foundation' });
+    const next = makeTask({ id: 't2', name: 'Framing' });
+    TASKS = [task, next];
+    mockIsError = true;
+    const { rerenderTask } = renderDrawerHarness(task);
+
+    await user.type(desktop().getByLabelText('Task name'), ' edit');
+    rerenderTask(next);
+
+    const guard = within(screen.getByRole('alertdialog'));
+    expect(guard.getByRole('alert')).toHaveTextContent("Couldn't save — try again");
+    expect(guard.getByRole('button', { name: 'Save & open' })).toBeInTheDocument();
+  });
+
+  it('reseeds without a PATCH when only composer text was dirty', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 'composertest', name: 'Foundation' });
+    const next = makeTask({ id: 't2', name: 'Framing' });
+    TASKS = [task, next];
+    const { rerenderTask } = renderDrawerHarness(task);
+
+    await user.click(desktop().getByRole('button', { name: /Discussion/i }));
+    await user.click(desktop().getByRole('button', { name: 'type-comment' }));
+    rerenderTask(next);
+
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Save & open' }),
+    );
+    // Nothing scalar changed, so there is nothing to persist — just adopt the task.
+    expect(mutate).not.toHaveBeenCalled();
+    expect(screen.getAllByLabelText('Task name')[0]).toHaveValue('Framing');
+  });
+});
+
+describe('TaskDetailDrawer progressive disclosure (ADR-0605)', () => {
+  it('shows populated sections and folds empty ones under Add detail', () => {
+    const task = makeTask({ id: 'disclosure' });
+    TASKS = [task];
+    renderDrawer(task);
+
+    // Populated + always-shown (no predicate) sections keep their headers…
+    expect(desktop().getByRole('button', { name: /Dependencies/ })).toBeInTheDocument();
+    expect(desktop().getByRole('button', { name: /Untabbed/ })).toBeInTheDocument();
+    // …the empty ones are offered under "Add detail" instead of empty headers.
+    const addDetail = within(desktop().getByRole('region', { name: 'Add detail' }));
+    expect(addDetail.getByRole('button', { name: 'Sprint' })).toBeInTheDocument();
+    expect(addDetail.getByRole('button', { name: 'Recurring' })).toBeInTheDocument();
+  });
+
+  it('renders the Overview section inline with the effective edit verdict', () => {
+    const task = makeTask({ id: 'disclosure', canEdit: true });
+    TASKS = [task];
+    renderDrawer(task);
+    expect(desktop().getByText('overview-body:editable')).toBeInTheDocument();
+  });
+
+  it('re-adds a revealed section to the main flow and opens it', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 'disclosure' });
+    TASKS = [task];
+    renderDrawer(task);
+
+    await user.click(
+      within(desktop().getByRole('region', { name: 'Add detail' })).getByRole('button', {
+        name: 'Sprint',
+      }),
+    );
+
+    // It leaves the Add-detail row and mounts expanded — no second click needed.
+    expect(desktop().getByText('sprint-body')).toBeInTheDocument();
+    expect(
+      within(desktop().getByRole('region', { name: 'Add detail' })).queryByRole('button', {
+        name: 'Sprint',
+      }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe('TaskDetailDrawer activity handoff (#2448)', () => {
+  it('switches to the Activity tab from the recent-activity digest', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 'tabtest' });
+    TASKS = [task];
+    renderDrawer(task);
+
+    expect(desktop().getByRole('tab', { name: /Activity/ })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    );
+    await user.click(desktop().getByRole('button', { name: 'view-all-activity' }));
+
+    expect(desktop().getByRole('tab', { name: /Activity/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(desktop().getByText('activity-panel-body')).toBeInTheDocument();
+  });
+});
+
+describe('TaskDetailDrawer open / cache edges', () => {
+  it('seeds the draft when the drawer opens from closed', () => {
+    TASKS = [];
+    const { rerenderTask } = renderDrawerHarness(null);
+    expect(screen.queryByLabelText('Task name')).not.toBeInTheDocument();
+
+    const task = makeTask({ name: 'Foundation' });
+    TASKS = [task];
+    rerenderTask(task);
+    expect(screen.getAllByLabelText('Task name')[0]).toHaveValue('Foundation');
+  });
+
+  it('renders with an unloaded task cache (no subtask badge, no crash)', () => {
+    TASKS = undefined;
+    const task = makeTask({ id: 'tabtest' });
+    renderDrawer(task);
+    // Sections still register; the derived done/total badge simply has nothing to count.
+    expect(desktop().getByRole('tab', { name: 'Subtasks' })).toBeInTheDocument();
+  });
+
+  it('closes instead of raising the rescue banner when the task cache is unavailable', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 't1' });
+    TASKS = [task];
+    const { rerender } = renderDrawer(task);
+
+    await user.type(desktop().getByLabelText('Task name'), ' x');
+    await waitFor(() => expect(desktop().getByLabelText('Task name')).toHaveValue('Foundation x'));
+
+    // Without a loaded list we cannot prove the task was deleted, so the drawer
+    // must not claim it was — it takes the ordinary close path.
+    TASKS = undefined;
+    rerender(
+      <MemoryRouter>
+        <TaskDetailDrawer task={null} projectId="p1" onClose={() => {}} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Task name')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the client role rule when the task carries no canEdit verdict', () => {
+    const task = makeTask({ canEdit: undefined });
+    TASKS = [task];
+    renderDrawer(task);
+    // The mocked role is below MEMBER, so the client rule denies the edit.
+    expect(desktop().getByText('View only')).toBeInTheDocument();
   });
 });

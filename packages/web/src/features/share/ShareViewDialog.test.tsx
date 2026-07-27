@@ -497,3 +497,41 @@ describe('ShareViewDialog — CreatedLinkRow', () => {
     expect(btn).toBeDisabled();
   });
 });
+
+describe('ShareViewDialog — link list not yet resolved', () => {
+  it('opens on the Create form while the share-link query is still in flight', () => {
+    // `undefined` (not `[]`) is the pre-resolution state: the mode is not primed
+    // yet, so the dialog must not flash Manage-with-zero-links.
+    sharedLinksResult = { data: undefined };
+    renderDialog();
+    expect(screen.getByRole('dialog', { name: 'Share this schedule' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create link' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ New link' })).not.toBeInTheDocument();
+  });
+
+  it('Cancel closes outright when the link list has not resolved', async () => {
+    const user = userEvent.setup();
+    sharedLinksResult = { data: undefined };
+    const { onClose } = renderDialog();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ShareViewDialog — custom expiry that cannot be parsed', () => {
+  it('mints a never-expiring link rather than an Invalid Date when the picked date is out of range', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole('button', { name: 'Pick date…' }));
+    // A syntactically valid but unrepresentable date: Date.parse returns NaN, and
+    // resolveExpiry must fall through to null instead of sending "Invalid Date".
+    fireEvent.change(screen.getByLabelText('Expiry date'), { target: { value: '999999-12-31' } });
+    const createBtn = screen.getByRole('button', { name: 'Create link' });
+    expect(createBtn).toBeEnabled();
+    await user.click(createBtn);
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ expiresAt: null }),
+      expect.anything(),
+    );
+  });
+});

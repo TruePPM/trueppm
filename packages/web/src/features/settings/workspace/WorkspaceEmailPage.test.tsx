@@ -557,3 +557,254 @@ describe('WorkspaceEmailPage — field editing', () => {
     );
   });
 });
+
+describe('WorkspaceEmailPage — provider derivation and switching', () => {
+  it('derives Microsoft 365 from its saved host and keeps Advanced collapsed at defaults', () => {
+    mockHooks({ transport_mode: 'smtp', host: 'smtp.office365.com', port: 587, security: 'tls' });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByLabelText<HTMLSelectElement>('Provider').value).toBe('m365');
+    expect(screen.getByText('smtp.office365.com · 587 · STARTTLS')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Advanced — server settings/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    // M365 is not Gmail → no App-Password walkthrough, and the label is plain.
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Gmail App password/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('pre-fills the Microsoft 365 host/port/security when the preset is picked', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'm365' } });
+    expect(screen.getByText('smtp.office365.com · 587 · STARTTLS')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Advanced — server settings/i }));
+    expect(screen.getByLabelText<HTMLInputElement>('SMTP host').value).toBe('smtp.office365.com');
+    expect(screen.getByLabelText<HTMLInputElement>('SMTP port').value).toBe('587');
+  });
+
+  it('derives Fastmail from its saved host and uses the app-password placeholder', () => {
+    mockHooks({ transport_mode: 'smtp', host: 'smtp.fastmail.com', port: 465, security: 'ssl' });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByLabelText<HTMLSelectElement>('Provider').value).toBe('fastmail');
+    expect(screen.getByText('smtp.fastmail.com · 465 · SSL/TLS')).toBeInTheDocument();
+    expect(screen.getByLabelText<HTMLInputElement>('App password').placeholder).toBe(
+      'Paste your app password',
+    );
+  });
+
+  it('uses the 16-character App Password placeholder for Gmail', () => {
+    mockHooks({ transport_mode: 'smtp', host: 'smtp.gmail.com' });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByLabelText<HTMLInputElement>('App password').placeholder).toBe(
+      'Paste the 16-character App Password',
+    );
+  });
+
+  it('auto-expands Advanced when a preset security setting diverges from its default', () => {
+    // Gmail host + port, but SSL instead of STARTTLS → the divergence must be visible.
+    mockHooks({ transport_mode: 'smtp', host: 'smtp.gmail.com', port: 587, security: 'ssl' });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByRole('button', { name: /Advanced — server settings/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
+  it('switches to SendGrid from the dropdown and saves its relay transport', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'sendgrid' } });
+    expect(screen.getByText(/smtp\.sendgrid\.net · 587 · STARTTLS/)).toBeInTheDocument();
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transport_mode: 'sendgrid',
+        host: 'smtp.sendgrid.net',
+        port: 587,
+        security: 'tls',
+      }),
+    );
+  });
+
+  it('switches back to the server default and drops the credential fields', () => {
+    mockHooks({ transport_mode: 'smtp', host: 'mail.example.com' });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByLabelText('SMTP host')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'cloud' } });
+
+    expect(screen.getByText(/No credentials needed/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText('SMTP host')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+  });
+
+  it('keeps the custom host when refining an unknown SMTP server', () => {
+    mockHooks({ transport_mode: 'smtp', host: 'relay.internal' });
+    render(<WorkspaceEmailPage />);
+    // Bounce through Gmail and back to Custom — Custom keeps whatever host is there.
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'gmail' } });
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'custom' } });
+    expect(screen.getByLabelText<HTMLInputElement>('SMTP host').value).toBe('smtp.gmail.com');
+  });
+
+  it('falls back to the first SES region when the saved relay host is unrecognized', () => {
+    mockHooks({ transport_mode: 'ses', host: 'legacy-relay.example.com' });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByLabelText<HTMLSelectElement>('SES region').value).toBe('us-east-1');
+  });
+
+  it('re-derives the provider lens on discard after a provider switch', async () => {
+    mockHooks({ transport_mode: 'smtp', host: 'smtp.gmail.com' });
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'ses' } });
+    expect(screen.getByLabelText<HTMLSelectElement>('Provider').value).toBe('ses');
+
+    act(() => {
+      useSettingsSaveStore.getState().triggerDiscard();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText<HTMLSelectElement>('Provider').value).toBe('gmail'),
+    );
+    expect(screen.getByText('smtp.gmail.com · 587 · STARTTLS')).toBeInTheDocument();
+  });
+});
+
+describe('WorkspaceEmailPage — numeric field clearing', () => {
+  it('coerces a cleared Port, Max recipients, and Throttle to 0 rather than NaN', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    mockHooks({ transport_mode: 'smtp', host: 'mail.example.com', max_recipients: 50 });
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('SMTP port'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Max recipients'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Throttle per minute'), { target: { value: '' } });
+
+    expect(screen.getByLabelText<HTMLInputElement>('SMTP port').value).toBe('0');
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ port: 0, max_recipients: 0, throttle_per_min: 0 }),
+    );
+  });
+});
+
+describe('WorkspaceEmailPage — save-failure surfacing', () => {
+  it('leads with the DRF form-level message when the server sends one', async () => {
+    const mutateAsync = vi
+      .fn()
+      .mockRejectedValue(axios400({ detail: 'SMTP handshake timed out after 10s.' }));
+    mockHooks({ transport_mode: 'smtp', host: 'mail.example.com' });
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('SMTP host'), { target: { value: 'slow.host' } });
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(await screen.findByText('SMTP handshake timed out after 10s.')).toBeInTheDocument();
+    expect(screen.queryByText(/correct the highlighted fields/i)).not.toBeInTheDocument();
+  });
+
+  it('summarizes field-only rejections and highlights the credential inline', async () => {
+    const mutateAsync = vi
+      .fn()
+      .mockRejectedValue(axios400({ password: ['Authentication failed.'] }));
+    mockHooks({ transport_mode: 'smtp', host: 'mail.example.com' });
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong' } });
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(await screen.findByText(/correct the highlighted fields/i)).toBeInTheDocument();
+    expect(screen.getByText('Authentication failed.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Password')).toHaveAttribute('aria-invalid', 'true');
+    // The typed secret is kept so the operator can correct it.
+    expect(screen.getByLabelText<HTMLInputElement>('Password').value).toBe('wrong');
+  });
+
+  it('expands the collapsed Advanced reveal so a rejected transport field is visible', async () => {
+    const mutateAsync = vi.fn().mockRejectedValue(axios400({ port: ['Port is closed.'] }));
+    mockHooks({ transport_mode: 'smtp', host: 'smtp.gmail.com' });
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    const advanced = screen.getByRole('button', { name: /Advanced — server settings/i });
+    expect(advanced).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.change(screen.getByLabelText('From name'), { target: { value: 'Ops' } });
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    await waitFor(() => expect(advanced).toHaveAttribute('aria-expanded', 'true'));
+    expect(screen.getByText('Port is closed.')).toBeInTheDocument();
+  });
+
+  it('leaves Advanced collapsed when only a non-transport field is rejected', async () => {
+    const mutateAsync = vi
+      .fn()
+      .mockRejectedValue(axios400({ from_email: ['Enter a valid email address.'] }));
+    mockHooks({ transport_mode: 'smtp', host: 'smtp.gmail.com' });
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('From address'), { target: { value: 'nope' } });
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(await screen.findByText('Enter a valid email address.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Advanced — server settings/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+});
+
+describe('WorkspaceEmailPage — Public URL copy', () => {
+  it('confirms the copy and writes the origin to the clipboard', async () => {
+    const writeText = vi.fn<(v: string) => Promise<void>>().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+
+    expect(writeText).toHaveBeenCalledWith('https://app.example.com');
+    expect(await screen.findByRole('button', { name: /Copied/ })).toBeInTheDocument();
+  });
+});
+
+describe('WorkspaceEmailPage — health and test-send fallbacks', () => {
+  it('offers a first check and shows every record as not-checked before one runs', () => {
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByRole('button', { name: 'Check now' })).toBeEnabled();
+    expect(screen.getAllByText('Not checked')).toHaveLength(3);
+  });
+
+  it('falls back to a generic failure line when the server reports no reason', () => {
+    useSendTestEmail.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: { sent: false },
+    });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByText('Send failed.')).toBeInTheDocument();
+  });
+});

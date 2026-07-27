@@ -1,11 +1,12 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
+import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
 import type { Task, Methodology } from '@/types';
@@ -35,6 +36,20 @@ beforeEach(() => {
   window.localStorage.clear();
   // Default every test to an authoring role; viewer-gating tests set VIEWER.
   currentRoleMock = ROLE_MEMBER;
+  // Grid selection lives in a module-scoped zustand store, so it survives unmount
+  // and would leak a stale selection into the next spec's toolbar assertions.
+  useTaskSelectionStore.setState({ selectedIds: new Set<string>() });
+  projectIdMock = 'proj-1';
+  projectDataUndefined = false;
+  labelsMock = [
+    { id: 'l1', name: 'Needs review', color: 'teal', position: 0, serverVersion: 1, taskCount: 0 },
+    { id: 'l2', name: 'Blocked', color: 'rose', position: 1, serverVersion: 1, taskCount: 0 },
+  ];
+  resourcePoolMock = [
+    { resourceId: 'r1', resource: { name: 'Alice Smith' } },
+    { resourceId: 'r2', resource: { name: 'Bob Jones' } },
+    { resourceId: 'r3', resource: { name: 'Carol Nunes' } },
+  ];
 });
 
 const mockTasks: Task[] = [
@@ -94,7 +109,11 @@ const mockTasks: Task[] = [
   },
 ];
 
-vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
+// Mutable so the "no project in scope" specs can drive every `!projectId` guard
+// (persistence, drawer open, CSV filename, label-settings shortcut) without
+// re-mocking the module. Reset to 'proj-1' in the top-level beforeEach.
+let projectIdMock: string | undefined = 'proj-1';
+vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => projectIdMock }));
 
 let scheduleTasksMockReturn: {
   tasks: typeof mockTasks | null;
@@ -110,9 +129,15 @@ vi.mock('@/hooks/useScheduleTasks', () => ({
 let projectMethodology: Methodology = 'HYBRID';
 let projectAgileFeatures = false;
 
+// When true the project query has not resolved yet, so `project.data` is
+// undefined and the methodology falls back to HYBRID.
+let projectDataUndefined = false;
+
 vi.mock('@/hooks/useProject', () => ({
   useProject: () => ({
-    data: { id: 'proj-1', methodology: projectMethodology, agile_features: projectAgileFeatures },
+    data: projectDataUndefined
+      ? undefined
+      : { id: 'proj-1', methodology: projectMethodology, agile_features: projectAgileFeatures },
     isLoading: false,
   }),
 }));
@@ -147,7 +172,16 @@ vi.mock('@/hooks/useSprints', () => ({
 const exportTasksToCsv = vi.fn();
 // Label catalog for the Label facet (#2383). Mutable so a test can present an
 // empty project without re-mocking the module.
-let labelsMock: { id: string; name: string; color: string; position: number; serverVersion: number; taskCount: number }[] = [
+interface LabelRow {
+  id: string;
+  name: string;
+  color: string;
+  position: number;
+  serverVersion: number;
+  taskCount: number;
+}
+// `undefined` models the catalog query before it resolves.
+let labelsMock: LabelRow[] | undefined = [
   { id: 'l1', name: 'Needs review', color: 'teal', position: 0, serverVersion: 1, taskCount: 0 },
   { id: 'l2', name: 'Blocked', color: 'rose', position: 1, serverVersion: 1, taskCount: 0 },
 ];
@@ -157,7 +191,12 @@ vi.mock('@/hooks/useLabels', () => ({
 
 // Owner roster for the Owner facet (#2387) — the project's resource pool, which
 // deliberately includes someone with no rows so the visible `0` is exercised.
-let resourcePoolMock = [
+interface PoolRow {
+  resourceId: string;
+  resource: { name: string };
+}
+// `undefined` models the pool query before it resolves.
+let resourcePoolMock: PoolRow[] | undefined = [
   { resourceId: 'r1', resource: { name: 'Alice Smith' } },
   { resourceId: 'r2', resource: { name: 'Bob Jones' } },
   { resourceId: 'r3', resource: { name: 'Carol Nunes' } },
@@ -226,7 +265,10 @@ async function renderGridWithRouter(initialEntries: string[] = ['/']) {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  return { search: () => router.state.location.search };
+  return {
+    search: () => router.state.location.search,
+    pathname: () => router.state.location.pathname,
+  };
 }
 
 describe('GridView — methodology default', () => {
@@ -1085,5 +1127,587 @@ describe('GridView — Owner and Status facets (#2387)', () => {
     await renderGrid(['/projects/proj-1/grid?owner=r3']);
     expect(await screen.findByText('No tasks match these filters')).toBeInTheDocument();
     expect(screen.queryByText(/Each filter has rows on its own/)).not.toBeInTheDocument();
+  });
+});
+
+describe('GridView — no project in scope', () => {
+  beforeEach(() => {
+    projectIdMock = undefined;
+    projectMethodology = 'AGILE'; // flat
+    projectAgileFeatures = false;
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    labelsMock = [
+      { id: 'l1', name: 'Needs review', color: 'teal', position: 0, serverVersion: 1, taskCount: 0 },
+    ];
+    useTaskDrawerStore.setState({ task: null, projectId: null });
+  });
+
+  it('uses the methodology default and persists nothing when there is no project', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    // AGILE ⇒ flat, straight from methodologyDefaultMode (no localStorage read).
+    expect(await screen.findByRole('grid', { name: /task list/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Outline tree' }));
+    expect(await screen.findByRole('treegrid', { name: /outline task tree/i })).toBeInTheDocument();
+    // The mode change is honored in-session but never written to storage — there
+    // is no project key to write it under.
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it('does not persist a group-by change when there is no project', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(screen.getByRole('button', { name: 'Grouped' }));
+    await user.selectOptions(await screen.findByLabelText(/group by dimension/i), 'status');
+    expect(await screen.findByText('Grouped by status.')).toBeInTheDocument();
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it('does not open the task drawer on a row activation without a project', async () => {
+    await renderGrid();
+    const row = await screen.findByRole('row', { name: 'Open details for Design' });
+    fireEvent.keyDown(row, { key: 'Enter' });
+    expect(useTaskDrawerStore.getState().task).toBeNull();
+  });
+
+  it('ignores a ?task= deep link when there is no project', async () => {
+    await renderGrid(['/grid?task=t2']);
+    await screen.findByRole('grid', { name: /task list/i });
+    expect(useTaskDrawerStore.getState().task).toBeNull();
+  });
+
+  it('exports CSV under a generic filename when there is no project', async () => {
+    const user = userEvent.setup();
+    exportTasksToCsv.mockClear();
+    await renderGrid();
+    await user.click(await screen.findByRole('button', { name: /export tasks as csv/i }));
+    expect(exportTasksToCsv).toHaveBeenCalledWith(expect.any(Array), 'tasks-export.csv');
+  });
+
+  it('offers no label-settings shortcut without a project to route to', async () => {
+    labelsMock = [];
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(await screen.findByRole('button', { name: 'Label: none yet' }));
+    expect(screen.getByText('No labels in this project yet')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open label settings' })).not.toBeInTheDocument();
+  });
+
+  it('never enters the delete confirm flow without a project', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(await screen.findByLabelText('Select Design'));
+    await user.click(await screen.findByRole('button', { name: /^delete$/i }));
+    // handleDeleteClick bails on the missing project, so the confirm strip that
+    // would 404 on submit never replaces the toolbar.
+    expect(screen.queryByRole('alertdialog', { name: /confirm deletion/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('GridView — project not yet loaded', () => {
+  beforeEach(() => {
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    projectMethodology = 'AGILE';
+    projectAgileFeatures = true;
+  });
+
+  it('falls back to the HYBRID default (outline, no Sprint grouping) before the project resolves', async () => {
+    const user = userEvent.setup();
+    projectDataUndefined = true;
+    await renderGrid();
+    // methodology ?? 'HYBRID' ⇒ outline, even though the mock's methodology is AGILE.
+    expect(await screen.findByRole('treegrid', { name: /outline task tree/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Grouped' }));
+    const select = await screen.findByLabelText(/group by dimension/i);
+    // agile_features === true is unknowable without the project, so Sprint is withheld.
+    expect(within(select).queryByRole('option', { name: /sprint/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('GridView — facet catalogs not yet resolved', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+  });
+
+  it('renders empty facet catalogs rather than throwing when neither query has resolved', async () => {
+    labelsMock = undefined;
+    resourcePoolMock = undefined;
+    await renderGrid();
+    expect(await screen.findByRole('button', { name: 'Label: none yet' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Owner: none yet' })).toBeInTheDocument();
+    // Rows still render — an unresolved catalog is not a filter.
+    expect(screen.getByText('Planning')).toBeInTheDocument();
+  });
+});
+
+describe('GridView — mobile facet presentation', () => {
+  interface FakeMql {
+    matches: boolean;
+    media: string;
+    onchange: null;
+    addListener: () => void;
+    removeListener: () => void;
+    addEventListener: (type: string, cb: (e: MediaQueryListEvent) => void) => void;
+    removeEventListener: () => void;
+    dispatchEvent: () => boolean;
+  }
+
+  /** Fake `matchMedia` whose `(max-width: …)` answer is flippable at runtime. */
+  function installMatchMedia(startMobile: boolean) {
+    const listeners: ((e: MediaQueryListEvent) => void)[] = [];
+    let mobile = startMobile;
+    vi.stubGlobal(
+      'matchMedia',
+      (query: string): FakeMql => ({
+        matches: /^\(max-width:/.test(query) ? mobile : /^\(min-width:/.test(query),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: (_type, cb) => {
+          listeners.push(cb);
+        },
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    );
+    return (next: boolean) => {
+      mobile = next;
+      act(() => {
+        listeners.forEach((cb) => cb({ matches: next } as MediaQueryListEvent));
+      });
+    };
+  }
+
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('opens the facets as bottom sheets below the md breakpoint', async () => {
+    installMatchMedia(true);
+    await renderGrid();
+    // presentation="sheet" ⇒ the trigger advertises a dialog, not a menu.
+    expect(await screen.findByRole('button', { name: 'Owner: any' })).toHaveAttribute(
+      'aria-haspopup',
+      'dialog',
+    );
+    expect(screen.getByRole('button', { name: 'Status: any' })).toHaveAttribute(
+      'aria-haspopup',
+      'dialog',
+    );
+  });
+
+  it('reverts to popovers when the viewport widens past the breakpoint', async () => {
+    const setMobile = installMatchMedia(true);
+    await renderGrid();
+    const trigger = await screen.findByRole('button', { name: 'Owner: any' });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+    setMobile(false);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Owner: any' })).toHaveAttribute(
+        'aria-haspopup',
+        'menu',
+      ),
+    );
+  });
+});
+
+describe('GridView — toast dwell (#2078)', () => {
+  beforeEach(() => {
+    projectMethodology = 'AGILE'; // flat — where bulk delete lives
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    bulkDeleteMutate.mockReset();
+    bulkRestoreMutate.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps the undoable delete toast for its longer dwell, then dismisses it', async () => {
+    bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {
+      opts?.onSuccess?.();
+    });
+    await renderGrid();
+    const box = await screen.findByLabelText('Select Design');
+    vi.useFakeTimers();
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm delete/i }));
+    // Exactly one row selected ⇒ singular copy.
+    expect(screen.getByText(/^1 task deleted\.$/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^undo$/i })).toBeInTheDocument();
+    // Still up at 4s — the Undo affordance earns the longer dwell.
+    act(() => {
+      vi.advanceTimersByTime(4_500);
+    });
+    expect(screen.getByText(/^1 task deleted\.$/)).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(screen.queryByText(/^1 task deleted\.$/)).not.toBeInTheDocument();
+  });
+
+  it('dismisses the plain failure toast after the shorter dwell', async () => {
+    bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onError?: () => void }) => {
+      opts?.onError?.();
+    });
+    await renderGrid();
+    const box = await screen.findByLabelText('Select Design');
+    vi.useFakeTimers();
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm delete/i }));
+    const failure = screen.getByRole('alert');
+    expect(failure).toHaveTextContent("Couldn't delete tasks — try again.");
+    // No Undo on a failure, so it gets the 4s dwell rather than 8s.
+    act(() => {
+      vi.advanceTimersByTime(4_500);
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('GridView — select-all toggle', () => {
+  beforeEach(() => {
+    projectMethodology = 'AGILE'; // flat
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+  });
+
+  it('selects every row, then clears the selection on a second click', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(await screen.findByLabelText('Select all tasks'));
+    expect(await screen.findByText('3 selected')).toBeInTheDocument();
+    // Second click hits the already-all-selected branch and clears instead.
+    await user.click(screen.getByLabelText('Deselect all tasks'));
+    await waitFor(() => expect(screen.queryByText('3 selected')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Select all tasks')).toBeInTheDocument();
+  });
+});
+
+describe('GridView — singular announcement', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID'; // starts outline so the flat switch is a change
+    scheduleTasksMockReturn = { tasks: [mockTasks[2]], links: [], isLoading: false, error: null };
+  });
+
+  it('announces "1 task shown" (not "1 tasks") for a single-row project', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(await screen.findByRole('button', { name: 'Flat list' }));
+    expect(await screen.findByText('Switched to flat mode. 1 task shown.')).toBeInTheDocument();
+  });
+});
+
+describe('GridView — loading skeleton shape', () => {
+  it('indents the skeleton rows while the outline mode is loading', async () => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: null, links: [], isLoading: true, error: null };
+    await renderGrid();
+    const busy = document.querySelector('[aria-busy="true"]');
+    expect(busy).not.toBeNull();
+    const rows = Array.from((busy as HTMLElement).children) as HTMLElement[];
+    expect(rows).toHaveLength(10);
+    // Outline previews the hierarchy: rows step 0 / 16 / 32px and repeat.
+    expect(rows[0].style.marginLeft).toBe('0px');
+    expect(rows[1].style.marginLeft).toBe('16px');
+    expect(rows[2].style.marginLeft).toBe('32px');
+  });
+
+  it('leaves the skeleton rows flush while the flat mode is loading', async () => {
+    projectMethodology = 'AGILE';
+    scheduleTasksMockReturn = { tasks: null, links: [], isLoading: true, error: null };
+    await renderGrid();
+    const rows = Array.from(
+      (document.querySelector('[aria-busy="true"]') as HTMLElement).children,
+    ) as HTMLElement[];
+    expect(rows.every((r) => r.style.marginLeft === '' || r.style.marginLeft === '0px')).toBe(true);
+  });
+});
+
+describe('GridView — facet panel dismissal', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    labelsMock = [
+      { id: 'l1', name: 'Needs review', color: 'teal', position: 0, serverVersion: 1, taskCount: 0 },
+    ];
+  });
+
+  it('Escape closes the Status panel and leaves no facet open', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(await screen.findByRole('button', { name: 'Status: any' }));
+    expect(screen.getByRole('menu', { name: 'Filter by status' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(screen.queryByRole('menu', { name: 'Filter by status' })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('Escape closes the Label panel and leaves no facet open', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(await screen.findByRole('button', { name: 'Label: any' }));
+    expect(screen.getByRole('menu', { name: 'Filter by label' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(screen.queryByRole('menu', { name: 'Filter by label' })).not.toBeInTheDocument(),
+    );
+  });
+});
+
+describe('GridView — offline filtering note', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+  });
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+  });
+
+  it('says filtering is limited to the loaded rows while offline with a facet active', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    await renderGrid(['/projects/proj-1/grid?owner=r1']);
+    expect(
+      await screen.findByText('Offline — filtering the 3 rows already loaded'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows no offline note when a facet is active but the browser is online', async () => {
+    await renderGrid(['/projects/proj-1/grid?owner=r1']);
+    await screen.findByLabelText('Remove Owner: Alice Smith filter');
+    expect(screen.queryByText(/Offline — filtering/)).not.toBeInTheDocument();
+  });
+
+  it('shows no offline note when offline with no facet filter active', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    await renderGrid();
+    await screen.findByRole('button', { name: 'Owner: any' });
+    expect(screen.queryByText(/Offline — filtering/)).not.toBeInTheDocument();
+  });
+});
+
+describe('GridView — empty-project toolbar', () => {
+  beforeEach(() => {
+    scheduleTasksMockReturn = { tasks: [], links: [], isLoading: false, error: null };
+  });
+
+  it('keeps the expand/collapse controls inert on an empty outline project', async () => {
+    const user = userEvent.setup();
+    projectMethodology = 'HYBRID';
+    await renderGrid();
+    await user.click(await screen.findByRole('button', { name: 'Expand all' }));
+    await user.click(screen.getByRole('button', { name: 'Collapse all' }));
+    // Nothing to expand — the empty state stays put rather than erroring.
+    expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
+  });
+
+  it('keeps select-all inert and CSV disabled on an empty flat project', async () => {
+    const user = userEvent.setup();
+    projectMethodology = 'AGILE';
+    await renderGrid();
+    const selectAll = await screen.findByLabelText('Select all tasks');
+    await user.click(selectAll);
+    expect(screen.getByLabelText('Select all tasks')).toBeInTheDocument();
+    expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /export tasks as csv/i })).toBeDisabled();
+    expect(screen.getByText('0 / 0 shown')).toBeInTheDocument();
+  });
+
+  it('opens and closes the create modal from the empty-project toolbar', async () => {
+    const user = userEvent.setup();
+    projectMethodology = 'AGILE';
+    await renderGrid();
+    await user.click(await screen.findByRole('button', { name: /^\+ task$/i }));
+    const dialog = await screen.findByRole('dialog', { name: /task form/i });
+    // Toolbar "+ Task" creates a root task — no parent.
+    expect(within(dialog).getByTestId('parent-id')).toHaveTextContent('none');
+    await user.click(within(dialog).getByRole('button', { name: /close form/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /task form/i })).not.toBeInTheDocument(),
+    );
+  });
+});
+
+describe('GridView — label chip and settings route', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    labelsMock = [
+      { id: 'l1', name: 'Needs review', color: 'teal', position: 0, serverVersion: 1, taskCount: 0 },
+      { id: 'l2', name: 'Blocked', color: 'rose', position: 1, serverVersion: 1, taskCount: 0 },
+    ];
+  });
+
+  it('removing a label chip clears that label from the filter and the URL', async () => {
+    const user = userEvent.setup();
+    const { search } = await renderGridWithRouter(['/projects/proj-1/grid?fl=l1,l2']);
+    await user.click(
+      await screen.findByRole('button', { name: 'Remove filter: label Needs review' }),
+    );
+    // Only the clicked label leaves; the other stays selected.
+    await waitFor(() => expect(search()).toContain('fl=l2'));
+    expect(
+      screen.queryByRole('button', { name: 'Remove filter: label Needs review' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove filter: label Blocked' })).toBeInTheDocument();
+  });
+
+  it('announces the plural label count once the selection settles', async () => {
+    await renderGrid(['/projects/proj-1/grid?fl=l1,l2']);
+    // Debounced (600ms) so a burst of toggles reads once, as a shape: "2 labels".
+    expect(await screen.findByText(/0 of 3 rows — 2 labels/, undefined, { timeout: 3000 })).toBeInTheDocument();
+  });
+
+  it('routes to label settings from the empty label panel', async () => {
+    labelsMock = [];
+    const user = userEvent.setup();
+    const { pathname } = await renderGridWithRouter(['/projects/proj-1/grid']);
+    await user.click(await screen.findByRole('button', { name: 'Label: none yet' }));
+    await user.click(screen.getByRole('button', { name: 'Open label settings' }));
+    await waitFor(() => expect(pathname()).toBe('/projects/proj-1/settings/labels'));
+  });
+});
+
+describe('GridView — zero-result diagnosis drops (#2387)', () => {
+  // Same rows, but finishing in the future so none of them is overdue — that lets
+  // the Overdue facet be the one whose removal recovers the most rows.
+  const futureTasks: Task[] = mockTasks.map((t) => ({
+    ...t,
+    start: '2099-05-01',
+    finish: '2099-05-10',
+  }));
+
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    labelsMock = [
+      { id: 'l1', name: 'Needs review', color: 'teal', position: 0, serverVersion: 1, taskCount: 0 },
+    ];
+  });
+
+  it('summarizes a multi-value facet as "first +N" and drops the search that recovers most', async () => {
+    const user = userEvent.setup();
+    await renderGrid(['/projects/proj-1/grid?q=zzz-no-match&owner=r1,r2']);
+    const diagnosis = within(await screen.findByRole('status'));
+    expect(diagnosis.getByText(/No tasks match both filters/)).toBeInTheDocument();
+    // Two owners are compacted rather than listed in full.
+    expect(diagnosis.getByText('Owner: Alice Smith +1')).toBeInTheDocument();
+    // Dropping the search recovers the two owner rows; dropping the owners recovers none.
+    await user.click(screen.getByRole('button', { name: 'Drop "zzz-no-match"' }));
+    expect(await screen.findByText('Planning')).toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: /search tasks/i })).toHaveValue('');
+  });
+
+  it('drops the Status facet when that is the recovery worth offering', async () => {
+    const user = userEvent.setup();
+    await renderGrid(['/projects/proj-1/grid?owner=r1&status=NOT_STARTED']);
+    expect(await screen.findByText(/No tasks match both filters/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Drop Status:/ }));
+    // Alice's two rows come back; the status chip is gone.
+    expect(await screen.findByText('Planning')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Remove Status: /)).not.toBeInTheDocument();
+  });
+
+  it('drops the Label facet when no loaded row carries the selected label', async () => {
+    const user = userEvent.setup();
+    await renderGrid(['/projects/proj-1/grid?owner=r1&fl=l1']);
+    const diagnosis = within(await screen.findByRole('status'));
+    expect(diagnosis.getByText(/No tasks match both filters/)).toBeInTheDocument();
+    expect(diagnosis.getByText('Label: Needs review')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Drop Label: Needs review' }));
+    expect(await screen.findByText('Planning')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Label: any' })).toBeInTheDocument();
+  });
+
+  it('drops the Overdue drill-down when nothing loaded is actually late', async () => {
+    const user = userEvent.setup();
+    scheduleTasksMockReturn = { tasks: futureTasks, links: [], isLoading: false, error: null };
+    await renderGrid(['/projects/proj-1/grid?due=overdue&owner=r1']);
+    const diagnosis = within(await screen.findByRole('status'));
+    expect(diagnosis.getByText(/No tasks match both filters/)).toBeInTheDocument();
+    expect(diagnosis.getByText('Overdue')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Drop Overdue' }));
+    expect(await screen.findByText('Planning')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Remove Overdue filter/)).not.toBeInTheDocument();
+  });
+});
+
+describe('GridView — ?task= effect after the deep link is consumed', () => {
+  beforeEach(() => {
+    projectMethodology = 'AGILE'; // flat
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    useTaskDrawerStore.setState({ task: null, projectId: null });
+  });
+
+  it('consumes the deep link exactly once, even when the task list re-resolves', async () => {
+    const user = userEvent.setup();
+    await renderGrid(['/projects/proj-1/grid?task=t2']);
+    await waitFor(() => expect(useTaskDrawerStore.getState().task?.id).toBe('t2'));
+    // Close the drawer, then hand the component a fresh tasks array (a refetch).
+    act(() => useTaskDrawerStore.setState({ task: null, projectId: null }));
+    scheduleTasksMockReturn = {
+      tasks: [...mockTasks],
+      links: [],
+      isLoading: false,
+      error: null,
+    };
+    await user.click(screen.getByRole('button', { name: 'Grouped' }));
+    // The one-shot ref holds: the refetch does not re-open the drawer the user closed.
+    expect(useTaskDrawerStore.getState().task).toBeNull();
+  });
+});
+
+describe('GridView — row click-through to the drawer', () => {
+  beforeEach(() => {
+    projectMethodology = 'AGILE'; // flat rows carry onOpenDetail
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    useTaskDrawerStore.setState({ task: null, projectId: null });
+  });
+
+  it('opens the app-wide drawer on the clicked row, scoped to the project', async () => {
+    await renderGrid();
+    const row = await screen.findByRole('row', { name: 'Open details for Design' });
+    fireEvent.keyDown(row, { key: 'Enter' });
+    await waitFor(() => {
+      const open = useTaskDrawerStore.getState();
+      expect(open.task?.id).toBe('t3');
+      expect(open.projectId).toBe('proj-1');
+    });
+  });
+});
+
+describe('GridView — singular undo copy (#2078)', () => {
+  beforeEach(() => {
+    projectMethodology = 'AGILE'; // flat
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    bulkDeleteMutate.mockReset();
+    bulkRestoreMutate.mockReset();
+    bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {
+      opts?.onSuccess?.();
+    });
+    bulkRestoreMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {
+      opts?.onSuccess?.();
+    });
+  });
+
+  it('says "1 task restored" — not "1 tasks" — when a single row is undone', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(await screen.findByLabelText('Select Design'));
+    await user.click(await screen.findByRole('button', { name: /^delete$/i }));
+    await user.click(await screen.findByRole('button', { name: /confirm delete/i }));
+    await user.click(await screen.findByRole('button', { name: /^undo$/i }));
+    expect(await screen.findByText('1 task restored.')).toBeInTheDocument();
+    expect(bulkRestoreMutate).toHaveBeenCalledWith(['t3'], expect.anything());
   });
 });

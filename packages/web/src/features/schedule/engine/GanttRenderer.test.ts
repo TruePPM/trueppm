@@ -1850,7 +1850,14 @@ describe('calculateDependencyPath — routing decision tree (ADR-0063)', () => {
     const src = box(0, 0);
     const tgt = box(50, 40); // stacked → 5-segment path
     const junctionX = 50;
-    const merge = calculateDependencyPath(src, tgt, [], VP, junctionX, /* isMergePredecessor */ true);
+    const merge = calculateDependencyPath(
+      src,
+      tgt,
+      [],
+      VP,
+      junctionX,
+      /* isMergePredecessor */ true,
+    );
     // No trailing arrowhead-base waypoint — the line ends AT the junction.
     expect(merge).toHaveLength(5);
     expect(merge[merge.length - 1]).toEqual({ x: 50, y: 49 });
@@ -2038,9 +2045,7 @@ describe('drawTimelineNameGutter — truncation + row styling (#2096)', () => {
 describe('canvas text-only zoom font scaling (#1758)', () => {
   const realGetComputedStyle = globalThis.getComputedStyle;
   function stubRootFontSize(px: string) {
-    globalThis.getComputedStyle = vi.fn(
-      () => ({ fontSize: px }) as unknown as CSSStyleDeclaration,
-    );
+    globalThis.getComputedStyle = vi.fn(() => ({ fontSize: px }) as unknown as CSSStyleDeclaration);
   }
   afterEach(() => {
     // Reset the module-level scale back to 1 so other suites draw at parity.
@@ -2082,5 +2087,954 @@ describe('canvas text-only zoom font scaling (#1758)', () => {
     stubRootFontSize('inherit'); // parseFloat → NaN → no-op
     refreshFontScale();
     expect(getFontScale()).toBe(1); // unchanged
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Branch-coverage sweep (#2459)
+//
+// Everything below drives the guards, fallbacks and empty states the suite
+// above never reached: assignee-initial edge cases, redacted external bars,
+// external-link status dots, the flush-right label fallback, the header
+// auto-tier units outside week/quarter zoom, non-FS (SS/FF/SF) Bézier links,
+// hover-chain pens, merge-junction fallbacks, and the Rule 15 bridge hop.
+// ---------------------------------------------------------------------------
+
+import type { GanttScaleData } from './GanttScaleData';
+import type { TaskLink } from '@/types';
+
+/** makeCtxSpy plus the canvas surface + path methods the arrow layer needs. */
+function makeFullCtx(canvasWidth = 800, canvasHeight = 600) {
+  const { ctx, calls } = makeCtxSpy();
+  const aug = ctx as unknown as Record<string, unknown>;
+  aug.canvas = { width: canvasWidth, height: canvasHeight };
+  aug.bezierCurveTo = vi.fn((...args: unknown[]) => calls.push({ name: 'bezierCurveTo', args }));
+  aug.quadraticCurveTo = vi.fn((...args: unknown[]) =>
+    calls.push({ name: 'quadraticCurveTo', args }),
+  );
+  aug.closePath = vi.fn(() => calls.push({ name: 'closePath', args: [] }));
+  aug.arc = vi.fn((...args: unknown[]) => calls.push({ name: 'arc', args }));
+  return { ctx, calls };
+}
+
+type SpyCall = { name: string; args: unknown[] };
+const argsOf = (calls: SpyCall[], name: string): unknown[][] =>
+  calls.filter((c) => c.name === name).map((c) => c.args);
+const styleValues = (calls: SpyCall[], name: 'fillStyle' | 'strokeStyle'): string[] =>
+  calls.filter((c) => c.name === name).map((c) => c.args[0] as string);
+
+const WEEK_SCALES = buildScaleData('week', '2026-04-01', '2026-05-01');
+const DAY_SCALES = buildScaleData('day', '2026-04-01', '2026-05-01');
+
+/** Override only the px/ms of a real scale — lets a test pin a header auto-tier
+ *  (or a degenerate zero scale) the public builders clamp away. */
+function atPxPerDay(pxPerDay: number, base: GanttScaleData = WEEK_SCALES): GanttScaleData {
+  return { ...base, pxPerMs: pxPerDay / 86_400_000 };
+}
+
+function depTask(id: string, start: string, finish: string, extra: Partial<Task> = {}): Task {
+  return {
+    id,
+    wbs: id,
+    name: `Task ${id}`,
+    start,
+    finish,
+    plannedStart: start,
+    duration: 5,
+    progress: 0,
+    status: 'NOT_STARTED',
+    assignees: [],
+    isSummary: false,
+    isMilestone: false,
+    isCritical: false,
+    isComplete: false,
+    parentId: null,
+    ...extra,
+  } as unknown as Task;
+}
+
+function depLink(sourceId: string, targetId: string, extra: Partial<TaskLink> = {}): TaskLink {
+  return {
+    id: `${sourceId}->${targetId}`,
+    sourceId,
+    targetId,
+    type: 'FS',
+    lag: 0,
+    isCritical: false,
+    ...extra,
+  };
+}
+
+describe('drawTaskBar — assignee initials (#2459)', () => {
+  const VIEWPORT_W = 800;
+  const assignee = (name: string): Task['assignees'] =>
+    [{ resourceId: 'r1', name, units: 1 }] as Task['assignees'];
+
+  const drawnText = (task: Task): string[] => {
+    const { ctx, calls } = makeCtxSpy();
+    // skipLabel: the task NAME is drawn by drawTaskBarLabel; keeping it out
+    // leaves only in-bar text (the % chip and the initials).
+    drawTaskBar(ctx, task, 0, WEEK_SCALES, 0, false, VIEWPORT_W, true);
+    return argsOf(calls, 'fillText').map((a) => a[0] as string);
+  };
+
+  it('renders first + last initial for a multi-word name', () => {
+    expect(drawnText(makeBarTask({ assignees: assignee('jane smith') }))).toContain('JS');
+  });
+
+  it('renders a single initial for a one-word name', () => {
+    expect(drawnText(makeBarTask({ assignees: assignee('grace') }))).toContain('G');
+  });
+
+  it('falls back to "?" for a whitespace-only name', () => {
+    expect(drawnText(makeBarTask({ assignees: assignee('   ') }))).toContain('?');
+  });
+
+  it('omits initials entirely on a bar too narrow to hold them', () => {
+    const narrow = atPxPerDay(0.5);
+    const text = (() => {
+      const { ctx, calls } = makeCtxSpy();
+      drawTaskBar(
+        ctx,
+        makeBarTask({ assignees: assignee('Jane Smith') }),
+        0,
+        narrow,
+        0,
+        false,
+        VIEWPORT_W,
+        true,
+      );
+      return argsOf(calls, 'fillText').map((a) => a[0] as string);
+    })();
+    expect(text).not.toContain('JS');
+  });
+});
+
+describe('drawTaskBar — redacted external rows and missing dates (#2459)', () => {
+  const VIEWPORT_W = 800;
+  const HATCH_INK = 'rgba(0,0,0,0.28)';
+
+  const draw = (task: Task, selected = false) => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, task, 0, WEEK_SCALES, 0, selected, VIEWPORT_W, true);
+    return calls;
+  };
+
+  it('paints a redacted external task muted and hatched, never in a state color', () => {
+    const calls = draw(makeBarTask({ isExternal: true, progress: 0 }));
+    expect(styleValues(calls, 'fillStyle')).toContain(COLOR.textSecondary);
+    expect(styleValues(calls, 'fillStyle')).not.toContain(COLOR.barNormal);
+    expect(styleValues(calls, 'strokeStyle')).toContain(HATCH_INK);
+  });
+
+  it('outlines a critical external task in red without ever filling it red', () => {
+    const calls = draw(makeBarTask({ isExternal: true, isCritical: true, progress: 0 }));
+    expect(styleValues(calls, 'strokeStyle')).toContain(COLOR.barCritical);
+    expect(styleValues(calls, 'fillStyle')).not.toContain(COLOR.barCritical);
+  });
+
+  it('leaves a non-critical external task without a red outline', () => {
+    const calls = draw(makeBarTask({ isExternal: true, progress: 0 }));
+    expect(styleValues(calls, 'strokeStyle')).not.toContain(COLOR.barCritical);
+  });
+
+  it('uses the neutral summary fill when a summary row is drawn as a bar', () => {
+    const calls = draw(makeBarTask({ isSummary: true, progress: 0 }));
+    expect(styleValues(calls, 'fillStyle')).toContain(COLOR.barSummary);
+  });
+
+  it('uses the complete fill once progress reaches 100 even with isComplete false', () => {
+    const calls = draw(makeBarTask({ progress: 100, isComplete: false }));
+    expect(styleValues(calls, 'fillStyle')).toContain(COLOR.barComplete);
+  });
+
+  it('draws nothing at all when the task has no start date', () => {
+    const calls = draw(makeBarTask({ start: '' }));
+    expect(calls.filter((c) => c.name === 'roundRect')).toHaveLength(0);
+  });
+
+  it('draws nothing at all when the task has no finish date', () => {
+    const calls = draw(makeBarTask({ finish: '' }));
+    expect(calls.filter((c) => c.name === 'roundRect')).toHaveLength(0);
+  });
+});
+
+describe('drawTaskBar — selection ring nesting fallback (#1699/#2459)', () => {
+  const VIEWPORT_W = 800;
+
+  it('does NOT nest the ring on a critical bar too narrow to hold both rings', () => {
+    // A one-day bar at the coarsest zoom is 2px wide — far below MIN_NEST_WIDTH,
+    // so the ring keeps the standard inset and the red frame paints over it.
+    const tiny = atPxPerDay(0.2);
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(
+      ctx,
+      makeBarTask({ start: '2026-04-06', finish: '2026-04-06', isCritical: true }),
+      0,
+      tiny,
+      0,
+      true,
+      VIEWPORT_W,
+      true,
+    );
+    const radii = argsOf(calls, 'roundRect').map((a) => a[4]);
+    expect(radii).not.toContain(1.5); // 1.5 is the nested-ring radius
+    expect(styleValues(calls, 'strokeStyle')).toContain(COLOR.barCritical);
+  });
+
+  it('draws a plain selection ring and no red frame on a selected non-critical bar', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, makeBarTask(), 0, WEEK_SCALES, 0, true, VIEWPORT_W, true);
+    expect(styleValues(calls, 'strokeStyle')).toContain(COLOR.selectionRing);
+    expect(styleValues(calls, 'strokeStyle')).not.toContain(COLOR.barCritical);
+  });
+});
+
+describe('drawTaskBarLabel — flush-right fallback (#2459)', () => {
+  const nameCalls = (task: Task, viewportWidth: number, scales = WEEK_SCALES) => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBarLabel(ctx, task, 0, scales, 0, viewportWidth);
+    return argsOf(calls, 'fillText');
+  };
+
+  it('draws the name to the RIGHT of the bar when it fits', () => {
+    const task = makeBarTask();
+    const drawn = nameCalls(task, 800);
+    expect(drawn).toHaveLength(1);
+    const x = drawn[0][1] as number;
+    expect(x).toBeGreaterThan(dateToRight(task.finish, WEEK_SCALES));
+  });
+
+  it('falls back to a right-aligned name LEFT of the bar when the right side overflows', () => {
+    const task = makeBarTask();
+    // measureText is stubbed at 20px, so a viewport that ends just past the bar
+    // pushes the label past the right edge.
+    const drawn = nameCalls(task, dateToRight(task.finish, WEEK_SCALES) + 10);
+    expect(drawn).toHaveLength(1);
+    const x = drawn[0][1] as number;
+    expect(x).toBeLessThan(dateToLeft(task.start, WEEK_SCALES));
+  });
+
+  it('omits the name when the bar is flush against BOTH viewport edges', () => {
+    // Bar starts at canvas x=0, so there is no room to the left either.
+    const originIso = WEEK_SCALES.start.toISOString().slice(0, 10);
+    const task = makeBarTask({ start: originIso, plannedStart: originIso });
+    expect(dateToLeft(task.start, WEEK_SCALES)).toBe(0);
+    expect(nameCalls(task, dateToRight(task.finish, WEEK_SCALES) + 10)).toHaveLength(0);
+  });
+
+  it('draws nothing when the task has no dates', () => {
+    expect(nameCalls(makeBarTask({ start: '' }), 800)).toHaveLength(0);
+  });
+});
+
+describe('external-link status dot (#767/#2459)', () => {
+  const VIEWPORT_W = 800;
+  const summary = (count: number, worstStatus: 'open' | 'closed' | 'unknown' | null) =>
+    ({ count, worstStatus }) as Task['externalLinkSummary'];
+
+  const drawBar = (task: Task, scales = DAY_SCALES) => {
+    const { ctx, calls } = makeFullCtx();
+    drawTaskBar(ctx, task, 0, scales, 0, false, VIEWPORT_W, true);
+    return calls;
+  };
+
+  it('fills the dot with the on-track green stop for an open link', () => {
+    const calls = drawBar(makeBarTask({ externalLinkSummary: summary(2, 'open') }));
+    expect(calls.filter((c) => c.name === 'arc')).toHaveLength(1);
+    expect(styleValues(calls, 'fillStyle')).toContain(COLOR.linkOpen);
+  });
+
+  it('uses the critical stop for a closed link', () => {
+    const calls = drawBar(makeBarTask({ externalLinkSummary: summary(1, 'closed') }));
+    expect(styleValues(calls, 'fillStyle')).toContain(COLOR.barCritical);
+  });
+
+  it('draws a HOLLOW ring when links exist but the worst status is unknown', () => {
+    const calls = drawBar(makeBarTask({ externalLinkSummary: summary(3, null) }));
+    expect(calls.filter((c) => c.name === 'arc')).toHaveLength(1);
+    // Hollow = stroked in the neutral stop, never filled with it.
+    expect(styleValues(calls, 'strokeStyle')).toContain(COLOR.textSecondary);
+    expect(styleValues(calls, 'fillStyle')).not.toContain(COLOR.textSecondary);
+  });
+
+  it('draws no dot when the task has zero external links', () => {
+    const calls = drawBar(makeBarTask({ externalLinkSummary: summary(0, null) }));
+    expect(calls.filter((c) => c.name === 'arc')).toHaveLength(0);
+  });
+
+  it('draws no dot when the task carries no link summary at all', () => {
+    const calls = drawBar(makeBarTask());
+    expect(calls.filter((c) => c.name === 'arc')).toHaveLength(0);
+  });
+
+  it('draws no dot on a summary row', () => {
+    const calls = drawBar(
+      makeBarTask({ isSummary: true, externalLinkSummary: summary(2, 'open') }),
+    );
+    expect(calls.filter((c) => c.name === 'arc')).toHaveLength(0);
+  });
+
+  it('draws no dot below week zoom (the gutter is too tight)', () => {
+    const monthScales = buildScaleData('month', '2026-04-01', '2026-05-01');
+    const calls = drawBar(makeBarTask({ externalLinkSummary: summary(2, 'open') }), monthScales);
+    expect(calls.filter((c) => c.name === 'arc')).toHaveLength(0);
+  });
+
+  it('shifts the task label right so it never collides with the dot', () => {
+    const withDot = makeBarTask({ externalLinkSummary: summary(2, 'open') });
+    const without = makeBarTask();
+    const labelX = (task: Task): number => {
+      const { ctx, calls } = makeFullCtx();
+      drawTaskBarLabel(ctx, task, 0, DAY_SCALES, 0, 4000);
+      return argsOf(calls, 'fillText')[0][1] as number;
+    };
+    expect(labelX(withDot)).toBeGreaterThan(labelX(without));
+  });
+});
+
+describe('drawHoverRowBand — degenerate viewport (#2459)', () => {
+  it('is a no-op when the visible slice of the row collapses to zero height', () => {
+    const { ctx, calls } = makeCtxSpy();
+    // scrollTop pulls the row up under the header while the viewport ends
+    // above the header fold — the clamped band has negative height.
+    drawHoverRowBand(ctx, 0, HEADER_HEIGHT - 5, 800, 10);
+    expect(calls.filter((c) => c.name === 'fillRect')).toHaveLength(0);
+  });
+
+  it('is a no-op for a row scrolled below the viewport bottom', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawHoverRowBand(ctx, 40, 0, 800, 200);
+    expect(calls.filter((c) => c.name === 'fillRect')).toHaveLength(0);
+  });
+});
+
+describe('drawGridLines / drawTodayLine — viewport clipping (#2459)', () => {
+  const bgCtx = (width: number) => {
+    const { ctx, calls } = makeCtxSpy();
+    (ctx as unknown as { canvas: { width: number; height: number } }).canvas = {
+      width,
+      height: 600,
+    };
+    return { ctx, calls };
+  };
+
+  it('stops walking day columns once past the right edge of a narrow viewport', () => {
+    const narrow = bgCtx(120);
+    const wide = bgCtx(100_000);
+    drawGridLines(narrow.ctx, WEEK_SCALES, 0, 0, 600, 0, 1);
+    drawGridLines(wide.ctx, WEEK_SCALES, 0, 0, 600, 0, 1);
+    expect(narrow.calls.filter((c) => c.name === 'moveTo').length).toBeLessThan(
+      wide.calls.filter((c) => c.name === 'moveTo').length,
+    );
+  });
+
+  it('skips day columns that have scrolled off the left edge', () => {
+    const { ctx, calls } = bgCtx(200);
+    drawGridLines(ctx, WEEK_SCALES, 240, 0, 600, 0, 1);
+    // Every vertical grid line drawn must sit at/after the left edge.
+    const verticals = argsOf(calls, 'moveTo').filter((a) => (a[1] as number) === HEADER_HEIGHT);
+    for (const v of verticals) expect(v[0] as number).toBeGreaterThan(-2);
+  });
+
+  it('shades weekend columns and only weekend columns', () => {
+    const { ctx, calls } = bgCtx(100_000);
+    drawGridLines(ctx, DAY_SCALES, 0, 0, 600, 0, 1);
+    const weekendRects = argsOf(calls, 'fillRect');
+    // Apr 2026 → May 2026 window: at least four weekends are in range.
+    expect(weekendRects.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('falls back to a 1× pixel ratio when devicePixelRatio is 0', () => {
+    const original = window.devicePixelRatio;
+    Object.defineProperty(window, 'devicePixelRatio', { value: 0, configurable: true });
+    try {
+      const { ctx, calls } = bgCtx(400);
+      drawGridLines(ctx, WEEK_SCALES, 0, 0, 600, 0, 1);
+      // With a 0 ratio the viewport width must still resolve to the raw canvas
+      // width, so lines are drawn rather than the walk collapsing immediately.
+      expect(calls.filter((c) => c.name === 'moveTo').length).toBeGreaterThan(2);
+    } finally {
+      Object.defineProperty(window, 'devicePixelRatio', {
+        value: original,
+        configurable: true,
+      });
+    }
+  });
+
+  it('degrades gracefully on a zero-width scale (no infinite column walk)', () => {
+    const { ctx, calls } = bgCtx(400);
+    drawGridLines(ctx, atPxPerDay(0), 0, 0, 600, 0, 1);
+    expect(calls.filter((c) => c.name === 'stroke').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('drawTodayLine draws nothing when today is far outside the project window', () => {
+    const ancient = buildScaleData('week', '1990-01-01', '1990-02-01');
+    const { ctx, calls } = bgCtx(400);
+    drawTodayLine(ctx, ancient, 0, 600);
+    expect(calls.filter((c) => c.name === 'stroke')).toHaveLength(0);
+  });
+});
+
+describe('drawTimelineHeader — auto-tier units across the zoom continuum (#2459)', () => {
+  const labels = (scales: GanttScaleData, canvasWidth = 1200, scrollLeft = 0): string[] => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTimelineHeader(ctx, scales, scrollLeft, canvasWidth);
+    return argsOf(calls, 'fillText').map((a) => a[0] as string);
+  };
+
+  it('day zoom pairs day numbers (major) with ISO week labels (minor)', () => {
+    const drawn = labels(DAY_SCALES);
+    expect(drawn.some((l) => /^\d{1,2}$/.test(l))).toBe(true); // day-of-month
+    expect(drawn.some((l) => /^W\d+$/.test(l))).toBe(true); // week
+  });
+
+  it('week zoom pairs week labels (major) with month names (minor)', () => {
+    const drawn = labels(WEEK_SCALES);
+    expect(drawn.some((l) => /^W\d+$/.test(l))).toBe(true);
+    expect(drawn.some((l) => /^[A-Z][a-z]{2}$/.test(l))).toBe(true); // "Apr"
+  });
+
+  it('renders day cells on BOTH rows past the finest auto-tier threshold', () => {
+    const drawn = labels(atPxPerDay(100, DAY_SCALES));
+    expect(drawn.every((l) => /^\d{1,2}$/.test(l))).toBe(true);
+  });
+
+  it('renders year labels on both rows at the coarsest tier', () => {
+    const multiYear = buildScaleData('year', '2020-01-01', '2026-01-01');
+    const drawn = labels(atPxPerDay(0.3, multiYear));
+    expect(drawn.every((l) => /^\d{4}$/.test(l))).toBe(true);
+    expect(drawn).toContain('2022');
+  });
+
+  it('drops header cells narrower than the label gutter instead of crowding them', () => {
+    // A 40px canvas holds one day cell; the trailing flush cell is narrower
+    // than the label gutter and is dropped rather than drawn clipped.
+    expect(labels(DAY_SCALES, 40).length).toBeLessThan(labels(DAY_SCALES, 1200).length);
+  });
+
+  it('still renders a header when the scale has zero width', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTimelineHeader(ctx, atPxPerDay(0), 0, 800);
+    // Opaque header background + separator still paint.
+    expect(calls.filter((c) => c.name === 'fillRect').length).toBeGreaterThan(0);
+  });
+
+  it('uses calendar labels in fiscal mode for units that have no fiscal form', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTimelineHeader(ctx, WEEK_SCALES, 0, 1200, { startMonth: 4, mode: 'fiscal' });
+    const drawn = argsOf(calls, 'fillText').map((a) => a[0] as string);
+    // Week/month units are calendar-only — no FY string appears.
+    expect(drawn.some((l) => l.includes('FY'))).toBe(false);
+    expect(drawn.some((l) => /^W\d+$/.test(l))).toBe(true);
+  });
+});
+
+describe('drawTimelineNameGutter — extreme truncation (#2459)', () => {
+  it('degrades to a bare ellipsis when not even one character fits', () => {
+    const { ctx, calls } = makeCtxSpy();
+    (ctx.measureText as ReturnType<typeof vi.fn>).mockImplementation((t: string) => ({
+      width: t.length * 1000,
+    }));
+    drawTimelineNameGutter(ctx, [makeBarTask({ name: 'Overflowing name' })], 0, 0, 0, 600);
+    expect(argsOf(calls, 'fillText')[0][0]).toBe('…');
+  });
+});
+
+describe('drawActualDateBar / drawSummaryBar / drawMilestone guards (#2459)', () => {
+  it('falls back to the planned start when only an actual FINISH is recorded', () => {
+    const task = makeActualTask({ actualStart: undefined, actualFinish: '2026-04-11' });
+    const { ctx, calls } = makeCtxSpy();
+    drawActualDateBar(ctx, task, 0, SCALES, 0);
+    expect(argsOf(calls, 'moveTo')[0][0] as number).toBeCloseTo(dateToLeft(task.start, SCALES));
+  });
+
+  it('falls back to the planned finish when only an actual START is recorded', () => {
+    const task = makeActualTask({ actualStart: '2026-04-06', actualFinish: undefined });
+    const { ctx, calls } = makeCtxSpy();
+    drawActualDateBar(ctx, task, 0, SCALES, 0);
+    expect(argsOf(calls, 'lineTo')[0][0] as number).toBeCloseTo(dateToRight(task.finish, SCALES));
+  });
+
+  it('rings a selected summary rollup with the selection ink', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSummaryBar(ctx, SUMMARY_TASK, 0, SCALES, 0, true);
+    expect(styleValues(calls, 'strokeStyle')).toContain(COLOR.selectionRing);
+  });
+
+  it('rings a selected milestone diamond with the selection ink', () => {
+    const ms = makeBarTask({ isMilestone: true });
+    const { ctx, calls } = makeCtxSpy();
+    drawMilestone(ctx, ms, 0, SCALES, 0, true);
+    expect(styleValues(calls, 'strokeStyle')).toContain(COLOR.selectionRing);
+  });
+
+  it('drawMilestone draws nothing without a start date', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawMilestone(ctx, makeBarTask({ isMilestone: true, start: '' }), 0, SCALES, 0, false);
+    expect(calls.filter((c) => c.name === 'rect')).toHaveLength(0);
+  });
+
+  it('drawSummaryBar draws nothing without a finish date', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSummaryBar(ctx, makeBarTask({ isSummary: true, finish: '' }), 0, SCALES, 0, false);
+    expect(calls.filter((c) => c.name === 'roundRect')).toHaveLength(0);
+  });
+});
+
+describe('calculateDependencyPath — obstacle fallbacks (#2459)', () => {
+  const box = (x: number, y: number, width = 100, height = 18): RoutingBox => ({
+    x,
+    y,
+    width,
+    height,
+  });
+  const VP = 600;
+
+  it('ignores the arrow’s own source and target boxes when probing for blockers', () => {
+    const src = box(0, 0);
+    const tgt = box(200, 56);
+    const pts = calculateDependencyPath(src, tgt, [src, tgt], VP);
+    // Still the 4-point SIMPLE-L: neither endpoint counts as a wall.
+    expect(pts).toHaveLength(4);
+    expect(pts[1].x).toBe(Math.round((100 + 200) / 2));
+  });
+
+  it('falls back to the gutter dogleg when the right-sweep would overshoot the gap', () => {
+    const src = box(0, 0);
+    const tgt = box(200, 56);
+    // Blocker straddles the drop column AND runs to the target's edge, so the
+    // swept column lands past maxV — no clear column fits inside the L gap.
+    const blocker = box(140, 20, 60, 18);
+    const pts = calculateDependencyPath(src, tgt, [blocker], VP);
+    expect(pts).toHaveLength(6);
+    expect(pts[1]).toEqual({ x: 100 + EXIT_STUB, y: 9 });
+    expect(pts[2].y).toBe(65 - ROW_HEIGHT / 2); // gutter row gap
+  });
+
+  it('pushes the approach V column LEFT past a wall standing in the target row gap', () => {
+    const src = box(0, 0);
+    const tgt = box(50, 56); // overlaps the source horizontally → gutter dogleg
+    const wall = box(35, 50, 20, 10);
+    const pts = calculateDependencyPath(src, tgt, [wall], VP);
+    const approachX = 35 - EXIT_STUB;
+    expect(pts.some((p) => p.x === approachX && p.y === 51)).toBe(true);
+    expect(pts.some((p) => p.x === approachX && p.y === 65)).toBe(true);
+  });
+
+  it('leaves a padded right-sweep column when it still fits inside the gap', () => {
+    const src = box(0, 0);
+    const tgt = box(400, 56);
+    const blocker = box(240, 20, 30, 18); // straddles the 250 midpoint
+    const pts = calculateDependencyPath(src, tgt, [blocker], VP);
+    expect(pts).toHaveLength(4);
+    expect(pts[1].x).toBe(240 + 30 + ROUTING_PADDING);
+  });
+});
+
+describe('dependency layer — layout construction (#2459)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-06-01');
+
+  it('suppresses a redundant FS edge that a summary edge already implies', () => {
+    const tasks = [
+      depTask('a', '2026-04-06', '2026-04-10'),
+      depTask('s', '2026-04-13', '2026-04-30', { isSummary: true }),
+      depTask('c', '2026-04-20', '2026-04-24', { parentId: 's' }),
+    ];
+    const layout = prepareDependencyLayout(tasks, [depLink('a', 's'), depLink('a', 'c')], scales);
+    const targets = [...layout.fsByTarget.keys()];
+    expect(targets).toEqual(['s']);
+  });
+
+  it('keeps both edges when the second target is NOT a descendant of the summary', () => {
+    const tasks = [
+      depTask('a', '2026-04-06', '2026-04-10'),
+      depTask('s', '2026-04-13', '2026-04-30', { isSummary: true }),
+      depTask('c', '2026-04-20', '2026-04-24', { parentId: null }),
+    ];
+    const layout = prepareDependencyLayout(tasks, [depLink('a', 's'), depLink('a', 'c')], scales);
+    expect([...layout.fsByTarget.keys()].sort()).toEqual(['c', 's']);
+  });
+
+  it('routes SS / FF / SF edges into the non-FS Bézier bucket', () => {
+    const tasks = [
+      depTask('a', '2026-04-06', '2026-04-10'),
+      depTask('b', '2026-04-20', '2026-04-24'),
+    ];
+    const layout = prepareDependencyLayout(
+      tasks,
+      [
+        depLink('a', 'b', { id: 'ss', type: 'SS' }),
+        depLink('a', 'b', { id: 'ff', type: 'FF' }),
+        depLink('a', 'b', { id: 'sf', type: 'SF' }),
+      ],
+      scales,
+    );
+    expect(layout.nonFSLinks.map((l) => l.id)).toEqual(['ss', 'ff', 'sf']);
+    expect(layout.fsByTarget.size).toBe(0);
+  });
+
+  it('leaves no obstacle box for an unscheduled row', () => {
+    const tasks = [
+      depTask('a', '2026-04-06', '2026-04-10'),
+      depTask('gap', '', ''),
+      depTask('b', '2026-04-20', '2026-04-24'),
+    ];
+    const layout = prepareDependencyLayout(tasks, [depLink('a', 'b')], scales);
+    expect(layout.barByRow[1]).toBeUndefined();
+    expect(layout.barByRow[0]).toBeDefined();
+  });
+
+  it('anchors a milestone on its diamond vertices, not the bar rect', () => {
+    const tasks = [
+      depTask('a', '2026-04-06', '2026-04-10'),
+      depTask('m', '2026-04-20', '2026-04-20', { isMilestone: true }),
+    ];
+    const layout = prepareDependencyLayout(tasks, [depLink('a', 'm')], scales);
+    const node = layout.nodes.get('m')!;
+    const cx = dateToLeft('2026-04-20', scales);
+    expect(node.barLeft).toBeCloseTo(cx - 9);
+    expect(node.barRight).toBeCloseTo(cx + 9);
+  });
+});
+
+describe('dependency layer — paint-time culling and pens (#2459)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-06-01');
+  const paint = (
+    tasks: Task[],
+    links: TaskLink[],
+    opts: {
+      scrollLeft?: number;
+      scrollTop?: number;
+      selected?: ReadonlySet<string>;
+      chain?: Parameters<typeof paintDependencyLayout>[5];
+    } = {},
+  ) => {
+    const { ctx, calls } = makeFullCtx();
+    paintDependencyLayout(
+      ctx,
+      prepareDependencyLayout(tasks, links, scales),
+      opts.scrollLeft ?? 0,
+      opts.scrollTop ?? 0,
+      opts.selected ?? new Set<string>(),
+      opts.chain ?? null,
+    );
+    return calls;
+  };
+
+  const a = depTask('a', '2026-04-06', '2026-04-10');
+  const b = depTask('b', '2026-04-20', '2026-04-24');
+  const c = depTask('c', '2026-05-04', '2026-05-08');
+
+  it('culls arrows scrolled entirely below the viewport', () => {
+    const calls = paint([a, b], [depLink('a', 'b')], { scrollTop: 5000 });
+    expect(calls.filter((c2) => c2.name === 'lineTo')).toHaveLength(0);
+  });
+
+  it('culls arrows scrolled entirely off the left edge', () => {
+    const calls = paint([a, b], [depLink('a', 'b')], { scrollLeft: 100_000 });
+    expect(calls.filter((c2) => c2.name === 'lineTo')).toHaveLength(0);
+  });
+
+  it('skips an edge whose source row is uncommitted', () => {
+    const uncommitted = depTask('u', '2026-04-06', '2026-04-10', { plannedStart: null });
+    const calls = paint([uncommitted, b], [depLink('u', 'b')]);
+    expect(calls.filter((c2) => c2.name === 'lineTo')).toHaveLength(0);
+  });
+
+  it('dashes a cross-project edge and leaves a within-project edge solid', () => {
+    const dashed = paint([a, b], [depLink('a', 'b', { crossProject: true })]);
+    const solid = paint([a, b], [depLink('a', 'b')]);
+    const patterns = argsOf(dashed, 'setLineDash').map((x) => x[0]);
+    expect(patterns).toContainEqual([6, 4]);
+    expect(argsOf(solid, 'setLineDash').map((x) => x[0])).not.toContainEqual([6, 4]);
+  });
+
+  it('recolors the hovered task’s incoming and outgoing chains and dims the rest', () => {
+    const d = depTask('d', '2026-04-06', '2026-04-10');
+    const e = depTask('e', '2026-04-20', '2026-04-24');
+    const calls = paint(
+      [a, b, c, d, e],
+      [depLink('a', 'b'), depLink('b', 'c'), depLink('d', 'e')],
+      {
+        chain: {
+          hoveredId: 'b',
+          predecessors: new Set(['a']),
+          successors: new Set(['c']),
+        },
+      },
+    );
+    const strokes = styleValues(calls, 'strokeStyle');
+    expect(strokes).toContain('#60A5FA'); // predecessor chain — blue
+    expect(strokes).toContain('#34D399'); // successor chain — green
+    expect(argsOf(calls, 'globalAlpha').map((x) => x[0])).toContain(0.2); // out-of-chain dim
+  });
+
+  it('cuts a paper channel where an arrow descends through a transparent rollup', () => {
+    // 's' is an ancestor of the target, so it is NOT an obstacle — the V drop
+    // passes straight through its bar and needs a halo to stay legible. 'wide'
+    // sits in the row above the source: the halo pass sees it (row band) but the
+    // V never overlaps it, so no channel is cut there.
+    const tasks = [
+      depTask('wide', '2026-04-01', '2026-05-20'),
+      depTask('a', '2026-04-06', '2026-04-10'),
+      depTask('s', '2026-04-13', '2026-04-30', { isSummary: true }),
+      depTask('c', '2026-04-20', '2026-04-24', { parentId: 's' }),
+    ];
+    const calls = paint(tasks, [depLink('a', 'c')]);
+    expect(styleValues(calls, 'strokeStyle')).toContain(COLOR.surface);
+  });
+
+  it('culls arrows scrolled entirely off the RIGHT edge', () => {
+    const calls = paint([a, b], [depLink('a', 'b')], { scrollLeft: -100_000 });
+    expect(calls.filter((c2) => c2.name === 'lineTo')).toHaveLength(0);
+  });
+
+  it('paints an SS edge from both bars’ START edges as a Bézier', () => {
+    const calls = paint([a, b], [depLink('a', 'b', { type: 'SS' })]);
+    const bez = argsOf(calls, 'bezierCurveTo');
+    expect(bez).toHaveLength(1);
+    const x1 = dateToLeft(a.start, scales);
+    const x2 = dateToLeft(b.start, scales);
+    expect(bez[0][0] as number).toBeCloseTo(x1 - 40);
+    expect(bez[0][2] as number).toBeCloseTo(x2 - 40);
+    expect(bez[0][4] as number).toBeCloseTo(x2);
+  });
+
+  it('paints an FF edge from both bars’ FINISH edges', () => {
+    const calls = paint([a, b], [depLink('a', 'b', { type: 'FF' })]);
+    const bez = argsOf(calls, 'bezierCurveTo');
+    const x1 = dateToRight(a.finish, scales);
+    const x2 = dateToRight(b.finish, scales);
+    expect(bez[0][0] as number).toBeCloseTo(x1 + 40);
+    expect(bez[0][4] as number).toBeCloseTo(x2);
+  });
+
+  it('paints an SF edge from the source START to the target FINISH', () => {
+    const calls = paint([a, b], [depLink('a', 'b', { type: 'SF' })]);
+    const bez = argsOf(calls, 'bezierCurveTo');
+    const x1 = dateToLeft(a.start, scales);
+    const x2 = dateToRight(b.finish, scales);
+    expect(bez[0][0] as number).toBeCloseTo(x1 - 40);
+    expect(bez[0][4] as number).toBeCloseTo(x2);
+  });
+
+  it('skips a non-FS edge whose endpoint is unscheduled', () => {
+    const ghost = depTask('ghost', '', '');
+    const calls = paint([a, ghost], [depLink('a', 'ghost', { type: 'SS' })]);
+    expect(calls.filter((c2) => c2.name === 'bezierCurveTo')).toHaveLength(0);
+  });
+
+  it('culls a non-FS edge scrolled off screen', () => {
+    const calls = paint([a, b], [depLink('a', 'b', { type: 'SS' })], { scrollTop: 5000 });
+    expect(calls.filter((c2) => c2.name === 'bezierCurveTo')).toHaveLength(0);
+  });
+
+  it('uses the selection ink for a non-FS edge touching a selected task', () => {
+    const calls = paint([a, b], [depLink('a', 'b', { type: 'SS' })], {
+      selected: new Set(['b']),
+    });
+    expect(styleValues(calls, 'strokeStyle')).toContain(COLOR.selectionRing);
+  });
+
+  it('falls back to a 1× pixel ratio when devicePixelRatio is 0', () => {
+    const original = window.devicePixelRatio;
+    Object.defineProperty(window, 'devicePixelRatio', { value: 0, configurable: true });
+    try {
+      const calls = paint([a, b], [depLink('a', 'b')]);
+      expect(calls.filter((c2) => c2.name === 'lineTo').length).toBeGreaterThan(0);
+    } finally {
+      Object.defineProperty(window, 'devicePixelRatio', {
+        value: original,
+        configurable: true,
+      });
+    }
+  });
+});
+
+describe('dependency layer — merge junction fallbacks (#2459)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-06-01');
+  const paint = (
+    tasks: Task[],
+    links: TaskLink[],
+    selected: ReadonlySet<string> = new Set<string>(),
+  ) => {
+    const { ctx, calls } = makeFullCtx();
+    paintDependencyLayout(ctx, prepareDependencyLayout(tasks, links, scales), 0, 0, selected, null);
+    return calls;
+  };
+
+  const p1 = depTask('p1', '2026-04-06', '2026-04-10');
+  const p2 = depTask('p2', '2026-04-08', '2026-04-13');
+  const target = depTask('t', '2026-05-04', '2026-05-08');
+
+  it('draws a single merge dot when two predecessors converge', () => {
+    const calls = paint([p1, p2, target], [depLink('p1', 't'), depLink('p2', 't')]);
+    // Halo + dot per junction.
+    const radii = argsOf(calls, 'arc').map((x) => x[2]);
+    expect(radii).toContain(MERGE_HALO_RADIUS);
+    expect(radii).toContain(MERGE_DOT_RADIUS);
+  });
+
+  it('anchors the junction at the RIGHTMOST predecessor exit regardless of link order', () => {
+    const forward = paint([p1, p2, target], [depLink('p1', 't'), depLink('p2', 't')]);
+    const reversed = paint([p1, p2, target], [depLink('p2', 't'), depLink('p1', 't')]);
+    const junctionX = (calls: SpyCall[]) => argsOf(calls, 'arc')[0][0] as number;
+    expect(junctionX(forward)).toBeCloseTo(junctionX(reversed));
+  });
+
+  it('degrades to a plain arrow when only one predecessor is actually renderable', () => {
+    const ghost = depTask('ghost', '', '');
+    const calls = paint([p1, ghost, target], [depLink('p1', 't'), depLink('ghost', 't')]);
+    expect(calls.filter((c) => c.name === 'arc')).toHaveLength(0);
+    expect(calls.filter((c) => c.name === 'closePath')).toHaveLength(1); // one arrowhead
+  });
+
+  it('promotes the trunk to the selection ink when a predecessor is selected', () => {
+    const calls = paint(
+      [p1, p2, target],
+      [depLink('p1', 't'), depLink('p2', 't')],
+      new Set(['p1']),
+    );
+    expect(styleValues(calls, 'strokeStyle')).toContain(COLOR.selectionRing);
+  });
+
+  it('still draws the trunk when every predecessor feeder is culled off-screen', () => {
+    const filler = Array.from({ length: 40 }, (_, i) =>
+      depTask(`f${i}`, '2026-04-06', '2026-04-07'),
+    );
+    const tasks = [...filler, p1, p2, target];
+    const { ctx, calls } = makeFullCtx(800, 200); // short viewport → deep rows are culled
+    paintDependencyLayout(
+      ctx,
+      prepareDependencyLayout(tasks, [depLink('p1', 't'), depLink('p2', 't')], scales),
+      0,
+      0,
+    );
+    // Junction + trunk are still emitted even though both feeders were culled.
+    expect(calls.filter((c) => c.name === 'arc').length).toBeGreaterThan(0);
+  });
+});
+
+describe('dependency layer — Rule 15 bridge hops (#2459)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-06-01');
+  const paint = (tasks: Task[], links: TaskLink[]) => {
+    const { ctx, calls } = makeFullCtx(2000, 2000);
+    paintDependencyLayout(ctx, prepareDependencyLayout(tasks, links, scales), 0, 0);
+    return calls;
+  };
+
+  it('lifts the horizontal segment over a crossing vertical segment', () => {
+    const tasks = [
+      depTask('x', '2026-04-06', '2026-04-10'), // row 0 — source of path 1
+      depTask('p', '2026-04-13', '2026-04-13'), // row 1 — source of path 2
+      depTask('y', '2026-04-20', '2026-04-24'), // row 2 — target of path 1
+      depTask('q', '2026-04-27', '2026-04-29'), // row 3 — target of path 2
+    ];
+    const calls = paint(tasks, [depLink('x', 'y'), depLink('p', 'q')]);
+    expect(calls.filter((c) => c.name === 'quadraticCurveTo').length).toBeGreaterThan(0);
+  });
+
+  it('emits no hop when the two arrows never cross', () => {
+    const tasks = [
+      depTask('x', '2026-04-06', '2026-04-10'),
+      depTask('y', '2026-04-20', '2026-04-24'),
+      depTask('m', '2026-05-04', '2026-05-08'),
+      depTask('n', '2026-05-18', '2026-05-22'),
+    ];
+    const calls = paint(tasks, [depLink('x', 'y'), depLink('m', 'n')]);
+    expect(calls.filter((c) => c.name === 'quadraticCurveTo')).toHaveLength(0);
+  });
+
+  it('suppresses hops that would land on an arrowhead or a corner (Rule 15.6)', () => {
+    // Both crossings here sit inside HOP_ENDPOINT_CLEARANCE of a segment end,
+    // so the lines cross flat rather than bridging on top of an endpoint.
+    const tasks = [
+      depTask('x', '2026-04-06', '2026-04-10'), // row 0
+      depTask('p', '2026-04-13', '2026-04-13'), // row 1
+      depTask('y', '2026-04-29', '2026-04-30'), // row 2
+      depTask('q', '2026-04-27', '2026-04-29'), // row 3
+    ];
+    const calls = paint(tasks, [depLink('x', 'y'), depLink('p', 'q')]);
+    expect(calls.filter((c) => c.name === 'quadraticCurveTo')).toHaveLength(0);
+    expect(calls.filter((c) => c.name === 'lineTo').length).toBeGreaterThan(0);
+  });
+
+  it('bridges a leftward gutter sweep over every vertical that crosses it', () => {
+    // 'back' routes right-to-left through the row gutter; two other arrows drop
+    // their V columns straight through that sweep, so it must hop twice.
+    const tasks = [
+      depTask('a', '2026-04-06', '2026-04-10'), // row 0
+      depTask('back', '2026-04-20', '2026-04-24'), // row 1
+      depTask('tgt', '2026-04-06', '2026-04-10'), // row 2
+      depTask('c', '2026-04-13', '2026-04-15'), // row 3
+    ];
+    const calls = paint(tasks, [
+      depLink('back', 'tgt'), // leftward gutter sweep at the row1/row2 boundary
+      depLink('tgt', 'a'), // V climbs through that sweep
+      depLink('c', 'back'), // second V through the same sweep
+      depLink('a', 'c', { type: 'SS' }), // Bézier — never participates in hops
+    ]);
+    expect(calls.filter((c) => c.name === 'quadraticCurveTo').length).toBeGreaterThanOrEqual(2);
+    expect(calls.filter((c) => c.name === 'bezierCurveTo')).toHaveLength(1);
+  });
+});
+
+describe('dependency layer — ancestry walks (#2459)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-06-01');
+
+  it('suppresses an edge to a GRANDCHILD of a summary the same source already gates', () => {
+    const tasks = [
+      depTask('a', '2026-04-06', '2026-04-10'),
+      depTask('s', '2026-04-13', '2026-04-30', { isSummary: true }),
+      depTask('mid', '2026-04-15', '2026-04-28', { isSummary: true, parentId: 's' }),
+      depTask('leaf', '2026-04-20', '2026-04-24', { parentId: 'mid' }),
+    ];
+    const layout = prepareDependencyLayout(
+      tasks,
+      [depLink('a', 's'), depLink('a', 'leaf')],
+      scales,
+    );
+    expect([...layout.fsByTarget.keys()]).toEqual(['s']);
+  });
+
+  it('keeps an edge whose parent chain is broken (parent not on the chart)', () => {
+    const tasks = [
+      depTask('a', '2026-04-06', '2026-04-10'),
+      depTask('s', '2026-04-13', '2026-04-30', { isSummary: true }),
+      depTask('orphan', '2026-04-20', '2026-04-24', { parentId: 'not-on-chart' }),
+    ];
+    const layout = prepareDependencyLayout(
+      tasks,
+      [depLink('a', 's'), depLink('a', 'orphan')],
+      scales,
+    );
+    expect([...layout.fsByTarget.keys()].sort()).toEqual(['orphan', 's']);
+  });
+
+  it('keeps an edge whose target is uncommitted and therefore not anchorable', () => {
+    const tasks = [
+      depTask('a', '2026-04-06', '2026-04-10'),
+      depTask('s', '2026-04-13', '2026-04-30', { isSummary: true }),
+      depTask('u', '2026-04-20', '2026-04-24', { parentId: 's', plannedStart: null }),
+    ];
+    const layout = prepareDependencyLayout(tasks, [depLink('a', 's'), depLink('a', 'u')], scales);
+    // 'u' has no anchor, so ancestry can't be proven and the edge is retained —
+    // it is dropped later at paint time when getScreen finds no node.
+    expect([...layout.fsByTarget.keys()].sort()).toEqual(['s', 'u']);
+  });
+});
+
+describe('refreshFontScale — environments without getComputedStyle (#2459)', () => {
+  it('keeps the current scale when getComputedStyle is unavailable', () => {
+    const real = globalThis.getComputedStyle;
+    // Simulate a non-DOM host: the helper must no-op rather than throw.
+    (globalThis as unknown as { getComputedStyle: unknown }).getComputedStyle = undefined;
+    try {
+      expect(() => refreshFontScale()).not.toThrow();
+      expect(getFontScale()).toBe(1);
+    } finally {
+      globalThis.getComputedStyle = real;
+    }
   });
 });

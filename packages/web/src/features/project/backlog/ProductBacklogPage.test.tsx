@@ -17,6 +17,10 @@ const h = vi.hoisted(() => ({
   bp: { value: 'lg' as 'sm' | 'md' | 'lg' },
   backlog: { isLoading: true, isError: false, data: undefined as ProductBacklog | undefined },
   canManage: true,
+  projectId: 'proj-1' as string | undefined,
+  labels: undefined as Array<{ id: string; name: string; color: string }> | undefined,
+  /** Drives `useSortable().isDragging` so the lifted-row branch is reachable. */
+  rowDragging: false,
   planned: [] as Array<{ id: string; name: string }>,
   filters: { query: '', dorStates: [] as string[], unestimatedOnly: false, labelIds: [] as string[] },
   filterActive: false,
@@ -74,14 +78,33 @@ vi.mock('@dnd-kit/core', async (orig) => {
   };
 });
 
+// Passthrough sortable module: only `useSortable` is stubbed so a row can be put
+// into the "currently lifted" state (jsdom cannot drive dnd-kit's pointer pipeline).
+vi.mock('@dnd-kit/sortable', async (orig) => {
+  const actual = await orig<typeof import('@dnd-kit/sortable')>();
+  return {
+    ...actual,
+    useSortable: () => ({
+      attributes: {},
+      listeners: {},
+      setNodeRef: () => undefined,
+      transform: null,
+      transition: undefined,
+      isDragging: h.rowDragging,
+    }),
+  };
+});
+
 vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: () => h.bp.value }));
+
+vi.mock('@/hooks/useLabels', () => ({ useLabels: () => ({ data: h.labels }) }));
 
 vi.mock('react-router', async (orig) => ({
   ...(await orig<typeof import('react-router')>()),
   useNavigate: () => h.navigate,
 }));
 
-vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
+vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => h.projectId }));
 
 vi.mock('@/hooks/useIterationLabel', () => ({
   useIterationLabel: () => ({
@@ -135,9 +158,24 @@ vi.mock('./components/mobile/MobileGroomingPage', () => ({
   MobileGroomingPage: () => <div data-testid="mobile-grooming">mobile</div>,
 }));
 vi.mock('./components/GroomingFilterBar', () => ({
-  GroomingFilterBar: ({ matchCount, totalCount }: { matchCount: number; totalCount: number }) => (
+  GroomingFilterBar: ({
+    matchCount,
+    totalCount,
+    labels,
+    labelCounts,
+  }: {
+    matchCount: number;
+    totalCount: number;
+    labels: Array<{ id: string; name: string }>;
+    labelCounts: Record<string, number>;
+  }) => (
     <div data-testid="filter-bar">
       {matchCount}/{totalCount}
+      <ul>
+        {labels.map((l) => (
+          <li key={l.id}>{`${l.name}=${labelCounts[l.id]}`}</li>
+        ))}
+      </ul>
     </div>
   ),
 }));
@@ -283,6 +321,9 @@ beforeEach(() => {
   h.autoRankPending = false;
   h.createEpicError = false;
   h.dnd = {};
+  h.projectId = 'proj-1';
+  h.labels = undefined;
+  h.rowDragging = false;
   window.localStorage.clear();
 });
 
@@ -910,7 +951,11 @@ describe('Drag reparent', () => {
       expect(h.reparentMutate).not.toHaveBeenCalled();
       expect(announcerText()).toBe("Couldn't move Reset password — you're offline.");
     } finally {
+      // `onLine` lives on Navigator.prototype, so there is usually no *own*
+      // descriptor to restore — deleting the override is what puts the real
+      // getter back. Without this the whole file runs offline from here on.
       if (original) Object.defineProperty(navigator, 'onLine', original);
+      else delete (navigator as unknown as Record<string, unknown>).onLine;
     }
   });
 
@@ -1185,5 +1230,231 @@ describe('Additional composition branches', () => {
     const input = screen.getByRole('textbox', { name: 'Add a story' });
     await user.type(input, 'Flaky story{Enter}');
     expect(input).toHaveValue('Flaky story');
+  });
+});
+
+// ── Row fallbacks for absent optional story fields ──────────────────────────
+describe('Story row field fallbacks', () => {
+  it('falls back to "story" in the row label when the task has no type', () => {
+    setData(
+      makeBacklog({
+        epics: [],
+        ungrouped: [makeStory('untyped', { name: 'Typeless', taskType: undefined })],
+      }),
+    );
+    renderPage();
+    expect(screen.getByRole('button', { name: 'Open story Typeless' })).toBeInTheDocument();
+  });
+
+  it('treats missing acceptance counts as 0/0 and a missing DoR as "Idea"', () => {
+    setData(
+      makeBacklog({
+        epics: [],
+        ungrouped: [
+          makeStory('bare', {
+            name: 'Bare story',
+            acMet: undefined,
+            acTotal: undefined,
+            dor: undefined,
+          }),
+        ],
+      }),
+    );
+    renderPage();
+    expect(screen.getByTitle('0/0 acceptance criteria met')).toBeInTheDocument();
+    expect(screen.getByText('Idea')).toBeInTheDocument();
+  });
+});
+
+// ── Lifted-row state (useSortable isDragging) ───────────────────────────────
+describe('Lifted row while a drag is in flight', () => {
+  it('suppresses the drawer-open click and marks the row as lifted', async () => {
+    const user = userEvent.setup();
+    h.rowDragging = true;
+    setData(makeBacklog());
+    renderPage();
+    const row = screen.getByRole('button', { name: 'Open story Login flow' });
+    expect(row.className).toContain('opacity-60');
+    await user.click(row);
+    expect(screen.queryByTestId('story-drawer')).not.toBeInTheDocument();
+  });
+
+  it('opens the drawer on click once the row is no longer lifted', async () => {
+    const user = userEvent.setup();
+    h.rowDragging = false;
+    setData(makeBacklog());
+    renderPage();
+    const row = screen.getByRole('button', { name: 'Open story Login flow' });
+    expect(row.className).not.toContain('opacity-60');
+    await user.click(row);
+    expect(screen.getByTestId('story-drawer')).toBeInTheDocument();
+  });
+});
+
+// ── Reorder payload edge cases ──────────────────────────────────────────────
+describe('Reorder payload composition', () => {
+  it('sends server_version 0 for a story that has none yet', () => {
+    const fresh = makeStory('fresh', { name: 'Fresh', serverVersion: undefined });
+    setData(makeBacklog({ epics: [], ungrouped: [fresh, makeStory('other')] }));
+    renderPage();
+    dragEnd('fresh', 'other');
+    const payload = h.reorderMutate.mock.calls[0][0] as {
+      stories: { id: string; server_version: number }[];
+    };
+    expect(payload.stories.find((e) => e.id === 'fresh')?.server_version).toBe(0);
+  });
+
+  it('leaves sibling epic groups untouched when reordering inside one epic', () => {
+    const b1 = makeStory('b1', { name: 'Other epic story' });
+    setData(
+      makeBacklog({
+        epics: [
+          {
+            epic: epicTask,
+            stories: [s1, s2],
+            rollup: { storyCount: 2, pointsTotal: 5, pointsDone: 0 },
+          },
+          {
+            epic: makeStory('e2', { name: 'Billing epic', taskType: 'epic' }),
+            stories: [b1],
+            rollup: { storyCount: 1, pointsTotal: 2, pointsDone: 0 },
+          },
+        ],
+        ungrouped: [],
+      }),
+    );
+    renderPage();
+    dragEnd('s1', 's2');
+    const payload = h.reorderMutate.mock.calls[0][0] as { stories: { id: string }[] };
+    // Only the first group reorders; the untouched second group keeps its story.
+    expect(payload.stories.map((e) => e.id)).toEqual(['s2', 's1', 'b1']);
+  });
+
+  it('skips the reorder when the epic droppable carries no epic id', () => {
+    const nameless = makeStory('n1', { name: 'Nameless epic', taskType: 'epic' });
+    // An epic whose id is empty produces the bare "epic:" droppable key.
+    nameless.id = '';
+    setData(
+      makeBacklog({
+        epics: [
+          {
+            epic: nameless,
+            stories: [makeStory('x1', { name: 'X one' }), makeStory('x2', { name: 'X two' })],
+            rollup: { storyCount: 2, pointsTotal: 4, pointsDone: 0 },
+          },
+        ],
+        ungrouped: [],
+      }),
+    );
+    renderPage();
+    dragEnd('x1', 'x2');
+    expect(h.reorderMutate).not.toHaveBeenCalled();
+  });
+});
+
+// ── Reparent fallbacks ──────────────────────────────────────────────────────
+describe('Reparent target resolution', () => {
+  it('announces a generic epic name when the drop target is not in the snapshot', () => {
+    h.reparentMutate.mockImplementation((_p: unknown, opts: { onSuccess: () => void }) =>
+      opts.onSuccess(),
+    );
+    setData(makeBacklog());
+    renderPage();
+    dragEnd('s3', 'epic:ghost-epic');
+    expect(h.reparentMutate.mock.calls[0][0]).toMatchObject({
+      taskId: 's3',
+      parentEpicId: 'ghost-epic',
+    });
+    expect(announcerText()).toBe('Moved Reset password to epic epic.');
+  });
+
+  it('renders no drag ghost when the active id is not a known story', () => {
+    setData(makeBacklog());
+    renderPage();
+    dragStart('not-a-story');
+    // Every story name still appears exactly once (row only, no ghost copy).
+    expect(screen.getAllByText('Login flow')).toHaveLength(1);
+  });
+});
+
+// ── Route guard ─────────────────────────────────────────────────────────────
+describe('Plan sprint route guard', () => {
+  it('does not navigate when there is no project in the route', async () => {
+    const user = userEvent.setup();
+    h.projectId = undefined;
+    setData(makeBacklog());
+    renderPage();
+    await user.click(screen.getByRole('button', { name: 'Plan sprint' }));
+    expect(h.navigate).not.toHaveBeenCalled();
+  });
+});
+
+// ── Inline epic input blur ──────────────────────────────────────────────────
+describe('Inline epic input blur', () => {
+  it('keeps the input open on blur when a name has been typed', async () => {
+    const user = userEvent.setup();
+    setData(makeBacklog());
+    renderPage();
+    await user.click(screen.getByRole('button', { name: '+ Add epic' }));
+    const input = screen.getByRole('textbox', { name: 'New epic name' });
+    await user.type(input, 'Billing');
+    act(() => {
+      input.blur();
+    });
+    expect(screen.getByRole('textbox', { name: 'New epic name' })).toHaveValue('Billing');
+  });
+});
+
+// ── Ranked view under an active filter ──────────────────────────────────────
+describe('Ranked view with an active filter', () => {
+  it('narrows the ranked list to the matching stories', () => {
+    window.localStorage.setItem('trueppm.backlog.view', 'ranked');
+    h.filterActive = true;
+    h.filters = { query: 'login', dorStates: [], unestimatedOnly: false, labelIds: [] };
+    setData(makeBacklog());
+    renderPage();
+    expect(
+      screen.getByRole('button', { name: 'Open story Login flow, rank 1' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Open story Signup form/ })).not.toBeInTheDocument();
+  });
+
+  it('suppresses the ranked list entirely when nothing matches', () => {
+    window.localStorage.setItem('trueppm.backlog.view', 'ranked');
+    h.filterActive = true;
+    h.filters = { query: 'zzz', dorStates: [], unestimatedOnly: false, labelIds: [] };
+    setData(makeBacklog());
+    renderPage();
+    expect(screen.getByText('No stories match your filters.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Open story/ })).not.toBeInTheDocument();
+  });
+});
+
+// ── Label facet counts (#2383) ──────────────────────────────────────────────
+describe('Label facet counts', () => {
+  it('counts each catalog label over the loaded stories', () => {
+    h.labels = [
+      { id: 'l1', name: 'backend', color: '#123456' },
+      { id: 'l2', name: 'design', color: '#654321' },
+    ];
+    setData(
+      makeBacklog({
+        epics: [
+          {
+            epic: epicTask,
+            stories: [
+              makeStory('t1', { name: 'Tagged', labels: [{ id: 'l1', name: 'backend', color: '#123456' }] }),
+            ],
+            rollup: { storyCount: 1, pointsTotal: 2, pointsDone: 0 },
+          },
+        ],
+        ungrouped: [],
+      }),
+    );
+    renderPage();
+    const bar = screen.getByTestId('filter-bar');
+    expect(bar).toHaveTextContent('backend=1');
+    // A catalog label carried by no loaded story truthfully reads 0.
+    expect(bar).toHaveTextContent('design=0');
   });
 });

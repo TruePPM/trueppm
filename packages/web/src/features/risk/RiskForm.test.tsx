@@ -320,6 +320,56 @@ describe('<RiskForm> pending + error states', () => {
     renderForm();
     expect(screen.getByRole('alert')).toHaveTextContent('Network down');
   });
+
+  it('falls back to the raw message when the DRF body has no string or array values', () => {
+    // A body whose values are neither arrays nor strings yields no field
+    // messages, so the banner must not render an empty string.
+    const err = Object.assign(new Error('Request failed with status code 400'), {
+      isAxiosError: true,
+      response: { data: { retry_after: 30 } },
+    });
+    setMutations({ error: err });
+    renderForm();
+    expect(screen.getByRole('alert')).toHaveTextContent('Request failed with status code 400');
+  });
+
+  it('shows the generic copy when the error carries no message at all', () => {
+    setMutations({ error: new Error('') });
+    renderForm();
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to save risk. Please try again.');
+  });
+
+  it('shows the generic copy when the thrown value is not an Error', () => {
+    // TanStack Query surfaces whatever was thrown; a non-Error must not reach
+    // the axios formatter (it would read `.message` off an arbitrary value).
+    useCreateRiskMock.mockReturnValue({
+      mutate: createMutate,
+      reset: createReset,
+      isPending: false,
+      error: { status: 500 },
+    });
+    useUpdateRiskMock.mockReturnValue({
+      mutate: updateMutate,
+      reset: updateReset,
+      isPending: false,
+      error: null,
+    });
+    renderForm();
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to save risk. Please try again.');
+  });
+
+  it('surfaces the update mutation error in edit mode when create has none', () => {
+    setMutations({}, { error: new Error('Version conflict') });
+    renderForm(makeRisk());
+    expect(screen.getByRole('alert')).toHaveTextContent('Version conflict');
+  });
+
+  it('disables both buttons while the UPDATE mutation is pending', () => {
+    setMutations({}, { isPending: true });
+    renderForm(makeRisk());
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  });
 });
 
 describe('<RiskForm> linked-tasks picker (#2156)', () => {
