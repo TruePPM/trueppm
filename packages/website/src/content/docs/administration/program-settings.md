@@ -18,6 +18,11 @@ scrolling page (ADR-0146) whose sections you can jump to from the settings nav:
 General, Projects, Access, External stakeholders, Rollup KPIs, Cadence, Working
 calendar, Risk & dependency policy, Attachments, Integrations, and Lifecycle.
 
+Fields carrying jargon, a policy choice, or an inheritance cascade also carry a
+circled **ⓘ** contextual-help affordance that explains the setting and deep-links to
+the relevant guide. See [In-product help](/administration/workspace-settings/#in-product-help)
+for how it behaves.
+
 ## Inheritance: workspace default → program override
 
 Many program settings are not standalone values — they **inherit the workspace
