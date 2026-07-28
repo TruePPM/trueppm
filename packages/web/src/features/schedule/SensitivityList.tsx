@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { ForecastDiagnostic, McSensitivity, Task } from '@/types';
+import { RadioDotIcon } from '@/components/Icons';
 
 interface Props {
   /** Duration-sensitivity tornado from the Monte Carlo result (ADR-0140). */
@@ -75,9 +76,10 @@ export function SensitivityList({ sensitivity, tasks, limit = 6, forecastDiagnos
             title={r.name}
           >
             {r.isCritical && (
-              <span className="text-semantic-critical" aria-hidden="true">
-                ●{' '}
-              </span>
+              <RadioDotIcon
+                aria-hidden="true"
+                className="mr-1 inline-block h-2 w-2 align-[-0.125em] text-semantic-critical"
+              />
             )}
             {r.name}
           </span>

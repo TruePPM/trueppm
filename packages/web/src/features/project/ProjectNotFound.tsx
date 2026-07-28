@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { FolderIcon } from '@/components/Icons';
 
 /**
  * Shown by {@link ProjectShell} when the project record is unavailable — it was
@@ -18,9 +19,7 @@ export function ProjectNotFound() {
       role="status"
       className="flex flex-col items-center justify-center gap-4 py-16 px-6 text-center h-full"
     >
-      <span aria-hidden="true" className="text-3xl">
-        🗂️
-      </span>
+      <FolderIcon aria-hidden="true" className="h-8 w-8 text-neutral-text-secondary" />
       <h2 className="text-base font-medium text-neutral-text-primary">
         This project isn&rsquo;t available
       </h2>

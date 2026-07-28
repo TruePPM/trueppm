@@ -8,7 +8,7 @@
  * active team members ratify, never management (Amendment A.2).
  */
 
-import { CheckIcon, XMarkIcon } from '@/components/Icons';
+import { CheckIcon, RadioDotIcon, XMarkIcon } from '@/components/Icons';
 import type { CeilingProposal, CeilingVoteChoice } from './useSignalPrivacy';
 
 interface CeilingVoteControlProps {
@@ -27,9 +27,10 @@ export function CeilingVoteControl({ proposal, voting, onVote }: CeilingVoteCont
   return (
     <div className="mt-2">
       <div className="flex items-center gap-2 text-[12px] text-neutral-text-secondary">
-        <span aria-hidden="true" className="tppm-mono tracking-tight">
-          {'●'.repeat(filled)}
-          {'○'.repeat(Math.max(threshold - filled, 0))}
+        <span aria-hidden="true" className="inline-flex items-center gap-0.5">
+          {Array.from({ length: threshold }, (_, i) => (
+            <RadioDotIcon key={i} filled={i < filled} className="h-2.5 w-2.5" />
+          ))}
         </span>
         <span>
           <span className="font-medium text-neutral-text-primary">

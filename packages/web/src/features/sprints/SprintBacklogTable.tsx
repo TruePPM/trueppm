@@ -4,6 +4,7 @@ import type { TaskStatus } from '@/types';
 import type { SprintBacklogTask } from '@/hooks/useSprintBacklog';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { CarryoverLane } from './CarryoverLane';
+import { ExternalLinkIcon } from '@/components/Icons';
 
 interface Props {
   projectId: string;
@@ -139,7 +140,8 @@ export function SprintBacklogTable({
             className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
           >
-            Open in board ↗
+            Open in board{' '}
+            <ExternalLinkIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" />
           </Link>
         </div>
       </header>

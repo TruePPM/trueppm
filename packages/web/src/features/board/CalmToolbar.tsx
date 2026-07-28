@@ -23,10 +23,14 @@ import {
   type RefObject,
 } from 'react';
 import {
-  DensityCompactIcon,
   DensityComfortableIcon,
+  DensityCompactIcon,
   DensityDetailedIcon,
+  ExternalLinkIcon,
   SlidersIcon,
+  StarIcon,
+  ToolsIcon,
+  WarningIcon,
 } from '@/components/Icons';
 import type { BoardSortKey } from '@/hooks/useBoardSavedViews';
 import type { BoardDensity, EvmMode } from './BoardCard';
@@ -134,7 +138,8 @@ export function ToolbarChip({
 }
 
 interface ToolbarToggleProps {
-  icon: string;
+  /** House SVG, never a glyph (rule 242) — `label`/`ariaLabel` carry the meaning. */
+  icon: ReactNode;
   label: string;
   ariaLabel?: string;
   pressed: boolean;
@@ -185,7 +190,7 @@ export function ToolbarToggle({
           : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
       ].join(' ')}
     >
-      <span aria-hidden="true">{icon}</span>
+      {icon}
       {!hideLabel && label}
     </button>
   );
@@ -678,7 +683,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
         <>
           {/* Quiet pill toggles — secondary controls (#568 rule 110) */}
           <ToolbarToggle
-            icon="★"
+            icon={<StarIcon className="h-3.5 w-3.5" aria-hidden="true" />}
             label="My tasks"
             pressed={props.myTasksEnabled}
             onToggle={props.onMyTasksToggle}
@@ -687,7 +692,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
             hideLabel={hideQuietToggleLabels}
           />
           <ToolbarToggle
-            icon="⚠"
+            icon={<WarningIcon className="h-3.5 w-3.5" aria-hidden="true" />}
             label="At-risk"
             ariaLabel="Risk-linked only"
             pressed={props.riskLinkedOnly}
@@ -696,7 +701,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
             hideLabel={hideQuietToggleLabels}
           />
           <ToolbarToggle
-            icon="⚒"
+            icon={<ToolsIcon className="h-3.5 w-3.5" aria-hidden="true" />}
             label="Tech debt"
             ariaLabel="Tech-debt only"
             pressed={props.debtOnly}
@@ -731,7 +736,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 checked: props.myTasksEnabled,
                 onChange: props.onMyTasksToggle,
                 disabled: props.myTasksLoading,
-                icon: '★',
+                icon: <StarIcon className="h-3.5 w-3.5" aria-hidden="true" />,
               },
               {
                 kind: 'checkbox',
@@ -739,7 +744,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 label: 'Risk-linked only',
                 checked: props.riskLinkedOnly,
                 onChange: props.onRiskLinkedToggle,
-                icon: '⚠',
+                icon: <WarningIcon className="h-3.5 w-3.5" aria-hidden="true" />,
               },
               {
                 kind: 'checkbox',
@@ -747,7 +752,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 label: 'Tech-debt only',
                 checked: props.debtOnly,
                 onChange: props.onDebtOnlyToggle,
-                icon: '⚒',
+                icon: <ToolsIcon className="h-3.5 w-3.5" aria-hidden="true" />,
               },
               {
                 kind: 'checkbox',
@@ -845,7 +850,8 @@ export function CalmToolbar(props: CalmToolbarProps) {
             </label>
             {props.onShare && (
               <MoreItem onClick={props.onShare} ariaLabel="Share this board with a public link">
-                ↗ Share this board…
+                <ExternalLinkIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
+                Share this board…
               </MoreItem>
             )}
             {props.onOpenTrash && (

@@ -11,6 +11,7 @@
  */
 import { useEffect, useRef } from 'react';
 import type { TaskStatus } from '@/types';
+import { RadioDotIcon } from '@/components/Icons';
 
 const OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: 'NOT_STARTED', label: 'Not started' },
@@ -88,9 +89,7 @@ export function StatusPicker({ taskName, current, onSelect, onClose }: Props) {
               >
                 <span>{opt.label}</span>
                 {selected && (
-                  <span aria-hidden="true" className="text-xs text-brand-primary">
-                    ●
-                  </span>
+                  <RadioDotIcon aria-hidden="true" className="h-2.5 w-2.5 text-brand-primary" />
                 )}
               </button>
             </li>

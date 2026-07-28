@@ -27,7 +27,14 @@ import {
   type SprintOutcome,
 } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
-import { CheckIcon, HalfCircleIcon, MilestoneIcon, StarIcon, XMarkIcon } from '@/components/Icons';
+import {
+  CelebrationIcon,
+  CheckIcon,
+  HalfCircleIcon,
+  MilestoneIcon,
+  StarIcon,
+  XMarkIcon,
+} from '@/components/Icons';
 
 interface Props {
   outcome: SprintOutcome;
@@ -816,7 +823,11 @@ function DidntShipList({ outcome }: { outcome: SprintOutcome }) {
         role="status"
         className="rounded-card border border-neutral-border bg-neutral-surface p-4 text-xs text-neutral-text-secondary"
       >
-        <span aria-hidden="true">🎉 </span>Everything committed shipped.
+        <CelebrationIcon
+          aria-hidden="true"
+          className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]"
+        />
+        Everything committed shipped.
       </p>
     );
   }

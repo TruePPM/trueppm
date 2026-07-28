@@ -1,5 +1,6 @@
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useSprintHealth } from '@/hooks/useSprints';
+import { RadioDotIcon } from '@/components/Icons';
 
 interface Props {
   /** Project whose sprint-health signals to render. Null disables the fetch. */
@@ -50,7 +51,7 @@ export function GuardrailHealthBadges({ projectId }: Props) {
               : 'border border-neutral-border text-neutral-text-secondary bg-neutral-surface-raised',
           ].join(' ')}
         >
-          <span aria-hidden="true">●</span>
+          <RadioDotIcon aria-hidden="true" className="h-2 w-2 shrink-0" />
           {signal.detail}
         </span>
       ))}

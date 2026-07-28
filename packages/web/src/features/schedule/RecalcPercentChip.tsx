@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RECALC_PROMPT_TIMEOUT_MS, type RecalcPromptState } from './recalcPercentPrompt';
-import { CheckIcon } from '@/components/Icons';
+import { CheckIcon, RepeatIcon } from '@/components/Icons';
 
 type Phase = 'idle' | 'accepting' | 'done' | 'error';
 
@@ -128,7 +128,7 @@ export function RecalcPercentChip({ prompt, onAccept, onDismiss }: Props) {
         }}
         className="inline-flex items-center gap-1 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:cursor-not-allowed"
       >
-        <span aria-hidden="true">↻</span>
+        <RepeatIcon aria-hidden="true" className="h-3 w-3 shrink-0" />
         {accepting ? (
           <span>Recalculating…</span>
         ) : errored ? (

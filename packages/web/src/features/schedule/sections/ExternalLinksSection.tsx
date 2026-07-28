@@ -20,7 +20,7 @@ import type { DetectedProvider } from '@/lib/detectProvider';
 import { previewTypeIcon } from '@/lib/previewType';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
-import { CloseIcon, LinkIcon, PencilIcon } from '@/components/Icons';
+import { CloseIcon, ExternalLinkIcon, LinkIcon, PencilIcon } from '@/components/Icons';
 import {
   isFileProvider,
   LabelPills,
@@ -424,7 +424,8 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
           className="text-xs text-brand-primary hover:underline mt-1"
           aria-label={`Connect ${connectPrompt} to see status for this link`}
         >
-          Connect {connectPrompt} to see status ↗
+          Connect {connectPrompt} to see status{' '}
+          <ExternalLinkIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" />
         </a>
       )}
       {refreshFailed && (

@@ -1734,6 +1734,78 @@ export function ArrowDownLeftIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/**
+ * Arrow into a tray — "download this attachment", replacing `⬇` (issue 1749).
+ *
+ * Paired with ExternalLinkIcon on the attachment row: the same control is either
+ * a download or an open-externally depending on the attachment kind, so the two
+ * marks have to read as siblings.
+ */
+export function DownloadIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M8 2.25v7.5" />
+      <polyline points="4.75,6.5 8,9.75 11.25,6.5" />
+      <path d="M2.75 12.25h10.5" />
+    </svg>
+  );
+}
+
+/** Left arrow — "removed from sprint" in the activity feed, replacing `←` (issue 1749). */
+export function ArrowLeftIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M13.25 8H2.75" />
+      <polyline points="6.5,3.75 2.75,8 6.5,12.25" />
+    </svg>
+  );
+}
+
+/** Opposed arrows — "moved between sprints", replacing `⇄` (issue 1749). */
+export function SwapIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M2.75 5.5h10.5" />
+      <polyline points="10.5,2.75 13.25,5.5 10.5,8.25" />
+      <path d="M13.25 10.5H2.75" />
+      <polyline points="5.5,7.75 2.75,10.5 5.5,13.25" />
+    </svg>
+  );
+}
+
 /** Overlapping sheets — "duplicate this row", replacing `⎘` (issue 1749). */
 export function CopyIcon({ className, ...rest }: IconProps) {
   return (

@@ -8,8 +8,20 @@
  * `since` / `user` params. The cursor is opaque — the client only echoes it back.
  */
 
+import type { ReactNode } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import {
+  ArrowRightIcon,
+  FlagIcon,
+  LockIcon,
+  OverviewIcon,
+  RepeatIcon,
+  RiskIcon,
+  ScaleIcon,
+  SprintIcon,
+  SquareIcon,
+} from '@/components/Icons';
 
 /** Source object types the endpoint aggregates (mirrors changelog.object_type_choices). */
 export type ChangelogObjectType =
@@ -53,18 +65,42 @@ interface ChangelogResponse {
   next_cursor: string | null;
 }
 
-/** Per-object-type label + glyph. Color is never the only cue — the label carries
- *  the meaning and the glyph is aria-hidden (web-rule 6). */
-export const OBJECT_TYPE_META: Record<ChangelogObjectType, { label: string; icon: string }> = {
-  task: { label: 'Task', icon: '□' },
-  sprint: { label: 'Sprint', icon: '◇' },
-  risk: { label: 'Risk', icon: '△' },
-  dependency: { label: 'Dependency', icon: '⇢' },
-  project: { label: 'Project', icon: '◈' },
-  task_recurrence: { label: 'Recurrence', icon: '↻' },
-  guardrail_policy: { label: 'Guardrail policy', icon: '⚑' },
-  signal_privacy_policy: { label: 'Privacy policy', icon: '🔒' },
-  decisions_policy: { label: 'Decisions policy', icon: '⚖' },
+/**
+ * Per-object-type label + icon. Color is never the only cue — the label carries
+ * the meaning and the icon is aria-hidden (web-rule 6).
+ *
+ * The icons are chosen by **meaning**, not by echoing the geometric glyphs this
+ * map used to hold (`□ ◇ △ ⇢ ◈ ↻`). Only two of those nine had a house SVG of
+ * the same shape, which is why the earlier sweep slices stalled here (#2480):
+ * converting them shape-for-shape would have needed six new abstract marks that
+ * say nothing on their own. Reusing the icon each object type already carries
+ * elsewhere in the product makes the column readable instead of decorative.
+ */
+export const OBJECT_TYPE_META: Record<ChangelogObjectType, { label: string; icon: ReactNode }> = {
+  task: { label: 'Task', icon: <SquareIcon className="h-4 w-4" aria-hidden="true" /> },
+  sprint: { label: 'Sprint', icon: <SprintIcon className="h-4 w-4" aria-hidden="true" /> },
+  risk: { label: 'Risk', icon: <RiskIcon className="h-4 w-4" aria-hidden="true" /> },
+  dependency: {
+    label: 'Dependency',
+    icon: <ArrowRightIcon className="h-4 w-4" aria-hidden="true" />,
+  },
+  project: { label: 'Project', icon: <OverviewIcon className="h-4 w-4" aria-hidden="true" /> },
+  task_recurrence: {
+    label: 'Recurrence',
+    icon: <RepeatIcon className="h-4 w-4" aria-hidden="true" />,
+  },
+  guardrail_policy: {
+    label: 'Guardrail policy',
+    icon: <FlagIcon className="h-4 w-4" aria-hidden="true" />,
+  },
+  signal_privacy_policy: {
+    label: 'Privacy policy',
+    icon: <LockIcon className="h-4 w-4" aria-hidden="true" />,
+  },
+  decisions_policy: {
+    label: 'Decisions policy',
+    icon: <ScaleIcon className="h-4 w-4" aria-hidden="true" />,
+  },
 };
 
 /** Per-change-type verb + semantic tint. The verb is the WCAG 1.4.1 non-color cue. */

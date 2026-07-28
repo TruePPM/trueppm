@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 
 import { useProjectId } from '@/hooks/useProjectId';
 import type { SprintRetroActionItem } from '@/hooks/useSprints';
+import { ExternalLinkIcon } from '@/components/Icons';
 
 export interface DraftActionItem {
   text: string;
@@ -113,7 +114,8 @@ export function RetroActionItems({
                       focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary
                       whitespace-nowrap"
                   >
-                    Promote ↗
+                    Promote{' '}
+                    <ExternalLinkIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" />
                   </button>
                 ) : (
                   <span

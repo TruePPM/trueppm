@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from 'react';
 import { useScheduleLegendCollapsed } from '@/hooks/useScheduleLegendCollapsed';
+import { RadioDotIcon } from '@/components/Icons';
 
 interface ScheduleLegendProps {
   /**
@@ -130,7 +131,13 @@ export function ScheduleLegend({ taskListWidth, showBaselines = true }: Schedule
             crosshair dot at a bar's right edge; name it here so the gesture is
             discoverable without a coachmark. */}
         <p className="mt-1 text-xs text-neutral-text-secondary">
-          Drag the ○ handle at a bar’s right edge onto another task to link them
+          Drag the{' '}
+          <RadioDotIcon
+            aria-hidden="true"
+            filled={false}
+            className="inline-block h-2.5 w-2.5 align-[-0.125em]"
+          />{' '}
+          handle at a bar’s right edge onto another task to link them
         </p>
       </div>
     </div>

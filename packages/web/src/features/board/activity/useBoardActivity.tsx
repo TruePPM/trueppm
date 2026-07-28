@@ -9,7 +9,15 @@
 import type { ReactNode } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { PencilIcon } from '@/components/Icons';
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  CommentIcon,
+  PencilIcon,
+  PlusIcon,
+  SwapIcon,
+  TrashIcon,
+} from '@/components/Icons';
 
 export type BoardEventType =
   | 'task_created'
@@ -47,17 +55,41 @@ interface BoardActivityResponse {
 /** Per-event-type glyph, semantic tint, and verb phrase. Color is never the only cue —
  *  the verb carries the meaning and the icon is aria-hidden (rule 6). */
 export const EVENT_META: Record<BoardEventType, { icon: ReactNode; tint: string; verb: string }> = {
-  task_created: { icon: '＋', tint: 'text-semantic-on-track', verb: 'created' },
+  task_created: {
+    icon: <PlusIcon className="h-4 w-4" aria-hidden="true" />,
+    tint: 'text-semantic-on-track',
+    verb: 'created',
+  },
   task_updated: {
     icon: <PencilIcon className="h-4 w-4" aria-hidden="true" />,
     tint: 'text-neutral-text-secondary',
     verb: 'updated',
   },
-  task_deleted: { icon: '✕', tint: 'text-semantic-critical', verb: 'deleted' },
-  entered_sprint: { icon: '→', tint: 'text-brand-primary', verb: 'added to sprint' },
-  exited_sprint: { icon: '←', tint: 'text-brand-primary', verb: 'removed from sprint' },
-  moved_sprint: { icon: '⇄', tint: 'text-brand-primary', verb: 'moved sprint' },
-  comment_added: { icon: '💬', tint: 'text-neutral-text-secondary', verb: 'commented' },
+  task_deleted: {
+    icon: <TrashIcon className="h-4 w-4" aria-hidden="true" />,
+    tint: 'text-semantic-critical',
+    verb: 'deleted',
+  },
+  entered_sprint: {
+    icon: <ArrowRightIcon className="h-4 w-4" aria-hidden="true" />,
+    tint: 'text-brand-primary',
+    verb: 'added to sprint',
+  },
+  exited_sprint: {
+    icon: <ArrowLeftIcon className="h-4 w-4" aria-hidden="true" />,
+    tint: 'text-brand-primary',
+    verb: 'removed from sprint',
+  },
+  moved_sprint: {
+    icon: <SwapIcon className="h-4 w-4" aria-hidden="true" />,
+    tint: 'text-brand-primary',
+    verb: 'moved sprint',
+  },
+  comment_added: {
+    icon: <CommentIcon className="h-4 w-4" aria-hidden="true" />,
+    tint: 'text-neutral-text-secondary',
+    verb: 'commented',
+  },
 };
 
 /** Coarse type groups the chip bar exposes, mapped to the server `type` comma list. */

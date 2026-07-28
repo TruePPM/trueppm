@@ -9,6 +9,9 @@
  * copy shown when a given (filter, category) combination has no rows.
  */
 
+import type { ReactNode } from 'react';
+import { CelebrationIcon, FolderIcon, InboxIcon } from '@/components/Icons';
+
 /** Read-state axis — mutually exclusive; drives which server list view loads. */
 export type NotificationFilter = 'all' | 'unread' | 'archived' | 'snoozed';
 
@@ -39,8 +42,8 @@ const CATEGORY_EMPTY_NOUN: Record<Exclude<NotificationCategory, 'all'>, string> 
 };
 
 export interface EmptyCopy {
-  /** Decorative glyph (aria-hidden at the call site). */
-  emoji: string;
+  /** Decorative house SVG, never an emoji (rule 242); aria-hidden at the call site. */
+  icon: ReactNode;
   title: string;
   body: string;
 }
@@ -60,14 +63,14 @@ export function notificationEmptyCopy(
 ): EmptyCopy {
   if (filter === 'snoozed') {
     return {
-      emoji: '😴',
+      icon: <InboxIcon className="h-7 w-7" aria-hidden="true" />,
       title: 'Nothing snoozed',
       body: 'Notifications you snooze wait here until their time comes back around.',
     };
   }
   if (filter === 'archived') {
     return {
-      emoji: '🗂️',
+      icon: <FolderIcon className="h-7 w-7" aria-hidden="true" />,
       title: 'Nothing archived yet',
       body: 'Archived notifications will collect here.',
     };
@@ -75,7 +78,7 @@ export function notificationEmptyCopy(
   if (category !== 'all') {
     const noun = CATEGORY_EMPTY_NOUN[category];
     return {
-      emoji: '🎉',
+      icon: <CelebrationIcon className="h-7 w-7" aria-hidden="true" />,
       title: "You're all caught up",
       body:
         filter === 'unread'
@@ -85,13 +88,13 @@ export function notificationEmptyCopy(
   }
   if (filter === 'unread') {
     return {
-      emoji: '🎉',
+      icon: <CelebrationIcon className="h-7 w-7" aria-hidden="true" />,
       title: "You're all caught up",
       body: 'No unread mentions right now.',
     };
   }
   return {
-    emoji: '🎉',
+    icon: <CelebrationIcon className="h-7 w-7" aria-hidden="true" />,
     title: "You're all caught up",
     body: 'When someone @-mentions you, it shows up here.',
   };

@@ -12,6 +12,7 @@ import {
 import { canEditTask } from '@/lib/roles';
 import { RELATION_HEADING_ORDER, relationLabel } from './relationLabel';
 import { RelatedLinkPicker } from './RelatedLinkPicker';
+import { PlusIcon } from '@/components/Icons';
 
 /**
  * A relation resolved to a single displayable row from the viewer's vantage
@@ -171,7 +172,7 @@ export function RelatedLinksSection({ taskId, projectId, userRole, canEdit }: Dr
             className="inline-flex min-h-11 items-center gap-1 text-sm text-brand-primary hover:underline
               focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control"
           >
-            <span aria-hidden="true">＋</span> Link task
+            <PlusIcon aria-hidden="true" className="h-3 w-3 shrink-0" /> Link task
           </button>
         </div>
       )}

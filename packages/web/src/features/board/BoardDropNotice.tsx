@@ -13,6 +13,7 @@
  * the prior one and resets the auto-dismiss timer.
  */
 import { useEffect, useRef, useState } from 'react';
+import { RadioDotIcon } from '@/components/Icons';
 
 interface BoardDropNoticeProps {
   /**
@@ -56,9 +57,11 @@ export function BoardDropNotice({ notice }: BoardDropNoticeProps) {
     >
       {visible && (
         <>
-          <span aria-hidden="true" className="leading-none text-neutral-text-secondary">
-            ○
-          </span>
+          <RadioDotIcon
+            aria-hidden="true"
+            filled={false}
+            className="h-2.5 w-2.5 shrink-0 text-neutral-text-secondary"
+          />
           <span>{text}</span>
         </>
       )}

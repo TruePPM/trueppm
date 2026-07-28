@@ -140,9 +140,7 @@ export function NotificationListPage() {
         const copy = notificationEmptyCopy(filter, category);
         return (
           <div className="flex flex-col items-center gap-1 py-12 text-center px-4">
-            <span aria-hidden="true" className="text-3xl">
-              {copy.emoji}
-            </span>
+            <span className="text-neutral-text-secondary">{copy.icon}</span>
             <p className="text-sm font-medium text-neutral-text-primary">{copy.title}</p>
             <p className="text-xs text-neutral-text-secondary">{copy.body}</p>
           </div>

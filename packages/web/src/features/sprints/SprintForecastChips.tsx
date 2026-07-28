@@ -20,6 +20,7 @@ import { ForecastHorizonHelp } from '@/features/sprints/ForecastHorizonHelp';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useSprintBurndown, useSprintForecast } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { CheckIcon, WarningIcon } from '@/components/Icons';
 
 interface Props {
   projectId: string;
@@ -45,7 +46,7 @@ export function SprintForecastChips({ projectId, sprintId }: Props) {
     <div className="mt-2 flex flex-wrap gap-2" data-testid="sprint-forecast-chips">
       {finish && (
         <Chip to={to} tone={finish.tone} label={`${itl.singular} finish projection`}>
-          <span aria-hidden="true">{finish.icon}</span> {finish.node}
+          {finish.icon} {finish.node}
         </Chip>
       )}
       {/* #2495: the release-horizon chips render a clamped percentile, so each pairs
@@ -122,7 +123,8 @@ function Chip({
 interface FinishChip {
   node: ReactNode;
   tone: Tone;
-  icon: string;
+  /** House SVG, never a glyph (rule 242) — `node` carries the meaning. */
+  icon: ReactNode;
 }
 
 /** Map the #984 burn pace into Alex's standup phrasing (numbers in .tppm-mono). */
@@ -140,7 +142,7 @@ function sprintFinishChip(
         </>
       ),
       tone: 'on-track',
-      icon: '✓',
+      icon: <CheckIcon className="h-3 w-3 shrink-0" aria-hidden="true" />,
     };
   }
   if (burndown.burn_status === 'behind') {
@@ -151,8 +153,8 @@ function sprintFinishChip(
         </>
       ),
       tone: 'at-risk',
-      icon: '⚠',
+      icon: <WarningIcon className="h-3 w-3 shrink-0" aria-hidden="true" />,
     };
   }
-  return { node: <>On plan to finish this {iterationLower}</>, tone: 'on-track', icon: '✓' };
+  return { node: <>On plan to finish this {iterationLower}</>, tone: 'on-track', icon: <CheckIcon className="h-3 w-3 shrink-0" aria-hidden="true" /> };
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Task } from '@/types';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
-import { WarningIcon } from '@/components/Icons';
+import { RadioDotIcon, WarningIcon } from '@/components/Icons';
 
 interface Props {
   /** Every task the board is rendering. The banner derives its counts from
@@ -101,7 +101,12 @@ export function BoardScopeInjectionBanner({
         )}
         {pendingCount > 0 && (
           <span className="block mt-0.5 text-neutral-text-secondary">
-            <span aria-hidden="true">○</span> {pendingCount} pending acceptance — not yet
+            <RadioDotIcon
+              aria-hidden="true"
+              filled={false}
+              className="mr-1 inline-block h-2.5 w-2.5 align-[-0.125em]"
+            />
+            {pendingCount} pending acceptance — not yet
             counted in the commitment
           </span>
         )}

@@ -1,4 +1,4 @@
-import { WarningIcon } from '@/components/Icons';
+import { RadioDotIcon, WarningIcon } from '@/components/Icons';
 import { useMemo } from 'react';
 import { useProgramId } from '@/hooks/useProgramId';
 import {
@@ -172,7 +172,10 @@ function ResourceCard({
                           className="text-semantic-critical mr-1"
                           aria-label="contributes to over-allocation"
                         >
-                          ●
+                          <RadioDotIcon
+                            aria-hidden="true"
+                            className="inline-block h-2 w-2 align-[-0.125em]"
+                          />
                         </span>
                       )}
                       {t.name}

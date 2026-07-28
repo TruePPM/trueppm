@@ -25,7 +25,7 @@ import { FieldRow } from '../SettingsShell';
 import { Toggle } from '../components/Toggle';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { FieldHelp } from '@/components/FieldHelp';
-import { CheckIcon, CloseIcon, XMarkIcon } from '@/components/Icons';
+import { CheckIcon, CloseIcon, LockIcon, XMarkIcon } from '@/components/Icons';
 import {
   PICKER_PROVIDERS,
   providerDef,
@@ -729,7 +729,8 @@ export function SsoProviderPanel({
               </span>
             ))}
             <span className="text-[11px] text-neutral-text-secondary">
-              <span aria-hidden="true">🔒</span> read-only
+              <LockIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
+              read-only
             </span>
           </span>
         </FieldRow>

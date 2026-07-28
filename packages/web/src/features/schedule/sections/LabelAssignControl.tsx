@@ -18,7 +18,7 @@ import {
 } from '@/hooks/useLabels';
 import { LabelPill } from '@/components/LabelPill';
 import { LABEL_COLOR_KEYS, LABEL_COLOR_LABEL, labelDotStyle } from '@/lib/labelColors';
-import { CheckIcon } from '@/components/Icons';
+import { CheckIcon, PlusIcon } from '@/components/Icons';
 
 /** Client mirror of the server soft cap (TRUEPPM_LABEL_SOFT_CAP default). The
  *  server is authoritative; this only gates the create affordance early. */
@@ -80,7 +80,7 @@ export function LabelAssignControl({ projectId, taskId, labels, canAssign, canCr
               px-1.5 py-px text-xs text-neutral-text-secondary hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
-            <span aria-hidden="true">＋</span> Label
+            <PlusIcon aria-hidden="true" className="h-3 w-3 shrink-0" /> Label
           </button>
         )}
       </div>

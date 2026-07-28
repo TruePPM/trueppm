@@ -7,6 +7,7 @@ import type { Task } from '@/types';
 import { useDeleteEpic } from '../hooks/useProductBacklog';
 import type { EpicGroup } from '../types';
 import { EpicDeleteConfirmDialog } from './EpicDeleteConfirmDialog';
+import { TrashIcon } from '@/components/Icons';
 
 /**
  * Epic group header on the Product Backlog grooming view.
@@ -71,7 +72,7 @@ export function EpicHeader({
     items.push({
       key: 'delete',
       label: 'Delete epic',
-      icon: '🗑',
+      icon: <TrashIcon className="h-4 w-4" aria-hidden="true" />,
       destructive: true,
       onSelect: () => {
         restoreFocusRef.current = true;
