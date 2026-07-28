@@ -14,7 +14,7 @@
  */
 
 import type { ReactElement } from 'react';
-import { PinIcon } from '@/components/Icons';
+import { PinIcon, ScaleIcon } from '@/components/Icons';
 import { useState } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask, ROLE_ADMIN } from '@/lib/roles';
@@ -130,7 +130,11 @@ function NoteRow({
             className="rounded-chip bg-brand-primary/10 px-1.5 py-0.5 text-xs font-medium text-brand-primary"
             title="Decision"
           >
-            <span aria-hidden="true">⚖</span> Decision
+            <ScaleIcon
+              aria-hidden="true"
+              className="inline-block h-3.5 w-3.5 align-[-0.125em] mr-1"
+            />
+            Decision
           </span>
         )}
         <span className="text-sm font-medium text-neutral-text-primary">{author}</span>
@@ -232,7 +236,8 @@ function NoteRow({
                   : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface'
               }`}
           >
-            ⚖ Decision
+            <ScaleIcon className="inline-block h-3.5 w-3.5 align-[-0.125em] mr-1" aria-hidden="true" />
+            Decision
           </button>
           {canEditBody && (
             <button

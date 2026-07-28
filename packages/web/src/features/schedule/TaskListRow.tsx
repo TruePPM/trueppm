@@ -30,7 +30,7 @@ import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
-import { LinkIcon, PencilIcon } from '@/components/Icons';
+import { LinkIcon, NoteIcon, PencilIcon } from '@/components/Icons';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { canEditTask } from '@/lib/roles';
 import { MissingCommittedStartChip } from './MissingCommittedStartChip';
@@ -1891,7 +1891,7 @@ function TaskNameLabel(props: TaskNameContentProps) {
           aria-hidden="true"
           data-testid="note-freshness-chip"
         >
-          📝
+          <NoteIcon className="h-3.5 w-3.5 shrink-0" />
         </span>
       )}
     </>

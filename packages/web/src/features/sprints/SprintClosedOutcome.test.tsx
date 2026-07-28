@@ -851,6 +851,17 @@ describe('SprintClosedOutcome — demo reorder (curator, ≥2 demo stories) #113
     expect(screen.getByRole('button', { name: /Reorder demo: Beta story/i })).toBeInTheDocument();
   });
 
+  it('marks the demo count and each Demo toggle with the star SVG, not ★/☆', () => {
+    render(<SprintClosedOutcome outcome={twoDemo()} canCurateDemo />);
+    const sec = screen.getByTestId('sprint-review');
+    expect(sec.textContent).not.toContain('★');
+    expect(sec.textContent).not.toContain('☆');
+    // The toggle is `role="switch"`, not a plain button — and it carries the same
+    // mark in both states, filled when the story is picked for the demo.
+    const toggle = screen.getAllByRole('switch', { name: /demo list/i })[0];
+    expect(toggle.querySelector('svg')).toBeTruthy();
+  });
+
   it('does not render drag handles for a read-only viewer even with 2 demo stories', () => {
     render(<SprintClosedOutcome outcome={twoDemo()} canCurateDemo={false} />);
     expect(screen.queryByRole('button', { name: /Reorder demo:/i })).toBeNull();

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { AgentAction } from '@/api/types';
 import { formatRelative } from '@/lib/formatRelative';
+import { BanIcon } from '@/components/Icons';
 import { GROUP_LABEL, refusalGroup, refusalWhy } from './agentDisplay';
 
 export interface RefusalLogProps {
@@ -69,8 +70,9 @@ export function RefusalLog({
                     <span>{formatRelative(new Date(r.occurred_at))}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="font-medium text-semantic-critical">
-                      <span aria-hidden="true">⛔</span> {GROUP_LABEL[group]}
+                    <span className="inline-flex items-center gap-1 font-medium text-semantic-critical">
+                      <BanIcon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                      {GROUP_LABEL[group]}
                     </span>
                     <span className="text-neutral-text-secondary">{refusalWhy(r)}</span>
                     <span className="tppm-mono text-xs text-neutral-text-disabled">

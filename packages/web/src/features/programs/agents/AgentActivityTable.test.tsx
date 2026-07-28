@@ -98,7 +98,7 @@ describe('AgentActivityTable', () => {
     expect(fetchNextPage).toHaveBeenCalled();
   });
 
-  it('shows a refused verdict in red with the ⛔ symbol', () => {
+  it('shows a refused verdict in red with its mark alongside the text label', () => {
     render(
       <AgentActivityTable
         actions={[action({ verdict: 'refused', refusal_reason: 'identity' })]}
@@ -111,6 +111,11 @@ describe('AgentActivityTable', () => {
       />,
     );
     const table = screen.getAllByRole('table')[0];
-    expect(within(table).getByText('Refused')).toBeInTheDocument();
+    const cell = within(table).getByText('Refused');
+    expect(cell).toBeInTheDocument();
+    // The mark is a house SVG, not the ⛔ emoji it replaced — color alone never
+    // carries the verdict (WCAG 1.4.1), so both the mark and the label must be there.
+    expect(cell.querySelector('svg')).toBeTruthy();
+    expect(cell.textContent).not.toContain('⛔');
   });
 });

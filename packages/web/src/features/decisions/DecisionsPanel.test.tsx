@@ -76,7 +76,11 @@ describe('DecisionsPanel', () => {
     render(<DecisionsPanel projectId="p1" />);
     expect(screen.getByRole('heading', { name: 'Sprint 2' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'No sprint' })).toBeTruthy();
-    expect(screen.getByText('decision a')).toBeTruthy();
+    const body = screen.getByText('decision a');
+    expect(body).toBeTruthy();
+    // The decision mark is a house SVG, not the ⚖ emoji it replaced.
+    expect(body.querySelector('svg')).toBeTruthy();
+    expect(body.textContent).not.toContain('⚖');
   });
 
   it('renders the locked state for a denied oversight reader', () => {
