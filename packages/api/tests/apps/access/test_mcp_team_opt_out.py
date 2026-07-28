@@ -150,10 +150,12 @@ def _all_mcp_views() -> list[type]:
     otherwise be invisible to this test and defeat its purpose.
     """
     import django.urls  # noqa: F401  — force URLconf import so all view modules load
-
     from django.urls import get_resolver
 
-    get_resolver().url_patterns
+    # Touch url_patterns to force the URLconf (and therefore every view module)
+    # to import; bound to a name because a bare attribute access reads as dead code.
+    _loaded = get_resolver().url_patterns
+    assert _loaded is not None
 
     seen: list[type] = []
 
@@ -257,9 +259,7 @@ def test_path_scoped_route_refused_when_opted_out(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("suffix", _PATH_ROUTES)
-def test_path_scoped_route_allowed_when_opted_in(
-    project: Project, owner: Any, suffix: str
-) -> None:
+def test_path_scoped_route_allowed_when_opted_in(project: Project, owner: Any, suffix: str) -> None:
     """The mirror case — proves the 403 above comes from the opt-out and not from a
     kwarg the guard simply failed to resolve (which would fail closed on every call
     and make the refusal test vacuously green)."""
@@ -269,9 +269,7 @@ def test_path_scoped_route_allowed_when_opted_in(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("suffix", _PATH_ROUTES)
-def test_path_scoped_route_unaffected_for_humans(
-    project: Project, owner: Any, suffix: str
-) -> None:
+def test_path_scoped_route_unaffected_for_humans(project: Project, owner: Any, suffix: str) -> None:
     _opt_out(project)
     resp = _human(owner).get(f"/api/v1/projects/{project.pk}/{suffix}")
     assert resp.status_code != 403, f"{suffix} -> {resp.status_code}"
@@ -392,7 +390,9 @@ def test_me_search_filters_rather_than_refuses(
 
 
 @pytest.mark.django_db
-def test_me_work_excludes_opted_out_rows(project: Project, other_project: Project, owner: Any) -> None:
+def test_me_work_excludes_opted_out_rows(
+    project: Project, other_project: Project, owner: Any
+) -> None:
     from trueppm_api.apps.projects.models import Task, TaskStatus
 
     Task.objects.create(
