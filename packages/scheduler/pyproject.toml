@@ -151,4 +151,18 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "C901"]
+
+[tool.ruff.lint.mccabe]
+# Complexity ceiling (#2488, carved out of #1307). Set at 15 because the engine
+# passes there today, immediately after #2081 cleared every function at or above
+# cognitive complexity 30 — pinning it now costs nothing.
+#
+# This is CYCLOMATIC complexity (McCabe), not the cognitive-complexity figure
+# SonarCloud reports; the two disagree, and a function can pass one and fail the
+# other. This gate is the local, fast backstop against regression.
+#
+# The engine is the package where this matters most: a CPM pass that grows another
+# branch is exactly the change that needs decomposing rather than accommodating.
+# Ratchet down, never up.
+max-complexity = 15

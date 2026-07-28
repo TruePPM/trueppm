@@ -224,10 +224,25 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "DJ"]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "DJ", "C901"]
 # RUF012 false-positives on Django migration classes and model Meta; RUF002/003
 # flags en-dashes in docstrings — acceptable in project names and descriptions.
 ignore = ["RUF002", "RUF003"]
+
+[tool.ruff.lint.mccabe]
+# Complexity ceiling (#2488, carved out of #1307). Set at 15 because the tree
+# passes there today, immediately after #2081 cleared every function at or above
+# cognitive complexity 30 — pinning it now costs nothing, and every week it waits
+# the ceiling has to be set higher.
+#
+# This is CYCLOMATIC complexity (McCabe), which is not the cognitive-complexity
+# figure SonarCloud reports; the two disagree, and a function can pass one and
+# fail the other. This gate is the local, fast backstop that keeps a regression
+# out of `main`; SonarCloud stays the authority on its own metric.
+#
+# Ratchet down rather than up: if a change genuinely needs more than 15 branches,
+# decompose it — do not raise this number.
+max-complexity = 15
 
 [tool.ruff.lint.per-file-ignores]
 # RUF012: Django/DRF Meta class attributes and ViewSet class attributes are
