@@ -60,7 +60,17 @@ ROLE_COLUMNS: list[tuple[str, str, str]] = [
 ]
 
 
-def _move(apps: Any, from_value: int, to_value: int, direction: str) -> None:
+# The three functions below carry ``# pragma: no cover`` because they are
+# *structurally* unreachable from the test suite, not merely untested. CI builds
+# every pytest worker database by cloning the pre-migrated ``migrated`` template
+# from a SQL dump (``TRUEPPM_TEST_DB_TEMPLATE``, #688) rather than replaying
+# migrations, so no migration's RunPython body ever executes under coverage. The
+# CLAUDE.md rule against importing a migration module in a test (a squash deletes
+# the file name) rules out the other route, so the *outcome* is asserted on the
+# models instead — see ``tests/apps/access/test_role_ordinals.py``.
+def _move(  # pragma: no cover - migrations never replay under coverage (#688)
+    apps: Any, from_value: int, to_value: int, direction: str
+) -> None:
     """Move every stored Role ordinal from ``from_value`` to ``to_value``.
 
     Refuses if the destination ordinal is already occupied anywhere: that means an
@@ -87,12 +97,12 @@ def _move(apps: Any, from_value: int, to_value: int, direction: str) -> None:
         )
 
 
-def viewer_zero_to_one(apps: Any, schema_editor: Any) -> None:
+def viewer_zero_to_one(apps: Any, schema_editor: Any) -> None:  # pragma: no cover
     """Forward: VIEWER 0 → 1."""
     _move(apps, from_value=0, to_value=1, direction="move")
 
 
-def viewer_one_to_zero(apps: Any, schema_editor: Any) -> None:
+def viewer_one_to_zero(apps: Any, schema_editor: Any) -> None:  # pragma: no cover
     """Reverse: VIEWER 1 → 0, restoring the pre-amendment scheme."""
     _move(apps, from_value=1, to_value=0, direction="revert")
 
