@@ -99,7 +99,10 @@ class BatchApplyResult:
     conflicts: list[dict[str, Any]] = field(default_factory=list)
     # (event_type, task_id) pairs to broadcast on_commit, mirroring single-row writes.
     events: list[tuple[str, str]] = field(default_factory=list)
-    # Highest server_version touched — a convenience watermark for the client.
+    # Highest delta cursor (``sync_seq``) touched — the checkpoint the client
+    # adopts as its next ``since``, so it must be on the *cursor* scale, not the
+    # per-row ``server_version`` scale (ADR-0686). Handing back a row's save count
+    # here would give the client a `since` from an unrelated number line.
     max_version: int = 0
 
     @property
@@ -107,7 +110,7 @@ class BatchApplyResult:
         return bool(self.created or self.updated or self.deleted)
 
     def bump(self, version: int) -> None:
-        """Advance the high-water ``server_version`` watermark for the batch."""
+        """Advance the batch's high-water delta cursor."""
         self.max_version = max(self.max_version, version)
 
 
@@ -323,7 +326,7 @@ def _apply_created_row(
         maybe_record_scope_injection(task, None, ctx.request.user)
         result.events.append(("task_created", str(task.pk)))
     result.created.append({"id": str(task.pk), "server_version": task.server_version})
-    result.bump(task.server_version)
+    result.bump(task.sync_seq)
 
 
 def _apply_updated_row(row: dict[str, Any], ctx: _ApplyContext, result: BatchApplyResult) -> None:
@@ -369,7 +372,7 @@ def _apply_updated_row(row: dict[str, Any], ctx: _ApplyContext, result: BatchApp
     maybe_record_scope_injection(saved, old_sprint_id, ctx.request.user)
     result.updated.append({"id": str(saved.pk), "server_version": saved.server_version})
     result.events.append(("task_updated", str(saved.pk)))
-    result.bump(saved.server_version)
+    result.bump(saved.sync_seq)
 
 
 def _apply_deleted_row(del_id: Any, ctx: _ApplyContext, result: BatchApplyResult) -> None:
@@ -382,7 +385,7 @@ def _apply_deleted_row(del_id: Any, ctx: _ApplyContext, result: BatchApplyResult
     target.soft_delete()  # bumps server_version, sets deleted_version, cascades
     result.deleted.append({"id": str(target.pk), "server_version": target.server_version})
     result.events.append(("task_deleted", str(target.pk)))
-    result.bump(target.server_version)
+    result.bump(target.sync_seq)
 
 
 def apply_task_changes(

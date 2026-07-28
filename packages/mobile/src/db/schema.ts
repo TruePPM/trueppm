@@ -7,7 +7,10 @@
  *
  * Every synced entity mirrors the server `VersionedModel` contract:
  *   - id           UUID primary key (string on the client)
- *   - server_version  monotonic BigInt; the cursor the pull protocol pages on
+ *   - server_version  this row's own save count — the optimistic-lock token sent
+ *                  back as `X-Base-Version`. NOT the pull cursor: the delta pages
+ *                  on the server-side `sync_seq` (ADR-0686), which is not
+ *                  serialized to clients. Echo the response `timestamp` verbatim.
  *   - is_deleted   tombstone flag (soft-delete; rows are never hard-deleted so
  *                  deletions propagate to every client)
  */

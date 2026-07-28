@@ -41,6 +41,7 @@ from django.db import transaction
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Dependency, Program, Project, Task
+from trueppm_api.apps.sync.sequence import allocate_for_projects
 
 User = get_user_model()
 
@@ -261,7 +262,15 @@ class Command(BaseCommand):
             project=project, user=owner, defaults={"role": Role.OWNER}
         )
 
+        # bulk_create bypasses save(), so nothing draws a sync delta cursor for
+        # these rows — they would sit at sync_seq=0 and be invisible to the sync
+        # pull, which would quietly make a seeded project useless for measuring it
+        # (ADR-0686). One value for the whole seed is right: it is one bulk write.
+        seq = allocate_for_projects([project.pk])
+
         tasks = self._make_tasks(project, task_count, breadth, rng)
+        for task in tasks:
+            task.sync_seq = seq
         Task.objects.bulk_create(tasks, batch_size=1000)
 
         # bulk_create bypassed save(), which is what normally advances the
@@ -270,6 +279,8 @@ class Command(BaseCommand):
         Project.objects.filter(pk=project.pk).update(object_sequence=task_count)
 
         edges = self._make_edges(tasks, edge_ratio, rng)
+        for edge in edges:
+            edge.sync_seq = seq
         Dependency.objects.bulk_create(edges, batch_size=1000, ignore_conflicts=True)
 
         return len(tasks), len(edges)

@@ -194,10 +194,15 @@ def test_create_task(admin_client: APIClient, project: Project) -> None:
     assert resp.status_code == 200
     task = Task.objects.get(pk=task_id)
     assert task.name == "Field note"
+    # The per-row optimistic-lock token: a fresh row has saved once.
     assert task.server_version == 1
     body = resp.json()
     assert body["applied"]["tasks"]["created"] == [{"id": task_id, "server_version": 1}]
-    assert body["timestamp"] == 1
+    # The response watermark is on the *cursor* scale, not the save-count scale
+    # (ADR-0686) — it is the value the client adopts as its next `since`.
+    assert body["timestamp"] == task.sync_seq
+    project.refresh_from_db()
+    assert body["timestamp"] == project.last_sync_version
 
 
 @pytest.mark.django_db
@@ -775,8 +780,8 @@ def test_bulk_upload_watermark_updates_project_once(
 
     The per-row ``post_save`` watermark receiver used to UPDATE projects_project
     once per saved task, re-locking the same project row N times inside the batch
-    transaction. ``coalesce_watermark_bumps`` now folds them into a single
-    ``Greatest`` UPDATE. Ten updated rows must produce exactly one watermark write.
+    transaction. ``coalesce_sync_seq`` now draws one cursor for the
+    whole batch. Ten updated rows must produce exactly one project-row write.
     """
     tasks = [Task.objects.create(project=project, name=f"T{i}") for i in range(10)]
     payload = _payload(
@@ -827,15 +832,16 @@ def test_bulk_upload_server_version_increment_uses_returning(
 def test_bulk_batch_versions_and_watermark_are_correct(
     admin_client: APIClient, project: Project
 ) -> None:
-    """A 50-row mixed batch yields the same versions + watermark as the per-row path.
+    """A 50-row mixed batch yields per-row versions and one shared delta cursor.
 
-    #1527 must not change any observable value. Created rows land at
-    server_version 1; updated rows (created at 1) advance to 2; the denormalized
-    ``Project.last_sync_version`` must equal both the batch max and the
-    authoritative union snapshot.
+    The two fields are asserted separately because they mean different things
+    (ADR-0686). ``server_version`` stays a per-row save count: created rows land
+    at 1, updated rows (created at 1) advance to 2. ``sync_seq`` is drawn once for
+    the whole batch (#1527's coalescing), so all 50 rows share one value — which
+    is also the project watermark and the response ``timestamp``, so the client's
+    next pull returns nothing and the batch is delivered exactly once.
     """
-    from trueppm_api.apps.sync.views import ProjectSyncView
-
+    before = Project.objects.values_list("last_sync_version", flat=True).get(pk=project.pk)
     existing = [Task.objects.create(project=project, name=f"E{i}") for i in range(25)]
     created_ids = [str(uuid.uuid4()) for _ in range(25)]
     payload = _payload(
@@ -851,10 +857,15 @@ def test_bulk_batch_versions_and_watermark_are_correct(
         t.refresh_from_db()
         assert t.server_version == 2
 
+    batch_ids = [*created_ids, *[str(t.pk) for t in existing]]
+    cursors = set(Task.objects.filter(pk__in=batch_ids).values_list("sync_seq", flat=True))
+    assert len(cursors) == 1, "a coalesced batch must draw exactly one cursor value"
+    cursor = cursors.pop()
+    assert cursor > before
+
     project.refresh_from_db()
-    assert project.last_sync_version == 2
-    assert project.last_sync_version == ProjectSyncView._snapshot_max_version(project)
-    assert resp.json()["timestamp"] == 2
+    assert project.last_sync_version == cursor
+    assert resp.json()["timestamp"] == cursor
 
 
 @pytest.mark.django_db

@@ -120,6 +120,9 @@ watermark-union and `register_watermark_receivers()` wiring that must be kept in
 nothing at this cardinality. If a future field type becomes high-churn or large, promoting
 values to their own collection is a clean, additive protocol bump.
 
+> **Wiring note (ADR-0686).** The mechanics named here — `register_watermark_receivers()`, the `_snapshot_max_version` union branch, and the column-vs-union conformance test — no longer exist. Adding a sync collection now means a `SyncSource` entry, a `Sync*Serializer`, a `_TOMBSTONE_MODEL_REGISTRY` entry, and an `OWNER_RESOLVERS` entry in `apps/sync/sequence.py` so the model allocates a `sync_seq`. **That last one is not optional**: each collection is filtered on its own cursor, so a model that never allocates stays at 0 and is never delivered at all. The argument this ADR makes is unchanged — only the list of wiring is.
+
+
 ## Concrete model
 
 ```python

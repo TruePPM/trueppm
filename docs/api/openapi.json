@@ -17359,7 +17359,7 @@
         "/api/v1/projects/{id}/sync/": {
             "get": {
                 "operationId": "v1_projects_sync_retrieve",
-                "description": "Pull-only delta sync endpoint for the mobile offline store.\n\nReturns all rows (live and soft-deleted) whose server_version is strictly\ngreater than `since` for the given project, formatted for WatermelonDB's\nsynchronize() helper.\n\nThe response `timestamp` is snapshotted *before* the delta queries run\n(inside REPEATABLE READ isolation) to eliminate the TOCTOU gap where a\nwrite could land between the max-version read and the row queries.\n\nUsage:\n    GET /api/v1/projects/{pk}/sync/?since=0",
+                "description": "Pull-only delta sync endpoint for the mobile offline store.\n\nReturns all rows (live and soft-deleted) whose ``sync_seq`` is strictly\ngreater than `since` for the given project, formatted for WatermelonDB's\nsynchronize() helper.\n\n``sync_seq`` — not ``server_version`` — is the cursor (ADR-0686, #2491). It is\ndrawn from the project's own monotonic sequence, so every synced row in the\nproject is totally ordered against every other one and the project-wide\nmaximum is a meaningful checkpoint. ``server_version`` counts a single row's\nsaves; comparing it against that maximum let a frequently-edited row raise the\ncheckpoint above every other row's counter and drop those rows from the delta\npermanently.\n\nThe response `timestamp` is snapshotted *before* the delta queries run\n(inside REPEATABLE READ isolation) to eliminate the TOCTOU gap where a\nwrite could land between the watermark read and the row queries.\n\nUsage:\n    GET /api/v1/projects/{pk}/sync/?since=0",
                 "summary": "Pull the offline sync delta for a project",
                 "parameters": [
                     {
@@ -17394,7 +17394,7 @@
                             "type": "integer",
                             "default": 0
                         },
-                        "description": "WatermelonDB high-water mark. Returns only rows whose `server_version` is strictly greater than this value. Omit (or pass `0`) for a full initial sync; passing the previous response's `timestamp` fetches just the delta since then. Omitting it silently triggers a full re-sync."
+                        "description": "WatermelonDB high-water mark — an opaque cursor, not a row version. Returns only rows changed strictly after this point. Omit (or pass `0`) for a full initial sync; passing the previous response's `timestamp` fetches just the delta since then. Omitting it silently triggers a full re-sync."
                     }
                 ],
                 "tags": [

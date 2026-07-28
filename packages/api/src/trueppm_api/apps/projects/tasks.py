@@ -665,8 +665,9 @@ def cascade_project_soft_delete(self: object, project_id: str) -> None:
 
     No broadcast here: the ``project_deleted`` board event already fired from
     ``perform_destroy`` on commit, and child tombstones reach mobile clients via
-    the sync delta pull (the ``server_version`` bumps this cascade applies), not
-    over WebSocket — so there is nothing to re-broadcast and no double-fire risk.
+    the sync delta pull (the ``sync_seq`` cursor this cascade stamps, ADR-0686),
+    not over WebSocket — so there is nothing to re-broadcast and no double-fire
+    risk.
     """
     from trueppm_api.apps.projects.models import (
         Project,

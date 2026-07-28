@@ -1,7 +1,13 @@
 # ADR-0142: Sync watermark column + CPM working-day index
 
 ## Status
-Accepted
+Accepted. **P-05 (the sync watermark) is superseded by ADR-0686.** The column it
+introduced survives, but it is now the *allocator* of a per-project `sync_seq`
+sequence rather than a cache of `MAX(server_version)` — the value this ADR cached
+turned out not to be a valid ordering (#2491). The receivers, the
+`_snapshot_max_version` union, the `SYNC_WATERMARK_USE_COLUMN` fallback, and the
+column-vs-union conformance test described below are all gone. P-07 (the CPM
+working-day index) is unaffected.
 
 ## Context
 Two structural performance items the 2026-05-28 pre-release performance audit

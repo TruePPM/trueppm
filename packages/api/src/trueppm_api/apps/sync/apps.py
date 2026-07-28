@@ -8,7 +8,8 @@ class SyncConfig(AppConfig):
     name = "trueppm_api.apps.sync"
 
     def ready(self) -> None:
-        # Wire the Project.last_sync_version watermark receivers (ADR-0142, #822).
-        from trueppm_api.apps.sync.receivers import register_watermark_receivers
+        # Wire the per-project sync sequence that allocates `sync_seq`
+        # (ADR-0686, #2491).
+        from trueppm_api.apps.sync.sequence import register_sequence_receivers
 
-        register_watermark_receivers()
+        register_sequence_receivers()

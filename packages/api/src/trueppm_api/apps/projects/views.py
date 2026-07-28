@@ -3909,7 +3909,16 @@ def _record_subtask_spawn(parent: Task, instance: Task, by: Any) -> None:
     parent stays in the commitment; flagging it pending would wrongly drop the whole
     parent from the burndown.
     """
-    Task.objects.filter(pk=parent.pk).update(server_version=db_models.F("server_version") + 1)
+    # The cursor is what actually carries the change to an offline client: this is
+    # a bulk .update() (deliberately — it must not re-run the parent's save side
+    # effects), so nothing allocates one for it and the parent's new is_summary
+    # state would stay below every checkpoint (ADR-0686).
+    from trueppm_api.apps.sync.sequence import allocate_for_projects
+
+    Task.objects.filter(pk=parent.pk).update(
+        server_version=db_models.F("server_version") + 1,
+        sync_seq=allocate_for_projects([parent.project_id]),
+    )
     if parent.sprint_id is None:
         return
 
@@ -8763,6 +8772,15 @@ def _retro_post(request: Request, sprint: Any, caller: Any, caller_role: int) ->
             if (entry.get("text") or "").strip()
         ]
         if new_items:
+            # `retro_action_items` is its own delta collection filtered on the
+            # row's own cursor, and bulk_create bypasses save() — so without this
+            # the rewritten set would sit at sync_seq=0 and never sync (ADR-0686).
+            # One value for the whole set is right: they are written together.
+            from trueppm_api.apps.sync.sequence import allocate_for_projects
+
+            seq = allocate_for_projects([sprint.project_id])
+            for item in new_items:
+                item.sync_seq = seq
             RetroActionItem.objects.bulk_create(new_items)
 
     # Notes + action items just changed under any peer with the retro open (#1359).

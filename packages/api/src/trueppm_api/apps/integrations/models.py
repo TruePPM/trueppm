@@ -237,6 +237,7 @@ class TaskLink(VersionedModel):
             models.Index(fields=("task", "display_order"), name="integrations_link_task_order"),
             # Sync delta pull joins via task then filters server_version (#810).
             models.Index(fields=("task", "server_version"), name="tasklink_serverver_idx"),
+            models.Index(fields=["task", "sync_seq"], name="tasklink_syncseq_idx"),
             # Assets feed (#971, ADR-0215): each source is scanned newest-first with
             # a small LIMIT before the Python keyset merge — index the sort key so
             # the per-source page is an index range scan, not a filesort.
