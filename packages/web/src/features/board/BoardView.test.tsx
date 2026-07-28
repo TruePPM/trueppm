@@ -4,6 +4,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BoardView } from './BoardView';
+import { ROLE_VIEWER } from '@/lib/roles';
 
 // BoardView uses useSearchParams + useQueryClient — all renders need a Router
 // context and a QueryClientProvider.
@@ -406,7 +407,7 @@ describe('BoardView', () => {
   // cards) but every write affordance on the rail is suppressed rather than
   // rendered and 403'd.
   it('hides the backlog quick-capture affordance for a Viewer', () => {
-    boardRoleMock = 0; // ROLE_VIEWER
+    boardRoleMock = ROLE_VIEWER;
     renderBoard();
     // The board still renders (read is allowed)…
     expect(screen.getByText('TO DO')).toBeInTheDocument();

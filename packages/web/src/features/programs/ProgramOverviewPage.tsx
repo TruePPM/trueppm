@@ -6,6 +6,7 @@ import { QueryErrorState } from '@/components/QueryErrorState';
 import { PinToggle } from '@/components/PinToggle';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 import { SampleDataBanner } from './SampleDataBanner';
+import { ROLE_OWNER } from '@/lib/roles';
 
 // ---------------------------------------------------------------------------
 // API response types (GET /programs/{id}/rollup/ — ADR-0088, #713)
@@ -364,7 +365,7 @@ export function ProgramOverviewPage() {
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
       {program?.is_sample && programId && (
-        <SampleDataBanner programId={programId} canRemove={program.my_role === 400} />
+        <SampleDataBanner programId={programId} canRemove={program.my_role === ROLE_OWNER} />
       )}
       {/* Identity header (#963): the lg tile is the ONLY accent on this page —
           the KPI cards and health hero keep the semantic palette. The program

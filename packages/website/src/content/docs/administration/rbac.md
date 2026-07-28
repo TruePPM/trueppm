@@ -13,7 +13,54 @@ TruePPM uses a 5-role per-project permission model stored in `ProjectMembership`
 | **Admin** | 300 | Project Manager | Full task and dependency edit, project settings, baseline creation. |
 | **Scheduler** | 200 | Resource Manager | Assigns resources and edits dependencies. Cannot edit task content. |
 | **Member** | 100 | Team Member | Edits own assigned tasks. Logs time. |
-| **Viewer** | 0 | Viewer | Read-only. Can pull delta sync to mobile. |
+| **Viewer** | 1 | Viewer | Read-only. Can pull delta sync to mobile. |
+
+### Why the ordinals jump by 100
+
+The gaps are **reserved slots, not arbitrary numbering**. Ordinals are compared, never
+enumerated: a permission check asks "is this role at least a Member?", so what matters is
+the ordering, and the space between two tiers is deliberate room to insert a role later
+without renumbering the ones that already exist.
+
+Concretely, suppose you want an **Auditor** — someone who can read everything a Viewer
+can *plus* export history and baselines, but who must never edit a task. There is no OSS
+tier that fits: a Viewer is too narrow, a Member can write. An Auditor belongs *between*
+them, so it takes an ordinal in the **2–99** band. Every existing `role >= Member` write
+gate then excludes the Auditor automatically, by arithmetic, without a single one of
+those gates being modified or even knowing the role exists.
+
+| Band | Reserved for |
+|------|--------------|
+| 0 | Permanently unused — see the note below |
+| 2–99 | Read-augmented roles above Viewer but below Member (the Auditor example) |
+| 101–199 | Contributor extensions above Member |
+| 201–299 | Resource-management extensions above Scheduler |
+| 301–399 | Project-lead extensions above Admin |
+| 401+ | Nothing. There is no role above Owner — that ceiling is part of the contract |
+
+**The comparison contract.** Two check styles appear in the code and they mean different
+things, which is what makes the bands safe:
+
+- **`role >= Owner/Admin/Scheduler/Member/Viewer`** — "at least this band". A custom role
+  inside the band **does** inherit the capability. This is how nearly every write gate is
+  written, and it is why adding a role never requires touching them.
+- **`role == Owner`** (and the other exact-tier checks) — "specifically this OSS tier". A
+  custom role **does not** silently absorb these. Owner-only behavior such as the
+  last-Owner guard stays Owner-only.
+
+**A note on the roles you actually get.** TruePPM's Community edition ships exactly the
+five roles in the table above — the bands describe an extension seam, not hidden
+functionality waiting to be unlocked. Custom roles are an Enterprise capability, and when
+Enterprise registers one it does so into these bands through the slot-registration
+pattern (ADR-0029), leaving the Community ordinals untouched.
+
+**Why Viewer is 1 and 0 is unused.** The ordinal is part of the public API — it appears in
+membership payloads, invite responses, and MCP reads — and in JavaScript `0` is falsy, so
+a consumer writing `role || DEFAULT` would read a Viewer as *absent* and quietly grant
+them the default instead. Starting the ladder at 1 makes every role truthy and removes
+that failure mode. "No membership" is expressed as `null`, a distinct type, never as an
+ordinal. If you have integrated against the numeric field, note that a Viewer changed
+from `0` to `1` in 0.4; see the changelog.
 
 ## Permission matrix
 
@@ -50,7 +97,7 @@ The 5 roles are capability levels, not job titles. The same role may serve diffe
 
 ### Why Product Owner and Scrum Master map to Project Manager (Admin)
 
-Product Owners and Scrum Masters hold the same **Project Manager (Admin)** role as a traditional PM. This is intentional: the capabilities a PO or Scrum Master needs — author and groom the backlog, open and close sprints, manage velocity, run ceremonies — all require the same project-wide write access the Admin tier grants. There is no narrower tier that fits, because the access ordinal (Viewer 0 → Owner 400, in `apps/access/models.py`) measures *how much* a member can write, not *which agile facet* they hold.
+Product Owners and Scrum Masters hold the same **Project Manager (Admin)** role as a traditional PM. This is intentional: the capabilities a PO or Scrum Master needs — author and groom the backlog, open and close sprints, manage velocity, run ceremonies — all require the same project-wide write access the Admin tier grants. There is no narrower tier that fits, because the access ordinal (Viewer 1 → Owner 400, in `apps/access/models.py`) measures *how much* a member can write, not *which agile facet* they hold.
 
 Crucially, the guardrails a PO or Scrum Master cares about — **sprint sovereignty** and **scope-change protection** — are **not** enforced by the RBAC ordinal. They are enforced at the **application layer**: the sprint model rejects mid-sprint mutations without team notification (explicit, audited scope-injection approval), and velocity is never auto-exposed as a management gauge. A PM cannot silently add tasks to an active sprint regardless of their role, because the workflow — not the permission level — is the gate.
 
@@ -103,7 +150,7 @@ All querysets are scoped to projects the requesting user is a member of via `Pro
 
 ## WebSocket auth
 
-WebSocket connections authenticate via `?token=<jwt>` on the connection URL. Viewer (role=0) connections are rejected with close code 4003 — real-time push requires Member or above.
+WebSocket connections authenticate via `?token=<jwt>` on the connection URL. Viewer (role=1) connections are rejected with close code 4003 — real-time push requires Member or above.
 
 ## Server-derived capability flags
 

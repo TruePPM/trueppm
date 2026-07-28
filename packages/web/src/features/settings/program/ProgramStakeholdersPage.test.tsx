@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProgramStakeholdersPage } from './ProgramStakeholdersPage';
+import { ROLE_VIEWER } from '@/lib/roles';
 
 const useProgram = vi.fn();
 const useProgramExternalStakeholders = vi.fn();
@@ -28,7 +29,7 @@ vi.mock('../hooks/useProgramExternalStakeholders', () => ({
 }));
 
 const ADMIN = { id: 'p-1', name: 'Phase 2', my_role: 300 };
-const VIEWER = { id: 'p-1', name: 'Phase 2', my_role: 0 };
+const VIEWER = { id: 'p-1', name: 'Phase 2', my_role: ROLE_VIEWER };
 
 const STAKEHOLDER = {
   id: 's-1',

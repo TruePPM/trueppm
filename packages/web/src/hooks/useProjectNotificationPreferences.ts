@@ -131,11 +131,8 @@ export function useProjectNotificationPreferences(projectId: string | null | und
       if (previous) {
         const next: ProjectNotificationPreferences = {
           ...previous,
-          paused: patch.paused !== undefined ? patch.paused : previous.paused,
-          quietHoursEnabled:
-            patch.quietHoursEnabled !== undefined
-              ? patch.quietHoursEnabled
-              : previous.quietHoursEnabled,
+          paused: patch.paused ?? previous.paused,
+          quietHoursEnabled: patch.quietHoursEnabled ?? previous.quietHoursEnabled,
           quietHoursFrom: patch.quietHoursFrom ?? previous.quietHoursFrom,
           quietHoursUntil: patch.quietHoursUntil ?? previous.quietHoursUntil,
           matrix: previous.matrix,

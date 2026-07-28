@@ -135,7 +135,10 @@ function occurrenceMatches(rule: MatchableRule, anchor: Date, d: Date, interval:
       return weeks % interval === 0;
     }
     case 'MONTHLY': {
-      const dom = rule.day_of_month || anchor.getDate();
+      // `day_of_month` is validated 1–31 server-side (MinValueValidator(1)), so it
+      // is never a meaningful 0 — only `null` for "unset", which is what falls back
+      // to the anchor's own day.
+      const dom = rule.day_of_month ?? anchor.getDate();
       const target = Math.min(dom, daysInMonth(d.getFullYear(), d.getMonth()));
       if (d.getDate() !== target) return false;
       const months = (d.getFullYear() - anchor.getFullYear()) * 12 + (d.getMonth() - anchor.getMonth());

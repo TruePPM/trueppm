@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProgramProjectsPage } from './ProgramProjectsPage';
 import type { Project } from '@/types';
+import { ROLE_VIEWER } from '@/lib/roles';
 
 const useProgram = vi.fn();
 const useProgramProjects = vi.fn();
@@ -132,7 +133,7 @@ describe('ProgramProjectsPage rollup surfacing (#560)', () => {
     removeMutateAsync.mockReset();
     removeMutateAsync.mockResolvedValue(undefined);
     useProgram.mockReturnValue({
-      data: { id: 'prog-1', name: 'Riverside', my_role: 0, target_date: '2026-09-30' },
+      data: { id: 'prog-1', name: 'Riverside', my_role: ROLE_VIEWER, target_date: '2026-09-30' },
     });
     useProgramProjects.mockReturnValue({
       data: [
@@ -152,7 +153,7 @@ describe('ProgramProjectsPage rollup surfacing (#560)', () => {
 
   it('omits the target line when the program has no target date', () => {
     useProgram.mockReturnValue({
-      data: { id: 'prog-1', name: 'Riverside', my_role: 0, target_date: null },
+      data: { id: 'prog-1', name: 'Riverside', my_role: ROLE_VIEWER, target_date: null },
     });
     renderPage();
     expect(screen.queryByText(/Target/)).not.toBeInTheDocument();
@@ -175,7 +176,7 @@ describe('ProgramProjectsPage rollup surfacing (#560)', () => {
 
 describe('ProgramProjectsPage KPI drill-through sort (#2155)', () => {
   beforeEach(() => {
-    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: 0 } });
+    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: ROLE_VIEWER } });
     // Server order is start_date/name; the KPI drill-through re-sorts client-side.
     useProgramProjects.mockReturnValue({
       data: [
@@ -218,7 +219,7 @@ describe('ProgramProjectsPage KPI drill-through sort (#2155)', () => {
 describe('ProgramProjectsPage error state (#2176)', () => {
   beforeEach(() => {
     refetchProjects.mockReset();
-    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: 0 } });
+    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: ROLE_VIEWER } });
     useProgramProjects.mockReturnValue({
       data: undefined,
       isLoading: false,
@@ -366,7 +367,7 @@ describe('ProgramProjectsPage route + role gating', () => {
 
 describe('ProgramProjectsPage loading state', () => {
   it('renders placeholder rows while the projects query is in flight', () => {
-    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: 0 } });
+    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: ROLE_VIEWER } });
     useProgramProjects.mockReturnValue({
       data: undefined,
       isLoading: true,
@@ -421,7 +422,7 @@ describe('ProgramProjectsPage empty state', () => {
   });
 
   it('offers a non-admin the explanation without any creation actions', () => {
-    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: 0 } });
+    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: ROLE_VIEWER } });
     renderPage();
     expect(within(emptyPanel()).queryByRole('button')).not.toBeInTheDocument();
     // The count badge still renders — an empty list is a known-zero, not unknown.
@@ -504,7 +505,7 @@ describe('ProgramProjectsPage creation modals (#797)', () => {
 
 describe('ProgramProjectsPage drill-through sort with missing counts (#2155)', () => {
   beforeEach(() => {
-    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: 0 } });
+    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Riverside', my_role: ROLE_VIEWER } });
   });
 
   function rowOrder(): string[] {

@@ -20,9 +20,11 @@ import {
   canEditRisk,
 } from './roles';
 
+const LADDER = [ROLE_VIEWER, ROLE_MEMBER, ROLE_SCHEDULER, ROLE_ADMIN, ROLE_OWNER];
+
 describe('role ordinals', () => {
   it('are the five OSS tiers at their documented values', () => {
-    expect(ROLE_VIEWER).toBe(0);
+    expect(ROLE_VIEWER).toBe(1);
     expect(ROLE_MEMBER).toBe(100);
     expect(ROLE_SCHEDULER).toBe(200);
     expect(ROLE_ADMIN).toBe(300);
@@ -30,19 +32,35 @@ describe('role ordinals', () => {
   });
 
   it('strictly increase from Viewer to Owner', () => {
-    const ladder = [ROLE_VIEWER, ROLE_MEMBER, ROLE_SCHEDULER, ROLE_ADMIN, ROLE_OWNER];
-    for (let i = 1; i < ladder.length; i++) {
-      expect(ladder[i]).toBeGreaterThan(ladder[i - 1]);
+    for (let i = 1; i < LADDER.length; i++) {
+      expect(LADDER[i]).toBeGreaterThan(LADDER[i - 1]);
     }
   });
 
-  it('leave a 99-unit slot band between adjacent tiers for Enterprise custom roles', () => {
-    const ladder = [ROLE_VIEWER, ROLE_MEMBER, ROLE_SCHEDULER, ROLE_ADMIN, ROLE_OWNER];
-    for (let i = 1; i < ladder.length; i++) {
-      // gap of exactly 100 ⇒ 99 free ordinals (e.g. a "Senior Scheduler" at 250)
-      // can register between two OSS tiers without an OSS renumber.
-      expect(ladder[i] - ladder[i - 1]).toBe(100);
+  it('leave a slot band of at least 98 free ordinals between adjacent tiers', () => {
+    for (let i = 1; i < LADDER.length; i++) {
+      // An Enterprise custom role (e.g. a "Senior Scheduler" at 250, an "Auditor"
+      // at 50) registers into the gap without forcing an OSS renumber. Viewer→Member
+      // is the narrow one at 98 free slots because VIEWER sits at 1 rather than 0
+      // (#2489); every other band has 99.
+      const freeSlots = LADDER[i] - LADDER[i - 1] - 1;
+      expect(freeSlots).toBeGreaterThanOrEqual(98);
     }
+  });
+
+  // The reason VIEWER is 1 and not 0 (#2489, ADR-0072 Amendment 1). The ordinal is a
+  // client-visible wire value, and `0` is falsy in JavaScript: `role || ROLE_MEMBER`
+  // in any consumer would read a Viewer as absent and silently promote them. Absence
+  // is null/undefined — a distinct type — so no ordinal may be falsy.
+  it('are all truthy, so `||` can never mistake a real role for an absent one', () => {
+    for (const role of LADDER) {
+      expect(Boolean(role)).toBe(true);
+      expect(role || ROLE_MEMBER).toBe(role);
+    }
+  });
+
+  it('never assigns 0 — it is permanently unused, not a "no membership" sentinel', () => {
+    expect(LADDER).not.toContain(0);
   });
 });
 

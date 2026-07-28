@@ -10,6 +10,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { RiskLinkedTasksSection } from './RiskLinkedTasksSection';
 import type { Risk } from '@/api/types';
+import { ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
 
 type CreateTaskOpts = {
   onSuccess: (created: { id: string }) => void;
@@ -38,9 +39,10 @@ vi.mock('@/stores/taskDrawerStore', () => ({
   useTaskDrawerStore: (sel: (s: { openTask: unknown }) => unknown) => sel({ openTask: openTaskMock }),
 }));
 
-// ROLE ordinals: VIEWER=0, MEMBER=100. canEditTask/canEditRisk need MEMBER+.
-const MEMBER = 100;
-const VIEWER = 0;
+// canEditTask/canEditRisk need MEMBER+. Aliased from the shared module so the
+// ordinals cannot drift out of sync with it (ADR-0072).
+const MEMBER = ROLE_MEMBER;
+const VIEWER = ROLE_VIEWER;
 
 function makeTask(id: string, name: string, over: Record<string, unknown> = {}) {
   return { id, name, status: 'IN_PROGRESS', isSummary: false, isMilestone: false, wbs: '', shortId: '', ...over };

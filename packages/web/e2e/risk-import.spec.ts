@@ -261,7 +261,7 @@ test.describe('Risk register — CSV import', () => {
   });
 
   test('a Viewer never sees the Import affordance', async ({ page }) => {
-    await setup(page, { role: 0 }); // VIEWER
+    await setup(page, { role: 1 }); // VIEWER (ROLE_VIEWER)
     await gotoRisks(page);
 
     // Export still shows (read action); Import does not (write-gated).

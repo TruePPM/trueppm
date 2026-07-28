@@ -78,15 +78,13 @@ let dbPromise: Promise<IDBPDatabase<BlockerOfflineSchema>> | null = null;
  */
 function getDb(): Promise<IDBPDatabase<BlockerOfflineSchema>> | null {
   if (typeof indexedDB === 'undefined') return null;
-  if (!dbPromise) {
-    dbPromise = openDB<BlockerOfflineSchema>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains(QUEUE_STORE)) {
-          db.createObjectStore(QUEUE_STORE, { keyPath: 'taskId' });
-        }
-      },
-    });
-  }
+  dbPromise ??= openDB<BlockerOfflineSchema>(DB_NAME, DB_VERSION, {
+    upgrade(db) {
+      if (!db.objectStoreNames.contains(QUEUE_STORE)) {
+        db.createObjectStore(QUEUE_STORE, { keyPath: 'taskId' });
+      }
+    },
+  });
   return dbPromise;
 }
 

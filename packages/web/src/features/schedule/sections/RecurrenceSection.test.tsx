@@ -3,6 +3,7 @@ import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { RecurrenceSection } from './RecurrenceSection';
 import type { TaskRecurrenceRule } from '@/hooks/useRecurrenceRule';
+import { ROLE_VIEWER, ROLE_MEMBER, ROLE_OWNER } from '@/lib/roles';
 
 // ---------------------------------------------------------------------------
 // Module mocks (vitest requires the `mock` prefix to reference these in factories)
@@ -41,9 +42,6 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const ROLE_VIEWER = 0;
-const ROLE_MEMBER = 100;
-const ROLE_OWNER = 400;
 
 function fixtureRule(overrides: Partial<TaskRecurrenceRule> = {}): TaskRecurrenceRule {
   return {

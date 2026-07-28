@@ -281,7 +281,7 @@ test.describe('Task notes — detail page section (#740)', () => {
 
   test('a Viewer sees notes but no composer (read-only)', async ({ page }) => {
     await setup(page, {
-      role: 0,
+      role: 1, // Viewer (ROLE_VIEWER)
       seedNotes: [makeNote('Locked decision: ship behind a flag.')],
     });
     await openNotesSection(page);

@@ -95,7 +95,7 @@ async function setup(
     programs?: Array<Record<string, unknown>>;
   } = {},
 ) {
-  // Role ordinals (ADR-0072): VIEWER=0, MEMBER=100, SCHEDULER=200, ADMIN=300,
+  // Role ordinals (ADR-0072): VIEWER=1, MEMBER=100, SCHEDULER=200, ADMIN=300,
   // OWNER=400. ProjectGeneralPage gates the sharing override on role >= ADMIN via
   // useCurrentUserRole → GET /projects/:id/members/?self=true. Default Admin so
   // the override chips/switch render; pass a lower selfRole to exercise read-only.

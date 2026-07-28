@@ -75,7 +75,7 @@ async function setup(
   captures: Captures,
   opts: { selfRole?: number; project?: Record<string, unknown> } = {},
 ) {
-  // Role ordinals (ADR-0072): VIEWER=0, MEMBER=100, SCHEDULER=200, ADMIN=300,
+  // Role ordinals (ADR-0072): VIEWER=1, MEMBER=100, SCHEDULER=200, ADMIN=300,
   // OWNER=400. The write affordance gates on role >= ADMIN.
   const selfRole = opts.selfRole ?? 300;
   const project = { ...FIXTURE_PROJECT, ...(opts.project ?? {}) };

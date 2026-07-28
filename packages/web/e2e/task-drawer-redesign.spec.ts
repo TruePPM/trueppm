@@ -849,7 +849,7 @@ test.describe('TaskDetailDrawer — Viewer read-only (#1142/#1143, ADR-0133)', (
   test.beforeEach(async ({ page }) => {
     // A Viewer: server says can_edit=false AND role resolves to 0, so both the
     // capability field and the fallback agree on read-only.
-    await gotoSchedule(page, { role: 0, canEdit: false });
+    await gotoSchedule(page, { role: 1, canEdit: false }); // 1 = Viewer
   });
 
   test('shows the "View only" chip and gates the status control to static text', async ({

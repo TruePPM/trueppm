@@ -122,6 +122,11 @@ class ProgramMembership(VersionedModel):
 Reuses the existing `Role` enum from the `access` app (`access.models.Role`).
 The ordinals match the project RBAC table exactly:
 
+> **Ordinals below are historical.** ADR-0072 re-spaced them to
+> `0/100/200/300/400`, and ADR-0072 Amendment 1 (#2489) moved `VIEWER` to `1`. The
+> *code names* and the role→capability mapping in this table are still current; only
+> the integers moved. ADR-0072 is the source of truth for the values.
+
 | Ordinal | Code name | Label              | Program-level intent |
 |--------:|-----------|--------------------|----------------------|
 | 0       | VIEWER    | Viewer             | Read backlog and projects list. |

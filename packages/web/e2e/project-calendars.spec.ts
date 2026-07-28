@@ -231,7 +231,7 @@ test('golden path: adding a holiday overlay updates the stack and the summary', 
 });
 
 test('read-only: a Viewer sees the view-only note and no edit controls', async ({ page }) => {
-  await setup(page, { role: 0 }); // Viewer
+  await setup(page, { role: 1 }); // Viewer (ROLE_VIEWER)
   const panel = await calendarsPanel(page);
 
   await expect(panel.getByText(/You have view-only access/)).toBeVisible();

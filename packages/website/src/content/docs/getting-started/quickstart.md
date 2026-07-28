@@ -156,7 +156,8 @@ curl -s -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/members/" \
   -d '{"user": "<user-id>", "role": 100}'
 ```
 
-Role values: Owner=400, Admin=300, Scheduler=200, Member=100, Viewer=0.
+Role values: Owner=400, Admin=300, Scheduler=200, Member=100, Viewer=1. The gaps between
+them are reserved slots — see [Roles and Permissions](/administration/rbac/#why-the-ordinals-jump-by-100).
 
 ### 9. Open the web UI
 

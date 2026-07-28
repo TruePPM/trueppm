@@ -151,7 +151,8 @@ is that moment, because the time-log rule **genuinely diverges** from the task-e
   of the task; the entry is owned by the logger.
 
 **Rule:** `can_user_log_time(request, task) = _membership_role(request, task.project_id)
->= Role.MEMBER`. Viewer (0) is denied; Member/Scheduler/Admin/Owner (and Enterprise
+>= Role.MEMBER`. Viewer (1 since ADR-0072 Amendment 1; 0 when this ADR was written) is
+denied; Member/Scheduler/Admin/Owner (and Enterprise
 custom roles ≥ 100 by the band-threshold contract) may log. The entry's `user` is always
 `request.user` (server-set), so this is IDOR-safe by construction.
 
