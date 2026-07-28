@@ -1338,35 +1338,9 @@ export class GanttEngineImpl implements GanttEngine {
   private readonly _onPointerDown = (e: PointerEvent): void => {
     if (!this._hitIndex || !this._scales) return;
 
-    // ── Touch tracking + two-finger pinch (#2160, rule 66) ────────────────
-    // Track every active touch point. The second finger down begins a pinch —
-    // canceling any in-progress single-finger pan or bar drag from the first
-    // finger — so tablets can zoom the timeline (no ctrl+wheel on touch).
-    if (e.pointerType === 'touch') {
-      this._activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (this._activeTouches.size === 2) {
-        e.preventDefault();
-        this._beginPinch();
-        return;
-      }
-    }
-
-    // ── Pan arbitration (#491, rule 129) ──────────────────────────────────
-    // Space-held OR middle button claims the gesture; the drag FSM is bypassed.
-    // Middle-click pans immediately (no arm step); preventDefault suppresses the
-    // browser's middle-click auto-scroll puck. Pan is allowed to start anywhere
-    // on the canvas including the header band — only task drag is header-gated.
-    const isMiddle = e.button === 1;
-    if (this._panArmed || isMiddle) {
-      const claimed = this._panFSM.start(e.clientX, e.clientY, e.pointerId, isMiddle);
-      if (claimed) {
-        e.preventDefault();
-        this._panning = true;
-        this._ixCanvas.setPointerCapture(e.pointerId);
-        this._updateCursor(null);
-        return;
-      }
-    }
+    // Gesture precedence, first claimant wins: pinch > pan > hit-tested zones.
+    if (this._tryBeginPinch(e)) return;
+    if (this._tryBeginPan(e)) return;
 
     // Ignore pointer events in the fixed header band (viewport y < HEADER_HEIGHT)
     const rect = this._ixCanvas.getBoundingClientRect();
@@ -1376,43 +1350,93 @@ export class GanttEngineImpl implements GanttEngine {
     const isTouch = e.pointerType === 'touch';
     const zone = this._hitIndex.query(x, y, isTouch);
 
-    // ── Single-finger touch pan on empty canvas (#2160) ───────────────────
-    // A touch that misses every bar / resize handle / link-dot pans the
-    // viewport (both axes — this is also the only vertical-scroll path in
-    // Timeline mode, which has no task-list panel). Bar hits fall through to
-    // the drag path below, so dragging a bar still moves the bar.
+    // A bar hit falls through to the drag path, so dragging a bar still moves it.
     if (isTouch && !zone) {
-      if (this._panFSM.startTouch(e.clientX, e.clientY, e.pointerId)) {
-        e.preventDefault();
-        this._panning = true;
-        this._ixCanvas.setPointerCapture(e.pointerId);
-        this._updateCursor(null);
-      }
+      this._tryBeginTouchPan(e);
       return;
     }
 
     if (!zone) return;
 
-    // ── Drag-to-link arm (#1666) ──────────────────────────────────────────
-    // A link-dot hit arms the link FSM and never falls through to the bar
-    // move/resize path — collapsing it into a 'move' drag was the dead-spot
-    // this fixes. Pointer-only: on touch (or a coarse pointer) do nothing so
-    // the gesture never arms; the picker drawer covers those users.
     if (zone.type === 'link-dot') {
-      if (this._pointerFine && e.pointerType !== 'touch') {
-        e.preventDefault();
-        const centerY = (zone.barTop + zone.barBottom) / 2;
-        this._linkFSM.onPointerDown(zone.taskId, zone.barRight, centerY, x, y, e.pointerId);
-        try {
-          this._ixCanvas.setPointerCapture(e.pointerId);
-        } catch {
-          // Synthetic pointers (headless tests) are not active — capture is
-          // not required; the interaction canvas still receives the move/up.
-        }
-      }
+      this._beginLinkDrag(e, zone, x, y);
       return;
     }
 
+    this._beginBarDrag(e, zone, x, y);
+  };
+
+  /**
+   * Track every active touch point; the second finger down begins a pinch,
+   * canceling any in-progress single-finger pan or bar drag from the first
+   * finger (#2160, rule 66). Touch has no ctrl+wheel, so this is the only way a
+   * tablet can zoom the timeline.
+   */
+  private _tryBeginPinch(e: PointerEvent): boolean {
+    if (e.pointerType !== 'touch') return false;
+    this._activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this._activeTouches.size !== 2) return false;
+    e.preventDefault();
+    this._beginPinch();
+    return true;
+  }
+
+  /**
+   * Pan arbitration (#491, rule 129) — space-held OR middle button claims the
+   * gesture and the drag FSM is bypassed. Middle-click pans immediately (no arm
+   * step); `preventDefault` suppresses the browser's middle-click auto-scroll
+   * puck. Pan may start anywhere on the canvas including the header band; only
+   * task drag is header-gated.
+   */
+  private _tryBeginPan(e: PointerEvent): boolean {
+    const isMiddle = e.button === 1;
+    if (!this._panArmed && !isMiddle) return false;
+    if (!this._panFSM.start(e.clientX, e.clientY, e.pointerId, isMiddle)) return false;
+    e.preventDefault();
+    this._enterPanning(e.pointerId);
+    return true;
+  }
+
+  /**
+   * Single-finger touch pan on empty canvas (#2160) — a touch that misses every
+   * bar, resize handle, and link-dot pans the viewport on both axes. This is
+   * also the only vertical-scroll path in Timeline mode, which has no task-list
+   * panel.
+   */
+  private _tryBeginTouchPan(e: PointerEvent): void {
+    if (!this._panFSM.startTouch(e.clientX, e.clientY, e.pointerId)) return;
+    e.preventDefault();
+    this._enterPanning(e.pointerId);
+  }
+
+  private _enterPanning(pointerId: number): void {
+    this._panning = true;
+    this._ixCanvas.setPointerCapture(pointerId);
+    this._updateCursor(null);
+  }
+
+  /**
+   * Drag-to-link arm (#1666).
+   *
+   * A link-dot hit arms the link FSM and never falls through to the bar
+   * move/resize path — collapsing it into a 'move' drag was the dead-spot this
+   * fixes. Pointer-only: on touch (or a coarse pointer) nothing arms, so the
+   * gesture never fires for those users; the picker drawer covers them instead.
+   */
+  private _beginLinkDrag(e: PointerEvent, zone: HitZone, x: number, y: number): void {
+    if (!this._pointerFine || e.pointerType === 'touch') return;
+    e.preventDefault();
+    const centerY = (zone.barTop + zone.barBottom) / 2;
+    this._linkFSM.onPointerDown(zone.taskId, zone.barRight, centerY, x, y, e.pointerId);
+    try {
+      this._ixCanvas.setPointerCapture(e.pointerId);
+    } catch {
+      // Synthetic pointers (headless tests) are not active — capture is
+      // not required; the interaction canvas still receives the move/up.
+    }
+  }
+
+  private _beginBarDrag(e: PointerEvent, zone: HitZone, x: number, y: number): void {
     e.preventDefault();
     const dragType = zone.type === 'resize' ? 'resize' : 'move';
     this._dragFSM.onPointerDown(zone.taskId, x, y, e.pointerId, dragType);
@@ -1429,7 +1453,7 @@ export class GanttEngineImpl implements GanttEngine {
     } else {
       this._emit('resize-task', { id: zone.taskId });
     }
-  };
+  }
 
   private readonly _onPointerMove = (e: PointerEvent): void => {
     // Gesture precedence, first claimant wins: pinch > pan > drag-to-link > bar
@@ -1619,68 +1643,58 @@ export class GanttEngineImpl implements GanttEngine {
       if (this._pinch && this._activeTouches.size < 2) this._pinch = null;
     }
 
-    // ── Pan end (#491) ────────────────────────────────────────────────────
-    if (this._panning) {
-      this._panFSM.end(this._panArmed);
-      this._panning = false;
-      // A right/middle-button release fires a synthetic contextmenu next tick;
-      // suppress it once so a pan release never opens the context menu (rule 130).
-      this._suppressNextContextMenu = true;
-      try {
-        this._ixCanvas.releasePointerCapture(e.pointerId);
-      } catch {
-        // Ignore if already released.
-      }
-      // Cursor returns to grab (still armed) or default (disarmed).
-      this._updateCursor(this._hoverZone);
-      return;
-    }
+    // Same precedence as pointer-down: pan end > link drop > bar drag end.
+    if (this._endPan(e)) return;
+    if (this._endLinkDrag(e)) return;
+    this._endBarDrag(e);
+  };
 
-    // ── Drag-to-link drop (#1666) ─────────────────────────────────────────
-    // Commit only when the gesture actually crossed the drag threshold AND is
-    // released over a valid target. A release in place (still ARMED), over
-    // empty space, or over the source bar (targetId null) is a silent cancel —
-    // no create-link event, no toast. The preview is cleared immediately; the
-    // real arrow is drawn by the mutation's cache invalidation, not here.
-    if (this._linkFSM.state !== 'IDLE') {
-      const prevLinkState = this._linkFSM.state;
-      const { sourceId, targetId } = this._linkFSM.context;
-      this._linkFSM.onPointerUp();
-      if (prevLinkState === 'DRAGGING' && sourceId && targetId) {
-        this._emit('create-link', { sourceId, targetId });
-      }
-      this._linkFSM.reset();
-      try {
-        this._ixCanvas.releasePointerCapture(e.pointerId);
-      } catch {
-        // Ignore if already released / synthetic pointer.
-      }
-      this._clearIxCanvas();
-      this._ixDirty = false;
-      this._updateCursor(this._hoverZone);
-      return;
-    }
+  /** Pan end (#491). Returns true when a pan was in progress and consumed the up. */
+  private _endPan(e: PointerEvent): boolean {
+    if (!this._panning) return false;
+    this._panFSM.end(this._panArmed);
+    this._panning = false;
+    // A right/middle-button release fires a synthetic contextmenu next tick;
+    // suppress it once so a pan release never opens the context menu (rule 130).
+    this._suppressNextContextMenu = true;
+    this._releaseCapture(e.pointerId);
+    // Cursor returns to grab (still armed) or default (disarmed).
+    this._updateCursor(this._hoverZone);
+    return true;
+  }
 
+  /**
+   * Drag-to-link drop (#1666).
+   *
+   * Commits only when the gesture actually crossed the drag threshold AND is
+   * released over a valid target. A release in place (still ARMED), over empty
+   * space, or over the source bar (`targetId` null) is a silent cancel — no
+   * create-link event, no toast. The preview is cleared immediately; the real
+   * arrow is drawn by the mutation's cache invalidation, not here.
+   */
+  private _endLinkDrag(e: PointerEvent): boolean {
+    if (this._linkFSM.state === 'IDLE') return false;
+    const prevLinkState = this._linkFSM.state;
+    const { sourceId, targetId } = this._linkFSM.context;
+    this._linkFSM.onPointerUp();
+    if (prevLinkState === 'DRAGGING' && sourceId && targetId) {
+      this._emit('create-link', { sourceId, targetId });
+    }
+    this._linkFSM.reset();
+    this._releaseCapture(e.pointerId);
+    this._clearIxCanvas();
+    this._ixDirty = false;
+    this._updateCursor(this._hoverZone);
+    return true;
+  }
+
+  private _endBarDrag(e: PointerEvent): void {
     const prevState = this._dragFSM.state;
     this._dragFSM.onPointerUp();
 
     const { taskId, currentX, isDragType } = this._dragFSM.context;
-
-    if (
-      taskId &&
-      (prevState === 'DRAGGING' || prevState === 'DRAG_STARTED' || prevState === 'RESIZING')
-    ) {
-      if (isDragType === 'move') {
-        const snappedX = this._scales
-          ? snapToDayBoundary(currentX - this._dragOffsetX, this._scales)
-          : currentX;
-        this._emit('drag-task-end', { id: taskId, left: snappedX });
-      } else {
-        this._emit('resize-task-end', { id: taskId, right: currentX });
-      }
-    } else if (taskId && prevState === 'HOVER_WAIT') {
-      // It was a click, not a drag — select the task
-      this.selectTask(taskId);
+    if (taskId) {
+      this._commitDragEnd(prevState, taskId, currentX, isDragType);
     }
 
     this._dragFSM.reset();
@@ -1691,7 +1705,38 @@ export class GanttEngineImpl implements GanttEngine {
     // clear on a follow-up frame (issue 1569).
     this._ixDirty = false;
     this._updateCursor(null);
-  };
+  }
+
+  /** Emit the end-of-gesture event, or treat a HOVER_WAIT release as a click. */
+  private _commitDragEnd(
+    prevState: string,
+    taskId: string,
+    currentX: number,
+    isDragType: string | null,
+  ): void {
+    if (prevState === 'DRAGGING' || prevState === 'DRAG_STARTED' || prevState === 'RESIZING') {
+      if (isDragType === 'move') {
+        const snappedX = this._scales
+          ? snapToDayBoundary(currentX - this._dragOffsetX, this._scales)
+          : currentX;
+        this._emit('drag-task-end', { id: taskId, left: snappedX });
+      } else {
+        this._emit('resize-task-end', { id: taskId, right: currentX });
+      }
+    } else if (prevState === 'HOVER_WAIT') {
+      // It was a click, not a drag — select the task
+      this.selectTask(taskId);
+    }
+  }
+
+  /** Release pointer capture, tolerating an already-released or synthetic pointer. */
+  private _releaseCapture(pointerId: number): void {
+    try {
+      this._ixCanvas.releasePointerCapture(pointerId);
+    } catch {
+      // Ignore if already released / synthetic pointer.
+    }
+  }
 
   private readonly _onPointerCancel = (e: PointerEvent): void => {
     if (e.pointerType === 'touch') {
