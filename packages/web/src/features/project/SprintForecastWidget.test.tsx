@@ -55,6 +55,29 @@ describe('SprintForecastWidget', () => {
     expect(screen.getByText(/P80/)).toBeTruthy();
   });
 
+  // #2495 — both bases clamp each run's horizon, so a ready forecast must say the
+  // upper percentiles are a floor. The not-shown half of the branch is the point:
+  // a state with no percentile on screen must not carry an orphaned caveat.
+  it.each([
+    ['velocity', READY],
+    ['throughput', THROUGHPUT_READY],
+  ] as const)('qualifies the %s percentiles as a floor, with help alongside', (_basis, data) => {
+    setForecast(data);
+    render(<SprintForecastWidget projectId="p1" />);
+    expect(screen.getByText(/a floor, not a percentile/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /forecast horizon/i })).toBeTruthy();
+  });
+
+  it.each([
+    ['warming up', { ...READY, status: 'warming_up' as const, p50_date: null, p80_date: null }],
+    ['suppressed', { ...READY, velocity_suppressed: true }],
+  ])('shows no floor caveat when no percentile is rendered (%s)', (_state, data) => {
+    setForecast(data);
+    render(<SprintForecastWidget projectId="p1" />);
+    expect(screen.queryByText(/a floor, not a percentile/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /forecast horizon/i })).toBeNull();
+  });
+
   it('renders the warming-up state until two sprints have closed', () => {
     setForecast({ ...READY, status: 'warming_up', p50_date: null, p80_date: null, sample_count: 1 });
     render(<SprintForecastWidget projectId="p1" />);

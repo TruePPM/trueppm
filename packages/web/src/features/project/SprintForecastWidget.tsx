@@ -7,8 +7,15 @@
  * honest here — unlike the milestone velocity *band*, which web-rule 166 keeps
  * to Early/Likely/Late. Renders an explicit team-private wall when the velocity
  * signal is gated (ADR-0104) and a warm-up state until two sprints have closed.
+ *
+ * Honest, but not unbiased (#2495): both samplers clamp each run's horizon, so the
+ * upper percentiles are a floor rather than a true P80/P95. Percentile vocabulary
+ * stays — the distribution is real — but every ready state carries a
+ * {@link ForecastHorizonHelp} saying which direction the bias runs. Remove the
+ * qualifier only when #2469 fixes the estimator, not before.
  */
 import { LockIcon } from '@/components/Icons';
+import { ForecastHorizonHelp } from '@/features/sprints/ForecastHorizonHelp';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useSprintForecast } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -80,12 +87,19 @@ function Body({ data }: { data: NonNullable<ReturnType<typeof useSprintForecast>
         is forecast to clear by{' '}
         <span className="tppm-mono font-semibold">{formatShortDate(data.p50_date)}</span>.
       </p>
-      <p className="text-xs text-neutral-text-secondary">
-        P50 ≈ <span className="tppm-mono">{data.p50_sprints}</span>{' '}
-        {data.p50_sprints === 1 ? itl.lower : itl.lowerPlural} · P80{' '}
-        <span className="tppm-mono">{formatShortDate(data.p80_date)}</span> (
-        <span className="tppm-mono">{data.p80_sprints}</span>{' '}
-        {data.p80_sprints === 1 ? itl.lower : itl.lowerPlural}) · Monte&nbsp;Carlo over velocity
+      {/* #2495: the sampler clamps each run's sprint horizon, so P80 here is a floor
+          rather than an unbiased percentile. The claim "Monte Carlo over velocity" is
+          true and, on its own, misleadingly confident — the help sits next to it. */}
+      <p className="flex flex-wrap items-center gap-x-1 text-xs text-neutral-text-secondary">
+        <span>
+          P50 ≈ <span className="tppm-mono">{data.p50_sprints}</span>{' '}
+          {data.p50_sprints === 1 ? itl.lower : itl.lowerPlural} · P80{' '}
+          <span className="tppm-mono">{formatShortDate(data.p80_date)}</span> (
+          <span className="tppm-mono">{data.p80_sprints}</span>{' '}
+          {data.p80_sprints === 1 ? itl.lower : itl.lowerPlural}) · Monte&nbsp;Carlo over
+          velocity — <strong className="font-medium">a floor, not a percentile</strong>
+        </span>
+        <ForecastHorizonHelp basis="velocity" />
       </p>
     </div>
   );
@@ -131,21 +145,27 @@ function ThroughputBody({
         is forecast to clear by{' '}
         <span className="tppm-mono font-semibold">{formatShortDate(data.p50_date)}</span>.
       </p>
-      <p className="text-xs text-neutral-text-secondary">
-        P50 <span className="tppm-mono">{formatShortDate(data.p50_date)}</span>
-        {data.p80_date ? (
-          <>
-            {' · P80 '}
-            <span className="tppm-mono">{formatShortDate(data.p80_date)}</span>
-          </>
-        ) : null}
-        {data.p95_date ? (
-          <>
-            {' · P95 '}
-            <span className="tppm-mono">{formatShortDate(data.p95_date)}</span>
-          </>
-        ) : null}{' '}
-        · Monte&nbsp;Carlo over weekly throughput
+      {/* #2495: the weekly-throughput sampler clamps each run's horizon identically to
+          the velocity one (`max_weeks`), so these upper percentiles are floors too. */}
+      <p className="flex flex-wrap items-center gap-x-1 text-xs text-neutral-text-secondary">
+        <span>
+          P50 <span className="tppm-mono">{formatShortDate(data.p50_date)}</span>
+          {data.p80_date ? (
+            <>
+              {' · P80 '}
+              <span className="tppm-mono">{formatShortDate(data.p80_date)}</span>
+            </>
+          ) : null}
+          {data.p95_date ? (
+            <>
+              {' · P95 '}
+              <span className="tppm-mono">{formatShortDate(data.p95_date)}</span>
+            </>
+          ) : null}{' '}
+          · Monte&nbsp;Carlo over weekly throughput —{' '}
+          <strong className="font-medium">a floor, not a percentile</strong>
+        </span>
+        <ForecastHorizonHelp basis="throughput" />
       </p>
     </div>
   );

@@ -62,11 +62,18 @@ For sprint-delivered work sampled from team velocity, each run's sprint horizon 
 clamped. Runs that have not burned down by that horizon are clamped to it rather
 than sampled further, which truncates the slow right tail.
 
+The weekly-throughput sampler used by a continuous-flow board clamps its horizon the
+same way, so the same caveat applies to the throughput forecast.
+
 - **Impact:** for a team with high throughput variance, the agile P80/P95 is
   optimistic — a loose lower bound rather than an unbiased estimate. The bias runs in
   the unhelpful direction.
 - **Workaround:** treat a velocity-driven P95 as a floor. Three-point (PERT) estimates
   are not affected.
+- **Surfaced in the product:** every affected number carries a "a floor, not a
+  percentile" qualifier and a help icon explaining the clamp — on the backlog
+  forecast, the sprint release-horizon chips, and the board's flow analytics card.
+  See [Interpreting results](/features/monte-carlo/#velocity-and-throughput-forecasts-are-a-floor).
 - **Fix planned for 0.6** — [#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469).
 
 ### Open correctness defects

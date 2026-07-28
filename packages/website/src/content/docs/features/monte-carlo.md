@@ -446,6 +446,28 @@ meaningful precision.
 **Do not commit to P50.** A P50 date has a 50% probability of being missed by
 definition. Committing to it is equivalent to flipping a coin on every project.
 
+### Velocity and throughput forecasts are a floor
+
+The two backlog-delivery forecasts — the velocity Monte Carlo on a sprint board and
+the weekly-throughput Monte Carlo on a continuous-flow board — bound how far each
+simulated run is allowed to go. A run that has not cleared the backlog by that
+horizon is counted as finishing *at* the horizon rather than sampled any further,
+which cuts off the slowest outcomes.
+
+The consequence is one-directional: **the upper percentiles on those two forecasts
+are a floor, not an unbiased P80/P95.** The true figure is the date shown or later,
+never earlier, and the gap widens the more the team's sprint-to-sprint velocity (or
+week-to-week throughput) varies. The product says so next to every affected number —
+look for the "a floor, not a percentile" qualifier and its help icon on the backlog
+forecast, the sprint release-horizon chips, and the board's flow analytics card.
+
+This does **not** affect the schedule forecast built from three-point (PERT) task
+estimates, which is unclamped. For a date you must commit to externally, estimate
+that work with PERT durations rather than reading it off a velocity forecast.
+
+The estimator fix is tracked as
+[#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469), planned for 0.6.
+
 **Read the distribution, not just the percentiles.** The `distribution` field
 contains every simulated finish date. A bimodal distribution — two clusters of
 simulated dates — usually signals that one or two tasks have extreme P estimates

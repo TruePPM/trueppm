@@ -261,6 +261,30 @@ test.describe('Project overview page', () => {
     await expect(region.getByText(/P80/)).toBeVisible();
   });
 
+  test('the velocity forecast is labeled a floor, and says why on demand (#2495)', async ({
+    page,
+  }) => {
+    const region = page.getByRole('region', { name: /backlog forecast/i });
+    await expect(region).toBeVisible();
+    // The qualifier is on-screen next to the number, not only in the docs — a reader
+    // screenshotting this for a steering deck must capture the caveat with it.
+    await expect(region.getByText(/a floor, not a percentile/i)).toBeVisible();
+
+    // FieldHelp is a non-modal role="dialog" (it holds a link, so it cannot be a
+    // tooltip — web-rule 121/287b) and is portaled to <body>, so scope the assertion
+    // to the page rather than the region.
+    await region.getByRole('button', { name: /forecast horizon/i }).click();
+    const help = page.getByRole('dialog', { name: /forecast horizon/i });
+    await expect(help).toBeVisible();
+    await expect(help).toContainText('this date or later, never earlier');
+    await expect(help.getByRole('link', { name: /why this is a floor/i })).toBeVisible();
+
+    // Escape peels the popover only (rule 263f) — it must not tear down the page.
+    await page.keyboard.press('Escape');
+    await expect(help).toBeHidden();
+    await expect(region).toBeVisible();
+  });
+
   test('golden path — KPI cards, attention panel, and my-tasks all render', async ({ page }) => {
     // KPI card labels
     await expect(page.getByText(/schedule health/i)).toBeVisible();

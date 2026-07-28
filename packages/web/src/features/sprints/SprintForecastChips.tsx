@@ -16,6 +16,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 
+import { ForecastHorizonHelp } from '@/features/sprints/ForecastHorizonHelp';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useSprintBurndown, useSprintForecast } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -47,27 +48,38 @@ export function SprintForecastChips({ projectId, sprintId }: Props) {
           <span aria-hidden="true">{finish.icon}</span> {finish.node}
         </Chip>
       )}
+      {/* #2495: the release-horizon chips render a clamped percentile, so each pairs
+          with a ForecastHorizonHelp. The trigger is a sibling of the Chip, never a
+          child — Chip is a <Link>, and a <button> inside an <a> is invalid HTML with
+          no defined activation behavior. */}
       {showHorizon && forecast && forecast.forecast_basis === 'throughput' && forecast.p50_date && (
-        <Chip to={to} tone="neutral" label="Release horizon">
-          <span aria-hidden="true">→</span> At current throughput, ~
-          <span className="tppm-mono">{forecast.remaining_count}</span> item
-          {forecast.remaining_count === 1 ? '' : 's'} clear by{' '}
-          <span className="tppm-mono">{formatShortDate(forecast.p50_date)}</span>
-          {forecast.p80_date ? (
-            <>
-              {' (P80 '}
-              <span className="tppm-mono">{formatShortDate(forecast.p80_date)}</span>)
-            </>
-          ) : null}
-        </Chip>
+        <span className="inline-flex items-center gap-1">
+          <Chip to={to} tone="neutral" label="Release horizon">
+            <span aria-hidden="true">→</span> At current throughput, ~
+            <span className="tppm-mono">{forecast.remaining_count}</span> item
+            {forecast.remaining_count === 1 ? '' : 's'} clear by{' '}
+            <span className="tppm-mono">{formatShortDate(forecast.p50_date)}</span>
+            {forecast.p80_date ? (
+              <>
+                {' (P80 '}
+                <span className="tppm-mono">{formatShortDate(forecast.p80_date)}</span> at the
+                earliest)
+              </>
+            ) : null}
+          </Chip>
+          <ForecastHorizonHelp basis="throughput" />
+        </span>
       )}
       {showHorizon && forecast && forecast.forecast_basis === 'velocity' && (
-        <Chip to={to} tone="neutral" label="Release horizon">
-          <span aria-hidden="true">→</span> At this pace, the backlog clears in ~
-          <span className="tppm-mono">{forecast.p50_sprints}</span>{' '}
-          {forecast.p50_sprints === 1 ? itl.lower : itl.lowerPlural} (P80{' '}
-          <span className="tppm-mono">{forecast.p80_sprints}</span>)
-        </Chip>
+        <span className="inline-flex items-center gap-1">
+          <Chip to={to} tone="neutral" label="Release horizon">
+            <span aria-hidden="true">→</span> At this pace, the backlog clears in ~
+            <span className="tppm-mono">{forecast.p50_sprints}</span>{' '}
+            {forecast.p50_sprints === 1 ? itl.lower : itl.lowerPlural} (P80{' '}
+            <span className="tppm-mono">{forecast.p80_sprints}</span> at the earliest)
+          </Chip>
+          <ForecastHorizonHelp basis="velocity" />
+        </span>
       )}
     </div>
   );

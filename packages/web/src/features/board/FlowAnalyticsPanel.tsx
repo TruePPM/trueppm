@@ -31,6 +31,7 @@ import {
   YAxis,
 } from 'recharts';
 
+import { ForecastHorizonHelp } from '@/features/sprints/ForecastHorizonHelp';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import {
   type CfdCounts,
@@ -225,19 +226,26 @@ function ThroughputForecastCard({
           ~<span className="tppm-mono">{weeks}</span> week{weeks === 1 ? '' : 's'}
         </span>{' '}
         — by <span className="tppm-mono font-semibold">{formatShortDate(data.p80_date)}</span>{' '}
-        <span className="text-neutral-text-secondary">(P80)</span>.
+        <span className="text-neutral-text-secondary">(P80) at the earliest</span>.
       </p>
-      <p className="mt-0.5 text-xs text-neutral-text-secondary">
-        P50 <span className="tppm-mono">{formatShortDate(data.p50_date)}</span>
-        {' · P80 '}
-        <span className="tppm-mono">{formatShortDate(data.p80_date)}</span>
-        {data.p95_date ? (
-          <>
-            {' · P95 '}
-            <span className="tppm-mono">{formatShortDate(data.p95_date)}</span>
-          </>
-        ) : null}{' '}
-        · Monte&nbsp;Carlo over weekly throughput
+      {/* #2495: this card headlines P80 more confidently than any other forecast
+          surface, and the weekly-throughput sampler clamps each run's horizon — so
+          the headline is a floor. Qualify it here, not only in the docs. */}
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-1 text-xs text-neutral-text-secondary">
+        <span>
+          P50 <span className="tppm-mono">{formatShortDate(data.p50_date)}</span>
+          {' · P80 '}
+          <span className="tppm-mono">{formatShortDate(data.p80_date)}</span>
+          {data.p95_date ? (
+            <>
+              {' · P95 '}
+              <span className="tppm-mono">{formatShortDate(data.p95_date)}</span>
+            </>
+          ) : null}{' '}
+          · Monte&nbsp;Carlo over weekly throughput —{' '}
+          <strong className="font-medium">a floor, not a percentile</strong>
+        </span>
+        <ForecastHorizonHelp basis="throughput" />
       </p>
     </ForecastFrame>
   );
