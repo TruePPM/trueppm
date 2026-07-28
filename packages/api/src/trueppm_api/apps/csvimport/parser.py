@@ -529,9 +529,39 @@ def _build_tasks(
 ) -> None:
     """Turn each data row into a ``TaskData``, recording per-field failures."""
     name_index = _one(by_field, "name")
+    day_first = _resolve_date_convention(result, data_rows, by_field)
+    tasks: list[TaskData] = []
 
-    # Resolve the date convention once, over every date cell in the file, so a
-    # single unambiguous row (13/04) settles the whole import.
+    for offset, row in enumerate(data_rows):
+        # Row numbers are 1-based and count the header, so they line up with
+        # what the operator sees in Excel's row gutter.
+        row_number = offset + 2
+        raw_name = _cell(row, name_index)
+        if not raw_name.strip():
+            result.row_errors.append(
+                RowError(
+                    row_number, result.headers[name_index], "missing_name", "Row has no task name."
+                )
+            )
+            continue
+        tasks.append(
+            _build_task(offset, raw_name, row, by_field, result, row_number, day_first, len(tasks))
+        )
+
+    result.project_data.tasks = tasks
+
+
+def _resolve_date_convention(
+    result: ParseResult,
+    data_rows: list[list[Any]],
+    by_field: dict[str, list[int]],
+) -> bool:
+    """Decide day/month vs month/day once, over every date cell in the file.
+
+    Resolved file-wide rather than per row so that a single unambiguous value
+    (13/04 can only be day-first) settles the whole import — a per-row guess
+    would read consecutive rows under different conventions.
+    """
     date_indices = [_one(by_field, f) for f in ("planned_start", "planned_finish") if f in by_field]
     raw_dates = [_cell(row, i) for row in data_rows for i in date_indices]
     day_first = _prefers_day_first(raw_dates)
@@ -540,47 +570,42 @@ def _build_tasks(
             "Dates like 03/04/2026 were read as "
             + ("day/month/year." if day_first else "month/day/year.")
         )
+    return day_first
 
-    has_wbs_column = "wbs" in by_field
-    tasks: list[TaskData] = []
 
-    for offset, row in enumerate(data_rows):
-        # Row numbers are 1-based and count the header, so they line up with
-        # what the operator sees in Excel's row gutter.
-        row_number = offset + 2
-        raw_name = _cell(row, name_index)
-        name = raw_name.strip()
-        if not name:
-            result.row_errors.append(
-                RowError(
-                    row_number, result.headers[name_index], "missing_name", "Row has no task name."
-                )
-            )
-            continue
+def _build_task(
+    offset: int,
+    raw_name: str,
+    row: list[Any],
+    by_field: dict[str, list[int]],
+    result: ParseResult,
+    row_number: int,
+    day_first: bool,
+    task_count: int,
+) -> TaskData:
+    """Build one ``TaskData`` from a named row, applying every mapped column."""
+    task = TaskData(uid=offset + 1, name=raw_name.strip()[:255])
+    task.outline_number = str(task_count + 1)
+    task.outline_level = _indent_level(raw_name)
 
-        task = TaskData(uid=offset + 1, name=name[:255])
-        task.outline_number = str(len(tasks) + 1)
-        task.outline_level = _indent_level(raw_name)
+    if "wbs" in by_field:
+        wbs_raw = _cell(row, _one(by_field, "wbs")).strip()
+        if wbs_raw:
+            _apply_wbs(task, wbs_raw)
 
-        if has_wbs_column:
-            wbs_raw = _cell(row, _one(by_field, "wbs")).strip()
-            if wbs_raw:
-                _apply_wbs(task, wbs_raw)
+    _apply_duration(task, row, by_field, result, row_number)
+    _apply_dates(task, row, by_field, result, row_number, day_first)
+    _apply_percent(task, row, by_field, result, row_number)
 
-        _apply_duration(task, row, by_field, result, row_number)
-        _apply_dates(task, row, by_field, result, row_number, day_first)
-        _apply_percent(task, row, by_field, result, row_number)
-
-        if "milestone" in by_field and _parse_bool(_cell(row, _one(by_field, "milestone"))):
-            task.is_milestone = True
-        if task.duration_days == 0:
-            task.is_milestone = True
-        if "notes" in by_field:
-            task.notes = _cell(row, _one(by_field, "notes")).strip()[:2000]
-
-        tasks.append(task)
-
-    result.project_data.tasks = tasks
+    if "milestone" in by_field and _parse_bool(_cell(row, _one(by_field, "milestone"))):
+        task.is_milestone = True
+    # A zero-day task is a milestone whatever the Milestone column says — the
+    # duration is the stronger signal because it is what the schedule computes on.
+    if task.duration_days == 0:
+        task.is_milestone = True
+    if "notes" in by_field:
+        task.notes = _cell(row, _one(by_field, "notes")).strip()[:2000]
+    return task
 
 
 def _apply_wbs(task: TaskData, wbs_raw: str) -> None:
@@ -639,33 +664,10 @@ def _apply_dates(
     row_number: int,
     day_first: bool,
 ) -> None:
-    start = finish = None
-    if "planned_start" in by_field:
-        raw = _cell(row, _one(by_field, "planned_start"))
-        if raw.strip():
-            start = _parse_date(raw, day_first)
-            if start is None:
-                result.row_errors.append(
-                    RowError(
-                        row_number,
-                        result.headers[_one(by_field, "planned_start")],
-                        "bad_date",
-                        f"Could not read '{raw.strip()}' as a date; the start was left unset.",
-                    )
-                )
-    if "planned_finish" in by_field:
-        raw = _cell(row, _one(by_field, "planned_finish"))
-        if raw.strip():
-            finish = _parse_date(raw, day_first)
-            if finish is None:
-                result.row_errors.append(
-                    RowError(
-                        row_number,
-                        result.headers[_one(by_field, "planned_finish")],
-                        "bad_date",
-                        f"Could not read '{raw.strip()}' as a date; the finish was left unset.",
-                    )
-                )
+    start = _read_date_cell("planned_start", "start", row, by_field, result, row_number, day_first)
+    finish = _read_date_cell(
+        "planned_finish", "finish", row, by_field, result, row_number, day_first
+    )
 
     if start:
         task.start = start.isoformat()
@@ -675,18 +677,63 @@ def _apply_dates(
     # An explicit Duration column already read above wins, because it is the
     # operator's stated intent rather than something inferred.
     if start and finish and "duration" not in by_field:
-        span = (finish - start).days + 1
-        if span < 1:
-            result.row_errors.append(
-                RowError(
-                    row_number,
-                    result.headers[_one(by_field, "planned_finish")],
-                    "finish_before_start",
-                    "Finish is before start; duration defaulted to 1 day.",
-                )
+        _apply_derived_duration(task, start, finish, by_field, result, row_number)
+
+
+def _read_date_cell(
+    field_name: str,
+    what: str,
+    row: list[Any],
+    by_field: dict[str, list[int]],
+    result: ParseResult,
+    row_number: int,
+    day_first: bool,
+) -> date | None:
+    """Read one date column, recording a row error when the cell will not parse.
+
+    An unreadable date is data, not an exception: the row still imports with that
+    one field dropped, so a single malformed cell cannot cost the operator the
+    whole file.
+    """
+    if field_name not in by_field:
+        return None
+    raw = _cell(row, _one(by_field, field_name))
+    if not raw.strip():
+        return None
+    value = _parse_date(raw, day_first)
+    if value is None:
+        result.row_errors.append(
+            RowError(
+                row_number,
+                result.headers[_one(by_field, field_name)],
+                "bad_date",
+                f"Could not read '{raw.strip()}' as a date; the {what} was left unset.",
             )
-        else:
-            task.duration_days = span
+        )
+    return value
+
+
+def _apply_derived_duration(
+    task: TaskData,
+    start: date,
+    finish: date,
+    by_field: dict[str, list[int]],
+    result: ParseResult,
+    row_number: int,
+) -> None:
+    """Set duration from an inclusive ``start``..``finish`` span."""
+    span = (finish - start).days + 1
+    if span < 1:
+        result.row_errors.append(
+            RowError(
+                row_number,
+                result.headers[_one(by_field, "planned_finish")],
+                "finish_before_start",
+                "Finish is before start; duration defaulted to 1 day.",
+            )
+        )
+    else:
+        task.duration_days = span
 
 
 def _apply_percent(
@@ -881,24 +928,10 @@ def _build_labels(
     truncated = False
 
     for task in result.project_data.tasks:
-        row = data_rows[task.uid - 1]
-        seen: set[str] = set()
-        dropped = 0
-        for index in indexes:
-            for raw_name in _split_values(_cell(row, index)):
-                name = raw_name[:LABEL_NAME_MAX_LENGTH]
-                truncated = truncated or len(raw_name) > LABEL_NAME_MAX_LENGTH
-                key = name.lower()
-                if key in seen:
-                    continue
-                if key not in canonical and len(canonical) >= MAX_IMPORT_LABELS:
-                    dropped += 1
-                    continue
-                if len(seen) >= MAX_LABELS_PER_TASK:
-                    dropped += 1
-                    continue
-                seen.add(key)
-                task.labels.append(canonical.setdefault(key, name))
+        dropped, row_truncated = _collect_task_labels(
+            task, data_rows[task.uid - 1], indexes, canonical
+        )
+        truncated = truncated or row_truncated
         if dropped:
             result.row_errors.append(
                 RowError(
@@ -915,6 +948,41 @@ def _build_labels(
             f"Some label names were longer than {LABEL_NAME_MAX_LENGTH} characters "
             "and were shortened."
         )
+
+
+def _collect_task_labels(
+    task: TaskData,
+    row: list[Any],
+    indexes: list[int],
+    canonical: dict[str, str],
+) -> tuple[int, bool]:
+    """Union every mapped label column onto one task, honoring the import caps.
+
+    ``canonical`` is threaded in and mutated so the first-seen spelling of a name
+    wins file-wide, not merely within this row.
+
+    Returns ``(dropped, truncated)`` — how many names the caps skipped, and
+    whether any name had to be shortened.
+    """
+    seen: set[str] = set()
+    dropped = 0
+    truncated = False
+    for index in indexes:
+        for raw_name in _split_values(_cell(row, index)):
+            name = raw_name[:LABEL_NAME_MAX_LENGTH]
+            truncated = truncated or len(raw_name) > LABEL_NAME_MAX_LENGTH
+            key = name.lower()
+            if key in seen:
+                continue
+            if key not in canonical and len(canonical) >= MAX_IMPORT_LABELS:
+                dropped += 1
+                continue
+            if len(seen) >= MAX_LABELS_PER_TASK:
+                dropped += 1
+                continue
+            seen.add(key)
+            task.labels.append(canonical.setdefault(key, name))
+    return dropped, truncated
 
 
 def _build_resources(

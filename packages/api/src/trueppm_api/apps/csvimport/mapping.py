@@ -229,6 +229,60 @@ def _match_field(key: str, taken: set[str]) -> tuple[str | None, str]:
     return None, "none"
 
 
+def _claim(field: str, taken: set[str]) -> None:
+    """Consume a field so no later column can claim it — unless it is multi."""
+    if field not in MULTI_FIELDS:
+        taken.add(field)
+
+
+def _resolve_overrides(
+    headers: list[str],
+    overrides: dict[str, str],
+    taken: set[str],
+) -> dict[int, tuple[str | None, str]]:
+    """Pin the caller's explicit column choices, claiming their fields as we go.
+
+    Runs before auto-detection: a column further left that auto-matches the same
+    field would otherwise claim it first and demote the operator's explicit
+    choice to ``duplicate``.
+    """
+    resolved: dict[int, tuple[str | None, str]] = {}
+    for index, header in enumerate(headers):
+        if header not in overrides:
+            continue
+        field = overrides[header] or None
+        if field is not None and field not in FIELD_BY_NAME:
+            # A stale client naming a field we no longer publish must not 500 the
+            # import — drop the override and let auto-detection have the column.
+            continue
+        if field is not None and field in taken:
+            resolved[index] = (None, "duplicate")
+            continue
+        resolved[index] = (field, "override" if field else "none")
+        if field:
+            _claim(field, taken)
+    return resolved
+
+
+def _resolve_auto(
+    headers: list[str],
+    resolved: dict[int, tuple[str | None, str]],
+    taken: set[str],
+) -> None:
+    """Auto-detect every column the caller did not pin, extending ``resolved``."""
+    for index, header in enumerate(headers):
+        if index in resolved:
+            continue
+        key = normalize_header(header)
+        field, confidence = _match_field(key, taken)
+        if field:
+            _claim(field, taken)
+        elif key and _matches_any_alias(key):
+            # It *would* have matched, but the field was already claimed.
+            confidence = "duplicate"
+        resolved[index] = (field, confidence)
+
+
 def detect_mapping(
     headers: list[str],
     overrides: dict[str, str] | None = None,
@@ -252,48 +306,18 @@ def detect_mapping(
         never consumed, so every column claiming it maps and the parser unions
         their values (#2406).
     """
-    overrides = overrides or {}
-    result: list[ColumnMapping] = []
     taken: set[str] = set()
-
-    def claim(field: str) -> None:
-        """Consume a field so no later column can consume it — unless it is multi."""
-        if field not in MULTI_FIELDS:
-            taken.add(field)
-
-    # Pass 1 -- honor explicit overrides so they cannot be pre-empted by an
-    # auto-detected column further left claiming the same field.
-    resolved: dict[int, tuple[str | None, str]] = {}
-    for index, header in enumerate(headers):
-        if header not in overrides:
-            continue
-        field = overrides[header] or None
-        if field is not None and field not in FIELD_BY_NAME:
-            continue
-        if field is not None and field in taken:
-            resolved[index] = (None, "duplicate")
-            continue
-        resolved[index] = (field, "override" if field else "none")
-        if field:
-            claim(field)
-
-    # Pass 2 -- auto-detect everything the caller did not pin.
-    for index, header in enumerate(headers):
-        if index in resolved:
-            continue
-        key = normalize_header(header)
-        field, confidence = _match_field(key, taken)
-        if field:
-            claim(field)
-        elif key and _matches_any_alias(key):
-            # It *would* have matched, but the field was already claimed.
-            confidence = "duplicate"
-        resolved[index] = (field, confidence)
-
-    for index, header in enumerate(headers):
-        field, confidence = resolved[index]
-        result.append(ColumnMapping(index=index, header=header, field=field, confidence=confidence))
-    return result
+    resolved = _resolve_overrides(headers, overrides or {}, taken)
+    _resolve_auto(headers, resolved, taken)
+    return [
+        ColumnMapping(
+            index=index,
+            header=header,
+            field=resolved[index][0],
+            confidence=resolved[index][1],
+        )
+        for index, header in enumerate(headers)
+    ]
 
 
 def _matches_any_alias(key: str) -> bool:
