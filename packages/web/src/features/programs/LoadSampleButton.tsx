@@ -1,6 +1,25 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useLoadSampleProgram, useSamples } from '@/hooks/useProgramSeedIo';
+import { useLoadSampleProgram, useSamples, type SampleInfo } from '@/hooks/useProgramSeedIo';
+
+/**
+ * "3 projects · 88 tasks" — the scale of a sample, for the picker row.
+ *
+ * Answers the question someone actually has in front of a "Load demo data"
+ * button: how much is this about to write? Returns null when the server could
+ * not summarize the fixture, in which case the row falls back to the sample's
+ * description rather than rendering a gap.
+ */
+function sampleScale(sample: SampleInfo): string | null {
+  // `typeof`, not `!== null`: an older cached catalog response (or a test mock
+  // written against the pre-#2490 shape) omits these keys entirely, and
+  // `undefined !== null` would sail through and render "undefined projects".
+  if (typeof sample.project_count !== 'number' || typeof sample.task_count !== 'number') {
+    return null;
+  }
+  const projects = `${sample.project_count} ${sample.project_count === 1 ? 'project' : 'projects'}`;
+  return `${projects} · ${sample.task_count} tasks`;
+}
 
 interface LoadSampleButtonProps {
   /** Visual variant — header (compact, dropdown overlays) or empty-state (large, centered). */
@@ -88,11 +107,33 @@ export function LoadSampleButton({ variant = 'hero' }: LoadSampleButtonProps) {
                   {s.title}
                 </span>
                 <span className="mt-0.5 block text-xs text-neutral-text-secondary">
-                  {s.description}
+                  {sampleScale(s) ?? s.description}
                 </span>
               </button>
             </li>
           ))}
+          {/* The audit path, as a text link in the footer. Never a button: four
+              filled Load actions are the point of this menu, and a fifth control
+              competing with them would make the first-run action harder for the
+              majority in order to serve the auditor. Opens in a new tab so the
+              picker — and the program the user was about to create — survive the
+              detour. */}
+          <li role="none" className="border-t border-neutral-border bg-neutral-surface-raised">
+            <div className="flex items-center justify-between gap-2 px-4 py-2.5">
+              <span className="text-xs text-neutral-text-secondary">Bundled JSON, Apache 2.0</span>
+              <a
+                role="menuitem"
+                href="/settings/demo-data"
+                target="_blank"
+                rel="noopener"
+                className="text-xs font-semibold text-brand-primary hover:underline
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                  focus-visible:ring-offset-1 rounded-sm"
+              >
+                Inspect files ↗
+              </a>
+            </div>
+          </li>
         </ul>
       )}
 

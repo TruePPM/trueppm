@@ -17,7 +17,7 @@ import { WorkspaceDangerPage } from './WorkspaceDangerPage';
 import { ObservabilitySection } from './WorkspaceObservabilityPage';
 import { WorkspaceFeedbackPage } from './WorkspaceFeedbackPage';
 import { RetentionPurgePage } from './systemHealth/RetentionPurgePage';
-import { SystemHealthCard, RateLimitCard, TrashCard } from './SystemSummaryCards';
+import { SystemHealthCard, RateLimitCard, TrashCard, DemoDataCard } from './SystemSummaryCards';
 import { buildWorkspaceNavGroups } from './workspaceNav';
 
 // Config sections live inline on the consolidated page (ADR-0146), so the rail is
@@ -126,6 +126,9 @@ export function WorkspaceSettingsPage() {
       </SettingsSection>
       <SettingsSection id="feedback">
         <WorkspaceFeedbackPage />
+      </SettingsSection>
+      <SettingsSection id="demo-data">
+        <DemoDataCard />
       </SettingsSection>
       <SettingsSection id="trash">
         <TrashCard />

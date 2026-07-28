@@ -212,6 +212,11 @@ const WorkspaceTrashPage = lazy(() =>
     default: m.WorkspaceTrashPage,
   })),
 );
+const DemoDataPage = lazy(() =>
+  import('@/features/settings/workspace/DemoDataPage').then((m) => ({
+    default: m.DemoDataPage,
+  })),
+);
 const WorkspaceObservabilityPage = lazy(() =>
   import('@/features/settings/workspace/WorkspaceObservabilityPage').then((m) => ({
     default: m.WorkspaceObservabilityPage,
@@ -1133,6 +1138,22 @@ export const router = createBrowserRouter([
                   </Suspense>
                 ),
                 handle: { title: 'Trash' } satisfies RouteHandle,
+              },
+              // Demo data (#2490) — the bundled sample fixtures, with size, digest,
+              // entity counts and a download of the exact bytes the importer reads.
+              // Renders its own SettingsShell like Trash. Deliberately NOT wrapped in
+              // RequireWorkspaceAdmin: any authenticated user can see the "Inspect
+              // files" link on the demo loader, and inspecting a listing of public
+              // Apache-2.0 files needs no authority. The Load action inside it is
+              // gated by the API, exactly as on the loader itself.
+              {
+                path: 'settings/demo-data',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <DemoDataPage />
+                  </Suspense>
+                ),
+                handle: { title: 'Demo data' } satisfies RouteHandle,
               },
               // Observability — dedicated OTLP telemetry-export setup page (#2250),
               // promoted out of the System Health readout so it's discoverable in

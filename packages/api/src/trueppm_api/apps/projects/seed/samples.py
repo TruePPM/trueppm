@@ -11,6 +11,7 @@ sample issues (#617/#618/#619) register their fixtures here.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,7 +42,129 @@ class Sample:
 
     @property
     def path(self) -> Path:
+        """Absolute path to the fixture.
+
+        Built from the *package* directory and this entry's own ``filename`` —
+        never from caller input. The download endpoint (#2490) reaches a path
+        only by looking a key up in :data:`SAMPLES` and reading this attribute,
+        so no request-supplied string ever participates in path construction.
+        """
         return _SEEDS_DIR / self.filename
+
+
+@dataclass(frozen=True)
+class SampleMetadata:
+    """Everything the catalog advertises about one fixture, from a single read.
+
+    ``size_bytes``, ``sha256`` and the entity counts are all derived from *one*
+    read of *one* byte string, so the hash a client verifies and the counts it
+    was shown provably describe the same file. Computing them separately would
+    let them drift across a fixture edit and silently make the advertised digest
+    a lie.
+
+    ``schema_version`` and the counts are ``None`` when the document could not be
+    parsed — a fixture we cannot summarize is still bytes on disk, and those
+    bytes are exactly what an auditor wants, so the file stays downloadable
+    (#2490 state 3). ``available`` is False only when the registered file is
+    absent from disk, which means a broken install rather than a bad document.
+    """
+
+    available: bool
+    size_bytes: int | None
+    sha256: str | None
+    schema_version: str | None
+    project_count: int | None
+    task_count: int | None
+    resource_count: int | None
+
+
+# Memo keyed on (path, st_mtime_ns, st_size) — see `sample_metadata`.
+_METADATA_CACHE: dict[tuple[str, int, int], SampleMetadata] = {}
+
+_MISSING = SampleMetadata(
+    available=False,
+    size_bytes=None,
+    sha256=None,
+    schema_version=None,
+    project_count=None,
+    task_count=None,
+    resource_count=None,
+)
+
+
+def sample_metadata(sample: Sample) -> SampleMetadata:
+    """Return size, digest and entity counts for a bundled fixture (#2490).
+
+    Lazy and memoized rather than computed at import time: precomputing would
+    move ~174 KB of JSON parsing into every worker boot *and* every management
+    command — including ``migrate`` and ``collectstatic``, which have no business
+    reading fixtures — and would turn a malformed fixture into a startup crash
+    instead of one degraded row.
+
+    The memo key includes ``st_mtime_ns`` and ``st_size`` so a developer editing
+    a fixture sees fresh numbers without restarting the server. It is a plain
+    module-level dict, not the Django cache: these are read-only files inside the
+    installed package, so there is no invalidation problem to solve, and a shared
+    cache would add a failure mode (an entry surviving a deploy) that a
+    process-local dict cannot have.
+
+    The counts come from ``inspect_seed`` — the same pure function backing the
+    dry run (ADR-0651). Never a second counting implementation: if this listing
+    and ``POST /programs/import/validate/`` could disagree about a file, the
+    catalog would have failed at its one job.
+    """
+    from trueppm_api.apps.projects.seed.validation import inspect_seed
+
+    path = sample.path
+    try:
+        stat = path.stat()
+    except OSError:
+        # Registered but not on disk — a broken install. Reported honestly
+        # rather than 500ing the whole catalog for one bad entry.
+        return _MISSING
+
+    cache_key = (str(path), stat.st_mtime_ns, stat.st_size)
+    cached = _METADATA_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return _MISSING
+
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        payload = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        payload = None
+
+    if isinstance(payload, dict):
+        report = inspect_seed(payload)
+        metadata = SampleMetadata(
+            available=True,
+            size_bytes=len(raw),
+            sha256=digest,
+            schema_version=report.schema_version,
+            project_count=report.project_count,
+            task_count=report.task_count,
+            resource_count=report.resource_count,
+        )
+    else:
+        # Unparseable, but present: advertise what we can prove from the bytes
+        # (size, digest) and leave the summary blank. Download stays available.
+        metadata = SampleMetadata(
+            available=True,
+            size_bytes=len(raw),
+            sha256=digest,
+            schema_version=None,
+            project_count=None,
+            task_count=None,
+            resource_count=None,
+        )
+
+    _METADATA_CACHE[cache_key] = metadata
+    return metadata
 
 
 # The default sample is the launch demo (#620): the hybrid-large program that

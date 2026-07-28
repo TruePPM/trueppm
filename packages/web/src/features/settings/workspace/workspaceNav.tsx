@@ -155,6 +155,12 @@ export function buildWorkspaceNavGroups({ linked }: { linked: boolean }): Settin
         { id: 'retention',     label: 'Retention & purge', to: anchor('retention'),     keywords: 'gdpr purge data retention compliance delete audit residency privacy erasure ccpa dsar', icon: <NavIcon><ClockIcon aria-hidden="true" /></NavIcon> },
         // #2392 — operator control over the in-product report-a-bug affordance.
         { id: 'feedback',      label: 'Feedback',          to: anchor('feedback'),      keywords: 'report a bug support issue tracker helpdesk contact problem', icon: <NavIcon><ShieldNavIcon /></NavIcon> },
+        // Demo data (#2490) — the bundled sample fixtures, downloadable so an
+        // operator can read what "Load demo data" will write before writing it.
+        // A data list like Trash, so it renders a landing card here and lives on
+        // its own route. Placed BEFORE trash so the retention → trash pair (the
+        // two "data you might lose or recover" items) stays adjacent and last.
+        { id: 'demo-data',     label: 'Demo data',         to: anchor('demo-data'),     keywords: 'sample seed fixture demo download json inspect audit sha256 checksum bundled example', icon: <NavIcon><FolderIcon aria-hidden="true" /></NavIcon> },
         { id: 'trash',         label: 'Trash',             to: anchor('trash'),         keywords: 'deleted restore recover recycle bin', icon: <NavIcon><RetentionNavIcon /></NavIcon> },
       ],
     },

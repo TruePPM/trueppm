@@ -86,6 +86,52 @@ The public URL is then `https://try.trueppm.com/share/schedule/your-fixed-token`
 The [`create_demo_share_link`](/administration/management-commands/#create_demo_share_link)
 command that mints it is idempotent on the pinned token.
 
+## Inspect before you import
+
+"Load demo data" writes a whole program — projects, tasks, resources, baselines,
+a risk register — on one click. You do not have to take that on trust. Every
+bundled sample is a committed JSON file you can read first.
+
+In the UI: **Settings → System → Demo data** lists each fixture with its entity
+counts, size and SHA-256, and a **Download** button. From the demo loader itself,
+the picker's **Inspect files ↗** link opens the same page in a new tab, so the
+program you were about to create is exactly where you left it.
+
+From a terminal, the whole chain is four steps:
+
+```bash
+# 1. See what's bundled — sizes, digests, and how much each one will write.
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8000/api/v1/programs/samples/ | jq '.[] | {key, task_count, size_bytes, sha256}'
+
+# 2. Download one. The bytes are exactly what the importer reads.
+curl -s -H "Authorization: Bearer $TOKEN" -OJ \
+  http://localhost:8000/api/v1/programs/samples/atlas-platform-launch/download/
+
+# 3. Verify you got the file the instance advertised, and read it.
+sha256sum atlas-platform-launch.json
+jq 'keys' atlas-platform-launch.json
+
+# 4. Dry-run it — validates and reports, writes nothing.
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  --data-binary @atlas-platform-launch.json \
+  http://localhost:8000/api/v1/programs/import/validate/ | jq
+```
+
+Only then `POST` the same file to `/api/v1/programs/import/`, or click **Load**.
+
+:::caution[What the hash proves, and what it does not]
+The SHA-256 proves you received the file this instance ships — transport
+integrity. It is not a signature and says nothing about who wrote the file.
+:::
+
+:::note[Two demo programs are not files]
+`seed_demo_project` and `seed_ga_launch_program` build their data in Python
+rather than from a fixture, so there is nothing to download or verify for those
+two. Auditing the four bundled files is not the same as auditing every way this
+codebase can produce demo data.
+:::
+
 ## Which path do I want?
 
 | You want to… | Use | Available |

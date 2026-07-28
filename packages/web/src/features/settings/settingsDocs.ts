@@ -53,6 +53,7 @@ const WORKSPACE_DOCS: Record<string, string> = {
   observability: 'administration/observability/',
   retention: 'administration/retention/',
   feedback: 'administration/configuration/#in-product-feedback-report-a-bug',
+  'demo-data': 'getting-started/try-it/#inspect-before-you-import',
   trash: 'administration/retention/#trashed-projects-are-hard-deleted-after-the-window',
 };
 
