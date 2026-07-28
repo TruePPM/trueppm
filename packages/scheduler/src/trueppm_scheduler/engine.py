@@ -687,9 +687,27 @@ def find_cycle(
             :data:`MAX_EXPANDED_EDGES` leaf-level tuples (a pathological cross
             product); the graph is rejected rather than allowed to spin.
     """
-    # Validate the raw input shape up front so a malformed call to this public API
-    # raises the documented InvalidScheduleInput rather than a bare NetworkXError /
-    # TypeError from deep inside networkx or _collect_leaves (#1209).
+    edge_list = _validate_edge_list(edges)
+    _validate_children_map_shape(children_map)
+
+    if children_map:
+        edge_list = _expand_edges_for_cycle_check(edge_list, children_map)
+    g: nx.DiGraph[str] = nx.DiGraph()
+    g.add_edges_from(edge_list)
+    try:
+        cycle = nx.find_cycle(g)
+    except nx.NetworkXNoCycle:
+        return CycleCheck(cycle=None)
+    return CycleCheck(cycle=[u for u, _ in cycle] + [cycle[-1][1]])
+
+
+def _validate_edge_list(edges: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Validate the raw edge input shape for the public :func:`find_cycle` API.
+
+    Checked up front so a malformed call raises the documented
+    ``InvalidScheduleInput`` rather than a bare ``NetworkXError``/``TypeError``
+    from deep inside networkx or ``_collect_leaves`` (#1209).
+    """
     try:
         edge_list = list(edges)
     except TypeError as err:
@@ -702,29 +720,27 @@ def find_cycle(
         u, v = e
         if not isinstance(u, str) or not isinstance(v, str):
             raise InvalidScheduleInput(f"edge endpoints must be string task ids (got {e!r}).")
-    if children_map is not None:
-        # Guard the container type before ``.items()`` (#1825): a non-dict argument
-        # (a list/str) would otherwise leak a bare AttributeError past the contract.
-        if not isinstance(children_map, dict):
-            raise InvalidScheduleInput(
-                f"children_map must be a dict of summary id -> child ids or None "
-                f"(got {type(children_map).__name__})."
-            )
-        for sid, kids in children_map.items():
-            if not isinstance(kids, list):
-                raise InvalidScheduleInput(
-                    f"children_map[{sid!r}] must be a list of child ids (got {kids!r})."
-                )
+    return edge_list
 
-    if children_map:
-        edge_list = _expand_edges_for_cycle_check(edge_list, children_map)
-    g: nx.DiGraph[str] = nx.DiGraph()
-    g.add_edges_from(edge_list)
-    try:
-        cycle = nx.find_cycle(g)
-    except nx.NetworkXNoCycle:
-        return CycleCheck(cycle=None)
-    return CycleCheck(cycle=[u for u, _ in cycle] + [cycle[-1][1]])
+
+def _validate_children_map_shape(children_map: dict[str, list[str]] | None) -> None:
+    """Guard the container type before ``.items()`` (#1825).
+
+    A non-dict argument (a list or str) would otherwise leak a bare
+    ``AttributeError`` past the documented contract.
+    """
+    if children_map is None:
+        return
+    if not isinstance(children_map, dict):
+        raise InvalidScheduleInput(
+            f"children_map must be a dict of summary id -> child ids or None "
+            f"(got {type(children_map).__name__})."
+        )
+    for sid, kids in children_map.items():
+        if not isinstance(kids, list):
+            raise InvalidScheduleInput(
+                f"children_map[{sid!r}] must be a list of child ids (got {kids!r})."
+            )
 
 
 def _expand_edges_for_cycle_check(
@@ -745,18 +761,13 @@ def _expand_edges_for_cycle_check(
         return edges
     _check_children_map(children_map)
 
-    # Resolve each endpoint to its leaves once and cache it: an endpoint id can
-    # recur across many edges, and _collect_leaves walks the subtree each call.
-    leaves_cache: dict[str, list[str]] = {}
-
-    def _leaves(node_id: str) -> list[str]:
-        if node_id not in summary_ids:
-            return [node_id]
-        cached = leaves_cache.get(node_id)
-        if cached is None:
-            cached = _collect_leaves(node_id, children_map)
-            leaves_cache[node_id] = cached
-        return cached
+    # Resolve each endpoint to its leaves once: an endpoint id can recur across many
+    # edges, and _collect_leaves walks the subtree each call.
+    endpoint_ids = {pid for pid, _ in edges} | {sid for _, sid in edges}
+    leaves = {
+        nid: (_collect_leaves(nid, children_map) if nid in summary_ids else [nid])
+        for nid in endpoint_ids
+    }
 
     # Bound the cross product from leaf *counts* before materialising a single
     # tuple (#357). The worst case — a wide summary→summary edge — is O(P*S) per
@@ -766,7 +777,7 @@ def _expand_edges_for_cycle_check(
     # which is the safe direction: we never under-count and let a blowup through.
     estimated = 0
     for pred_id, succ_id in edges:
-        estimated += len(_leaves(pred_id)) * len(_leaves(succ_id))
+        estimated += len(leaves[pred_id]) * len(leaves[succ_id])
         if estimated > MAX_EXPANDED_EDGES:
             raise InvalidScheduleInput(
                 f"Cannot validate cycles: expanding summary dependencies to leaf "
@@ -779,13 +790,12 @@ def _expand_edges_for_cycle_check(
     seen: set[tuple[str, str]] = set()
     expanded: list[tuple[str, str]] = []
     for pred_id, succ_id in edges:
-        for p in _leaves(pred_id):
-            for s in _leaves(succ_id):
-                key = (p, s)
-                if key in seen:
+        for p in leaves[pred_id]:
+            for s in leaves[succ_id]:
+                if (p, s) in seen:
                     continue
-                seen.add(key)
-                expanded.append(key)
+                seen.add((p, s))
+                expanded.append((p, s))
     return expanded
 
 
@@ -1033,72 +1043,104 @@ def _backward_pass(
             task.late_start = task.early_start
             continue
 
-        duration_days = _effective_duration_days(task)
+        lf_constraints, ls_constraints = _collect_backward_constraints(
+            node_id, g, task_map, node_cal, project_finish
+        )
+        _apply_late_dates(task, lf_constraints, ls_constraints, node_cal)
 
-        # Collect LF and LS constraints from all successor dependencies. The
-        # project-finish seed floors this task's late finish at the project end,
-        # but snapped to *this node's own* last workable day: ``project_finish``
-        # is ``max(early_finish)`` across all tasks and can land on a day this
-        # node cannot work — a completed task's weekend ``actual_finish`` (single
-        # calendar) or a max EF contributed by a 7-day-calendar task (per-task
-        # calendars, ADR-0120). Seeding the raw value would overstate this task's
-        # float by ≥1 and propagate the error upstream through backward-pass
-        # edges (#1820). With one project calendar and no out-of-sequence weekend
-        # actuals, ``project_finish`` is itself a working day and this is a no-op.
-        lf_constraints: list[date] = [_prev_working_day(project_finish, node_cal)]
-        ls_constraints: list[date] = []
 
-        for succ_id in g.successors(node_id):
-            succ = task_map[succ_id]
-            # A completed successor is out of network logic (ADR-0136): the
-            # forward pass lays it at its actuals, possibly out of sequence, and
-            # it carries zero float. It therefore imposes no backward constraint
-            # on a still-live predecessor. Including it would clamp this task's
-            # late dates to the done successor's actuals — reporting false-zero
-            # float and polluting the critical path (#1819).
-            if _is_complete(succ):
-                continue
-            dep: Dependency = g[node_id][succ_id]["dep"]
-            lag = dep.lag
-            # Live successors are visited first in reverse topo order, so these are always set.
-            assert succ.late_start is not None and succ.late_finish is not None
+def _collect_backward_constraints(
+    node_id: str,
+    g: nx.DiGraph[str],
+    task_map: dict[str, Task],
+    node_cal: Calendar,
+    project_finish: date,
+) -> tuple[list[date], list[date]]:
+    """Gather the LF and LS constraints this task's successors impose on it.
 
-            if dep.dep_type == DependencyType.FS:
-                # Predecessor must finish the day before successor's late start minus
-                # lag. The raw offset is calendar-agnostic arithmetic; the result
-                # becomes *this* task's own late_finish, so it snaps to a working day
-                # on this task's own calendar (node_cal) — snapping on the successor's
-                # calendar instead (the #1490 bug) could push it before early_finish.
-                lf_constraints.append(
-                    _prev_working_day(
-                        _safe_offset(succ.late_start, -timedelta(days=1) - lag), node_cal
-                    )
-                )
-            elif dep.dep_type == DependencyType.SS:
-                # Predecessor must start no later than successor's late start minus lag.
-                ls_constraints.append(_retreat_calendar_days(succ.late_start, lag, node_cal))
-            elif dep.dep_type == DependencyType.FF:
-                # Predecessor must finish no later than successor's late finish minus lag.
-                lf_constraints.append(_retreat_calendar_days(succ.late_finish, lag, node_cal))
-            elif dep.dep_type == DependencyType.SF:
-                # Predecessor must start no later than successor's late finish minus lag.
-                ls_constraints.append(_retreat_calendar_days(succ.late_finish, lag, node_cal))
+    The project-finish seed floors the task's late finish at the project end, but
+    snapped to *this node's own* last workable day: ``project_finish`` is
+    ``max(early_finish)`` across all tasks and can land on a day this node cannot
+    work — a completed task's weekend ``actual_finish`` (single calendar) or a max
+    EF contributed by a 7-day-calendar task (per-task calendars, ADR-0120). Seeding
+    the raw value would overstate this task's float by ≥1 and propagate the error
+    upstream through backward-pass edges (#1820). With one project calendar and no
+    out-of-sequence weekend actuals, ``project_finish`` is itself a working day and
+    this is a no-op.
 
-        # LF = earliest of all LF constraints (binding constraint).
-        task.late_finish = min(lf_constraints)
-        task.late_start = _start_from_finish(task.late_finish, duration_days, node_cal)
+    A completed successor is out of network logic (ADR-0136): the forward pass lays
+    it at its actuals, possibly out of sequence, and it carries zero float, so it
+    imposes no backward constraint on a still-live predecessor. Including it would
+    clamp this task's late dates to the done successor's actuals — reporting
+    false-zero float and polluting the critical path (#1819).
+    """
+    lf_constraints: list[date] = [_prev_working_day(project_finish, node_cal)]
+    ls_constraints: list[date] = []
 
-        # Apply LS constraints (from SS/SF dependencies).
-        if ls_constraints:
-            max_ls = min(ls_constraints)
-            if max_ls < task.late_start:
-                task.late_start = max_ls
-                # Push LF forward to match.
-                fwd_finish = _finish_from_start(task.late_start, duration_days, node_cal)
-                task.late_finish = min(
-                    fwd_finish,
-                    min(lf_constraints),
-                )
+    for succ_id in g.successors(node_id):
+        succ = task_map[succ_id]
+        if _is_complete(succ):
+            continue
+        dep: Dependency = g[node_id][succ_id]["dep"]
+        _append_successor_constraint(dep, succ, node_cal, lf_constraints, ls_constraints)
+
+    return lf_constraints, ls_constraints
+
+
+def _append_successor_constraint(
+    dep: Dependency,
+    succ: Task,
+    node_cal: Calendar,
+    lf_constraints: list[date],
+    ls_constraints: list[date],
+) -> None:
+    """Translate one successor edge into an LF or LS bound on the predecessor.
+
+    Each result becomes *this* task's own late date, so it snaps to a working day on
+    this task's own calendar (``node_cal``) — snapping on the successor's calendar
+    instead (the #1490 bug) could push it before its own early_finish.
+    """
+    # Live successors are visited first in reverse topo order, so these are always set.
+    assert succ.late_start is not None and succ.late_finish is not None
+    lag = dep.lag
+
+    if dep.dep_type == DependencyType.FS:
+        # Predecessor must finish the day before successor's late start minus lag.
+        lf_constraints.append(
+            _prev_working_day(_safe_offset(succ.late_start, -timedelta(days=1) - lag), node_cal)
+        )
+    elif dep.dep_type == DependencyType.SS:
+        # Predecessor must start no later than successor's late start minus lag.
+        ls_constraints.append(_retreat_calendar_days(succ.late_start, lag, node_cal))
+    elif dep.dep_type == DependencyType.FF:
+        # Predecessor must finish no later than successor's late finish minus lag.
+        lf_constraints.append(_retreat_calendar_days(succ.late_finish, lag, node_cal))
+    elif dep.dep_type == DependencyType.SF:
+        # Predecessor must start no later than successor's late finish minus lag.
+        ls_constraints.append(_retreat_calendar_days(succ.late_finish, lag, node_cal))
+
+
+def _apply_late_dates(
+    task: Task,
+    lf_constraints: list[date],
+    ls_constraints: list[date],
+    node_cal: Calendar,
+) -> None:
+    """Set ``late_finish``/``late_start`` from the binding constraints, in place."""
+    duration_days = _effective_duration_days(task)
+
+    # LF = earliest of all LF constraints (binding constraint).
+    task.late_finish = min(lf_constraints)
+    task.late_start = _start_from_finish(task.late_finish, duration_days, node_cal)
+
+    # Apply LS constraints (from SS/SF dependencies).
+    if ls_constraints:
+        max_ls = min(ls_constraints)
+        if max_ls < task.late_start:
+            task.late_start = max_ls
+            # Push LF forward to match.
+            fwd_finish = _finish_from_start(task.late_start, duration_days, node_cal)
+            task.late_finish = min(fwd_finish, min(lf_constraints))
 
 
 def _compute_floats(
@@ -1140,16 +1182,6 @@ def _compute_floats(
     resolves to ``calendar`` and the fast ``wd_counter`` is used for all of them.
     """
 
-    # O(log n) span counts when a counter is supplied (the schedule() hot path,
-    # #822); the scalar O(span) reference otherwise. The counter is built over the
-    # default project ``calendar``, so it is only valid for spans measured on that
-    # calendar — a per-task calendar (``cal is not calendar``) falls back to the
-    # scalar reference. Both return identical counts.
-    def _wdb(start: date, end: date, cal: Calendar) -> int:
-        if wd_counter is not None and cal is calendar:
-            return wd_counter.between(start, end)
-        return _working_days_between(start, end, cal)
-
     # Driving edges (#2095): links whose per-edge free-float slack is zero — the
     # predecessor that pins the successor's early date. Collected as a side output
     # of the same slack loop that computes free float; purely presentational.
@@ -1164,7 +1196,7 @@ def _compute_floats(
         # All passes have run by now, so these fields are always set.
         assert task.early_start is not None and task.late_start is not None
         assert task.early_finish is not None
-        tf_days = _wdb(task.early_start, task.late_start, node_cal)
+        tf_days = _wd_span(task.early_start, task.late_start, node_cal, wd_counter, calendar)
         task.total_float = timedelta(days=tf_days)
         # A completed task is never on the critical path. The backward pass pins a
         # done task to late == early (ADR-0132/0136), which mechanically yields
@@ -1201,44 +1233,111 @@ def _compute_floats(
         # is snapped on this task's own calendar (``node_cal``) — mirroring the
         # backward pass, whose retreat also lands on ``node_cal``. With one project
         # calendar every span resolves to ``calendar`` and the fast counter is used.
-        ff_days = tf_days
-        for succ_id in g.successors(node_id):
-            succ = task_map[succ_id]
-            # Mirror the backward pass: a completed successor imposes no live
-            # constraint (it is out of network logic, ADR-0136), so it cannot
-            # bound this task's slip. Including it would report false-zero free
-            # float on the live predecessor (#1819).
-            if _is_complete(succ):
-                continue
-            dep: Dependency = g[node_id][succ_id]["dep"]
-            lag = dep.lag
-            assert succ.early_start is not None and succ.early_finish is not None
-            if dep.dep_type == DependencyType.FS:
-                # Latest finish that leaves succ.early_start unmoved (inverse of the
-                # forward FS constraint; matches the backward pass's LF retreat).
-                latest = _prev_working_day(
-                    _safe_offset(succ.early_start, -timedelta(days=1) - lag), node_cal
-                )
-                slack = _wdb(task.early_finish, latest, node_cal)
-            elif dep.dep_type == DependencyType.SS:
-                latest = _retreat_calendar_days(succ.early_start, lag, node_cal)
-                slack = _wdb(task.early_start, latest, node_cal)
-            elif dep.dep_type == DependencyType.FF:
-                latest = _retreat_calendar_days(succ.early_finish, lag, node_cal)
-                slack = _wdb(task.early_finish, latest, node_cal)
-            else:  # SF: successor finish is bounded by this task's start + lag
-                latest = _retreat_calendar_days(succ.early_finish, lag, node_cal)
-                slack = _wdb(task.early_start, latest, node_cal)
-            ff_days = min(ff_days, max(0, slack))
-            # Zero relationship free float ⇒ this link drives the successor's early
-            # date (#2095). The forward pass guarantees slack >= 0, so an exact
-            # zero test is deterministic across both engines.
-            if slack == 0:
-                driving_edges.append(DrivingEdge(node_id, succ_id, dep.dep_type.value))
-
+        ff_days = _free_float_days(
+            node_id, task, g, task_map, node_cal, tf_days, wd_counter, calendar, driving_edges
+        )
         task.free_float = timedelta(days=max(0, ff_days))
 
     return driving_edges
+
+
+def _wd_span(
+    start: date,
+    end: date,
+    cal: Calendar,
+    wd_counter: _WorkingDayCounter | None,
+    calendar: Calendar,
+) -> int:
+    """Working-day span, via the O(log n) counter when it is valid for ``cal``.
+
+    The counter is built over the default project ``calendar`` (the ``schedule()``
+    hot path, #822), so it is only valid for spans measured on that calendar — a
+    per-task calendar falls back to the scalar O(span) reference. Both return
+    identical counts.
+    """
+    if wd_counter is not None and cal is calendar:
+        return wd_counter.between(start, end)
+    return _working_days_between(start, end, cal)
+
+
+def _free_float_days(
+    node_id: str,
+    task: Task,
+    g: nx.DiGraph[str],
+    task_map: dict[str, Task],
+    node_cal: Calendar,
+    tf_days: int,
+    wd_counter: _WorkingDayCounter | None,
+    calendar: Calendar,
+    driving_edges: list[DrivingEdge],
+) -> int:
+    """Working days this task can slip before it moves any live successor's early date.
+
+    Appends to ``driving_edges`` as a side output: a link whose relationship free
+    float is zero is the one pinning the successor's early date (#2095). The forward
+    pass guarantees ``slack >= 0``, so the exact zero test is deterministic across
+    both engines.
+
+    Mirrors the backward pass in skipping completed successors: one is out of
+    network logic (ADR-0136) and cannot bound this task's slip, and including it
+    would report false-zero free float on the live predecessor (#1819).
+
+    A task with no live successor falls back to its total float.
+    """
+    ff_days = tf_days
+    for succ_id in g.successors(node_id):
+        succ = task_map[succ_id]
+        if _is_complete(succ):
+            continue
+        dep: Dependency = g[node_id][succ_id]["dep"]
+        slack = _link_slack(dep, task, succ, node_cal, wd_counter, calendar)
+        ff_days = min(ff_days, max(0, slack))
+        if slack == 0:
+            driving_edges.append(DrivingEdge(node_id, succ_id, dep.dep_type.value))
+    return ff_days
+
+
+def _link_slack(
+    dep: Dependency,
+    task: Task,
+    succ: Task,
+    node_cal: Calendar,
+    wd_counter: _WorkingDayCounter | None,
+    calendar: Calendar,
+) -> int:
+    """Slip this task can absorb on one link without moving the successor's early date.
+
+    Computed by **inverting** the forward constraint — the same inversion the
+    backward pass applies for late dates — but anchored on the successor's *early*
+    dates, which is exactly what makes the result free float rather than total float.
+
+    The earlier version instead measured the working-day gap between the *forward*-
+    imposed date and the successor's early date. That proxy assumes one working day
+    of slip moves the imposed date by one working day, which fails whenever a
+    calendar-day lag re-lands across non-working days as the task slips: a single
+    working day of slip can jump the imposed date by several working days (or none),
+    so the proxy both over- and under-counted the true slack (#1828).
+    """
+    assert succ.early_start is not None and succ.early_finish is not None
+    assert task.early_start is not None and task.early_finish is not None
+    lag = dep.lag
+
+    if dep.dep_type == DependencyType.FS:
+        # Latest finish that leaves succ.early_start unmoved (inverse of the
+        # forward FS constraint; matches the backward pass's LF retreat).
+        latest = _prev_working_day(
+            _safe_offset(succ.early_start, -timedelta(days=1) - lag), node_cal
+        )
+        return _wd_span(task.early_finish, latest, node_cal, wd_counter, calendar)
+    if dep.dep_type == DependencyType.SS:
+        latest = _retreat_calendar_days(succ.early_start, lag, node_cal)
+        return _wd_span(task.early_start, latest, node_cal, wd_counter, calendar)
+    if dep.dep_type == DependencyType.FF:
+        latest = _retreat_calendar_days(succ.early_finish, lag, node_cal)
+        return _wd_span(task.early_finish, latest, node_cal, wd_counter, calendar)
+    # SF: successor finish is bounded by this task's start + lag
+    latest = _retreat_calendar_days(succ.early_finish, lag, node_cal)
+    return _wd_span(task.early_start, latest, node_cal, wd_counter, calendar)
 
 
 # ---------------------------------------------------------------------------
@@ -1363,19 +1462,31 @@ def expand_summary_dependencies(
     summary_ids = set(children_map.keys())
     leaf_tasks = [t for t in tasks if t.id not in summary_ids]
 
-    # ADR-0370: reject a Start-to-Start / Start-to-Finish link *from* a summary task.
-    # A summary's START is its earliest-starting leaf (ADR-0024 §3, matching MS Project
-    # semantics), but the leaf cross-product below fans a summary edge out to *every*
-    # leaf and preserves the dep type. For SS/SF that turns the successor's CPM ``max()``
-    # over its predecessors into "wait for the LAST-starting leaf" — silently
-    # over-constraining the successor by up to the summary's whole span (the #1854 bug).
-    # FS/FF anchor on the summary's FINISH (its latest-finishing leaf), which ``max()``
-    # over all leaves computes correctly, so those keep the fan-out. Rather than
-    # re-anchor to the earliest leaf (alternative a) or synthesize a hammock node
-    # (alternative b), we reject the link with an actionable error, matching MS Project's
-    # own restriction posture (it forbids SS/SF on summary tasks). This is deliberately
-    # kept out of ``_expand_edges_for_cycle_check`` — cycle detection stays conservative
-    # and must still see the expanded edges.
+    _reject_summary_start_links(deps, summary_ids)
+
+    leaves = _resolve_endpoint_leaves(deps, summary_ids, children_map)
+    _check_expansion_bound(deps, leaves)
+
+    return SummaryExpansion(tasks=leaf_tasks, dependencies=_cross_product_edges(deps, leaves))
+
+
+def _reject_summary_start_links(deps: list[Dependency], summary_ids: set[str]) -> None:
+    """Reject a Start-to-Start / Start-to-Finish link *from* a summary task (ADR-0370).
+
+    A summary's START is its earliest-starting leaf (ADR-0024 §3, matching MS Project
+    semantics), but the leaf cross-product fans a summary edge out to *every* leaf and
+    preserves the dep type. For SS/SF that turns the successor's CPM ``max()`` over its
+    predecessors into "wait for the LAST-starting leaf" — silently over-constraining the
+    successor by up to the summary's whole span (the #1854 bug). FS/FF anchor on the
+    summary's FINISH (its latest-finishing leaf), which ``max()`` over all leaves
+    computes correctly, so those keep the fan-out.
+
+    Rather than re-anchor to the earliest leaf (alternative a) or synthesize a hammock
+    node (alternative b), the link is rejected with an actionable error, matching MS
+    Project's own restriction posture. Deliberately kept out of
+    :func:`_expand_edges_for_cycle_check` — cycle detection stays conservative and must
+    still see the expanded edges.
+    """
     for dep in deps:
         if dep.predecessor_id in summary_ids and dep.dep_type in (
             DependencyType.SS,
@@ -1387,30 +1498,39 @@ def expand_summary_dependencies(
                 "leaf task instead."
             )
 
-    # Resolve each endpoint to its leaves once and cache it (#1208): an endpoint id
-    # recurs across many edges and _collect_leaves walks the subtree on each call.
-    # Mirrors the caching the cycle-check twin (_expand_edges_for_cycle_check)
-    # already does — the asymmetry was a missed optimization here.
-    leaves_cache: dict[str, list[str]] = {}
 
-    def _leaves(node_id: str) -> list[str]:
-        if node_id not in summary_ids:
-            return [node_id]
-        cached = leaves_cache.get(node_id)
-        if cached is None:
-            cached = _collect_leaves(node_id, children_map)
-            leaves_cache[node_id] = cached
-        return cached
+def _resolve_endpoint_leaves(
+    deps: list[Dependency],
+    summary_ids: set[str],
+    children_map: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    """Resolve every edge endpoint to its leaves, once per distinct id (#1208).
 
-    # Bound the cross product from leaf *counts* before materialising a single
-    # Dependency (#1208). A summary→summary edge fans out to len(L(pred)) *
-    # len(L(succ)) objects, so without this a wide top-of-WBS edge produces millions
-    # of Dependency objects (and a graph that then chokes schedule()). The
-    # cheap cycle-check path already enforces MAX_EXPANDED_EDGES the same way; the
-    # expensive real-expansion path was the one missing the guard.
+    An endpoint id recurs across many edges and ``_collect_leaves`` walks the subtree
+    on each call, so resolving per distinct id rather than per edge is what keeps a
+    wide WBS cheap. Mirrors the caching the cycle-check twin
+    (:func:`_expand_edges_for_cycle_check`) already did — the asymmetry was a missed
+    optimization here.
+    """
+    endpoint_ids = {d.predecessor_id for d in deps} | {d.successor_id for d in deps}
+    return {
+        nid: (_collect_leaves(nid, children_map) if nid in summary_ids else [nid])
+        for nid in endpoint_ids
+    }
+
+
+def _check_expansion_bound(deps: list[Dependency], leaves: dict[str, list[str]]) -> None:
+    """Bound the cross product from leaf *counts* before materialising a Dependency (#1208).
+
+    A summary→summary edge fans out to ``len(L(pred)) * len(L(succ))`` objects, so
+    without this a wide top-of-WBS edge produces millions of Dependency objects (and a
+    graph that then chokes ``schedule()``). The cheap cycle-check path already enforced
+    ``MAX_EXPANDED_EDGES`` this way; the expensive real-expansion path was the one
+    missing the guard.
+    """
     estimated = 0
     for dep in deps:
-        estimated += len(_leaves(dep.predecessor_id)) * len(_leaves(dep.successor_id))
+        estimated += len(leaves[dep.predecessor_id]) * len(leaves[dep.successor_id])
         if estimated > MAX_EXPANDED_EDGES:
             raise InvalidScheduleInput(
                 f"Expanding summary dependencies to leaf level would exceed "
@@ -1419,21 +1539,23 @@ def expand_summary_dependencies(
                 "leaf tasks, or split the wide summary edge, and retry."
             )
 
+
+def _cross_product_edges(deps: list[Dependency], leaves: dict[str, list[str]]) -> list[Dependency]:
+    """Fan each edge out to the cross product of its endpoints' leaves.
+
+    Self-referencing edges (predecessor == successor after expansion) are skipped and
+    duplicates are collapsed, so two summary edges that expand onto the same leaf pair
+    yield one dependency.
+    """
     seen: set[tuple[str, str]] = set()
     expanded: list[Dependency] = []
 
     for dep in deps:
-        preds = _leaves(dep.predecessor_id)
-        succs = _leaves(dep.successor_id)
-
-        for p in preds:
-            for s in succs:
-                if p == s:
+        for p in leaves[dep.predecessor_id]:
+            for s in leaves[dep.successor_id]:
+                if p == s or (p, s) in seen:
                     continue
-                key = (p, s)
-                if key in seen:
-                    continue
-                seen.add(key)
+                seen.add((p, s))
                 expanded.append(
                     Dependency(
                         predecessor_id=p,
@@ -1443,7 +1565,7 @@ def expand_summary_dependencies(
                     )
                 )
 
-    return SummaryExpansion(tasks=leaf_tasks, dependencies=expanded)
+    return expanded
 
 
 # ---------------------------------------------------------------------------
@@ -1876,6 +1998,43 @@ def _validate_dependencies(project: Project) -> None:
             )
 
 
+def _task_span_totals(project: Project) -> tuple[int, int, int]:
+    """Sum the worst-case task span and find the furthest pin and actual.
+
+    The span uses the worst case across the deterministic duration AND every PERT
+    estimate: Monte Carlo samples within ``[optimistic, pessimistic]`` but falls back
+    to ``most_likely`` when the range is degenerate, so ``most_likely`` — which a
+    partial estimate may set above the deterministic duration — must count too. Scrum
+    tasks count their velocity-sampling worst case; without it an oversized
+    ``story_points`` bypassed this guard entirely (#1067).
+
+    Recorded actuals (ADR-0132/0136) anchor a completed task's full-duration span and
+    feed the same calendar walk (``_start_from_finish`` / ``_finish_from_start``) as a
+    ``planned_start`` pin, so an actual far from the project start must be bounded the
+    same way — otherwise a year-9999 ``actual_finish`` drives the working-day scan past
+    the representable range (the #951 precedent). ``abs()`` bounds both a far-future
+    and a far-past actual.
+
+    Returns ``(total_span, max_snet_days, max_actual_days)``.
+    """
+    total_span = 0
+    max_snet_days = 0
+    max_actual_days = 0
+    for t in project.tasks:
+        task_max_days = t.duration.days
+        for est in (t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration):
+            if est is not None:
+                task_max_days = max(task_max_days, est.days)
+        task_max_days = max(task_max_days, _velocity_worst_case_days(t, project))
+        total_span += max(0, task_max_days)
+        if t.planned_start is not None:
+            max_snet_days = max(max_snet_days, (t.planned_start - project.start_date).days)
+        for actual in (t.actual_start, t.actual_finish):
+            if actual is not None:
+                max_actual_days = max(max_actual_days, abs((actual - project.start_date).days))
+    return total_span, max_snet_days, max_actual_days
+
+
 def _validate_span_bounds(project: Project) -> None:
     # status_date (the data date, ADR-0132) floors all not-yet-finished work, so
     # like a planned_start pin it shifts the schedule directly and is bounded by
@@ -1898,33 +2057,7 @@ def _validate_span_bounds(project: Project) -> None:
     # duration). Bounding the sum keeps the day-by-day walk and the working-day
     # index build from spinning — or overflowing the date range — no matter how
     # many tasks are chained.
-    total_span = 0
-    max_snet_days = 0
-    max_actual_days = 0
-    for t in project.tasks:
-        # Worst case across the deterministic duration AND every PERT estimate:
-        # Monte Carlo samples within [optimistic, pessimistic] but falls back to
-        # most_likely when the range is degenerate, so most_likely (which a
-        # partial estimate may set above the deterministic duration) must count
-        # too. Scrum tasks count their velocity-sampling worst case — without it
-        # an oversized story_points bypassed this guard entirely (#1067).
-        task_max_days = t.duration.days
-        for est in (t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration):
-            if est is not None:
-                task_max_days = max(task_max_days, est.days)
-        task_max_days = max(task_max_days, _velocity_worst_case_days(t, project))
-        total_span += max(0, task_max_days)
-        if t.planned_start is not None:
-            max_snet_days = max(max_snet_days, (t.planned_start - project.start_date).days)
-        # Recorded actuals (ADR-0132/0136) anchor a completed task's full-duration
-        # span and feed the same calendar walk (_start_from_finish / _finish_from_start)
-        # as a planned_start pin, so an actual far from the project start must be
-        # bounded the same way — otherwise a year-9999 actual_finish drives the
-        # working-day scan past the representable range (the #951 precedent). abs()
-        # bounds both a far-future and a far-past actual.
-        for actual in (t.actual_start, t.actual_finish):
-            if actual is not None:
-                max_actual_days = max(max_actual_days, abs((actual - project.start_date).days))
+    total_span, max_snet_days, max_actual_days = _task_span_totals(project)
     if max_actual_days > MAX_PROJECT_SPAN_DAYS:
         raise InvalidScheduleInput(
             f"A task actual_start/actual_finish is more than {MAX_PROJECT_SPAN_DAYS} "
@@ -2760,6 +2893,46 @@ def _completed_edge_constraints(
     return constraints
 
 
+def _mc_es_floors(
+    project: Project,
+    task_map: dict[str, Task],
+    cal_of: dict[str, Calendar],
+    cal_key_of: dict[str, int],
+    offset_of_by_cal: dict[int, dict[date, int]],
+    wd_index_by_cal: dict[int, list[date]],
+) -> dict[str, float]:
+    """Merge each task's SNET pin and the data-date floor into one ES lower bound.
+
+    ``planned_start`` (SNET) floors mirror the deterministic forward pass (#1068): a
+    pinned task may not start before its pin regardless of network logic. A pin at or
+    before project start is the 0 floor every task already has, and the index was sized
+    to cover the furthest pin, so the lookup is total. The data date floors all
+    not-yet-finished work — nothing remaining can be sampled before "as of now".
+
+    Both are ES lower bounds on the same task, so they merge here and the forward pass
+    reads a single number.
+    """
+
+    def _snap_offset(d: date, tid: str) -> float:
+        """Offset of the next working day on ``tid``'s own calendar, index-clamped."""
+        cal_key = cal_key_of[tid]
+        snapped = _next_working_day(d, cal_of[tid])
+        off = offset_of_by_cal[cal_key].get(snapped)
+        return float(off) if off is not None else float(len(wd_index_by_cal[cal_key]) - 1)
+
+    es_floor: dict[str, float] = {}
+    status_date = project.status_date
+    for t in task_map.values():
+        floor = 0.0
+        if t.planned_start is not None and t.planned_start > project.start_date:
+            floor = _snap_offset(t.planned_start, t.id)
+        if status_date is not None and status_date > project.start_date:
+            floor = max(floor, _snap_offset(status_date, t.id))
+        if floor:
+            es_floor[t.id] = floor
+    return es_floor
+
+
 def _mc_progress_state(
     project: Project,
     task_map: dict[str, Task],
@@ -2793,30 +2966,9 @@ def _mc_progress_state(
     a successor on a different working week.
     """
 
-    def _snap_offset(d: date, tid: str) -> float:
-        """Offset of the next working day on ``tid``'s own calendar, index-clamped."""
-        cal_key = cal_key_of[tid]
-        snapped = _next_working_day(d, cal_of[tid])
-        off = offset_of_by_cal[cal_key].get(snapped)
-        return float(off) if off is not None else float(len(wd_index_by_cal[cal_key]) - 1)
-
-    # planned_start (SNET) floors, mirroring the deterministic forward pass (#1068):
-    # a pinned task may not start before its pin regardless of network logic. A pin
-    # at or before project start is the 0 floor every task already has. The index was
-    # sized to cover the furthest pin, so the lookup is total. The data date floors
-    # all not-yet-finished work: nothing remaining can be sampled before "as of now".
-    # Both are ES lower bounds on the same task, so they merge to one floor here and
-    # the forward pass reads a single number.
-    es_floor: dict[str, float] = {}
-    status_date = project.status_date
-    for t in task_map.values():
-        floor = 0.0
-        if t.planned_start is not None and t.planned_start > project.start_date:
-            floor = _snap_offset(t.planned_start, t.id)
-        if status_date is not None and status_date > project.start_date:
-            floor = max(floor, _snap_offset(status_date, t.id))
-        if floor:
-            es_floor[t.id] = floor
+    es_floor = _mc_es_floors(
+        project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal
+    )
 
     # The verbatim dates schedule() gives each completed task, resolved on the task's
     # OWN calendar (the same one _forward_pass lays its duration back on). Everything
@@ -2896,62 +3048,11 @@ def _mc_forward_pass(
             ef_mat[:, col] = ef_off
             continue
 
-        es_constraints = np.full(runs, es_floor.get(tid, 0.0))
-        ef_constraints = np.zeros(runs)
-        has_ef_constraint = False
+        es_constraints, ef_constraints, has_ef_constraint = _mc_edge_constraints(
+            tid, g, task_idx, edge_lag_delta, es_mat, ef_mat, es_floor, completed_edge, runs
+        )
 
-        for pred_id in g.predecessors(tid):
-            # A completed predecessor's constraint is a run-invariant constant that
-            # was resolved in scalar date space from its VERBATIM dates (#2460/#2461).
-            # Take it directly: routing it through the offset anchor + lag-delta path
-            # below would re-derive it from the working-day index, which cannot
-            # represent a non-working actual and lands a day off.
-            fixed = completed_edge.get((pred_id, tid))
-            if fixed is not None:
-                is_ef_constraint, imposed_off = fixed
-                if is_ef_constraint:
-                    np.maximum(ef_constraints, imposed_off, out=ef_constraints)
-                    has_ef_constraint = True
-                else:
-                    np.maximum(es_constraints, imposed_off, out=es_constraints)
-                continue
-
-            dep: Dependency = g[pred_id][tid]["dep"]
-            delta_arr = edge_lag_delta[(pred_id, tid)]
-            p = task_idx[pred_id]
-
-            # Anchor: predecessor finish for FS/FF, predecessor start for SS/SF.
-            if dep.dep_type in (DependencyType.FS, DependencyType.FF):
-                anchor = ef_mat[:, p]
-            else:
-                anchor = es_mat[:, p]
-            # Lag-free edges (the dominant kind) use the anchor directly instead
-            # of allocating a runs-sized zeros vector and adding it — adding
-            # zeros is exact in float64, so results are bit-identical (#1860).
-            # The in-place maximum removes the remaining temporary; it is safe
-            # because es/ef_constraints are freshly allocated owned arrays per
-            # task (never views aliasing the anchor's matrix) and both start
-            # fully initialized (SNET/status floors and zeros respectively).
-            constraint = anchor if delta_arr is None else anchor + _lag_term(delta_arr, anchor)
-            if dep.dep_type in (DependencyType.FS, DependencyType.SS):
-                np.maximum(es_constraints, constraint, out=es_constraints)
-            else:  # FF / SF
-                np.maximum(ef_constraints, constraint, out=ef_constraints)
-                has_ef_constraint = True
-
-        # Effective duration floors at one working day: a task occupies at least
-        # its start day, exactly as _finish_from_start returns the start day for
-        # a zero-duration milestone. With the raw duration, a milestone's
-        # exclusive EF collapsed onto its ES — FS successors started a working
-        # day early, lag anchors indexed the day *before* the milestone, and a
-        # terminal milestone's completion date converted one day early (#1066).
-        # Subtract the fixed elapsed portion of an in-progress task so only its
-        # remaining work is sampled (ADR-0132); the 1.0 floor then applies, so a
-        # fully-burned-down task behaves like a zero-remaining milestone.
-        sampled = dur_matrix[:, col]
-        if tid in elapsed_days:
-            sampled = sampled - elapsed_days[tid]
-        eff_dur = np.maximum(sampled, 1.0)
+        eff_dur = _mc_effective_duration(dur_matrix[:, col], tid, elapsed_days)
         es = es_constraints
         ef = es + eff_dur
 
@@ -2965,6 +3066,90 @@ def _mc_forward_pass(
         ef_mat[:, col] = ef
 
     return es_mat, ef_mat
+
+
+def _mc_edge_constraints(
+    tid: str,
+    g: nx.DiGraph[str],
+    task_idx: dict[str, int],
+    edge_lag_delta: dict[tuple[str, str], np.ndarray | None],
+    es_mat: np.ndarray,
+    ef_mat: np.ndarray,
+    es_floor: dict[str, float],
+    completed_edge: dict[tuple[str, str], tuple[bool, float]],
+    runs: int,
+) -> tuple[np.ndarray, np.ndarray, bool]:
+    """Fold every predecessor edge into one task's ES/EF constraint vectors.
+
+    A completed predecessor's constraint is a run-invariant constant already
+    resolved in scalar date space from its VERBATIM dates (#2460/#2461), so it is
+    taken directly: routing it through the offset anchor + lag-delta path would
+    re-derive it from the working-day index, which cannot represent a non-working
+    actual and lands a day off.
+
+    Returns ``(es_constraints, ef_constraints, has_ef_constraint)``.
+    """
+    es_constraints = np.full(runs, es_floor.get(tid, 0.0))
+    ef_constraints = np.zeros(runs)
+    has_ef_constraint = False
+
+    for pred_id in g.predecessors(tid):
+        fixed = completed_edge.get((pred_id, tid))
+        if fixed is not None:
+            is_ef_constraint, imposed_off = fixed
+            if is_ef_constraint:
+                np.maximum(ef_constraints, imposed_off, out=ef_constraints)
+                has_ef_constraint = True
+            else:
+                np.maximum(es_constraints, imposed_off, out=es_constraints)
+            continue
+
+        dep: Dependency = g[pred_id][tid]["dep"]
+        delta_arr = edge_lag_delta[(pred_id, tid)]
+        p = task_idx[pred_id]
+
+        # Anchor: predecessor finish for FS/FF, predecessor start for SS/SF.
+        if dep.dep_type in (DependencyType.FS, DependencyType.FF):
+            anchor = ef_mat[:, p]
+        else:
+            anchor = es_mat[:, p]
+        # Lag-free edges (the dominant kind) use the anchor directly instead
+        # of allocating a runs-sized zeros vector and adding it — adding
+        # zeros is exact in float64, so results are bit-identical (#1860).
+        # The in-place maximum removes the remaining temporary; it is safe
+        # because es/ef_constraints are freshly allocated owned arrays per
+        # task (never views aliasing the anchor's matrix) and both start
+        # fully initialized (SNET/status floors and zeros respectively).
+        constraint = anchor if delta_arr is None else anchor + _lag_term(delta_arr, anchor)
+        if dep.dep_type in (DependencyType.FS, DependencyType.SS):
+            np.maximum(es_constraints, constraint, out=es_constraints)
+        else:  # FF / SF
+            np.maximum(ef_constraints, constraint, out=ef_constraints)
+            has_ef_constraint = True
+
+    return es_constraints, ef_constraints, has_ef_constraint
+
+
+def _mc_effective_duration(
+    sampled: np.ndarray, tid: str, elapsed_days: dict[str, float]
+) -> np.ndarray:
+    """Sampled duration floored at one working day, less any elapsed portion.
+
+    The floor exists because a task occupies at least its start day, exactly as
+    ``_finish_from_start`` returns the start day for a zero-duration milestone.
+    With the raw duration a milestone's exclusive EF collapsed onto its ES — FS
+    successors started a working day early, lag anchors indexed the day *before*
+    the milestone, and a terminal milestone's completion date converted one day
+    early (#1066).
+
+    The fixed elapsed portion of an in-progress task is subtracted first so only
+    its remaining work is sampled (ADR-0132); the 1.0 floor then applies, so a
+    fully-burned-down task behaves like a zero-remaining milestone.
+    """
+    if tid in elapsed_days:
+        sampled = sampled - elapsed_days[tid]
+    eff_dur: np.ndarray = np.maximum(sampled, 1.0)
+    return eff_dur
 
 
 def _to_reference_offset(ef: np.ndarray, wd_ord_own: np.ndarray, ref_ord: np.ndarray) -> np.ndarray:
