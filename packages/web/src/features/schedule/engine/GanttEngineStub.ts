@@ -15,7 +15,12 @@
  */
 
 import type { Task, TaskLink } from '@/types';
-import type { GanttEngine, GanttEngineEventMap, HoverChain } from './GanttEngine';
+import type {
+  FilterHighlight,
+  GanttEngine,
+  GanttEngineEventMap,
+  HoverChain,
+} from './GanttEngine';
 import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
 import type { ChartRenderOptions } from './GanttRenderer';
 
@@ -61,6 +66,10 @@ export class GanttEngineStub implements GanttEngine {
   // ── Hover chain ───────────────────────────────────────────────────────────
 
   setHoverChain(_chain: HoverChain | null): void {}
+
+  // ── Filter highlight (#2384) ──────────────────────────────────────────────
+
+  setFilterHighlight(_highlight: FilterHighlight | null): void {}
 
   // ── Event emitter ─────────────────────────────────────────────────────────
 

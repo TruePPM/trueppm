@@ -75,6 +75,7 @@ vi.mock('@/components/Toast', () => ({
 const fakeEngine = {
   on: vi.fn(() => vi.fn()),
   setHoverChain: vi.fn(),
+  setFilterHighlight: vi.fn(),
   selectTask: vi.fn(),
   scrollToDate: vi.fn(),
   fitToProject: vi.fn(),
