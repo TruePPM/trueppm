@@ -26,6 +26,7 @@ import { ProjectAttachmentsPage } from './project/ProjectAttachmentsPage';
 import { ProjectLabelsPage } from './project/ProjectLabelsPage';
 import { ProjectVisibilityPage } from './project/ProjectVisibilityPage';
 import { ProjectSharingPage } from './project/ProjectSharingPage';
+import { ProjectAgentsPage } from './project/ProjectAgentsPage';
 import { ProjectArchivePage } from './project/ProjectArchivePage';
 import {
   ResourcesIcon,
@@ -43,6 +44,7 @@ import {
   ShareIcon,
   PlugIcon,
   BellIcon,
+  AgentIcon,
 } from '@/components/Icons';
 
 function NavIcon({ children }: { children: ReactNode }) {
@@ -230,6 +232,16 @@ export function buildProjectSettingsNav({
           ),
         },
         {
+          id: 'agents',
+          label: 'Agents',
+          keywords: 'ai agent mcp llm assistant read access opt out consent privacy',
+          icon: (
+            <NavIcon>
+              <AgentIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
           id: 'integrations',
           label: 'Integrations',
           keywords: 'jira gitlab connect external source',
@@ -360,6 +372,10 @@ export function ProjectSettingsPage() {
           <ProjectSignalPrivacyPage />
         </SettingsSection>
       )}
+      <SettingsSection id="agents">
+        <ProjectAgentsPage />
+      </SettingsSection>
+
       <SettingsSection id="attachments">
         <ProjectAttachmentsPage />
       </SettingsSection>

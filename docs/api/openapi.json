@@ -46589,6 +46589,10 @@
                         },
                         "nullable": true
                     },
+                    "mcp_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
                     "calendar": {
                         "type": "string",
                         "format": "uuid",
@@ -46852,6 +46856,10 @@
                             "minLength": 1,
                             "maxLength": 255
                         },
+                        "nullable": true
+                    },
+                    "mcp_enabled": {
+                        "type": "boolean",
                         "nullable": true
                     },
                     "show_reporting": {
@@ -47858,6 +47866,9 @@
                     "attachments_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     },
+                    "mcp_enabled": {
+                        "type": "boolean"
+                    },
                     "calendar": {
                         "type": "string",
                         "format": "uuid",
@@ -48450,6 +48461,19 @@
                         },
                         "readOnly": true
                     },
+                    "mcp_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "effective_mcp_enabled": {
+                        "type": "boolean",
+                        "description": "Whether agents may read this program, per the cascade (ADR-0678, #2482).\n\n``include_instance=False`` for the same reason as the project serializer: the\noperator's instance switch is shown as its own fact, not folded into the\nprogram's decision.",
+                        "readOnly": true
+                    },
+                    "inherited_mcp_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "calendar": {
                         "type": "string",
                         "format": "uuid",
@@ -48602,6 +48626,7 @@
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
+                    "effective_mcp_enabled",
                     "effective_methodology",
                     "effective_public_sharing",
                     "effective_task_duration_change_percent_policy",
@@ -48615,6 +48640,7 @@
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
                     "inherited_mc_history_retention_cap",
+                    "inherited_mcp_enabled",
                     "inherited_methodology",
                     "inherited_public_sharing",
                     "inherited_task_duration_change_percent_policy",
@@ -49009,6 +49035,10 @@
                             "minLength": 1,
                             "maxLength": 255
                         },
+                        "nullable": true
+                    },
+                    "mcp_enabled": {
+                        "type": "boolean",
                         "nullable": true
                     },
                     "calendar": {
@@ -49475,6 +49505,19 @@
                         },
                         "readOnly": true
                     },
+                    "mcp_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "effective_mcp_enabled": {
+                        "type": "boolean",
+                        "description": "Whether agents may read this project, per the team-scope cascade (ADR-0678).\n\n``include_instance=False``: the ADR-0497 instance switch is a *separate*\noperator fact the settings UI shows on its own row. Folding it in here would\nmake the team's toggle read \"off\" for a reason the team cannot act on.",
+                        "readOnly": true
+                    },
+                    "inherited_mcp_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "show_reporting": {
                         "type": "boolean",
                         "nullable": true
@@ -49624,6 +49667,7 @@
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
+                    "effective_mcp_enabled",
                     "effective_methodology",
                     "effective_public_sharing",
                     "effective_surface_visibility",
@@ -49637,6 +49681,7 @@
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
                     "inherited_mc_history_retention_cap",
+                    "inherited_mcp_enabled",
                     "inherited_methodology",
                     "inherited_public_sharing",
                     "inherited_surface_visibility",
@@ -50112,6 +50157,19 @@
                         },
                         "readOnly": true
                     },
+                    "mcp_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "effective_mcp_enabled": {
+                        "type": "boolean",
+                        "description": "Whether agents may read this project, per the team-scope cascade (ADR-0678).\n\n``include_instance=False``: the ADR-0497 instance switch is a *separate*\noperator fact the settings UI shows on its own row. Folding it in here would\nmake the team's toggle read \"off\" for a reason the team cannot act on.",
+                        "readOnly": true
+                    },
+                    "inherited_mcp_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "show_reporting": {
                         "type": "boolean",
                         "nullable": true
@@ -50297,6 +50355,7 @@
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
+                    "effective_mcp_enabled",
                     "effective_methodology",
                     "effective_public_sharing",
                     "effective_surface_visibility",
@@ -50310,6 +50369,7 @@
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
                     "inherited_mc_history_retention_cap",
+                    "inherited_mcp_enabled",
                     "inherited_methodology",
                     "inherited_public_sharing",
                     "inherited_surface_visibility",
@@ -50891,6 +50951,10 @@
                             "minLength": 1,
                             "maxLength": 255
                         },
+                        "nullable": true
+                    },
+                    "mcp_enabled": {
+                        "type": "boolean",
                         "nullable": true
                     },
                     "show_reporting": {
@@ -57275,6 +57339,9 @@
                     },
                     "attachments_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "mcp_enabled": {
+                        "type": "boolean"
                     },
                     "calendar": {
                         "type": "string",

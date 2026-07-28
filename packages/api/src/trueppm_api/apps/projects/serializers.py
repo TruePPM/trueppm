@@ -458,6 +458,16 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     inherited_attachments_enabled = serializers.SerializerMethodField()
     effective_allowed_attachment_types = serializers.SerializerMethodField()
     inherited_allowed_attachment_types = serializers.SerializerMethodField()
+    # Server-resolved MCP/agent read consent (ADR-0678, #2482). Unlike the settings
+    # above, this cascade is RESTRICTIVE-ONLY: effective = workspace AND program AND
+    # project, so any scope may deny and none may grant over another's denial.
+    # ``effective_mcp_enabled`` deliberately EXCLUDES the instance-wide switch
+    # (ADR-0497) so the UI shows the team's own decision as a fact distinct from the
+    # operator's — the client renders both rather than collapsing them into one
+    # confusing "off". ``inherited_mcp_enabled`` is what this scope would resolve to
+    # with its own value cleared to "no opinion" (drives the Inherit affordance).
+    effective_mcp_enabled = serializers.SerializerMethodField()
+    inherited_mcp_enabled = serializers.SerializerMethodField()
     # Server-resolved leaf-surface visibility (ADR-0193, #956): per-surface project
     # override ?? the methodology default. Clients read ``effective_surface_visibility``
     # (an object keyed by surface) to gate the reports tab and the in-Schedule
@@ -596,6 +606,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_attachments_enabled",
             "effective_allowed_attachment_types",
             "inherited_allowed_attachment_types",
+            # Team/program MCP read consent (ADR-0678, #2482). Nullable: NULL = "no
+            # opinion" (never "yes"), False = closed to agent reads. Admin+-gated
+            # write by the allowlist default — deliberately NOT in
+            # _SCHEDULER_WRITABLE_FIELDS, so the validate() gate blocks a Scheduler
+            # from re-enabling agent reads over the team's Admin decision (T7).
+            "mcp_enabled",
+            "effective_mcp_enabled",
+            "inherited_mcp_enabled",
             # Leaf-surface visibility overrides (ADR-0193, #956). Nullable: NULL =
             # inherit the methodology default. Admin+-gated write by the allowlist
             # default (not in _SCHEDULER_WRITABLE_FIELDS, so the validate() gate below
@@ -653,6 +671,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_attachments_enabled",
             "effective_allowed_attachment_types",
             "inherited_allowed_attachment_types",
+            "effective_mcp_enabled",
+            "inherited_mcp_enabled",
             "effective_surface_visibility",
             "inherited_surface_visibility",
             "is_archived",
@@ -1159,6 +1179,24 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         return resolve_inherited_attachments_enabled(obj, workspace=self._iteration_workspace())
 
+    def get_effective_mcp_enabled(self, obj: Project) -> bool:
+        """Whether agents may read this project, per the team-scope cascade (ADR-0678).
+
+        ``include_instance=False``: the ADR-0497 instance switch is a *separate*
+        operator fact the settings UI shows on its own row. Folding it in here would
+        make the team's toggle read "off" for a reason the team cannot act on.
+        """
+        from .mcp_settings import resolve_mcp_enabled
+
+        return resolve_mcp_enabled(
+            obj, workspace=self._iteration_workspace(), include_instance=False
+        )
+
+    def get_inherited_mcp_enabled(self, obj: Project) -> bool:
+        from .mcp_settings import resolve_inherited_mcp_enabled
+
+        return resolve_inherited_mcp_enabled(obj, workspace=self._iteration_workspace())
+
     def get_effective_allowed_attachment_types(self, obj: Project) -> list[str]:
         from .attachment_policy import resolve_effective_attachment_types
 
@@ -1520,6 +1558,16 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     inherited_attachments_enabled = serializers.SerializerMethodField()
     effective_allowed_attachment_types = serializers.SerializerMethodField()
     inherited_allowed_attachment_types = serializers.SerializerMethodField()
+    # Server-resolved MCP/agent read consent (ADR-0678, #2482). Unlike the settings
+    # above, this cascade is RESTRICTIVE-ONLY: effective = workspace AND program AND
+    # project, so any scope may deny and none may grant over another's denial.
+    # ``effective_mcp_enabled`` deliberately EXCLUDES the instance-wide switch
+    # (ADR-0497) so the UI shows the team's own decision as a fact distinct from the
+    # operator's — the client renders both rather than collapsing them into one
+    # confusing "off". ``inherited_mcp_enabled`` is what this scope would resolve to
+    # with its own value cleared to "no opinion" (drives the Inherit affordance).
+    effective_mcp_enabled = serializers.SerializerMethodField()
+    inherited_mcp_enabled = serializers.SerializerMethodField()
     # Server-resolved working calendar (ADR-0441, #1987): program override ?? workspace
     # calendar, or null for the system default (Mon-Fri/8h/UTC). Clients read
     # ``effective_calendar``; ``inherited_calendar`` is the workspace value the program
@@ -1585,6 +1633,14 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_attachments_enabled",
             "effective_allowed_attachment_types",
             "inherited_allowed_attachment_types",
+            # Team/program MCP read consent (ADR-0678, #2482). Nullable: NULL = "no
+            # opinion" (never "yes"), False = closed to agent reads. Admin+-gated
+            # write by the allowlist default — deliberately NOT in
+            # _SCHEDULER_WRITABLE_FIELDS, so the validate() gate blocks a Scheduler
+            # from re-enabling agent reads over the team's Admin decision (T7).
+            "mcp_enabled",
+            "effective_mcp_enabled",
+            "inherited_mcp_enabled",
             # Program working-calendar override (ADR-0441, #1987). Nullable: NULL =
             # inherit the workspace calendar. Admin+-gated write (program viewset gates
             # update at ADMIN). effective_/inherited_/source are read-only resolved facts.
@@ -1658,6 +1714,8 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_attachments_enabled",
             "effective_allowed_attachment_types",
             "inherited_allowed_attachment_types",
+            "effective_mcp_enabled",
+            "inherited_mcp_enabled",
             "effective_calendar",
             "inherited_calendar",
             "calendar_source",
@@ -1878,6 +1936,22 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         from .attachment_policy import resolve_inherited_attachments_enabled
 
         return resolve_inherited_attachments_enabled(obj, workspace=self._sharing_workspace())
+
+    def get_effective_mcp_enabled(self, obj: Program) -> bool:
+        """Whether agents may read this program, per the cascade (ADR-0678, #2482).
+
+        ``include_instance=False`` for the same reason as the project serializer: the
+        operator's instance switch is shown as its own fact, not folded into the
+        program's decision.
+        """
+        from .mcp_settings import resolve_mcp_enabled
+
+        return resolve_mcp_enabled(obj, workspace=self._sharing_workspace(), include_instance=False)
+
+    def get_inherited_mcp_enabled(self, obj: Program) -> bool:
+        from .mcp_settings import resolve_inherited_mcp_enabled
+
+        return resolve_inherited_mcp_enabled(obj, workspace=self._sharing_workspace())
 
     def get_effective_allowed_attachment_types(self, obj: Program) -> list[str]:
         from .attachment_policy import resolve_effective_attachment_types

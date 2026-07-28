@@ -201,6 +201,19 @@ export interface ApiProjectDetail {
   inherited_attachments_enabled: boolean;
   inherited_allowed_attachment_types: string[];
   /**
+   * Team consent over AI/MCP agent reads of this project (ADR-0678, issue 2482).
+   * `null` = no opinion (inherit); `false` = closed to agent reads.
+   *
+   * Unlike the settings above, the cascade is RESTRICTIVE-ONLY: the effective value
+   * ANDs workspace, program, and project, so any scope may deny and none may grant
+   * over another's denial. `effective_mcp_enabled` deliberately EXCLUDES the
+   * operator's instance-wide switch (ADR-0497) so the UI can show the team's own
+   * decision as a distinct fact rather than collapsing two switches into one.
+   */
+  mcp_enabled: boolean | null;
+  effective_mcp_enabled: boolean;
+  inherited_mcp_enabled: boolean;
+  /**
    * Percent-complete-on-duration-change policy override (ADR-0151, issue 1254).
    * null = inherit the program/workspace value. `keep` leaves % untouched,
    * `prorate` scales it by the duration ratio, `confirm` defers to the desktop

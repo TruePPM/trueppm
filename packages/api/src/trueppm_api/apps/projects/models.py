@@ -795,6 +795,15 @@ class Program(VersionedModel):
         null=True,
         blank=True,
     )
+    # Program-scope MCP/agent read consent (ADR-0678, #2482). NULL = *no opinion*
+    # (never "yes"); False = this program and every project under it are closed to
+    # agent reads. Unlike the override-style settings above, the cascade is
+    # RESTRICTIVE-ONLY: the effective value ANDs every scope, so a program can deny
+    # for its projects but can never re-enable one that denied for itself. Resolved
+    # computed-on-read in ``apps.projects.mcp_settings``. Not in
+    # ``_HISTORY_EXCLUDED_BASE`` — a consent control whose flips are not audited is
+    # not a consent control.
+    mcp_enabled = models.BooleanField(null=True, blank=True)
     # Program-level working-calendar override (ADR-0441, #1987). NULL = inherit the
     # workspace calendar; a value overrides it for every project in this program whose
     # own ``Project.calendar`` is NULL. The effective base calendar CPM schedules
@@ -1330,6 +1339,18 @@ class Project(VersionedModel):
         null=True,
         blank=True,
     )
+    # Project-scope MCP/agent read consent — the team's own switch (ADR-0678,
+    # #2482). NULL = *no opinion* (never "yes"); False = no agent token may read
+    # this project's data, whatever its scope and whatever any parent prefers.
+    # The cascade is RESTRICTIVE-ONLY (AND across instance/workspace/program/
+    # project), so this denial cannot be overridden from above — that is the whole
+    # point of the control (Morgan's #2415 objection). A read-only ``mcp:read``
+    # token cannot flip it back: ``TokenReadOnlyMethods`` confines tokens to safe
+    # methods, so the agent cannot lift the control that restrains it. Resolved
+    # computed-on-read in ``apps.projects.mcp_settings``; surfaced as
+    # ``effective_mcp_enabled``/``inherited_mcp_enabled``. Not in
+    # ``_HISTORY_EXCLUDED_BASE`` so every flip is captured (audit).
+    mcp_enabled = models.BooleanField(null=True, blank=True)
     # Independent leaf-surface visibility overrides (ADR-0193, #956). NULL =
     # inherit the methodology default (``surface_visibility.METHODOLOGY_SURFACE_DEFAULTS``
     # keyed on ``effective_methodology``); True/False = explicit per-project override.

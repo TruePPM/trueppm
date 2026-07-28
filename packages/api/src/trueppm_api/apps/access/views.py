@@ -38,6 +38,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectNotArchived,
     IsProjectOwner,
     McpReadableViewMixin,
+    McpScope,
     _membership_role,
     _program_membership_role,
 )
@@ -974,6 +975,9 @@ class MeView(McpReadableViewMixin, APIView):
     Returns display name and initials derived from auth.User fields.
     No project context — role is project-scoped and available separately.
     """
+
+    # ADR-0678 (#2482): identity echo — no project-scoped rows to withhold.
+    mcp_scope = McpScope.NO_PROJECT_DATA
 
     permission_classes = [IsAuthenticated]
 
