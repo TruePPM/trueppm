@@ -7,6 +7,7 @@ workshop groups, including its best-effort failure handling.
 
 from __future__ import annotations
 
+import ast
 from datetime import date
 from typing import Any
 from unittest.mock import patch
@@ -470,6 +471,92 @@ FROZEN_WS_EVENT_TYPES = frozenset(
 )
 
 
+_BROADCAST_HELPERS = {"broadcast_board_event", "abroadcast_board_event"}
+
+
+def _callee_name(call: ast.Call) -> str | None:
+    func = call.func
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    if isinstance(func, ast.Name):
+        return func.id
+    return None
+
+
+def _str_const(node: ast.expr | None) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _event_type_arg(call: ast.Call) -> ast.expr | None:
+    """The node in a helper call's ``event_type`` slot (2nd positional / kw)."""
+    if len(call.args) >= 2:
+        return call.args[1]
+    for kw in call.keywords:
+        if kw.arg == "event_type":
+            return kw.value
+    return None
+
+
+def _find_broadcast_wrappers(tree: ast.Module) -> dict[str, list[tuple[str, int]]]:
+    """Pass 1 — wrapper functions in one module.
+
+    A wrapper forwards one of its *parameters* into a helper's ``event_type`` slot.
+    Returns, per wrapper name, the parameter name and the positional index that
+    parameter occupies at the wrapper's call sites — a bound method drops
+    ``self``/``cls``, so the call-site index is one less than the def index.
+    """
+    wrappers: dict[str, list[tuple[str, int]]] = {}
+    for fn in ast.walk(tree):
+        if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        params = [a.arg for a in fn.args.posonlyargs] + [a.arg for a in fn.args.args]
+        is_method = bool(params) and params[0] in {"self", "cls"}
+        for sub in ast.walk(fn):
+            if not isinstance(sub, ast.Call) or _callee_name(sub) not in _BROADCAST_HELPERS:
+                continue
+            ev = _event_type_arg(sub)
+            if isinstance(ev, ast.Name) and ev.id in params:
+                def_index = params.index(ev.id)
+                wrappers.setdefault(fn.name, []).append(
+                    (ev.id, def_index - 1 if is_method else def_index)
+                )
+    return wrappers
+
+
+def _wrapper_call_literals(call: ast.Call, slots: list[tuple[str, int]]) -> set[str]:
+    """Event-type literals passed at one wrapper call site, positionally or by keyword."""
+    found: set[str] = set()
+    for param_name, call_index in slots:
+        if 0 <= call_index < len(call.args):
+            lit = _str_const(call.args[call_index])
+            if lit is not None:
+                found.add(lit)
+        for kw in call.keywords:
+            if kw.arg == param_name:
+                lit = _str_const(kw.value)
+                if lit is not None:
+                    found.add(lit)
+    return found
+
+
+def _literals_in_module(tree: ast.Module, wrappers: dict[str, list[tuple[str, int]]]) -> set[str]:
+    """Pass 2 — literals from direct helper calls and from calls to a known wrapper."""
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _callee_name(node)
+        if name in _BROADCAST_HELPERS:
+            lit = _str_const(_event_type_arg(node))
+            if lit is not None:
+                found.add(lit)
+        elif name in wrappers:
+            found |= _wrapper_call_literals(node, wrappers[name])
+    return found
+
+
 def _broadcast_event_types_in_source() -> set[str]:
     """AST-scan the API source for literal event types reaching the broadcast helpers.
 
@@ -491,81 +578,15 @@ def _broadcast_event_types_in_source() -> set[str]:
     against call sites in the same file), which keeps same-named wrappers in
     different modules from cross-contaminating.
     """
-    import ast
     import pathlib
 
     import trueppm_api
 
     root = pathlib.Path(trueppm_api.__file__).resolve().parent
-    helpers = {"broadcast_board_event", "abroadcast_board_event"}
     found: set[str] = set()
-
-    def _callee_name(call: ast.Call) -> str | None:
-        func = call.func
-        if isinstance(func, ast.Attribute):
-            return func.attr
-        if isinstance(func, ast.Name):
-            return func.id
-        return None
-
-    def _str_const(node: ast.expr | None) -> str | None:
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return node.value
-        return None
-
-    def _event_type_arg(call: ast.Call) -> ast.expr | None:
-        """The node in a helper call's ``event_type`` slot (2nd positional / kw)."""
-        if len(call.args) >= 2:
-            return call.args[1]
-        for kw in call.keywords:
-            if kw.arg == "event_type":
-                return kw.value
-        return None
-
     for path in root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
-
-        # Pass 1 — find wrapper functions in this module. A wrapper forwards a
-        # parameter into a helper's event_type slot. Record, per wrapper name,
-        # the parameter name and the positional index that parameter occupies at
-        # the wrapper's call sites (a bound method drops `self`/`cls`, so the
-        # call-site index is one less than the def index).
-        wrappers: dict[str, list[tuple[str, int]]] = {}
-        for fn in ast.walk(tree):
-            if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
-                continue
-            params = [a.arg for a in fn.args.posonlyargs] + [a.arg for a in fn.args.args]
-            is_method = bool(params) and params[0] in {"self", "cls"}
-            for sub in ast.walk(fn):
-                if not isinstance(sub, ast.Call) or _callee_name(sub) not in helpers:
-                    continue
-                ev = _event_type_arg(sub)
-                if isinstance(ev, ast.Name) and ev.id in params:
-                    def_index = params.index(ev.id)
-                    call_index = def_index - 1 if is_method else def_index
-                    wrappers.setdefault(fn.name, []).append((ev.id, call_index))
-
-        # Pass 2 — collect literals from direct helper calls and from calls to
-        # any wrapper discovered above.
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            name = _callee_name(node)
-            if name in helpers:
-                lit = _str_const(_event_type_arg(node))
-                if lit is not None:
-                    found.add(lit)
-            elif name in wrappers:
-                for param_name, call_index in wrappers[name]:
-                    if 0 <= call_index < len(node.args):
-                        lit = _str_const(node.args[call_index])
-                        if lit is not None:
-                            found.add(lit)
-                    for kw in node.keywords:
-                        if kw.arg == param_name:
-                            lit = _str_const(kw.value)
-                            if lit is not None:
-                                found.add(lit)
+        found |= _literals_in_module(tree, _find_broadcast_wrappers(tree))
     return found
 
 
