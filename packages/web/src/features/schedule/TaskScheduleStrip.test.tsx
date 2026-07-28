@@ -243,6 +243,18 @@ describe('TaskScheduleStrip', () => {
       expect(screen.getByRole('button', { name: 'Move to To Do' })).toBeInTheDocument();
     });
 
+    it('carries the same docs deep-link as the row chip (#2484)', () => {
+      render(<TaskScheduleStrip task={flagged()} {...editableProps} />);
+      const help = screen.getByRole('link', { name: /how dates work/i });
+      // One condition, one explanation — the chip popover and this advisory
+      // must resolve to the identical anchor (web-rule 212).
+      expect(help).toHaveAttribute(
+        'href',
+        'https://docs.trueppm.com/features/schedule/#committed-vs-computed-start-dates',
+      );
+      expect(help).toHaveAttribute('rel', 'noopener noreferrer');
+    });
+
     it('"Set committed start" PATCHes planned_start = the computed start', async () => {
       render(<TaskScheduleStrip task={flagged()} {...editableProps} />);
       await userEvent.click(screen.getByRole('button', { name: /Set committed start/i }));

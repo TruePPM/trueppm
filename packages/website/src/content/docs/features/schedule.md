@@ -51,8 +51,99 @@ A separate distinction, easy to conflate: a task can carry a PM-set **committed
 start** or run purely on **computed** CPM dates, and the app flags the second
 case where it matters. That is about *provenance* — who put the date there.
 This section is about *probability* — how likely any date is to hold. A
-committed date is no more likely to be met than a computed one.
+committed date is no more likely to be met than a computed one. The provenance
+axis is covered in full below:
+[Committed vs computed start dates](#committed-vs-computed-start-dates).
 :::
+
+## Committed vs computed start dates
+
+Every task on the Schedule has a Start and a Finish, but they do not all come
+from the same place. Two dates are in play, and only one of them is yours:
+
+| | Field | Who sets it | What it means |
+|---|---|---|---|
+| **Committed start** | `planned_start` | You (the PM) | "This work is not to begin before this date" |
+| **Computed start** | `early_start` | The CPM pass | "Given the network, the earliest this *can* begin" |
+
+The Start column shows the **computed** date, because that is the one the
+schedule actually runs on. A committed start does not replace it — it
+constrains it.
+
+### What committing a start actually does
+
+A committed start is a **start-no-earlier-than (SNET)** constraint. On each
+forward pass the engine takes the later of the two:
+
+```
+early_start = max(computed early_start, committed start, project start)
+```
+
+So it is a **floor, not a pin**. Committing 12 May does not hold the task on
+12 May — it stops the task from drifting *earlier* than 12 May. A predecessor
+that slips will still push the task past it, and that is correct: a constraint
+that overrode the network would be a way of hiding a late plan rather than
+seeing one.
+
+Two consequences worth knowing:
+
+- A task can be uncommitted and still anchored. A schedulable task assigned to
+  a sprint inherits its **sprint start date** as a synthetic floor, so agile
+  work positions inside its sprint window instead of sliding back to the
+  project origin. That floor is engine input only — nothing is written to the
+  task, and the task still reads as having no committed start.
+- Committing a start is not the same as setting a deadline. Constraints on the
+  finish side are a separate mechanism; see
+  [Scheduling before the project start](#scheduling-before-the-project-start)
+  for the related project-boundary behavior.
+
+### Why a task in progress with no committed start is flagged
+
+A task that has reached **In progress**, **Review**, or **Complete** without a
+committed start carries an amber **no committed start** chip on its Schedule
+row, and the same advisory inside the [task detail
+drawer](#task-detail-drawer).
+
+The flag is not about the task being late. It is about the dates being
+**unfalsifiable**. Work is underway, so somebody made a real-world decision to
+begin — but nothing on the task records what that decision was, so its Start
+and Finish are pure CPM output that will move every time a predecessor moves.
+There is no baseline to have been wrong about, and nothing to compare a slip
+against. That is the specific case where "computed" stops being a harmless
+default and starts costing you the ability to tell a plan from a rewrite of the
+plan.
+
+Summary tasks are excluded — their dates are rollups of their children, not a
+committed start of their own.
+
+### The two ways to clear it
+
+The chip offers exactly two remediations, because there are exactly two honest
+answers:
+
+- **Set committed start** — accepts the CPM-computed start as the committed
+  one. Use this when the task genuinely started when the schedule said it
+  would; you are confirming the plan, not changing it. From here on, the date
+  is a record, and later movement is visible as movement.
+- **Move to To Do** — returns the task to **Not started**. Use this when the
+  status was the mistake — the card was dragged early, or work was expected to
+  begin and did not.
+
+Pick by asking what actually happened in the world, not which one makes the
+chip go away.
+
+### When leaving a task uncommitted is right
+
+Not every task needs a committed start, and committing every task is its own
+failure mode — a schedule where every task carries a floor is a schedule that
+can no longer compress, and the critical path stops telling you anything.
+Leave a task on computed dates when its timing is genuinely derived: routine
+work in the middle of a chain, tasks whose only real constraint is their
+predecessor, anything not yet started.
+
+Commit a start when there is a reason outside the network — a vendor arrives
+that week, a gate is fixed, the work has begun. Those are the dates worth
+defending; the rest should be free to move.
 
 ## Layout
 
