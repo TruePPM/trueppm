@@ -15,7 +15,9 @@ export interface ForecastDiagnosticWire {
  * (ADR-0028). Shared by the run and latest hooks so the two never drift; returns
  * `undefined` for a legacy payload that predates the field.
  */
-export function mapForecastDiagnostic(wire: ForecastDiagnosticWire | undefined): ForecastDiagnostic | undefined {
+export function mapForecastDiagnostic(
+  wire: ForecastDiagnosticWire | undefined,
+): ForecastDiagnostic | undefined {
   if (!wire) return undefined;
   return {
     deterministic: wire.deterministic,
@@ -45,19 +47,34 @@ const MISSING_ESTIMATES =
  */
 export function forecastFlatGuidance(basis: ForecastDiagnostic | undefined): string {
   if (!basis) return MISSING_ESTIMATES;
-  switch (basis.reason) {
+  if (basis.reason === 'estimates_pending_approval') {
+    // The only remedy that reads better with the count the diagnostic carries.
+    const n = basis.tasksPendingApproval;
+    return n === 1
+      ? '1 task estimate is awaiting approval — approve it to fold its range into the forecast.'
+      : `${n} task estimates are awaiting approval — approve them to fold their range into the forecast.`;
+  }
+  return forecastRemedyForReason(basis.reason);
+}
+
+/**
+ * The same remedy copy, addressable from a bare reason code.
+ *
+ * The Overview added-time card (#2483) reads its reason off the project payload
+ * rather than a full diagnostic, and must not restate this guidance in its own
+ * words — two surfaces explaining the same flat forecast differently is exactly
+ * the drift {@link forecastFlatGuidance} was centralized to prevent.
+ */
+export function forecastRemedyForReason(reason: ForecastReason | null): string {
+  switch (reason) {
     case 'no_committed_tasks':
       return 'There are no committed tasks to forecast — move work out of the backlog or add tasks.';
     case 'all_complete':
       return 'All committed work is complete, so there is nothing left to forecast.';
     case 'estimates_off_critical_path':
       return "Estimated tasks aren't on the critical path, so they don't move the finish date.";
-    case 'estimates_pending_approval': {
-      const n = basis.tasksPendingApproval;
-      return n === 1
-        ? '1 task estimate is awaiting approval — approve it to fold its range into the forecast.'
-        : `${n} task estimates are awaiting approval — approve them to fold their range into the forecast.`;
-    }
+    case 'estimates_pending_approval':
+      return 'Task estimates are awaiting approval — approve them to fold their range into the forecast.';
     case 'no_velocity_history':
       return 'Close a sprint to build the velocity history this agile forecast samples from.';
     case 'no_estimates':

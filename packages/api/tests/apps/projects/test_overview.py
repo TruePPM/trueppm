@@ -784,3 +784,100 @@ class TestTeamUtilization:
         )
         TaskResource.objects.create(task=future, resource=resource, units=Decimal("1.0"))
         assert client.get(self.url(project.pk)).json()["team_utilization_pct"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Added time — the schedule risk premium on the overview payload (#2483)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestOverviewAddedTime:
+    """The premium travels with project health, not only with a forecast run.
+
+    Promoting it onto this payload is the whole point of #2483: every consumer of
+    project health — cards, MCP health reads, rollups — can now answer "how much
+    time is risk adding here" without running a simulation of its own.
+    """
+
+    @staticmethod
+    def url(pk: object) -> str:
+        return f"/api/v1/projects/{pk}/overview/"
+
+    @staticmethod
+    def make_run(project: Project, **kwargs: object) -> object:
+        from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+        defaults: dict[str, object] = {
+            "p50": datetime.date(2026, 10, 26),
+            "p80": datetime.date(2026, 11, 4),
+            "p95": datetime.date(2026, 11, 20),
+            "cpm_finish": datetime.date(2026, 10, 24),
+            "n_simulations": 2000,
+        }
+        defaults.update(kwargs)
+        return MonteCarloRun.objects.create(project=project, **defaults)
+
+    def test_reports_not_run_when_no_simulation_exists(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        data = client.get(self.url(project.pk)).json()
+
+        assert data["risk_premium_state"] == "not_run"
+        assert data["risk_premium_days"] is None
+
+    def test_carries_the_premium_and_both_dates_it_spans(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        self.make_run(project)
+
+        data = client.get(self.url(project.pk)).json()
+
+        assert data["risk_premium_days"] == 11
+        assert data["risk_premium_cpm_finish"] == "2026-10-24"
+        assert data["risk_premium_p80"] == "2026-11-04"
+        assert data["risk_premium_state"] in {"premium", "stale"}
+
+    def test_reads_the_most_recent_run(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        self.make_run(project, p80=datetime.date(2026, 12, 25))
+        newest = self.make_run(project, p80=datetime.date(2026, 11, 4))
+
+        data = client.get(self.url(project.pk)).json()
+
+        assert data["risk_premium_days"] == 11
+        assert data["risk_premium_as_of"] == newest.taken_at.isoformat()  # type: ignore[attr-defined]
+
+    def test_an_unestimated_project_is_unmeasurable_not_a_zero_premium(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """The safety property, end to end.
+
+        A flat run on a project with no three-point estimates must not reach the
+        client as a premium of 0 days — that would present the least-understood
+        project as the safest one.
+        """
+        self.make_run(
+            project,
+            p80=datetime.date(2026, 10, 24),
+            diagnostic={
+                "deterministic": True,
+                "reason": "no_estimates",
+                "tasks_total": 8,
+                "tasks_with_variance": 0,
+            },
+        )
+
+        data = client.get(self.url(project.pk)).json()
+
+        assert data["risk_premium_state"] == "unmeasurable"
+        assert data["risk_premium_reason"] == "no_estimates"
+        # No commitment date is offered: a flat run's "P80" is the CPM date under
+        # another name, and acting on it would mean acting on an uncomputed forecast.
+        assert data["risk_premium_p80"] is None
+
+    def test_requires_project_membership(self, project: Project, other_user: object) -> None:
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        assert c.get(self.url(project.pk)).status_code == 403

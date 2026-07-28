@@ -15860,6 +15860,12 @@
                                         "value": {
                                             "schedule_health": "on_track",
                                             "spi": 1.02,
+                                            "risk_premium_days": 11,
+                                            "risk_premium_ratio": 0.09,
+                                            "risk_premium_band": null,
+                                            "risk_premium_as_of": "2026-07-27T09:12:00Z",
+                                            "risk_premium_reason": null,
+                                            "risk_premium_state": "premium",
                                             "tasks_late_count": 2,
                                             "critical_task_count": 7,
                                             "total_tasks": 48,

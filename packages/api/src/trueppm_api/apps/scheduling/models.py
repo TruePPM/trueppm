@@ -363,6 +363,22 @@ class MonteCarloRun(models.Model):
     # bucket down-sampling at persist time (the cache copy stays full) so a
     # pathological high-bucket run cannot bloat the row.
     distribution = models.JSONField(null=True, blank=True)
+    # Why this run has — or lacks — an uncertainty band: the
+    # ``{deterministic, reason, tasks_total, tasks_with_variance, ...}`` payload
+    # from :func:`forecast_diagnostic` (#1340), persisted with the run (#2483).
+    #
+    # Load-bearing for the "added time" metric, not merely informational. A flat
+    # run yields a premium of exactly 0 days, and a project with no three-point
+    # estimates is always flat — so without the reason code a structural zero is
+    # indistinguishable from a measured zero, and Overview would tell an
+    # unestimated project it carries no schedule risk. Re-deriving the reason at
+    # read time would mean loading every committed task on a hot endpoint, so the
+    # run carries its own.
+    #
+    # Nullable with NO backfill: runs recorded before #2483 have no diagnostic and
+    # the frontend falls back to the measured presentation with the band collapsed
+    # (it never guesses "unmeasurable" from a missing reason).
+    diagnostic = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "scheduling_montecarlorun"

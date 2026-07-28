@@ -191,6 +191,7 @@ def record_monte_carlo_run(
     task_count: int | None = None,
     user: Any = None,
     distribution: dict[str, Any] | None = None,
+    diagnostic: dict[str, Any] | None = None,
 ) -> MonteCarloRun | None:
     """Persist one project-level Monte Carlo run for the forecast history (ADR-0175).
 
@@ -208,6 +209,12 @@ def record_monte_carlo_run(
     ``distribution`` is the size-bounded ``{histogram_buckets, confidence_curve,
     sensitivity}`` payload (#1231) persisted so the histogram survives cache expiry;
     ``None`` (legacy / no distribution) renders the empty-state prose on read.
+
+    ``diagnostic`` is the :func:`forecast_diagnostic` payload (#1340) telling a later
+    reader *why* the run is flat. It is what keeps a structural zero (no estimates
+    anywhere) distinguishable from a measured zero (estimates exist, variance is
+    genuinely low) once the run is read back from history rather than the cache —
+    see the field docstring on :class:`MonteCarloRun` (#2483).
     """
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
@@ -223,6 +230,7 @@ def record_monte_carlo_run(
             task_count=task_count,
             triggered_by=triggered_by,
             distribution=distribution,
+            diagnostic=diagnostic,
         )
     except Exception:
         logger.exception(

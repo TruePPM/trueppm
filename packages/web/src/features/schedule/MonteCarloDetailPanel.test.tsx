@@ -143,7 +143,7 @@ describe('MonteCarloDetailPanel', () => {
 
     it('offers a closed help trigger beside the panel title', () => {
       renderPanel();
-      const trigger = screen.getAllByRole('button', { name: /About the How to read these dates options/i })[0];
+      const trigger = screen.getAllByRole('button', { name: /About the How these dates are computed options/i })[0];
       expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
       expect(trigger).toHaveAttribute('aria-expanded', 'false');
     });
@@ -152,10 +152,10 @@ describe('MonteCarloDetailPanel', () => {
       const user = userEvent.setup();
       renderPanel();
       await user.click(
-        screen.getAllByRole('button', { name: /About the How to read these dates options/i })[0],
+        screen.getAllByRole('button', { name: /About the How these dates are computed options/i })[0],
       );
 
-      const dialog = await screen.findByRole('dialog', { name: /How to read these dates/i });
+      const dialog = await screen.findByRole('dialog', { name: /How these dates are computed/i });
       // The CPM date is named as one optimistic point, not a commitment.
       expect(within(dialog).getByText(/earliest everything can finish/i)).toBeInTheDocument();
       // P80 is named as the commit date, and P50 explicitly as not one.

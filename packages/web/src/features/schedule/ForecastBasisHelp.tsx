@@ -16,11 +16,18 @@ import { FieldHelp } from '@/components/FieldHelp';
  * is mid-refactor under #2426. Keeping the copy in one place means the second
  * mount point is an import, not a paste — the two can never drift into saying
  * different things about the same number.
+ *
+ * It is also the *only* place the added-time arithmetic is stated (#2483). The
+ * Overview card renders the gap and its two endpoints but never explains itself
+ * inline, so the definition cannot end up phrased two ways; the card's `?` mounts
+ * this same component. The closing paragraph is deliberate: a flat forecast is a
+ * finding when estimates exist and an absence of one when they do not, and the two
+ * look identical if the reader is not told which they are looking at.
  */
 export function ForecastBasisHelp() {
   return (
     <FieldHelp
-      label="How to read these dates"
+      label="How these dates are computed"
       docHref="features/monte-carlo/#interpreting-results"
       docLabel="Interpreting the forecast"
       body={
@@ -48,9 +55,15 @@ export function ForecastBasisHelp() {
               here. For contractual or external deadlines.
             </li>
           </ul>
+          <p>
+            The days between the CPM finish and P80 are <strong>added time</strong> — the time
+            schedule uncertainty adds on top of the plan. A P80 later than the CPM finish is not a
+            disagreement between the two: it is the schedule risk the CPM pass cannot express.
+          </p>
           <p className="text-xs text-neutral-text-secondary">
-            A P80 later than the CPM finish is not a disagreement between the two — it is the
-            schedule risk the CPM pass cannot express.
+            If every task takes exactly its estimate, there is nothing to vary, so the simulation
+            returns the CPM date and added time is zero. That is a result only when estimates exist
+            — with none entered, a flat forecast means the odds were never computed.
           </p>
         </div>
       }

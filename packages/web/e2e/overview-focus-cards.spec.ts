@@ -4,10 +4,13 @@ import { setupCatchAll } from './fixtures';
 /**
  * Overview risk-ranked focus cards E2E (#1191 / #1192).
  *
- * The Overview KPI strip leads with three risk-ranked focus cards and demotes
- * the remaining three to a compact secondary strip. This spec covers:
+ * The Overview KPI strip leads with a three-column focus row and demotes the
+ * rest to a compact secondary strip. Since #2483 the added-time card holds the
+ * first column unconditionally — it is a relationship, not a severity reading,
+ * so it has no band to be ranked by — and the ranking fills the remaining two.
+ * This spec covers:
  *   - golden path: an at-risk project → heading "Needs attention", the worst
- *     metric leads, three focus cards, plain-language copy (no SPI/EVM).
+ *     ranked metric leads beside added time, plain-language copy (no SPI/EVM).
  *   - calm path: an all-healthy project → heading "Project health", the
  *     schedule card leads (intrinsic priority), the secondary strip is present.
  *
@@ -180,17 +183,23 @@ test.describe('Overview risk-ranked focus cards (#1191)', () => {
     const focus = page.getByRole('region', { name: 'Needs attention', exact: true });
     await expect(focus).toBeVisible({ timeout: 10_000 });
 
-    // Three focus cards lead the page with their plain-language values.
+    // Three focus cards lead the page. Added time holds the first column
+    // unconditionally (#2483); the two ranked slots behind it go to the worst
+    // metrics, which for this fixture are schedule health and late tasks.
+    await expect(
+      focus.getByRole('region', { name: 'Added time vs computed finish', exact: true }),
+    ).toBeVisible();
     await expect(focus.getByText('3 late')).toBeVisible();
     await expect(focus.getByText('of 20 tasks')).toBeVisible();
-    await expect(focus.getByText('2 high')).toBeVisible();
 
     // The secondary strip is present and holds the demoted metrics. Its heading
-    // states the severity verdict for what was demoted (#2429): here the tail is
-    // the two neutral cards plus a healthy utilization, so it reads calm even
-    // though the focus row is alarmed.
-    const secondary = page.getByRole('region', { name: 'Holding steady' });
+    // states the severity verdict for what was demoted (#2429): open risks is
+    // at-risk and no longer fits the two ranked focus slots, so the strip names
+    // that rather than reading calm — the demotion stays legible instead of
+    // hiding a real problem under a reassuring label.
+    const secondary = page.getByRole('region', { name: 'Also needs attention', exact: true });
     await expect(secondary).toBeVisible();
+    await expect(secondary.getByText('2 high')).toBeVisible();
     await expect(secondary.getByText('Next milestone')).toBeVisible();
 
     // No EVM jargon anywhere on the page (#1192).
