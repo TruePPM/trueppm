@@ -164,6 +164,39 @@ not get it, and no view except the Board can save a filter by name.
 | [#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443) | Filter state does not survive a view switch, and the vocabulary differs per view | 0.5 |
 | [#2446](https://gitlab.com/trueppm/trueppm/-/issues/2446) | My Work has no project filter, so a PM running several projects gets one undifferentiated list | 0.5 |
 
+## Data import
+
+### Imported assignees match the whole resource catalog, not project membership — planned for 0.5
+
+When a CSV, Excel, MS Project, or Jira import reads an assignee column, it matches
+each value against the **workspace-wide resource catalog by display name**, and
+creates a new resource for anything it does not match. It does not check whether that
+person is a member of the destination project, and it does not accept a UUID, email,
+or username as an identifier.
+
+Two consequences:
+
+- **Name collisions bind to the wrong person.** A cell reading `A. Rivera` attaches to
+  whichever resource in the catalog carries that name, even one used only on projects
+  you have no access to. Nothing tells you it happened.
+- **The catalog grows from cell text.** Every unmatched value becomes a new resource,
+  so a column of inconsistent spellings leaves a trail of near-duplicates behind.
+
+**This is not a disclosure vector.** The resource catalog is already readable by any
+authenticated user by design, so an import reaches nothing you could not already list;
+and an assignment is not project membership, so no permission is granted by one. The
+defect is in what gets *written* — mis-attributed work and a polluted catalog — not in
+what can be read.
+
+- **Impact:** assignments can land on the wrong person's record, and the resource
+  catalog accumulates duplicates that someone has to merge by hand.
+- **Workaround:** before importing, check that the names in your assignee column match
+  the resources you intend, and review **Resources** afterward for near-duplicates. On
+  a first import into a fresh workspace neither problem can arise.
+- **Fix planned for 0.5** — [#2485](https://gitlab.com/trueppm/trueppm/-/issues/2485)
+  moves resolution onto a membership-scoped index that accepts UUID, email, or
+  username, and reports an unmatched value instead of inventing a resource for it.
+
 ## Reporting a new one
 
 If you hit something that is not on this page, the user menu and the ⌘K palette both
