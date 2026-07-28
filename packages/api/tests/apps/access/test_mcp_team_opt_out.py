@@ -308,6 +308,32 @@ def test_task_collection_query_param_cannot_bypass(
 
 
 @pytest.mark.django_db
+def test_task_trash_collection_cannot_bypass(
+    project: Project, owner: Any, calendar: Calendar
+) -> None:
+    """`/tasks/trash/` builds its queryset by hand — re-apply the filter (#2494).
+
+    The trash list deliberately bypasses ``get_queryset``/``filter_queryset`` to reach
+    tombstoned rows, which is exactly where both opt-out hooks live. Without an
+    explicit re-application it would fail *open*: an opted-out team's deleted task
+    names would be readable through the recovery surface.
+    """
+    from trueppm_api.apps.projects.models import Task
+
+    task = Task.objects.create(project=project, name="secret-deleted", duration=1)
+    task.soft_delete()
+    _opt_out(project)
+
+    resp = _agent(owner).get(f"/api/v1/tasks/trash/?project={project.pk}")
+    assert resp.status_code == 200, resp.data
+    assert resp.data["results"] == []
+
+    # The human path is untouched — the control governs agent reads, not the team's own.
+    human = _human(owner).get(f"/api/v1/tasks/trash/?project={project.pk}")
+    assert [r["name"] for r in human.data["results"]] == ["secret-deleted"]
+
+
+@pytest.mark.django_db
 def test_detail_route_of_opted_out_object_is_not_found(project: Project, owner: Any) -> None:
     """A filtered queryset resolves the object, so an opted-out detail read 404s
     rather than leaking through a path the guard does not cover."""

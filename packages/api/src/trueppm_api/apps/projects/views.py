@@ -306,6 +306,11 @@ _ROOT_WBS_RE = r"^\d+$"
 # Webhook/notification event key for a task gaining an assignee.
 _TASK_ASSIGNED_EVENT = "task.assigned"
 
+# Cap on the task Trash list (#2494). Bounded because a project's tombstone pool is
+# unbounded between nightly reaps, unlike the project Trash which is naturally small.
+# Never silent: the response carries `truncated` so the panel says the list was cut.
+_TASK_TRASH_LIMIT = 200
+
 # Shared user-facing response details / validation messages.
 _NOT_FOUND_DETAIL = "Not found."
 _SUGGESTION_NOT_FOUND_DETAIL = "Suggestion not found."
@@ -3301,6 +3306,50 @@ def _summarize_api_tokens(scope_filter: Q) -> dict[str, Any]:
     }
 
 
+def _collapse_trashed_subtrees(tasks: list[Task]) -> list[tuple[Task, int]]:
+    """Reduce a flat list of tombstoned tasks to its restore *roots* (#2494, ADR-0689).
+
+    ``Task.soft_delete`` tombstones the task's ``is_subtask=True`` subtree, and
+    ``cascade_task_children_restore`` brings that whole subtree back from one POST. So a
+    trash list that showed every tombstoned row would present N entries for a single
+    delete, N-1 of which restore nothing the first one didn't already.
+
+    A task is dropped when it is ``is_subtask`` **and** some other task in ``tasks`` is a
+    strict ``wbs_path`` ancestor of it — that ancestor's restore will resurrect it. The
+    ``is_subtask`` condition is not decoration: the delete cascade only tombstones subtask
+    descendants, so a tombstoned *WBS-structure* child under a tombstoned parent was
+    deleted separately and stays its own independently restorable row (the restore cascade
+    will not touch it).
+
+    Returns ``(root, subtree_count)`` pairs preserving input order, where ``subtree_count``
+    is how many tombstoned descendants come back with the root.
+    """
+    paths = [(t, str(t.wbs_path) if t.wbs_path else "") for t in tasks]
+    roots: list[tuple[Task, int]] = []
+    for task, path in paths:
+        if task.is_subtask and path:
+            covered_by_other = any(
+                other is not task and other_path and path.startswith(other_path + ".")
+                for other, other_path in paths
+            )
+            if covered_by_other:
+                continue
+        descendants = (
+            sum(
+                1
+                for other, other_path in paths
+                if other is not task
+                and other.is_subtask
+                and other_path
+                and other_path.startswith(path + ".")
+            )
+            if path
+            else 0
+        )
+        roots.append((task, descendants))
+    return roots
+
+
 def annotate_tasks_queryset(
     qs: QuerySet[Task],
     request: Request | None = None,
@@ -4725,6 +4774,144 @@ class TaskViewSet(
             "project_id", flat=True
         )
         return Task.objects.filter(project_id__in=member_ids, is_deleted=True)
+
+    @extend_schema(
+        summary="List recently deleted tasks that are still restorable",
+        parameters=[
+            OpenApiParameter(
+                "project",
+                OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Project whose recently-deleted tasks to list.",
+            )
+        ],
+        responses={
+            200: inline_serializer(
+                name="TaskTrashList",
+                fields={
+                    "results": inline_serializer(
+                        name="TaskTrashRow",
+                        many=True,
+                        fields={
+                            "id": serializers.UUIDField(),
+                            "name": serializers.CharField(),
+                            "wbs_path": serializers.CharField(allow_blank=True),
+                            "type": serializers.CharField(),
+                            "status": serializers.CharField(),
+                            "deleted_at": serializers.DateTimeField(allow_null=True),
+                            "days_remaining": serializers.IntegerField(allow_null=True),
+                            "retention_days": serializers.IntegerField(allow_null=True),
+                            "subtree_count": serializers.IntegerField(),
+                            "can_restore": serializers.BooleanField(),
+                        },
+                    ),
+                    "truncated": serializers.BooleanField(),
+                },
+            ),
+            400: OpenApiResponse(description="`project` query parameter is required."),
+        },
+    )
+    @action(detail=False, methods=["get"], url_path="trash")
+    def trash(self, request: Request) -> Response:
+        """List one project's soft-deleted tasks that are still restorable (#2494, ADR-0689).
+
+        The durable counterpart to the "Deleted — Undo" toast: #2078 shipped a faithful
+        ``restore`` but left it reachable only for as long as the toast lived. This is a
+        list over the same membership-scoped ``_trashed_task_queryset()`` that ``restore``
+        resolves against, so the two can never disagree about what is recoverable.
+
+        ``project`` is required — a missing one is a 400, not "every project you belong
+        to". The consuming panel opens from one project's Schedule/Board, and a
+        workspace-wide task trash is a different (much larger) surface. A project the
+        caller is not a member of yields an empty list rather than a 403: the queryset is
+        membership-scoped, so a foreign id simply matches nothing and never confirms the
+        project exists.
+
+        **Restore roots only.** Deleting a parent tombstones its ``is_subtask`` subtree and
+        ``cascade_task_children_restore`` brings the whole subtree back, so listing every
+        descendant would show N rows for one delete, N-1 of them no-ops. A row is dropped
+        when it is ``is_subtask`` *and* another tombstoned row in the same set is a strict
+        ``wbs_path`` ancestor; the survivor carries ``subtree_count`` so the user can see
+        what returns with it.
+
+        The window is ``TRUEPPM_TOMBSTONE_RETENTION_DAYS`` read straight from settings —
+        deliberately NOT via the ADR-0173 ``resolve_retention`` coordinator, because the
+        reaper that actually enforces it (``sync.reap_domain_tombstones``, ADR-0197) reads
+        settings directly too. Sourcing the countdown from a system that does not do the
+        purging would show a number that does not predict when the row disappears. A NULL
+        ``deleted_at`` (a legacy tombstone the reaper's ``deleted_at__lte`` cutoff can
+        never match) is reported with an indefinite retention, which is accurate.
+
+        Capped at ``_TASK_TRASH_LIMIT`` newest-first, with ``truncated`` in the payload so
+        the panel can say so. A silent cap on a recovery surface reads as "that task is
+        gone" when it is not.
+        """
+        from django.conf import settings as django_settings
+
+        project_id = request.query_params.get("project", "").strip()
+        if not project_id:
+            return Response(
+                {"detail": "The `project` query parameter is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            uuid.UUID(project_id)
+        except ValueError:
+            return Response(
+                {"detail": "`project` must be a UUID."}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        retention_days = getattr(django_settings, "TRUEPPM_TOMBSTONE_RETENTION_DAYS", 90)
+        if not isinstance(retention_days, int) or retention_days <= 0:
+            retention_days = None
+        now = timezone.now()
+
+        # `_trashed_task_queryset` deliberately bypasses get_queryset()/filter_queryset()
+        # to reach tombstoned rows — which also bypasses the ADR-0678 MCP opt-out those
+        # hooks carry. Re-apply it explicitly: a team that switched agent reads off must
+        # not have its deleted task names readable through the recovery surface.
+        qs = self._mcp_filter_queryset(self._trashed_task_queryset()).filter(project_id=project_id)
+        if retention_days is not None:
+            cutoff = now - datetime.timedelta(days=retention_days)
+            # Mirrors the reaper's eligibility test inverted: it hard-deletes rows with
+            # deleted_at <= cutoff, so anything strictly newer (or NULL) is still here.
+            qs = qs.filter(Q(deleted_at__isnull=True) | Q(deleted_at__gt=cutoff))
+
+        # Fetch one past the cap so `truncated` is exact rather than a >= guess.
+        rows = list(
+            qs.order_by(db_models.F("deleted_at").desc(nulls_last=True), "-server_version")[
+                : _TASK_TRASH_LIMIT + 1
+            ]
+        )
+        truncated = len(rows) > _TASK_TRASH_LIMIT
+        rows = rows[:_TASK_TRASH_LIMIT]
+
+        roots = _collapse_trashed_subtrees(rows)
+        payload = []
+        for task, subtree_count in roots:
+            days_remaining: int | None = None
+            if retention_days is not None and task.deleted_at is not None:
+                days_remaining = max(0, retention_days - (now - task.deleted_at).days)
+            payload.append(
+                {
+                    "id": str(task.pk),
+                    "name": task.name,
+                    "wbs_path": str(task.wbs_path) if task.wbs_path else "",
+                    "type": task.type,
+                    "status": task.status,
+                    "deleted_at": task.deleted_at,
+                    "days_remaining": days_remaining,
+                    "retention_days": retention_days,
+                    "subtree_count": subtree_count,
+                    # The exact predicate IsProjectMemberWriteOrOwn runs for `restore`
+                    # (ADR-0133) — one rule called twice, so the button's enablement can
+                    # never drift from the gate the POST enforces. `_membership_role` is
+                    # request-cached, so this stays O(1) per row.
+                    "can_restore": can_user_edit_task(request, task, method="DELETE"),
+                }
+            )
+        return Response({"results": payload, "truncated": truncated}, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Restore a soft-deleted task, its subtree, and its dependency edges",

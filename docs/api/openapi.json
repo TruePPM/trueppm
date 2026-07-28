@@ -36866,6 +36866,70 @@
                 }
             }
         },
+        "/api/v1/tasks/trash/": {
+            "get": {
+                "operationId": "v1_tasks_trash_retrieve",
+                "description": "List one project's soft-deleted tasks that are still restorable (#2494, ADR-0689).\n\nThe durable counterpart to the \"Deleted — Undo\" toast: #2078 shipped a faithful\n``restore`` but left it reachable only for as long as the toast lived. This is a\nlist over the same membership-scoped ``_trashed_task_queryset()`` that ``restore``\nresolves against, so the two can never disagree about what is recoverable.\n\n``project`` is required — a missing one is a 400, not \"every project you belong\nto\". The consuming panel opens from one project's Schedule/Board, and a\nworkspace-wide task trash is a different (much larger) surface. A project the\ncaller is not a member of yields an empty list rather than a 403: the queryset is\nmembership-scoped, so a foreign id simply matches nothing and never confirms the\nproject exists.\n\n**Restore roots only.** Deleting a parent tombstones its ``is_subtask`` subtree and\n``cascade_task_children_restore`` brings the whole subtree back, so listing every\ndescendant would show N rows for one delete, N-1 of them no-ops. A row is dropped\nwhen it is ``is_subtask`` *and* another tombstoned row in the same set is a strict\n``wbs_path`` ancestor; the survivor carries ``subtree_count`` so the user can see\nwhat returns with it.\n\nThe window is ``TRUEPPM_TOMBSTONE_RETENTION_DAYS`` read straight from settings —\ndeliberately NOT via the ADR-0173 ``resolve_retention`` coordinator, because the\nreaper that actually enforces it (``sync.reap_domain_tombstones``, ADR-0197) reads\nsettings directly too. Sourcing the countdown from a system that does not do the\npurging would show a number that does not predict when the row disappears. A NULL\n``deleted_at`` (a legacy tombstone the reaper's ``deleted_at__lte`` cutoff can\nnever match) is reported with an indefinite retention, which is accurate.\n\nCapped at ``_TASK_TRASH_LIMIT`` newest-first, with ``truncated`` in the payload so\nthe panel can say so. A silent cap on a recovery surface reads as \"that task is\ngone\" when it is not.",
+                "summary": "List recently deleted tasks that are still restorable",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Project whose recently-deleted tasks to list.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskTrashList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "`project` query parameter is required."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/teams/{id}/": {
             "get": {
                 "operationId": "v1_teams_retrieve",
@@ -56201,6 +56265,76 @@
                 ],
                 "type": "string",
                 "description": "* `BACKLOG` - Backlog\n* `NOT_STARTED` - Not started\n* `IN_PROGRESS` - In progress\n* `REVIEW` - Review\n* `ON_HOLD` - On hold\n* `COMPLETE` - Complete"
+            },
+            "TaskTrashList": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskTrashRow"
+                        }
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "results",
+                    "truncated"
+                ]
+            },
+            "TaskTrashRow": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "wbs_path": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "deleted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "days_remaining": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "retention_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "subtree_count": {
+                        "type": "integer"
+                    },
+                    "can_restore": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "can_restore",
+                    "days_remaining",
+                    "deleted_at",
+                    "id",
+                    "name",
+                    "retention_days",
+                    "status",
+                    "subtree_count",
+                    "type",
+                    "wbs_path"
+                ]
             },
             "TaskTypeEnum": {
                 "enum": [

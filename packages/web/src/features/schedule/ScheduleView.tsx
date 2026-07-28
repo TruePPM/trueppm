@@ -47,6 +47,7 @@ import { useBaselines, useCreateBaseline } from '@/hooks/useBaselines';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
 import { ROLE_ADMIN, ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
+import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
 import { SubtreeDeleteConfirmDialog } from './SubtreeDeleteConfirmDialog';
 import { ScheduleForecastBar } from './ScheduleForecastBar';
@@ -1244,6 +1245,9 @@ export function ScheduleView() {
   // client gate is UX only; the server is authoritative (create → IsProjectAdmin).
   const [baselineManagerOpen, setBaselineManagerOpen] = useState(false);
   const [captureBaselineConfirmOpen, setCaptureBaselineConfirmOpen] = useState(false);
+  // "Recently deleted" task Trash (#2494, ADR-0689) — the durable counterpart to the
+  // delete Undo toast. Any member may open it; per-row Restore is server-gated.
+  const [taskTrashOpen, setTaskTrashOpen] = useState(false);
   const canCaptureBaseline = currentRole !== null && currentRole >= ROLE_ADMIN;
   const createBaselineMut = useCreateBaseline(projectIdUndef);
   // Name of the current active baseline (if any) so the capture confirm dialog
@@ -1927,6 +1931,7 @@ export function ScheduleView() {
         setShareOpen={setShareOpen}
         setCaptureBaselineConfirmOpen={setCaptureBaselineConfirmOpen}
         setBaselineManagerOpen={setBaselineManagerOpen}
+        setTaskTrashOpen={setTaskTrashOpen}
       />
 
       {/* Downstream consent banner (ADR-0120 D2, #1480): shows only when another
@@ -2071,6 +2076,8 @@ export function ScheduleView() {
         setShareOpen={setShareOpen}
         baselineManagerOpen={baselineManagerOpen}
         setBaselineManagerOpen={setBaselineManagerOpen}
+        taskTrashOpen={taskTrashOpen}
+        setTaskTrashOpen={setTaskTrashOpen}
         captureBaselineConfirmOpen={captureBaselineConfirmOpen}
         setCaptureBaselineConfirmOpen={setCaptureBaselineConfirmOpen}
         activeBaselineName={activeBaselineName}
@@ -2139,6 +2146,8 @@ interface ScheduleOverlayLayerProps {
   setShareOpen: (v: boolean) => void;
   baselineManagerOpen: boolean;
   setBaselineManagerOpen: (v: boolean) => void;
+  taskTrashOpen: boolean;
+  setTaskTrashOpen: (v: boolean) => void;
   captureBaselineConfirmOpen: boolean;
   setCaptureBaselineConfirmOpen: (v: boolean) => void;
   activeBaselineName: string | undefined;
@@ -2192,6 +2201,8 @@ function ScheduleOverlayLayer({
   setShareOpen,
   baselineManagerOpen,
   setBaselineManagerOpen,
+  taskTrashOpen,
+  setTaskTrashOpen,
   captureBaselineConfirmOpen,
   setCaptureBaselineConfirmOpen,
   activeBaselineName,
@@ -2324,6 +2335,12 @@ function ScheduleOverlayLayer({
           contentKind="schedule"
           onClose={() => setShareOpen(false)}
         />
+      )}
+
+      {/* "Recently deleted" task Trash (#2494, ADR-0689) — recovery that outlives the
+          delete Undo toast, opened from the Project actions (···) menu. */}
+      {taskTrashOpen && projectId && (
+        <TaskTrashDialog projectId={projectId} onClose={() => setTaskTrashOpen(false)} />
       )}
 
       {/* Baseline manager (#1864, ADR-0376) — list / activate / delete. */}
@@ -2487,6 +2504,7 @@ function buildProjectActionsItems(ctx: {
   setShareOpen: (v: boolean) => void;
   setCaptureBaselineConfirmOpen: (v: boolean) => void;
   setBaselineManagerOpen: (v: boolean) => void;
+  setTaskTrashOpen: (v: boolean) => void;
 }): ToolbarOverflowItem[] {
   const { projectId, isExporting, exportProject, scheduleExport } = ctx;
   return [
@@ -2568,6 +2586,19 @@ function buildProjectActionsItems(ctx: {
           },
         ]
       : []),
+    // Recently deleted (#2494) — offered to every member, not just those who can
+    // restore: seeing that a task still exists is the recovery, and each row
+    // carries its own server-decided `can_restore`.
+    ...(projectId
+      ? [
+          {
+            kind: 'action' as const,
+            id: 'task-trash',
+            label: 'Recently deleted…',
+            onSelect: () => ctx.setTaskTrashOpen(true),
+          },
+        ]
+      : []),
   ] as ToolbarOverflowItem[];
 }
 
@@ -2617,6 +2648,7 @@ interface ScheduleToolbarProps {
   setShareOpen: Dispatch<SetStateAction<boolean>>;
   setCaptureBaselineConfirmOpen: Dispatch<SetStateAction<boolean>>;
   setBaselineManagerOpen: Dispatch<SetStateAction<boolean>>;
+  setTaskTrashOpen: Dispatch<SetStateAction<boolean>>;
 }
 
 function ScheduleToolbar(props: ScheduleToolbarProps) {
@@ -2666,6 +2698,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     setShareOpen,
     setCaptureBaselineConfirmOpen,
     setBaselineManagerOpen,
+    setTaskTrashOpen,
   } = props;
 
   // The whole toolbar is desktop-only (mobile is forced to full-width Timeline,
@@ -2806,6 +2839,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
             setShareOpen,
             setCaptureBaselineConfirmOpen,
             setBaselineManagerOpen,
+            setTaskTrashOpen,
           })}
         />
       )}
