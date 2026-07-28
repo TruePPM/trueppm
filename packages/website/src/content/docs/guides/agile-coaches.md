@@ -39,16 +39,26 @@ The fastest way to kill adoption is to add "fill this in for the PMO" steps. The
 
 ## Evaluate it yourself (~10 minutes): the autonomy test
 
-The real test isn't what a feature does — it's what *each role can see and do*. So evaluate it as a contrast. Seed the demo (`seed_demo_project --with-personas`), then sign in as two different people.
+The real test isn't what a feature does — it's what *each role can see and do*. So evaluate it as a contrast: run the same instance as two different people and compare. Run these steps in order — they start from a machine with nothing running.
 
-**First, as the team — sign in as `maya` (Scrum Master, password `demo`):**
+1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
 
-1. Open the **retrospective** on a closed sprint and find an action item promoted to the backlog — confirm the pipeline actually carried it forward.
-2. Walk the **board** to the WIP-overload column (amber/red) — the team sees its own pressure without anyone reporting it.
+   ```bash
+   make up
+   docker compose exec api python manage.py seed_demo_project --with-personas
+   ```
 
-**Then, as management — sign in as `diana` (PMO Director) or `carlos` (Executive):**
+   The command prints the six persona logins and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-3. Confirm what they **cannot** reach: per-person hours, edit counts, or a velocity scoreboard. They see milestone and schedule health; the sprint internals stay with the team.
+**First, as the team.** Sign in at `http://localhost:5173` as **`maya`** — the Scrum Master, seeded with the **Member** role:
+
+2. Open **Deliver → Sprints** in the left navigation rail (`/projects/:id/sprints`), select a closed sprint, and scroll to the **retrospective** panel below the timeline. Find an action item promoted to the backlog and confirm the pipeline actually carried it forward — it appears in the next sprint with a `→ T-XXXXXX` chip back to the retro.
+3. Open **Deliver → Board** and walk to the WIP-overload column (amber or red). The team sees its own pressure without anyone reporting it.
+4. Open **Settings → Signal privacy** and note that velocity's audience is the team's own choice — it is not published upward by default.
+
+**Then, as management.** Sign out and sign back in as **`diana`** (PMO Director, **Admin**) or **`carlos`** (Executive Sponsor, **Viewer**):
+
+5. Retrace steps 2–4 and confirm what management **cannot** reach: per-person hours, edit counts, or a velocity scoreboard. They see milestone and schedule health; the sprint internals stay with the team. `carlos` in particular is read-only everywhere — a sponsor who cannot quietly reshape a sprint.
 
 That contrast — the team owns the sprint, management sees health, and neither can quietly become the other — is the thing you've been hired to protect. If it holds, this is a tool a skeptical senior developer will open *voluntarily*, which is the only adoption that survives.
 
@@ -60,9 +70,10 @@ A few of the signals above double as coaching evidence:
 - **Mid-sprint scope injections** (audited from 0.3) give you the record to coach the PM on respecting the sprint boundary — with data, not opinion.
 - **The retro-to-backlog pipeline** lets you coach teams that their retros *change something*, because the actions visibly reappear as work.
 
-## Getting started
+## Where to go next
 
-1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)
-2. Seed the demo and run the autonomy test above — sign in as `maya`, then as `diana`
-3. Read the [Scrum Masters guide](/guides/scrum-masters/) — it's the surface your teams live on day to day
-4. Check the [roadmap](/overview/roadmap/) for the 0.3 sprint-sovereignty work (audited scope changes, the daily-delta standup, team-owned velocity)
+- [Installation](/getting-started/installation/) — stand up an instance, or send this to whoever will
+- [Scrum Masters guide](/guides/scrum-masters/) — the surface your teams live on day to day
+- [Evaluation guide](/getting-started/evaluation-guide/) — the Aurora and Helios samples, where a scope injection is accepted in one program and rejected in another
+- [Signal privacy settings](/features/settings/signal-privacy/) — who can see velocity, and who decides
+- [Roadmap](/overview/roadmap/) — the 0.3 sprint-sovereignty work (audited scope changes, the daily-delta standup, team-owned velocity)

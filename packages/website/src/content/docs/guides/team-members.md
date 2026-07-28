@@ -86,17 +86,36 @@ curl -s "http://localhost:8000/api/v1/tasks/?project=$PROJECT_ID&sprint=$SPRINT_
 
 ## Evaluate it yourself (~5 minutes)
 
-Seed the demo (`seed_demo_project --with-personas`) and sign in as **`tom`** — the team-member persona (password `demo`). The only question that matters: does this remove a click, or add one?
+The only question that matters: does this remove a click, or add one? Run these steps in order — they start from a machine with nothing running.
 
-1. **Open My Work.** Everything assigned to you, across every project, active-sprint tasks first. Update status right here — you never have to open the full project.
-2. **Move a card on the board.** That one action updates the burndown, the work package, the schedule, and every other open browser. You did one thing; everything else followed.
-3. **Notice what you don't have to do.** No status report, no Friday-afternoon timesheet, no project-management vocabulary to learn.
+1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+
+   ```bash
+   make up
+   docker compose exec api python manage.py seed_demo_project --with-personas
+   ```
+
+   The command prints the six persona logins and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
+
+2. **Sign in as a team member.** Open `http://localhost:5173` and sign in as **`tom`** — Tom Nguyen, Senior Engineer, seeded with the **Member** role.
+
+3. **Open My Work.** Click **My Work**, pinned at the top of the left sidebar (`/me/work`). Everything assigned to you, across every project, active-sprint tasks first. Update status right here — you never have to open the full project.
+
+4. **Move a card on the board.** Open a project, then **Deliver → Board** in the left rail, and drag one of your cards to the next column. That one action updates the burndown, the work package, the schedule, and every other open browser. Check it: open **Deliver → Sprints** and the burndown has already redrawn.
+
+5. **Notice what you don't have to do.** No status report, no Friday-afternoon timesheet, no project-management vocabulary to learn.
+
+:::note[If your card won't move]
+Cards with a red border have an unresolved dependency, and the **Member** role can move cards but not restructure the schedule. Both are deliberate — see [your role and what you can do](#your-role-and-what-you-can-do).
+:::
 
 The two things you'd want that aren't here yet — automatic Jira sync so you never double-enter (lands in **0.4**) and mobile time entry (offline-capable time entry via the installable PWA lands in **0.5**; the native app's 15-second capture in **0.6**).
 
-## Getting started
+## Where to go next
 
-1. Get your credentials from your project admin
-2. Log in to the web UI at the URL your admin provides
-3. Find the active sprint on the board or in the Sprints workspace
-4. Seed the demo: `seed_demo_project --with-personas` — log in as `tom` to see the team member view
+If your team already runs an instance, you don't need any of the setup above — get your credentials from your project admin, log in at the URL they give you, and find the active sprint under **Deliver → Board** or **Deliver → Sprints**.
+
+- [My Work](/features/my-work/) — the cross-project view of everything assigned to you
+- [Board](/features/board/) — columns, WIP limits, and what each card shows
+- [Sprint backlog](/features/sprint-backlog/) and [Subtasks](/features/subtasks/) — working inside a story
+- [API reference](/api/reference/) — if you'd rather live in the terminal

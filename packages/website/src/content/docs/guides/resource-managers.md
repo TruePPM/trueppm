@@ -33,10 +33,22 @@ When a scheduler changes the plan — re-sequences tasks or adjusts durations �
 
 ## Evaluate it yourself (~10 minutes)
 
-Seed the demo (`seed_demo_project --with-personas`) and sign in as **`sarah`** — the resource-manager persona (password `demo`).
+Run these steps in order — they start from a machine with nothing running.
 
-1. **Open the sprint's capacity preflight.** It surfaces an over-allocated member before the sprint is activated. That's your core test — *catch the conflict before it's locked in* — at project scope.
-2. **Look at an assignment.** Units and work hours are fractional, not a binary 100% / 0%.
+1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+
+   ```bash
+   make up
+   docker compose exec api python manage.py seed_demo_project --with-personas
+   ```
+
+   The command prints the six persona logins and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
+
+2. **Sign in as the resource manager.** Open `http://localhost:5173` and sign in as **`sarah`** — Sarah Lee, seeded with the **Scheduler** role.
+
+3. **Open capacity preflight.** In the left navigation rail, under **Deliver**, click **Sprints** (`/projects/:id/sprints`). The **capacity preflight** panel is in the top half of the metrics row's right column. It surfaces an over-allocated member before the sprint is activated — that's your core test, *catch the conflict before it's locked in*, at project scope.
+
+4. **Look at an assignment.** Open **People → Resources** (`/projects/:id/resources`) for the roster, then open any assigned task from the board or schedule and read its assignment in the drawer. Units and work hours are fractional, not a binary 100% / 0% — the demo seeds a 0.8 DevOps engineer and a 0.5 resource manager, so the roster is not everyone-at-100%.
 
 Be clear-eyed about the gap. Your top two criteria — one view of a person across *all* their projects, and a pre-commit warning that fires across projects — land in **0.5**. Today the conflict check is per-project. A pre-0.5 evaluation should expect that; it's sequenced on the roadmap, not an oversight.
 
@@ -65,9 +77,10 @@ The cross-project pieces are the heart of your job, and they are prioritized on 
 Within a program (one or more related projects), resource management will be fully featured in the community edition — including conflict detection within the program. Cross-program and portfolio-level features (leveling across programs, org-wide heat maps, portfolio capacity forecasting) are planned for the enterprise edition.
 :::
 
-## Getting started
+## Where to go next
 
-1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)
-2. Walk through the [Quickstart](/getting-started/quickstart/) to understand the API
-3. Explore the [API reference](/api/reference/) — see the Resources and Task-Resources endpoints
-4. Review the [RBAC model](/administration/rbac/) — Admin role (300) or above is needed to manage resources
+- [Installation](/getting-started/installation/) — stand up an instance, or send this to whoever will
+- [Quickstart](/getting-started/quickstart/) — the shortest path from install to a populated project
+- [API reference](/api/reference/) — the Resources and Task-Resources endpoints
+- [Resources](/features/resources/) — roster, capacity profiles, and allocation
+- [RBAC model](/administration/rbac/) — the Admin role or above is needed to manage resources

@@ -43,11 +43,31 @@ Each project carries a Monte Carlo forecast — P50 / P80 / P95 — instead of a
 
 ## Evaluate it yourself (~10 minutes)
 
-Seed the demo (`seed_demo_project --with-personas`) and sign in as **`diana`** — the PMO Director persona (password `demo`).
+Run these steps in order — they start from a machine with nothing running.
 
-1. **Open the multi-team sprints lens.** It aggregates the active sprints across the program's projects into one view — day-of-sprint, remaining points, capacity, trend, and forecast, sorted most-behind first. This is program-level visibility without opening each project.
-2. **Open the program view.** See the rollup across its projects — the cross-project picture a program manager works from.
-3. **With an Owner or Admin account, open the audit log** (Settings → Audit log). Confirm that operational changes are recorded with who and when.
+1. **Start the stack and load both data sets.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+
+   ```bash
+   make up
+   docker compose exec api python manage.py seed_demo_project --with-personas
+   docker compose exec api python manage.py load_sample_project --with-personas   # Atlas
+   ```
+
+   You need both: the demo seed gives you the two-project multi-team view and the persona roles, and **Atlas is the only bundled data set that contains an actual program** — three related projects under one lead, which is what steps 4 and 5 are about. Each command prints its persona logins and shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
+
+2. **Sign in as the PMO director.** Open `http://localhost:5173` and sign in as **`diana`** — Diana Khan, seeded with the **Admin** role, which is what makes step 6 reachable.
+
+3. **Open the multi-team sprints lens.** In the left navigation rail, under **Deliver**, click **Sprints** (`/projects/:id/sprints`), then flip the **`[ This project | My Teams ]`** toggle in the breadcrumb row to **My Teams**. It aggregates the active sprints across projects into one view — day-of-sprint, remaining points, capacity, trend, and forecast, sorted most-behind first. This is program-level visibility without opening each project.
+
+   :::note[No `My Teams` toggle?]
+   It only appears for someone active in two or more sprints at once — otherwise there is nothing to aggregate and the control stays hidden. The demo seeds `diana` and `sarah` across both of its projects for exactly this reason, so sign in as one of them rather than `raj` or `maya`.
+   :::
+
+4. **Open the program view.** Sign in as **`atlas-alex`** (the Atlas program lead) and use the top-bar location switcher to select the **Atlas Platform Launch** *program* rather than a project inside it. Open its **Overview** (`/programs/:id/overview`) — the rollup across its three projects, the cross-project picture a program manager works from.
+
+5. **Follow the cross-project critical path.** Click **Schedule** in the same rail (`/programs/:id/schedule`). Platform Core gates Migration, which gates the public-launch milestone — one critical path running straight through three project boundaries.
+
+6. **Open the audit log** at **Settings → Audit log**, back on the `diana` account. Confirm that operational changes are recorded with who and when. This step needs Admin or Owner — it is why the walkthrough uses `diana` rather than `raj`.
 
 Then judge it against your real bar. Your top criteria — a one-glance portfolio dashboard across 40 projects, enforced org-wide SSO with directory sync, and a tamper-evident audit trail — are **enterprise**, and intentionally not in this repo. The honest question for the community edition is narrower: *does a single program run cleanly on the open core, so adoption can start before the portfolio layer is bought?*
 
@@ -70,10 +90,10 @@ Then judge it against your real bar. Your top criteria — a one-glance portfoli
 "Would a program manager need this to run their program?" → community. "Is this coordination *across* programs, org-level policy, or compliance evidence?" → enterprise. The community edition has to be fully functional for one program on its own — that's the adoption flywheel the whole model depends on.
 :::
 
-## Getting started
+## Where to go next
 
-1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)
-2. Walk through the [Quickstart](/getting-started/quickstart/) — seed the demo and sign in as `diana` (PMO Director)
-3. Read [Programs](/features/programs/) for the program entity and rollup
-4. Review [RBAC](/administration/rbac/) and the [Audit log](/administration/audit-log/) for the governance surface available today
-5. Check the [roadmap](/overview/roadmap/) for the enterprise portfolio layer and when it lands
+- [Installation](/getting-started/installation/) — stand up an instance, or send this to whoever will
+- [Evaluation guide](/getting-started/evaluation-guide/) — the Atlas sample, a three-project program at scale
+- [Programs](/features/programs/) — the program entity and its rollup
+- [RBAC](/administration/rbac/) and the [Audit log](/administration/audit-log/) — the governance surface available today
+- [Roadmap](/overview/roadmap/) — the enterprise portfolio layer and when it lands

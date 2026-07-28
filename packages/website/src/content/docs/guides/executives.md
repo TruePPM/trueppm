@@ -63,11 +63,32 @@ These features require coordinating across multiple programs and enforcing gover
 
 ## Evaluate it yourself (~5 minutes, no login of your own)
 
-You don't need to learn the tool to judge it. Have whoever set up the demo seed it (`seed_demo_project --with-personas`) and sign in as **`carlos`** — the executive persona (password `demo`) — then look over their shoulder or have them screen-share.
+You don't need to learn the tool to judge it — and you shouldn't have to. Hand this section to whoever set up the demo, sit next to them or have them screen-share, and watch.
 
-1. **Open the Overview.** Look at the forecast. It should read as a *range with a confidence level* — "80% likely by this date" — not a flat "on track / off track." A forecast that won't admit uncertainty is the one that embarrasses you later.
-2. **Ask one question:** *did anyone build this by hand?* No — it's computed from the live plan. That's the whole difference from the two-day Excel ritual.
-3. **Find the date you'd actually quote.** P80 is the defensible number to take to the board; P50 is the optimistic one most tools show as "the date."
+**They run the setup:**
+
+1. **Start the stack and seed the demo.** From the TruePPM checkout:
+
+   ```bash
+   make up
+   docker compose exec api python manage.py seed_demo_project --with-personas
+   ```
+
+   The command prints the persona logins and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if set, otherwise a random token printed once.
+
+2. **They sign in as the PM.** At `http://localhost:5173`, as **`raj`** — the project-manager persona, seeded with the **Scheduler** role.
+
+**Then you watch three things:**
+
+3. **The forecast.** They open **Plan → Schedule** in the left navigation rail. The **Forecast** bar docked along the bottom is the answer: it reads as a *range with a confidence level* — P50 ≤ P80 ≤ P95 — not a flat "on track / off track." A forecast that won't admit uncertainty is the one that embarrasses you later.
+
+4. **Where it came from.** Ask the one question: *did anyone build this by hand?* No — press **Details ›** and the tornado names the specific tasks and risks driving the spread, computed from the live plan. That's the whole difference from the two-day Excel ritual.
+
+5. **The date you'd actually quote.** P80 is the defensible number to take to the board; P50 is the optimistic one most tools show as "the date."
+
+:::note[Why the PM drives, not the sponsor persona]
+The demo seeds an executive persona, **`carlos`**, as a read-only **Viewer** — the correct role for a sponsor, and worth confirming for yourself that he cannot change the plan. But the desktop forecast bar is currently gated at Member and above, so a Viewer doesn't see the number this page is built around ([#2492](https://gitlab.com/trueppm/trueppm/-/issues/2492)). Until that's fixed, have the PM drive — which is how a sponsor uses this anyway.
+:::
 
 Then judge it the way you actually decide. The technology is open and self-hosted, so your data never leaves your network. The two things you'd most want next — a one-glance portfolio dashboard and a weekly risk digest pushed to your inbox — are honestly still ahead (see "What's coming"); the portfolio view is an enterprise capability, and a single-program health digest is planned for 0.8. If either is a dealbreaker for you today, that's a fair call to make now rather than after rollout.
 

@@ -78,12 +78,26 @@ The most important interface between the PO and the PM:
 
 ## Evaluate it yourself (~10 minutes)
 
-Seed the demo (`seed_demo_project --with-personas`) and sign in as **`maya`** — the Scrum Master persona (password `demo`). That surface shows the backlog and board the way you work them. (A dedicated Product Owner login arrived with the 0.3 sample projects.)
+Run these steps in order — they start from a machine with nothing running.
 
-1. **Open the backlog.** It's ordered by priority — drag to reorder. The order is your statement of what matters; the team pulls from the top.
-2. **Open the burn-up chart.** The total-scope line steps up where scope was added mid-sprint, so "what we committed to" and "what crept in" are visibly different.
-3. **Read the release forecast.** Velocity (completed points per sprint) drives a *remaining ÷ velocity* forecast — the answer to "when does this ship?" in your language, not a CPM planned date.
-4. **Check scope protection.** The capacity preflight panel is the evidence you point to when someone wants to inject scope into a sprint that's already full.
+1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+
+   ```bash
+   make up
+   docker compose exec api python manage.py seed_demo_project --with-personas
+   ```
+
+   The command prints the six persona logins and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
+
+2. **Sign in.** Open `http://localhost:5173` and sign in as **`maya`** — the Scrum Master persona, seeded with the **Member** role. That surface shows the backlog and board the way you work them. (A dedicated Product Owner login arrived with the 0.3 sample projects — see the [evaluation guide](/getting-started/evaluation-guide/).)
+
+3. **Open the backlog.** In the left navigation rail, under **Deliver**, click **Backlog** (`/projects/:id/product-backlog`). It's ordered by priority — drag to reorder. The order is your statement of what matters; the team pulls from the top.
+
+4. **Open the burn-up chart.** Go to **Deliver → Sprints** (`/projects/:id/sprints`). The total-scope line steps up where scope was added mid-sprint, so "what we committed to" and "what crept in" are visibly different.
+
+5. **Read the release forecast.** Velocity (completed points per sprint) drives a *remaining ÷ velocity* forecast — the answer to "when does this ship?" in your language, not a CPM planned date.
+
+6. **Check scope protection.** On the same Sprints page, the **capacity preflight** panel sits in the top half of the metrics row's right column. It's the evidence you point to when someone wants to inject scope into a sprint that's already full.
 
 This is your one-question filter — *does it tell me when the feature ships, in my language?* — answered with a velocity forecast, not a planned date.
 
@@ -109,9 +123,12 @@ This is your one-question filter — *does it tell me when the feature ships, in
 
 **Further out:** a **read-only MCP server** lands in 0.4 — point an AI assistant at your instance to query the backlog, forecast, and sprint status (computed server-side, self-hosted). PO write workflows via assistant (backlog refinement, story sizing suggestions) follow in 0.6.
 
-## Getting started
+## Where to go next
 
-1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)
-2. Seed the demo project and log in as `raj` (PM) to see the WBS hierarchy, then as `maya` (Scrum Master) to see the backlog and board from the delivery side
-3. Read [Sprints workspace](/features/sprints/) for the full sprint lifecycle reference
-4. Read [Burn charts](/features/burn-charts/) for the release forecasting charts
+- [Installation](/getting-started/installation/) — stand up an instance, or send this to whoever will
+- [Evaluation guide](/getting-started/evaluation-guide/) — the Aurora and Helios samples, where a scope injection is accepted in one program and rejected in another
+- [Sprints workspace](/features/sprints/) — the full sprint lifecycle reference
+- [Burn charts](/features/burn-charts/) — the release forecasting charts
+- [Product backlog](/features/product-backlog/) — epics, ordering, and the dual backlog
+
+To see the same data from the schedule side, sign in as `raj` (PM, Scheduler role) and open **Plan → Schedule** — your stories are child tasks of his work packages, in one hierarchy.
