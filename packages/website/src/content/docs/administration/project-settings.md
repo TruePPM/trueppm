@@ -52,6 +52,32 @@ Scheduler, Member, Viewer). From here you can invite members, change a member's 
 and remove members. Inviting is restricted to the project **Owner**. See
 [Roles & Permissions](/administration/rbac/) for what each role can do.
 
+The page also sets the **default role for new members** — the role someone receives when
+added without one chosen, overridable per person at any time — and the project's
+**mention groups**, custom `@groups` that notify a curated set of project members from a
+comment. See [Project members](/features/settings/project-members/).
+
+## Methodology
+
+The **Methodology** page picks the project's planning methodology (its delivery model).
+The choice drives which planning surfaces appear — Board, Schedule, Sprints — so a
+predictive project does not carry sprint chrome it never uses, and an agile one does not
+lead with a Gantt. See [Methodology preset](/features/methodology-preset/).
+
+Surfaces switched off by the methodology can still be re-enabled individually on
+[Surfaces](#surfaces); the methodology sets the default, not a hard limit.
+
+## Team
+
+The **Team** page assigns facilitation and ownership. Roles control who can manage the
+team; **facets** separately mark the Scrum Master and Product Owner. The two are
+independent — a Scrum Master is not required to be a project Admin, and marking someone
+as Product Owner grants no extra permission by itself. See
+[Project team](/features/settings/project-team/).
+
+The page appears only for methodologies that have a team ceremony model; a purely
+predictive project does not show it.
+
 ## Workflow & fields
 
 The **Workflow & fields** page configures how the board behaves for this project:
@@ -59,6 +85,21 @@ The **Workflow & fields** page configures how the board behaves for this project
 - **Board columns** — the column configuration the board renders.
 - **Custom fields** — define task custom fields (add, edit, remove) that appear on
   cards and task detail.
+
+## Labels
+
+The **Labels** page manages the project's colored labels. A label categorizes tasks
+across the board and the schedule independently of status, sprint, or WBS position, so
+it is the right tool for a cross-cutting concern ("needs design", "customer-committed")
+that does not fit the workflow columns. See [Labels](/features/labels/).
+
+## Working calendars
+
+The **Working calendars** page manages the calendars this project can schedule against —
+working days, working hours, and holiday exceptions. The calendar a task uses determines
+how CPM converts a duration into dates, so a change here moves dates. The project
+inherits the program or workspace calendar unless it defines its own. See
+[Working calendars](/administration/working-calendars/).
 
 ## Notifications
 
@@ -110,11 +151,6 @@ The **Lifecycle** page handles a project's end-of-life:
   Deleting a *program* is different: its projects are detached and kept intact rather
   than deleted.
 
-The **Integrations** page provides full management of outbound webhooks and
-inbound API tokens — add, edit, test, and delete webhooks (with a format picker
-and delivery log) and mint and revoke API tokens. See [Webhooks](/features/webhooks/) and
-[Inbound task sync](/features/inbound-task-sync/) for details.
-
 ## Sprint guardrails
 
 The **Sprint guardrails** page configures the per-project guardrail policy as a
@@ -136,12 +172,53 @@ Warn/Block matrix still governs the summary, out-of-window, and recurring rules.
 tasks *inside* the phase to the sprint instead. (A leaf task decomposed into drawer
 subtasks is not a phase and remains a legitimate, warn-only `summary_in_sprint` case.)
 
-## Not yet available
+## Signal privacy
 
-One page exists in the UI but is not yet functional:
+The **Signal privacy** page controls how far each team signal — the health and flow
+readings the team generates — may travel. The team owns the ceiling; a Scrum Master
+moves the dial below it but cannot raise it past what the team set. The page appears
+only for methodologies that produce team signals. See
+[Signal privacy](/features/settings/signal-privacy/).
 
-- **Methodology** — agile defaults (sprint length, story-point scale, velocity
-  lookback) are planned.
+## Attachments
+
+The **Attachments** page controls whether task file uploads are allowed on this project
+and which file types are accepted. It inherits the program or workspace policy unless
+you override it here. External links are always allowed regardless of the policy — the
+setting governs uploaded files, not references. See
+[Attachment policy](/administration/attachment-policy/).
+
+## Surfaces
+
+The **Surfaces** page turns optional surfaces on or off for this project. Each inherits a
+default from the project's [methodology](#methodology) unless overridden here.
+
+Hiding a surface removes its chrome only — **the data stays computed and reachable by
+direct link.** Turning off the Schedule surface does not stop CPM from running or make
+the schedule private; it removes the navigation entry. Treat this as decluttering, not
+as an access control. Use [Access](#access) for permissions and [Sharing](#sharing) for
+external exposure.
+
+## Sharing
+
+The **Sharing** page generates public, read-only links to this project's schedule or
+board. Anyone holding a link can view it with no login, so a link is a credential —
+revoke it here when it should stop working. Whether this page is available at all
+depends on the workspace (or program) public-sharing policy, which an Owner or Admin may
+override per project. See [Sharing & access](/administration/sharing-and-access/).
+
+## Integrations
+
+The **Integrations** page manages this project's outbound webhooks and inbound API
+tokens: add, edit, test, and delete webhooks (with a format picker and delivery log),
+and mint and revoke API tokens. Per-user credentials are not configured here — those
+live under User → Connected Accounts.
+
+See [Webhooks](/features/webhooks/),
+[Personal access tokens](/features/personal-access-tokens/), and
+[Git-event automation](/administration/git-event-automation/). A program-scoped
+equivalent, firing across every project in a program, is documented at
+[Program settings → Integrations](/administration/program-settings/#integrations).
 
 ## Backing API
 

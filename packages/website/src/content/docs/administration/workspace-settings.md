@@ -24,6 +24,27 @@ The contextual-help affordance described here ships in **0.4**, the first beta. 
 is not part of the 0.3 alpha line.
 :::
 
+Settings help comes at two altitudes: a link on **every section**, and a **ⓘ** on
+individual fields that need it.
+
+### Section help: "Learn more →"
+
+Every section in Workspace, Program, and Project settings ends its description with a
+**Learn more →** link to the page documenting that section. It sits at the tail of the
+sentence under the section title, opens in a new tab, and — like the field-level ⓘ
+below — is **not permission-gated**: someone who cannot change a setting can still read
+what it does.
+
+The link is announced to screen readers by section ("Learn more about General, opens in
+a new tab"), not as a bare "Learn more", so the several dozen of them stay
+distinguishable when tabbing or listing links.
+
+Section help answers *"what is this page and where is it documented"*. Field help,
+below, answers *"what are my choices for this input"*. They are complementary, and most
+sections carry both.
+
+### Field help: the ⓘ popover
+
 Settings fields that carry jargon, a policy choice, or an inheritance cascade also
 carry a contextual-help affordance — a circled **ⓘ** in the field's label row.
 Opening it explains the setting in plain language and, where a deeper guide exists,
@@ -410,3 +431,33 @@ risk-policy fields are always-set columns (no "inherit" state).
 |---|---|---|---|
 | `GET` | `/api/v1/programs/` | Any member | List programs (the matrix reads `methodology`, `iteration_label`, `risk_slip_propagation`, and `risk_escalation_days`). |
 | `POST` | `/api/v1/programs/bulk-fields/` | Admin+ | Set one field across the selected programs in one atomic call. |
+
+## Archive / Delete
+
+The **Archive / Delete** section holds the workspace-wide actions that cannot be undone.
+Each requires an explicit confirmation before it runs.
+
+### Export all data
+
+Builds a full archive (JSON plus attachments) of everything in the workspace — members,
+groups, programs, projects, tasks, baselines, and history. The export runs in the
+background and TruePPM emails a download link when it is ready; the link expires after a
+few days. Take an export before either of the destructive actions below. See
+[Data export](/administration/data-export/).
+
+### Transfer ownership
+
+Hands workspace ownership to another **active** member. The transfer demotes you to
+Admin in the same operation, so it is not a way to add a second Owner — a workspace has
+exactly one. Only an active member can receive ownership; invited-but-unaccepted users
+do not appear in the picker. See [Roles & permissions](/administration/rbac/).
+
+### Delete workspace
+
+Permanently deletes the workspace and **all** of its data: every program, project, task,
+baseline, group, and member. This cannot be undone, and every member loses access
+immediately. Confirmation requires typing the workspace name exactly.
+
+This is not the same as deleting a project. A deleted *project* passes through
+[Trash](/administration/retention/#trashed-projects-are-hard-deleted-after-the-window)
+and can be restored inside the retention window; a deleted *workspace* does not.

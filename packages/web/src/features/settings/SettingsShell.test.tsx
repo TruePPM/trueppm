@@ -35,7 +35,13 @@ const NAV_GROUPS: SettingsNavGroup[] = [
     items: [
       // Real System tool items are `external` — route departures, not scroll
       // anchors — which drives the "Opens a separate page" rail treatment (#2291).
-      { id: 'health', label: 'System health', to: '/settings/health', external: true, icon: <span /> },
+      {
+        id: 'health',
+        label: 'System health',
+        to: '/settings/health',
+        external: true,
+        icon: <span />,
+      },
     ],
   },
 ];
@@ -47,7 +53,12 @@ const SCOPE_LINKS: SettingsScopeLink[] = [
 ];
 
 function registerSection(
-  opts: Partial<{ dirty: boolean; apiReady: boolean; onSave: () => Promise<void> | void; onReset: () => void }> = {},
+  opts: Partial<{
+    dirty: boolean;
+    apiReady: boolean;
+    onSave: () => Promise<void> | void;
+    onReset: () => void;
+  }> = {},
 ) {
   useSettingsSaveStore.getState().register(DEFAULT_SECTION_KEY, {
     dirty: opts.dirty ?? true,
@@ -106,9 +117,7 @@ describe('<SettingsShell>', () => {
 
   it('ranks adjacent sections by air + a 2px rule, suppressed on the first (issues 1986/2007)', () => {
     renderShell();
-    const sections = Array.from(
-      document.querySelectorAll<HTMLElement>('[data-settings-section]'),
-    );
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('[data-settings-section]'));
     expect(sections.length).toBeGreaterThanOrEqual(2);
     // Every section ranks by negative space (32px gap both sides of the rule via
     // mt-8 + pt-8) and a 2px rule that out-weighs the 1px `/55` field-row lines;
@@ -202,7 +211,7 @@ describe('<SettingsShell>', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  it('inline nav click does NOT trip the dirty guard (same page can\'t lose edits)', () => {
+  it("inline nav click does NOT trip the dirty guard (same page can't lose edits)", () => {
     renderShell();
     registerSection({ dirty: true });
     fireEvent.click(screen.getByRole('button', { name: 'Access' }));
@@ -309,10 +318,7 @@ describe('<SettingsShell>', () => {
 
     it('marks the route-link item for the current path with aria-current="page"', () => {
       renderAt('/settings/trash');
-      expect(screen.getByRole('button', { name: 'Trash' })).toHaveAttribute(
-        'aria-current',
-        'page',
-      );
+      expect(screen.getByRole('button', { name: 'Trash' })).toHaveAttribute('aria-current', 'page');
       expect(screen.getByRole('button', { name: 'System health' })).not.toHaveAttribute(
         'aria-current',
       );
@@ -451,7 +457,12 @@ describe('<SettingsShell>', () => {
                   scope="project"
                   scopeLinks={[
                     { scope: 'workspace', label: 'Workspace', to: '/settings' },
-                    { scope: 'program', label: 'Program', to: null, disabledReason: 'No programs yet' },
+                    {
+                      scope: 'program',
+                      label: 'Program',
+                      to: null,
+                      disabledReason: 'No programs yet',
+                    },
                     { scope: 'project', label: 'Project', to: '/projects/p1/settings' },
                   ]}
                   contextName="P1"
@@ -649,6 +660,139 @@ describe('<SettingsShell>', () => {
   });
 });
 
+describe('section-level context-sensitive help (#2487, ADR-0682)', () => {
+  it('renders a docs link for each section, resolved from the shell scope', () => {
+    renderShell();
+
+    // Neither <SettingsPageTitle> in renderShell() passes a docsHref — the shell
+    // publishes scope="project" and each <SettingsSection> resolves its own slug
+    // out of SETTINGS_DOCS. That indirection is the whole point of ADR-0682, so
+    // asserting it here is asserting the mechanism, not just the markup.
+    const general = screen.getByRole('link', { name: /Learn more about General/i });
+    expect(general).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/administration/project-settings/#general',
+    );
+
+    const access = screen.getByRole('link', { name: /Learn more about Access/i });
+    expect(access).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/features/settings/project-members/',
+    );
+  });
+
+  it('names each link by its section so 44 links are distinguishable to a screen reader', () => {
+    renderShell();
+
+    // WCAG 2.4.4 (Link Purpose): the visible text is a terse "Learn more" on every
+    // section, so the accessible name must carry the section to stay unambiguous.
+    expect(
+      screen.getByRole('link', { name: 'Learn more about General (opens in a new tab)' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Learn more about Access (opens in a new tab)' }),
+    ).toBeInTheDocument();
+  });
+
+  it('opens in a new tab without leaking the opener (rule 212)', () => {
+    renderShell();
+
+    const link = screen.getByRole('link', { name: /Learn more about General/i });
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('renders the link after the subtitle, inside the same paragraph', () => {
+    render(
+      <MemoryRouter>
+        <SettingsShell
+          scope="project"
+          scopeLinks={SCOPE_LINKS}
+          contextName="Project Atlas"
+          navGroups={NAV_GROUPS}
+          exitTo="/x"
+          exitLabel="Overview"
+        >
+          <SettingsSection id="general">
+            <SettingsPageTitle title="General" subtitle="Identity and defaults." />
+          </SettingsSection>
+        </SettingsShell>
+      </MemoryRouter>,
+    );
+
+    // The link extends the descriptive sentence rather than sitting in the action
+    // slot, which is what keeps 44 of them reading as prose instead of chrome.
+    const link = screen.getByRole('link', { name: /Learn more about General/i });
+    const para = link.closest('p');
+    expect(para).not.toBeNull();
+    expect(para?.textContent).toMatch(/^Identity and defaults\. Learn more/);
+  });
+
+  it('renders no link for a section with no docs mapping', () => {
+    render(
+      <MemoryRouter>
+        <SettingsShell
+          scope="project"
+          scopeLinks={SCOPE_LINKS}
+          contextName="Project Atlas"
+          navGroups={NAV_GROUPS}
+          exitTo="/x"
+          exitLabel="Overview"
+        >
+          <SettingsSection id="not-a-real-section">
+            <SettingsPageTitle title="Mystery" />
+          </SettingsSection>
+        </SettingsShell>
+      </MemoryRouter>,
+    );
+
+    // Degrades to no affordance rather than a dead href. The coverage test in
+    // settingsDocs.test.ts is what stops a real section reaching this state.
+    expect(screen.queryByRole('link', { name: /Learn more about Mystery/i })).toBeNull();
+  });
+
+  it('lets a standalone tool page pass docsHref explicitly, outside any section', () => {
+    render(
+      <MemoryRouter>
+        <SettingsPageTitle
+          title="System health"
+          subtitle="Component status."
+          docsHref="administration/system-health/"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('link', { name: /Learn more about System health/i })).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/administration/system-health/',
+    );
+  });
+
+  it('prefers an explicit docsHref over the one resolved from context', () => {
+    render(
+      <MemoryRouter>
+        <SettingsShell
+          scope="project"
+          scopeLinks={SCOPE_LINKS}
+          contextName="Project Atlas"
+          navGroups={NAV_GROUPS}
+          exitTo="/x"
+          exitLabel="Overview"
+        >
+          <SettingsSection id="general">
+            <SettingsPageTitle title="General" docsHref="features/labels/" />
+          </SettingsSection>
+        </SettingsShell>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('link', { name: /Learn more about General/i })).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/features/labels/',
+    );
+  });
+});
+
 describe('<SettingsShell> rail filter (#2320)', () => {
   beforeEach(() => {
     useSettingsSaveStore.getState().reset();
@@ -725,7 +869,9 @@ describe('<SettingsShell> rail filter (#2320)', () => {
   it('is not rendered on mobile (the native jump-to-section select serves findability)', () => {
     mockBreakpoint = 'sm';
     renderShell();
-    expect(screen.queryByRole('searchbox', { name: 'Filter settings sections' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('searchbox', { name: 'Filter settings sections' }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -735,7 +881,11 @@ describe('<SettingsShell> route-departure affordance & scope hiding', () => {
     mockBreakpoint = 'lg';
   });
 
-  function renderWithNav(navGroups: SettingsNavGroup[], scopeLinks: SettingsScopeLink[], scope: 'workspace' | 'project' | 'program' = 'workspace') {
+  function renderWithNav(
+    navGroups: SettingsNavGroup[],
+    scopeLinks: SettingsScopeLink[],
+    scope: 'workspace' | 'project' | 'program' = 'workspace',
+  ) {
     return render(
       <MemoryRouter initialEntries={['/settings']}>
         <Routes>
@@ -765,7 +915,15 @@ describe('<SettingsShell> route-departure affordance & scope hiding', () => {
     { label: 'Org', items: [{ id: 'general', label: 'General', icon: <span /> }] },
     {
       label: 'System',
-      items: [{ id: 'health', label: 'System health', to: '/settings/health', external: true, icon: <span /> }],
+      items: [
+        {
+          id: 'health',
+          label: 'System health',
+          to: '/settings/health',
+          external: true,
+          icon: <span />,
+        },
+      ],
     },
   ];
 
@@ -797,7 +955,12 @@ describe('<SettingsShell> route-departure affordance & scope hiding', () => {
   it('keeps a not-yet scope disabled (with its reason) rather than hiding it (#2251)', () => {
     renderWithNav(NAV_WITH_EXTERNAL, [
       { scope: 'workspace', label: 'Workspace', to: '/settings' },
-      { scope: 'program', label: 'Program', to: null, disabledReason: 'Scoped settings appear once you create a program' },
+      {
+        scope: 'program',
+        label: 'Program',
+        to: null,
+        disabledReason: 'Scoped settings appear once you create a program',
+      },
       { scope: 'project', label: 'Project', to: '/projects/p1/settings' },
     ]);
     const program = screen.getByRole('button', { name: 'Program' });
@@ -845,7 +1008,9 @@ describe('<FieldRow> aria-describedby wiring (web-rule 269, #2266)', () => {
   it('gives the hint a stable id and forwards it so the control describes by it', () => {
     render(
       <FieldRow label="Default timezone" hint="Used for due dates.">
-        {({ describedBy }) => <input aria-label="Default timezone" aria-describedby={describedBy} />}
+        {({ describedBy }) => (
+          <input aria-label="Default timezone" aria-describedby={describedBy} />
+        )}
       </FieldRow>,
     );
     const input = screen.getByLabelText('Default timezone');
@@ -1185,9 +1350,7 @@ describe('<SettingsShell> scope switcher edge states', () => {
 
   it('prefixes the scope heading with the context name when there is one', () => {
     renderScope('program', [{ scope: 'program', label: 'Program', to: '/settings' }], 'Apollo');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-      'Program settings: Apollo',
-    );
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Program settings: Apollo');
   });
 });
 

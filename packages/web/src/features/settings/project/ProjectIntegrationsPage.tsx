@@ -7,11 +7,9 @@
  * Connected Accounts and are surfaced via the teaser below.
  */
 
-import type { ReactNode } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
-import { docsUrl } from '@/lib/docsUrl';
 import type { IntegrationScope } from '@/hooks/useWebhooks';
-import { SettingsPageTitle, SettingsCard } from '../SettingsShell';
+import { SettingsPageTitle, SettingsCard, DocsLink } from '../SettingsShell';
 import { registry } from '@/lib/widget-registry';
 import { WebhooksManager } from '../components/integrations/WebhooksManager';
 import { ApiTokensManager } from '../components/integrations/ApiTokensManager';
@@ -44,9 +42,9 @@ export function ProjectIntegrationsPage() {
             getByText, so reusing them here would trip a strict-mode collision. */}
         <p className="text-[12px] text-neutral-text-secondary leading-relaxed">
           New to integrations? See the docs on{' '}
-          <DocLink href="features/webhooks">webhooks</DocLink>,{' '}
-          <DocLink href="features/personal-access-tokens">API tokens</DocLink>, and{' '}
-          <DocLink href="administration/git-event-automation">Git-event automation</DocLink>.
+          <DocsLink href="features/webhooks">webhooks</DocsLink>,{' '}
+          <DocsLink href="features/personal-access-tokens">API tokens</DocsLink>, and{' '}
+          <DocsLink href="administration/git-event-automation">Git-event automation</DocsLink>.
         </p>
 
         <div className="grid gap-4 lg:grid-cols-2">
@@ -75,20 +73,6 @@ export function ProjectIntegrationsPage() {
   );
 }
 
-/** A docs-site deep link with the shared rule-4 focus ring; opens in a new tab. */
-function DocLink({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <a
-      href={docsUrl(href)}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="rounded text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-    >
-      {children}
-    </a>
-  );
-}
-
 function ConnectedAccountsTeaser() {
   return (
     <SettingsCard className="bg-neutral-surface-sunken">
@@ -97,8 +81,8 @@ function ConnectedAccountsTeaser() {
           Your connected accounts
         </h2>
         <p className="text-[13px] text-neutral-text-secondary">
-          Connect GitLab or GitHub to enable on-demand previews of task links.
-          Credentials are per-user and stored encrypted.{' '}
+          Connect GitLab or GitHub to enable on-demand previews of task links. Credentials are
+          per-user and stored encrypted.{' '}
           <a
             href="/me/settings/connected-accounts"
             className="text-brand-primary underline-offset-2 hover:underline"

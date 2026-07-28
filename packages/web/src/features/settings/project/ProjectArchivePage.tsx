@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { docsUrl } from '@/lib/docsUrl';
 import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
 import { toast } from '@/components/Toast';
@@ -18,7 +17,7 @@ import {
   useProjectExportJob,
   useStartProjectExport,
 } from '../hooks/useProjectExport';
-import { SettingsPageTitle } from '../SettingsShell';
+import { SettingsPageTitle, LearnMoreLink } from '../SettingsShell';
 import { TransferOwnershipDialog } from '../components/TransferOwnershipDialog';
 import { bundleButtonLabel, exportErrorText, exportStatusLabel } from '../exportJobDisplay';
 
@@ -50,28 +49,6 @@ function restoreProject(
     .catch(() => {
       toast.error('Could not restore — open Trash to try again');
     });
-}
-
-/**
- * A "Learn more →" docs deep-link for a lifecycle card (web-rule 263). Rendered
- * as an `<a>` (not a button) so destructive/lifecycle cards get a per-card docs
- * link rather than a per-input ⓘ popover, per the #2266 rule for these actions.
- *
- * `href` is a docs-site slug (+#anchor), passed through {@link docsUrl}.
- */
-function LearnMoreLink({ href, label = 'Learn more' }: { href: string; label?: string }) {
-  return (
-    <a
-      href={docsUrl(href)}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-3 inline-flex items-center gap-1 rounded text-[11px] font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-    >
-      {label}
-      <span aria-hidden="true">→</span>
-      <span className="sr-only"> (opens in a new tab)</span>
-    </a>
-  );
 }
 
 interface LifecycleCardProps {
@@ -123,7 +100,9 @@ function LifecycleCard({
       <p className="text-[12px] text-neutral-text-secondary mb-2 leading-relaxed">{description}</p>
       <ul className="list-disc pl-4 mb-3 space-y-0.5">
         {notes.map((n) => (
-          <li key={n} className="text-[11px] text-neutral-text-secondary">{n}</li>
+          <li key={n} className="text-[11px] text-neutral-text-secondary">
+            {n}
+          </li>
         ))}
       </ul>
       <button
@@ -147,7 +126,7 @@ function LifecycleCard({
       ) : null}
       {docHref ? (
         <div>
-          <LearnMoreLink href={docHref} />
+          <LearnMoreLink href={docHref} className="mt-3" />
         </div>
       ) : null}
     </div>
@@ -161,13 +140,7 @@ function LifecycleCard({
  * endpoint. Distinct from the synchronous JSON-seed "Export project" card above:
  * this bundle is Admin-gated and assembled off the request thread.
  */
-function ExportBundleCard({
-  projectId,
-  code,
-}: {
-  projectId: string;
-  code?: string | null;
-}) {
+function ExportBundleCard({ projectId, code }: { projectId: string; code?: string | null }) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const start = useStartProjectExport(projectId);
@@ -204,9 +177,9 @@ function ExportBundleCard({
     <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4">
       <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-1">Export bundle</h2>
       <p className="text-[12px] text-neutral-text-secondary mb-2 leading-relaxed">
-        A complete, portable archive of this project as a downloadable .tar.gz — the JSON seed,
-        an MS Project XML file (opens in MS Project), every task attachment, all time entries,
-        and the project change history. Built in the background; large projects may take a moment.
+        A complete, portable archive of this project as a downloadable .tar.gz — the JSON seed, an
+        MS Project XML file (opens in MS Project), every task attachment, all time entries, and the
+        project change history. Built in the background; large projects may take a moment.
       </p>
       <ul className="list-disc pl-4 mb-3 space-y-0.5">
         <li className="text-[11px] text-neutral-text-secondary">
@@ -251,7 +224,10 @@ function ExportBundleCard({
         </p>
       ) : null}
       <div>
-        <LearnMoreLink href="administration/data-export/#export-a-project-bundle-async" />
+        <LearnMoreLink
+          href="administration/data-export/#export-a-project-bundle-async"
+          className="mt-3"
+        />
       </div>
     </div>
   );
@@ -288,8 +264,8 @@ function DeleteProjectCard({
         Delete project — permanent
       </h2>
       <p className="text-[12px] text-neutral-text-secondary mb-3 leading-relaxed">
-        Removes this project and everything in it: tasks, baselines, time entries, attachments. Audit-log
-        entries are retained for 365 days for compliance, then purged.{' '}
+        Removes this project and everything in it: tasks, baselines, time entries, attachments.
+        Audit-log entries are retained for 365 days for compliance, then purged.{' '}
         <strong className="text-neutral-text-primary">
           Cross-project dependencies in linked projects will fail.
         </strong>
@@ -336,7 +312,7 @@ function DeleteProjectCard({
         </p>
       ) : null}
       <div>
-        <LearnMoreLink href="administration/project-settings/#lifecycle" />
+        <LearnMoreLink href="administration/project-settings/#lifecycle" className="mt-3" />
       </div>
     </div>
   );
