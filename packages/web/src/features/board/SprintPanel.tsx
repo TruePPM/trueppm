@@ -598,7 +598,7 @@ function CapacityCard({ sprint, canEdit, isSaving, onSave }: CapacityCardProps) 
                   : 'text-neutral-text-secondary'
               }`}
           >
-            {planned !== null ? planned : 'Not set'}
+            {planned ?? 'Not set'}
             <PencilIcon aria-hidden="true" />
           </button>
         ) : (
@@ -609,7 +609,7 @@ function CapacityCard({ sprint, canEdit, isSaving, onSave }: CapacityCardProps) 
                 : 'text-neutral-text-secondary'
             }`}
           >
-            {planned !== null ? planned : 'Not set'}
+            {planned ?? 'Not set'}
           </span>
         )}
       </div>
@@ -620,7 +620,7 @@ function CapacityCard({ sprint, canEdit, isSaving, onSave }: CapacityCardProps) 
             committed !== null ? 'text-neutral-text-primary' : 'text-neutral-text-secondary'
           }`}
         >
-          {committed !== null ? committed : '—'}
+          {committed ?? '—'}
         </span>
       </p>
       {status && (
@@ -790,7 +790,7 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
                   : 'text-neutral-text-secondary'
               }`}
           >
-            {limit !== null ? limit : 'Not set'}
+            {limit ?? 'Not set'}
             <PencilIcon aria-hidden="true" />
           </button>
         ) : (
@@ -799,7 +799,7 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
               limit !== null ? 'text-neutral-text-primary tppm-mono' : 'text-neutral-text-secondary'
             }`}
           >
-            {limit !== null ? limit : 'Not set'}
+            {limit ?? 'Not set'}
           </span>
         )}
       </div>

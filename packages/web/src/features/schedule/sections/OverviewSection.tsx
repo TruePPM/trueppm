@@ -78,8 +78,7 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
 
   if (!task) return null;
 
-  const progressDisplay =
-    localProgress !== null ? localProgress : String(Math.round(task.progress));
+  const progressDisplay = localProgress ?? String(Math.round(task.progress));
 
   // Milestone with a live sprint rollup (ADR-0074): show locked, rolled-up
   // value instead of the editable input. Distinct from `task.isSummary` —

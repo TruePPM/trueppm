@@ -379,7 +379,11 @@ export interface Program {
   created_by: string | null;
   created_at: string;
   updated_at: string;
-  /** Caller's role on the program (0–4) or null when not a member. */
+  /**
+   * Caller's role ordinal on the program (see `@/lib/roles`: Viewer 1 … Owner 400),
+   * or `null` when not a member. Absence is always `null` — never the number 0,
+   * which is a permanently unassigned ordinal (ADR-0072 Amendment 1).
+   */
   my_role: number | null;
   my_role_label: string | null;
   /** Live counts annotated on the list endpoint — defaults to 0. */

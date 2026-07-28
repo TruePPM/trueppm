@@ -20,6 +20,7 @@ import type {
   ProgressAnchorError,
 } from '@/hooks/useTaskMutations';
 import { TaskFormModal } from './index';
+import { ROLE_VIEWER } from '@/lib/roles';
 
 // --- Mutable fixtures ------------------------------------------------------
 // `undefined` models the pre-resolve window of the schedule / resource queries —
@@ -782,7 +783,7 @@ describe('document keydown guards', () => {
   });
 
   it('⌘+S does nothing for a read-only viewer', async () => {
-    mockUserRole = 0;
+    mockUserRole = ROLE_VIEWER;
     renderModal({ task: baseTask() });
     fireEvent.keyDown(document, { key: 's', metaKey: true });
     await Promise.resolve();

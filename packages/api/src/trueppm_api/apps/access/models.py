@@ -36,8 +36,8 @@ class Role(models.IntegerChoices):
 
     Code name  │ Ordinal │ Issue #11 label  │ Reserved band for Enterprise
     ───────────┼─────────┼──────────────────┼─────────────────────────────────
-    VIEWER     │    0    │ Viewer           │
-               │  1–99   │                  │ read-augmented roles (e.g. Auditor)
+    VIEWER     │    1    │ Viewer           │ the floor; 0 is deliberately unused
+               │  2–99   │                  │ read-augmented roles (e.g. Auditor)
     MEMBER     │   100   │ Team Member      │ edit own assigned tasks
                │ 101–199 │                  │ contributor extensions
     SCHEDULER  │   200   │ Resource Manager │ assign resources; no task edit
@@ -48,6 +48,16 @@ class Role(models.IntegerChoices):
                │  401+   │ (RESERVED)       │ no role above Owner; OSS contract
     ───────────┴─────────┴──────────────────┴─────────────────────────────────
 
+    VIEWER is 1, not 0 (#2489). The ordinal is client-visible — it ships in
+    membership payloads, invites, and MCP reads — and JavaScript treats 0 as
+    falsy, so a single ``role || DEFAULT`` on any consumer silently promotes a
+    Viewer to whatever the default is. Every role ordinal is now truthy, which
+    removes the failure mode rather than relying on every consumer to remember
+    ``??``. It costs one slot from the read-augmented band (2–99, still 98).
+
+    "No membership" is expressed as ``None`` (a distinct type), never as an
+    ordinal, so no sentinel value below VIEWER is needed or reserved.
+
     OWNER is kept as the code name (not renamed to PROJECT_ADMIN) because it
     carries the last-Owner guard invariant throughout the codebase. The human-
     readable label is "Project Admin" for API consumers.
@@ -57,7 +67,7 @@ class Role(models.IntegerChoices):
     correct if ordinals change.
     """
 
-    VIEWER = 0, "Viewer"
+    VIEWER = 1, "Viewer"
     MEMBER = 100, "Team Member"
     SCHEDULER = 200, "Resource Manager"
     ADMIN = 300, "Project Manager"

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AxiosError, AxiosHeaders } from 'axios';
 import type { Task } from '@/types';
 import { TaskFormModal } from './index';
+import { ROLE_VIEWER } from '@/lib/roles';
 
 // Replace network-dependent hooks with deterministic stubs so the form can
 // render in jsdom without API access. Everything that the modal touches is
@@ -517,7 +518,7 @@ describe('TaskFormModal (issue #305)', () => {
   // ----- Readonly viewer ---------------------------------------------------
 
   it('renders read-only mode for a viewer (ROLE_VIEWER): Save and Delete are hidden, footer shows only Close', () => {
-    mockUserRole = 0;
+    mockUserRole = ROLE_VIEWER;
     renderModal({ task: baseTask() });
     expect(screen.getByText('VIEW TASK')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Save|Create/ })).not.toBeInTheDocument();

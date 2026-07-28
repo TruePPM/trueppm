@@ -7,6 +7,7 @@ import { ProgramGeneralPage } from './ProgramGeneralPage';
 import { useSettingsSaveStore } from '../hooks/useSettingsSaveStore';
 import type { ProgramExportJob } from '../hooks/useProgramExport';
 import type { Program } from '@/api/types';
+import { ROLE_VIEWER } from '@/lib/roles';
 
 const useProgram = vi.fn();
 const mutateAsync = vi.fn();
@@ -257,7 +258,7 @@ describe('ProgramGeneralPage (settings)', () => {
     // `<fieldset disabled>` would disable the ⓘ trigger <button> — a dead, dimmed
     // affordance (ux-review §8 / web-rule 122). Below Admin we render no trigger;
     // the always-visible inline hint still explains the field.
-    useProgram.mockReturnValue({ data: makeProgram({ my_role: 0, my_role_label: 'Viewer' }) });
+    useProgram.mockReturnValue({ data: makeProgram({ my_role: ROLE_VIEWER, my_role_label: 'Viewer' }) });
     renderPage();
     expect(screen.queryByRole('button', { name: /About the Methodology options/i })).toBeNull();
     // The inline hint the control describes by is unaffected (it is a <div>, not a

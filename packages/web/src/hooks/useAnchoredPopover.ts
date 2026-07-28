@@ -128,8 +128,12 @@ export function useAnchoredPopover<
     const resolvedWidth = Math.min(desired, vw - margin * 2);
 
     // Prefer the mounted panel's real height; fall back to the estimate on the
-    // first open (before it has rendered).
-    const height = popoverRef.current?.offsetHeight || estimatedHeight;
+    // first open (before it has rendered). An unrendered element reports
+    // `offsetHeight === 0`, so that zero is a "not measured yet" signal and must
+    // trigger the fallback just as an absent ref does — hence the explicit zero
+    // test rather than `??`, which would keep the 0 and flip the panel upward.
+    const measured = popoverRef.current?.offsetHeight ?? 0;
+    const height = measured === 0 ? estimatedHeight : measured;
 
     // Vertical: below the anchor, flipping above when there is not enough room.
     const below = rect.bottom + gap;

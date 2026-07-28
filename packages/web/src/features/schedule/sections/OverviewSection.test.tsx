@@ -3,6 +3,7 @@ import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { OverviewSection } from './OverviewSection';
 import type { Task } from '@/types';
+import { ROLE_VIEWER } from '@/lib/roles';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -340,7 +341,7 @@ describe('OverviewSection — progress field', () => {
 
   it('renders no numeric input for read-only (non-editable) callers', () => {
     renderWithProviders(
-      <OverviewSection taskId="t1" projectId="p1" userRole={0} canEdit={false} />,
+      <OverviewSection taskId="t1" projectId="p1" userRole={ROLE_VIEWER} canEdit={false} />,
     );
     expect(screen.queryByRole('spinbutton', { name: /Task progress/i })).not.toBeInTheDocument();
   });
@@ -682,15 +683,15 @@ describe('OverviewSection — read-only when canEdit is false', () => {
     expect(screen.queryByRole('combobox', { name: /Task status/i })).not.toBeInTheDocument();
   });
 
-  it('a Viewer role (userRole=0) with no capability field is read-only', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" userRole={0} />);
+  it('a Viewer role (userRole=ROLE_VIEWER) with no capability field is read-only', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" userRole={ROLE_VIEWER} />);
     expect(screen.queryByRole('combobox', { name: /Task status/i })).not.toBeInTheDocument();
   });
 
   it('the server can_edit field overrides the client role rule', () => {
-    // userRole=0 (Viewer) would be read-only by the client rule, but the server
+    // userRole=ROLE_VIEWER (Viewer) would be read-only by the client rule, but the server
     // says canEdit — e.g. a PO editing a story — so the control renders.
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" userRole={0} canEdit />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" userRole={ROLE_VIEWER} canEdit />);
     expect(screen.getByRole('combobox', { name: /Task status/i })).toBeInTheDocument();
   });
 });

@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Program } from '@/api/types';
 import { ProgramListPage } from './ProgramListPage';
+import { ROLE_VIEWER } from '@/lib/roles';
 
 const usePrograms = vi.fn();
 const useUngroupedProjects = vi.fn();
@@ -174,7 +175,7 @@ describe('ProgramListPage', () => {
     usePrograms.mockReturnValue({
       data: [
         makeProgram({ id: 'p-1', name: 'Phase 2', project_count: 4, member_count: 7 }),
-        makeProgram({ id: 'p-2', name: 'Customer Health', my_role: 0, my_role_label: 'Viewer' }),
+        makeProgram({ id: 'p-2', name: 'Customer Health', my_role: ROLE_VIEWER, my_role_label: 'Viewer' }),
       ],
       isLoading: false,
       error: null,

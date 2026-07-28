@@ -1098,9 +1098,7 @@ export class GanttEngineImpl implements GanttEngine {
     // reuse it across scroll/hover repaints (#1000). _onScroll only flips
     // _fullRepaintPending; it never invalidates _depLayout, so panning re-projects
     // the cache instead of rebuilding the full-N routing structures every frame.
-    if (!this._depLayout) {
-      this._depLayout = prepareDependencyLayout(this._tasks, this._links, this._scales);
-    }
+    this._depLayout ??= prepareDependencyLayout(this._tasks, this._links, this._scales);
     paintDependencyLayout(
       ctx,
       this._depLayout,

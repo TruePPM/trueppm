@@ -73,18 +73,16 @@ let dbPromise: Promise<IDBPDatabase<BoardOfflineSchema>> | null = null;
  */
 function getDb(): Promise<IDBPDatabase<BoardOfflineSchema>> | null {
   if (typeof indexedDB === 'undefined') return null;
-  if (!dbPromise) {
-    dbPromise = openDB<BoardOfflineSchema>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains(QUEUE_STORE)) {
-          db.createObjectStore(QUEUE_STORE, { keyPath: 'taskId' });
-        }
-        if (!db.objectStoreNames.contains(SNAPSHOT_STORE)) {
-          db.createObjectStore(SNAPSHOT_STORE, { keyPath: 'projectId' });
-        }
-      },
-    });
-  }
+  dbPromise ??= openDB<BoardOfflineSchema>(DB_NAME, DB_VERSION, {
+    upgrade(db) {
+      if (!db.objectStoreNames.contains(QUEUE_STORE)) {
+        db.createObjectStore(QUEUE_STORE, { keyPath: 'taskId' });
+      }
+      if (!db.objectStoreNames.contains(SNAPSHOT_STORE)) {
+        db.createObjectStore(SNAPSHOT_STORE, { keyPath: 'projectId' });
+      }
+    },
+  });
   return dbPromise;
 }
 

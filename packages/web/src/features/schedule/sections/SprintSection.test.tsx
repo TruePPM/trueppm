@@ -3,6 +3,7 @@ import { act, fireEvent, screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { SprintSection } from './SprintSection';
 import type { Task, ApiSprint } from '@/types';
+import { ROLE_VIEWER } from '@/lib/roles';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -233,7 +234,7 @@ describe('SprintSection', () => {
   it('shows the assigned sprint as static text for a read-only viewer', () => {
     setTasks({ ...baseTask, sprintId: 'sprint-1' });
     mockSprints = [activeSprint];
-    renderWithProviders(<SprintSection taskId="t1" projectId="p1" userRole={0} />);
+    renderWithProviders(<SprintSection taskId="t1" projectId="p1" userRole={ROLE_VIEWER} />);
     expect(screen.getByText('Sprint 1')).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: /Sprint assignment/i })).not.toBeInTheDocument();
     // No write affordance is offered to a Viewer.
@@ -243,7 +244,7 @@ describe('SprintSection', () => {
   it('reads "Not assigned" for a read-only viewer on an unassigned task', () => {
     setTasks(baseTask);
     mockSprints = [activeSprint];
-    renderWithProviders(<SprintSection taskId="t1" projectId="p1" userRole={0} />);
+    renderWithProviders(<SprintSection taskId="t1" projectId="p1" userRole={ROLE_VIEWER} />);
     expect(screen.getByText('Not assigned')).toBeInTheDocument();
   });
 

@@ -583,7 +583,13 @@ export function HealthCluster({ onTaskNavigate }: Props) {
     const trigger = triggerRef.current;
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
-    const width = dialogRef.current?.offsetWidth || POPOVER_MIN_WIDTH;
+    // `offsetWidth` is 0 for an element that has not laid out yet (first open,
+    // before the portal paints), so a zero here means "no measurement", exactly
+    // like an absent ref — both fall back to the min width. Written as an explicit
+    // zero test rather than `||` because `??` would keep the 0 and collapse the
+    // panel, and `||` no longer expresses which falsy value is being caught.
+    const measured = dialogRef.current?.offsetWidth ?? 0;
+    const width = measured === 0 ? POPOVER_MIN_WIDTH : measured;
     setPos({
       top: rect.bottom + POPOVER_GAP,
       left: Math.max(

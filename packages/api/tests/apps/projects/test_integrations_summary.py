@@ -188,7 +188,7 @@ class TestIntegrationsSummary:
         assert res.status_code == 200
 
     def test_viewer_can_read(self, project: Project, calendar: Calendar) -> None:
-        # Viewer (role=0) is the most restrictive role above non-member; the
+        # Viewer (the lowest ordinal) is the most restrictive role above non-member; the
         # ADR specifies Project Member to read, and Viewer satisfies that
         # since they're a project member with read-only rights.
         viewer = User.objects.create_user(username="viewer", password="pw")

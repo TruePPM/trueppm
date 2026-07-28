@@ -15,10 +15,21 @@
  *                              custom roles in this band inherit capabilities)
  *   role === ROLE_X         → "specifically the OSS X tier" (NOT extensible;
  *                              custom roles do not absorb these matches)
+ *
+ * Worked example of what the bands are for: an "Auditor" — read access plus
+ * export and history, more than a Viewer but less than a Member — has no OSS
+ * tier that fits, so Enterprise registers it at an ordinal in the 2–99 band.
+ * Every `role >= ROLE_MEMBER` write gate keeps excluding it for free, and no
+ * OSS ordinal has to move.
+ *
+ * Every ordinal is truthy on purpose (#2489). ROLE_VIEWER was 0 until 0.4, and
+ * `0` is falsy in JavaScript — one `role || ROLE_MEMBER` anywhere in a consumer
+ * would silently promote a Viewer. Absence of a role is `null`/`undefined`, a
+ * distinct type; never the number 0.
  */
 
-/** Read-only access to all project data. */
-export const ROLE_VIEWER = 0;
+/** Read-only access to all project data. The lowest ordinal in use — 0 is unused. */
+export const ROLE_VIEWER = 1;
 
 /** Edit own assigned tasks; log time. */
 export const ROLE_MEMBER = 100;

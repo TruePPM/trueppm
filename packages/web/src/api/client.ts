@@ -91,11 +91,9 @@ async function refreshAccessToken(): Promise<string> {
  */
 export async function bootstrapAccessToken(): Promise<boolean> {
   try {
-    if (!refreshPromise) {
-      refreshPromise = refreshAccessToken().finally(() => {
-        refreshPromise = null;
-      });
-    }
+    refreshPromise ??= refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
     await refreshPromise;
     return true;
   } catch {
@@ -125,18 +123,14 @@ apiClient.interceptors.response.use(
 
     try {
       // Coalesce concurrent 401s onto a single refresh attempt
-      if (!refreshPromise) {
-        refreshPromise = refreshAccessToken().finally(() => {
-          refreshPromise = null;
-        });
-      }
+      refreshPromise ??= refreshAccessToken().finally(() => {
+        refreshPromise = null;
+      });
 
       const newAccessToken = await refreshPromise;
 
       // Inject the new token into the retried request
-      if (!originalRequest.headers) {
-        originalRequest.headers = {};
-      }
+      originalRequest.headers ??= {};
       (originalRequest.headers as Record<string, string>)['Authorization'] =
         `Bearer ${newAccessToken}`;
 

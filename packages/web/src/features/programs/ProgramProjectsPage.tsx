@@ -50,7 +50,7 @@ export function ProgramProjectsPage() {
 
   if (!programId) return null;
 
-  // my_role is a Role ordinal (VIEWER=0 … OWNER=400), not a 0–4 index — a bare
+  // my_role is a Role ordinal (VIEWER=1 … OWNER=400), not a 0–4 index — a bare
   // `>= 3` exposed admin add/remove affordances to Members/Schedulers. Gate on
   // the ROLE_ADMIN ordinal (300) to match the sibling settings page.
   const isAdmin = program ? (program.my_role ?? -1) >= ROLE_ADMIN : false;

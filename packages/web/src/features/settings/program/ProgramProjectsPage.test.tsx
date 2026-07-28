@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi } from 'vitest';
 import { ProgramProjectsPage } from './ProgramProjectsPage';
+import { ROLE_VIEWER } from '@/lib/roles';
 
 const useProgram = vi.fn();
 const useProgramProjects = vi.fn();
@@ -88,8 +89,8 @@ describe('ProgramProjectsPage (settings)', () => {
     expect(screen.getByLabelText('Select Artemis IV')).toBeInTheDocument();
   });
 
-  it('hides Add project button for Viewer (role=0)', () => {
-    useProgram.mockReturnValue({ data: { id: 'p-1', name: 'Phase 2', my_role: 0 } });
+  it('hides Add project button for Viewer (Viewer)', () => {
+    useProgram.mockReturnValue({ data: { id: 'p-1', name: 'Phase 2', my_role: ROLE_VIEWER } });
     useProgramProjects.mockReturnValue({ data: [], isLoading: false, error: null });
     renderPage();
     expect(screen.queryByRole('button', { name: /Add project/i })).not.toBeInTheDocument();

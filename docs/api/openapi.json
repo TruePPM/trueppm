@@ -52428,14 +52428,14 @@
             },
             "RoleEnum": {
                 "enum": [
-                    0,
+                    1,
                     100,
                     200,
                     300,
                     400
                 ],
                 "type": "integer",
-                "description": "* `0` - Viewer\n* `100` - Team Member\n* `200` - Resource Manager\n* `300` - Project Manager\n* `400` - Project Admin"
+                "description": "* `1` - Viewer\n* `100` - Team Member\n* `200` - Resource Manager\n* `300` - Project Manager\n* `400` - Project Admin"
             },
             "RoleF2cEnum": {
                 "enum": [

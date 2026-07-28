@@ -225,7 +225,7 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Prop
       {phase === 'building' && buildingTaskId && buildingStart && buildingFinish && (() => {
         const rawIdx = rowIndexMap.get(buildingTaskId);
         // Fall back to end of list when the task is newly created and not yet in taskIds
-        const rowIndex = rawIdx !== undefined ? rawIdx : taskIds.length;
+        const rowIndex = rawIdx ?? taskIds.length;
         return (
           <BuildGhostBar
             ghostStart={buildingStart}

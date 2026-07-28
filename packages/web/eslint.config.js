@@ -123,6 +123,21 @@ export default [
       // later. Mirrors CodeQL Code Quality's "initializer overwritten" finding so
       // it never reaches the GitHub mirror. Core rule, ships in eslint 9.
       'no-useless-assignment': 'error',
+      // Ban `||` where the intent is "fall back when absent" on a value that can
+      // legitimately BE zero (#2489). TruePPM has several meaning-carrying zeros —
+      // `total_float === 0` is *on the critical path*, `duration === 0` is a
+      // milestone, `percent_complete === 0` is not-started, `story_points === 0`
+      // is explicitly estimated at zero — and `x || fallback` silently discards
+      // every one of them. `??` only falls back on null/undefined.
+      //
+      // ignorePrimitives keeps string and boolean out of scope: `name || ''` and
+      // `flag || false` are idiomatic, have no meaning-carrying falsy value worth
+      // preserving, and converting them would be pure churn. Numbers are the whole
+      // point of the rule here; `null`/`undefined` operands stay covered.
+      '@typescript-eslint/prefer-nullish-coalescing': [
+        'error',
+        { ignorePrimitives: { string: true, boolean: true } },
+      ],
       // React 19: JSX transform does not require React in scope
       'react/react-in-jsx-scope': 'off',
       'react/prop-types': 'off',
@@ -212,6 +227,13 @@ export default [
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       'no-useless-assignment': 'error',
+      // Same numeric-zero rationale as the src/** block above — a spec that
+      // builds a fixture with `count || 5` hides a legitimate zero just as
+      // readily as product code does.
+      '@typescript-eslint/prefer-nullish-coalescing': [
+        'error',
+        { ignorePrimitives: { string: true, boolean: true } },
+      ],
       'no-restricted-globals': [
         'error',
         { name: 'parseInt', message: 'Use Number.parseInt instead of the global.' },

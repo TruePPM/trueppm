@@ -291,7 +291,7 @@ test.describe('Product backlog epic management (#1339)', () => {
   test('a viewer (no backlog-manage rights) sees no epic-management affordances', async ({
     page,
   }) => {
-    await setup(page, { productOwner: false, canDelete: false, role: 0 });
+    await setup(page, { productOwner: false, canDelete: false, role: 1 }); // 1 = Viewer
     // Withhold per-epic edit rights too (a real viewer's payload has can_edit:false).
     await page.route('**/api/v1/projects/*/product-backlog/', (route) =>
       route.fulfill({

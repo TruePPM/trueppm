@@ -32,9 +32,13 @@ export interface UseCurrentUserRoleResult {
  * Returns { role: null, roleLabel: null, isLoading: true } while loading so
  * callers can hide role-gated UI pessimistically (avoids flash-of-forbidden-content).
  *
- * Role ordinals are defined in `@/lib/roles` (ADR-0072): VIEWER=0, MEMBER=100,
+ * Role ordinals are defined in `@/lib/roles` (ADR-0072): VIEWER=1, MEMBER=100,
  * SCHEDULER=200, ADMIN=300, OWNER=400. Always compare via the symbolic
  * constants from that module — never hardcode the numeric values.
+ *
+ * `role: null` means "no membership / still loading" and is the only absence
+ * signal — no ordinal is falsy, so `role ?? fallback` and `role != null` are the
+ * correct tests and `role || fallback` is never needed (ADR-0072 Amendment 1).
  */
 export function useCurrentUserRole(
   projectId: string | undefined,

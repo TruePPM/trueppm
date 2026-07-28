@@ -3,6 +3,58 @@
 ## Status
 Accepted (2026-05-31) — implemented in #508. First canonical RBAC contract ADR; supersedes the
 ad-hoc Role-enum docstring in `apps/access/models.py` as the source of truth.
+**Amended 2026-07-28 (#2489)** — see *Amendment 1* below; the ordinal layout in the
+Decision section is historical and no longer canonical.
+
+## Amendment 1 (2026-07-28, #2489): VIEWER moves 0 → 1
+
+`VIEWER` is now **1**. Every other ordinal is unchanged. The canonical layout is:
+
+```
+Ordinal | OSS Role        | Reserved band for Enterprise custom roles
+--------|-----------------|------------------------------------------
+0       | (unused)        | deliberately never assigned — see below
+1       | VIEWER          |
+        |                 | 2–99     (read-augmented roles, e.g. "Auditor" at 50)
+100     | MEMBER          |
+        |                 | 101–199  (contributor extensions)
+200     | SCHEDULER       |
+        |                 | 201–299  (resource-management extensions)
+300     | ADMIN           |
+        |                 | 301–399  (project-lead extensions)
+400     | OWNER           |
+        |                 | 401+     (RESERVED — no role above Owner; OSS contract)
+```
+
+**Why.** The ordinal is a client-visible wire value — it ships in membership payloads,
+invite responses, SSO auto-create defaults, and MCP reads — and JavaScript treats `0` as
+falsy. A single `role || DEFAULT` or `if (role)` in any consumer silently promotes a
+Viewer to whatever the default is. The failure is asymmetric in the dangerous direction
+(a *widening* of access), fails silently, and no test naturally catches it. The 2026-07-28
+audit found the OSS tree clean — every site uses `??`, and absence of a role is `None` /
+`null`, a distinct type, never `0` — but that was discipline, not enforcement. Making
+every ordinal truthy removes the failure mode instead of relying on reviewers.
+
+**Why only VIEWER.** Renumbering all five to `1/101/201/301/401` touches five values
+instead of one, churns far more fixtures and assertions, and gains nothing: the reserved
+bands survive either way. The read-augmented band simply becomes **2–99** (98 slots),
+which is still far more than the "4 slots per band is more than any real customer has
+asked for" sizing argument in the original Decision.
+
+**`0` is now permanently unassigned**, in OSS and in Enterprise alike. It is not a
+sentinel for "no membership" — that is `None` / `null`, a distinct type — and no custom
+role may claim it. Leaving it empty is what keeps the truthiness invariant total.
+
+**Enforcement.** `@typescript-eslint/prefer-nullish-coalescing` (numbers only;
+`ignorePrimitives: { string: true, boolean: true }`) is enabled in
+`packages/web/eslint.config.js` as of the same change. It guards this invariant and
+every other meaning-carrying zero in the product — `total_float === 0` is *on the
+critical path*, `duration === 0` is a milestone, `percent_complete === 0` is
+not-started, `story_points === 0` is explicitly estimated at zero.
+
+**Migration**: `apps/access/migrations/0017_viewer_ordinal_one.py`, covering
+`ProjectMembership.role`, `ProgramMembership.role`, `Project.default_member_role`
+(and its historical table), and `workspace.GroupProject.role`.
 
 ## Context
 
@@ -62,6 +114,10 @@ to also match an OSS equality check, it must override that check via slot regist
 (ADR-0029) — never by changing the OSS code.
 
 ### Ordinal layout and reserved slots
+
+> **Superseded by Amendment 1 (#2489)** — `VIEWER` is now `1` and `0` is permanently
+> unassigned, so the read-augmented band is `2–99`. The table below records what #508
+> shipped; read Amendment 1 for the current contract.
 
 ```
 Ordinal | OSS Role        | Reserved band for Enterprise custom roles
