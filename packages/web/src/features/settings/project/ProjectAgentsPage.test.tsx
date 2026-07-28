@@ -23,9 +23,7 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
 
 vi.mock('../hooks/useDirtyForm', () => ({ useDirtyForm: () => {} }));
 
-function makeProject(
-  overrides: Partial<ApiProjectDetail> = {},
-): Partial<ApiProjectDetail> {
+function makeProject(overrides: Partial<ApiProjectDetail> = {}): Partial<ApiProjectDetail> {
   return {
     id: 'p-1',
     name: 'Apollo',

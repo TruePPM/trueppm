@@ -148,7 +148,7 @@ test.describe('Project Settings → Agents', () => {
   test('starts inheriting and PATCHes mcp_enabled:false when blocked', async ({ page }) => {
     const captures: Captures = {};
     await setup(page, captures);
-    await page.goto(`/projects/${PROJECT_ID}/settings/agents`);
+    await page.goto(`/projects/${PROJECT_ID}/settings#agents`);
 
     // Every section mounts at once on the consolidated settings page (ADR-0146),
     // so scope to this one — "Agents" also names a nav entry and a project tab.
@@ -161,11 +161,15 @@ test.describe('Project Settings → Agents', () => {
 
     const group = section.getByRole('radiogroup', { name: 'Agent read access' });
     await expect(group).toBeVisible();
-    await group.getByRole('radio', { name: /^Override/ }).click();
+    // Click the LABEL, not the radio: InheritableToggleField renders the input as
+    // `sr-only` inside its label, so the label intercepts pointer events and a
+    // click targeted at the zero-size input never lands.
+    await group.locator('label', { hasText: 'Override' }).click();
+    await expect(group.getByRole('radio', { name: /Override/ })).toBeChecked();
 
     // The switch seeds from the currently-effective value (Allowed), so flip it.
     await section.getByRole('switch', { name: 'Agent read access' }).click();
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.getByRole('button', { name: /Save changes/i }).click();
 
     await expect.poll(() => captures.patch).toBeTruthy();
     expect(captures.patch).toMatchObject({ mcp_enabled: false });
@@ -173,7 +177,7 @@ test.describe('Project Settings → Agents', () => {
 
   test('explains the consequence when agent reads are blocked', async ({ page }) => {
     await setup(page, {}, { project: { mcp_enabled: false, effective_mcp_enabled: false } });
-    await page.goto(`/projects/${PROJECT_ID}/settings/agents`);
+    await page.goto(`/projects/${PROJECT_ID}/settings#agents`);
 
     const section = page.locator('[data-settings-section="agents"]');
     await expect(section.getByTestId('agent-access-blocked-note')).toBeVisible();
@@ -187,9 +191,11 @@ test.describe('Project Settings → Agents', () => {
     await setup(
       page,
       {},
-      { project: { mcp_enabled: null, inherited_mcp_enabled: false, effective_mcp_enabled: false } },
+      {
+        project: { mcp_enabled: null, inherited_mcp_enabled: false, effective_mcp_enabled: false },
+      },
     );
-    await page.goto(`/projects/${PROJECT_ID}/settings/agents`);
+    await page.goto(`/projects/${PROJECT_ID}/settings#agents`);
 
     const section = page.locator('[data-settings-section="agents"]');
     await expect(section.getByTestId('agent-access-blocked-note')).toBeVisible();
@@ -197,7 +203,7 @@ test.describe('Project Settings → Agents', () => {
 
   test('renders read-only below Admin', async ({ page }) => {
     await setup(page, {}, { selfRole: 200 }); // SCHEDULER
-    await page.goto(`/projects/${PROJECT_ID}/settings/agents`);
+    await page.goto(`/projects/${PROJECT_ID}/settings#agents`);
 
     const section = page.locator('[data-settings-section="agents"]');
     await expect(section.getByText('Agent read access')).toBeVisible();

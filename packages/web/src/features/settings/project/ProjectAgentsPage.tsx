@@ -52,10 +52,7 @@ export function ProjectAgentsPage() {
   }, [project]);
 
   const values = useMemo(() => ({ mcp_enabled: mcpEnabled }), [mcpEnabled]);
-  const initialValues = useMemo(
-    () => ({ mcp_enabled: initialMcpEnabled }),
-    [initialMcpEnabled],
-  );
+  const initialValues = useMemo(() => ({ mcp_enabled: initialMcpEnabled }), [initialMcpEnabled]);
 
   const handleSave = useCallback(async () => {
     await updateProject.mutateAsync({ mcp_enabled: mcpEnabled });
@@ -119,8 +116,8 @@ export function ProjectAgentsPage() {
             data-testid="agent-access-blocked-note"
           >
             Agent reads of this project are blocked. MCP tools return a refusal for this
-            project&apos;s data, and each refusal is recorded in the project&apos;s agent
-            activity log.
+            project&apos;s data, and each refusal is recorded in the project&apos;s agent activity
+            log.
           </p>
         )}
       </div>

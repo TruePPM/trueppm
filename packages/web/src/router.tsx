@@ -718,6 +718,12 @@ export const router = createBrowserRouter([
                     ),
                   },
                   {
+                    path: 'settings/agents',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="agents" />
+                    ),
+                  },
+                  {
                     path: 'settings/surfaces',
                     element: (
                       <SectionRedirect base="/projects/:projectId/settings" anchor="surfaces" />
