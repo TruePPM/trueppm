@@ -87,6 +87,7 @@ from trueppm_api.apps.projects.views import (
     PIN_LIMIT_RESPONSE,
     PROGRAM_PIN_RESPONSE,
     DirectoryPagination,
+    pin_limit_detail,
 )
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
 from trueppm_api.core.openapi import suppress_list_pagination
@@ -595,7 +596,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             set_pin(request.user, program=program, pinned=True)
         except PinLimitReached as exc:
             return Response(
-                {"detail": str(exc), "code": "pin_limit_reached"},
+                {"detail": pin_limit_detail(exc.limit), "code": "pin_limit_reached"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response({"is_pinned": True}, status=status.HTTP_200_OK)

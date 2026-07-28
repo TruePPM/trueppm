@@ -255,6 +255,20 @@ PIN_LIMIT_RESPONSE = inline_serializer(
     fields={"detail": serializers.CharField(), "code": serializers.CharField()},
 )
 
+
+def pin_limit_detail(limit: int) -> str:
+    """Human copy for a 400 on either pin endpoint, naming the operator's cap.
+
+    ``PinLimitReached`` carries ``.limit`` precisely so the surface can name the
+    configured cap instead of hardcoding a number an operator may have raised.
+    Rendering it here rather than stringifying the exception keeps user-facing
+    copy in the view layer that owns the surface — a service-layer exception
+    message is a domain signal, not UI text, and it is not the thing we want to
+    have to re-word when the copy or the locale changes.
+    """
+    return f"You have reached the maximum of {limit} pinned items. Unpin one to add another."
+
+
 # Allow-list pattern for the X-Source request header value (ADR-0065 Gap 2).
 # Lower-case ASCII letters and underscores, 1–64 chars. Any other input is
 # coerced to "unknown" before reaching the stored webhook payload — protects
@@ -1750,7 +1764,7 @@ class ProjectViewSet(
             # limit-specific message, and string-matching a human sentence would
             # break the moment the copy or the locale changes.
             return Response(
-                {"detail": str(exc), "code": "pin_limit_reached"},
+                {"detail": pin_limit_detail(exc.limit), "code": "pin_limit_reached"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response({"is_pinned": True}, status=status.HTTP_200_OK)
