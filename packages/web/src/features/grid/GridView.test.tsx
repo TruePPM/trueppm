@@ -11,6 +11,18 @@ import { useWbsStore } from '@/stores/wbsStore';
 import { ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
 import type { Task, Methodology } from '@/types';
 
+// This file mounts the full GridView (TanStack Virtual + Query + router) ~104
+// times, and the heaviest `renderGrid()` cases land within tens of milliseconds
+// of vitest's 5000ms default — one timed out at 5022ms on a loaded CI runner
+// (#2509). Because the suite runs `fileParallelism: false`, a busy machine tips
+// them over. Raise the ceiling for THIS file only: a global bump would slow the
+// failure signal for the whole ~12.6k-test suite and could mask genuine hangs.
+//
+// The cascade is why this matters more than one red test: a timed-out render is
+// never unmounted, so the *next* test finds two `treegrid`s and fails with a
+// misleading "Found multiple elements" that points nowhere near the real cause.
+vi.setConfig({ testTimeout: 20_000 });
+
 // JSDOM has no layout — TanStack Virtual relies on getBoundingClientRect for
 // the scroll container. Stub a non-zero height so virtualised rows render.
 beforeEach(() => {
