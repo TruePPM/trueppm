@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from io import StringIO
 
 import pytest
@@ -23,9 +24,79 @@ from trueppm_api.apps.projects.models import (
     SprintState,
     Task,
 )
-from trueppm_api.apps.resources.models import Resource, TaskResource
+from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
 User = get_user_model()
+
+
+@pytest.mark.django_db
+class TestDestructiveResetIsScoped:
+    """The idempotent reset must only ever reap the seeder's own output (#2476).
+
+    In demo mode this command is a post-install/post-upgrade Helm hook, so the
+    delete re-fires on every ``helm upgrade`` against whatever else is on the
+    instance. These are the cases that must survive it.
+    """
+
+    def test_real_project_sharing_a_demo_name_survives(self) -> None:
+        """``Project.name`` is non-unique and these names are plausible real ones."""
+        real = Project.objects.create(name="Platform Migration", start_date=date(2026, 1, 1))
+        assert real.is_sample is False
+
+        call_command("seed_demo_project")
+
+        real.refresh_from_db()
+        assert real.is_deleted is False
+        # The seeded project is a second, separate row — the real one was untouched.
+        assert Project.objects.filter(name="Platform Migration", is_sample=True).count() == 1
+
+    def test_real_resource_sharing_a_demo_roster_name_survives(self) -> None:
+        """The old code deleted workspace-globally by human name."""
+        employee = Resource.objects.create(name="Sarah Lee", job_role="Staff Engineer")
+
+        call_command("seed_demo_project")
+        call_command("seed_demo_project")  # the reset path, not just first create
+
+        employee.refresh_from_db()
+        assert employee.job_role == "Staff Engineer"
+
+    def test_demo_resource_adopted_by_a_real_project_survives(self) -> None:
+        """A resource the operator has since staffed onto real work is not ours to reap."""
+        call_command("seed_demo_project")
+        adopted = Resource.objects.filter(name="Tom Nguyen").get()
+        real = Project.objects.create(name="Q3 Rollout", start_date=date(2026, 1, 1))
+        ProjectResource.objects.create(project=real, resource=adopted)
+
+        call_command("seed_demo_project")
+
+        adopted.refresh_from_db()
+        assert adopted.is_deleted is False
+
+    def test_seeded_projects_are_flagged_is_sample(self) -> None:
+        call_command("seed_demo_project")
+        seeded = Project.objects.filter(name__in=("Platform Migration", "Pilot Deployment"))
+        assert seeded.count() == 2
+        assert all(p.is_sample for p in seeded)
+
+    def test_seeded_projects_have_recalculated_at_stamped(self) -> None:
+        """is_sample + null recalculated_at renders a perpetual "Recalculating" badge (#1053).
+
+        The seeder writes final CPM dates directly and never enqueues the async
+        recompute that normally stamps this, so flagging is_sample without the
+        stamp would make the hosted demo read as permanently broken.
+        """
+        call_command("seed_demo_project")
+        seeded = Project.objects.filter(name__in=("Platform Migration", "Pilot Deployment"))
+        assert seeded.count() == 2
+        assert all(p.recalculated_at is not None for p in seeded)
+
+    def test_reset_still_reaps_its_own_resources(self) -> None:
+        """Scoping must not turn the reset into a leak — re-seeding stays flat."""
+        call_command("seed_demo_project")
+        first = Resource.objects.filter(name="Tom Nguyen").count()
+        call_command("seed_demo_project")
+        assert first == 1
+        assert Resource.objects.filter(name="Tom Nguyen").count() == 1
 
 
 @pytest.mark.django_db

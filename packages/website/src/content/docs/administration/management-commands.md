@@ -47,8 +47,15 @@ instance: `TRUEPPM_DEMO_PASSWORD` env var if set, otherwise `demo` under
 via `TRUEPPM_DEMO_PASSWORD` is not echoed back to stdout — only the generated
 random token (or the dev `demo` default) is printed.
 
-The command is **idempotent** — re-running clears any prior "Platform Migration"
-project and re-seeds it from scratch, so it is safe to run repeatedly while exploring.
+The command is **idempotent** — re-running clears the prior demo data and re-seeds it
+from scratch, so it is safe to run repeatedly while exploring.
+
+The reset is scoped to the seeder's own output. It reaps only projects it created
+(matched on the demo names *and* the internal `is_sample` flag it sets), and only
+resources whose every project membership is one of those demo projects. A real project
+that happens to be named "Platform Migration", and a real person who happens to share a
+name with the demo roster, are both left untouched — `Project.name` is deliberately not
+unique, so the name alone was never a safe key.
 
 ## `create_demo_share_link`
 

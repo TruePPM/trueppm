@@ -611,9 +611,12 @@ admin:
 #
 # DEMO ONLY — never enable against an instance holding real data. A post-install/
 # post-upgrade hook Job runs `seed_demo_project`, which is destructively idempotent:
-# it DELETES any projects named "Platform Migration" or "Pilot Deployment" and their
-# demo resources, then re-seeds them. That is correct for a throwaway demo (state can
-# never drift) and catastrophic anywhere else. Hence the default below.
+# it DELETES the demo projects it previously created and their demo-only resources,
+# then re-seeds them. Since #2476 that reset is scoped to the seeder's own output (the
+# `is_sample` flag it sets, not the project name), so it cannot reap a real project
+# that happens to share the demo name — but this mode also publishes unauthenticated
+# read-only share links, so it still belongs on its own instance. Hence the default
+# below.
 #
 # The posture: the only PUBLICLY REACHABLE surface is the two anonymous, read-only
 # share links printed by the hook Job. Be precise about why, because the obvious
