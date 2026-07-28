@@ -26,6 +26,7 @@ import {
   DensityComfortableIcon,
   DensityCompactIcon,
   DensityDetailedIcon,
+  DownloadIcon,
   ExternalLinkIcon,
   SlidersIcon,
   StarIcon,
@@ -870,7 +871,11 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 ariaBusy={props.exportingPdf}
                 ariaLabel="Export the board as a PDF"
               >
-                {props.exportingPdf ? '⏳ Generating PDF…' : '⬇ Export PDF'}
+                {/* The icon is constant and the label carries the state — the busy
+                    hourglass was a second, redundant channel that `ariaBusy` already
+                    covers, and no house SVG means "waiting". */}
+                <DownloadIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
+                {props.exportingPdf ? 'Generating PDF…' : 'Export PDF'}
               </MoreItem>
             )}
             <button

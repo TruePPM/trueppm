@@ -1494,7 +1494,7 @@ function TaskListRowInner({
         {/* Milestone diamond indicator */}
         {task.isMilestone && (
           <MilestoneIcon
-            className="mr-1 inline-block h-3 w-3 shrink-0 align-[-0.125em] text-brand-accent"
+            className="mr-1 inline-block h-3 w-3 align-[-0.125em] text-brand-accent"
             aria-hidden="true"
             data-testid="milestone-glyph"
           />
