@@ -7,11 +7,16 @@ import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from celery import shared_task
 
 from trueppm_api.core.idempotent import idempotent_task
+
+if TYPE_CHECKING:
+    # Type-only: the runtime import stays inside the task, where the rest of
+    # this module's Django/app imports are deferred for app-loading order.
+    from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError
 
 logger = logging.getLogger(__name__)
 
@@ -133,10 +138,7 @@ def import_csv(
             validate_task_graph(edges)
         except InfeasibleGraphError as exc:
             if import_request_id:
-                _mark_import_dead(
-                    import_request_id,
-                    f"The Predecessors column forms a circular dependency: {exc}",
-                )
+                _mark_import_dead(import_request_id, _describe_bad_graph(exc))
             raise
 
         from django.db import transaction
@@ -211,6 +213,42 @@ def _claim_import(import_request_id: str) -> bool:
         id=import_request_id, status=CsvImportStatus.DISPATCHED
     ).update(status=CsvImportStatus.DONE, file_content_b64="")
     return bool(claimed)
+
+
+def _uid_to_row(uid: str) -> str:
+    """Render a parser task uid as the spreadsheet row the uploader can open.
+
+    ``parse_spreadsheet`` numbers tasks ``uid = data_row_index + 1``, and the
+    header occupies row 1, so the row a person sees in Excel is ``uid + 1``.
+    Reporting the uid instead would be off by one against the file on their
+    screen. Non-numeric uids cannot arise from this parser, but the fallback
+    keeps a malformed id from turning a diagnostic into a crash.
+    """
+    try:
+        return f"row {int(uid) + 1}"
+    except (TypeError, ValueError):
+        return f"task {uid}"
+
+
+def _describe_bad_graph(exc: InfeasibleGraphError) -> str:
+    """Explain a rejected dependency graph in terms of the uploaded file.
+
+    Built from ``exc.reason``/``exc.offending`` rather than ``str(exc)``: the
+    exception's own message is a domain signal ("Infeasible task graph
+    (cyclic_dependency): ['2', '5', '2']") carrying an internal reason code and
+    a list repr in uid space. The uploader needs the rows of their spreadsheet,
+    and needs the two reasons distinguished — a self-referencing row is a
+    different edit from a multi-row loop.
+    """
+    rows = [_uid_to_row(uid) for uid in exc.offending]
+    if exc.reason == "self_reference" and rows:
+        return f"The Predecessors column on {rows[0]} lists that same row as its own predecessor."
+    if rows:
+        return (
+            "The Predecessors column forms a circular dependency: "
+            f"{' -> '.join(rows)}. Break the loop and re-upload."
+        )
+    return "The Predecessors column forms a circular dependency. Break the loop and re-upload."
 
 
 def _record_summary(import_request_id: str, summary: dict[str, Any]) -> None:

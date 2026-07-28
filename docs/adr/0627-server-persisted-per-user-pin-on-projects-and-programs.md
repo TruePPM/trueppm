@@ -221,7 +221,10 @@ navigation state, so `profiles` is correct, next to `ProjectVisit` which it stru
 **Cap: 100 pins per user, total across both kinds.** Read at request time from
 `settings.TRUEPPM_MAX_USER_PINS` (the ADR-0497 / #2021 operator-retunable convention, mirroring
 `MAX_PERSONAL_ACCESS_TOKENS`). Exceeding it returns `400 {"detail": "You have reached the
-maximum of 100 pinned items."}`. This bounds the `/me/pinned/` payload, bounds the rail band,
+maximum of 100 pinned items. Unpin one to add another.", "code": "pin_limit_reached"}` — the
+`detail` is rendered by the view from `PinLimitReached.limit`, never by stringifying the
+exception, so the copy lives on the surface that owns it. This bounds the `/me/pinned/`
+payload, bounds the rail band,
 and is the mechanical half of Janet's 🟡 (D7) — an unbounded pinned band *is* the RAG-substitute
 failure mode.
 

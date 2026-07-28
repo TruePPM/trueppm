@@ -247,6 +247,33 @@ def test_program_pin_over_cap_returns_machine_readable_code(program_member, prog
     resp = c.post(_program_pin_url(str(second.pk)))
     assert resp.status_code == 400
     assert resp.data["code"] == "pin_limit_reached"
+    assert "1 pinned items" in resp.data["detail"]
+
+
+@pytest.mark.django_db
+@override_settings(TRUEPPM_MAX_USER_PINS=3)
+def test_pin_cap_detail_names_the_configured_limit(member, project, calendar, program):
+    """The 400 copy names the operator's cap, and is the view's copy, not the
+    service exception's string form (#2501).
+
+    ``PinLimitReached`` carries ``.limit`` so a deployment that raised
+    ``TRUEPPM_MAX_USER_PINS`` does not tell its users a stale number.
+    """
+    c = _client(member)
+    extra = [project]
+    for i in range(3):
+        p = Project.objects.create(
+            name=f"Filler {i}", start_date=date(2026, 1, 1), calendar=calendar, program=program
+        )
+        ProjectMembership.objects.create(project=p, user=member, role=Role.MEMBER)
+        extra.append(p)
+    for p in extra[:3]:
+        assert c.post(_pin_url(str(p.pk))).status_code == 200
+
+    resp = c.post(_pin_url(str(extra[3].pk)))
+    assert resp.status_code == 400
+    assert "3 pinned items" in resp.data["detail"]
+    assert "Unpin one" in resp.data["detail"]
 
 
 @pytest.mark.django_db

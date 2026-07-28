@@ -164,8 +164,40 @@ class TestImportTaskDeadLettering:
         assert req.status == CsvImportStatus.DEAD
         assert req.file_content_b64 == ""
         assert Task.objects.filter(project=project).count() == 0
-        # The reason survives for the Schedule to show (#2151).
-        assert "circular" in req.result_summary["error"].lower()
+        # The reason survives for the Schedule to show (#2151), and it is written
+        # in the uploader's coordinates: CYCLIC_CSV's two tasks are data rows 0
+        # and 1 -> uids 1 and 2 -> spreadsheet rows 2 and 3 under the header.
+        detail = req.result_summary["error"]
+        assert "circular" in detail.lower()
+        assert "row 2" in detail
+        assert "row 3" in detail
+        # Not the exception's own repr: no internal reason code, no list literal,
+        # and no uid leaking through off-by-one against the file on screen (#2501).
+        assert "cyclic_dependency" not in detail
+        assert "Infeasible task graph" not in detail
+        assert "['" not in detail
+
+    def test_cycle_detail_names_rows_not_uids(self) -> None:
+        """`_describe_bad_graph` renders uid space as spreadsheet rows.
+
+        Unit-level because the two reasons diverge and only one is reachable from
+        a real file: `parse_spreadsheet` already drops a self-referencing link as
+        a row error, so the `self_reference` branch is defense-in-depth for any
+        future caller that hands `validate_task_graph` an unfiltered edge set.
+        """
+        from trueppm_api.apps.csvimport.tasks import _describe_bad_graph
+
+        cyclic = _describe_bad_graph(InfeasibleGraphError("cyclic_dependency", ["1", "4", "1"]))
+        assert "row 2 -> row 5 -> row 2" in cyclic
+
+        loop = _describe_bad_graph(InfeasibleGraphError("self_reference", ["6"]))
+        assert "row 7" in loop
+        assert "circular" not in loop.lower()
+
+        # A non-numeric id cannot come from this parser, but must not crash the
+        # dead-letter path that is the only surface reporting the failure.
+        odd = _describe_bad_graph(InfeasibleGraphError("cyclic_dependency", ["a", "b", "a"]))
+        assert "task a -> task b -> task a" in odd
 
     def test_unreadable_file_marks_the_row_dead_with_a_reason(self, project: Project) -> None:
         from trueppm_api.apps.csvimport.tasks import import_csv
