@@ -152,10 +152,13 @@ specific defects behind them.
 
 ## Findability and filtering
 
-Filtering matured on the Board first and has not yet reached the other views.
+Filtering matured on the Board first and has reached the other views unevenly. Label
+filtering arrived on the Table/Grid and the Product Backlog in 0.4; the Schedule did
+not get it, and no view except the Board can save a filter by name.
 
 | Issue | Symptom | Fix planned for |
 |---|---|---|
+| [#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443) | The Schedule is the only task view with no label filter — the Board, Table/Grid, and Product Backlog all have one as of 0.4, the Gantt does not | 0.5 |
 | [#2444](https://gitlab.com/trueppm/trueppm/-/issues/2444) | The Schedule has no text search and no owner/status filter — you cannot find a task on the Gantt | 0.5 |
 | [#2445](https://gitlab.com/trueppm/trueppm/-/issues/2445) | Saved views are Board-only; Grid, Schedule, Backlog and My Work cannot save a named filter | 0.5 |
 | [#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443) | Filter state does not survive a view switch, and the vocabulary differs per view | 0.5 |
