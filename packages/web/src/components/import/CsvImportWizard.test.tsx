@@ -21,6 +21,12 @@ const h = vi.hoisted(() => ({
     mutate: vi.fn(),
   },
   status: { data: undefined as unknown },
+  template: {
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+    mutate: vi.fn(),
+  },
 }));
 
 vi.mock('@/hooks/useCsvImport', async (importOriginal) => {
@@ -30,6 +36,7 @@ vi.mock('@/hooks/useCsvImport', async (importOriginal) => {
     useCsvImportPreview: () => ({ ...h.preview }),
     useCsvImportCommit: () => ({ ...h.commit }),
     useCsvImportStatus: () => ({ ...h.status }),
+    useCsvImportTemplate: () => ({ ...h.template }),
   };
 });
 
@@ -37,9 +44,11 @@ const PREVIEW: CsvPreview = {
   filename: 'plan.csv',
   headers: ['Title', 'Days', 'Notes'],
   columns: [
-    { index: 0, header: 'Title', field: 'name', confidence: 0.95 },
-    { index: 1, header: 'Days', field: 'duration', confidence: 0.8 },
-    { index: 2, header: 'Notes', field: '', confidence: 0 },
+    { index: 0, header: 'Title', field: 'name', confidence: 'exact' },
+    { index: 1, header: 'Days', field: 'duration', confidence: 'fuzzy' },
+    // `null`, not '': this is what the server actually sends for an unmatched
+    // column, and the wizard must fold it rather than go uncontrolled.
+    { index: 2, header: 'Notes', field: null, confidence: 'none' },
   ],
   sample_rows: [['Foundation pour', '5', 'concrete']],
   row_count: 12,
@@ -64,6 +73,10 @@ beforeEach(() => {
   h.commit.isError = false;
   h.commit.mutate = vi.fn();
   h.status.data = undefined;
+  h.template.isPending = false;
+  h.template.isError = false;
+  h.template.isSuccess = false;
+  h.template.mutate = vi.fn();
 });
 
 /** The dropzone's file input is intentionally hidden and unlabeled. */
@@ -76,12 +89,43 @@ function fileInput(container: HTMLElement): HTMLInputElement {
 const CSV = () => new File(['Title,Days\nFoundation,5\n'], 'plan.csv', { type: 'text/csv' });
 
 /** Drive the wizard to the mapping step by resolving a preview. */
-async function advanceToMapping(user: ReturnType<typeof userEvent.setup>, container: HTMLElement) {
+async function advanceToMapping(
+  user: ReturnType<typeof userEvent.setup>,
+  container: HTMLElement,
+  preview: CsvPreview = PREVIEW,
+) {
   h.preview.mutate = vi.fn((_vars, opts?: { onSuccess?: (d: CsvPreview) => void }) => {
-    opts?.onSuccess?.(PREVIEW);
+    opts?.onSuccess?.(preview);
   });
   await user.upload(fileInput(container), CSV());
   await user.click(screen.getByRole('button', { name: 'Next' }));
+}
+
+/** Drive all the way through commit so the terminal result view renders. */
+async function advanceToResult(
+  user: ReturnType<typeof userEvent.setup>,
+  container: HTMLElement,
+  summary: Record<string, unknown>,
+  status: 'done' | 'dead' = 'done',
+) {
+  // Seed both mocks before the first render that reads them: the hook mock
+  // spreads `h.commit` per render, so a mutate reassigned after the last
+  // re-render would leave the component holding the previous no-op.
+  h.status.data = {
+    id: 'imp-1',
+    status,
+    filename: 'plan.csv',
+    summary,
+    requested_at: '2026-07-27T00:00:00Z',
+  };
+  h.commit.mutate = vi.fn(
+    (_vars, opts?: { onSuccess?: (d: { import_request_id: string }) => void }) => {
+      opts?.onSuccess?.({ import_request_id: 'imp-1' });
+    },
+  );
+  await advanceToMapping(user, container);
+  await user.click(screen.getByRole('button', { name: 'Next' }));
+  await user.click(screen.getByRole('button', { name: /^Import/ }));
 }
 
 describe('CsvImportWizard (#746)', () => {
@@ -135,7 +179,27 @@ describe('CsvImportWizard (#746)', () => {
     // The remap goes back to the parser rather than being re-derived client side.
     expect(h.preview.mutate).toHaveBeenCalledTimes(1);
     const [vars] = h.preview.mutate.mock.calls[0] as [{ columnMap: Record<string, string> }];
-    expect(vars.columnMap).toEqual({ Title: 'name', Days: 'duration', Notes: 'duration' });
+    // ONLY the touched column is pinned. Echoing the whole mapping back would
+    // make the server mark every column `override`, laundering the untouched
+    // `fuzzy` guess on Days into "Your choice" (web-rule 289).
+    expect(vars.columnMap).toEqual({ Notes: 'duration' });
+  });
+
+  it('pins an explicit "Don\'t import" so a re-check cannot re-detect the column', async () => {
+    const user = userEvent.setup();
+    const { container } = renderWithProvidersAndRouter(
+      <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+    );
+    await advanceToMapping(user, container);
+    h.preview.mutate = vi.fn();
+
+    await user.selectOptions(screen.getByLabelText('TruePPM field for column Days'), '');
+    await user.click(screen.getByRole('button', { name: 'Re-check mapping' }));
+
+    // Omitting it would let auto-detection put the column straight back; the
+    // server reads '' as a deliberate no-mapping.
+    const [vars] = h.preview.mutate.mock.calls[0] as [{ columnMap: Record<string, string> }];
+    expect(vars.columnMap).toEqual({ Days: '' });
   });
 
   it('summarizes unmapped columns and split row counts before committing', async () => {
@@ -171,6 +235,268 @@ describe('CsvImportWizard (#746)', () => {
     // render of the result state is covered by the e2e spec. Here we only need
     // the status hook wiring not to throw on a terminal payload.
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  describe('file notices (#111)', () => {
+    const WITH_NOTICES: CsvPreview = {
+      ...PREVIEW,
+      warnings: [
+        "Only the first sheet ('Sheet1') was imported. 2 other sheet(s) were ignored.",
+        'Dates like 03/04/2026 were read as day/month/year.',
+      ],
+    };
+
+    it('shows whole-file parser decisions on the mapping step', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToMapping(user, container, WITH_NOTICES);
+
+      const notices = screen.getByRole('region', { name: 'How we read this file' });
+      expect(notices).toHaveTextContent(/Only the first sheet/);
+      expect(notices).toHaveTextContent(/day\/month\/year/);
+    });
+
+    it('repeats them on the confirm step, the last screen before commit', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToMapping(user, container, WITH_NOTICES);
+      await user.click(screen.getByRole('button', { name: 'Next' }));
+
+      expect(screen.getByRole('region', { name: 'How we read this file' })).toHaveTextContent(
+        /Only the first sheet/,
+      );
+    });
+
+    it('renders nothing when the parser made no decision worth reporting', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToMapping(user, container);
+
+      expect(
+        screen.queryByRole('region', { name: 'How we read this file' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('surfaces the notices the commit re-parse produced', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, {
+        tasks_created: 11,
+        warnings: ['Only the first 5,000 rows were imported; 1,000 were skipped.'],
+      });
+
+      expect(screen.getByRole('region', { name: 'How we read this file' })).toHaveTextContent(
+        /1,000 were skipped/,
+      );
+      // The outcome sentence carries the count so the polite announcement is
+      // complete without navigating to the list.
+      expect(screen.getByText(/1 note about this file/)).toBeInTheDocument();
+    });
+  });
+
+  describe('truncated rows (#111)', () => {
+    it('states the file total, not just the post-truncation count', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      // "5,000" alone would be a lie about a 6,000-row file.
+      await advanceToMapping(user, container, {
+        ...PREVIEW,
+        row_count: 5000,
+        truncated_rows: 1000,
+      });
+      await user.click(screen.getByRole('button', { name: 'Next' }));
+
+      expect(screen.getByText('5,000 of 6,000')).toBeInTheDocument();
+    });
+
+    it('states the plain count when nothing was truncated', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToMapping(user, container);
+      await user.click(screen.getByRole('button', { name: 'Next' }));
+
+      // `row_count` and `task_count` are both 12 here, so assert on the shape
+      // of the value rather than a unique string.
+      expect(screen.getAllByText('12').length).toBeGreaterThan(0);
+      expect(screen.queryByText(/\d+ of \d+/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('mapping confidence (#111)', () => {
+    it('flags a guessed column and stays silent on an exact match', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToMapping(user, container);
+
+      // Silence is the confident state: badging every exact match would bury
+      // the one column that actually needs an eye.
+      expect(screen.getByText('Guessed — check this')).toBeInTheDocument();
+      expect(screen.getByText('No match found')).toBeInTheDocument();
+      expect(screen.getByRole('status')).toHaveTextContent('Check the 1 column flagged below.');
+    });
+
+    it('explains a column dropped for claiming a taken field', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToMapping(user, container, {
+        ...PREVIEW,
+        headers: ['Title', 'Task', 'Days'],
+        columns: [
+          { index: 0, header: 'Title', field: 'name', confidence: 'exact' },
+          { index: 1, header: 'Task', field: null, confidence: 'duplicate' },
+          { index: 2, header: 'Days', field: 'duration', confidence: 'exact' },
+        ],
+      });
+
+      // Without this the column just looks mysteriously unmapped.
+      expect(
+        screen.getByText('Not imported — another column already uses this field'),
+      ).toBeInTheDocument();
+      // A null field must not flip the select to uncontrolled.
+      expect(screen.getByLabelText('TruePPM field for column Task')).toHaveValue('');
+    });
+
+    it('describes the select by its note so the guidance reaches the control', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToMapping(user, container);
+
+      expect(screen.getByLabelText('TruePPM field for column Days')).toHaveAccessibleDescription(
+        'Guessed — check this',
+      );
+      // An exact match has no note, so nothing to describe.
+      expect(
+        screen.getByLabelText('TruePPM field for column Title'),
+      ).not.toHaveAttribute('aria-describedby');
+    });
+
+    it('drains the flagged count as the operator corrects a column', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToMapping(user, container);
+      await user.selectOptions(screen.getByLabelText('TruePPM field for column Days'), 'duration');
+
+      // A corrected column must stop reading "Guessed" — otherwise the flag
+      // list never drains and the operator cannot tell what is left to check.
+      expect(screen.queryByText('Guessed — check this')).not.toBeInTheDocument();
+      expect(screen.getByText('Your choice')).toBeInTheDocument();
+      expect(screen.queryByText(/flagged below/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('template download (#111)', () => {
+    it('offers the template as a button, since the endpoint needs a bearer token', async () => {
+      const user = userEvent.setup();
+      renderWithProvidersAndRouter(<CsvImportWizard projectId="p1" onClose={vi.fn()} />);
+
+      const button = screen.getByRole('button', { name: 'Download a template' });
+      await user.click(button);
+      expect(h.template.mutate).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a failed download without moving focus off the retry', () => {
+      h.template.isError = true;
+      renderWithProvidersAndRouter(<CsvImportWizard projectId="p1" onClose={vi.fn()} />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent(/Couldn't download the template/);
+      expect(screen.getByRole('button', { name: 'Download a template' })).toBeEnabled();
+    });
+
+    it('announces success to assistive tech, the browser handling the visible part', () => {
+      h.template.isSuccess = true;
+      renderWithProvidersAndRouter(<CsvImportWizard projectId="p1" onClose={vi.fn()} />);
+
+      expect(screen.getByText('Template downloaded.')).toBeInTheDocument();
+    });
+
+    it('stays available while a preview is in flight', () => {
+      h.preview.isPending = true;
+      renderWithProvidersAndRouter(<CsvImportWizard projectId="p1" onClose={vi.fn()} />);
+
+      expect(screen.getByRole('button', { name: 'Download a template' })).toBeEnabled();
+    });
+  });
+
+  describe('terminal focus (#111)', () => {
+    it('focuses the schedule action on a clean import', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+
+      // Nothing to read, so the schedule is one keystroke away — the AC's
+      // "auto-navigate" without a WCAG 2.2.1 timed context change.
+      expect(screen.getByRole('button', { name: 'View schedule' })).toHaveFocus();
+    });
+
+    it('does not aim at the schedule when rows failed, so the line numbers are read', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, {
+        tasks_created: 11,
+        row_errors: [{ row: 4, message: 'Duration is not a number' }],
+      });
+
+      // Walking the operator past a partial-success report is exactly what the
+      // interchange spec §5.8 forbids. Close is a real focusable, so unlike a
+      // tabIndex={-1} paragraph it cannot punch a Shift+Tab hole in the focus
+      // trap (web-rule 288).
+      expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+      expect(screen.getByText(/1 row could not be imported\./)).toBeInTheDocument();
+    });
+
+    it('keeps focus off the schedule when file notices need reading', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, {
+        tasks_created: 12,
+        row_errors: [],
+        warnings: ['Only the first sheet was imported.'],
+      });
+
+      expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+    });
+
+    it('seats terminal focus on a real focusable, never a tabIndex=-1 node', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, {
+        tasks_created: 11,
+        row_errors: [{ row: 4, message: 'Duration is not a number' }],
+      });
+
+      // useFocusTrap's selector excludes tabindex="-1", so a node it cannot see
+      // lets Shift+Tab escape the dialog when nothing focusable precedes it.
+      expect(document.activeElement?.getAttribute('tabindex')).not.toBe('-1');
+      expect(document.activeElement?.tagName).toBe('BUTTON');
+    });
   });
 
   it('surfaces the server detail when preview fails', async () => {
