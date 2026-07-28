@@ -1,6 +1,6 @@
 ---
 title: Agent oversight
-description: A per-program, read-only view of what your team's agents did and what the engine refused — every row a link in a tamper-evident chain you can verify yourself. Governance of agents, never surveillance of people.
+description: A read-only view — per program, and per project on your own Activity tab — of what your team's agents did and what the engine refused. Every row is a link in a tamper-evident chain you can verify yourself. Governance of agents, never surveillance of people.
 ---
 
 :::note[Coming in 0.4]
@@ -35,6 +35,29 @@ The tab hosts three sub-views behind a segmented control:
   with a contribution line showing how much of the plan agents have actually
   completed. Agent-finished work is already folded into the committed schedule the
   forecast runs on, so this is the agent-conditioned forecast by construction.
+
+## Your own project, on your own tab
+
+You do not have to go up to the program to see what was read on your project. Every
+project's **Activity** tab has an **Agents** sub-view beside **Changes**, scoped to
+that project alone:
+
+- **Changes** answers *"what changed here?"* — the unified changelog across tasks,
+  sprints, risks, dependencies, and project settings.
+- **Agents** answers *"who read or acted on it, and what was refused?"* — the same
+  agent-action rows the program tab renders, filtered to this project.
+
+The two are kept apart on purpose. An agent *read* changed nothing, so folding it
+into the changelog would make it look as though it had.
+
+The sub-view carries a **Refusals only** filter and a time-range control, and it is
+deep-linkable: `…/activity?view=agents` opens straight onto it, so you can paste
+"what the agents did on our project this week" into a team channel. Links written
+before this existed still open on **Changes**, unchanged.
+
+This is the same read, one level down — not a second log and not a weaker one. The
+API behind both has always been membership-scoped: you see agent actions on projects
+you belong to, and an admin sees no more of your project than you do.
 
 ## Verify it yourself
 
