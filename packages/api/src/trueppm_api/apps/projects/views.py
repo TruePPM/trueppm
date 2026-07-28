@@ -4867,7 +4867,11 @@ class TaskViewSet(
             retention_days = None
         now = timezone.now()
 
-        qs = self._trashed_task_queryset().filter(project_id=project_id)
+        # `_trashed_task_queryset` deliberately bypasses get_queryset()/filter_queryset()
+        # to reach tombstoned rows — which also bypasses the ADR-0678 MCP opt-out those
+        # hooks carry. Re-apply it explicitly: a team that switched agent reads off must
+        # not have its deleted task names readable through the recovery surface.
+        qs = self._mcp_filter_queryset(self._trashed_task_queryset()).filter(project_id=project_id)
         if retention_days is not None:
             cutoff = now - datetime.timedelta(days=retention_days)
             # Mirrors the reaper's eligibility test inverted: it hard-deletes rows with
