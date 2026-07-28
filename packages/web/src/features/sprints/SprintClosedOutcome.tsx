@@ -27,7 +27,7 @@ import {
   type SprintOutcome,
 } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
-import { CheckIcon, HalfCircleIcon, StarIcon, XMarkIcon } from '@/components/Icons';
+import { CheckIcon, HalfCircleIcon, MilestoneIcon, StarIcon, XMarkIcon } from '@/components/Icons';
 
 interface Props {
   outcome: SprintOutcome;
@@ -718,7 +718,7 @@ function MilestoneSlipLine({ outcome }: { outcome: SprintOutcome }) {
       data-testid="milestone-slip-line"
       className={`flex items-start gap-2 rounded-card border bg-neutral-surface px-3 py-2 text-sm text-neutral-text-primary ${tone}`}
     >
-      <span aria-hidden="true">◆</span>
+      <MilestoneIcon aria-hidden="true" className="mt-0.5 h-3 w-3 shrink-0" />
       <span>
         {carriedClause}
         <span className="font-medium">{name}</span> {slipClause}.

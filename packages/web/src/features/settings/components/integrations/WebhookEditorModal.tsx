@@ -21,6 +21,7 @@ import {
   type IntegrationScope,
 } from '@/hooks/useWebhooks';
 import { WEBHOOK_EVENT_CATALOG, WEBHOOK_FORMATS, ALL_WEBHOOK_EVENT_IDS } from './events';
+import { CloseIcon } from '@/components/Icons';
 
 export interface WebhookEditorModalProps {
   scope: IntegrationScope;
@@ -123,7 +124,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
             aria-label="Close"
             className="text-neutral-text-secondary hover:text-neutral-text-primary text-lg leading-none px-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
 

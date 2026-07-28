@@ -30,6 +30,7 @@ import {
   notificationEmptyCopy,
 } from './notificationFilters';
 import { NotificationRow } from './NotificationRow';
+import { CloseIcon } from '@/components/Icons';
 
 interface Props {
   onClose: () => void;
@@ -129,7 +130,7 @@ export function NotificationPanel({ onClose }: Props) {
               rounded-control px-2 h-7
               focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AgentAction } from '@/api/types';
 import { VERDICT_DISPLAY } from './agentDisplay';
-import { CheckIcon } from '@/components/Icons';
+import { CheckIcon, CloseIcon } from '@/components/Icons';
 
 interface AgentActionDrawerProps {
   action: AgentAction | null;
@@ -97,7 +97,7 @@ export function AgentActionDrawer({
             aria-label="Close"
             className="shrink-0 rounded-control p-1 text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
 

@@ -25,7 +25,7 @@ import { FieldRow } from '../SettingsShell';
 import { Toggle } from '../components/Toggle';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { FieldHelp } from '@/components/FieldHelp';
-import { CheckIcon, XMarkIcon } from '@/components/Icons';
+import { CheckIcon, CloseIcon, XMarkIcon } from '@/components/Icons';
 import {
   PICKER_PROVIDERS,
   providerDef,
@@ -552,7 +552,7 @@ export function SsoProviderPanel({
           aria-label="Close provider panel"
           className="h-7 w-7 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
         >
-          ✕
+          <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </div>
 

@@ -7,6 +7,7 @@ import {
 } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { TargetIcon } from '@/components/Icons';
 
 /** A scope-change and a duration-change row, merged into one time-sorted feed. */
 type FeedItem =
@@ -154,7 +155,7 @@ function ScopeChangeRow({ event }: { event: ScopeChangeEvent }) {
           {event.item_name}
           {event.goal_impact && (
             <span className="ml-1.5 align-middle text-xs text-semantic-at-risk" title={`Affects the ${itl.lower} goal`}>
-              ◆
+              <TargetIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" />
             </span>
           )}
         </p>

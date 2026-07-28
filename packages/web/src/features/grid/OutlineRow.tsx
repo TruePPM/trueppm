@@ -5,6 +5,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { WbsNode } from './buildWbsTree';
 import type { Task } from '@/types';
 import { fmtDate, initials, progressBarColor } from './ui';
+import { MilestoneIcon, SquareIcon } from '@/components/Icons';
 
 /**
  * Full container className for an outline row. Extracted so the row component
@@ -115,7 +116,11 @@ function OutlineRowControls({
           className="w-4 h-4 flex items-center justify-center flex-shrink-0
                 text-xs text-neutral-text-disabled"
         >
-          {task.isMilestone ? <span className="text-brand-accent">◆</span> : '□'}
+          {task.isMilestone ? (
+            <MilestoneIcon className="h-3 w-3 text-brand-accent" data-testid="outline-milestone" />
+          ) : (
+            <SquareIcon className="h-3 w-3" data-testid="outline-task" />
+          )}
         </span>
       )}
     </span>

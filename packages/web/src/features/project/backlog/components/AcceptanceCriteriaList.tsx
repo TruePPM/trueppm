@@ -15,6 +15,7 @@ import {
   useDeleteCriterion,
   useUpdateCriterion,
 } from '../hooks/useStoryDetail';
+import { CloseIcon } from '@/components/Icons';
 
 interface Props {
   projectId: string;
@@ -174,7 +175,7 @@ export function AcceptanceCriteriaList({ projectId, taskId, criteria }: Props) {
               aria-label={`Remove "${c.text}"`}
               className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control text-neutral-text-secondary hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
-              ✕
+              <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </li>
         ))}

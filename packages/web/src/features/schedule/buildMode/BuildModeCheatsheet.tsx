@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { CloseIcon } from '@/components/Icons';
 
 interface ShortcutEntry {
   /** Key chip(s) — array because some entries show alternates (e.g. "Enter / F2"). */
@@ -123,7 +124,7 @@ export function BuildModeCheatsheet({ open, onClose }: BuildModeCheatsheetProps)
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
               focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
 

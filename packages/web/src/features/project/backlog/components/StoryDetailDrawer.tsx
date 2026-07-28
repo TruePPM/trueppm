@@ -33,6 +33,7 @@ import { DorControl } from './DorControl';
 import { ScoringInputs } from './ScoringInputs';
 import { TypeBadge } from './TypeBadge';
 import type { ScoringInputValues } from '../scorePreview';
+import { CloseIcon } from '@/components/Icons';
 
 interface ScalarDraft extends ScoringInputValues {
   name: string;
@@ -188,7 +189,7 @@ export function StoryDetailDrawer({
             aria-label="Close story detail"
             className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </header>
 

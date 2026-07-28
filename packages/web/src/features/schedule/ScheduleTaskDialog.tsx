@@ -4,6 +4,7 @@ import { usePromoteTask } from '@/hooks/useTaskMutations';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { formatShortDate } from './scheduleUtils';
+import { CloseIcon } from '@/components/Icons';
 
 interface ScheduleTaskDialogProps {
   /** The backlog task being scheduled. */
@@ -202,7 +203,7 @@ export function ScheduleTaskDialog({
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             <span aria-hidden="true" className="text-base leading-none">
-              ✕
+              <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
             </span>
           </button>
         </div>

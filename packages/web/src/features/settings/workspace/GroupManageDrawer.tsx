@@ -29,6 +29,7 @@ import {
   useRemoveGroupMember,
   useRevokeGroupProject,
 } from '../hooks/useWorkspaceGroupMutations';
+import { CloseIcon } from '@/components/Icons';
 
 /** Roles a group may confer — every role below Owner (the server rejects Owner). */
 const GRANTABLE_ROLES: ReadonlyArray<{ value: number; label: string }> = [
@@ -306,7 +307,7 @@ function GroupManageBody({
           aria-label="Close group management"
           className="shrink-0 rounded-control px-1.5 text-[16px] leading-none text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
-          <span aria-hidden="true">✕</span>
+          <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </header>
 

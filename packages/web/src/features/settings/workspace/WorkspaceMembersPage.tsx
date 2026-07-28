@@ -15,7 +15,7 @@ import { toast } from '@/components/Toast';
 import { FieldHelp } from '@/components/FieldHelp';
 import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
 import { filterMembers } from './filterMembers';
-import { CheckIcon } from '@/components/Icons';
+import { CheckIcon, CloseIcon } from '@/components/Icons';
 
 const ROLE_PALETTE: Record<string, { bg: string; text: string; style?: CSSProperties }> = {
   // Admin is a distinct identity hue, not a status — the single-sourced violet
@@ -208,7 +208,7 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
               aria-expanded={confirming}
               className="ml-1 text-[10px] text-neutral-text-disabled hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded-control"
             >
-              ✕
+              <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           )}
         </span>

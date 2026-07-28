@@ -7,7 +7,7 @@ import {
   type RiskImportIssue,
 } from '@/hooks/useImportRisks';
 import { ImportDropzone } from '@/components/import/ImportDropzone';
-import { CheckIcon } from '@/components/Icons';
+import { CheckIcon, XMarkIcon } from '@/components/Icons';
 
 interface Props {
   /** Active project; the modal is gated on a non-null id by the caller. */
@@ -210,7 +210,7 @@ export function RiskImportModal({ projectId, onClose }: Props) {
             /* Hard error — the file was rejected outright; nothing committed. */
             <div role="alert" className="flex flex-col gap-3">
               <p className="text-sm text-neutral-text-primary">
-                <span aria-hidden="true">✕ </span>
+                <XMarkIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
                 {importErrorMessage(importMut.error)}
               </p>
               <div className="flex justify-end gap-2 pt-2">

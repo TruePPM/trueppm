@@ -1,4 +1,4 @@
-import { WarningIcon } from '@/components/Icons';
+import { CloseIcon, WarningIcon } from '@/components/Icons';
 import { useEffect, useRef, useState } from 'react';
 import { useTaskAssignments } from '@/hooks/useTaskAssignments';
 import {
@@ -184,7 +184,7 @@ function AssignmentWarningBanner({ warning, onDismiss, dismissLabel }: Assignmen
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk
           focus-visible:ring-offset-1 rounded-control"
       >
-        ✕
+        <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
     </div>
   );

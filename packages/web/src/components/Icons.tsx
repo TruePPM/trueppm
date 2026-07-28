@@ -1156,14 +1156,26 @@ export function HalfCircleIcon({ className, ...rest }: IconProps) {
  *
  * Distinct from CriticalDotIcon: that one is a semantic critical-count badge at a
  * fixed 8px, this one scales with the surrounding text like the other row marks.
+ *
+ * `filled` is the state, not a style choice: the solid dot and the hollow ring
+ * are the `●`/`○` pair the glyphs carried — selected vs unselected in a radio
+ * group, and "counted" vs "still pending acceptance" on the board. Rendering
+ * both from one component keeps the two states the same size and optical
+ * weight, which two separate glyphs never guaranteed.
  */
-export function RadioDotIcon({ className, ...rest }: IconProps) {
+export function RadioDotIcon({
+  className,
+  filled = true,
+  ...rest
+}: IconProps & { filled?: boolean }) {
   return (
     <svg
       width="16"
       height="16"
       viewBox="0 0 16 16"
-      fill="currentColor"
+      fill={filled ? 'currentColor' : 'none'}
+      stroke={filled ? undefined : 'currentColor'}
+      strokeWidth={filled ? undefined : 1.5}
       className={className}
       {...rest}
     >
@@ -1476,6 +1488,293 @@ export function TrendDownIcon({ className, ...rest }: IconProps) {
     >
       <path d="M1.75 4.5 6 8.75l2.5-2.5 5.75 5.75" />
       <polyline points="14.25,8 14.25,12 10.25,12" />
+    </svg>
+  );
+}
+
+/**
+ * Filled diamond — the milestone mark, replacing the `◆` glyph (issue 1749).
+ *
+ * Milestones are zero-duration, so the diamond is the one schedule shape that
+ * means "a date, not a span"; it is echoed on the Gantt, the calendar chip, the
+ * outline grid, and the planning bridge, which is why it is one shared icon
+ * rather than a per-surface glyph.
+ */
+export function MilestoneIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      {...rest}
+    >
+      <path d="M8 1.75 14.25 8 8 14.25 1.75 8z" />
+    </svg>
+  );
+}
+
+/**
+ * Outline square — the plain-task counterpart to {@link MilestoneIcon} in the
+ * outline grid and the changelog's object-type column. Replaces `□` (issue 1749).
+ */
+export function SquareIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <rect x="2.75" y="2.75" width="10.5" height="10.5" rx="1.5" />
+    </svg>
+  );
+}
+
+/** Waste basket — the destructive row-menu action, replacing `🗑` (issue 1749). */
+export function TrashIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M2.75 4.25h10.5" />
+      <path d="M6.25 4.25V2.75h3.5v1.5" />
+      <path d="M4.25 4.25l.6 8.4a.9.9 0 0 0 .9.85h4.5a.9.9 0 0 0 .9-.85l.6-8.4" />
+      <path d="M6.75 7v4M9.25 7v4" />
+    </svg>
+  );
+}
+
+/** Speech bubble — the "someone commented" activity mark, replacing `💬` (issue 1749). */
+export function CommentIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M13.25 9.5a1.75 1.75 0 0 1-1.75 1.75H6.5L3.5 13.75V11.25h-.25A1.75 1.75 0 0 1 1.5 9.5V4.5a1.75 1.75 0 0 1 1.75-1.75h8.25A1.75 1.75 0 0 1 13.25 4.5z" />
+    </svg>
+  );
+}
+
+/**
+ * Crossed hammer and wrench — the "work in progress" board lens, replacing the
+ * `⚒` glyph (issue 1749). The missing icon for this mark is what stalled the
+ * CalmToolbar and BoardLensBanners conversions in the earlier slices (#2480).
+ */
+export function ToolsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M2.25 13.75 8 8" />
+      <path d="M9.75 3.25a2.75 2.75 0 0 0 3.6 3.6l-4.6 4.6" />
+      <path d="M11.5 13.75 6.5 8.75" />
+      <path d="M4.75 2.25 2.25 4.75l2.5 2.5 2.5-2.5z" />
+    </svg>
+  );
+}
+
+/** Counter-clockwise arrow — "un-mark complete", replacing `↺` (issue 1749). */
+export function UndoIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M3.25 8a4.75 4.75 0 1 0 1.4-3.35L2.75 6.5" />
+      <polyline points="2.75,3 2.75,6.5 6.25,6.5" />
+    </svg>
+  );
+}
+
+/** Ticked box — "mark complete" on a row menu, replacing `☑` (issue 1749). */
+export function CheckboxIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M13.25 8v4a1.25 1.25 0 0 1-1.25 1.25H4A1.25 1.25 0 0 1 2.75 12V4A1.25 1.25 0 0 1 4 2.75h6" />
+      <polyline points="5.5,7.75 8,10.25 13.75,4.5" />
+    </svg>
+  );
+}
+
+/** Arrow into a bar — indent a task one WBS level, replacing `⇥` (issue 1749). */
+export function IndentIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M2.25 8h6.5" />
+      <polyline points="6.25,5.5 8.75,8 6.25,10.5" />
+      <path d="M12.75 3.25v9.5" />
+    </svg>
+  );
+}
+
+/** Arrow out of a bar — outdent a task one WBS level, replacing `⇤` (issue 1749). */
+export function OutdentIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M13.75 8h-6.5" />
+      <polyline points="9.75,5.5 7.25,8 9.75,10.5" />
+      <path d="M3.25 3.25v9.5" />
+    </svg>
+  );
+}
+
+/** Arrow up-and-right — "add predecessor", replacing `↗` (issue 1749). */
+export function ArrowUpRightIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M4.25 11.75 11.75 4.25" />
+      <polyline points="5.5,4.25 11.75,4.25 11.75,10.5" />
+    </svg>
+  );
+}
+
+/** Arrow down-and-left — "add successor", replacing `↙` (issue 1749). */
+export function ArrowDownLeftIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M11.75 4.25 4.25 11.75" />
+      <polyline points="10.5,11.75 4.25,11.75 4.25,5.5" />
+    </svg>
+  );
+}
+
+/** Overlapping sheets — "duplicate this row", replacing `⎘` (issue 1749). */
+export function CopyIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <rect x="5.75" y="5.75" width="7.5" height="7.5" rx="1.25" />
+      <path d="M10.25 5.75V4A1.25 1.25 0 0 0 9 2.75H4A1.25 1.25 0 0 0 2.75 4v5A1.25 1.25 0 0 0 4 10.25h1.75" />
+    </svg>
+  );
+}
+
+/**
+ * Burst — the "nothing left to worry about" empty state, replacing `🎉`
+ * (issue 1749). Celebratory rather than status-bearing: it is always paired with
+ * text that carries the meaning.
+ */
+export function CelebrationIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M8 1.75v2.5M8 11.75v2.5M1.75 8h2.5M11.75 8h2.5" />
+      <path d="M3.6 3.6l1.75 1.75M10.65 10.65l1.75 1.75M12.4 3.6l-1.75 1.75M5.35 10.65 3.6 12.4" />
     </svg>
   );
 }

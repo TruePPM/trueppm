@@ -20,7 +20,7 @@ import type { DetectedProvider } from '@/lib/detectProvider';
 import { previewTypeIcon } from '@/lib/previewType';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
-import { LinkIcon, PencilIcon } from '@/components/Icons';
+import { CloseIcon, LinkIcon, PencilIcon } from '@/components/Icons';
 import {
   isFileProvider,
   LabelPills,
@@ -386,7 +386,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
                   focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
                 aria-label={`Delete ${title}`}
               >
-                ✕
+                <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             ) : (
               <>

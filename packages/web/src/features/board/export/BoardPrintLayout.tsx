@@ -18,6 +18,7 @@ import type { TaskStatus } from '@/types';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { boardExportFooterWatermark } from './boardExportEdition';
 import type { BoardPrintCard, BoardPrintData } from './boardPrintData';
+import { MilestoneIcon } from '@/components/Icons';
 
 /** Fixed print width ≈ A4 landscape at 96 dpi, giving the rasterizer a stable
  *  canvas independent of the viewport the board happens to be rendered at. */
@@ -54,7 +55,7 @@ function PrintCard({ card }: { card: BoardPrintCard }) {
         {due && <span>{due}</span>}
         {card.storyPoints != null && <span>{card.storyPoints}pts</span>}
         {card.isBlocked && <span className="text-semantic-critical">Blocked</span>}
-        {card.isMilestone && <span>◆</span>}
+        {card.isMilestone && <MilestoneIcon aria-hidden="true" className="h-2.5 w-2.5" />}
       </div>
     </div>
   );
