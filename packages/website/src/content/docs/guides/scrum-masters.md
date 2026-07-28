@@ -132,20 +132,36 @@ Your job is still just: run good sprints, protect the team, facilitate retrospec
 
 ## Evaluate it yourself (~10 minutes)
 
-Seed the demo (`seed_demo_project --with-personas`) and sign in as **`maya`** — the Scrum Master persona (password `demo`). The test: you should never need to open the Gantt.
+The test: you should never need to open the Gantt. Run these steps in order — they start from a machine with nothing running.
 
-1. **Open the Sprints workspace.** Closed sprints carry a real burndown curve and a velocity bar chart with a rolling average — not a single fabricated number. The active sprint sits mid-window.
-2. **Walk the board.** Find the column that's turned amber or red. That's WIP overload, surfaced *before* it becomes a team-health problem — not after.
-3. **Open the retrospective.** An action item flagged "promote to backlog" is already a real task waiting in the next sprint. No copy-paste out of Confluence.
-4. **Notice what you didn't touch.** No schedule, no milestone, no dependency. The velocity you just generated is what feeds the PM's forecast automatically.
+1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+
+   ```bash
+   make up
+   docker compose exec api python manage.py seed_demo_project --with-personas
+   ```
+
+   The command prints the six persona logins and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
+
+2. **Sign in as the Scrum Master.** Open `http://localhost:5173` and sign in as **`maya`** — Maya Singh, seeded with the **Member** role.
+
+3. **Open the Sprints workspace.** In the left navigation rail, under **Deliver**, click **Sprints** (`/projects/:id/sprints`). Switch the sprint selector to a closed sprint: it carries a real burndown curve, and the velocity bar chart with its rolling average sits in the bottom half of the metrics row's right column — not a single fabricated number. Switch back to the active sprint and it sits mid-window.
+
+4. **Walk the board.** Open **Deliver → Board** and find the column that has turned amber or red. That's WIP overload, surfaced *before* it becomes a team-health problem — not after. For the guided version, use the **Standup** button in the sprint panel header and step through the team with the ← / → keys.
+
+5. **Open the retrospective.** Back on **Sprints**, select a closed sprint and scroll to the retrospective panel below the timeline. An action item flagged "promote to backlog" is already a real task waiting in the next sprint, carrying a `→ T-XXXXXX` chip back to the retro that raised it. No copy-paste out of Confluence.
+
+6. **Notice what you didn't touch.** No schedule, no milestone, no dependency — you never opened the **Plan** group in the rail. The velocity you just read is what feeds the PM's forecast automatically.
 
 If the sprint reads as a first-class container — goal, dates, burndown, velocity — rather than a board with date columns, it clears your one-question filter: *does this respect the sprint boundary?*
 
 → The [evaluation guide](/getting-started/evaluation-guide/) adds the agile-only **Aurora** sample (added in 0.3) for a deeper, history-rich sprint tour.
 
-## Getting started
+## Where to go next
 
-1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)
-2. Walk through the [Quickstart](/getting-started/quickstart/) — seed the demo project and log in as `maya` (Scrum Master persona)
-3. Explore the [Sprints workspace](/features/sprints/) — the full feature reference
-4. Review the [Board](/features/board/) for WIP configuration details
+- [Installation](/getting-started/installation/) — stand up an instance, or send this to whoever will
+- [Quickstart](/getting-started/quickstart/) — the shortest path from install to a populated project
+- [Evaluation guide](/getting-started/evaluation-guide/) — the deeper, history-rich Aurora sprint tour
+- [Sprints workspace](/features/sprints/) — the full feature reference
+- [Board](/features/board/) — WIP configuration details
+- [Daily standup](/features/daily-standup/) — walk-the-board mode and the daily delta panel

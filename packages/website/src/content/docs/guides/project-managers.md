@@ -46,7 +46,7 @@ TruePPM lets you add three-point estimates (optimistic, most likely, pessimistic
 
 ### Baselines
 
-Capture a baseline to freeze the planned dates at a point in time. Capturing and managing baselines is currently done through the **REST API** — there is no in-app capture button yet (a UI is on the 0.5 roadmap). Once a baseline is active, the task detail drawer shows a read-only baseline-vs-current comparison so you can see schedule variance. Multiple baselines are supported for rebaseline events. See [Baselines](/features/baselines/) for the full API workflow.
+Capture a baseline to freeze the planned dates at a point in time. **Capture baseline** and **Baselines…** ship in the Schedule toolbar's **Project actions (···)** menu with the 0.4 beta, gated at **Admin** or above; the REST API remains available and is the way to script it. Once a baseline is active, the task detail drawer shows a read-only baseline-vs-current comparison so you can see schedule variance. Multiple baselines are supported for rebaseline events. See [Baselines](/features/baselines/) for both the in-app and API workflows.
 
 ### Working calendars
 
@@ -113,16 +113,34 @@ When a scheduler or admin changes the plan, all connected browsers update immedi
 
 ## Evaluate it yourself (~10 minutes)
 
-The fastest way to judge TruePPM as a PM is to watch the schedule react to a change. Seed the demo (`seed_demo_project --with-personas`) and sign in as **`raj`** — the project-manager persona (password `demo`).
+The fastest way to judge TruePPM as a PM is to watch the schedule react to a change. Run these steps in order — they start from a machine with nothing running.
 
-1. **Open the Schedule.** The critical path is lit up and milestones are marked. This is the plan TruePPM keeps current for you — no "Update Project" button anywhere.
-2. **Change something.** Drag a task bar, or edit a duration in the task drawer. Downstream tasks shift on their own, and the critical path re-highlights if it moved.
-3. **Open Monte Carlo.** Confirm the dates climb P50 ≤ P80 ≤ P95. P80 is the date to commit to a client; the gap between P80 and your CPM date is your schedule risk, measured in days.
-4. **Turn on the baseline overlay.** Completed work is compared against the captured plan, so slip is visible. (Baseline *capture* is via the API today; the in-app button is on the 0.5 roadmap.)
+1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+
+   ```bash
+   make up
+   docker compose exec api python manage.py seed_demo_project --with-personas
+   ```
+
+   The command prints the six persona logins and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
+
+2. **Sign in as the PM.** Open `http://localhost:5173` and sign in as **`raj`** — Raj Patel, the project-manager persona, seeded with the **Scheduler** role.
+
+3. **Open the Schedule.** In the left navigation rail, under **Plan**, click **Schedule** (`/projects/:id/schedule`). The critical path is lit up and milestones are marked. This is the plan TruePPM keeps current for you — no "Update Project" button anywhere.
+
+4. **Change something.** Drag a task bar on the timeline, or click a row and edit its duration in the drawer. Downstream tasks shift on their own, and the critical path re-highlights if it moved.
+
+5. **Read the forecast.** Look at the **Forecast** bar docked along the bottom of the Schedule — the chips should climb P50 ≤ P80 ≤ P95. Press **Details ›** for the full distribution and the tornado of top drivers. P80 is the date to commit to a client; the gap between P80 and your CPM date is your schedule risk, measured in days.
+
+6. **Compare against the baseline.** The demo seeds a **Contract baseline**. Click any completed task's row and read the **Baseline** section in the drawer to see planned-vs-actual variance. To see the baselines themselves, open the Schedule toolbar's **Project actions (···)** menu → **Baselines…**.
+
+:::note[Capturing a baseline needs Admin]
+**Capture baseline** and **Baselines…** live in the Schedule's **Project actions (···)** menu and are gated at **Admin** or above. `raj` is a Scheduler, so he reads baseline variance but cannot capture a new one — sign in as `diana` (PMO Director, Admin) if you want to try the capture flow.
+:::
 
 One honest note against your own test — *"does this work on my phone with no signal?"* — not yet. The installable PWA lands in **0.5** (add to home screen, offline time entry and reads), and the native offline mobile editor lands in **0.6**. Today this is a desktop/web evaluation, and that's the right thing to wait for if mobile is your dealbreaker.
 
-→ For a guided, sample-by-sample walkthrough, see the [evaluation guide](/getting-started/evaluation-guide/).
+→ For a guided, sample-by-sample walkthrough across four programs, see the [evaluation guide](/getting-started/evaluation-guide/).
 
 ## What's available
 
@@ -130,7 +148,7 @@ One honest note against your own test — *"does this work on my phone with no s
 |---------|--------|
 | CPM scheduling (all 4 dependency types) | Shipped |
 | Monte Carlo risk analysis (P50/P80/P95) | Shipped |
-| Baselines (capture & compare) | Shipped — API only, no UI yet |
+| Baselines (capture & compare) | Shipped — API; in-app capture ships in 0.4 |
 | Critical path highlighting | Shipped |
 | Risk register | Shipped |
 | Board / Kanban view | Shipped |
@@ -146,9 +164,11 @@ One honest note against your own test — *"does this work on my phone with no s
 | Timesheet approval + non-project time | Roadmap (0.5) |
 | EVM (CPI / SPI / BCWP) | Roadmap (post-1.0) |
 
-## Getting started
+## Where to go next
 
-1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)
-2. Walk through the [Quickstart](/getting-started/quickstart/) — seed the demo project and log in as `raj` (PM persona) to see the full hybrid view
-3. Read the [Schedule view](/features/schedule/) for Gantt details
-4. Read [The Story](/the-story/) for the end-to-end hybrid workflow — six narrative protagonists map to TruePPM's eight product personas
+- [Installation](/getting-started/installation/) — stand up an instance, or send this to whoever will
+- [Quickstart](/getting-started/quickstart/) — the shortest path from install to a populated project
+- [Evaluation guide](/getting-started/evaluation-guide/) — the same walkthrough across four bundled sample programs
+- [Schedule view](/features/schedule/) — Gantt details, drag behavior, and how to read the dates
+- [Baselines](/features/baselines/) — capture, rebaseline, and the variance comparison
+- [The Story](/the-story/) — the end-to-end hybrid workflow; six narrative protagonists map to TruePPM's eight product personas
