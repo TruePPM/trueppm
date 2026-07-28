@@ -29,14 +29,26 @@ export const CSV_IMPORT_ACCEPT = ['.csv', '.tsv', '.txt', '.xlsx', '.xlsm'] as c
  */
 export const CSV_IMPORT_MAX_UPLOAD_MB = 10;
 
+/**
+ * How a column arrived at the field it is mapped to.
+ *
+ * `duplicate` is the one that needs explaining: when two source columns claim
+ * the same field the loser comes back with `field: null`, and without surfacing
+ * the reason that column just looks mysteriously unmapped.
+ */
+export type CsvMappingConfidence = 'exact' | 'fuzzy' | 'none' | 'duplicate' | 'override';
+
 /** One detected source column and the field it will import into. */
 export interface CsvColumnMapping {
   index: number;
   header: string;
-  /** Target field key, or '' when the column will be ignored. */
+  /**
+   * Target field key, or '' when the column will be ignored. The server sends
+   * `null` for an unmatched or duplicate column, which {@link normalizeColumns}
+   * folds to '' so the wizard's `<select>` stays controlled.
+   */
   field: string;
-  /** Fuzzy-match confidence 0..1 for the auto-detected field. */
-  confidence: number;
+  confidence: CsvMappingConfidence;
 }
 
 /** A target field the wizard's dropdown can offer for a column. */
@@ -55,10 +67,15 @@ export interface CsvRowIssue {
   [key: string]: unknown;
 }
 
+/** A column exactly as it arrives on the wire, before {@link normalizeColumns}. */
+export interface CsvColumnMappingWire extends Omit<CsvColumnMapping, 'field'> {
+  field: string | null;
+}
+
 export interface CsvPreview {
   filename: string;
   headers: string[];
-  columns: CsvColumnMapping[];
+  columns: CsvColumnMappingWire[];
   sample_rows: string[][];
   row_count: number;
   truncated_rows: number;
@@ -141,6 +158,34 @@ export function useCsvImportCommit(
   });
 }
 
+/** Filename the browser saves the template under. */
+export const CSV_IMPORT_TEMPLATE_FILENAME = 'trueppm-import-template.csv';
+
+/**
+ * Download the known-good CSV template.
+ *
+ * The endpoint is JWT-authenticated, so a plain `<a href download>` would reach
+ * it with no Authorization header and get a 401 — it has to be fetched as a blob
+ * through the axios client and saved client-side, the same way the project
+ * export bundle is. The path is deliberately not project-scoped: the template is
+ * static content that step 1 offers before a project context is even needed.
+ */
+export function useCsvImportTemplate(): UseMutationResult<void, Error, void> {
+  return useMutation<void, Error, void>({
+    mutationFn: async () => {
+      const res = await apiClient.get<Blob>('/import-templates/csv/', { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = CSV_IMPORT_TEMPLATE_FILENAME;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    },
+  });
+}
+
 /**
  * Poll one import to a terminal state.
  *
@@ -178,6 +223,23 @@ export function missingRequiredFields(
 ): CsvTargetField[] {
   const mapped = new Set(columns.map((c) => c.field).filter(Boolean));
   return available.filter((f) => f.required && !mapped.has(f.field));
+}
+
+/**
+ * Fold the wire's `field: null` to `''`.
+ *
+ * The server returns `null` for a column it could not match and for the loser of
+ * a duplicate claim. Feeding that straight into `<select value={…}>` would flip
+ * the control to uncontrolled on the first such column, so the boundary is
+ * normalized once here rather than defended at every read site.
+ */
+export function normalizeColumns(columns: CsvColumnMappingWire[]): CsvColumnMapping[] {
+  return columns.map((c) => ({ ...c, field: c.field ?? '' }));
+}
+
+/** Columns the server guessed at or dropped — the ones worth an operator's eye. */
+export function flaggedColumns(columns: CsvColumnMapping[]): CsvColumnMapping[] {
+  return columns.filter((c) => c.confidence === 'fuzzy' || c.confidence === 'duplicate');
 }
 
 /** `{header: field}` for the wire, skipping columns the operator ignored. */

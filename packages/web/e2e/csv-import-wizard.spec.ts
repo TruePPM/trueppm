@@ -18,10 +18,13 @@ type Page = import('@playwright/test').Page;
 const PREVIEW_BODY = {
   filename: 'plan.csv',
   headers: ['Title', 'Days', 'Notes'],
+  // `confidence` is the server's enum, not a score, and an unmatched column
+  // comes back with `field: null` — mirroring the real shape here is what keeps
+  // the wizard's null-folding honest.
   columns: [
-    { index: 0, header: 'Title', field: 'name', confidence: 0.95 },
-    { index: 1, header: 'Days', field: 'duration', confidence: 0.8 },
-    { index: 2, header: 'Notes', field: '', confidence: 0 },
+    { index: 0, header: 'Title', field: 'name', confidence: 'exact' },
+    { index: 1, header: 'Days', field: 'duration', confidence: 'fuzzy' },
+    { index: 2, header: 'Notes', field: null, confidence: 'none' },
   ],
   sample_rows: [['Foundation pour', '5', 'concrete']],
   row_count: 12,
@@ -256,6 +259,69 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     await expect(dialog.getByText(/Imported 11 tasks/)).toBeVisible();
     await expect(dialog.getByText(/Row 4/)).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'View schedule' })).toBeVisible();
+  });
+
+  test('offers a template download from step 1 over an authenticated request', async ({ page }) => {
+    await gotoSchedule(page);
+    await routeImport(page, { preview: { status: 200, body: PREVIEW_BODY } });
+
+    // The endpoint is JWT-gated, so the wizard must reach it through the API
+    // client rather than a plain anchor — assert the request actually carries
+    // the bearer token.
+    let authHeader: string | undefined;
+    await page.route('**/api/v1/import-templates/csv/', async (r) => {
+      authHeader = r.request().headers()['authorization'];
+      await r.fulfill({
+        status: 200,
+        contentType: 'text/csv; charset=utf-8',
+        headers: { 'content-disposition': 'attachment; filename="trueppm-import-template.csv"' },
+        body: 'ID,WBS,Name,Duration\n1,1,Discovery,5\n',
+      });
+    });
+
+    await openWizard(page);
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+
+    const download = page.waitForEvent('download');
+    await dialog.getByRole('button', { name: 'Download a template' }).click();
+    expect((await download).suggestedFilename()).toBe('trueppm-import-template.csv');
+    expect(authHeader).toContain('Bearer');
+  });
+
+  test('surfaces whole-file parser decisions and the truncated row count', async ({ page }) => {
+    await gotoSchedule(page);
+    await routeImport(page, {
+      preview: {
+        status: 200,
+        body: {
+          ...PREVIEW_BODY,
+          row_count: 5000,
+          truncated_rows: 1000,
+          warnings: [
+            "Only the first sheet ('Sheet1') was imported. 2 other sheet(s) were ignored.",
+            'Only the first 5,000 rows were imported; 1,000 were skipped.',
+          ],
+        },
+      },
+    });
+    await openWizard(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+    await pickFile(page);
+    await dialog.getByRole('button', { name: 'Next' }).click();
+
+    // Step 2 — the notices sit above the mapping table, and the guessed column
+    // is called out so the operator knows which one to check.
+    const notices = dialog.getByRole('status', { name: 'How we read this file' });
+    await expect(notices).toContainText('Only the first sheet');
+    await expect(dialog.getByText('Guessed — check this')).toBeVisible();
+
+    await dialog.getByRole('button', { name: 'Next' }).click();
+
+    // Step 3 — "5,000" on its own would be a lie about a 6,000-row file.
+    await expect(dialog.getByText('5,000 of 6,000')).toBeVisible();
+    await expect(dialog.getByText(/1,000 skipped/)).toBeVisible();
+    await expect(notices).toContainText('Only the first sheet');
   });
 
   test('an unmapped required field blocks Next with a reason', async ({ page }) => {

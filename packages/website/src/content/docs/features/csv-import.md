@@ -170,12 +170,27 @@ the API yourself.
 **Step 1 — Upload.** Drag a `.csv`, `.tsv`, `.txt`, `.xlsx`, or `.xlsm` file onto
 the drop zone, or pick one. Files over the size cap are rejected before the
 upload runs, so you do not wait on a request that is certain to fail.
+**Download a template** here if you want a known-good shape to paste into —
+it is the same file the [template endpoint](#download-the-template) serves.
 
 **Step 2 — Map columns.** Every detected column is listed with the TruePPM field
 it will import into, already filled in from auto-detection — you confirm rather
 than map from scratch. Change any dropdown that is wrong, or set one to
 **Don't import** to ignore that column. The first parsed rows sit underneath, so
 you can see what the mapping actually produces.
+
+Columns the importer had to guess at are flagged **Guessed — check this**, and a
+count above the table tells you how many are waiting on you. A column that lost a
+tie for a field — two headers both matching `Name`, say — reads **Not imported —
+another column already uses this field**, so it is never just mysteriously blank.
+Columns matched exactly carry no note at all: silence is the confident state, and
+badging all of them would bury the ones that need an eye.
+
+Anything the parser decided about the **file as a whole** appears under **How we
+read this file** — which worksheet was read, how ambiguous dates were resolved,
+whether the row cap bit. These are not row problems; they are choices made on
+your behalf, and they are repeated on step 3 because that is the last screen
+before the import commits.
 
 If a **required** field has no column mapped to it, **Next is disabled** and the
 wizard says which field is missing. This is deliberate: a spreadsheet with no
@@ -192,9 +207,18 @@ imported** rather than dropping them quietly. Rows that will be *lost* and rows
 that will merely *land with a field defaulted* are counted separately, because
 they are different decisions.
 
+If your file is over the row cap, the count reads **5,000 of 6,000** with the
+overflow called out on its own line — never a bare `5,000` that would look like
+the whole file arrived.
+
 **When it finishes**, you get the number of tasks created and, if any rows had
 problems, a list of them **by spreadsheet line number** so you can fix them at
 source. **View schedule** takes you to the imported plan.
+
+On a clean import — every row landed and the parser had nothing to report — that
+button is already focused, so <kbd>Enter</kbd> takes you straight to the
+schedule. When there *is* something to read, focus stays on the result instead,
+so the line numbers are not scrolled past on your behalf.
 
 ## The three steps
 
@@ -290,9 +314,14 @@ for operator configuration.
 
 ## Download the template
 
-`GET /api/v1/import-templates/csv/` returns a known-good CSV with the canonical
-headers and a worked example demonstrating nesting, a lagged dependency, a
-Start-to-Start link, a zero-duration milestone, and a multi-value Labels cell.
+**Download a template** on step 1 of the wizard saves a known-good CSV with the
+canonical headers and a worked example demonstrating nesting, a lagged
+dependency, a Start-to-Start link, a zero-duration milestone, and a multi-value
+Labels cell.
+
+The same file is served by `GET /api/v1/import-templates/csv/` for scripted use.
+The endpoint requires authentication, so it needs your bearer token — pasting the
+URL into a browser address bar will not work.
 
 ## What does *not* map
 
