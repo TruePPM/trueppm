@@ -17,6 +17,7 @@ export {
   idealSlopeDenominator,
   idealRemainingAt,
 } from './burnChartData';
+import { RadioDotIcon } from '@/components/Icons';
 export { BurnTooltip } from './BurnTooltip';
 
 // ---------------------------------------------------------------------------
@@ -207,7 +208,12 @@ function BurnChartFooter({
       )}
       {showCaption && (
         <p className="px-4 py-2 border-t border-neutral-border text-xs text-neutral-text-secondary">
-          <span aria-hidden="true">○</span> {scopeCaption}
+          <RadioDotIcon
+            aria-hidden="true"
+            filled={false}
+            className="mr-1 inline-block h-2.5 w-2.5 align-[-0.125em]"
+          />
+          {scopeCaption}
         </p>
       )}
       {showLegend && <BurnLegend variant={variant} scopeChanges={scopeChanges} />}

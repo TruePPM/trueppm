@@ -100,16 +100,21 @@ describe('OutlineRow', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('renders the milestone diamond glyph for milestone leaves', () => {
+  it('renders the milestone diamond SVG for milestone leaves', () => {
     const node = makeNode({ id: 't1', wbs: '1.1', isMilestone: true });
     renderRow(node);
-    expect(screen.getByText('◆')).toBeInTheDocument();
+    // House SVG, never the ◆ codepoint (rule 242 / issue 1749).
+    expect(screen.getByTestId('outline-milestone')).toBeInTheDocument();
+    expect(screen.queryByTestId('outline-task')).toBeNull();
+    expect(document.body.textContent).not.toContain('◆');
   });
 
-  it('renders the box glyph for non-milestone leaves', () => {
+  it('renders the task square SVG for non-milestone leaves', () => {
     const node = makeNode({ id: 't1', wbs: '1.1' });
     renderRow(node);
-    expect(screen.getByText('□')).toBeInTheDocument();
+    expect(screen.getByTestId('outline-task')).toBeInTheDocument();
+    expect(screen.queryByTestId('outline-milestone')).toBeNull();
+    expect(document.body.textContent).not.toContain('□');
   });
 
   it('renders the CP badge for critical tasks', () => {

@@ -249,7 +249,7 @@ describe('TaskListRow — milestone rollup variance branches', () => {
     );
     // -2d ahead of plan, within float → amber annotation, negative label.
     expect(screen.getByText(/-2d/)).toBeInTheDocument();
-    expect(screen.getByText('🔒')).toBeInTheDocument();
+    expect(screen.getByTestId('milestone-rollup-lock')).toBeInTheDocument();
     expect(screen.getByText('40%')).toBeInTheDocument();
   });
 
@@ -331,7 +331,7 @@ describe('TaskListRow — milestone rollup variance branches', () => {
       />,
     );
     // No lock chrome; milestone read cell is empty (no percent text).
-    expect(screen.queryByText('🔒')).toBeNull();
+    expect(screen.queryByTestId('milestone-rollup-lock')).toBeNull();
     expect(screen.getByLabelText('0% complete')).toHaveTextContent('');
   });
 });

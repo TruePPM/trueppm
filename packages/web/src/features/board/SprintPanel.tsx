@@ -1,5 +1,5 @@
-import { LockIcon, WarningIcon } from '@/components/Icons';
-import { useEffect, useRef, useState, type SVGProps } from 'react';
+import { CheckIcon, LockIcon, MilestoneIcon, RadioDotIcon, WarningIcon } from '@/components/Icons';
+import { useEffect, useRef, useState, type ReactNode, type SVGProps } from 'react';
 
 import { BurnChart } from '@/features/reports/BurnChart';
 import {
@@ -348,7 +348,12 @@ function Header({
             differently. Neutral tone — pending is a read-state, not a warning. */}
         {forecastScopeCaption(sprint.pending_count ?? 0) && (
           <p className="mt-0.5 text-xs text-neutral-text-secondary">
-            <span aria-hidden="true">○</span> {forecastScopeCaption(sprint.pending_count ?? 0)}
+            <RadioDotIcon
+              aria-hidden="true"
+              filled={false}
+              className="mr-1 inline-block h-3 w-3 align-[-0.125em]"
+            />
+            {forecastScopeCaption(sprint.pending_count ?? 0)}
           </p>
         )}
         {/* #543: visible audit badge when tasks were injected after activation —
@@ -364,7 +369,7 @@ function Header({
             focus-visible:ring-2 focus-visible:ring-brand-primary
             focus-visible:ring-offset-1 focus-visible:outline-none"
         >
-          <DiamondIcon />
+          <MilestoneIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
           Link to milestone
         </button>
       )}
@@ -382,16 +387,6 @@ function Header({
         <ChevronIcon open={isOpen} />
       </button>
     </div>
-  );
-}
-
-/** Milestone diamond — the bridge's milestone glyph, echoing the ◆ used on the
- *  Gantt and in the forecast line so "Link to milestone" reads at a glance. */
-function DiamondIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <path d="M8 1l7 7-7 7-7-7 7-7z" />
-    </svg>
   );
 }
 
@@ -628,7 +623,7 @@ function CapacityCard({ sprint, canEdit, isSaving, onSave }: CapacityCardProps) 
           className={`mt-2 text-xs flex items-center gap-1 ${status.colorClass}`}
           aria-live="polite"
         >
-          <span aria-hidden="true">{status.icon}</span>
+          {status.icon}
           <span>{status.label}</span>
         </p>
       )}
@@ -655,7 +650,8 @@ function PencilIcon(props: SVGProps<SVGSVGElement>) {
 }
 
 interface CapacityStatus {
-  icon: string;
+  /** House SVG, never a glyph (rule 242) — the label beside it carries the meaning. */
+  icon: ReactNode;
   label: string;
   colorClass: string;
 }
@@ -663,7 +659,7 @@ interface CapacityStatus {
 function capacityStatus(planned: number, committed: number): CapacityStatus {
   if (committed <= planned) {
     return {
-      icon: '✓',
+      icon: <CheckIcon className="h-3 w-3 shrink-0" aria-hidden="true" />,
       label: 'On plan',
       colorClass: 'text-semantic-on-track',
     };
@@ -672,13 +668,13 @@ function capacityStatus(planned: number, committed: number): CapacityStatus {
   const pct = planned > 0 ? Math.round((overBy / planned) * 100) : 100;
   if (pct <= 10) {
     return {
-      icon: '⚠',
+      icon: <WarningIcon className="h-3 w-3 shrink-0" aria-hidden="true" />,
       label: `Over by ${overBy} (+${pct}%)`,
       colorClass: 'text-semantic-at-risk',
     };
   }
   return {
-    icon: '⚠',
+    icon: <WarningIcon className="h-3 w-3 shrink-0" aria-hidden="true" />,
     label: `Over by ${overBy} (+${pct}%)`,
     colorClass: 'text-semantic-critical',
   };

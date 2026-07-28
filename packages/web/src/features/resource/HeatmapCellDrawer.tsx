@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { CloseIcon } from '@/components/Icons';
 
 interface Task {
   id: string;
@@ -147,7 +148,7 @@ export function HeatmapCellDrawer({
             aria-label="Close drawer"
             className="shrink-0 p-1 rounded text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
 

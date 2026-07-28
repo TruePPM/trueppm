@@ -14,6 +14,7 @@ import {
   type SignalKey,
   type SignalPair,
 } from './useSignalPrivacy';
+import { LockIcon, RadioDotIcon } from '@/components/Icons';
 
 interface SignalMatrixLensProps {
   signals: Record<SignalKey, SignalPair>;
@@ -63,8 +64,14 @@ export function SignalMatrixLens({ signals }: SignalMatrixLensProps) {
                         beyond ? 'text-neutral-text-disabled' : 'text-neutral-text-primary',
                       ].join(' ')}
                     >
-                      {filled ? '●' : isCeiling ? '🔒' : '·'}
-                      {!filled && isCeiling ? '' : isCeiling && filled ? ' 🔒' : ''}
+                      {/* Filled dot = visible at this rung, hollow = not; the lock
+                          marks the ceiling and can coincide with a filled dot. */}
+                      <span className="inline-flex items-center justify-center gap-1">
+                        {(filled || !isCeiling) && (
+                          <RadioDotIcon aria-hidden="true" filled={filled} className="h-2.5 w-2.5" />
+                        )}
+                        {isCeiling && <LockIcon aria-hidden="true" className="h-3 w-3" />}
+                      </span>
                     </td>
                   );
                 })}
@@ -74,7 +81,10 @@ export function SignalMatrixLens({ signals }: SignalMatrixLensProps) {
         </tbody>
       </table>
       <p className="px-3 py-2 text-[11px] text-neutral-text-secondary">
-        ● visible now · 🔒 ceiling (max the team has authorized)
+        <RadioDotIcon aria-hidden="true" className="mr-1 inline-block h-2.5 w-2.5 align-[-0.125em]" />
+        visible now ·{' '}
+        <LockIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
+        ceiling (max the team has authorized)
       </p>
     </div>
   );

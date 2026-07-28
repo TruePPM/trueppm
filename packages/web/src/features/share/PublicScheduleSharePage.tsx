@@ -10,6 +10,7 @@ import {
 import { buildDependencyPaths, type DepAnchor, type DepSegment } from './scheduleSharePaths';
 import { useNoReferrer } from './useNoReferrer';
 import { MCP_EXAMPLE_PROMPTS } from '@/lib/mcpExamplePrompts';
+import { MilestoneIcon } from '@/components/Icons';
 
 // Fixed geometry so the label column, timeline column, and the SVG dependency
 // overlay share one coordinate space (rows never wrap — labels are truncated).
@@ -222,7 +223,11 @@ function LabelCell({ placed }: { placed: Placed }) {
     >
       <span style={{ width: depth * 12 }} aria-hidden="true" className="shrink-0" />
       <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
-        {task.is_milestone ? '◆' : task.wbs_path || task.short_id}
+        {task.is_milestone ? (
+          <MilestoneIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" />
+        ) : (
+          task.wbs_path || task.short_id
+        )}
       </span>
       {task.is_critical && !task.is_milestone ? (
         // Non-color critical signal (WCAG 1.4.1, DS rule 26) alongside the red bar.

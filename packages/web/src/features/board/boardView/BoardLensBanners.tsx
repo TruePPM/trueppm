@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { StarIcon, ToolsIcon } from '@/components/Icons';
 
 const BANNER_CLASS = `flex items-center gap-2 px-3 py-1.5 text-xs
                 bg-brand-primary/5 border-b border-brand-primary/20
@@ -51,7 +52,7 @@ export function BoardLensBanners({
     <>
       {mineActive && (
         <LensBanner
-          glyph="★"
+          glyph={<StarIcon className="h-3.5 w-3.5" aria-hidden="true" />}
           label="Filter: My tasks"
           clearLabel="Show all →"
           onClear={onClearMine}
@@ -59,7 +60,7 @@ export function BoardLensBanners({
       )}
       {debtOnly && (
         <LensBanner
-          glyph="⚒"
+          glyph={<ToolsIcon className="h-3.5 w-3.5" aria-hidden="true" />}
           label="Filter: Tech debt"
           clearLabel="Show all →"
           onClear={onClearDebt}

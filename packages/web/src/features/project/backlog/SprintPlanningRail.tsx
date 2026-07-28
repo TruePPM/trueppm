@@ -2,6 +2,7 @@ import { CapacityPreflight } from '@/features/sprints/CapacityPreflight';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useSprintCapacity } from '@/hooks/useSprints';
 import type { ApiSprint } from '@/types';
+import { MilestoneIcon } from '@/components/Icons';
 
 interface Props {
   plannedSprint: ApiSprint;
@@ -72,9 +73,7 @@ export function SprintPlanningRail({
         {milestone ? (
           <div className="flex flex-col gap-1">
             <p className="flex items-center gap-1.5 text-xs font-medium text-neutral-text-primary">
-              <span aria-hidden className="text-brand-accent-dark">
-                ◆
-              </span>
+              <MilestoneIcon aria-hidden className="h-3 w-3 shrink-0 text-brand-accent-dark" />
               <span className="truncate">{milestone.name}</span>
             </p>
             <p className="text-xs text-neutral-text-secondary">

@@ -9,6 +9,7 @@ import {
   seedImportErrors,
   useImportProgramSeed,
 } from '@/hooks/useProgramSeedIo';
+import { XMarkIcon } from '@/components/Icons';
 import { ImportDropzone } from './ImportDropzone';
 import { FormatPicker, type ImportFormat } from './FormatPicker';
 
@@ -210,13 +211,13 @@ export function ImportProjectModal({
             <div role="alert" className="flex flex-col gap-3">
               {errorLines.length === 1 ? (
                 <p className="text-sm text-neutral-text-primary">
-                  <span aria-hidden="true">✕ </span>
+                  <XMarkIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
                   {errorLines[0]}
                 </p>
               ) : (
                 <div>
                   <p className="text-sm font-medium text-neutral-text-primary">
-                    <span aria-hidden="true">✕ </span>
+                    <XMarkIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
                     Couldn&apos;t import this file:
                   </p>
                   <ul className="mt-1 list-disc pl-5 text-xs text-neutral-text-secondary">

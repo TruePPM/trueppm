@@ -19,6 +19,7 @@ import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { BuildModeRowMenu, type RowMenuItem } from '@/features/schedule/buildMode';
 import type { Task, TaskReadiness, TaskStatus } from '@/types';
 import { ReadinessChip } from './ReadinessChip';
+import { ExternalLinkIcon, MilestoneIcon } from '@/components/Icons';
 
 /**
  * Per-row promote/demote wiring passed down from the board. `null` when the row
@@ -362,7 +363,7 @@ function QueueRowOverflow({
   items.push({
     key: 'open',
     label: 'Open details',
-    icon: '↗',
+    icon: <ExternalLinkIcon className="h-4 w-4" aria-hidden="true" />,
     startsGroup: items.length > 0,
     onSelect: onOpenDetails,
   });
@@ -477,7 +478,7 @@ export function QueueRow({
               className="text-brand-accent-dark"
               style={{ fontSize: 11, lineHeight: 1, flexShrink: 0 }}
             >
-              ◆
+              <MilestoneIcon aria-hidden="true" className="h-2.5 w-2.5" />
             </span>
           )}
           {riskCount > 0 && (

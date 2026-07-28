@@ -5,6 +5,7 @@ import { useCreateGroup, useDeleteGroup } from '../hooks/useWorkspaceGroupMutati
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { GroupManageDrawer } from './GroupManageDrawer';
 import { FieldHelp } from '@/components/FieldHelp';
+import { CloseIcon } from '@/components/Icons';
 
 // Below this member count the card shows member NAMES (who is in the group);
 // at or above it the roster collapses to the overlapping initial stack (an
@@ -181,7 +182,7 @@ function GroupCard({ group, onDelete, onManage, hasError }: GroupCardProps) {
             // disabled token that relies on hover to become legible (#2207).
             className="ml-1 text-[11px] text-neutral-text-secondary hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded-control shrink-0"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         )}
       </div>

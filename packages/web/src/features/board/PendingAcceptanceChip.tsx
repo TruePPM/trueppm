@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { RadioDotIcon } from '@/components/Icons';
 
 /**
  * Pending-acceptance chip for mid-sprint scope-injection (ADR-0102 §6, #882 rule).
@@ -91,9 +92,7 @@ export function PendingAcceptanceChip({ compact = false, className, explainer }:
         }
         aria-label="Pending acceptance"
       >
-        <span aria-hidden="true" className="leading-none">
-          ○
-        </span>
+        <RadioDotIcon aria-hidden="true" filled={false} className="h-2.5 w-2.5 shrink-0" />
         {!compact && <span>Pending acceptance</span>}
       </span>
     );
@@ -236,9 +235,7 @@ function InteractivePendingChip({
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
         ].join(' ')}
       >
-        <span aria-hidden="true" className="leading-none">
-          ○
-        </span>
+        <RadioDotIcon aria-hidden="true" filled={false} className="h-2.5 w-2.5 shrink-0" />
         {!compact && <span>Pending acceptance</span>}
       </button>
       {open &&

@@ -4,6 +4,7 @@ import type { SprintBacklogTask } from '@/hooks/useSprintBacklog';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { sprintDayOf } from './sprintMath';
+import { RadioDotIcon } from '@/components/Icons';
 
 export type CarryOverChoice = 'next' | 'backlog' | 'none';
 
@@ -184,7 +185,11 @@ export function CloseSprintDialog({
             className="flex flex-col gap-2 text-sm rounded-card border border-neutral-border bg-neutral-surface-sunken p-3"
           >
             <legend className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary px-1">
-              <span aria-hidden="true">○</span>{' '}
+              <RadioDotIcon
+                aria-hidden="true"
+                filled={false}
+                className="mr-1 inline-block h-2.5 w-2.5 align-[-0.125em]"
+              />
               <span className="tppm-mono">{pendingCount}</span> item
               {pendingCount === 1 ? '' : 's'} pending acceptance
             </legend>

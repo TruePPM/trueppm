@@ -1,4 +1,4 @@
-import { WarningIcon } from '@/components/Icons';
+import { CelebrationIcon, WarningIcon } from '@/components/Icons';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 
@@ -118,7 +118,12 @@ export function BlockedRollupPanel(props: Props) {
             </ul>
           ) : count === 0 ? (
             <p role="status" className="px-3 py-6 text-center text-sm text-neutral-text-secondary">
-              No blocked tasks 🎉 — when someone flags a blocker it shows here, oldest first.
+              No blocked tasks{' '}
+              <CelebrationIcon
+                aria-hidden="true"
+                className="inline-block h-3.5 w-3.5 align-[-0.125em]"
+              />{' '}
+              — when someone flags a blocker it shows here, oldest first.
             </p>
           ) : (
             <ul className="divide-y divide-neutral-border">

@@ -113,7 +113,10 @@ export function SignalLadder({
 
       {/* Ceiling controls */}
       <div className="mt-2 flex items-center justify-between">
-        <span className="text-[12px] text-neutral-text-secondary">🔒 Ceiling: {ceilingLabel}</span>
+        <span className="text-[12px] text-neutral-text-secondary">
+          <LockIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
+          Ceiling: {ceilingLabel}
+        </span>
         {canRaiseCeiling && (
           <span className="flex gap-3">
             {ceilingIdx < SIGNAL_AUDIENCE_LADDER.length - 1 && (

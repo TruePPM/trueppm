@@ -4,6 +4,7 @@ import { Button } from '@/components/Button';
 import { Toggle } from '../settings/components/Toggle';
 import type { BoardColumnDef } from '@/hooks/useBoardConfig';
 import type { TaskStatus } from '@/types';
+import { CloseIcon } from '@/components/Icons';
 
 interface Props {
   columns: BoardColumnDef[];
@@ -164,7 +165,7 @@ export function BoardSettingsPanel({
               hover:bg-neutral-surface-raised
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
 

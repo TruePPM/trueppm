@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useProjectForecast, type ProjectForecast } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { MilestoneIcon } from '@/components/Icons';
 
 /** Closed sprints needed before the velocity band (and a delivery date) is defensible. */
 const FORECAST_SPRINT_FLOOR = 3;
@@ -90,7 +91,7 @@ function MilestoneForecast({
   if (simulated) {
     return (
       <span>
-        <span aria-hidden="true">◆ </span>
+        <MilestoneIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
         {name ?? 'Milestone'}: P50 <span className="tppm-mono">{fmt(p50)}</span>
         {p80 && (
           <>
@@ -103,7 +104,7 @@ function MilestoneForecast({
   }
   return (
     <span>
-      <span aria-hidden="true">◆ </span>
+      <MilestoneIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
       {name ?? 'Milestone'}: est. <span className="tppm-mono">{fmt(p50)}</span>
       {p80 && (
         <>

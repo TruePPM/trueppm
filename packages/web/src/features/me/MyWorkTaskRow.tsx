@@ -10,7 +10,7 @@
  *   - story-point / remaining-point display
  *   - due date with `due_source` suffix (e.g. "Due May 30 (planned)")
  */
-import { CheckIcon, WarningIcon } from '@/components/Icons';
+import { CheckIcon, RadioDotIcon, WarningIcon } from '@/components/Icons';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { TaskStatus } from '@/types';
@@ -306,7 +306,7 @@ export function MyWorkTaskRow({ task }: Props) {
               className="inline-flex shrink-0 items-center gap-1 rounded-chip px-1.5 py-0.5 font-semibold
                 bg-semantic-critical-bg border border-semantic-critical/40"
             >
-              <span aria-hidden="true">●</span> <span>Blocked</span>
+              <RadioDotIcon aria-hidden="true" className="h-2 w-2 shrink-0" /> <span>Blocked</span>
             </span>
             {task.blocker_type && (
               <span className="inline-flex shrink-0 items-center rounded-chip px-1.5 py-0.5 font-medium

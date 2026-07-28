@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QuarterModeControl } from './QuarterModeControl';
@@ -116,8 +116,12 @@ describe('QuarterModeControl (#755)', () => {
       expect(calendar).toHaveFocus();
       expect(calendar).toHaveAttribute('aria-checked', 'true');
       expect(fiscal).toHaveAttribute('aria-checked', 'false');
-      expect(within(calendar).getByText('●')).toBeInTheDocument();
-      expect(within(fiscal).getByText('○')).toBeInTheDocument();
+      // The ●/○ pair is one RadioDotIcon whose `filled` state drives `fill`
+      // (issue 1749): solid for the selected radio, hollow ring for the other.
+      expect(calendar.querySelector('svg')).toHaveAttribute('fill', 'currentColor');
+      expect(fiscal.querySelector('svg')).toHaveAttribute('fill', 'none');
+      expect(document.body.textContent).not.toContain('●');
+      expect(document.body.textContent).not.toContain('○');
     });
 
     it('switching back to Fiscal updates the store and the trigger label', () => {

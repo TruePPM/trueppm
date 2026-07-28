@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { MonteCarloResult } from '@/types';
 import { MonteCarloHistogram } from '@/features/schedule/MonteCarloHistogram';
 import { ForecastHistorySection } from '@/features/schedule/ForecastHistorySection';
+import { CloseIcon } from '@/components/Icons';
 
 interface Props {
   result: MonteCarloResult;
@@ -76,7 +77,7 @@ export function MCResultPanel({ result, onClose }: Props) {
             hover:bg-neutral-surface-raised
             focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
         >
-          ✕
+          <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </div>
 

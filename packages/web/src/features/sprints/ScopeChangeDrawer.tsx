@@ -7,6 +7,7 @@ import {
 } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { RepeatIcon, TargetIcon } from '@/components/Icons';
 
 /** A scope-change and a duration-change row, merged into one time-sorted feed. */
 type FeedItem =
@@ -154,7 +155,7 @@ function ScopeChangeRow({ event }: { event: ScopeChangeEvent }) {
           {event.item_name}
           {event.goal_impact && (
             <span className="ml-1.5 align-middle text-xs text-semantic-at-risk" title={`Affects the ${itl.lower} goal`}>
-              ◆
+              <TargetIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" />
             </span>
           )}
         </p>
@@ -201,7 +202,7 @@ function DurationChangeRow({ event }: { event: SprintDurationChangeEvent }) {
         className="text-xs mt-0.5 shrink-0 text-brand-primary"
         aria-label="duration changed"
       >
-        <span aria-hidden="true">↻</span>
+        <RepeatIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" />
       </span>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-neutral-text-primary truncate" title={event.task_name ?? undefined}>

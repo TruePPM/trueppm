@@ -12,7 +12,7 @@
 import { useEffect } from 'react';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { Button } from '@/components/Button';
-import { CheckIcon, FilePdfIcon, PrinterIcon } from '@/components/Icons';
+import { CheckIcon, CloseIcon, FilePdfIcon, PrinterIcon } from '@/components/Icons';
 import { Toggle } from '@/features/settings/components/Toggle';
 import { ExportSegmentedField, type SegmentOption } from './ExportSegmentedField';
 import {
@@ -182,7 +182,7 @@ export function ScheduleExportDialog({
                 aria-label="Close export dialog"
                 className="rounded p-1 text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
               >
-                <span aria-hidden="true">✕</span>
+                <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </div>
 

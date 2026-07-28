@@ -30,7 +30,21 @@ import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
-import { LinkIcon, NoteIcon, PencilIcon } from '@/components/Icons';
+import {
+  ArrowDownLeftIcon,
+  ArrowUpRightIcon,
+  CheckboxIcon,
+  CopyIcon,
+  IndentIcon,
+  LinkIcon,
+  LockIcon,
+  MilestoneIcon,
+  NoteIcon,
+  OutdentIcon,
+  PencilIcon,
+  TrashIcon,
+  UndoIcon,
+} from '@/components/Icons';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { canEditTask } from '@/lib/roles';
 import { MissingCommittedStartChip } from './MissingCommittedStartChip';
@@ -495,7 +509,11 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       // Toggle copy flip — when the task is already COMPLETE the same
       // action un-marks it (ADR-0066 Q3 / ux-design item 2).
       label: isComplete ? 'Unmark complete' : 'Mark complete',
-      icon: isComplete ? '↺' : '☑',
+      icon: isComplete ? (
+        <UndoIcon className="h-4 w-4" aria-hidden="true" />
+      ) : (
+        <CheckboxIcon className="h-4 w-4" aria-hidden="true" />
+      ),
       hint: 'Space',
       // Milestones are date points; toggling status on them is meaningless.
       disabled: task.isMilestone,
@@ -504,7 +522,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
     {
       key: 'indent',
       label: 'Indent',
-      icon: '⇥',
+      icon: <IndentIcon className="h-4 w-4" aria-hidden="true" />,
       hint: 'Tab',
       startsGroup: true,
       disabled: level <= 1,
@@ -513,7 +531,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
     {
       key: 'outdent',
       label: 'Outdent',
-      icon: '⇤',
+      icon: <OutdentIcon className="h-4 w-4" aria-hidden="true" />,
       hint: '⇧+Tab',
       // Disable outdent at root level (level 1).
       disabled: level <= 1,
@@ -522,7 +540,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
     {
       key: 'add-predecessor',
       label: 'Add predecessor…',
-      icon: '↗',
+      icon: <ArrowUpRightIcon className="h-4 w-4" aria-hidden="true" />,
       startsGroup: true,
       disabled: !onAddDependencyRequest,
       onSelect: () => onAddDependencyRequest?.(task.id, 'predecessor'),
@@ -530,14 +548,14 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
     {
       key: 'add-successor',
       label: 'Add successor…',
-      icon: '↙',
+      icon: <ArrowDownLeftIcon className="h-4 w-4" aria-hidden="true" />,
       disabled: !onAddDependencyRequest,
       onSelect: () => onAddDependencyRequest?.(task.id, 'successor'),
     },
     {
       key: 'duplicate',
       label: 'Duplicate',
-      icon: '⎘',
+      icon: <CopyIcon className="h-4 w-4" aria-hidden="true" />,
       hint: '⌘D',
       startsGroup: true,
       onSelect: handleDuplicate,
@@ -545,14 +563,14 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
     {
       key: 'milestone',
       label: 'Convert to milestone',
-      icon: '◆',
+      icon: <MilestoneIcon className="h-4 w-4" aria-hidden="true" />,
       disabled: task.isMilestone,
       onSelect: () => buildMode.convertToMilestone(task.id),
     },
     {
       key: 'delete',
       label: 'Delete',
-      icon: '🗑',
+      icon: <TrashIcon className="h-4 w-4" aria-hidden="true" />,
       hint: '⌫',
       destructive: true,
       startsGroup: true,
@@ -1475,9 +1493,11 @@ function TaskListRowInner({
 
         {/* Milestone diamond indicator */}
         {task.isMilestone && (
-          <span className="mr-1 text-brand-accent" aria-hidden="true">
-            ◆
-          </span>
+          <MilestoneIcon
+            className="mr-1 inline-block h-3 w-3 align-[-0.125em] text-brand-accent"
+            aria-hidden="true"
+            data-testid="milestone-glyph"
+          />
         )}
 
         {/* Task name — inline input when editing.
@@ -1679,9 +1699,11 @@ function MilestoneRollupCell({
       title={ariaLabel}
     >
       <span className="tppm-mono">{pct}%</span>
-      <span aria-hidden="true" className="text-neutral-text-secondary">
-        🔒
-      </span>
+      <LockIcon
+        aria-hidden="true"
+        className="h-3 w-3 shrink-0 text-neutral-text-secondary"
+        data-testid="milestone-rollup-lock"
+      />
       {varianceLabel && (
         <span className={`tppm-mono text-xs ${varianceClass}`} aria-hidden="true">
           {varianceLabel}

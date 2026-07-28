@@ -4,6 +4,7 @@ import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { SprintGoalCard } from './SprintGoalCard';
 import { AdvancingToMilestoneCard } from './AdvancingToMilestoneCard';
 import { predecessorsInSprint } from './sprintMath';
+import { MilestoneIcon } from '@/components/Icons';
 
 interface Props {
   sprint: ApiSprint;
@@ -50,7 +51,7 @@ export function SprintPlanningBridge({ sprint, projectId, canEdit, sprintTaskIds
         id="sprint-planning-bridge-heading"
         className="text-xs font-semibold tracking-widest uppercase text-brand-primary-dark flex items-center gap-2"
       >
-        <span aria-hidden="true">◆</span>
+        <MilestoneIcon aria-hidden="true" className="h-3 w-3 shrink-0" />
         Planning bridge — this {itl.lower}&rsquo;s goal advances a schedule milestone
       </h2>
 

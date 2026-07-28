@@ -30,6 +30,7 @@ import {
   notificationEmptyCopy,
 } from './notificationFilters';
 import { NotificationRow } from './NotificationRow';
+import { CloseIcon } from '@/components/Icons';
 
 interface Props {
   onClose: () => void;
@@ -129,7 +130,7 @@ export function NotificationPanel({ onClose }: Props) {
               rounded-control px-2 h-7
               focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -257,9 +258,7 @@ export function NotificationPanel({ onClose }: Props) {
             const copy = notificationEmptyCopy(filter, category);
             return (
               <div className="flex flex-col items-center gap-1 py-10 text-center px-4">
-                <span aria-hidden="true" className="text-2xl">
-                  {copy.emoji}
-                </span>
+                <span className="text-neutral-text-secondary">{copy.icon}</span>
                 <p className="text-sm font-medium text-neutral-text-primary">{copy.title}</p>
                 <p className="text-xs text-neutral-text-secondary">{copy.body}</p>
               </div>

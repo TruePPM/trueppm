@@ -12,6 +12,7 @@
  */
 
 import type { CalendarChipData } from './calendarUtils';
+import { MilestoneIcon } from '@/components/Icons';
 
 interface CalendarChipProps {
   chip: CalendarChipData;
@@ -67,9 +68,7 @@ export function CalendarChip({ chip, onClick }: CalendarChipProps) {
       `}
     >
       {chip.isMilestone && (
-        <span aria-hidden="true" className="mr-0.5 flex-shrink-0">
-          ◆
-        </span>
+        <MilestoneIcon aria-hidden="true" className="mr-0.5 h-2.5 w-2.5 flex-shrink-0" />
       )}
       {chip.isStart && <span className="truncate">{chip.taskName}</span>}
       {showDue && (

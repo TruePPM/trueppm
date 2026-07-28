@@ -3,7 +3,7 @@ import type { Risk } from '@/api/types';
 import { EmptyState } from '@/components/EmptyState';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { Button } from '@/components/Button';
-import { RiskIcon } from '@/components/Icons';
+import { CloseIcon, RiskIcon } from '@/components/Icons';
 import { RiskSegmentedFilter } from '../RiskSegmentedFilter';
 import {
   RISK_FILTERS,
@@ -238,7 +238,7 @@ function RiskActiveFacetChips({
                   focus:outline-none focus:ring-2 focus:ring-brand-primary
                   focus:ring-offset-1 rounded-control"
               >
-                ✕
+                <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </span>
           )}
@@ -256,7 +256,7 @@ function RiskActiveFacetChips({
                   focus:outline-none focus:ring-2 focus:ring-brand-primary
                   focus:ring-offset-1 rounded-control"
               >
-                ✕
+                <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </span>
           )}

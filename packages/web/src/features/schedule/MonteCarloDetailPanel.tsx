@@ -4,6 +4,7 @@ import { ForecastBasisHelp } from './ForecastBasisHelp';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
 import { SensitivityList } from './SensitivityList';
 import { fmtUtcShort, fmtUtcLong } from '@/lib/formatUtcDate';
+import { CloseIcon } from '@/components/Icons';
 
 interface Props {
   result: MonteCarloResult;
@@ -138,7 +139,7 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
             hover:bg-neutral-surface-raised
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
-          ✕
+          <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </div>
 

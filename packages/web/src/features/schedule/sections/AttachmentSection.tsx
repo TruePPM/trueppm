@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import {
   BanIcon,
+  DownloadIcon,
   ExternalLinkIcon,
   FileImageIcon,
   FileSpreadsheetIcon,
@@ -220,7 +221,17 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
             focus:outline-none disabled:opacity-50"
           aria-label={isExternal ? `Open ${displayName}` : `Download ${displayName}`}
         >
-          {isExternal ? '↗ Open' : '⬇ Download'}
+          {isExternal ? (
+            <>
+              <ExternalLinkIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
+              Open
+            </>
+          ) : (
+            <>
+              <DownloadIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
+              Download
+            </>
+          )}
         </button>
         {canEdit &&
           (!confirmingDelete ? (

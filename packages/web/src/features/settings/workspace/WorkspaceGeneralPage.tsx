@@ -573,7 +573,7 @@ export function WorkspaceGeneralPage() {
               may narrow this, but cannot widen it. */}
           {!publicSharing ? (
             <ul className="mt-2 space-y-1 text-[11px] text-neutral-text-secondary">
-              <li>· Toolbars — the ↗ Share button is disabled with a tooltip.</li>
+              <li>· Toolbars — the Share button is disabled with a tooltip.</li>
               <li>· Project settings — Create is disabled; existing links stop resolving (410).</li>
               <li>
                 · Public pages — already-open links show the &ldquo;sharing is turned off&rdquo;

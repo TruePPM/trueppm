@@ -7,6 +7,7 @@ import {
 } from '@/features/programs/hooks/useProgramPhaseGateConfig';
 import { ReadOnlyIndicator } from '@/features/settings/components/ReadOnlyIndicator';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { CloseIcon } from '@/components/Icons';
 
 export interface PhaseGateConfigPanelProps {
   programId: string;
@@ -105,7 +106,7 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
               disabled={update.isPending}
               className="text-neutral-text-secondary text-[20px] leading-none px-2 py-0.5 rounded-control hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
             >
-              ✕
+              <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
         </header>

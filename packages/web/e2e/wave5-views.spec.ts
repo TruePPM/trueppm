@@ -7,7 +7,7 @@ import { setupCatchAll } from './fixtures';
  * (#209) entries.
  * - Calendar: legend visible; milestone diamond marker renders; month nav works
  * - Grid Flat mode (former Table): toolbar search input; status pills; mode toggle
- * - Grid Outline mode (former WBS): Predecessors column header; milestone ◆ glyph
+ * - Grid Outline mode (former WBS): Predecessors column header; milestone diamond SVG
  */
 
 const FIXTURE_PROJECT_ID = 'e2e-wave5-00000000-0000-0000-0000-000000000005';
@@ -195,8 +195,10 @@ test.describe('Grid view — Outline mode (#334)', () => {
     await expect(page.getByText('Finish', { exact: true })).toBeVisible();
   });
 
-  test('milestone row shows diamond glyph ◆', async ({ page }) => {
-    await expect(page.getByText('◆')).toBeVisible();
+  test('milestone row shows the diamond SVG, not a ◆ glyph', async ({ page }) => {
+    // Rule 242 / issue 1749: functional marks are house SVGs, never codepoints.
+    await expect(page.getByTestId('outline-milestone').first()).toBeVisible();
+    await expect(page.getByText('◆')).toHaveCount(0);
   });
 });
 

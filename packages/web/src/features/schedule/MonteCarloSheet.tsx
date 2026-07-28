@@ -3,6 +3,7 @@ import type { MonteCarloResult } from '@/types';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
 import { ForecastHistorySection } from './ForecastHistorySection';
 import { fmtForecastDate } from './forecastDelta';
+import { CloseIcon } from '@/components/Icons';
 
 interface Props {
   result: MonteCarloResult;
@@ -74,7 +75,7 @@ export function MonteCarloSheet({ result, onClose }: Props) {
               border border-neutral-border text-sm
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
 

@@ -278,7 +278,9 @@ describe('TaskListRow', () => {
 
   it('milestone shows diamond and hides duration/progress', () => {
     renderWithRouter(<TaskListRow task={{ ...base, isMilestone: true, duration: 0, progress: 0 }} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
-    expect(screen.getByText('◆')).toBeInTheDocument();
+    // House SVG, never the ◆ codepoint (rule 242 / issue 1749).
+    expect(screen.getByTestId('milestone-glyph')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('◆');
     expect(screen.getByLabelText('milestone')).toBeInTheDocument();
   });
 

@@ -10,6 +10,7 @@ import {
 import { Link } from 'react-router';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
+import { ExternalLinkIcon, RadioDotIcon } from '@/components/Icons';
 
 /**
  * Contextual quarter-tier toggle next to the ZoomControl (#755).
@@ -168,9 +169,11 @@ export function QuarterModeControl() {
               text-neutral-text-primary hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:bg-neutral-surface-raised"
           >
-            <span aria-hidden="true" className="w-3 text-brand-primary">
-              {quarterMode === 'fiscal' ? '●' : '○'}
-            </span>
+            <RadioDotIcon
+              aria-hidden="true"
+              filled={quarterMode === 'fiscal'}
+              className="mt-0.5 h-3 w-3 shrink-0 text-brand-primary"
+            />
             <span className="flex flex-col">
               <span className="font-medium">Fiscal</span>
               <span className="text-neutral-text-secondary">
@@ -192,9 +195,11 @@ export function QuarterModeControl() {
               text-neutral-text-primary hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:bg-neutral-surface-raised"
           >
-            <span aria-hidden="true" className="w-3 text-brand-primary">
-              {quarterMode === 'calendar' ? '●' : '○'}
-            </span>
+            <RadioDotIcon
+              aria-hidden="true"
+              filled={quarterMode === 'calendar'}
+              className="mt-0.5 h-3 w-3 shrink-0 text-brand-primary"
+            />
             <span className="flex flex-col">
               <span className="font-medium">Calendar</span>
               <span className="text-neutral-text-secondary">Jan–Mar = Q1</span>
@@ -216,7 +221,7 @@ export function QuarterModeControl() {
             onClick={() => setOpen(false)}
           >
             Set fiscal year in Workspace settings
-            <span aria-hidden="true">↗</span>
+            <ExternalLinkIcon aria-hidden="true" className="h-3 w-3 shrink-0" />
           </Link>
         </div>
       )}

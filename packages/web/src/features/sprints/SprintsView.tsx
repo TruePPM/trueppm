@@ -63,7 +63,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { Button } from '@/components/Button';
-import { SprintIcon } from '@/components/Icons';
+import { RadioDotIcon, SprintIcon } from '@/components/Icons';
 import { RetroPanel } from './RetroPanel';
 import { useSprintBacklog, type SprintBacklogTask } from '@/hooks/useSprintBacklog';
 import { useMyActiveSprints } from '@/hooks/useMyActiveSprints';
@@ -914,7 +914,12 @@ function GuardrailRow({
         hover:bg-neutral-surface-raised
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
-          <span aria-hidden="true">○</span> Review pending ({activeSprint.pending_count})
+          <RadioDotIcon
+            aria-hidden="true"
+            filled={false}
+            className="mr-1 inline-block h-2.5 w-2.5 align-[-0.125em]"
+          />
+          Review pending ({activeSprint.pending_count})
         </button>
       )}
     </div>

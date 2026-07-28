@@ -25,6 +25,7 @@ import {
   type FacetFilters,
 } from './boardFacets';
 import { labelDotStyle } from '@/lib/labelColors';
+import { FlagIcon, XMarkIcon } from '@/components/Icons';
 
 /** A label option for the facet (id + display name + palette color key). */
 export interface LabelFacetOption {
@@ -58,7 +59,7 @@ function Chip({ label, onRemove, removeAria }: { label: string; onRemove: () => 
         className="leading-none rounded-full hover:bg-brand-primary/20 w-4 h-4 inline-flex items-center justify-center
           focus:ring-2 focus:ring-brand-primary focus:outline-none"
       >
-        <span aria-hidden="true">✕</span>
+        <XMarkIcon aria-hidden="true" className="h-3 w-3" />
       </button>
     </span>
   );
@@ -262,7 +263,7 @@ export function BoardFilterControl({
             : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
         ].join(' ')}
       >
-        <span aria-hidden="true">⚑</span>
+        <FlagIcon aria-hidden="true" className="h-3.5 w-3.5" />
         Filters
         {count > 0 && (
           <span

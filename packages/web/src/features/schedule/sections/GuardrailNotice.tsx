@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { GuardrailWarning } from '@/hooks/useTaskMutations';
+import { WarningIcon } from '@/components/Icons';
 
 interface Props {
   /** Warn-level guardrails the server flagged on the (already-succeeded) write. */
@@ -36,9 +37,10 @@ export function GuardrailNotice({ warnings, onUndo, onKeep }: Props) {
       <ul className="space-y-1">
         {warnings.map((w) => (
           <li key={w.rule} className="flex items-start gap-1.5 text-xs text-neutral-text-primary">
-            <span aria-hidden="true" className="text-semantic-at-risk leading-4">
-              ◆
-            </span>
+            <WarningIcon
+              aria-hidden="true"
+              className="mt-0.5 h-3 w-3 shrink-0 text-semantic-at-risk"
+            />
             <span>{w.detail}</span>
           </li>
         ))}

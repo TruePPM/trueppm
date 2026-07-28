@@ -15,6 +15,7 @@ import {
   formatTime,
   parseMonthlyDay,
 } from './cadenceCopy';
+import { RadioDotIcon } from '@/components/Icons';
 
 export interface CeremonyModalProps {
   programId: string;
@@ -278,7 +279,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
                       onChange={() => update_('cadence_type', opt.value)}
                       className="sr-only"
                     />
-                    <span aria-hidden="true">{selected ? '●' : '○'}</span>
+                    <RadioDotIcon aria-hidden="true" filled={selected} className="h-3 w-3 shrink-0" />
                     {opt.label}
                   </label>
                 );
