@@ -201,13 +201,15 @@ test.describe('Program Settings → General', () => {
     // The settings shell still rendered its own scroll-spy rail (ADR-0146) — the
     // section items are buttons, not links. Scope to the settings nav region.
     const settingsNav = page.getByRole('navigation', { name: 'Settings sections' });
-    await expect(settingsNav.getByRole('button', { name: 'Risk policy', exact: true })).toBeVisible();
+    await expect(
+      settingsNav.getByRole('button', { name: 'Risk policy', exact: true }),
+    ).toBeVisible();
   });
 
   // #776: the context pill is a switcher — from one program's settings you can
   // jump straight to another program's settings (preserving the sub-page),
   // instead of having no path to it.
-  test('context pill switches to another program\'s settings', async ({ page }) => {
+  test("context pill switches to another program's settings", async ({ page }) => {
     const captures: { patch?: Record<string, unknown> } = {};
     await setup(page, captures);
 
@@ -225,7 +227,12 @@ test.describe('Program Settings → General', () => {
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ results: [FIXTURE_PROGRAM, FIXTURE_PROGRAM_2], count: 2, next: null, previous: null }),
+        body: pj({
+          results: [FIXTURE_PROGRAM, FIXTURE_PROGRAM_2],
+          count: 2,
+          next: null,
+          previous: null,
+        }),
       }),
     );
     await page.route(`**/api/v1/programs/${PROGRAM_2}/`, (r) =>
@@ -245,7 +252,9 @@ test.describe('Program Settings → General', () => {
     // ADR-0146 — no per-section route segment).
     await page.waitForURL(`**/programs/${PROGRAM_2}/settings`);
     await expect(general.getByLabel('Program name')).toHaveValue('Phase 3 Rollout');
-    await expect(page.getByRole('button', { name: /Current program: Phase 3 Rollout/ })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /Current program: Phase 3 Rollout/ }),
+    ).toBeVisible();
   });
 
   // #776 follow-on: with many programs the switcher gains a type-to-filter search
@@ -263,12 +272,22 @@ test.describe('Program Settings → General', () => {
       code: `PG${i}`,
     }));
     const ZENITH = 'e2e-prog-zenith-0000-0000-0000-000000000999';
-    const FIXTURE_ZENITH = { ...FIXTURE_PROGRAM, id: ZENITH, name: 'Zenith Initiative', code: 'ZEN' };
+    const FIXTURE_ZENITH = {
+      ...FIXTURE_PROGRAM,
+      id: ZENITH,
+      name: 'Zenith Initiative',
+      code: 'ZEN',
+    };
     await page.route('**/api/v1/programs/', (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ results: [FIXTURE_PROGRAM, ...many, FIXTURE_ZENITH], count: 9, next: null, previous: null }),
+        body: pj({
+          results: [FIXTURE_PROGRAM, ...many, FIXTURE_ZENITH],
+          count: 9,
+          next: null,
+          previous: null,
+        }),
       }),
     );
     await page.route(`**/api/v1/programs/${ZENITH}/`, (r) =>
@@ -409,5 +428,36 @@ test.describe('Program Settings → General', () => {
     expect(Math.abs(scrollYAfter - scrollYBefore)).toBeLessThan(50);
     // The field the user acted on is still within the viewport, not pushed off-screen.
     await expect(runHistory).toBeInViewport();
+  });
+
+  // #2487 / ADR-0682: every settings section carries a section-level docs link,
+  // resolved by the shell from SETTINGS_DOCS. Program scope had none at all before
+  // this — all eleven sections were help-less.
+  test('each section carries a docs link naming that section', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
+
+    const general = page.locator('[data-settings-section="general"]');
+    await expect(general.getByRole('heading', { name: 'General' })).toBeVisible();
+
+    // Located by the accessible name, not by the visible "Learn more" text: the
+    // name is what makes 44 of these distinguishable to a screen reader, and it is
+    // also what keeps this locator strict-mode-safe on a page full of them.
+    const help = general.getByRole('link', {
+      name: 'Learn more about General (opens in a new tab)',
+    });
+    await expect(help).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/administration/program-settings/#general',
+    );
+    await expect(help).toHaveAttribute('target', '_blank');
+    await expect(help).toHaveAttribute('rel', 'noopener noreferrer');
+
+    // A different section resolves to a different page — proving the link is
+    // per-section, not one shell-wide constant.
+    const access = page.locator('[data-settings-section="access"]');
+    await expect(
+      access.getByRole('link', { name: 'Learn more about Access (opens in a new tab)' }),
+    ).toHaveAttribute('href', 'https://docs.trueppm.com/administration/program-settings/#access');
   });
 });

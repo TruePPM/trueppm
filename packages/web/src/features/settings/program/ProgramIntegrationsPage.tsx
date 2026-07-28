@@ -10,7 +10,7 @@
 
 import { useParams } from 'react-router';
 import type { IntegrationScope } from '@/hooks/useWebhooks';
-import { SettingsPageTitle } from '../SettingsShell';
+import { SettingsPageTitle, DocsLink } from '../SettingsShell';
 import { registry } from '@/lib/widget-registry';
 import { WebhooksManager } from '../components/integrations/WebhooksManager';
 import { ApiTokensManager } from '../components/integrations/ApiTokensManager';
@@ -31,6 +31,22 @@ export function ProgramIntegrationsPage() {
       />
 
       <div className="px-6 pb-8 space-y-6">
+        {/* Parity with the project Integrations page (#2487): the two surfaces mount
+            the same managers, and the project page has carried this reference row
+            since #2266 while this one had no docs path at all. Page-owned rather
+            than a ⓘ inside each manager header, because WebhooksManager and
+            ApiTokensManager are shared across all three scopes — editing their
+            headers would change every scope at once. Link text deliberately avoids
+            the manager-header phrases "Outbound webhooks" / "Inbound API tokens",
+            which the integrations e2e locates with a case-insensitive substring
+            getByText that would otherwise trip a strict-mode collision. */}
+        <p className="text-[12px] text-neutral-text-secondary leading-relaxed">
+          New to integrations? See the docs on{' '}
+          <DocsLink href="features/webhooks">webhooks</DocsLink>,{' '}
+          <DocsLink href="features/personal-access-tokens">API tokens</DocsLink>, and{' '}
+          <DocsLink href="administration/git-event-automation">Git-event automation</DocsLink>.
+        </p>
+
         <div className="grid gap-4 lg:grid-cols-2">
           <WebhooksManager scope={scope} />
           <ApiTokensManager scope={scope} />

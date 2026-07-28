@@ -61,17 +61,21 @@ describe('ProjectIntegrationsPage', () => {
     );
   });
 
+  // The accessible names carry "(opens in a new tab)" since #2487 folded this page's
+  // local DocLink into the shared one, which announces the new-tab jump (WCAG 3.2.5).
   it('links each integration section to its docs page (#2266)', () => {
     render(<ProjectIntegrationsPage />);
-    expect(screen.getByRole('link', { name: 'webhooks' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'webhooks (opens in a new tab)' })).toHaveAttribute(
       'href',
       expect.stringContaining('features/webhooks') as unknown as string,
     );
-    expect(screen.getByRole('link', { name: 'API tokens' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'API tokens (opens in a new tab)' })).toHaveAttribute(
       'href',
       expect.stringContaining('features/personal-access-tokens') as unknown as string,
     );
-    expect(screen.getByRole('link', { name: 'Git-event automation' })).toHaveAttribute(
+    expect(
+      screen.getByRole('link', { name: 'Git-event automation (opens in a new tab)' }),
+    ).toHaveAttribute(
       'href',
       expect.stringContaining('administration/git-event-automation') as unknown as string,
     );

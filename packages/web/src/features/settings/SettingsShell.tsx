@@ -5,8 +5,17 @@ import { useScrollSpy } from './hooks/useScrollSpy';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { ConfirmDiscardDialog } from './components/ConfirmDiscardDialog';
 import { SettingsContextSwitcher, type SettingsContextOption } from './SettingsContextSwitcher';
-import { SettingsSectionContext, useSettingsSectionId } from './SettingsSectionContext';
+import {
+  SettingsSectionContext,
+  SettingsScopeContext,
+  SettingsSectionDocsContext,
+  useSettingsSectionId,
+  useSettingsScope,
+  useSettingsSectionDocs,
+} from './SettingsSectionContext';
 import { SettingsSectionErrorBoundary } from './SettingsSectionErrorBoundary';
+import { settingsDocsSlug } from './settingsDocs';
+import { docsUrl } from '../../lib/docsUrl';
 import { formatRelative } from '../../lib/formatRelative';
 
 export type { SettingsContextOption } from './SettingsContextSwitcher';
@@ -697,7 +706,11 @@ export function SettingsShell({
           className="relative flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] bg-app-canvas scroll-smooth motion-reduce:scroll-auto"
           data-testid="settings-content-scroll"
         >
-          {children}
+          {/* Publish the scope so each <SettingsSection> below can resolve its own
+              docs link out of SETTINGS_DOCS, without the ~44 mount sites passing
+              one (ADR-0682). Scoped to the page body rather than the whole shell:
+              the sections are its only consumers. */}
+          <SettingsScopeContext.Provider value={scope}>{children}</SettingsScopeContext.Provider>
         </div>
 
         {/* Saved [time] footer — visible when not dirty and a save landed this mount. */}
@@ -979,32 +992,39 @@ interface SettingsSectionProps {
  * focusable target inside is the section heading rendered by `SettingsPageTitle`.
  */
 export function SettingsSection({ id, children }: SettingsSectionProps) {
+  // Resolve the section's docs link here rather than at the ~44 call sites: this
+  // component is the one place that knows both halves of the key — the scope,
+  // from the shell above it, and the section id, from its own prop (ADR-0682).
+  const scope = useSettingsScope();
+  const docsHref = scope ? settingsDocsSlug(scope, id) : undefined;
   return (
     <SettingsSectionContext.Provider value={id}>
-      <section
-        data-settings-section={id}
-        // Name the region by its visible heading (the <h2> SettingsPageTitle
-        // renders under this same section id) rather than the raw slug — a bare
-        // `aria-label={id}` announced "signal-privacy" verbatim to SR users. The
-        // heading id is minted from the section id below, so this always resolves.
-        aria-labelledby={settingsHeadingId(id)}
-        // Section-level break so adjacent sections are visually separable at a
-        // glance (issues 1986/2007). `neutral-border` #E6E1D6 is only ~5% darker
-        // than the warm canvas, so opacity alone can't rank a section boundary
-        // above the `/55` intra-section field-row lines — negative space is the
-        // reliable lever. Rank sections by *air* (32px of canvas gap both sides of
-        // the rule via mt-8 + pt-8) and by *width* (a 2px rule vs the 1px field
-        // rows); field rows and the title-strip underline stay 1px/55%. Suppressed
-        // on the first section (flush under the header). scroll-mt clears the
-        // heading below the sticky header + the section top padding when scroll-spy
-        // jumps to it (ADR-0146).
-        className="scroll-mt-6 mt-8 pt-8 border-t-2 border-neutral-border first:mt-0 first:pt-0 first:border-t-0"
-      >
+      <SettingsSectionDocsContext.Provider value={docsHref}>
+        <section
+          data-settings-section={id}
+          // Name the region by its visible heading (the <h2> SettingsPageTitle
+          // renders under this same section id) rather than the raw slug — a bare
+          // `aria-label={id}` announced "signal-privacy" verbatim to SR users. The
+          // heading id is minted from the section id below, so this always resolves.
+          aria-labelledby={settingsHeadingId(id)}
+          // Section-level break so adjacent sections are visually separable at a
+          // glance (issues 1986/2007). `neutral-border` #E6E1D6 is only ~5% darker
+          // than the warm canvas, so opacity alone can't rank a section boundary
+          // above the `/55` intra-section field-row lines — negative space is the
+          // reliable lever. Rank sections by *air* (32px of canvas gap both sides of
+          // the rule via mt-8 + pt-8) and by *width* (a 2px rule vs the 1px field
+          // rows); field rows and the title-strip underline stay 1px/55%. Suppressed
+          // on the first section (flush under the header). scroll-mt clears the
+          // heading below the sticky header + the section top padding when scroll-spy
+          // jumps to it (ADR-0146).
+          className="scroll-mt-6 mt-8 pt-8 border-t-2 border-neutral-border first:mt-0 first:pt-0 first:border-t-0"
+        >
         {/* Contain a section render failure to this region — on the consolidated
             page (ADR-0146) an unguarded throw would reach the root boundary and
             replace the whole app. */}
-        <SettingsSectionErrorBoundary sectionId={id}>{children}</SettingsSectionErrorBoundary>
-      </section>
+          <SettingsSectionErrorBoundary sectionId={id}>{children}</SettingsSectionErrorBoundary>
+        </section>
+      </SettingsSectionDocsContext.Provider>
     </SettingsSectionContext.Provider>
   );
 }
@@ -1016,10 +1036,132 @@ interface SettingsPageTitleProps {
   subtitle?: string;
   count?: string | number;
   action?: ReactNode;
+  /**
+   * Docs slug for this section's "Learn more →" link (ADR-0682), in `docsUrl()`
+   * form — `administration/project-settings/#general`.
+   *
+   * Normally omitted: inside a `<SettingsSection>` the slug arrives on context,
+   * resolved by the shell from `SETTINGS_DOCS`. Pass it explicitly only on the
+   * standalone tool pages (System health, Observability, Retention & purge,
+   * Trash) that render a title strip outside a section and so have no context to
+   * read. An explicit value wins over context.
+   */
+  docsHref?: string;
+}
+
+/**
+ * Shared styling for every docs link in Settings. Rule 212 (`docsUrl`, new tab,
+ * `noopener`) and rule 118 (`focus-visible:` — a clicked link does not retain focus).
+ */
+const DOCS_LINK_BASE =
+  'rounded font-medium text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
+
+/**
+ * Links that sit *inside* a sentence stay plain `inline`, never `inline-flex`: a
+ * flex box baselines on its own line box rather than on the surrounding text, so
+ * an inline-flex link in prose sits visibly off the baseline of the words around
+ * it (#1749). `inline-flex` is correct only for the standalone card-level link,
+ * which owns its own line.
+ */
+const DOCS_LINK_INLINE = `inline ${DOCS_LINK_BASE}`;
+const DOCS_LINK_BLOCK = `inline-flex items-center gap-1 text-[12px] ${DOCS_LINK_BASE}`;
+
+/**
+ * An inline docs-site reference inside a sentence ("See the docs on *webhooks*").
+ * The caller supplies the link text, so the accessible name is already specific
+ * and only the new-tab notice is appended to it.
+ *
+ * `href` is a docs-site slug (plus optional `#anchor`), never an app-origin path
+ * under the `/docs` prefix (rule 212).
+ */
+export function DocsLink({ href, children }: { href: string; children: string }) {
+  return (
+    <a
+      href={docsUrl(href)}
+      target="_blank"
+      rel="noopener noreferrer"
+      // See SectionDocsLink: a trailing `sr-only` span concatenates without a
+      // separator ("webhooks(opens in a new tab)"), so name the link explicitly.
+      // `children` is typed `string` precisely so this stays composable.
+      aria-label={`${children} (opens in a new tab)`}
+      className={DOCS_LINK_INLINE}
+    >
+      {children}
+    </a>
+  );
+}
+
+/**
+ * A card-level docs pointer, used where the subject is a whole action rather than
+ * a single field — the irreversible Danger and Lifecycle cards (web-rule 263: a
+ * card-level docs link, not a per-input `FieldHelp` popover, because there is no
+ * one "field" to explain).
+ *
+ * This is the single definition of an affordance previously copied into
+ * `WorkspaceDangerPage` and `ProjectArchivePage`, which had already drifted
+ * between them (`mt-2 text-[12px]` vs `mt-3 text-[11px]`). Callers pass
+ * `className` for spacing only.
+ */
+export function LearnMoreLink({
+  href,
+  label = 'Learn more',
+  className = 'mt-2',
+}: {
+  href: string;
+  label?: string;
+  className?: string;
+}) {
+  return (
+    <a
+      href={docsUrl(href)}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`${label} (opens in a new tab)`}
+      className={`${className} ${DOCS_LINK_BLOCK}`}
+    >
+      {label}
+      <span aria-hidden="true">→</span>
+    </a>
+  );
+}
+
+/**
+ * Section-level "Learn more →" link (ADR-0682), trailing the section subtitle.
+ *
+ * A labelled text link, not an icon: rule 287 bars an icon-only control without a
+ * `Tooltip`, and rule 121 makes a link inside a hover tooltip unreachable.
+ *
+ * The visible text stays terse but the accessible name names the section — forty-odd
+ * identically-named "Learn more" links would fail WCAG 2.4.4 (Link Purpose) in the
+ * a11y tree even though each is unambiguous where it sits.
+ */
+function SectionDocsLink({ href, sectionTitle }: { href: string; sectionTitle: string }) {
+  return (
+    <a
+      href={docsUrl(href)}
+      target="_blank"
+      rel="noopener noreferrer"
+      // An explicit name, not a visible-text + `sr-only` composition: accname trims
+      // each text node before joining, so the two concatenated to "Learn moreabout
+      // General". The label still begins with the visible text, so WCAG 2.5.3
+      // (Label in Name) holds for speech-input users.
+      aria-label={`Learn more about ${sectionTitle} (opens in a new tab)`}
+      className={`text-[12px] ${DOCS_LINK_INLINE}`}
+    >
+      Learn more
+      <span aria-hidden="true">{'\u00a0→'}</span>
+    </a>
+  );
 }
 
 /** Standardised section title strip with optional count and action button. */
-export function SettingsPageTitle({ title, subtitle, count, action }: SettingsPageTitleProps) {
+export function SettingsPageTitle({
+  title,
+  subtitle,
+  count,
+  action,
+  docsHref,
+}: SettingsPageTitleProps) {
   // Each section renders one of these on the consolidated page, so it must be an
   // <h2> under the shell's single page <h1> (WCAG 1.3.1 / 2.4.6). When mounted
   // inside a <SettingsSection>, stamp the id its region's aria-labelledby targets
@@ -1027,6 +1169,16 @@ export function SettingsPageTitle({ title, subtitle, count, action }: SettingsPa
   // (standalone tool pages) the context is the default key and we omit the id.
   const sectionId = useSettingsSectionId();
   const headingId = sectionId !== DEFAULT_SECTION_KEY ? settingsHeadingId(sectionId) : undefined;
+  // Section help trails the subtitle rather than sitting in the `action` slot: 16
+  // of the 67 call sites already put a primary control there ("Add member", "New
+  // label"), and secondary help at equal weight beside a primary action inverts
+  // the hierarchy. Trailing the descriptive sentence also reads as prose rather
+  // than as a chrome band repeated across every section (ADR-0682).
+  //
+  // Read the context unconditionally — `docsHref ?? useSettingsSectionDocs()`
+  // would short-circuit the hook and break the rules of hooks.
+  const contextDocsHref = useSettingsSectionDocs();
+  const resolvedDocsHref = docsHref ?? contextDocsHref;
   return (
     <div className="px-6 pt-5 pb-3.5 flex items-end gap-3.5 border-b border-neutral-border/55">
       <div className="flex-1 min-w-0">
@@ -1043,7 +1195,16 @@ export function SettingsPageTitle({ title, subtitle, count, action }: SettingsPa
             <span className="text-[13px] font-medium text-neutral-text-secondary">{count}</span>
           )}
         </h2>
-        {subtitle && <p className="mt-1 text-[13px] text-neutral-text-secondary">{subtitle}</p>}
+        {/* The link trails the subtitle inside the same paragraph so it reads as
+            an extension of that sentence. With no subtitle it takes the subtitle's
+            own slot, keeping its vertical position identical across sections. */}
+        {(subtitle || resolvedDocsHref) && (
+          <p className="mt-1 text-[13px] text-neutral-text-secondary">
+            {subtitle}
+            {subtitle && resolvedDocsHref && ' '}
+            {resolvedDocsHref && <SectionDocsLink href={resolvedDocsHref} sectionTitle={title} />}
+          </p>
+        )}
       </div>
       {action && <div className="shrink-0">{action}</div>}
     </div>
