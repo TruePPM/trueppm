@@ -8,6 +8,7 @@ import { Button } from '@/components/Button';
 import { Tooltip } from '@/components/Tooltip';
 import { ABBREVIATIONS } from '@/lib/abbreviations';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { HowDatesWorkLink } from './HowDatesWorkLink';
 import { parseDurationInput } from './buildMode/EditableCell';
 import { RecalcPercentChip } from './RecalcPercentChip';
 import { buildRecalcPrompt, type RecalcPromptState } from './recalcPercentPrompt';
@@ -462,6 +463,13 @@ function NoCommittedStartAdvisory({ task, projectId }: { task: Task; projectId: 
             <Button variant="ghost" size="sm" onClick={moveToTodo}>
               Move to To Do
             </Button>
+          </div>
+          {/* Same docs deep-link the row chip carries (#2484) — the two surfaces
+              flag one condition, so they must offer one explanation. The divider
+              takes the at-risk hue at low alpha here because this advisory sits
+              on the `-bg` tint, where a neutral rule would read as a seam. */}
+          <div className="mt-2 border-t border-semantic-at-risk/30 pt-1.5">
+            <HowDatesWorkLink />
           </div>
         </div>
       </div>

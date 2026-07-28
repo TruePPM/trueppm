@@ -7,6 +7,7 @@ import { WarningIcon } from '@/components/Icons';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import type { Task } from '@/types';
 
+import { HowDatesWorkLink } from './HowDatesWorkLink';
 import { useCommitStartOrTodo } from './useCommitStartOrTodo';
 
 /**
@@ -48,8 +49,9 @@ export function MissingCommittedStartChip({
   >({
     open,
     width: 306,
-    // Sentence (~3 lines) + optional action row; a sound flip-above estimate.
-    estimatedHeight: 150,
+    // Sentence (~3 lines) + optional action row + the docs footer (#2484); a
+    // sound flip-above estimate.
+    estimatedHeight: 200,
     align: 'right',
     gap: 6,
     onDismiss: () => setOpen(false),
@@ -176,6 +178,16 @@ export function MissingCommittedStartChip({
                 </Button>
               </div>
             )}
+
+            {/* Help sits below the remediations, in a neutral-bordered footer:
+                the popover asks for a scheduling decision, so the two actions
+                stay the visual primary and the way out to the reasoning behind
+                them is a quiet last row. Neutral divider, not an at-risk one —
+                the amber tone belongs to the warning above it, and a link
+                inheriting it would read as a third remediation. */}
+            <div className="border-t border-neutral-border pt-1.5">
+              <HowDatesWorkLink />
+            </div>
           </div>,
           document.body,
         )}

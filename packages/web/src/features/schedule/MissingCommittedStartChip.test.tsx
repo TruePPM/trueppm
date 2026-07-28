@@ -106,6 +106,32 @@ describe('MissingCommittedStartChip', () => {
     expect(screen.getByTestId('missing-dates-chip')).toHaveClass('bg-semantic-at-risk-bg');
   });
 
+  it('offers the docs deep-link explaining how dates work (#2484)', async () => {
+    const user = userEvent.setup();
+    renderChip(true);
+    await user.click(screen.getByTestId('missing-dates-chip'));
+    await screen.findByRole('dialog');
+
+    const help = screen.getByRole('link', { name: /how dates work/i });
+    // web-rule 212 — the published docs site, never an in-app /docs/... path,
+    // and anchored at the provenance section the popover copy is about.
+    expect(help).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/features/schedule/#committed-vs-computed-start-dates',
+    );
+    expect(help).toHaveAttribute('target', '_blank');
+    expect(help).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(help).toHaveAccessibleName(/opens in a new tab/i);
+  });
+
+  it('keeps the docs link for a non-editor — understanding is not a permission (#2484)', async () => {
+    const user = userEvent.setup();
+    renderChip(false);
+    await user.click(screen.getByTestId('missing-dates-chip'));
+    await screen.findByRole('dialog');
+    expect(screen.getByRole('link', { name: /how dates work/i })).toBeInTheDocument();
+  });
+
   it('surfaces an offline error and keeps the dialog open (rule 29)', async () => {
     Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
     const user = userEvent.setup();

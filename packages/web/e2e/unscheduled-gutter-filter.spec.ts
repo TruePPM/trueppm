@@ -257,6 +257,31 @@ test.describe('No-committed-start chip — point-of-fix popover (#2313)', () => 
     expect(req.postDataJSON()).toHaveProperty('planned_start');
   });
 
+  test('popover deep-links to the docs section explaining how dates work (#2484)', async ({
+    page,
+  }) => {
+    await gotoSchedule(page);
+    const chip = page.getByTestId('missing-dates-chip').first();
+    await chip.click();
+
+    const dialog = page.getByRole('dialog', { name: 'No committed start' });
+    const help = dialog.getByRole('link', { name: /how dates work/i });
+    await expect(help).toBeVisible();
+    // Asserted, not clicked: the target is the published docs site, so a real
+    // navigation would take the run off-origin (and off-network in CI).
+    await expect(help).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/features/schedule/#committed-vs-computed-start-dates',
+    );
+    await expect(help).toHaveAttribute('target', '_blank');
+    await expect(help).toHaveAttribute('rel', 'noopener noreferrer');
+
+    // Reachable by keyboard: the popover seats focus on the panel, so the link
+    // must be in its tab order rather than only pointer-reachable.
+    await help.focus();
+    await expect(help).toBeFocused();
+  });
+
   test('Escape closes the popover and returns focus to the chip', async ({ page }) => {
     await gotoSchedule(page);
     const chip = page.getByTestId('missing-dates-chip').first();
