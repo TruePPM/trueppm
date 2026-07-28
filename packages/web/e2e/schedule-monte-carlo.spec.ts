@@ -137,6 +137,11 @@ const FIXTURE_MC_HISTORY = {
 async function gotoScheduleWithMC(
   page: import('@playwright/test').Page,
   mcResult: Record<string, unknown> = FIXTURE_MC_RESULT,
+  // Project role of the signed-in user. Defaults to Admin (300); the Viewer
+  // test below passes ROLE_VIEWER to prove the forecast is not role-gated
+  // (#2492). Literal ordinals match the convention in the rest of this tree —
+  // #2489 renumbers ROLE_VIEWER 0 -> 1 and will sweep them.
+  role = 300,
 ) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -281,21 +286,14 @@ async function gotoScheduleWithMC(
   // Current-user role comes from GET /projects/{id}/members/?self=true — a LIST
   // (many=True), from which useCurrentUserRole reads res.data[0].role. The old
   // /projects/{id}/role/ mock hit a nonexistent endpoint, so the bar rendered
-  // role-less; this mocks the real endpoint with an Admin (300) row.
+  // role-less; this mocks the real endpoint with a row carrying `role`.
+  const membership = [{ id: 'mem-self', role, user_id: 'u1' }];
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) => {
     if (route.request().method() === 'GET') {
-      const url = new URL(route.request().url());
-      if (url.searchParams.get('self') === 'true') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([{ id: 'mem-admin', role: 300, user_id: 'u1' }]),
-        });
-      }
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([{ id: 'mem-admin', role: 300, user_id: 'u1' }]),
+        body: JSON.stringify(membership),
       });
     }
     return route.continue();
@@ -510,6 +508,20 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await expect(bar.getByText(/^P50:/)).toHaveCount(1);
     await expect(bar.getByText(/^P80:/)).toHaveCount(1);
     await expect(bar.getByText(/^P95:/)).toHaveCount(1);
+  });
+
+  test('a Viewer sees the forecast bar — it is a read surface, not Member+ (#2492)', async ({
+    page,
+  }) => {
+    // Viewer (0; #2489 renumbers to 1). The server grants the forecast read to
+    // any project member, and the mobile card is ungated — the desktop bar used
+    // to gate at Member+, so the same Viewer saw P50/P80/P95 on a phone and not
+    // on a laptop. The Executive Sponsor persona *is* this role.
+    await gotoScheduleWithMC(page, FIXTURE_MC_RESULT, 0);
+
+    const bar = page.getByRole('region', { name: 'Schedule forecast' });
+    await expect(bar).toBeVisible();
+    await expect(bar.getByText(/^P80:/)).toHaveCount(1);
   });
 });
 

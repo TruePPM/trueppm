@@ -1079,7 +1079,27 @@ describe('ScheduleView — role still loading (pessimistic gating)', () => {
     const menu = screen.getByRole('group', { name: 'Project actions' });
     expect(menu).not.toHaveTextContent('Import from MS Project…');
     expect(menu).not.toHaveTextContent('Share this schedule…');
-    // Monte Carlo is visible to a not-yet-resolved role (null || >= member).
+    // Monte Carlo carries no role gate at all (#2492) — see the dedicated
+    // describe below for the full role matrix.
     expect(screen.getByTestId('forecast-bar')).toBeInTheDocument();
+  });
+});
+
+describe('ScheduleView — forecast surface is not role-gated (#2492)', () => {
+  // The forecast is a read: the server grants it to any project member
+  // (IsProjectMember on run_monte_carlo / MonteCarloHistoryView) and the mobile
+  // card is ungated. The desktop bar previously gated at Member+, so a Viewer
+  // saw P50/P80/P95 on a phone and not on a laptop. Asserting every role here
+  // is what stops the gate being reintroduced.
+  it.each([
+    ['viewer', ROLE_VIEWER],
+    ['member', ROLE_MEMBER],
+    ['admin', ROLE_ADMIN],
+    ['unresolved (null)', null],
+  ])('desktop and mobile forecast surfaces agree for a %s', (_label, role) => {
+    mockRole = role;
+    renderSchedule();
+    expect(screen.getByTestId('forecast-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-mc')).toBeInTheDocument();
   });
 });

@@ -45,7 +45,7 @@ import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useBaselines, useCreateBaseline } from '@/hooks/useBaselines';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
-import { ROLE_ADMIN, ROLE_MEMBER, ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
 import { SubtreeDeleteConfirmDialog } from './SubtreeDeleteConfirmDialog';
@@ -2028,7 +2028,14 @@ export function ScheduleView() {
           the sensitivity tornado, and the run-history disclosure. Replaces the
           former MonteCarloRow + ScheduleInsightsBar two-surface split that
           rendered the percentiles up to three times and disagreed on the day. */}
-      {surfaces.monte_carlo && (currentRole === null || currentRole >= ROLE_MEMBER) && (
+      {/* No role gate (#2492). The forecast is a read surface: the server grants
+          it to any project member (Viewer+ — `IsProjectMember` on run_monte_carlo
+          and MonteCarloHistoryView), and MobileMonteCarloCard below is ungated.
+          A Member+ gate here denied a Viewer on desktop the one number they came
+          for, while a phone showed it. Scheduler+ still governs *writing* the
+          attributed MonteCarloRun history row (#1502) — that is enforced server-
+          side and is not a surface gate. */}
+      {surfaces.monte_carlo && (
         <ScheduleForecastBar
           projectId={projectIdUndef}
           cpmFinish={cpmFinish}
