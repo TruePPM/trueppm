@@ -1040,72 +1040,15 @@ export function drawTaskBar(
   // readable. The chip/initials below are naturally skipped (progress 0,
   // NOT_STARTED, no assignees).
   if (task.isExternal) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(barLeft, barTop, barWidth, BAR_HEIGHT, 3);
-    ctx.clip();
-    // A fixed translucent ink reads on the muted gray bar in both light and dark.
-    ctx.strokeStyle = 'rgba(0,0,0,0.28)';
-    ctx.lineWidth = 1;
-    for (let hx = barLeft - BAR_HEIGHT; hx < barLeft + barWidth; hx += 5) {
-      ctx.beginPath();
-      ctx.moveTo(hx, barTop + BAR_HEIGHT);
-      ctx.lineTo(hx + BAR_HEIGHT, barTop);
-      ctx.stroke();
-    }
-    ctx.restore();
-    if (task.isCritical) {
-      ctx.strokeStyle = _palette.barCritical;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(barLeft + 0.75, barTop + 0.75, barWidth - 1.5, BAR_HEIGHT - 1.5, 3);
-      ctx.stroke();
-    }
+    drawExternalRedaction(ctx, barLeft, barTop, barWidth, task.isCritical);
   }
 
-  // Progress fill overlay (darker tint at 30% opacity on the unprogressed right
-  // portion). Drawn BEFORE the borders so the risk frame and selection ring paint
-  // crisply on top of the tint instead of being dimmed by it.
-  if (task.progress > 0 && task.progress < 100) {
-    const progressWidth = barWidth * (task.progress / 100);
-    ctx.globalAlpha = 0.3;
-    ctx.fillStyle = '#000000';
-    ctx.beginPath();
-    ctx.roundRect(
-      barLeft + progressWidth,
-      barTop,
-      barWidth - progressWidth,
-      BAR_HEIGHT,
-      [0, 3, 3, 0],
-    );
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  }
+  drawProgressOverlay(ctx, task.progress, barLeft, barTop, barWidth);
 
   const criticalFrame = !task.isExternal && !task.isSummary && task.isCritical;
 
-  // Selection: navy inset ring. When a red critical frame will also be drawn, the
-  // ring NESTS one step further in (thinner) so both channels stay legible — the
-  // ADR-0103 D4 distinguishability set reads complete=sage fill, critical=red
-  // frame, selected=navy ring, today=sage line, each on its own visual axis.
-  // Nesting needs room: below MIN_NEST_WIDTH the two concentric rings would
-  // collide, so the ring falls back to the standard inset and the critical frame
-  // (drawn AFTER this, below) paints on top — risk outranks selection, so a narrow
-  // selected critical bar keeps its red frame rather than losing it to the ring.
   if (isSelected) {
-    const nest = criticalFrame && barWidth >= MIN_NEST_WIDTH;
-    const inset = nest ? 3 : 1;
-    ctx.strokeStyle = _palette.selectionRing;
-    ctx.lineWidth = nest ? 1.5 : 2;
-    ctx.beginPath();
-    ctx.roundRect(
-      barLeft + inset,
-      barTop + inset,
-      barWidth - inset * 2,
-      BAR_HEIGHT - inset * 2,
-      nest ? 1.5 : 2,
-    );
-    ctx.stroke();
+    drawSelectionRing(ctx, barLeft, barTop, barWidth, criticalFrame);
   }
 
   // Critical path — a red risk FRAME on the border, not a red fill (#1699,
@@ -1137,17 +1080,7 @@ export function drawTaskBar(
 
   // Assignee initials — right-aligned inside bar, only when bar is wide enough (>= 48px)
   if (barWidth >= 48 && task.assignees.length > 0) {
-    ctx.beginPath();
-    ctx.rect(barLeft, barTop, barWidth, BAR_HEIGHT);
-    ctx.clip();
-    const initials = getInitials(task.assignees[0].name);
-    // Initials font matches rule 50 floor when scaled for canvas (rule 71 reset below).
-    ctx.font = canvasFont();
-    ctx.fillStyle = _palette.chipTextOnSurface;
-    ctx.textBaseline = 'middle';
-    const textWidth = ctx.measureText(initials).width;
-    ctx.fillText(initials, barLeft + barWidth - 4 - textWidth, barTop + BAR_HEIGHT / 2);
-    ctx.font = canvasFont(); // Reset to engine default (rule 71)
+    drawAssigneeInitials(ctx, task.assignees[0].name, barLeft, barTop, barWidth);
   }
 
   ctx.restore();
@@ -1162,6 +1095,114 @@ export function drawTaskBar(
   if (!skipLabel) {
     drawTaskBarLabel(ctx, task, rowIndex, scales, scrollLeft, viewportWidth);
   }
+}
+
+/** Diagonal hatch marking a redacted external task (ADR-0120 D5 / ADR-0182) — a
+ *  task in a member project the viewer can't access, so it reads as "not yours".
+ *  Criticality shows as a red OUTLINE (never a red fill), keeping the
+ *  program-true critical path visible without implying the detail is readable. */
+function drawExternalRedaction(
+  ctx: CanvasRenderingContext2D,
+  barLeft: number,
+  barTop: number,
+  barWidth: number,
+  isCritical: boolean,
+): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(barLeft, barTop, barWidth, BAR_HEIGHT, 3);
+  ctx.clip();
+  // A fixed translucent ink reads on the muted gray bar in both light and dark.
+  ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+  ctx.lineWidth = 1;
+  for (let hx = barLeft - BAR_HEIGHT; hx < barLeft + barWidth; hx += 5) {
+    ctx.beginPath();
+    ctx.moveTo(hx, barTop + BAR_HEIGHT);
+    ctx.lineTo(hx + BAR_HEIGHT, barTop);
+    ctx.stroke();
+  }
+  ctx.restore();
+  if (isCritical) {
+    ctx.strokeStyle = _palette.barCritical;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(barLeft + 0.75, barTop + 0.75, barWidth - 1.5, BAR_HEIGHT - 1.5, 3);
+    ctx.stroke();
+  }
+}
+
+/** Darker tint at 30% opacity over the unprogressed right portion. Drawn BEFORE
+ *  the borders so the risk frame and selection ring paint crisply on top of the
+ *  tint instead of being dimmed by it. */
+function drawProgressOverlay(
+  ctx: CanvasRenderingContext2D,
+  progress: number,
+  barLeft: number,
+  barTop: number,
+  barWidth: number,
+): void {
+  if (progress <= 0 || progress >= 100) return;
+  const progressWidth = barWidth * (progress / 100);
+  ctx.globalAlpha = 0.3;
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.roundRect(barLeft + progressWidth, barTop, barWidth - progressWidth, BAR_HEIGHT, [
+    0, 3, 3, 0,
+  ]);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+/** Navy inset selection ring. When a red critical frame will also be drawn the
+ *  ring NESTS one step further in (thinner) so both channels stay legible — the
+ *  ADR-0103 D4 distinguishability set reads complete=sage fill, critical=red
+ *  frame, selected=navy ring, today=sage line, each on its own visual axis.
+ *
+ *  Nesting needs room: below MIN_NEST_WIDTH the two concentric rings would
+ *  collide, so the ring falls back to the standard inset and the critical frame
+ *  (drawn after it) paints on top — risk outranks selection, so a narrow selected
+ *  critical bar keeps its red frame rather than losing it to the ring. */
+function drawSelectionRing(
+  ctx: CanvasRenderingContext2D,
+  barLeft: number,
+  barTop: number,
+  barWidth: number,
+  criticalFrame: boolean,
+): void {
+  const nest = criticalFrame && barWidth >= MIN_NEST_WIDTH;
+  const inset = nest ? 3 : 1;
+  ctx.strokeStyle = _palette.selectionRing;
+  ctx.lineWidth = nest ? 1.5 : 2;
+  ctx.beginPath();
+  ctx.roundRect(
+    barLeft + inset,
+    barTop + inset,
+    barWidth - inset * 2,
+    BAR_HEIGHT - inset * 2,
+    nest ? 1.5 : 2,
+  );
+  ctx.stroke();
+}
+
+/** Assignee initials, right-aligned inside the bar. */
+function drawAssigneeInitials(
+  ctx: CanvasRenderingContext2D,
+  name: string,
+  barLeft: number,
+  barTop: number,
+  barWidth: number,
+): void {
+  ctx.beginPath();
+  ctx.rect(barLeft, barTop, barWidth, BAR_HEIGHT);
+  ctx.clip();
+  const initials = getInitials(name);
+  // Initials font matches rule 50 floor when scaled for canvas (rule 71 reset below).
+  ctx.font = canvasFont();
+  ctx.fillStyle = _palette.chipTextOnSurface;
+  ctx.textBaseline = 'middle';
+  const textWidth = ctx.measureText(initials).width;
+  ctx.fillText(initials, barLeft + barWidth - 4 - textWidth, barTop + BAR_HEIGHT / 2);
+  ctx.font = canvasFont(); // Reset to engine default (rule 71)
 }
 
 /**
@@ -1635,47 +1676,22 @@ export function calculateDependencyPath(
   const blockerAtExit = findBlockingBar(exitX, startY, targetY, obstacles, sourceBox, targetBox);
 
   // SIMPLE L: route V down at a column between source.right and target's entry
-  // edge, then H east to the arrowhead base. The V column is placed at the
-  // MIDPOINT of the available horizontal gap so both the exit stub and the
-  // run-in shaft share the space. For tight sequential cases the midpoint
-  // clamps to leave at least 1 px on each side.
+  // edge, then H east to the arrowhead base.
   if (!blockerAtExit && targetBox.x > startX) {
-    const minV = startX + 1;
-    const maxV = targetX - 1;
-    const midpoint = Math.round((startX + targetX) / 2);
-    if (minV <= maxV) {
-      const vColumn = Math.max(minV, Math.min(midpoint, maxV));
-      // `blockerAtExit` only clears the V at `exitX`; the committed drop column
-      // is the midpoint, which can land on an obstacle that `exitX` missed —
-      // most visibly a milestone diamond in an intervening row (issue 1184). Probe
-      // the actual drop column and, if blocked, right-sweep past the obstacle's
-      // edge + ROUTING_PADDING so the V skirts the diamond instead of piercing
-      // it. If no clear column fits inside the L gap, fall through to the
-      // 5-segment gutter path below, which routes the V through the row gutter.
-      const dropBlocker = findBlockingBar(
-        vColumn,
-        startY,
-        targetY,
-        obstacles,
-        sourceBox,
-        targetBox,
-      );
-      let safeColumn: number | null = dropBlocker ? null : vColumn;
-      if (dropBlocker) {
-        const swept = dropBlocker.x + dropBlocker.width + ROUTING_PADDING;
-        if (
-          swept <= maxV &&
-          !findBlockingBar(swept, startY, targetY, obstacles, sourceBox, targetBox)
-        ) {
-          safeColumn = swept;
-        }
-      }
-      if (safeColumn !== null) {
-        waypoints[waypoints.length - 1] = { x: safeColumn, y: startY };
-        waypoints.push({ x: safeColumn, y: targetY });
-        waypoints.push({ x: targetX, y: targetY });
-        return waypoints;
-      }
+    const safeColumn = findSimpleLColumn(
+      startX,
+      startY,
+      targetX,
+      targetY,
+      obstacles,
+      sourceBox,
+      targetBox,
+    );
+    if (safeColumn !== null) {
+      waypoints[waypoints.length - 1] = { x: safeColumn, y: startY };
+      waypoints.push({ x: safeColumn, y: targetY });
+      waypoints.push({ x: targetX, y: targetY });
+      return waypoints;
     }
   }
 
@@ -1735,6 +1751,48 @@ export function calculateDependencyPath(
     waypoints.push({ x: targetX, y: targetY });
   }
   return waypoints;
+}
+
+/**
+ * Pick the V-drop column for a SIMPLE L route, or null if none fits.
+ *
+ * The column sits at the MIDPOINT of the available horizontal gap so the exit
+ * stub and the run-in shaft share the space; for tight sequential cases the
+ * midpoint clamps to leave at least 1 px on each side.
+ *
+ * The caller's `blockerAtExit` probe only clears the V at `exitX`, but the
+ * committed drop column is the midpoint — which can land on an obstacle that
+ * `exitX` missed, most visibly a milestone diamond in an intervening row (#1184).
+ * So the actual drop column is re-probed here and, if blocked, right-swept past
+ * the obstacle's edge + ROUTING_PADDING so the V skirts the diamond instead of
+ * piercing it.
+ *
+ * Returns null when no clear column fits inside the L gap; the caller then falls
+ * through to the 5-segment gutter path, which routes the V through the row gutter.
+ */
+function findSimpleLColumn(
+  startX: number,
+  startY: number,
+  targetX: number,
+  targetY: number,
+  obstacles: RoutingBox[],
+  sourceBox: RoutingBox,
+  targetBox: RoutingBox,
+): number | null {
+  const minV = startX + 1;
+  const maxV = targetX - 1;
+  if (minV > maxV) return null;
+
+  const midpoint = Math.round((startX + targetX) / 2);
+  const vColumn = Math.max(minV, Math.min(midpoint, maxV));
+  const dropBlocker = findBlockingBar(vColumn, startY, targetY, obstacles, sourceBox, targetBox);
+  if (!dropBlocker) return vColumn;
+
+  const swept = dropBlocker.x + dropBlocker.width + ROUTING_PADDING;
+  if (swept <= maxV && !findBlockingBar(swept, startY, targetY, obstacles, sourceBox, targetBox)) {
+    return swept;
+  }
+  return null;
 }
 
 /**
@@ -1857,40 +1915,57 @@ function orthCrossing(
  *  Manhattan crossings. */
 function detectHops(paths: PendingPath[]): Map<number, Map<number, number[]>> {
   const hops = new Map<number, Map<number, number[]>>();
-  const record = (pi: number, si: number, x: number) => {
-    let m = hops.get(pi);
-    if (!m) {
-      m = new Map();
-      hops.set(pi, m);
-    }
-    let arr = m.get(si);
-    if (!arr) {
-      arr = [];
-      m.set(si, arr);
-    }
-    arr.push(x);
-  };
   for (let i = 0; i < paths.length; i++) {
     if (paths[i].bezier) continue;
     for (let j = i + 1; j < paths.length; j++) {
       if (paths[j].bezier) continue;
-      const a = paths[i].pts;
-      const b = paths[j].pts;
-      for (let si = 0; si < a.length - 1; si++) {
-        for (let sj = 0; sj < b.length - 1; sj++) {
-          const ip = orthCrossing(a[si], a[si + 1], b[sj], b[sj + 1]);
-          if (!ip) continue;
-          // Horizontal segment goes OVER the vertical (Rule 15.4).
-          if (segHorizontal(a[si], a[si + 1])) record(i, si, ip.x);
-          else record(j, sj, ip.x);
-        }
-      }
+      recordPairCrossings(hops, paths[i].pts, paths[j].pts, i, j);
     }
   }
   for (const m of hops.values()) {
     for (const arr of m.values()) arr.sort((p, q) => p - q);
   }
   return hops;
+}
+
+/** Append one hop x-position under `path index → segment index`, creating the
+ *  nested map/array levels on first touch. */
+function recordHop(
+  hops: Map<number, Map<number, number[]>>,
+  pi: number,
+  si: number,
+  x: number,
+): void {
+  let m = hops.get(pi);
+  if (!m) {
+    m = new Map();
+    hops.set(pi, m);
+  }
+  let arr = m.get(si);
+  if (!arr) {
+    arr = [];
+    m.set(si, arr);
+  }
+  arr.push(x);
+}
+
+/** Record every orthogonal crossing between one ordered pair of Manhattan paths. */
+function recordPairCrossings(
+  hops: Map<number, Map<number, number[]>>,
+  a: ReadonlyArray<{ x: number; y: number }>,
+  b: ReadonlyArray<{ x: number; y: number }>,
+  i: number,
+  j: number,
+): void {
+  for (let si = 0; si < a.length - 1; si++) {
+    for (let sj = 0; sj < b.length - 1; sj++) {
+      const ip = orthCrossing(a[si], a[si + 1], b[sj], b[sj + 1]);
+      if (!ip) continue;
+      // Horizontal segment goes OVER the vertical (Rule 15.4).
+      if (segHorizontal(a[si], a[si + 1])) recordHop(hops, i, si, ip.x);
+      else recordHop(hops, j, sj, ip.x);
+    }
+  }
 }
 
 /** Draw a white "channel" halo on every Manhattan segment region that overlaps
@@ -1912,38 +1987,54 @@ function drawSegmentHalos(
   for (let i = 0; i < path.pts.length - 1; i++) {
     const a = path.pts[i];
     const b = path.pts[i + 1];
-    const isH = segHorizontal(a, b);
-    const segMinX = Math.min(a.x, b.x);
-    const segMaxX = Math.max(a.x, b.x);
-    const segMinY = Math.min(a.y, b.y);
-    const segMaxY = Math.max(a.y, b.y);
-    for (const bar of allBars) {
-      const barL = bar.x;
-      const barR = bar.x + bar.width;
-      const barT = bar.y;
-      const barB = bar.y + bar.height;
-      if (isH) {
-        if (a.y <= barT || a.y >= barB) continue;
-        const start = Math.max(segMinX, barL);
-        const end = Math.min(segMaxX, barR);
-        if (end - start < 0.5) continue;
-        ctx.beginPath();
-        ctx.moveTo(start, a.y);
-        ctx.lineTo(end, a.y);
-        ctx.stroke();
-      } else {
-        if (a.x <= barL || a.x >= barR) continue;
-        const start = Math.max(segMinY, barT);
-        const end = Math.min(segMaxY, barB);
-        if (end - start < 0.5) continue;
-        ctx.beginPath();
-        ctx.moveTo(a.x, start);
-        ctx.lineTo(a.x, end);
-        ctx.stroke();
-      }
-    }
+    if (segHorizontal(a, b)) strokeHorizontalHalo(ctx, a, b, allBars);
+    else strokeVerticalHalo(ctx, a, b, allBars);
   }
   ctx.restore();
+}
+
+/** Halo the stretch of a horizontal segment that runs through each bar's body.
+ *  The segment must sit strictly inside the bar's vertical band — a segment
+ *  grazing the top or bottom edge needs no channel. */
+function strokeHorizontalHalo(
+  ctx: CanvasRenderingContext2D,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  allBars: ReadonlyArray<{ x: number; y: number; width: number; height: number }>,
+): void {
+  const segMinX = Math.min(a.x, b.x);
+  const segMaxX = Math.max(a.x, b.x);
+  for (const bar of allBars) {
+    if (a.y <= bar.y || a.y >= bar.y + bar.height) continue;
+    const start = Math.max(segMinX, bar.x);
+    const end = Math.min(segMaxX, bar.x + bar.width);
+    if (end - start < 0.5) continue;
+    ctx.beginPath();
+    ctx.moveTo(start, a.y);
+    ctx.lineTo(end, a.y);
+    ctx.stroke();
+  }
+}
+
+/** Vertical counterpart of {@link strokeHorizontalHalo}. */
+function strokeVerticalHalo(
+  ctx: CanvasRenderingContext2D,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  allBars: ReadonlyArray<{ x: number; y: number; width: number; height: number }>,
+): void {
+  const segMinY = Math.min(a.y, b.y);
+  const segMaxY = Math.max(a.y, b.y);
+  for (const bar of allBars) {
+    if (a.x <= bar.x || a.x >= bar.x + bar.width) continue;
+    const start = Math.max(segMinY, bar.y);
+    const end = Math.min(segMaxY, bar.y + bar.height);
+    if (end - start < 0.5) continue;
+    ctx.beginPath();
+    ctx.moveTo(a.x, start);
+    ctx.lineTo(a.x, end);
+    ctx.stroke();
+  }
 }
 
 /** Stroke a single PendingPath, lifting horizontal segments over any crossings
@@ -2236,19 +2327,32 @@ function redundantFSLinks(
   }
 
   for (const group of fsBySource.values()) {
-    const summaryTargetIds = group
-      .filter((l) => taskByIdFull.get(l.targetId)?.isSummary)
-      .map((l) => l.targetId);
-    if (summaryTargetIds.length === 0) continue;
-    for (const link of group) {
-      const tgt = taskByIdFull.get(link.targetId);
-      if (!tgt || tgt.isSummary) continue;
-      if (summaryTargetIds.some((sid) => depIsAncestor(nodes, sid, link.targetId))) {
-        dropped.add(link);
-      }
-    }
+    addRedundantInGroup(group, taskByIdFull, nodes, dropped);
   }
   return dropped;
+}
+
+/** Drop each leaf link in one source's FS group that a summary link already
+ *  covers — the summary target is an ancestor of the leaf target, so both arrows
+ *  would say the same thing. Groups with no summary target keep every link. */
+function addRedundantInGroup(
+  group: readonly TaskLink[],
+  taskByIdFull: Map<string, Task>,
+  nodes: Map<string, DepNode>,
+  dropped: Set<TaskLink>,
+): void {
+  const summaryTargetIds = group
+    .filter((l) => taskByIdFull.get(l.targetId)?.isSummary)
+    .map((l) => l.targetId);
+  if (summaryTargetIds.length === 0) return;
+
+  for (const link of group) {
+    const tgt = taskByIdFull.get(link.targetId);
+    if (!tgt || tgt.isSummary) continue;
+    if (summaryTargetIds.some((sid) => depIsAncestor(nodes, sid, link.targetId))) {
+      dropped.add(link);
+    }
+  }
 }
 
 /** Group surviving FS links by target (merge junctions); collect non-FS for Bézier. */
@@ -2542,35 +2646,44 @@ function collectFSPaths(
   for (const [targetId, group] of fsByTarget) {
     const tgt = pc.getScreen(targetId);
     if (!tgt) continue;
-
-    let selectedGroup = pc.selectedTaskIds.has(targetId);
-    const validPreds: { link: TaskLink; src: DepScreenNode }[] = [];
-    if (group.length >= 2) {
-      for (const link of group) {
-        const src = pc.getScreen(link.sourceId);
-        if (!src) continue;
-        validPreds.push({ link, src });
-        if (pc.selectedTaskIds.has(link.sourceId)) selectedGroup = true;
-      }
-    }
-
-    if (validPreds.length < 2) {
-      for (const link of group) {
-        const src = pc.getScreen(link.sourceId);
-        if (src) pushSingleFS(pc, link, src, pendingPaths);
-      }
-      continue;
-    }
-    pushMergeJunction(
-      pc,
-      targetId,
-      tgt,
-      validPreds,
-      selectedGroup,
-      pendingPaths,
-      pendingJunctions,
-    );
+    collectFSGroup(pc, targetId, tgt, group, pendingPaths, pendingJunctions);
   }
+}
+
+/**
+ * Emit one target's FS predecessors.
+ *
+ * A merge junction is drawn only when 2+ predecessors actually resolve on screen;
+ * a group whose sources are mostly scrolled out degrades to plain single arrows,
+ * since a junction with one visible leg would read as a stray corner.
+ */
+function collectFSGroup(
+  pc: DepPaintContext,
+  targetId: string,
+  tgt: DepScreenNode,
+  group: readonly TaskLink[],
+  pendingPaths: PendingPath[],
+  pendingJunctions: PendingJunction[],
+): void {
+  let selectedGroup = pc.selectedTaskIds.has(targetId);
+  const validPreds: { link: TaskLink; src: DepScreenNode }[] = [];
+  if (group.length >= 2) {
+    for (const link of group) {
+      const src = pc.getScreen(link.sourceId);
+      if (!src) continue;
+      validPreds.push({ link, src });
+      if (pc.selectedTaskIds.has(link.sourceId)) selectedGroup = true;
+    }
+  }
+
+  if (validPreds.length < 2) {
+    for (const link of group) {
+      const src = pc.getScreen(link.sourceId);
+      if (src) pushSingleFS(pc, link, src, pendingPaths);
+    }
+    return;
+  }
+  pushMergeJunction(pc, targetId, tgt, validPreds, selectedGroup, pendingPaths, pendingJunctions);
 }
 
 /** Endpoint X positions and Bézier control offsets for a non-FS link type. */

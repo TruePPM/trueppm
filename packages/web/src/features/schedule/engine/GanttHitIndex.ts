@@ -92,63 +92,73 @@ class HitIndexImpl implements HitIndex {
     for (const row of this._rows) {
       // Fast vertical bounds check using full row height
       if (canvasY < row.rowTop || canvasY >= row.rowTop + ROW_HEIGHT) continue;
-
-      const { taskId, rowIndex, barLeft, barRight, barTop, barBottom } = row;
-
-      // --- Link-dot zone: [barRight + 4, barRight + 16] x full row ---
-      const linkDotLeft = barRight + RESIZE_RIGHT_OVERHANG;
-      const linkDotRight = barRight + LINK_DOT_RIGHT;
-      // Expand to 44px tall on touch (centered on bar)
-      const linkDotTop = isTouch ? row.rowTop + (ROW_HEIGHT - 44) / 2 : barTop;
-      const linkDotBottom = isTouch ? linkDotTop + 44 : barBottom;
-
-      if (
-        canvasX >= linkDotLeft &&
-        canvasX <= linkDotRight &&
-        canvasY >= linkDotTop &&
-        canvasY <= linkDotBottom
-      ) {
-        return { taskId, rowIndex, barLeft, barRight, barTop, barBottom, type: 'link-dot' };
-      }
-
-      // --- Resize handle zone (skipped for milestones) ---
-      // Milestones are zero-duration diamonds — there is nothing to resize, so the
-      // whole glyph must stay draggable-to-move (#2185).
-      //
-      // The handle's inner edge is [barRight - 16] (mouse) / [barRight - 12]
-      // (touch), but clamped so it never crosses barLeft + MIN_BODY_WIDTH: on a
-      // bar narrower than the handle that keeps a grabbable body and pushes resize
-      // out to the right overhang, instead of the whole bar resolving to `resize`
-      // and drag-to-move silently becoming a duration change.
-      const resizeInnerEdge = isTouch ? barRight - 12 : barRight - RESIZE_HANDLE_WIDTH;
-      const resizeLeft = Math.min(barRight, Math.max(barLeft + MIN_BODY_WIDTH, resizeInnerEdge));
-      const resizeRight = isTouch ? barRight + 8 : barRight + RESIZE_RIGHT_OVERHANG;
-
-      if (
-        !row.isMilestone &&
-        canvasX >= resizeLeft &&
-        canvasX <= resizeRight &&
-        canvasY >= barTop &&
-        canvasY <= barBottom
-      ) {
-        return { taskId, rowIndex, barLeft, barRight, barTop, barBottom, type: 'resize' };
-      }
-
-      // --- Bar body: [barLeft, resizeLeft) x bar ---
-      // Milestones (no resize zone) get the full [barLeft, barRight] span.
-      const bodyRight = row.isMilestone ? barRight : resizeLeft;
-      if (
-        canvasX >= barLeft &&
-        canvasX <= bodyRight &&
-        canvasY >= barTop &&
-        canvasY <= barBottom
-      ) {
-        return { taskId, rowIndex, barLeft, barRight, barTop, barBottom, type: 'bar' };
-      }
+      const zone = hitZoneInRow(row, canvasX, canvasY, isTouch);
+      if (zone) return zone;
     }
 
     return null;
   }
+}
+
+/** Inclusive 1-D containment test. */
+function within(v: number, lo: number, hi: number): boolean {
+  return v >= lo && v <= hi;
+}
+
+/**
+ * Resolve which interactive zone of one row a point lands in, if any.
+ *
+ * The order below is precedence, not convenience: link-dot wins over resize,
+ * which wins over the bar body, because the outer zones are the smaller targets
+ * and would otherwise be unreachable.
+ */
+function hitZoneInRow(
+  row: RowEntry,
+  canvasX: number,
+  canvasY: number,
+  isTouch: boolean,
+): HitZone | null {
+  const { taskId, rowIndex, barLeft, barRight, barTop, barBottom } = row;
+  const base = { taskId, rowIndex, barLeft, barRight, barTop, barBottom };
+
+  // --- Link-dot zone: [barRight + 4, barRight + 16] x full row ---
+  const linkDotLeft = barRight + RESIZE_RIGHT_OVERHANG;
+  const linkDotRight = barRight + LINK_DOT_RIGHT;
+  // Expand to 44px tall on touch (centered on bar)
+  const linkDotTop = isTouch ? row.rowTop + (ROW_HEIGHT - 44) / 2 : barTop;
+  const linkDotBottom = isTouch ? linkDotTop + 44 : barBottom;
+  if (within(canvasX, linkDotLeft, linkDotRight) && within(canvasY, linkDotTop, linkDotBottom)) {
+    return { ...base, type: 'link-dot' };
+  }
+
+  // --- Resize handle zone (skipped for milestones) ---
+  // Milestones are zero-duration diamonds — there is nothing to resize, so the
+  // whole glyph must stay draggable-to-move (#2185).
+  //
+  // The handle's inner edge is [barRight - 16] (mouse) / [barRight - 12]
+  // (touch), but clamped so it never crosses barLeft + MIN_BODY_WIDTH: on a
+  // bar narrower than the handle that keeps a grabbable body and pushes resize
+  // out to the right overhang, instead of the whole bar resolving to `resize`
+  // and drag-to-move silently becoming a duration change.
+  const resizeInnerEdge = isTouch ? barRight - 12 : barRight - RESIZE_HANDLE_WIDTH;
+  const resizeLeft = Math.min(barRight, Math.max(barLeft + MIN_BODY_WIDTH, resizeInnerEdge));
+  const resizeRight = isTouch ? barRight + 8 : barRight + RESIZE_RIGHT_OVERHANG;
+  if (
+    !row.isMilestone &&
+    within(canvasX, resizeLeft, resizeRight) &&
+    within(canvasY, barTop, barBottom)
+  ) {
+    return { ...base, type: 'resize' };
+  }
+
+  // --- Bar body: [barLeft, resizeLeft) x bar ---
+  // Milestones (no resize zone) get the full [barLeft, barRight] span.
+  const bodyRight = row.isMilestone ? barRight : resizeLeft;
+  if (within(canvasX, barLeft, bodyRight) && within(canvasY, barTop, barBottom)) {
+    return { ...base, type: 'bar' };
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
