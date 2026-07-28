@@ -313,25 +313,48 @@ def _derive_forward(
         else:
             contribs.append(contribution)
 
-    # The engine's final values are authoritative (taken from the ScheduleResult);
-    # flag whichever candidate produced them. Start is bound by the ES term whose
-    # imposed_date equals the final early_start; finish, by an EF term (FF/SF) when
-    # one drove it, else derived from the start (duration expansion).
     es_terms = [c for c in contribs if c.kind not in ("predecessor_ff", "predecessor_sf")]
     contribs.extend(ef_terms)
 
-    # _flag_binding marks the matching term in place and returns it; None means no
-    # candidate produced the engine's value, so the derived term below is the cause.
-    if want_finish:
-        if _flag_binding(ef_terms, task.early_finish) is None:
-            contribs.append(_forward_duration_binding(task))
-        value = task.early_finish
-    else:
-        if _flag_binding(es_terms, task.early_start) is None:
-            contribs.append(_forward_pullback_binding(task, ef_terms))
-        value = task.early_start
+    value, derived = _resolve_forward_binding(task, es_terms, ef_terms, want_finish=want_finish)
+    if derived is not None:
+        contribs.append(derived)
 
     return (value.isoformat() if value else None, contribs)
+
+
+def _resolve_forward_binding(
+    task: Task,
+    es_terms: list[DerivationContribution],
+    ef_terms: list[DerivationContribution],
+    *,
+    want_finish: bool,
+) -> tuple[date | None, DerivationContribution | None]:
+    """Flag whichever candidate produced the engine's authoritative value.
+
+    The engine's final values come from the ``ScheduleResult`` and are authoritative;
+    this only decides which candidate to mark as binding. Start is bound by the ES
+    term whose ``imposed_date`` equals the final ``early_start``; finish, by an EF
+    term (FF/SF) when one drove it, else derived from the start (duration expansion).
+
+    ``_flag_binding`` marks the matching term in place and returns it; ``None`` means
+    no candidate produced the engine's value, so the second element of the returned
+    tuple is the derived term that explains it.
+    """
+    if want_finish:
+        derived = (
+            None
+            if _flag_binding(ef_terms, task.early_finish) is not None
+            else _forward_duration_binding(task)
+        )
+        return task.early_finish, derived
+
+    derived = (
+        None
+        if _flag_binding(es_terms, task.early_start) is not None
+        else _forward_pullback_binding(task, ef_terms)
+    )
+    return task.early_start, derived
 
 
 def _forward_floor_contribs(
@@ -578,6 +601,41 @@ def _derive_total_float(task: Task, cal: Calendar) -> tuple[int, list[Derivation
     return tf_days, contribs
 
 
+def _inverse_link_constraint(
+    task: Task,
+    succ: Task,
+    dep_type: DependencyType,
+    lag: timedelta,
+    cal: Calendar,
+) -> tuple[date, int]:
+    """Latest date this link permits, and the working-day slip to it.
+
+    Inverts the forward constraint — retreating from the successor's *early* date by
+    the calendar-day lag and snapping on this task's own calendar — rather than
+    measuring the gap from the forward-imposed date, which diverged whenever a
+    calendar-day lag re-landed across non-working days (#1828).
+
+    Returns ``(latest, slack)``.
+    """
+    assert task.early_start is not None and task.early_finish is not None
+    assert succ.early_start is not None and succ.early_finish is not None
+
+    if dep_type == DependencyType.FS:
+        # Latest finish that leaves succ.early_start unmoved (inverse of the
+        # forward FS constraint; matches the backward pass's LF retreat).
+        latest = _prev_working_day(_safe_offset(succ.early_start, -timedelta(days=1) - lag), cal)
+        return latest, _working_days_between(task.early_finish, latest, cal)
+    if dep_type == DependencyType.SS:
+        latest = _retreat_calendar_days(succ.early_start, lag, cal)
+        return latest, _working_days_between(task.early_start, latest, cal)
+    if dep_type == DependencyType.FF:
+        latest = _retreat_calendar_days(succ.early_finish, lag, cal)
+        return latest, _working_days_between(task.early_finish, latest, cal)
+    # SF: successor finish is bounded by this task's start + lag
+    latest = _retreat_calendar_days(succ.early_finish, lag, cal)
+    return latest, _working_days_between(task.early_start, latest, cal)
+
+
 def _derive_free_float(
     task: Task,
     succs: list[tuple[Task, DependencyType, timedelta]],
@@ -615,22 +673,7 @@ def _derive_free_float(
             and succ.early_start is not None
             and succ.early_finish is not None
         )
-        if dep_type == DependencyType.FS:
-            # Latest finish that leaves succ.early_start unmoved (inverse of the
-            # forward FS constraint; matches the backward pass's LF retreat).
-            latest = _prev_working_day(
-                _safe_offset(succ.early_start, -timedelta(days=1) - lag), cal
-            )
-            slack = _working_days_between(task.early_finish, latest, cal)
-        elif dep_type == DependencyType.SS:
-            latest = _retreat_calendar_days(succ.early_start, lag, cal)
-            slack = _working_days_between(task.early_start, latest, cal)
-        elif dep_type == DependencyType.FF:
-            latest = _retreat_calendar_days(succ.early_finish, lag, cal)
-            slack = _working_days_between(task.early_finish, latest, cal)
-        else:  # SF: successor finish is bounded by this task's start + lag
-            latest = _retreat_calendar_days(succ.early_finish, lag, cal)
-            slack = _working_days_between(task.early_start, latest, cal)
+        latest, slack = _inverse_link_constraint(task, succ, dep_type, lag, cal)
         slack = max(0, slack)
         c = DerivationContribution(
             kind="successor_free_slack",

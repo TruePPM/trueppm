@@ -228,51 +228,106 @@ class Task:
             d["duration"] = _parse_timedelta(d["duration"])
             d["total_float"] = _parse_timedelta(d.get("total_float", 0))
             d["free_float"] = _parse_timedelta(d.get("free_float", 0))
-            pc = d.get("percent_complete")
-            if pc is not None and not math.isfinite(float(pc)):
-                raise ValueError("percent_complete must be a finite number.")
-            # from_json rejects NaN/Infinity at the JSON layer, but the from_dict path
-            # bypasses json.loads — without this an infinite story_points slips through
-            # parse and only blows up later as a bare OverflowError inside the velocity
-            # sampler (int(np.ceil(inf/mean))), bypassing the documented input contract
-            # (#1010). NaN is harmless (it fails the > 0 sampler gate); Infinity is not.
-            sp = d.get("story_points")
-            if sp is not None and not math.isfinite(float(sp)):
-                raise ValueError("story_points must be a finite number.")
-            for f in (
-                "planned_start",
-                "planned_finish",
-                "early_start",
-                "early_finish",
-                "late_start",
-                "late_finish",
-                "actual_start",
-                "actual_finish",
-            ):
-                if d.get(f) is not None:
-                    d[f] = _parse_date(d[f], f)
-            for f in (
-                "optimistic_duration",
-                "most_likely_duration",
-                "pessimistic_duration",
-            ):
-                if d.get(f) is not None:
-                    d[f] = _parse_timedelta(d[f])
-            if d.get("delivery_mode") is not None:
-                # Same first-run-legibility treatment as dep_type (#947): name the
-                # field and list the allowed modes instead of a bare enum ValueError.
-                try:
-                    d["delivery_mode"] = DeliveryMode(d["delivery_mode"])
-                except ValueError as err:
-                    allowed = ", ".join(m.value for m in DeliveryMode)
-                    raise InvalidScheduleInput(
-                        f"Invalid delivery_mode {d['delivery_mode']!r}; must be one of: {allowed}."
-                    ) from err
+            _check_finite(d, "percent_complete")
+            _check_finite(d, "story_points")
+            _coerce_task_dates(d)
+            _coerce_pert_durations(d)
+            _coerce_delivery_mode(d)
             return cls(**d)
         except InvalidScheduleInput:
             raise
         except (KeyError, ValueError, TypeError, AttributeError) as err:
             raise InvalidScheduleInput(f"Invalid task document: {err}") from err
+
+
+def _check_finite(d: dict[str, Any], field_name: str) -> None:
+    """Reject a non-finite numeric field.
+
+    ``from_json`` rejects NaN/Infinity at the JSON layer, but the ``from_dict`` path
+    bypasses ``json.loads`` — without this an infinite ``story_points`` slips through
+    parse and only blows up later as a bare ``OverflowError`` inside the velocity
+    sampler (``int(np.ceil(inf/mean))``), bypassing the documented input contract
+    (#1010). NaN is harmless (it fails the ``> 0`` sampler gate); Infinity is not.
+    """
+    value = d.get(field_name)
+    if value is not None and not math.isfinite(float(value)):
+        raise ValueError(f"{field_name} must be a finite number.")
+
+
+def _check_velocity_samples(velocity_samples: Any) -> None:
+    """Reject a non-finite velocity sample on the ``from_dict`` path.
+
+    ``from_json`` rejects non-finite literals up front, but a dict built in Python can
+    smuggle an ``inf`` sample that later poisons the bootstrap mean in the velocity
+    sampler (#1010). The bare ``ValueError`` is re-wrapped as ``InvalidScheduleInput``
+    by the caller, matching the rest of the deserialization surface.
+    """
+    if velocity_samples is None:
+        return
+    for s in velocity_samples:
+        if s is not None and not math.isfinite(float(s)):
+            raise ValueError(f"velocity_samples must be finite numbers (got {s!r}).")
+
+
+def _check_sprint_length(sprint_length_days: Any) -> None:
+    """Pin ``sprint_length_days`` to an int on the ``from_dict`` path (#2178).
+
+    It reaches ``project.sprint_length_days <= 0`` and the velocity sampler's index
+    math unchecked otherwise: a non-numeric value (``"abc"``, a list, a dict) leaked a
+    bare ``TypeError`` from the ``<=`` compare, and a fractional value (``2.5``) was
+    silently accepted while the Rust engine only round-trips an integer sprint length —
+    the silent Python↔Rust type divergence #1862 closed for
+    ``hours_per_day``/``working_days``.
+
+    ``bool`` is an ``int`` subclass but never a meaningful sprint length, so it is
+    rejected explicitly.
+    """
+    if sprint_length_days is None:
+        return
+    if isinstance(sprint_length_days, bool) or not isinstance(sprint_length_days, int):
+        raise ValueError(f"sprint_length_days must be an integer (got {sprint_length_days!r}).")
+
+
+def _coerce_task_dates(d: dict[str, Any]) -> None:
+    """Parse every strict ISO-8601 date field in place."""
+    for f in (
+        "planned_start",
+        "planned_finish",
+        "early_start",
+        "early_finish",
+        "late_start",
+        "late_finish",
+        "actual_start",
+        "actual_finish",
+    ):
+        if d.get(f) is not None:
+            d[f] = _parse_date(d[f], f)
+
+
+def _coerce_pert_durations(d: dict[str, Any]) -> None:
+    """Parse the three PERT duration fields in place."""
+    for f in ("optimistic_duration", "most_likely_duration", "pessimistic_duration"):
+        if d.get(f) is not None:
+            d[f] = _parse_timedelta(d[f])
+
+
+def _coerce_delivery_mode(d: dict[str, Any]) -> None:
+    """Parse ``delivery_mode`` in place, naming the allowed values on failure.
+
+    Same first-run-legibility treatment as ``dep_type`` (#947): name the field and
+    list the allowed modes instead of surfacing a bare enum ``ValueError``.
+    """
+    from trueppm_scheduler.engine import InvalidScheduleInput
+
+    if d.get("delivery_mode") is None:
+        return
+    try:
+        d["delivery_mode"] = DeliveryMode(d["delivery_mode"])
+    except ValueError as err:
+        allowed = ", ".join(m.value for m in DeliveryMode)
+        raise InvalidScheduleInput(
+            f"Invalid delivery_mode {d['delivery_mode']!r}; must be one of: {allowed}."
+        ) from err
 
 
 @dataclass
@@ -642,33 +697,10 @@ class Project:
         from trueppm_scheduler.engine import InvalidScheduleInput
 
         try:
-            # Finite-check velocity_samples on the from_dict path too — from_json
-            # rejects non-finite literals up front, but a dict built in Python can
-            # smuggle an inf sample that later poisons the bootstrap mean in the
-            # velocity sampler (#1010). The bare ValueError is re-wrapped as
-            # InvalidScheduleInput by the surrounding except, matching the rest of
-            # the deserialization surface.
             velocity_samples = data.get("velocity_samples")
-            if velocity_samples is not None:
-                for s in velocity_samples:
-                    if s is not None and not math.isfinite(float(s)):
-                        raise ValueError(f"velocity_samples must be finite numbers (got {s!r}).")
-            # Pin sprint_length_days to an int on the from_dict path (#2178). It
-            # reaches ``project.sprint_length_days <= 0`` and the velocity sampler's
-            # index math unchecked otherwise: a non-numeric value (``"abc"``, a list,
-            # a dict) leaked a bare TypeError from the ``<=`` compare, and a fractional
-            # value (``2.5``) was silently accepted while the Rust engine only round-
-            # trips an integer sprint length — the silent Python<->Rust type divergence
-            # #1862 closed for hours_per_day/working_days. bool is an int subclass but
-            # never a meaningful sprint length, so reject it explicitly. The bare
-            # ValueError is re-wrapped as InvalidScheduleInput by the surrounding except.
+            _check_velocity_samples(velocity_samples)
             sprint_length_days = data.get("sprint_length_days")
-            if sprint_length_days is not None and (
-                isinstance(sprint_length_days, bool) or not isinstance(sprint_length_days, int)
-            ):
-                raise ValueError(
-                    f"sprint_length_days must be an integer (got {sprint_length_days!r})."
-                )
+            _check_sprint_length(sprint_length_days)
             # Per-task calendar registry (ADR-0120 D3). Absent/null → None (the
             # single-calendar default). A non-dict value reaches ``.items()`` and
             # is wrapped as InvalidScheduleInput by the surrounding except, like
