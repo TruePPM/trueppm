@@ -12,7 +12,6 @@ import { apiClient } from '@/api/client';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { PinToggle } from '@/components/PinToggle';
 import type { PaginatedResponse, ProjectHealth } from '@/api/types';
-import type { MonteCarloResult } from '@/types';
 import { UpdateStatusDialog } from '@/features/project/UpdateStatusDialog';
 import {
   HEALTH_LABEL as REPORTED_HEALTH_LABEL,
@@ -33,12 +32,18 @@ import {
   secondaryHeading,
   type OverviewMetric,
 } from '@/features/project/overviewMetrics';
+import { AddedTimeCard } from '@/features/project/AddedTimeCard';
+import {
+  addedTimePresentation,
+  type AddedTimeFacts,
+  type AddedTimePresentation,
+} from '@/features/project/addedTime';
 
 // ---------------------------------------------------------------------------
 // API response types
 // ---------------------------------------------------------------------------
 
-interface OverviewData {
+interface OverviewData extends AddedTimeFacts {
   schedule_health: 'on_track' | 'at_risk' | 'critical' | 'unknown';
   spi: number | null;
   tasks_late_count: number;
@@ -887,23 +892,11 @@ function buildScheduleMetric(
   };
 }
 
-// ── Forecast finish (P80 date — informational, always neutral) ─────────────
-function buildForecastMetric(
-  mcData: MonteCarloResult | undefined,
-  base: string | undefined,
-): OverviewMetric {
-  const p80 = mcData?.p80;
-  return {
-    key: 'forecast_finish',
-    label: 'Forecast finish',
-    value: p80 ? formatIsoDate(p80) : '—',
-    sub: '8 in 10 finish by',
-    variant: 'neutral',
-    title: p80 ? undefined : 'Run the scheduler',
-    to: base && p80 ? `${base}/schedule` : undefined,
-    toLabel: 'the forecast',
-  };
-}
+// The "Forecast finish" card (a bare P80 date) was retired here in #2483. The
+// AddedTimeCard that replaced it in the focus row renders that same P80 *with* the
+// computed finish it is measured against, so keeping both would have rendered P80
+// twice in one row (rule 284) — and the surviving copy is the more informative one:
+// a commitment date beside the plan date it departs from, rather than on its own.
 
 // ── Tasks late ─────────────────────────────────────────────────────────────
 function buildTasksLateMetric(
@@ -933,7 +926,8 @@ function buildOpenRisksMetric(
   const high = overview?.high_risk_count;
   const open = overview?.open_risk_count;
   const hasRisks = (high != null && high > 0) || (open != null && open > 0);
-  const risksValue = high != null && high > 0 ? `${high} high` : open != null ? `${open} open` : '—';
+  const risksValue =
+    high != null && high > 0 ? `${high} high` : open != null ? `${open} open` : '—';
   return {
     key: 'open_risks',
     label: 'Open risks',
@@ -1043,7 +1037,6 @@ function buildMilestoneMetric(
 
 function buildOverviewMetrics(
   overview: OverviewData | undefined,
-  mcData: MonteCarloResult | undefined,
   projectId: string | undefined,
   canSeeResources: boolean,
 ): OverviewMetric[] {
@@ -1052,7 +1045,6 @@ function buildOverviewMetrics(
   const base = projectId ? `/projects/${projectId}` : undefined;
   return [
     buildScheduleMetric(overview, base),
-    buildForecastMetric(mcData, base),
     buildTasksLateMetric(overview, base),
     buildOpenRisksMetric(overview, base),
     buildUtilizationMetric(overview, base, canSeeResources),
@@ -1146,6 +1138,8 @@ function OverviewKpiSection({
   focus,
   secondary,
   focusHeadingText,
+  addedTime,
+  base,
   refetchOverview,
 }: {
   overviewError: boolean;
@@ -1153,6 +1147,8 @@ function OverviewKpiSection({
   focus: OverviewMetric[];
   secondary: OverviewMetric[];
   focusHeadingText: string;
+  addedTime: AddedTimePresentation;
+  base?: string;
   refetchOverview: () => unknown;
 }) {
   if (overviewError) {
@@ -1185,6 +1181,9 @@ function OverviewKpiSection({
           {focusHeadingText}
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Added time leads the row: it is the only card carrying a date pair, and
+              it is the reading a PM acts on before the severity bands beside it. */}
+          <AddedTimeCard presentation={addedTime} base={base} />
           {focus.map((m) => (
             <KpiCard
               key={m.key}
@@ -1367,7 +1366,10 @@ export function ProjectOverviewPage() {
     isError: cpTasksError,
     refetch: refetchCpTasks,
   } = useCriticalPathTasks(projectId);
-  const { data: mcData } = useMonteCarloResult(projectId);
+  // The page no longer pulls the forecast to build a KPI: added time reads its
+  // premium — and both dates it spans — off the `/overview/` payload, from one
+  // persisted run (#2483). `MonteCarloWidget` still runs its own query for the
+  // distribution it charts.
 
   // Methodology-adaptive rendering (#1765). The Overview is the landing page, so a
   // single-methodology team must not be pushed the other workflow's chrome. Gate the
@@ -1406,10 +1408,14 @@ export function ProjectOverviewPage() {
   // (rule 120: never fabricate a day count from SPI). Each metric also carries
   // its drill-down route (#1691) — an interactive card when actionable, a
   // static read for real-zero / no-data / role-gated cases (rule 172).
-  const metrics = buildOverviewMetrics(overview, mcData, projectId, canSeeResources);
+  const metrics = buildOverviewMetrics(overview, projectId, canSeeResources);
   const ranked = rankOverviewMetrics(metrics);
-  const focus = ranked.slice(0, 3);
-  const secondary = ranked.slice(3);
+  // Added time holds the first column of the focus row unconditionally rather than
+  // competing in the ranking: it is a relationship, not a severity reading, and it
+  // has no band to be ranked by (#2483). The ranked metrics fill the remaining two.
+  const focus = ranked.slice(0, 2);
+  const secondary = ranked.slice(2);
+  const addedTime = addedTimePresentation(overview);
   const focusHeadingText = focusHeading(focus);
 
   // First-run handoff (#2048): a project with zero tasks lands on six zero-value
@@ -1453,6 +1459,8 @@ export function ProjectOverviewPage() {
         focus={focus}
         secondary={secondary}
         focusHeadingText={focusHeadingText}
+        addedTime={addedTime}
+        base={projectId ? `/projects/${projectId}` : undefined}
         refetchOverview={refetchOverview}
       />
 

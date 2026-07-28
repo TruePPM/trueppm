@@ -474,6 +474,50 @@ simulated dates — usually signals that one or two tasks have extreme P estimat
 that dominate the tail. Investigate those tasks; they are your primary risk
 drivers.
 
+## Added time
+
+**Added time** is the number of calendar days the P80 commitment date sits beyond
+the computed (CPM) finish. The computed finish is what your plan says if nothing
+varies; P80 is the date 4 in 5 simulations finished by. The difference between
+them is the time schedule uncertainty adds on top of the plan.
+
+It appears on the project **Overview**, alongside both dates it spans, and on the
+project overview API as `risk_premium_days`.
+
+**It is a gap between two forecasts, not a prediction of lateness.** A project
+with 11 days of added time is not forecast to run 11 days late — it is forecast
+to need 11 days of buffer beyond the plan to reach 80% confidence.
+
+**Compare projects by ratio, not by days.** `risk_premium_ratio` expresses the
+premium as a share of the duration remaining between today and the computed
+finish. Eleven days on a six-week project and eleven days on a three-year
+program are very different findings, and only the ratio says so.
+
+**A blank is not a zero.** Added time reports one of three things, and the
+difference matters:
+
+| What you see | What it means |
+|---|---|
+| A number (`+11d`, `−4d`) | Measured. Estimates existed and the simulation produced a spread. |
+| *No added time* | Measured. Estimates exist and the variance is genuinely low. |
+| *Can't be measured yet* | **Not** measured. No task could contribute duration variance, so the simulation had nothing to work with. |
+
+The third case is the one to watch. A project with no three-point estimates
+simulates flat, which makes its premium exactly zero days — numerically identical
+to a well-estimated project with low variance. TruePPM will not print that zero,
+because doing so would tell the least-understood project in your portfolio that
+it carries no schedule risk. Add estimates to the tasks you are unsure about and
+re-run the forecast.
+
+**Check the as-of date.** Added time is only as current as the run it came from.
+A forecast older than a week is marked stale and its date is shown beside the
+commitment, so an old number cannot be read as a current one.
+
+There is deliberately **no severity band** on added time yet — no "low / moderate
+/ high" verdict. Threshold cut points chosen without evidence would be a judgment
+dressed as a measurement. The band arrives once TruePPM can calibrate it against
+measured actual-vs-estimate history.
+
 ### Why is my forecast a single flat date?
 
 When `P50`, `P80`, and `P95` are identical, the simulation found no uncertainty to

@@ -61,6 +61,7 @@ from trueppm_api.apps.scheduling.models import (
     ScheduleRequestReason,
     VelocitySuggestion,
 )
+from trueppm_api.apps.scheduling.risk_premium import delta_vs_cpm_days
 from trueppm_api.apps.scheduling.serializers import (
     FailedTaskDropSerializer,
     FailedTaskRequeueSerializer,
@@ -140,17 +141,10 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
 
 
-def _delta_vs_cpm_days(percentile: _date | None, cpm_finish: _date | None) -> int | None:
-    """Signed calendar-day delta of a percentile finish vs the deterministic CPM finish.
-
-    Positive means the probabilistic finish lands *later* than the deterministic
-    spine — the schedule risk pushes the date out (worse). ``None`` when either
-    input is missing. Server-owned so a headless/MCP client reads the risk
-    premium directly instead of re-subtracting dates (API-first, #987/#986).
-    """
-    if percentile is None or cpm_finish is None:
-        return None
-    return (percentile - cpm_finish).days
+# The premium derivation moved to `risk_premium` when the metric was promoted off
+# this payload onto the project (#2483). Aliased rather than reimplemented so the
+# forecast panel and the Overview card can never disagree about the same gap.
+_delta_vs_cpm_days = delta_vs_cpm_days
 
 
 def _date_delta_days(later: _date | None, earlier: _date | None) -> int | None:
@@ -331,6 +325,11 @@ def _persist_mc_run_if_authorized(
         task_count=task_count,
         user=request.user,
         distribution=distribution,
+        # Store the reason the run is (or is not) flat alongside it, so a later
+        # read from history can still tell "no estimates anywhere" apart from
+        # "estimates exist, variance is low" — the distinction the added-time
+        # metric is built on (#2483).
+        diagnostic=result_dict.get("forecast_diagnostic"),
     )
     if run is not None:
         result_dict["run_id"] = str(run.id)
@@ -709,6 +708,11 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 "runs": latest.n_simulations,
                 "histogram_buckets": dist.get("histogram_buckets", []),
                 "sensitivity": dist.get("sensitivity", []),
+                # Persisted with the run since #2483, so the "why is this flat"
+                # explanation now survives cache expiry alongside the distribution.
+                # Legacy rows have none; the client already treats an absent
+                # diagnostic as "no reason known", never as "no estimates".
+                "forecast_diagnostic": latest.diagnostic,
                 "last_run_at": latest.taken_at.isoformat(),
                 "from_history": True,
             }

@@ -8824,6 +8824,14 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
     reading, not a reason: "nobody is allocated" and "this is broken" must not
     render identically.
 
+    The ``risk_premium_*`` family is "added time" — how far the P80 commitment date
+    sits beyond the deterministic CPM finish, read off the project's most recent
+    Monte Carlo run (#2483).  ``risk_premium_state`` is the discriminator every
+    consumer renders from; it exists so no client re-decides what a premium of ``0``
+    means, because a project with no three-point estimates simulates flat and would
+    otherwise read as carrying no schedule risk.  See
+    ``scheduling.risk_premium.build_risk_premium``.
+
     Performance target: ≤ 200 ms at p95 for 500 tasks.  Implemented using
     a single annotated queryset per metric; no N+1 queries.
 
@@ -8846,6 +8854,12 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
                         value={
                             "schedule_health": "on_track",
                             "spi": 1.02,
+                            "risk_premium_days": 11,
+                            "risk_premium_ratio": 0.09,
+                            "risk_premium_band": None,
+                            "risk_premium_as_of": "2026-07-27T09:12:00Z",
+                            "risk_premium_reason": None,
+                            "risk_premium_state": "premium",
                             "tasks_late_count": 2,
                             "critical_task_count": 7,
                             "total_tasks": 48,
@@ -9030,10 +9044,28 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
             project, week_start, week_start + datetime.timedelta(days=6)
         )
 
+        # ── Added time (schedule risk premium) ─────────────────────────────
+        # The gap between the CPM finish and the P80 commitment, promoted off the
+        # Monte Carlo payload so every consumer of project health — cards, MCP
+        # health reads, rollups — can reach it without running a simulation
+        # (#2483). One indexed row; `.only()` because the persisted distribution
+        # on the same table can be hundreds of KB and nothing here reads it.
+        from trueppm_api.apps.scheduling.models import MonteCarloRun
+        from trueppm_api.apps.scheduling.risk_premium import build_risk_premium
+
+        latest_run = (
+            MonteCarloRun.objects.filter(project=project)
+            .only("p80", "cpm_finish", "taken_at", "diagnostic")
+            .order_by("-taken_at")
+            .first()
+        )
+        risk_premium = build_risk_premium(latest_run, today=today)
+
         return Response(
             {
                 "schedule_health": health,
                 "spi": spi,
+                **risk_premium,
                 "tasks_late_count": tasks_late,
                 "critical_task_count": critical_count,
                 "total_tasks": total,

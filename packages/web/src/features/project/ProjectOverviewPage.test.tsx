@@ -69,6 +69,16 @@ const OVERVIEW_RESPONSE = {
   start_date: '2026-01-01',
   open_risk_count: 4,
   high_risk_count: 1,
+  // Added-time facts (#2483). The default fixture is a measured premium so the
+  // focus row's first card renders its full anatomy in the common case.
+  risk_premium_state: 'premium',
+  risk_premium_days: 11,
+  risk_premium_ratio: 0.09,
+  risk_premium_band: null,
+  risk_premium_as_of: '2026-07-27T09:12:00Z',
+  risk_premium_reason: null,
+  risk_premium_cpm_finish: '2026-10-24',
+  risk_premium_p80: '2026-11-04',
 };
 
 const ATTENTION_RESPONSE = { items: [] };
@@ -139,10 +149,15 @@ describe('ProjectOverviewPage', () => {
     expect(screen.getByRole('region', { name: /monte carlo forecast/i })).toBeInTheDocument();
   });
 
-  it('renders all six KPI card labels across the two tiers', async () => {
+  it('renders the added-time card plus all five KPI labels across the two tiers', async () => {
     renderPage();
     expect(await screen.findByText(/schedule health/i)).toBeInTheDocument();
-    expect(screen.getByText(/forecast finish/i)).toBeInTheDocument();
+    // Added time replaced the bare "Forecast finish" P80 card in #2483 — it renders
+    // the same commitment date *with* the computed finish it departs from, so
+    // keeping both would have put P80 on this row twice (rule 284).
+    expect(
+      screen.getByRole('region', { name: /added time vs computed finish/i }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/tasks late/i)).toBeInTheDocument();
     expect(screen.getByText(/next milestone/i)).toBeInTheDocument();
     expect(screen.getByText(/team utilization/i)).toBeInTheDocument();
@@ -212,8 +227,10 @@ describe('ProjectOverviewPage', () => {
     expect(screen.getByText('of 20 tasks')).toBeInTheDocument();
     expect(screen.getByText('1 high')).toBeInTheDocument();
     expect(screen.getByText('4 in register')).toBeInTheDocument();
-    // …the forecast card reads in plain language, never "P80 finish estimate".
-    expect(screen.getByText('8 in 10 finish by')).toBeInTheDocument();
+    // …and added time names both endpoints in role terms, not percentile jargon
+    // alone: "Computed finish" and "P80 commit", never a bare "P80 finish estimate".
+    expect(screen.getByText('Computed finish')).toBeInTheDocument();
+    expect(screen.getByText('P80 commit')).toBeInTheDocument();
   });
 
   it('strips SPI/EVM/CPI/WBS jargon from all rendered labels and subtitles (#1192)', async () => {
@@ -292,7 +309,9 @@ describe('ProjectOverviewPage', () => {
     // read-only: the status value + provenance, not the editable status buttons.
     expect(within(dialog).queryByRole('button', { name: 'At risk' })).toBeNull();
     expect(
-      within(dialog).getByLabelText('Reported status: Auto, set by the Project Manager. View only.'),
+      within(dialog).getByLabelText(
+        'Reported status: Auto, set by the Project Manager. View only.',
+      ),
     ).toBeInTheDocument();
   });
 
@@ -642,12 +661,16 @@ describe('KPI card drill-downs', () => {
     expect(screen.queryByRole('link', { name: /view overdue tasks/i })).toBeNull();
   });
 
-  it('a no-data Forecast finish card (no MC run) is not interactive', async () => {
-    setupRole(100);
+  it('an unsimulated project gets the not-run added-time card, not a zero', async () => {
+    // The bare "Forecast finish" KPI this replaced showed an em dash for a project
+    // with no run. Added time says which of the two blanks it is — never run at all,
+    // versus run and found nothing — because the fixes differ (#2483).
+    setupRole(100, { ...OVERVIEW_RESPONSE, risk_premium_state: 'not_run' });
     renderPage();
     await screen.findByText('On schedule');
-    const label = screen.getByText(/^Forecast finish$/);
-    expect(label.closest('a')).toBeNull();
+
+    expect(screen.getByText('Not run yet')).toBeInTheDocument();
+    expect(screen.queryByText(/^\+?0d$/)).toBeNull();
   });
 });
 
@@ -1047,7 +1070,9 @@ describe('methodology-adaptive widget gating (#1765)', () => {
     });
     renderPage();
     await waitFor(() =>
-      expect(screen.queryByRole('region', { name: /monte carlo forecast/i })).not.toBeInTheDocument(),
+      expect(
+        screen.queryByRole('region', { name: /monte carlo forecast/i }),
+      ).not.toBeInTheDocument(),
     );
     expect(screen.queryByRole('region', { name: /critical path/i })).not.toBeInTheDocument();
     expect(screen.getByRole('region', { name: /backlog forecast/i })).toBeInTheDocument();
@@ -1103,10 +1128,7 @@ describe('methodology-adaptive widget gating (#1765)', () => {
 describe('first-run handoff — zero-task Overview (#2048)', () => {
   /** Mock every Overview endpoint with a zero-task overview and the given
    *  methodology + self role. */
-  function setupFirstRun(opts: {
-    effective_methodology?: string;
-    role?: number;
-  }) {
+  function setupFirstRun(opts: { effective_methodology?: string; role?: number }) {
     const { effective_methodology = 'HYBRID', role = 100 } = opts;
     mockedGet.mockImplementation((url: string) => {
       if (url === '/projects/proj-1/')
@@ -1372,7 +1394,8 @@ describe('Schedule health metric', () => {
 
   it('reads "Not yet computed" for unknown health and still links to the schedule', async () => {
     mockOverviewEndpoints({
-      overview: () => Promise.resolve({ data: { ...OVERVIEW_RESPONSE, schedule_health: 'unknown' } }),
+      overview: () =>
+        Promise.resolve({ data: { ...OVERVIEW_RESPONSE, schedule_health: 'unknown' } }),
     });
     renderPage();
     expect(await screen.findByText('Not yet computed')).toBeInTheDocument();
@@ -1710,8 +1733,11 @@ describe('Overview with no resolved project id', () => {
     // The calm heading, not an alarm — an unknown project is not a bad project.
     expect(await screen.findByRole('region', { name: /project health/i })).toBeInTheDocument();
     expect(screen.getByText(/^Schedule health$/)).toBeInTheDocument();
-    expect(screen.getByText(/^Forecast finish$/)).toBeInTheDocument();
     expect(screen.getByText(/^Next milestone$/)).toBeInTheDocument();
+    // Added time renders even with no project resolved, in its not-run state.
+    expect(
+      screen.getByRole('region', { name: /added time vs computed finish/i }),
+    ).toBeInTheDocument();
 
     // Nothing is addressable yet, so no card may be a drill-down link.
     expect(screen.queryAllByRole('link')).toHaveLength(0);

@@ -33,6 +33,15 @@ const FIXTURE_OVERVIEW = {
   team_utilization_pct: 78,
   owner_name: 'Alice Smith',
   start_date: '2026-01-01',
+  // Added time (#2483) — a measured premium is the common case.
+  risk_premium_state: 'premium',
+  risk_premium_days: 11,
+  risk_premium_ratio: 0.09,
+  risk_premium_band: null,
+  risk_premium_as_of: '2026-07-27T09:12:00Z',
+  risk_premium_reason: null,
+  risk_premium_cpm_finish: '2026-10-24',
+  risk_premium_p80: '2026-11-04',
 };
 
 const FIXTURE_ATTENTION = {
@@ -303,6 +312,67 @@ test.describe('Project overview page', () => {
     // My-tasks panel
     await expect(page.getByRole('region', { name: /my tasks this week/i })).toBeVisible();
     await expect(page.getByText('Write specs')).toBeVisible();
+  });
+
+  test('added time renders the gap beside both dates it spans (#2483)', async ({ page }) => {
+    const card = page.getByRole('region', { name: /added time vs computed finish/i });
+    await expect(card).toBeVisible();
+
+    // The gap, and — the point of the card — the two dates it is measured between.
+    // A signed delta whose baseline is off-screen is unverifiable (#2426).
+    await expect(card.getByText('+11d')).toBeVisible();
+    // `{ exact: true }` — the card's own title ("Added time vs computed finish")
+    // is a substring match for this row label (rule: e2e strict mode).
+    await expect(card.getByText('Computed finish', { exact: true })).toBeVisible();
+    await expect(card.getByText('Oct 24', { exact: true })).toBeVisible();
+    await expect(card.getByText('Nov 4', { exact: true })).toBeVisible();
+    await expect(card.getByText('9% of remaining duration')).toBeVisible();
+  });
+
+  test('added time offers context-sensitive help on how the dates are computed (#2483)', async ({
+    page,
+  }) => {
+    const card = page.getByRole('region', { name: /added time vs computed finish/i });
+    await card.getByRole('button', { name: /how these dates are computed/i }).click();
+
+    const help = page.getByRole('dialog', { name: /how these dates are computed/i });
+    await expect(help).toBeVisible();
+    // The one place the arithmetic behind the gap is stated.
+    await expect(help.getByText(/added time/i).first()).toBeVisible();
+    await expect(help.getByText(/4 in 5 runs finished by/i)).toBeVisible();
+  });
+
+  test('an unestimated project says its risk cannot be measured, never a zero (#2483)', async ({
+    page,
+  }) => {
+    // The failure this guards: a project with no three-point estimates simulates
+    // flat, so its premium is exactly 0 days. Rendering that would tell the
+    // least-understood project on the page that it carries no schedule risk.
+    await page.unroute(`**/api/v1/projects/${PROJECT_ID}/overview/`);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...FIXTURE_OVERVIEW,
+          risk_premium_state: 'unmeasurable',
+          risk_premium_days: 0,
+          risk_premium_ratio: null,
+          risk_premium_reason: 'no_estimates',
+          risk_premium_p80: null,
+        }),
+      }),
+    );
+    await page.reload();
+
+    const card = page.getByRole('region', { name: /added time vs computed finish/i });
+    await expect(card.getByText("Can't be measured yet")).toBeVisible();
+    await expect(card.getByText(/it is no result/i)).toBeVisible();
+    await expect(card.getByRole('link', { name: /add estimates/i })).toBeVisible();
+
+    // No digit, no proportion track — the measured presentation must be unreachable.
+    await expect(card.getByText(/of remaining duration/)).toHaveCount(0);
+    await expect(card.getByText('+0d')).toHaveCount(0);
   });
 
   test('attention and my-task rows link to the task detail view (#1984)', async ({ page }) => {
