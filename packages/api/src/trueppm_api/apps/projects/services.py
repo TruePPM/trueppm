@@ -17,6 +17,7 @@ import uuid
 from collections.abc import Callable, Iterable, Sequence
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
@@ -747,8 +748,6 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
     computed statistic. ``excluded_count`` reports how many of the displayed
     sprints were excluded so the UI can render "N excluded from this forecast".
     """
-    import statistics
-
     from trueppm_api.apps.projects.models import Sprint, SprintState
 
     # Display window: the last 8 closed sprints INCLUDING excluded ones, so a
@@ -770,19 +769,8 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
         s.completed_task_count for s in eligible if s.completed_task_count is not None
     ]
 
-    def _stats(values: list[int]) -> tuple[float | None, float | None, int | None, int | None]:
-        if not values:
-            return None, None, None, None
-        avg = sum(values) / len(values)
-        if len(values) < 2:
-            return round(avg, 2), None, None, None
-        sd = statistics.stdev(values)
-        low = max(0, round(avg - sd))
-        high = round(avg + sd)
-        return round(avg, 2), round(sd, 2), low, high
-
-    avg_p, sd_p, low_p, high_p = _stats(points)
-    avg_t, sd_t, _low_t, _high_t = _stats(counts)
+    avg_p, sd_p, low_p, high_p = _velocity_stats(points)
+    avg_t, sd_t, _low_t, _high_t = _velocity_stats(counts)
 
     # ADR-0065: surface team_velocity_per_day for CPM calibration. Lives behind
     # a function call rather than duplicating the rolling-window logic here so
@@ -791,53 +779,8 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
 
     velocity_per_day = compute_team_velocity_per_day(project_id)
 
-    # Chronological (oldest -> newest) so each entry can carry its delta vs the
-    # immediately prior closed sprint (#984) — server-owned so MCP/mobile don't
-    # diff the series themselves. None when either side has no completed total.
-    # Deltas walk the *eligible* series only (ADR-0113): an excluded sprint never
-    # anchors a delta, and excluded sprints themselves carry no delta — the trend
-    # the team reads must match the velocity the stats above report.
-    chronological = list(reversed(closed))
-    sprint_entries = []
-    prev_eligible: Sprint | None = None
-    for s in chronological:
-        prev = None if s.exclude_from_velocity else prev_eligible
-        delta_points = (
-            s.completed_points - prev.completed_points
-            if prev is not None
-            and s.completed_points is not None
-            and prev.completed_points is not None
-            else None
-        )
-        delta_tasks = (
-            s.completed_task_count - prev.completed_task_count
-            if prev is not None
-            and s.completed_task_count is not None
-            and prev.completed_task_count is not None
-            else None
-        )
-        sprint_entries.append(
-            {
-                "id": str(s.pk),
-                "name": s.name,
-                "start_date": s.start_date.isoformat(),
-                "finish_date": s.finish_date.isoformat(),
-                "committed_points": s.committed_points,
-                "completed_points": s.completed_points,
-                "committed_task_count": s.committed_task_count,
-                "completed_task_count": s.completed_task_count,
-                "delta_vs_prior_points": delta_points,
-                "delta_vs_prior_tasks": delta_tasks,
-                # ADR-0113: marked, not dropped — the UI greys/hatches excluded
-                # bars and skips them in the rolling-avg line and ± stdev band.
-                "exclude_from_velocity": s.exclude_from_velocity,
-            }
-        )
-        if not s.exclude_from_velocity:
-            prev_eligible = s
-
     return {
-        "sprints": sprint_entries,
+        "sprints": _velocity_sprint_entries(closed),
         "rolling_avg_points": avg_p,
         "rolling_stdev_points": sd_p,
         "forecast_range_low": low_p,
@@ -849,6 +792,69 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
         # render "N excluded from this forecast" without re-deriving it client-side.
         "excluded_count": excluded_count,
     }
+
+
+def _velocity_stats(values: list[int]) -> tuple[float | None, float | None, int | None, int | None]:
+    """Rolling average, stdev, and the avg ± 1σ forecast range.
+
+    All-None for an empty series, and average-without-range for a single sprint:
+    stdev is undefined below two samples, so a range there would be invented
+    rather than measured.
+    """
+    import statistics
+
+    if not values:
+        return None, None, None, None
+    avg = sum(values) / len(values)
+    if len(values) < 2:
+        return round(avg, 2), None, None, None
+    sd = statistics.stdev(values)
+    return round(avg, 2), round(sd, 2), max(0, round(avg - sd)), round(avg + sd)
+
+
+def _velocity_delta(current: int | None, prior: int | None) -> int | None:
+    """Difference vs the prior eligible sprint; ``None`` when either side is unset."""
+    if current is None or prior is None:
+        return None
+    return current - prior
+
+
+def _velocity_sprint_entries(closed: list[Any]) -> list[dict[str, Any]]:
+    """Chronological (oldest → newest) sprint rows, each carrying its delta (#984).
+
+    Server-owned so MCP and mobile do not diff the series themselves. Deltas walk
+    the *eligible* series only (ADR-0113): an excluded sprint never anchors a delta
+    and carries none itself, so the trend the team reads matches the velocity the
+    stats report.
+    """
+    entries: list[dict[str, Any]] = []
+    prev_eligible: Sprint | None = None
+    for s in reversed(closed):
+        prev = None if s.exclude_from_velocity else prev_eligible
+        entries.append(
+            {
+                "id": str(s.pk),
+                "name": s.name,
+                "start_date": s.start_date.isoformat(),
+                "finish_date": s.finish_date.isoformat(),
+                "committed_points": s.committed_points,
+                "completed_points": s.completed_points,
+                "committed_task_count": s.committed_task_count,
+                "completed_task_count": s.completed_task_count,
+                "delta_vs_prior_points": _velocity_delta(
+                    s.completed_points, prev.completed_points if prev is not None else None
+                ),
+                "delta_vs_prior_tasks": _velocity_delta(
+                    s.completed_task_count, prev.completed_task_count if prev is not None else None
+                ),
+                # ADR-0113: marked, not dropped — the UI greys/hatches excluded
+                # bars and skips them in the rolling-avg line and ± stdev band.
+                "exclude_from_velocity": s.exclude_from_velocity,
+            }
+        )
+        if not s.exclude_from_velocity:
+            prev_eligible = s
+    return entries
 
 
 # ---------------------------------------------------------------------------
@@ -880,26 +886,12 @@ def _daily_burn_series(
     deleted or not-yet-created task contributes nothing rather than zero, which
     is what keeps ``scope`` a true "work committed as of this day" curve.
     """
-    from trueppm_api.apps.projects.models import TaskStatus
-
-    def _value(row: dict[str, Any]) -> int:
-        return int(row.get("story_points") or 0) if metric == "points" else 1
-
     series: list[dict[str, Any]] = []
     for day in days:
         end_of_day = datetime.combine(
             day, datetime.max.time(), tzinfo=timezone.get_current_timezone()
         )
-        scope = 0
-        completed = 0
-        for rows in by_task.values():
-            state = next((r for r in rows if r["history_date"] <= end_of_day), None)
-            if state is None or state["history_type"] == "-" or state.get("is_deleted"):
-                continue  # task didn't exist (or was deleted) on this day
-            value = _value(state)
-            scope += value
-            if state["status"] == TaskStatus.COMPLETE:
-                completed += value
+        scope, completed = _burn_totals_at(by_task, end_of_day, metric=metric)
         series.append(
             {
                 "date": day.isoformat(),
@@ -908,6 +900,32 @@ def _daily_burn_series(
             }
         )
     return series
+
+
+def _burn_totals_at(
+    by_task: dict[Any, list[dict[str, Any]]],
+    end_of_day: datetime,
+    *,
+    metric: str,
+) -> tuple[int, int]:
+    """Sum ``(scope, completed)`` across every task as of ``end_of_day``.
+
+    A deleted or not-yet-created task contributes nothing rather than zero, which
+    is what keeps ``scope`` a true "work committed as of this day" curve.
+    """
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    scope = 0
+    completed = 0
+    for rows in by_task.values():
+        state = next((r for r in rows if r["history_date"] <= end_of_day), None)
+        if state is None or state["history_type"] == "-" or state.get("is_deleted"):
+            continue
+        value = int(state.get("story_points") or 0) if metric == "points" else 1
+        scope += value
+        if state["status"] == TaskStatus.COMPLETE:
+            completed += value
+    return scope, completed
 
 
 def _apply_ideal_curve(series: list[dict[str, Any]], *, chart_type: str, day_count: int) -> None:
@@ -1369,12 +1387,6 @@ def me_work_signals(
     read — deterministic for a given DB state, safe to call on every GET.
     """
     from trueppm_api.apps.access.models import ProjectMembership
-    from trueppm_api.apps.projects.models import AggregationPolicy, SprintBurnSnapshot
-    from trueppm_api.apps.projects.program_rollup import (
-        _reduce_health,
-        _schedule_health_by_project,
-    )
-    from trueppm_api.apps.scheduling.models import MonteCarloRun
 
     if today is None:
         today = timezone.localdate()
@@ -1393,7 +1405,42 @@ def me_work_signals(
     if not member_project_ids:
         return signals
 
-    # ── Schedule health / SPI (worst-first) ─────────────────────────────────
+    # Each signal is omitted (rule 120: never fabricate a number) rather than
+    # zero-filled when it has no real basis, so an absent key tells the web to
+    # render that card as-is.
+    for key, value in (
+        ("schedule_health", _schedule_health_signal(member_project_ids, today)),
+        ("forecast", _forecast_signal(member_project_ids)),
+    ):
+        if value is not None:
+            signals[key] = value
+
+    lead_sprint = min(list(active_sprints), key=lambda s: s.finish_date, default=None)
+    if lead_sprint is None:
+        return signals
+
+    for key, value in (
+        ("sprint_burndown", _sprint_burndown_signal(lead_sprint)),
+        ("utilization", _utilization_signal(user, lead_sprint)),
+    ):
+        if value is not None:
+            signals[key] = value
+
+    return signals
+
+
+def _schedule_health_signal(member_project_ids: list[Any], today: date) -> dict[str, Any] | None:
+    """Worst-first reduce of the per-project SPI-proxy band.
+
+    ``None`` when every member project is ``unknown`` — no baseline or CPM basis
+    yet, so there is no health to report.
+    """
+    from trueppm_api.apps.projects.models import AggregationPolicy
+    from trueppm_api.apps.projects.program_rollup import (
+        _reduce_health,
+        _schedule_health_by_project,
+    )
+
     bands_by_project = _schedule_health_by_project(member_project_ids, today)
     band = _reduce_health(
         list(bands_by_project.values()),
@@ -1402,13 +1449,20 @@ def me_work_signals(
         member_project_ids,
     )
     real_bands = sum(1 for b in bands_by_project.values() if b != "unknown")
-    if band != "unknown" and real_bands > 0:
-        signals["schedule_health"] = {"band": band, "project_count": real_bands}
+    if band == "unknown" or real_bands == 0:
+        return None
+    return {"band": band, "project_count": real_bands}
 
-    # ── Monte-Carlo P80 ship-date forecast ──────────────────────────────────
-    # Latest run per member project via DISTINCT ON (one query), then the latest
-    # (max) P80 finish across them — the honest "when is everything I'm on done at
-    # 80% confidence". Projects with no run contribute nothing.
+
+def _forecast_signal(member_project_ids: list[Any]) -> dict[str, Any] | None:
+    """Latest Monte-Carlo P80 finish across the user's member projects.
+
+    Latest run per project via DISTINCT ON (one query), then the max P80 across
+    them — the honest "when is everything I'm on done at 80% confidence". Projects
+    with no persisted run contribute nothing.
+    """
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+
     latest_runs = list(
         MonteCarloRun.objects.filter(project_id__in=member_project_ids, p80__isnull=False)
         .order_by("project_id", "-taken_at")
@@ -1418,72 +1472,84 @@ def me_work_signals(
     # p80 is non-null by the filter above; ``or date.min`` only satisfies the
     # type-checker for the max key (the fallback can never be selected).
     lead_run = max(latest_runs, key=lambda r: r.p80 or date.min, default=None)
-    if lead_run is not None and lead_run.p80 is not None:
-        signals["forecast"] = {
-            "p80_finish": lead_run.p80.isoformat(),
-            "project_id": str(lead_run.project_id),
-            "project_name": lead_run.project.name,
-            "as_of": lead_run.taken_at.isoformat(),
-        }
+    if lead_run is None or lead_run.p80 is None:
+        return None
+    return {
+        "p80_finish": lead_run.p80.isoformat(),
+        "project_id": str(lead_run.project_id),
+        "project_name": lead_run.project.name,
+        "as_of": lead_run.taken_at.isoformat(),
+    }
 
-    # ── Sprint burndown (soonest-ending active sprint) ──────────────────────
-    sprint_list = list(active_sprints)
-    lead_sprint = min(sprint_list, key=lambda s: s.finish_date, default=None)
-    if lead_sprint is not None:
-        snapshots = list(
-            SprintBurnSnapshot.objects.filter(sprint_id=lead_sprint.pk).order_by("snapshot_date")
-        )
-        if snapshots:
-            burn = compute_sprint_burn_status(lead_sprint, snapshots)
-            signals["sprint_burndown"] = {
-                "sprint_id": str(lead_sprint.pk),
-                "sprint_name": lead_sprint.name,
-                "committed_points": lead_sprint.committed_points or 0,
-                "series": [
-                    {"date": s.snapshot_date.isoformat(), "remaining_points": s.remaining_points}
-                    for s in snapshots
-                ],
-                "burn_status": burn["burn_status"],
-                "trend_points": burn["trend_points"],
-                "projected_finish_date": burn["projected_finish_date"],
-            }
 
-        # ── Personal utilization: your load vs your capacity (#1912) ────────
-        # The one capacity source of truth (capacity_summary) is sprint-scoped and
-        # keyed by TaskResource.resource, a different assignment axis than the
-        # Task.assignee that drives the My Work list. We bridge to the caller via
-        # Resource.user and reuse the SAME lead sprint the burndown uses, so the
-        # card answers "for the sprint whose clock matters most, how allocated am
-        # I vs my capacity". Reusing capacity_summary keeps this byte-identical to
-        # the Sprints capacity panel — no parallel/fabricated capacity model. Only
-        # the requesting user's own resource rows are read (single-user), so this
-        # never leaks another member's or another program's load.
-        from trueppm_api.apps.resources.models import Resource
+def _sprint_burndown_signal(lead_sprint: Any) -> dict[str, Any] | None:
+    """Real burn snapshot series plus server-computed pace for the lead sprint."""
+    from trueppm_api.apps.projects.models import SprintBurnSnapshot
 
-        my_resource_ids = {
-            str(rid) for rid in Resource.objects.filter(user=user).values_list("id", flat=True)
-        }
-        if my_resource_ids:
-            summary = capacity_summary(lead_sprint)
-            mine = [m for m in summary["members"] if m["member_id"] in my_resource_ids]
-            committed = sum(float(m["committed_hours"]) for m in mine)
-            available = sum(float(m["available_hours"]) for m in mine)
-            # Omit (rule 120) when the user is not allocated on the lead sprint or
-            # the window carries no capacity — both leave the ratio undefined, and
-            # guarding available > 0 also prevents a divide-by-zero.
-            if mine and available > 0:
-                ratio = committed / available
-                signals["utilization"] = {
-                    "sprint_id": str(lead_sprint.pk),
-                    "sprint_name": lead_sprint.name,
-                    "committed_hours": round(committed, 2),
-                    "available_hours": round(available, 2),
-                    "ratio": round(ratio, 4),
-                    "is_over": committed > available,
-                    "label": _capacity_label(ratio),
-                }
+    snapshots = list(
+        SprintBurnSnapshot.objects.filter(sprint_id=lead_sprint.pk).order_by("snapshot_date")
+    )
+    if not snapshots:
+        return None
+    burn = compute_sprint_burn_status(lead_sprint, snapshots)
+    return {
+        "sprint_id": str(lead_sprint.pk),
+        "sprint_name": lead_sprint.name,
+        "committed_points": lead_sprint.committed_points or 0,
+        "series": [
+            {"date": s.snapshot_date.isoformat(), "remaining_points": s.remaining_points}
+            for s in snapshots
+        ],
+        "burn_status": burn["burn_status"],
+        "trend_points": burn["trend_points"],
+        "projected_finish_date": burn["projected_finish_date"],
+    }
 
-    return signals
+
+def _utilization_signal(user: Any, lead_sprint: Any) -> dict[str, Any] | None:
+    """The requesting user's OWN load vs their OWN capacity on the lead sprint (#1912).
+
+    The one capacity source of truth (:func:`capacity_summary`) is sprint-scoped and
+    keyed by ``TaskResource.resource`` — a different assignment axis than the
+    ``Task.assignee`` that drives the My Work list — so we bridge to the caller via
+    ``Resource.user`` and reuse the SAME lead sprint the burndown uses. Reusing
+    ``capacity_summary`` keeps this byte-identical to the Sprints capacity panel
+    rather than inventing a parallel capacity model.
+
+    Only the requesting user's own resource rows are read, so this never leaks
+    another member's or another program's load. It is a **single-user,
+    single-program** signal — not cross-program leveling or a portfolio heat map,
+    both of which are Enterprise.
+
+    ``None`` when the user has no linked resource, is not allocated on the lead
+    sprint, or the window carries no capacity — each leaves the ratio undefined,
+    and the ``available > 0`` guard also prevents a divide-by-zero.
+    """
+    from trueppm_api.apps.resources.models import Resource
+
+    my_resource_ids = {
+        str(rid) for rid in Resource.objects.filter(user=user).values_list("id", flat=True)
+    }
+    if not my_resource_ids:
+        return None
+
+    summary = capacity_summary(lead_sprint)
+    mine = [m for m in summary["members"] if m["member_id"] in my_resource_ids]
+    committed = sum(float(m["committed_hours"]) for m in mine)
+    available = sum(float(m["available_hours"]) for m in mine)
+    if not mine or available <= 0:
+        return None
+
+    ratio = committed / available
+    return {
+        "sprint_id": str(lead_sprint.pk),
+        "sprint_name": lead_sprint.name,
+        "committed_hours": round(committed, 2),
+        "available_hours": round(available, 2),
+        "ratio": round(ratio, 4),
+        "is_over": committed > available,
+        "label": _capacity_label(ratio),
+    }
 
 
 def _milestone_slip_for_sprint(sprint: Any) -> dict[str, Any] | None:
@@ -1776,31 +1842,9 @@ def _sprint_review_block(
     entries = _review_entries(sprint, is_closed=is_closed)
     accept, unmet = _acceptance_by_task(entries)
 
-    tally = {"accepted": 0, "not_accepted": 0, "no_criteria": 0}
-    accepted_points = not_accepted_points = 0
-    shipped: list[dict[str, Any]] = []
-    demo_entries: list[dict[str, Any]] = []
-
-    for e in entries:
-        a = accept.get(e["task_id"]) if e["task_id"] else None
-        met, total = (a["met"], a["total"]) if a else (0, 0)
-        pts = e["points"] or 0
-        if total == 0:
-            tally["no_criteria"] += 1
-        elif met == total:
-            tally["accepted"] += 1
-            accepted_points += pts
-        else:
-            tally["not_accepted"] += 1
-            not_accepted_points += pts
-        if e["shipped"]:
-            shipped.append(
-                _shipped_entry(
-                    e, met=met, total=total, unmet=unmet, velocity_readable=velocity_readable
-                )
-            )
-        if e["demo_ready"]:
-            demo_entries.append(e)
+    tally, accepted_points, not_accepted_points, shipped, demo_entries = _tally_review_entries(
+        entries, accept, unmet, velocity_readable=velocity_readable
+    )
 
     # #1130: order the demo walkthrough by demo_order (0 = unset sorts last but
     # stable), then short_id for a deterministic tie-break.
@@ -1831,6 +1875,50 @@ def _sprint_review_block(
         "demo_list": [e["short_id"] for e in demo_entries],
         "commitment": commitment_block,
     }
+
+
+def _tally_review_entries(
+    entries: list[dict[str, Any]],
+    accept: dict[Any, Any],
+    unmet: Any,
+    *,
+    velocity_readable: bool,
+) -> tuple[dict[str, int], int, int, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Bucket every entry into accepted / not_accepted / no_criteria.
+
+    A task with zero acceptance criteria gets its own bucket rather than defaulting
+    into "accepted" — that coverage gap is a signal the review needs to see, not one
+    to swallow silently.
+
+    Returns ``(tally, accepted_points, not_accepted_points, shipped, demo_entries)``.
+    """
+    tally = {"accepted": 0, "not_accepted": 0, "no_criteria": 0}
+    accepted_points = not_accepted_points = 0
+    shipped: list[dict[str, Any]] = []
+    demo_entries: list[dict[str, Any]] = []
+
+    for e in entries:
+        a = accept.get(e["task_id"]) if e["task_id"] else None
+        met, total = (a["met"], a["total"]) if a else (0, 0)
+        pts = e["points"] or 0
+        if total == 0:
+            tally["no_criteria"] += 1
+        elif met == total:
+            tally["accepted"] += 1
+            accepted_points += pts
+        else:
+            tally["not_accepted"] += 1
+            not_accepted_points += pts
+        if e["shipped"]:
+            shipped.append(
+                _shipped_entry(
+                    e, met=met, total=total, unmet=unmet, velocity_readable=velocity_readable
+                )
+            )
+        if e["demo_ready"]:
+            demo_entries.append(e)
+
+    return tally, accepted_points, not_accepted_points, shipped, demo_entries
 
 
 def _review_entries(sprint: Any, *, is_closed: bool) -> list[dict[str, Any]]:
@@ -2942,7 +3030,6 @@ def apply_pending_disposition(sprint: Any, disposition: str, by: Any = None) -> 
     from trueppm_api.apps.projects.models import (
         ScopeChangeStatus,
         SprintScopeChange,
-        Task,
     )
 
     pending_rows = list(
@@ -2954,38 +3041,55 @@ def apply_pending_disposition(sprint: Any, disposition: str, by: Any = None) -> 
         return
 
     if disposition == "reject":
-        for row in pending_rows:
-            # The team-owned ADMIN gate for reject-on-close is enforced
-            # synchronously at the close endpoint (SprintViewSet.close) BEFORE the
-            # close is enqueued — a MEMBER who can close a sprint cannot use the
-            # reject disposition to bypass ADR-0102 §3. By the time this drains we
-            # are system-initiated, so the per-row reject is done inline (a None
-            # actor would 403 in reject_scope_change's gate).
-            task = Task.objects.select_for_update().filter(pk=row.task_id).first()
-            row.status = ScopeChangeStatus.REJECTED
-            row.save(update_fields=["status"])
-            if task is None:
-                continue
-            # Reject means the injection never joins the commitment — clear the
-            # pending flag regardless of where carry-over already left the task
-            # (e.g. carry_over_to="backlog" moved it off this sprint *before* this
-            # disposition runs, so a `sprint_id == sprint.pk` guard would strand
-            # the flag True). If the task is still on the closing sprint, also
-            # remove it from the sprint.
-            update_fields: list[str] = []
-            if task.sprint_pending:
-                task.sprint_pending = False
-                update_fields.append("sprint_pending")
-            if task.sprint_id == sprint.pk:
-                task.sprint = None
-                update_fields.append("sprint")
-            if update_fields:
-                task._change_reason = "scope rejected at sprint close"  # type: ignore[attr-defined]
-                task.save(update_fields=update_fields)
+        _reject_pending_rows(sprint, pending_rows)
         return
+    _carry_pending_rows(sprint, pending_rows, by)
 
-    # carry (default): re-flag the carried task in its NEW sprint and record a
-    # fresh PENDING row there. The original closing-sprint row clears on close.
+
+def _reject_pending_rows(sprint: Any, pending_rows: list[Any]) -> None:
+    """Reject every pending row, removing the task from the closing sprint.
+
+    The team-owned ADMIN gate for reject-on-close is enforced synchronously at the
+    close endpoint (``SprintViewSet.close``) BEFORE the close is enqueued — a
+    MEMBER who can close a sprint cannot use the reject disposition to bypass
+    ADR-0102 §3. By the time this drains we are system-initiated, so the per-row
+    reject is done inline (a ``None`` actor would 403 in ``reject_scope_change``).
+    """
+    from trueppm_api.apps.projects.models import ScopeChangeStatus, Task
+
+    for row in pending_rows:
+        task = Task.objects.select_for_update().filter(pk=row.task_id).first()
+        row.status = ScopeChangeStatus.REJECTED
+        row.save(update_fields=["status"])
+        if task is None:
+            continue
+        # Reject means the injection never joins the commitment — clear the
+        # pending flag regardless of where carry-over already left the task
+        # (e.g. carry_over_to="backlog" moved it off this sprint *before* this
+        # disposition runs, so a `sprint_id == sprint.pk` guard would strand
+        # the flag True). If the task is still on the closing sprint, also
+        # remove it from the sprint.
+        update_fields: list[str] = []
+        if task.sprint_pending:
+            task.sprint_pending = False
+            update_fields.append("sprint_pending")
+        if task.sprint_id == sprint.pk:
+            task.sprint = None
+            update_fields.append("sprint")
+        if update_fields:
+            task._change_reason = "scope rejected at sprint close"  # type: ignore[attr-defined]
+            task.save(update_fields=update_fields)
+
+
+def _carry_pending_rows(sprint: Any, pending_rows: list[Any], by: Any) -> None:
+    """Re-flag each carried task in its NEW sprint with a fresh PENDING row.
+
+    The close's carry-over already moved incomplete tasks to the incoming sprint.
+    Re-recording there keeps the injection gated in the next sprint rather than
+    letting it be silently committed; the closing sprint's own row clears on close.
+    """
+    from trueppm_api.apps.projects.models import Sprint, Task
+
     for row in pending_rows:
         task = Task.objects.filter(pk=row.task_id, is_deleted=False).first()
         if task is None:
@@ -2998,13 +3102,10 @@ def apply_pending_disposition(sprint: Any, disposition: str, by: Any = None) -> 
                 task.sprint_pending = False
                 task.save(update_fields=["sprint_pending"])
             continue
-        from trueppm_api.apps.projects.models import Sprint
-
         new_sprint = Sprint.objects.filter(pk=new_sprint_id).first()
         if new_sprint is None:
             continue
-        # Keep the task flagged pending in the incoming sprint and record a fresh
-        # PENDING audit row against it (flag_pending re-asserts True idempotently).
+        # flag_pending re-asserts True idempotently.
         record_sprint_scope_change(
             task=task,
             sprint=new_sprint,
@@ -3291,57 +3392,82 @@ def _rollup_totals(
     for sprint in targeting:
         if sprint.state == SprintState.CANCELLED:
             continue
-
-        totals["committed_points"] += sprint.committed_points or 0
-        totals["committed_tasks"] += sprint.committed_task_count or 0
-
-        # Current accepted (pending-excluded) committed points, pre-aggregated by
-        # _sprint_rollup_aggregates. Defaults to 0 for a sprint with no committed
-        # tasks — matching the empty-sum semantics of the prior per-sprint query.
-        # Only consulted under the binding-drift / scope-changed guards below, so a
-        # default for sprints meeting neither guard is harmless.
-        current_committed = current_committed_by_sprint.get(sprint.pk, 0)
-
-        # ADR-0106 §1 — binding drift vs the baseline captured at promote time.
-        # Distinct from ``scope_changed`` (which diffs against the *activation*
-        # snapshot): a sprint can be promoted while PLANNED, before any activation
-        # snapshot exists, so drift has its own baseline.
-        if (
-            sprint.binding_committed_snapshot is not None
-            and current_committed != sprint.binding_committed_snapshot
-        ):
-            totals["binding_drifted"] = True
-
-        if sprint.state == SprintState.COMPLETED:
-            # Closed: use the immutable snapshot.
-            totals["completed_points"] += sprint.completed_points or 0
-            totals["completed_tasks"] += sprint.completed_task_count or 0
-            continue
-
-        if sprint.state == SprintState.ACTIVE:
-            # Live: count current COMPLETE tasks; the snapshot only fires on close.
-            # ADR-0102 §2: pending injections are already excluded by the
-            # sprint_pending=False filter in _sprint_rollup_aggregates, so a pending
-            # task neither inflates the numerator nor trips ``scope_changed``.
-            live_points, live_count = live_completed_by_sprint.get(sprint.pk, (0, 0))
-            totals["completed_points"] += live_points
-            totals["completed_tasks"] += live_count
-
-            # Scope-change detection: compare current ACCEPTED backlog points to the
-            # activation-time snapshot. Diverges when the PM adds or removes
-            # *accepted* tasks after activation.
-            if sprint.committed_points is not None and current_committed != sprint.committed_points:
-                totals["scope_changed"] = True
-                totals["scope_change_sprint_id"] = sprint.pk
-
-        # ACTIVE and PLANNED both push out the planned-finish horizon; PLANNED is a
-        # denominator-only contribution with no completed work yet.
-        if sprint.state in (SprintState.ACTIVE, SprintState.PLANNED) and _is_later(
-            sprint.finish_date, totals["latest_active_planned_finish"]
-        ):
-            totals["latest_active_planned_finish"] = sprint.finish_date
+        _fold_sprint_into_totals(
+            totals, sprint, current_committed_by_sprint, live_completed_by_sprint
+        )
 
     return totals
+
+
+def _fold_sprint_into_totals(
+    totals: dict[str, Any],
+    sprint: Any,
+    current_committed_by_sprint: dict[Any, int],
+    live_completed_by_sprint: dict[Any, tuple[int, int]],
+) -> None:
+    """Add one non-cancelled sprint's contribution to the rollup accumulator."""
+    from trueppm_api.apps.projects.models import SprintState
+
+    totals["committed_points"] += sprint.committed_points or 0
+    totals["committed_tasks"] += sprint.committed_task_count or 0
+
+    # Current accepted (pending-excluded) committed points, pre-aggregated by
+    # _sprint_rollup_aggregates. Defaults to 0 for a sprint with no committed
+    # tasks — matching the empty-sum semantics of the prior per-sprint query.
+    # Only consulted under the binding-drift / scope-changed guards below, so a
+    # default for sprints meeting neither guard is harmless.
+    current_committed = current_committed_by_sprint.get(sprint.pk, 0)
+
+    # ADR-0106 §1 — binding drift vs the baseline captured at promote time.
+    # Distinct from ``scope_changed`` (which diffs against the *activation*
+    # snapshot): a sprint can be promoted while PLANNED, before any activation
+    # snapshot exists, so drift has its own baseline.
+    if (
+        sprint.binding_committed_snapshot is not None
+        and current_committed != sprint.binding_committed_snapshot
+    ):
+        totals["binding_drifted"] = True
+
+    if sprint.state == SprintState.COMPLETED:
+        # Closed: use the immutable snapshot.
+        totals["completed_points"] += sprint.completed_points or 0
+        totals["completed_tasks"] += sprint.completed_task_count or 0
+        return
+
+    if sprint.state == SprintState.ACTIVE:
+        _fold_active_sprint(totals, sprint, current_committed, live_completed_by_sprint)
+
+    # ACTIVE and PLANNED both push out the planned-finish horizon; PLANNED is a
+    # denominator-only contribution with no completed work yet.
+    if sprint.state in (SprintState.ACTIVE, SprintState.PLANNED) and _is_later(
+        sprint.finish_date, totals["latest_active_planned_finish"]
+    ):
+        totals["latest_active_planned_finish"] = sprint.finish_date
+
+
+def _fold_active_sprint(
+    totals: dict[str, Any],
+    sprint: Any,
+    current_committed: int,
+    live_completed_by_sprint: dict[Any, tuple[int, int]],
+) -> None:
+    """Count a live sprint's current COMPLETE tasks and detect post-activation scope change.
+
+    The completion snapshot only fires on close, so an ACTIVE sprint's numerator has
+    to come from the live aggregate. ADR-0102 §2: pending injections are already
+    excluded by the ``sprint_pending=False`` filter in ``_sprint_rollup_aggregates``,
+    so a pending task neither inflates the numerator nor trips ``scope_changed``.
+    """
+    live_points, live_count = live_completed_by_sprint.get(sprint.pk, (0, 0))
+    totals["completed_points"] += live_points
+    totals["completed_tasks"] += live_count
+
+    # Scope-change detection: compare current ACCEPTED backlog points to the
+    # activation-time snapshot. Diverges when the PM adds or removes *accepted*
+    # tasks after activation.
+    if sprint.committed_points is not None and current_committed != sprint.committed_points:
+        totals["scope_changed"] = True
+        totals["scope_change_sprint_id"] = sprint.pk
 
 
 def _is_later(candidate: Any, current: Any) -> bool:
@@ -4286,29 +4412,56 @@ def notify_carryover_assignees(
         carried_task_ids: Task UUID strings that ``apply_carry_over`` moved.
         actor_id: PK of the user who requested the close; excluded from recipients.
     """
-    from trueppm_api.apps.notifications.models import NotificationEventType
-    from trueppm_api.apps.notifications.services import create_event_notifications_batch
-    from trueppm_api.apps.projects.models import Sprint, Task
-
     if not carried_task_ids:
         return
 
-    # Destination label: a real sprint's name, or the backlog. A missing sprint
-    # (deleted mid-close, not expected) degrades to a generic phrase rather than
-    # leaking a raw UUID into the inbox copy.
-    if carry_over_to == "backlog":
-        destination = "the backlog"
-    else:
-        dest_sprint = Sprint.objects.filter(pk=carry_over_to).only("name").first()
-        destination = dest_sprint.name if dest_sprint is not None else "the next sprint"
+    destination = _carry_over_destination_label(carry_over_to)
+
+    by_assignee = _carried_tasks_by_assignee(carried_task_ids, actor_id)
+    if not by_assignee:
+        return
 
     origin = closed_sprint.name
-    project_id = str(closed_sprint.project_id)
+    rows = [
+        _carryover_row(assignee_id, tasks, origin=origin, destination=destination)
+        for assignee_id, tasks in by_assignee.items()
+    ]
+    transaction.on_commit(
+        partial(
+            _emit_carryover_notifications,
+            str(closed_sprint.project_id),
+            rows,
+            closed_sprint.pk,
+        )
+    )
 
-    # Group the moved tasks by assignee synchronously (pre-commit) so the
-    # on_commit callback reads no source object a later mutation could change.
-    # Tasks with no assignee, or assigned to the closer, are skipped ("they
-    # already know" — matches task.assigned's self-exclusion).
+
+def _carry_over_destination_label(carry_over_to: str) -> str:
+    """Name the carry-over destination for the inbox copy.
+
+    A missing sprint (deleted mid-close, not expected) degrades to a generic
+    phrase rather than leaking a raw UUID into user-visible text.
+    """
+    from trueppm_api.apps.projects.models import Sprint
+
+    if carry_over_to == "backlog":
+        return "the backlog"
+    dest_sprint = Sprint.objects.filter(pk=carry_over_to).only("name").first()
+    return dest_sprint.name if dest_sprint is not None else "the next sprint"
+
+
+def _carried_tasks_by_assignee(
+    carried_task_ids: Sequence[str], actor_id: Any
+) -> dict[Any, list[tuple[str, str]]]:
+    """Group the moved tasks by assignee, synchronously (pre-commit).
+
+    Resolved before the ``on_commit`` callback so that callback reads no source
+    object a later mutation could change. Tasks with no assignee, or assigned to
+    the closer, are skipped — "they already know", matching ``task.assigned``'s
+    self-exclusion.
+    """
+    from trueppm_api.apps.projects.models import Task
+
     by_assignee: dict[Any, list[tuple[str, str]]] = {}
     for task in Task.objects.filter(pk__in=list(carried_task_ids)).only(
         "id", "name", "assignee_id"
@@ -4316,40 +4469,61 @@ def notify_carryover_assignees(
         if task.assignee_id is None or task.assignee_id == actor_id:
             continue
         by_assignee.setdefault(task.assignee_id, []).append((str(task.id), task.name))
+    return by_assignee
 
-    if not by_assignee:
-        return
 
-    # One row per assignee: name + deep-link the single task, or summarise a count.
-    rows: list[tuple[Any, str, str, str | None]] = []
-    for assignee_id, tasks in by_assignee.items():
-        if len(tasks) == 1:
-            task_id, name = tasks[0]
-            subject = f'Your task "{name}" was carried to {destination}'
-            body = f'{origin} closed — your task "{name}" was carried to {destination}.'
-            rows.append((assignee_id, subject, body, task_id))
-        else:
-            count = len(tasks)
-            subject = f"{count} of your tasks were carried to {destination}"
-            body = f"{origin} closed — {count} of your tasks were carried to {destination}."
-            rows.append((assignee_id, subject, body, None))
+def _carryover_row(
+    assignee_id: Any,
+    tasks: list[tuple[str, str]],
+    *,
+    origin: str,
+    destination: str,
+) -> tuple[Any, str, str, str | None]:
+    """One inbox row per assignee, not per task (Priya's noise hard-NO).
 
-    def _emit() -> None:
-        # Best-effort: a notification write must never strand the (already
-        # committed) close, so a failure here is logged and swallowed rather than
-        # propagated out of the on_commit hook.
-        try:
-            create_event_notifications_batch(
-                event_type=NotificationEventType.TASK_MOVED_SPRINT,
-                project_id=project_id,
-                rows=rows,
-            )
-        except Exception:
-            logger.exception(
-                "notify_carryover_assignees: emit failed for sprint %s", closed_sprint.pk
-            )
+    The single-task case names and deep-links that task; the multi-task case
+    summarizes the count, since there is no single anchor to link. Story points
+    are never surfaced (ADR-0104 velocity privacy).
+    """
+    if len(tasks) == 1:
+        task_id, name = tasks[0]
+        return (
+            assignee_id,
+            f'Your task "{name}" was carried to {destination}',
+            f'{origin} closed — your task "{name}" was carried to {destination}.',
+            task_id,
+        )
+    count = len(tasks)
+    return (
+        assignee_id,
+        f"{count} of your tasks were carried to {destination}",
+        f"{origin} closed — {count} of your tasks were carried to {destination}.",
+        None,
+    )
 
-    transaction.on_commit(_emit)
+
+def _emit_carryover_notifications(
+    project_id: str,
+    rows: list[tuple[Any, str, str, str | None]],
+    sprint_pk: Any,
+) -> None:
+    """Write the carry-over inbox rows after commit.
+
+    Best-effort: a notification write must never strand the (already committed)
+    close, so a failure here is logged and swallowed rather than propagated out of
+    the ``on_commit`` hook where it would mislead the close into a FAILED status.
+    """
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications_batch
+
+    try:
+        create_event_notifications_batch(
+            event_type=NotificationEventType.TASK_MOVED_SPRINT,
+            project_id=project_id,
+            rows=rows,
+        )
+    except Exception:
+        logger.exception("notify_carryover_assignees: emit failed for sprint %s", sprint_pk)
 
 
 def notify_sprint_membership_change(
@@ -4387,19 +4561,49 @@ def notify_sprint_membership_change(
         new_sprint_id: the task's ``sprint_id`` after the save (str or ``None``).
         actor: the acting user; excluded from recipients and named in the copy.
     """
-    from trueppm_api.apps.access.models import ProjectMembership, Role
-    from trueppm_api.apps.notifications.models import NotificationEventType
-    from trueppm_api.apps.notifications.services import create_event_notifications_batch
-    from trueppm_api.apps.projects.models import Sprint, SprintState
-
     old_id = str(old_sprint_id) if old_sprint_id else None
     new_id = str(new_sprint_id) if new_sprint_id else None
     if old_id == new_id:
         return  # no-op PATCH — the sprint link did not move
 
-    # Resolve name + state of both endpoints in one query. Only ACTIVE sprints
-    # matter: a scope change into or out of a PLANNED/COMPLETED/CANCELLED sprint is
-    # not a live-commitment change, so it never notifies.
+    change = _resolve_active_sprint_change(old_id, new_id)
+    if change is None:
+        return
+    old_sprint, new_sprint, entered_active, left_active = change
+
+    actor_id: Any = (
+        actor.pk if actor is not None and getattr(actor, "is_authenticated", False) else None
+    )
+    recipient_ids = _sprint_lead_recipient_ids(task.project_id, actor_id)
+    if not recipient_ids:
+        return
+
+    body = _sprint_change_body(
+        getattr(actor, "username", "") or "Someone",
+        task.name,
+        old_sprint,
+        new_sprint,
+        entered_active=entered_active,
+        left_active=left_active,
+    )
+    rows = [(rid, "Sprint scope changed", body, str(task.pk)) for rid in recipient_ids]
+    transaction.on_commit(
+        partial(_emit_sprint_membership_notifications, str(task.project_id), rows, task.pk)
+    )
+
+
+def _resolve_active_sprint_change(
+    old_id: str | None,
+    new_id: str | None,
+) -> tuple[Any, Any, bool, bool] | None:
+    """Resolve name + state of both sprint endpoints in one query.
+
+    Returns ``None`` unless at least one endpoint is ``ACTIVE`` — a scope change
+    into or out of a PLANNED/COMPLETED/CANCELLED sprint is not a live-commitment
+    change (ADR-0102 §6), so it carries no accountability signal and never notifies.
+    """
+    from trueppm_api.apps.projects.models import Sprint, SprintState
+
     ids = {sid for sid in (old_id, new_id) if sid is not None}
     sprints = {
         str(s["pk"]): s for s in Sprint.objects.filter(pk__in=ids).values("pk", "name", "state")
@@ -4409,58 +4613,72 @@ def notify_sprint_membership_change(
     entered_active = new_sprint is not None and new_sprint["state"] == SprintState.ACTIVE
     left_active = old_sprint is not None and old_sprint["state"] == SprintState.ACTIVE
     if not (entered_active or left_active):
-        return
+        return None
+    return old_sprint, new_sprint, entered_active, left_active
 
-    actor_id: Any = (
-        actor.pk if actor is not None and getattr(actor, "is_authenticated", False) else None
-    )
 
-    # Recipients = project leads (role >= ADMIN), minus the actor. is_deleted=False
-    # is load-bearing for privacy: a revoked lead's membership row survives the soft
-    # delete with its role, so without this filter they'd keep receiving scope-change
-    # notices for a project they no longer belong to (rbac-check).
-    recipient_ids = list(
+def _sprint_lead_recipient_ids(project_id: Any, actor_id: Any) -> list[Any]:
+    """Project leads (``role >= ADMIN``) minus the actor, who made the change.
+
+    ``is_deleted=False`` is load-bearing for privacy: a revoked lead's membership
+    row survives the soft delete with its role, so without this filter they would
+    keep receiving scope-change notices for a project they no longer belong to
+    (rbac-check).
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+
+    return list(
         ProjectMembership.objects.filter(
-            project_id=task.project_id, role__gte=Role.ADMIN, is_deleted=False
+            project_id=project_id, role__gte=Role.ADMIN, is_deleted=False
         )
         .exclude(user_id=actor_id)
         .values_list("user_id", flat=True)
     )
-    if not recipient_ids:
-        return
 
-    actor_name = getattr(actor, "username", "") or "Someone"
-    task_name = task.name
-    subject = "Sprint scope changed"
+
+def _sprint_change_body(
+    actor_name: str,
+    task_name: str,
+    old_sprint: Any,
+    new_sprint: Any,
+    *,
+    entered_active: bool,
+    left_active: bool,
+) -> str:
+    """Phrase the notification as a move, an add, or a remove."""
     # Narrowed to non-None in each branch (entered ⇒ new_sprint set; left ⇒ old_sprint
     # set); the local names give mypy the None-guard it can't infer from the bool flags.
     old_name = old_sprint["name"] if old_sprint is not None else None
     new_name = new_sprint["name"] if new_sprint is not None else None
     if entered_active and left_active:
-        body = f'{actor_name} moved "{task_name}" from sprint {old_name} to sprint {new_name}.'
-    elif entered_active:
-        body = f'{actor_name} added "{task_name}" to sprint {new_name}.'
-    else:  # left_active
-        body = f'{actor_name} removed "{task_name}" from sprint {old_name}.'
+        return f'{actor_name} moved "{task_name}" from sprint {old_name} to sprint {new_name}.'
+    if entered_active:
+        return f'{actor_name} added "{task_name}" to sprint {new_name}.'
+    return f'{actor_name} removed "{task_name}" from sprint {old_name}.'
 
-    project_id = str(task.project_id)
-    task_id = str(task.pk)
-    rows = [(rid, subject, body, task_id) for rid in recipient_ids]
 
-    def _emit() -> None:
-        # Best-effort: a notification write must never strand the (already committed)
-        # task update, so a failure here is logged and swallowed rather than raised
-        # out of the on_commit hook.
-        try:
-            create_event_notifications_batch(
-                event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED,
-                project_id=project_id,
-                rows=rows,
-            )
-        except Exception:
-            logger.exception("notify_sprint_membership_change: emit failed for task %s", task.pk)
+def _emit_sprint_membership_notifications(
+    project_id: str,
+    rows: list[tuple[Any, str, str, str]],
+    task_pk: Any,
+) -> None:
+    """Write the inbox rows after commit.
 
-    transaction.on_commit(_emit)
+    Best-effort: a notification write must never strand the (already committed)
+    task update, so a failure here is logged and swallowed rather than raised out
+    of the ``on_commit`` hook (the ADR-0232 carryover pattern).
+    """
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications_batch
+
+    try:
+        create_event_notifications_batch(
+            event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED,
+            project_id=project_id,
+            rows=rows,
+        )
+    except Exception:
+        logger.exception("notify_sprint_membership_change: emit failed for task %s", task_pk)
 
 
 def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
@@ -4512,15 +4730,9 @@ def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
         or 0
     )
 
-    sprints_to_complete_low: float | None = None
-    sprints_to_complete_high: float | None = None
-    if remaining_points > 0 and low and high:
-        # Fewer sprints when the team's pace is high; the slow tail (low) gives
-        # the pessimistic count. Rounded up — a partial sprint is still a sprint.
-        import math
-
-        sprints_to_complete_low = math.ceil(remaining_points / high)
-        sprints_to_complete_high = math.ceil(remaining_points / low)
+    sprints_to_complete_low, sprints_to_complete_high = _sprints_to_complete(
+        remaining_points, low, high
+    )
 
     # Latest snapshot per bound milestone (one row each, newest taken_at). A single
     # DISTINCT ON (milestone_id) ordered by -taken_at replaces the former per-milestone
@@ -4548,36 +4760,7 @@ def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
     # without a second round-trip. Two extra queries total (all-snapshots for the
     # bound milestones, ordered newest-first; the project's closed sprints), grouped
     # in Python — no per-milestone N+1.
-    prior_by_ms: dict[Any, ForecastSnapshot | None] = {}
-    if bound_milestone_ids:
-        grouped: dict[Any, list[ForecastSnapshot]] = {}
-        for snap in (
-            ForecastSnapshot.objects.filter(milestone_id__in=bound_milestone_ids)
-            .order_by("milestone_id", "-taken_at")
-            .only(
-                "milestone_id",
-                "taken_at",
-                "cpm_finish",
-                "p50",
-                "p80",
-                "velocity_low",
-                "velocity_high",
-                "basis",
-                "confidence",
-            )
-        ):
-            grouped.setdefault(snap.milestone_id, []).append(snap)
-        # index 0 is the latest (matches the DISTINCT ON row above); index 1 is the
-        # immediately-prior snapshot, or None when this is the first forecast.
-        prior_by_ms = {
-            ms_id: (snaps[1] if len(snaps) > 1 else None) for ms_id, snaps in grouped.items()
-        }
-
-    # Closed sprints (name + close time) for the "after sprint N" attribution. A
-    # snapshot is tied to a sprint close only when EXACTLY ONE completed sprint
-    # closed in the (prior.taken_at, latest.taken_at] window — an interleaved
-    # manual refresh (or an ambiguous multi-close window) honestly degrades to
-    # "since the last forecast" client-side, since ForecastSnapshot has no sprint FK.
+    # Closed sprints (name + close time) for the "after sprint N" attribution.
     closed_sprints = list(
         Sprint.objects.filter(
             project_id=project_id,
@@ -4585,20 +4768,9 @@ def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
             closed_at__isnull=False,
         ).values("name", "closed_at")
     )
-    for latest in milestones:
-        prev = prior_by_ms.get(latest.milestone_id)
-        # Plain attributes read back by ForecastSnapshotSerializer (not model fields).
-        latest.previous = prev  # type: ignore[attr-defined]
-        sprint_name: str | None = None
-        if prev is not None:
-            window = [
-                c["name"]
-                for c in closed_sprints
-                if c["closed_at"] is not None and prev.taken_at < c["closed_at"] <= latest.taken_at
-            ]
-            if len(window) == 1:
-                sprint_name = window[0]
-        latest.previous_sprint_name = sprint_name  # type: ignore[attr-defined]
+    _attach_bridge_proof(
+        milestones, _prior_snapshot_by_milestone(bound_milestone_ids), closed_sprints
+    )
 
     return {
         "velocity": vel,
@@ -4607,6 +4779,88 @@ def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
         "sprints_to_complete_high": sprints_to_complete_high,
         "milestones": milestones,
     }
+
+
+def _sprints_to_complete(
+    remaining_points: int, low: int | None, high: int | None
+) -> tuple[float | None, float | None]:
+    """Re-pace the remaining backlog into a sprints-to-complete range.
+
+    Fewer sprints when the team's pace is high; the slow tail (``low``) gives the
+    pessimistic count. Rounded up — a partial sprint is still a sprint. Both are
+    ``None`` without a velocity band, rather than inventing a single-point estimate.
+    """
+    if remaining_points <= 0 or not low or not high:
+        return None, None
+    import math
+
+    return math.ceil(remaining_points / high), math.ceil(remaining_points / low)
+
+
+def _prior_snapshot_by_milestone(bound_milestone_ids: list[Any]) -> dict[Any, Any]:
+    """Map each bound milestone to its immediately-prior forecast snapshot.
+
+    One query for all bound milestones ordered newest-first, grouped in Python —
+    no per-milestone N+1. Index 0 of each group is the latest (matching the
+    DISTINCT ON row the caller already holds); index 1 is the prior snapshot, or
+    ``None`` when this is the milestone's first forecast.
+    """
+    from trueppm_api.apps.projects.models import ForecastSnapshot
+
+    if not bound_milestone_ids:
+        return {}
+
+    grouped: dict[Any, list[ForecastSnapshot]] = {}
+    for snap in (
+        ForecastSnapshot.objects.filter(milestone_id__in=bound_milestone_ids)
+        .order_by("milestone_id", "-taken_at")
+        .only(
+            "milestone_id",
+            "taken_at",
+            "cpm_finish",
+            "p50",
+            "p80",
+            "velocity_low",
+            "velocity_high",
+            "basis",
+            "confidence",
+        )
+    ):
+        grouped.setdefault(snap.milestone_id, []).append(snap)
+    return {ms_id: (snaps[1] if len(snaps) > 1 else None) for ms_id, snaps in grouped.items()}
+
+
+def _attach_bridge_proof(
+    milestones: list[Any],
+    prior_by_ms: dict[Any, Any],
+    closed_sprints: list[Any],
+) -> None:
+    """Attach each milestone's prior snapshot and attributed sprint name (#730).
+
+    Lets the proof card render "finish moved {prev} → {current} since {sprint}"
+    without a second round-trip. A snapshot is tied to a sprint close only when
+    EXACTLY ONE completed sprint closed in the ``(prior.taken_at, latest.taken_at]``
+    window: ``ForecastSnapshot`` has no sprint FK, so an interleaved manual refresh
+    or an ambiguous multi-close window honestly degrades to "since the last
+    forecast" client-side rather than naming a sprint it cannot prove.
+    """
+    for latest in milestones:
+        prev = prior_by_ms.get(latest.milestone_id)
+        # Plain attributes read back by ForecastSnapshotSerializer (not model fields).
+        latest.previous = prev
+        latest.previous_sprint_name = (
+            _attributed_sprint_name(prev, latest, closed_sprints) if prev is not None else None
+        )
+
+
+def _attributed_sprint_name(prev: Any, latest: Any, closed_sprints: list[Any]) -> str | None:
+    """The single sprint that closed between two snapshots, or ``None`` if ambiguous."""
+    window = [
+        c["name"]
+        for c in closed_sprints
+        if c["closed_at"] is not None and prev.taken_at < c["closed_at"] <= latest.taken_at
+    ]
+    return window[0] if len(window) == 1 else None
 
 
 def _typical_sprint_length_days(project_id: str | uuid.UUID, default: int = 14) -> int:
@@ -5159,26 +5413,47 @@ def _cumulative_flow(
     mirroring ``burn_series``' replay. Rows are oldest-first, so one scan per day
     keeping the last applicable row suffices.
     """
-    cfd: list[dict[str, Any]] = []
-    for day in _date_range_inclusive(since_date, until_date):
-        end_of_day = datetime.combine(day, datetime.max.time(), tzinfo=tz)
-        counts = dict.fromkeys(FLOW_CANONICAL_STATUSES, 0)
-        for task_rows in by_task.values():
-            state: dict[str, Any] | None = None
-            for r in task_rows:
-                if r["history_date"] <= end_of_day:
-                    state = r
-                else:
-                    break
-            if state is None:
-                continue
-            if state["history_type"] == "-" or state.get("is_deleted"):
-                continue  # task didn't exist (or was deleted) on this day
-            folded = _fold_status(state["status"])
-            if folded is not None:
-                counts[folded] += 1
-        cfd.append({"date": day.isoformat(), "counts": counts})
-    return cfd
+    return [
+        {
+            "date": day.isoformat(),
+            "counts": _status_counts_at(
+                by_task, datetime.combine(day, datetime.max.time(), tzinfo=tz)
+            ),
+        }
+        for day in _date_range_inclusive(since_date, until_date)
+    ]
+
+
+def _status_counts_at(
+    by_task: dict[Any, list[dict[str, Any]]], end_of_day: datetime
+) -> dict[str, int]:
+    """Fold every task's state as of ``end_of_day`` into per-status counts."""
+    counts = dict.fromkeys(FLOW_CANONICAL_STATUSES, 0)
+    for task_rows in by_task.values():
+        state = _state_as_of(task_rows, end_of_day)
+        if state is None:
+            continue
+        folded = _fold_status(state["status"])
+        if folded is not None:
+            counts[folded] += 1
+    return counts
+
+
+def _state_as_of(task_rows: list[dict[str, Any]], end_of_day: datetime) -> dict[str, Any] | None:
+    """The task's latest history row at or before ``end_of_day``.
+
+    Rows are oldest-first, so one scan keeping the last applicable row suffices.
+    Returns ``None`` when the task did not exist — or had been deleted — that day.
+    """
+    state: dict[str, Any] | None = None
+    for r in task_rows:
+        if r["history_date"] <= end_of_day:
+            state = r
+        else:
+            break
+    if state is None or state["history_type"] == "-" or state.get("is_deleted"):
+        return None
+    return state
 
 
 def _completion_rows(
@@ -5475,7 +5750,7 @@ def _generate_due_occurrences(
     empty). Safe to call repeatedly — the ``(recurrence_rule, recurrence_occurrence_date)``
     unique constraint plus an existence check prevent duplicates.
     """
-    from trueppm_api.apps.projects.models import RecurrenceEndType, TaskAttachment
+    from trueppm_api.apps.projects.models import TaskAttachment
 
     template = rule.task
     if template is None or template.is_deleted or rule.is_deleted:
@@ -5490,9 +5765,37 @@ def _generate_due_occurrences(
     )
 
     today = (now or timezone.now()).date()
-    horizon_end = today + timedelta(days=horizon_days)
     anchor = template.planned_start or today
 
+    window = _occurrence_horizon(rule, today, horizon_days)
+    if window is None:
+        return []
+    horizon_end, remaining = window
+
+    # Resume after the last generated date; never back-fill past occurrences.
+    if rule.generated_through:
+        cursor = max(rule.generated_through + timedelta(days=1), today)
+    else:
+        cursor = max(anchor, today)
+
+    created = _scan_occurrences(
+        rule, template, anchor, cursor, horizon_end, remaining, template_attachments
+    )
+    _advance_generated_through(rule, horizon_end)
+    return created
+
+
+def _occurrence_horizon(
+    rule: Any, today: date, horizon_days: int
+) -> tuple[date, int | None] | None:
+    """Resolve the look-ahead end date and remaining-occurrence budget for a rule.
+
+    Returns ``(horizon_end, remaining)``, or ``None`` when an AFTER_N rule has
+    already produced its full count and nothing more may be generated.
+    """
+    from trueppm_api.apps.projects.models import RecurrenceEndType
+
+    horizon_end = today + timedelta(days=horizon_days)
     if rule.end_type == RecurrenceEndType.ON_DATE and rule.end_date:
         horizon_end = min(horizon_end, rule.end_date)
 
@@ -5501,14 +5804,24 @@ def _generate_due_occurrences(
         already = rule.occurrences.filter(is_deleted=False).count()
         remaining = max(rule.end_count - already, 0)
         if remaining == 0:
-            return []
+            return None
+    return horizon_end, remaining
 
-    # Resume after the last generated date; never back-fill past occurrences.
-    if rule.generated_through:
-        cursor = max(rule.generated_through + timedelta(days=1), today)
-    else:
-        cursor = max(anchor, today)
 
+def _scan_occurrences(
+    rule: Any,
+    template: Any,
+    anchor: date,
+    cursor: date,
+    horizon_end: date,
+    remaining: int | None,
+    template_attachments: list[Any],
+) -> list[Any]:
+    """Walk cursor..horizon_end one day at a time, spawning each matching date.
+
+    The existence check per matching date is what makes the sweep idempotent
+    alongside the ``(recurrence_rule, recurrence_occurrence_date)`` constraint.
+    """
     created: list[Any] = []
     d = cursor
     while d <= horizon_end:
@@ -5518,17 +5831,23 @@ def _generate_due_occurrences(
             if not rule.occurrences.filter(recurrence_occurrence_date=d).exists():
                 created.append(_spawn_occurrence(rule, template, d, template_attachments))
         d += timedelta(days=1)
-
-    # Advance the cursor to the scanned horizon so the next sweep is incremental.
-    # Written via .update() (not .save()) deliberately: generated_through is an
-    # internal cursor, so advancing it must not bump server_version or write a history
-    # row — otherwise every hourly sweep would spam the sync delta and audit trail.
-    if rule.generated_through != horizon_end:
-        from trueppm_api.apps.projects.models import TaskRecurrenceRule
-
-        TaskRecurrenceRule.objects.filter(pk=rule.pk).update(generated_through=horizon_end)
-        rule.generated_through = horizon_end
     return created
+
+
+def _advance_generated_through(rule: Any, horizon_end: date) -> None:
+    """Advance the rule's cursor to the scanned horizon so the next sweep is incremental.
+
+    Written via ``.update()`` (not ``.save()``) deliberately: ``generated_through``
+    is an internal cursor, so advancing it must not bump ``server_version`` or write
+    a history row — otherwise every hourly sweep would spam the sync delta and the
+    audit trail.
+    """
+    if rule.generated_through == horizon_end:
+        return
+    from trueppm_api.apps.projects.models import TaskRecurrenceRule
+
+    TaskRecurrenceRule.objects.filter(pk=rule.pk).update(generated_through=horizon_end)
+    rule.generated_through = horizon_end
 
 
 # ---------------------------------------------------------------------------
