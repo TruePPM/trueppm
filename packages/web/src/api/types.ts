@@ -313,6 +313,14 @@ export interface Program {
   /** Read-only server-resolved policy (program override ?? workspace, denylist subtracted). */
   effective_attachments_enabled: boolean;
   effective_allowed_attachment_types: string[];
+  /**
+   * Team consent over AI/MCP agent reads at program scope (ADR-0678, issue 2482).
+   * `null` = no opinion (inherit); `false` = closed to agent reads for this program
+   * and every project under it. Restrictive-only: no scope grants over a denial.
+   */
+  mcp_enabled: boolean | null;
+  effective_mcp_enabled: boolean;
+  inherited_mcp_enabled: boolean;
   /** Read-only values inherited if the override were cleared (the workspace value). */
   inherited_attachments_enabled: boolean;
   inherited_allowed_attachment_types: string[];

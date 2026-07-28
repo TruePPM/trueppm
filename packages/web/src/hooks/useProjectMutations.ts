@@ -154,6 +154,12 @@ export interface UpdateProjectPayload {
    *  denylist is rejected on write. */
   attachments_enabled?: boolean | null;
   allowed_attachment_types?: string[] | null;
+  /** Team consent over AI/MCP agent reads (ADR-0678, issue 2482). `null` clears the
+   *  override back to "no opinion" so the project inherits; `false` closes this
+   *  project to agent reads and CANNOT be overridden from the program or workspace
+   *  (the cascade is restrictive-only). Admin+-only server-side — the field sits
+   *  outside the serializer's Scheduler-writable allowlist. */
+  mcp_enabled?: boolean | null;
   /**
    * Program assignment (ADR-0070, #2089). UUID to add/move the project to a
    * program, or `null` to make it standalone. Dual-Admin gate: the caller needs

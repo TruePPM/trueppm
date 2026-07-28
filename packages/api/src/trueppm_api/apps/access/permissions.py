@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from django.db.models import QuerySet
 from rest_framework import viewsets
@@ -1246,6 +1247,113 @@ class TokenIsOwnerScoped(BasePermission):
         raise AuthenticationFailed("Token is not authorized for the MCP read surface.")
 
 
+class McpScope(StrEnum):
+    """How an :class:`McpReadableViewMixin` subclass is scoped to a project (ADR-0678).
+
+    Every subclass MUST declare one. The declaration is not documentation — it
+    selects which enforcement mechanism carries the team-level MCP opt-out (#2482)
+    for that view, and a subclass that declares nothing is **denied** to token
+    callers by :class:`McpProjectEnabled`. A future MCP-readable view that forgets
+    therefore fails *closed* rather than silently joining the agent-readable
+    surface unfiltered.
+    """
+
+    PATH = "path"
+    """Project is resolvable from the URL (``project_pk``/``project_id``, or a
+    ``Project`` detail pk). :class:`McpProjectEnabled` denies 403 directly."""
+
+    QUERYSET = "queryset"
+    """Rows carry a project FK; the mixin's ``get_queryset`` excludes rows whose
+    project has opted out. Detail routes resolve through the same filtered
+    queryset, so an opted-out object 404s rather than leaking."""
+
+    AGGREGATE = "aggregate"
+    """The view spans projects and assembles its response by hand. The mixin still
+    filters any queryset it has, but the view MUST additionally intersect its own
+    reads with :func:`~trueppm_api.apps.projects.mcp_settings.mcp_visible_project_ids`.
+    Weaker than the other three — the conformance test can only assert the helper
+    is called, not that it is called correctly, so these views need direct tests."""
+
+    NO_PROJECT_DATA = "none"
+    """The response carries no project-scoped data at all (identity echo). Only
+    ``MeView`` qualifies; adding a member here is a security decision."""
+
+
+class McpProjectEnabled(BasePermission):
+    """Team-level MCP opt-out enforcement point (ADR-0678, #2482).
+
+    The consent counterpart to :class:`McpInstanceEnabled`: where that is the
+    *operator's* instance-wide lever, this is the *team's* lever over reads of its
+    own data — the answer to *"consent that only an admin can grant or revoke on
+    the team's behalf is consent in name only"* (#2415).
+
+    Token-scoped and fail-closed, like every other guard here: a non-token (human
+    JWT/Session) request passes unconditionally, so nothing about normal user auth
+    on the shared viewsets changes. For an API-token caller it denies when:
+
+      * a scope above every project denies (workspace switch off — the instance
+        switch is already short-circuited by :class:`McpInstanceEnabled` first), or
+      * the view declares no :class:`McpScope` (declare-or-deny), or
+      * the view is :attr:`McpScope.PATH` and its URL-resolved project has opted
+        out — including the case where the project cannot be resolved at all,
+        which is treated as a denial rather than a pass.
+
+    ``QUERYSET`` / ``AGGREGATE`` / ``NO_PROJECT_DATA`` views pass here; their
+    enforcement is row-level (see ``McpReadableViewMixin.get_queryset``) or
+    explicit in the view. Because all guards are ANDed, this composes with the
+    instance switch such that neither can override the other in the permissive
+    direction — by construction, with no precedence logic to get wrong.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from trueppm_api.apps.projects.mcp_settings import (
+            mcp_reads_globally_disabled,
+            resolve_mcp_enabled,
+        )
+        from trueppm_api.apps.projects.models import ApiToken, Project
+
+        token = getattr(request, "auth", None)
+        if not isinstance(token, ApiToken):
+            return True  # Human JWT/Session path is never gated by MCP consent.
+
+        if mcp_reads_globally_disabled():
+            return False
+
+        scope = getattr(view, "mcp_scope", None)
+        if scope is None:
+            # Declare-or-deny: an MCP-readable view that never declared how it is
+            # project-scoped is denied outright. A forgotten view fails closed.
+            return False
+        if scope != McpScope.PATH:
+            # Row-level (QUERYSET) or view-explicit (AGGREGATE) enforcement; a
+            # NO_PROJECT_DATA view exposes nothing to scope.
+            return True
+
+        view_kwargs = getattr(view, "kwargs", {}) or {}
+        # Resolution order: the two nested-router conventions, then the view's
+        # declared kwarg (default ``pk`` — the project-scoped APIViews are all
+        # routed as ``projects/<pk>/...``). A PATH view whose ``pk`` is NOT a
+        # project must override ``mcp_project_kwarg``; the per-view 403 tests are
+        # what prove each one resolves correctly.
+        project_kwarg = getattr(view, "mcp_project_kwarg", "pk")
+        project_id = (
+            view_kwargs.get("project_pk")
+            or view_kwargs.get("project_id")
+            or view_kwargs.get(project_kwarg)
+        )
+        if project_id is None:
+            # A PATH view whose project could not be resolved is a declaration bug,
+            # not a public read. Fail closed rather than admit an unscoped token.
+            return False
+
+        project = Project.objects.filter(pk=project_id).only("mcp_enabled", "program_id").first()
+        if project is None:
+            # Nonexistent/soft-deleted project — let the view's own 404 path answer;
+            # there is no project data to protect.
+            return True
+        return resolve_mcp_enabled(project)
+
+
 if TYPE_CHECKING:
     _McpViewBase = APIView
 else:
@@ -1269,6 +1377,24 @@ class McpReadableViewMixin(_McpViewBase):
     The base type is ``APIView`` only under ``TYPE_CHECKING`` (``object`` at
     runtime) so mypy resolves ``super().get_authenticators()`` /
     ``get_permissions()`` without the mixin claiming to be a standalone view.
+    """
+
+    mcp_scope: ClassVar[McpScope | None] = None
+    """How this view is scoped to a project for the team MCP opt-out (ADR-0678).
+
+    **Required on every subclass.** ``None`` means "undeclared", and
+    :class:`McpProjectEnabled` denies token reads on an undeclared view — so
+    forgetting this fails closed rather than exposing the view unfiltered. See
+    :class:`McpScope` for which value to pick.
+    """
+
+    mcp_project_kwarg: ClassVar[str] = "pk"
+    """URL kwarg holding the project id, for :attr:`McpScope.PATH` views.
+
+    ``project_pk`` and ``project_id`` are always tried first (the nested-router
+    conventions). The default ``pk`` covers the project-scoped ``APIView``s, which
+    are all routed as ``projects/<pk>/...``. Override on a PATH view whose ``pk``
+    is some other entity — otherwise its opt-out check would read the wrong id.
     """
 
     mcp_compute_heavy: bool = False
@@ -1328,6 +1454,7 @@ class McpReadableViewMixin(_McpViewBase):
 
         return [
             McpInstanceEnabled(),
+            McpProjectEnabled(),
             TokenReadOnlyMethods(),
             TokenHasScope(SCOPE_MCP_READ)(),
             TokenIsOwnerScoped(),
@@ -1338,6 +1465,97 @@ class McpReadableViewMixin(_McpViewBase):
         # instances at runtime; the stub types them via a Protocol, hence the cast.
         existing = cast("list[BasePermission]", list(super().get_permissions()))
         return [*existing, *self.mcp_token_guards()]
+
+    def filter_queryset(self, queryset: QuerySet[Any]) -> QuerySet[Any]:
+        """Primary collection-level enforcement point for the MCP opt-out (ADR-0678).
+
+        why here and not only in ``get_queryset``: **three of the eight
+        queryset-backed MCP viewsets build their queryset from scratch rather than
+        calling ``super().get_queryset()``** (``ProgramViewSet``,
+        ``BacklogItemViewSet``, ``MeWorkView``). For those, a ``get_queryset``
+        override on this mixin is never reached — the filter would silently fail
+        *open* on exactly the collections that need it most. DRF calls
+        ``filter_queryset()`` from both ``ListModelMixin.list()`` and
+        ``GenericAPIView.get_object()`` regardless of how the queryset was built, and
+        no MCP-readable view overrides it, so this is the one hook every list and
+        detail read passes through.
+
+        ``get_queryset`` below *also* filters, for the five viewsets that do chain to
+        super and for actions that read ``self.get_queryset()`` directly without
+        going through ``filter_queryset`` (e.g. ``ProjectViewSet.health_summary``).
+        Double-filtering is harmless — the narrowing is idempotent.
+        """
+        qs = cast("QuerySet[Any]", super().filter_queryset(queryset))  # type: ignore[misc]
+        if self.mcp_scope in (None, McpScope.NO_PROJECT_DATA):
+            return qs
+        return self._mcp_filter_queryset(qs)
+
+    def get_queryset(self) -> QuerySet[Any]:
+        """Exclude rows whose project has opted out of agent reads (ADR-0678, #2482).
+
+        This is the collection-level half of the enforcement point. The guard
+        (:class:`McpProjectEnabled`) can only see a project that appears in the URL,
+        which is ``None`` for every list endpoint — so a guard-only opt-out would be
+        bypassed by any collection carrying the project as a query param
+        (``/tasks/?project=X``), the same confused-deputy shape #1712 closed. Row
+        filtering here closes it for all eleven queryset-backed MCP views at once.
+
+        Applies to token callers only, so human JWT/Session reads on the same
+        viewset are untouched. Runs *after* ``super().get_queryset()`` — which for a
+        ``ProjectScopedViewSet`` is the membership filter — so MCP consent narrows
+        an already-membership-scoped queryset and can never widen it. Detail routes
+        resolve through this same queryset, so an opted-out object 404s.
+        """
+        qs = cast("QuerySet[Any]", super().get_queryset())  # type: ignore[misc]
+        if self.mcp_scope in (None, McpScope.NO_PROJECT_DATA):
+            return qs
+        return self._mcp_filter_queryset(qs)
+
+    def _mcp_filter_queryset(self, qs: QuerySet[Any]) -> QuerySet[Any]:
+        """Narrow ``qs`` to projects readable by this agent token, or return it as-is.
+
+        Resolves the project relation the same way ``ProjectScopedViewSet`` does
+        (``project`` FK → ``predecessor__project`` → the ``Project`` row itself), so
+        the two stay consistent and a model with an unusual shape is handled in one
+        place. A model with no reachable project relation is returned unfiltered —
+        it holds no project-scoped rows to withhold.
+        """
+        from trueppm_api.apps.projects.mcp_settings import mcp_visible_project_ids
+
+        request = getattr(self, "request", None)
+        if request is None:
+            return qs
+        visible = mcp_visible_project_ids(request)
+        if visible is None:
+            # Not a token caller, or no project on the instance has opted out.
+            return qs
+
+        model = qs.model
+        field_names = {f.name for f in model._meta.get_fields()}
+        if "project" in field_names:
+            filtered = qs.filter(project_id__in=visible)
+        elif "predecessor" in field_names:
+            filtered = qs.filter(predecessor__project_id__in=visible)
+        elif model.__name__ == "Project":
+            filtered = qs.filter(pk__in=visible)
+        elif model.__name__ == "Program":
+            # A program is withheld only when the program itself denied; its
+            # projects are filtered on their own endpoints. Reading the program row
+            # is not reading a project's data.
+            filtered = qs.exclude(mcp_enabled=False)
+        elif "program" in field_names:
+            # Program-owned rows with no project FK (the program backlog pool).
+            # Governed by the program's own denial — a child project's opt-out does
+            # not withhold program-level intake data it does not own.
+            filtered = qs.exclude(program__mcp_enabled=False)
+        else:
+            return qs
+
+        # Record that something was withheld so the audit row is not an unqualified
+        # "allowed" (ADR-0678 T8). Set as a flag, not a count: counting would cost a
+        # second aggregate query on every filtered read.
+        request._mcp_scope_filtered = True
+        return filtered
 
     def finalize_response(self, request: Request, response: Any, *args: Any, **kwargs: Any) -> Any:
         """Record the per-action agent audit for a token-authenticated MCP read (#1805).
@@ -1396,6 +1614,14 @@ class McpReadableViewMixin(_McpViewBase):
         summary = f"MCP {request.method} {action}"
         if not allowed:
             summary += f" — refused ({status})"
+        elif getattr(request, "_mcp_scope_filtered", False):
+            # ADR-0678 T8: a collection read that had opted-out projects filtered out
+            # returns 200, so it would otherwise be recorded as an unqualified
+            # "allowed". Mark it so the Agents panel (#2481) shows a scoped read for
+            # what it is. Verdict stays ALLOWED deliberately — adding a PARTIAL member
+            # to AgentActionVerdict is a breaking enum change consumed by the shipped
+            # web client (tracked as follow-up, not smuggled into 0.4).
+            summary += " — consent-scoped (opted-out projects withheld)"
 
         def _write() -> None:
             record_agent_action(

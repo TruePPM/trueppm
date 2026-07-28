@@ -45,6 +45,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramOwner,
     IsProgramScheduler,
     McpReadableViewMixin,
+    McpScope,
 )
 from trueppm_api.apps.access.services import (
     create_program,
@@ -264,6 +265,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
       update    — IsProgramAdmin
       destroy   — IsProgramOwner; cascade-removes memberships in one transaction
     """
+
+    # ADR-0678 (#2482): Program rows are filtered on the program's own denial, but
+    # five detail actions read CHILD PROJECT data — schedule, rollup, projects,
+    # task_search, resource_contention — which the row filter cannot reach. Each
+    # scopes explicitly; see ADR-0678 threat-model finding T1.
+    mcp_scope = McpScope.AGGREGATE
 
     serializer_class = ProgramSerializer
     pagination_class = DirectoryPagination
@@ -831,6 +838,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
           resource (UUID, optional, repeatable) — filter to specific resource IDs.
           status   (string, optional, repeatable) — filter tasks by status value.
         """
+        from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
         from trueppm_api.apps.resources.models import TaskResource
 
         program = self.get_object()
@@ -838,9 +846,14 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # Member projects (non-deleted) — the contention scope. With no live
         # projects (or none scheduled) and no explicit window, the window cannot
         # be resolved and the endpoint returns 409 like the per-project one.
-        member_project_ids = list(
-            program.projects.filter(is_deleted=False).values_list("id", flat=True)
-        )
+        # ADR-0678 T1 (#2482): the contention scope aggregates CHILD PROJECT task
+        # spans, each tagged with its source project, so an opted-out project would
+        # otherwise surface its schedule through its parent program.
+        member_qs = program.projects.filter(is_deleted=False)
+        _excluded = mcp_excluded_project_ids(request)
+        if _excluded is not None:
+            member_qs = member_qs.exclude(pk__in=_excluded)
+        member_project_ids = list(member_qs.values_list("id", flat=True))
 
         def _parse_date(s: str, param: str) -> datetime.date:
             try:
@@ -1356,6 +1369,8 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         but the project itself only opens if the user also has project membership
         — that gate is enforced by the project's own viewset on click-through).
         """
+        from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
+
         program = self.get_object()
         # Per-project overdue / at-risk counts (#560), so the Projects tab reads
         # like a morning standup. Both are conditional COUNTs over the project's
@@ -1391,6 +1406,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             )
             .order_by("start_date", "name")
         )
+        # ADR-0678 T1 (#2482): this lists CHILD PROJECT rows (with per-project task
+        # counts), which the mixin's Program-row filter does not reach.
+        _excluded = mcp_excluded_project_ids(request)
+        if _excluded is not None:
+            qs = qs.exclude(pk__in=_excluded)
         return Response(ProjectSerializer(qs, many=True).data)
 
     @extend_schema(
@@ -1513,10 +1533,19 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         Read-only and computed on demand (no persisted rollup row), so it always
         reflects the projects' current state. Permission: any program member.
         """
+        from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
         from trueppm_api.apps.projects.program_rollup import compute_program_rollup
 
         program = self.get_object()
-        return Response(compute_program_rollup(program))
+        return Response(
+            compute_program_rollup(
+                program,
+                # ADR-0678 T1 (#2482): this is a program-scoped read that aggregates
+                # CHILD PROJECT data, so the mixin's row filter (which sees only the
+                # Program row) does not reach it. Opted-out projects are dropped here.
+                exclude_project_ids=mcp_excluded_project_ids(request),
+            )
+        )
 
     @extend_schema(
         summary="Compute the program-true cross-project schedule",
@@ -1552,6 +1581,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         injecting it keeps the schedule service request-agnostic.
         """
         from trueppm_api.apps.access.permissions import _membership_role
+        from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
         from trueppm_api.apps.projects.program_schedule import compute_program_schedule
 
         program = self.get_object()
@@ -1561,6 +1591,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 can_access_project=lambda project_id: (
                     _membership_role(request, project_id) is not None
                 ),
+                # ADR-0678 T1 (#2482): opted-out projects are DROPPED from the merged
+                # graph, not redacted — the ExternalTaskCard redaction still exposes
+                # task titles and program-true CPM dates, which is the wrong answer for
+                # a project that explicitly withheld consent.
+                exclude_project_ids=mcp_excluded_project_ids(request),
             )
         )
 
@@ -1638,14 +1673,21 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # membership query resolves the whole program's readable set — the same
         # ``ProjectMembership`` predicate ``_membership_role`` applies per row, but
         # here in one pass rather than N per-project lookups.
-        readable_ids = set(
-            ProjectMembership.objects.filter(
-                project__program=program,
-                project__is_deleted=False,
-                user=user,
-                is_deleted=False,
-            ).values_list("project_id", flat=True)
+        from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
+
+        membership_qs = ProjectMembership.objects.filter(
+            project__program=program,
+            project__is_deleted=False,
+            user=user,
+            is_deleted=False,
         )
+        # ADR-0678 T1 (#2482): the picker searches tasks across CHILD PROJECTS, which
+        # the mixin's Program-row filter does not reach. An opted-out project is
+        # dropped entirely — the same treatment a non-readable member project gets.
+        _excluded = mcp_excluded_project_ids(request)
+        if _excluded is not None:
+            membership_qs = membership_qs.exclude(project_id__in=_excluded)
+        readable_ids = set(membership_qs.values_list("project_id", flat=True))
         readable: dict[str, str] = {}
         for row in Project.objects.filter(
             program=program, is_deleted=False, id__in=readable_ids

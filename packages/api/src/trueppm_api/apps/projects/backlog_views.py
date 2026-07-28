@@ -31,6 +31,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramMember,
     IsProgramNotClosed,
     McpReadableViewMixin,
+    McpScope,
     _membership_role,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
@@ -71,6 +72,11 @@ class BacklogItemViewSet(
     ``get_permissions``, so no branch — including the write branches — can leak a
     token past ``TokenReadOnlyMethods`` / ``TokenHasScope`` / ``TokenIsOwnerScoped``.
     """
+
+    # ADR-0678 (#2482): program-level intake pool. BacklogItem has no project FK,
+    # so the central filter reaches it through the `program` branch — a child
+    # project's opt-out does not withhold intake data the project does not own.
+    mcp_scope = McpScope.AGGREGATE
 
     serializer_class = BacklogItemSerializer
 

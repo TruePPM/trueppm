@@ -155,6 +155,14 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             "attachments_enabled",
             "allowed_attachment_types",
             "attachments_override_policy",
+            # Workspace-scope MCP/agent read consent (ADR-0678, #2482) — the non-null
+            # root of the chain. There is deliberately NO mcp_override_policy: the
+            # cascade is restrictive-only (AND), so turning this off closes agent reads
+            # workspace-wide, while turning it on never overrides a program's or
+            # project's own denial. An ENFORCE-style lock that could force agent reads
+            # back ON for a team is exactly the "consent in name only" objection this
+            # control answers (#2415).
+            "mcp_enabled",
             # Workspace-wide default working calendar (ADR-0441, #1987) — the root of
             # the Project → Program → Workspace → system-default chain. Nullable: NULL =
             # fall through to the system default (Mon-Fri/8h/UTC). calendar_override_policy

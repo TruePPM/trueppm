@@ -78,6 +78,7 @@ from trueppm_api.apps.access.permissions import (
     IsTaskScopeManager,
     IsTokenForProject,
     McpReadableViewMixin,
+    McpScope,
     ProjectScopedViewSet,
     TokenHasScope,
     can_user_edit_task,
@@ -707,6 +708,11 @@ class ProjectViewSet(
                                      estimation_mode (ADR-0041, estimation governance)
       destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)
     """
+
+    # ADR-0678 (#2482): Project rows filtered by pk in the mixin's get_queryset.
+    # health_summary — the one cross-project list action — reads through
+    # self.get_queryset(), so it inherits the same filter rather than needing its own.
+    mcp_scope = McpScope.QUERYSET
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
@@ -4342,6 +4348,9 @@ class TaskViewSet(
       update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)
     """
 
+    # ADR-0678 (#2482): Task.project FK.
+    mcp_scope = McpScope.QUERYSET
+
     permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def get_permissions(self) -> list[BasePermission]:
@@ -7414,6 +7423,9 @@ class RiskViewSet(
     OrderingFilter can sort by it without a Python round-trip.
     """
 
+    # ADR-0678 (#2482): Risk.project FK.
+    mcp_scope = McpScope.QUERYSET
+
     queryset = (
         Risk.objects.select_related("project", "owner", "created_by")
         .prefetch_related("tasks")
@@ -7703,6 +7715,9 @@ class LabelViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVie
     Reads are MCP-reachable (``mcp:read``) via the mixin; label *writes* stay
     human-only until the 0.6 agent write surface (ADR-0186).
     """
+
+    # ADR-0678 (#2482): Label.project FK.
+    mcp_scope = McpScope.QUERYSET
 
     # No select_related: the serializer emits neither project nor created_by, and
     # scoping filters on the project_id column (no join) — the FK joins were dead weight.
@@ -8587,10 +8602,22 @@ class BoardColumnConfigView(McpReadableViewMixin, IdempotencyMixin, APIView):
     Reads are open to all project members.
     """
 
+    # ADR-0678 (#2482): projects/<pk>/board-config/
+    mcp_scope = McpScope.PATH
+
     def get_permissions(self) -> list[BasePermission]:
+        # This override replaces the mixin's get_permissions entirely, so the MCP
+        # guards must be re-appended explicitly — exactly as the ViewSets that
+        # override do. Without this the view is MCP-readable with NO token guard at
+        # all: not the team opt-out (ADR-0678), not the scope/owner checks, and not
+        # even the instance-wide kill switch (ADR-0497). Caught by the conformance
+        # test in tests/apps/access/test_mcp_team_opt_out.py, which asserts every
+        # get_permissions override on an MCP-readable view calls mcp_token_guards().
         if self.request.method in SAFE_METHODS:
-            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
-        return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
+            rbac = [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        else:
+            rbac = [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
+        return [*rbac, *self.mcp_token_guards()]
 
     def get(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.projects.services import annotate_wip_breach
@@ -8802,6 +8829,9 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
 
     Permission: Member (any role ≥ Viewer).
     """
+
+    # ADR-0678 (#2482): projects/<pk>/overview/
+    mcp_scope = McpScope.PATH
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
@@ -10908,6 +10938,9 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
       destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)
     """
 
+    # ADR-0678 (#2482): Sprint.project FK.
+    mcp_scope = McpScope.QUERYSET
+
     queryset = Sprint.objects.select_related("project", "created_by", "target_milestone").filter(
         is_deleted=False
     )
@@ -12795,6 +12828,10 @@ class MeSearchView(McpReadableViewMixin, APIView):
     owner-scoped token — the resolution fact is not stranded in the web client.
     """
 
+    # ADR-0678 (#2482): cross-project omni-search; each of its two sources is
+    # scoped explicitly (the mixin's row filter cannot reach a hand-built response).
+    mcp_scope = McpScope.AGGREGATE
+
     permission_classes = [IsAuthenticated]
     throttle_classes = [ScopedRateThrottle]
     # A per-keystroke (debounced) search surface; bound it like the other
@@ -12811,7 +12848,13 @@ class MeSearchView(McpReadableViewMixin, APIView):
         allowed = [t for t in requested if t in _OMNI_SEARCH_TYPES]
         return allowed or list(_OMNI_SEARCH_DEFAULT_TYPES)
 
-    def _task_results(self, user_pk: Any, q: str, types: list[str]) -> list[dict[str, Any]]:
+    def _task_results(
+        self,
+        user_pk: Any,
+        q: str,
+        types: list[str],
+        mcp_excluded: Any | None = None,
+    ) -> list[dict[str, Any]]:
         # OR the requested kinds' predicates into the single membership-gated queryset
         # (ADR-0662 D1), so the 🔴 IDOR filter below is written once and a new kind
         # cannot be added in a way that bypasses it.
@@ -12829,20 +12872,29 @@ class MeSearchView(McpReadableViewMixin, APIView):
         # instead of catastrophic.
         if not matched:
             return []
+        base = Task.objects.filter(
+            selector,
+            name__icontains=q,
+            is_deleted=False,
+            project__is_deleted=False,
+            # The 🔴 IDOR gate: live project membership only.
+            project__memberships__user_id=user_pk,
+            project__memberships__is_deleted=False,
+        )
+        if mcp_excluded is not None:
+            # ADR-0678 (#2482): an agent token never sees rows from a project that
+            # opted out of agent reads. Silent row filtering rather than a wholesale
+            # refusal — one team's opt-out must not blank a contributor's entire
+            # cross-project search. ``None`` for human callers and when nothing on
+            # the instance has opted out, so the normal query plan is untouched.
+            base = base.exclude(project_id__in=mcp_excluded)
         rows = (
-            Task.objects.filter(
-                selector,
-                name__icontains=q,
-                is_deleted=False,
-                project__is_deleted=False,
-                # The 🔴 IDOR gate: live project membership only.
-                project__memberships__user_id=user_pk,
-                project__memberships__is_deleted=False,
-            )
+            base
             # Fold the whole breadcrumb (project → program, parent epic) in one query
             # so building the rows below is N+1-free.
-            .select_related("project", "project__program", "parent_epic")
-            .distinct()[:_OMNI_SEARCH_SCAN_CAP]
+            .select_related("project", "project__program", "parent_epic").distinct()[
+                :_OMNI_SEARCH_SCAN_CAP
+            ]
         )
         results: list[dict[str, Any]] = []
         for task in rows:
@@ -12868,7 +12920,13 @@ class MeSearchView(McpReadableViewMixin, APIView):
             )
         return results
 
-    def _backlog_results(self, user_pk: Any, q: str, types: list[str]) -> list[dict[str, Any]]:
+    def _backlog_results(
+        self,
+        user_pk: Any,
+        q: str,
+        types: list[str],
+        mcp_excluded: Any | None = None,
+    ) -> list[dict[str, Any]]:
         # Kinds with no backlog analogue (``milestone`` — a schedule artifact, never
         # program intake) contribute nothing here.
         item_types = [
@@ -12878,19 +12936,21 @@ class MeSearchView(McpReadableViewMixin, APIView):
         ]
         if not item_types:
             return []
-        rows = (
-            BacklogItem.objects.filter(
-                item_type__in=item_types,
-                title__icontains=q,
-                is_deleted=False,
-                program__is_deleted=False,
-                # The 🔴 IDOR gate: live program membership only.
-                program__memberships__user_id=user_pk,
-                program__memberships__is_deleted=False,
-            )
-            .select_related("program")
-            .distinct()[:_OMNI_SEARCH_SCAN_CAP]
+        base = BacklogItem.objects.filter(
+            item_type__in=item_types,
+            title__icontains=q,
+            is_deleted=False,
+            program__is_deleted=False,
+            # The 🔴 IDOR gate: live program membership only.
+            program__memberships__user_id=user_pk,
+            program__memberships__is_deleted=False,
         )
+        if mcp_excluded is not None:
+            # ADR-0678 (#2482): backlog items are PROGRAM-level intake, so the
+            # program's own denial governs them — a child project's opt-out does not
+            # withhold intake data the project does not own.
+            base = base.exclude(program__mcp_enabled=False)
+        rows = base.select_related("program").distinct()[:_OMNI_SEARCH_SCAN_CAP]
         return [
             {
                 "id": str(item.id),
@@ -12976,7 +13036,15 @@ class MeSearchView(McpReadableViewMixin, APIView):
         q = raw_q[:_OMNI_SEARCH_MAX_Q]
         types = self._requested_types()
 
-        merged = self._task_results(user_pk, q, types) + self._backlog_results(user_pk, q, types)
+        # ADR-0678 (#2482): this view is McpScope.AGGREGATE — it spans projects and
+        # builds its response by hand, so the mixin's row filter cannot reach it and
+        # each source must be scoped explicitly.
+        from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
+
+        mcp_excluded = mcp_excluded_project_ids(request)
+        merged = self._task_results(user_pk, q, types, mcp_excluded) + self._backlog_results(
+            user_pk, q, types, mcp_excluded
+        )
         # Rank: exact prefix matches first (what the user most likely means), then by
         # kind, then alphabetically, then id for a stable total order across pages.
         # Kind is deliberately a tiebreaker *inside* a prefix class, not above it — an
@@ -13213,6 +13281,11 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
     ``services.me_work_signals``.
     """
 
+    # ADR-0678 (#2482): cross-project personal work feed. The paginated task rows
+    # are filtered centrally via filter_queryset; the hand-built side blocks
+    # (active_sprints, due_today_count, signals) are scoped explicitly below.
+    mcp_scope = McpScope.AGGREGATE
+
     permission_classes = [IsAuthenticated]
     serializer_class = MeWorkTaskSerializer
     pagination_class = MeWorkPagination
@@ -13320,6 +13393,14 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
         # Active sprints the user has tasks in — minimal card data only. Burndown
         # and capacity ratio live on /me/active-sprints/; here we only need what
         # the section header in the UI renders.
+        # ADR-0678 (#2482): the paginated task rows are filtered centrally by the
+        # mixin, but this side block is built by hand and would otherwise name
+        # sprints (and, through them, projects) that opted out of agent reads.
+        # ``me_work_signals`` below derives from ``active_sprints_list``, so scoping
+        # here also scopes the signals aggregates.
+        from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
+
+        mcp_excluded = mcp_excluded_project_ids(request)
         active_sprints_qs = (
             Sprint.objects.filter(
                 is_deleted=False,
@@ -13349,20 +13430,26 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             .distinct()
             .order_by("finish_date")
         )
+        if mcp_excluded is not None:
+            active_sprints_qs = active_sprints_qs.exclude(project_id__in=mcp_excluded)
 
         # Due-today count — drives the Sidebar "My Work" badge. Coalesce the
         # same cascade the serializer's `due` field uses so the count matches
         # exactly what the UI shows.
         today = timezone.localdate()
+        due_today_base = Task.objects.filter(
+            assignee_id=user_pk,
+            is_deleted=False,
+            project__is_deleted=False,
+            project__memberships__user_id=user_pk,
+            project__memberships__is_deleted=False,
+        )
+        if mcp_excluded is not None:
+            # Keep the badge count consistent with the rows actually returned —
+            # otherwise an agent is told "3 due today" but shown 1 (ADR-0678 #2482).
+            due_today_base = due_today_base.exclude(project_id__in=mcp_excluded)
         due_today_count = (
-            Task.objects.filter(
-                assignee_id=user_pk,
-                is_deleted=False,
-                project__is_deleted=False,
-                project__memberships__user_id=user_pk,
-                project__memberships__is_deleted=False,
-            )
-            .exclude(status__in=[TaskStatus.BACKLOG, TaskStatus.COMPLETE])
+            due_today_base.exclude(status__in=[TaskStatus.BACKLOG, TaskStatus.COMPLETE])
             .annotate(
                 _due=Coalesce(
                     "actual_finish",
@@ -13654,6 +13741,9 @@ class ProjectSprintHealthView(McpReadableViewMixin, APIView):
     Permission: Member (any role ≥ Viewer) — a team+coach surface, not velocity.
     """
 
+    # ADR-0678 (#2482): projects/<pk>/sprint-health/
+    mcp_scope = McpScope.PATH
+
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
@@ -13678,6 +13768,9 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
     the per-sprint series for below-tier readers at the shared ``velocity_summary``
     sink so both endpoints inherit it.
     """
+
+    # ADR-0678 (#2482): projects/<pk>/forecast/
+    mcp_scope = McpScope.PATH
 
     mcp_compute_heavy = True  # computed-on-read forecast (velocity Monte Carlo) (#1808 F4)
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
@@ -13747,6 +13840,9 @@ class ProjectSprintForecastView(McpReadableViewMixin, APIView):
     the band (#981). The forecast itself is computed-on-read and cached for an hour
     inside the service; the view only owns the privacy gate.
     """
+
+    # ADR-0678 (#2482): projects/<pk>/sprint-forecast/
+    mcp_scope = McpScope.PATH
 
     mcp_compute_heavy = True  # computed-on-read backlog delivery forecast (#1808 F4)
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]

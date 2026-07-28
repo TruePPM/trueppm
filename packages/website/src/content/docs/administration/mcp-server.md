@@ -338,6 +338,63 @@ may follow in a later release.
   tokens that already exist, while leaving human session/JWT traffic on the same
   endpoints untouched. This is the "no agent access, period" operator lever; see
   [Disabling MCP access entirely](/administration/configuration/#disabling-mcp-access-entirely).
+- **Team-level opt-out.** A project (or program, or the workspace) can close
+  itself to agent reads independently of the operator's switch — see
+  [Team-level opt-out](#team-level-opt-out) below.
+
+## Team-level opt-out
+
+The instance switch above is the *operator's* lever. A team has its own, over
+reads of its own data: **Project settings → Agents → Agent read access**. The
+same control exists at program scope (**Program settings → Agents**) and at
+workspace scope.
+
+Each scope is three-state: **Inherit** (no opinion of its own), **Allowed**, or
+**Blocked**.
+
+### What the control actually guarantees
+
+It **blocks the read**. It is not an after-the-fact log.
+
+This distinction matters, because TruePPM ships both and they are different
+things:
+
+| Surface | Guarantee |
+| --- | --- |
+| **Agent read access** (this control) | **Prevents** the read. MCP tools return a refusal for the project's data. |
+| [Agent oversight](/features/agent-oversight/) | **Records** reads that happened. Visibility, not prevention. |
+
+When a project is blocked, a project-scoped tool call returns `403` and every
+collection endpoint simply withholds that project's rows — a cross-project tool
+like "my work" keeps working and returns the caller's other projects, so one
+team's decision never blanks another team's data. Every refusal is recorded in
+the [agent-action audit log](#agent-action-audit-log) as a `policy` refusal.
+
+### Who it affects
+
+Only agent (MCP token) traffic. **People are never affected** — your team, and
+anyone signed in through the web or mobile app, read exactly what they always
+did. Blocking agent access does not hide anything from a human being.
+
+### The rules that make it consent rather than a suggestion
+
+1. **Any scope may block; no scope may unblock another's block.** The effective
+   answer is the AND of every scope — instance, workspace, program, project. A
+   workspace administrator can close agent access org-wide, and **cannot** re-open
+   a project that closed itself. There is deliberately no "enforce" or "lock"
+   setting that would let a higher scope force agent reads back on.
+2. **Inherit means "nobody above has objected"** — never "yes, on your behalf".
+3. **An agent cannot lift its own restriction.** `mcp:read` tokens are read-only
+   at the API layer, so an agent cannot change this setting under any role.
+4. **Changing it requires project Admin or above**, and every change is recorded
+   in the project's history.
+
+### Why it is separate from the instance switch
+
+The two are shown as separate facts and never collapsed into one. A team's page
+always reflects *the team's* decision, so a toggle never reads "off" for a reason
+the team cannot act on. Because the switches are ANDed, turning one on can never
+override the other's "off".
 
 ## Agent-action audit log
 

@@ -45,6 +45,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramMember,
     IsProjectMember,
     McpReadableViewMixin,
+    McpScope,
 )
 from trueppm_api.apps.projects import asset_feed
 from trueppm_api.apps.projects.asset_feed import AssetFeedResponseSerializer, build_asset_feed
@@ -254,6 +255,9 @@ class WorkspaceAssetsView(McpReadableViewMixin, APIView):
     human traffic on the default ``user`` throttle.
     """
 
+    # ADR-0678 (#2482): workspace-wide asset roll-up; scoped explicitly.
+    mcp_scope = McpScope.AGGREGATE
+
     permission_classes = [IsAuthenticated]  # noqa: RUF012
 
     @extend_schema(
@@ -277,6 +281,15 @@ class WorkspaceAssetsView(McpReadableViewMixin, APIView):
         )
         if program_id is not None:
             memberships = memberships.filter(project__program_id=program_id)
+        # ADR-0678 (#2482): McpScope.AGGREGATE — this feed spans every project the
+        # caller belongs to and is assembled by hand, so the mixin's row filter
+        # cannot reach it. An agent token never sees assets from an opted-out
+        # project; a human caller is unaffected (helper returns None).
+        from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
+
+        mcp_excluded = mcp_excluded_project_ids(request)
+        if mcp_excluded is not None:
+            memberships = memberships.exclude(project_id__in=mcp_excluded)
         readable_ids = list(memberships.values_list("project_id", flat=True))
 
         params = _parse_asset_params(request)

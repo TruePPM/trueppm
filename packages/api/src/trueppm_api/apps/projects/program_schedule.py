@@ -25,7 +25,7 @@ status) for member projects they cannot read — never a bare "blocked by
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
@@ -252,6 +252,7 @@ def gather_program_schedule(
     *,
     enforce_max: bool = True,
     can_access_project: Callable[[Any], bool] | None = None,
+    exclude_project_ids: Collection[Any] | None = None,
 ) -> ProgramScheduleGraph:
     """Merge every member project's tasks + accepted cross edges and run CPM once.
 
@@ -295,9 +296,16 @@ def gather_program_schedule(
     from trueppm_api.apps.projects.models import Dependency, EstimationMode, Project
     from trueppm_api.apps.scheduling.calendars import compose_project_calendar
 
+    member_qs = Project.objects.filter(program=program, is_deleted=False)
+    if exclude_project_ids is not None:
+        # ADR-0678 (#2482): a project that opted out of agent reads is DROPPED from
+        # the merged graph, not redacted. The ExternalTaskCard redaction that
+        # ``can_access_project`` drives still leaks task titles and program-true CPM
+        # dates — acceptable for a project the caller merely lacks membership on,
+        # and NOT acceptable for one that explicitly withheld consent.
+        member_qs = member_qs.exclude(pk__in=exclude_project_ids)
     member_projects = list(
-        Project.objects.filter(program=program, is_deleted=False)
-        .select_related("calendar", "program__calendar")
+        member_qs.select_related("calendar", "program__calendar")
         # calendar__exceptions + calendar_layers__calendar__exceptions:
         # compose_project_calendar reads each member project's base calendar
         # exceptions (#1491) AND its applied overlays (#906); prefetch both to
@@ -480,6 +488,7 @@ def compute_program_schedule(
     program: Program,
     *,
     can_access_project: Callable[[Any], bool],
+    exclude_project_ids: Collection[Any] | None = None,
 ) -> dict[str, Any]:
     """Compute the merged, program-true schedule for ``program`` on read.
 
@@ -504,7 +513,10 @@ def compute_program_schedule(
             for an accessible offending project (ADR-0120 D5).
     """
     graph = gather_program_schedule(
-        program, enforce_max=True, can_access_project=can_access_project
+        program,
+        enforce_max=True,
+        can_access_project=can_access_project,
+        exclude_project_ids=exclude_project_ids,
     )
 
     # Lane metadata is independent of whether the program has any schedulable

@@ -327,6 +327,19 @@ class Workspace(models.Model):
         choices=TermOverridePolicy.choices,
         default=TermOverridePolicy.SUGGEST,
     )
+    # Workspace-scope MCP/agent read consent (ADR-0678, #2482) — the non-null root
+    # of the Workspace → Program → Project chain. Default True preserves the
+    # pre-0678 behavior exactly (the instance switch, ADR-0497, remains the
+    # operator's lever).
+    #
+    # why no ``mcp_override_policy`` here, breaking symmetry with the four
+    # settings above: this cascade is RESTRICTIVE-ONLY (AND), not override. Any
+    # scope may deny for itself and everything beneath it; no scope may grant over
+    # another's denial. An ENFORCE lock would let a workspace admin force MCP back
+    # ON for a team, which is exactly the "consent in name only" objection (#2415)
+    # this control exists to answer. Turning it off org-wide — the only coherent
+    # governance lever — already works through the AND.
+    mcp_enabled = models.BooleanField(default=True)
 
     # In-product feedback / report-a-bug link (#2392).
     #

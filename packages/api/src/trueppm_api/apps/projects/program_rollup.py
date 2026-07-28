@@ -32,6 +32,7 @@ async side effects (ADR-0088 Durable Execution: all N/A).
 from __future__ import annotations
 
 import datetime
+from collections.abc import Collection
 from typing import Any
 
 from django.db.models import Count, F, Max, Q, Sum
@@ -78,7 +79,11 @@ _HEALTH_ORDINAL = {"critical": 0, "at_risk": 1, "on_track": 2}
 _ORDINAL_TO_HEALTH = {0: "critical", 1: "at_risk", 2: "on_track"}
 
 
-def compute_program_rollup(program: Program) -> dict[str, Any]:
+def compute_program_rollup(
+    program: Program,
+    *,
+    exclude_project_ids: Collection[Any] | None = None,
+) -> dict[str, Any]:
     """Compute the rolled-up KPI block for a program's overview (ADR-0088).
 
     Returns a dict with the program health dot, the active aggregation policy
@@ -96,9 +101,14 @@ def compute_program_rollup(program: Program) -> dict[str, Any]:
     policy = program.rollup_aggregation_policy or AggregationPolicy.WORST.value
     enabled = list(program.rollup_enabled_kpis or [])
 
-    project_ids = list(
-        Project.objects.filter(program=program, is_deleted=False).values_list("id", flat=True)
-    )
+    project_qs = Project.objects.filter(program=program, is_deleted=False)
+    if exclude_project_ids is not None:
+        # ADR-0678 (#2482): a project that opted out of agent reads does not feed the
+        # rolled-up KPIs an agent sees. ``contributing_project_count`` derives from this
+        # set, so the response stays internally consistent — the agent is told how many
+        # projects contributed, never that any were withheld.
+        project_qs = project_qs.exclude(pk__in=exclude_project_ids)
+    project_ids = list(project_qs.values_list("id", flat=True))
 
     # weighted_by_budget cannot be honored until the cost model (#754) lands, so
     # it degrades to AVERAGE and the caller flags policy_available=False.

@@ -42,6 +42,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectNotArchived,
     IsProjectScheduler,
     McpReadableViewMixin,
+    McpScope,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
@@ -637,6 +638,9 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
     Permission: Member (any role ≥ Viewer).
     """
 
+    # ADR-0678 (#2482): projects/<pk>/monte-carlo/latest/
+    mcp_scope = McpScope.PATH
+
     mcp_compute_heavy = True  # part of the F4 compute-heavy MCP tool set (#1808)
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
@@ -786,6 +790,9 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
     Permission: Member (any role >= Viewer), the same project-read gate as the
     ``run_monte_carlo`` / latest / history forecast endpoints.
     """
+
+    # ADR-0678 (#2482): projects/<pk>/monte-carlo/whatif/
+    mcp_scope = McpScope.PATH
 
     mcp_compute_heavy = True  # two CPM passes + two Monte Carlo runs per call (#1808 F4)
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
@@ -1882,6 +1889,9 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
     additionally exposes it to an ``mcp:read`` API token confined to safe methods,
     so an AI/MCP agent can cite the *why* alongside the value.
     """
+
+    # ADR-0678 (#2482): projects/<pk>/schedule/derivation/
+    mcp_scope = McpScope.PATH
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
