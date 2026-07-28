@@ -9,8 +9,9 @@
  *
  * Slugs are docs-site paths **without** a leading slash, in the shape `docsUrl()`
  * expects (rule 212) — `administration/project-settings/#general`, never an
- * in-app `/docs/…` path. A trailing slash before the fragment matches how
- * Starlight serves the page.
+ * app-origin path under the `/docs` prefix, which has no SPA route and 404s
+ * (#979). A trailing slash before the fragment matches how Starlight serves the
+ * page.
  *
  * Two tests in `settingsDocs.test.ts` keep this honest, because two different
  * things rot:

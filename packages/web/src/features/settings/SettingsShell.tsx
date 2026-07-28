@@ -1071,8 +1071,8 @@ const DOCS_LINK_BLOCK = `inline-flex items-center gap-1 text-[12px] ${DOCS_LINK_
  * The caller supplies the link text, so the accessible name is already specific
  * and only the new-tab notice is appended to it.
  *
- * `href` is a docs-site slug (plus optional `#anchor`), never an in-app `/docs/…`
- * path (rule 212).
+ * `href` is a docs-site slug (plus optional `#anchor`), never an app-origin path
+ * under the `/docs` prefix (rule 212).
  */
 export function DocsLink({ href, children }: { href: string; children: string }) {
   return (
