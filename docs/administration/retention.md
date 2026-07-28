@@ -40,6 +40,7 @@ enforces it.
 | `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | days | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs |
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | days | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows |
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | hours | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) |
+| `TRUEPPM_TOMBSTONE_RETENTION_DAYS` | `90` | days | Per-row soft-delete tombstones (`Task`, `Dependency`, `TaskRelation`, `Risk`, `Sprint`) in live projects. Reaped by a separate nightly job (03:30 UTC), **not** the coordinator — see ADR-0197 and ADR-0689 |
 
 **One purge coordinator, not five nightly jobs.** These five tables were previously purged
 by five separate nightly Beat jobs at staggered UTC times. As of ADR-0173 they are purged

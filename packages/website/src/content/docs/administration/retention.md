@@ -50,12 +50,20 @@ the window — the next scheduled or manual run enforces it.
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | days | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows |
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | hours | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) |
 | `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `30` | days | Soft-deleted ("trashed") `Project` rows, hard-deleted with all child data (see [Trashed projects](#trashed-projects-are-hard-deleted-after-the-window) below) |
+| `TRUEPPM_TOMBSTONE_RETENTION_DAYS` | `90` | days | Per-row soft-delete tombstones (`Task`, `Dependency`, `TaskRelation`, `Risk`, `Sprint`) in live projects. This is also the window a deleted **task** stays restorable — see [What you can get back](#what-you-can-get-back) |
 
 **One purge coordinator, not many nightly jobs.** The outbox and history tables were
 originally purged by separate nightly Beat jobs at staggered UTC times. As of ADR-0173 the
 retention windows above are purged by a **single retention purge coordinator** that runs
 all six as one unified run on the schedule below (default **02:00 UTC daily**). Each
 per-table task still exists and remains dispatchable, but none is independently scheduled.
+
+**Per-row tombstones are reaped on their own schedule.** `TRUEPPM_TOMBSTONE_RETENTION_DAYS`
+is enforced by a separate nightly job (03:30 UTC) that does **not** run through the
+coordinator above: it reads the setting directly, writes no purge-log row, and is not
+listed on the Retention & purge settings page. Changing the coordinator's schedule — or
+setting its frequency to `Off` — does not affect it. Tombstones inside an **archived**
+project are skipped entirely and retained indefinitely.
 
 **Workspace export archives are purged separately.** A completed workspace export
 (Settings → Archive / Delete → *Export all data*, ADR-0174) writes a full `.tar.gz` to
@@ -96,6 +104,57 @@ value) and restart the API/worker pods. Example:
 # leave it unset to fall back to the default (7). An empty value is invalid.
 TRUEPPM_WEBHOOK_RETENTION_DAYS=30
 ```
+
+## What you can get back
+
+Deleting something in TruePPM does not always mean the row leaves the database — most
+models are *soft*-deleted so offline and MCP clients receive a tombstone on their next
+sync rather than silently losing a row. That is a sync mechanism, not a promise of
+recovery. This table is the promise: what a **user** can actually restore, and for how
+long.
+
+| You delete a… | Can you get it back? | Where from | For how long |
+|---|---|---|---|
+| **Project** | Yes | Settings → Workspace → **Trash** (project Owner) | `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` (default 30 days) |
+| **Task** | Yes | Schedule ⋯ or Board ⋯ → **Recently deleted** (project admin, or the task's assignee) | `TRUEPPM_TOMBSTONE_RETENTION_DAYS` (default 90 days) |
+| **Resource** | Yes | Resources → **Show deactivated** → **Restore resource** (workspace admin) | Indefinitely — a deactivated resource is never purged |
+| **Sprint** | No | — | Only `Planned` or `Cancelled` sprints can be deleted at all |
+| **Baseline** | No | — | Capture a new one |
+| **Dependency / task link** | Not on its own | Restored automatically when its task is restored, if both ends are live | — |
+| **Risk** | No | — | — |
+| **Label** | No | — | Deleting a label also detaches it from every task, so there is nothing faithful to restore |
+
+:::note[Ships in 0.4]
+The task **Recently deleted** panel ships in **TruePPM 0.4** (the first beta), alongside
+the project Trash. Before 0.4, a deleted task is recoverable only from the inline
+"Deleted — Undo" toast shown immediately after the delete.
+:::
+
+### Recovering a deleted task
+
+A deleted task stays restorable for `TRUEPPM_TOMBSTONE_RETENTION_DAYS` (default 90 days),
+after which the nightly tombstone reaper removes it permanently. Two ways back:
+
+- **Undo, immediately.** The inline **"Deleted — Undo"** toast right after the delete.
+- **Recently deleted, later.** **Recently deleted…** in the Schedule's Project-actions (⋯)
+  menu or the Board's ⋯ More menu lists every restorable task in the project, newest
+  first, with how long ago it was deleted and how many days remain.
+
+Restoring is **atomic and faithful**: the task comes back with its original id, history,
+resource assignments, and its subtask subtree, and every dependency edge whose two
+endpoints are both live is re-linked in the same transaction. Because a parent's restore
+brings its subtasks with it, the list shows the **restorable root** of each delete rather
+than every tombstoned row — a row that will bring subtasks back says so.
+
+Any project member can open the list; **Restore** is enabled under exactly the rule that
+governs deletion — a project admin, or the task's own assignee. The list is capped at the
+200 most recent deletions and says so when it has been cut.
+
+:::caution[Archived projects keep their tombstones forever]
+The nightly reaper skips projects flagged as archived, so tasks deleted inside an archived
+project are retained indefinitely rather than aging out. They show an indefinite retention
+in the list.
+:::
 
 ## Trashed projects are hard-deleted after the window
 

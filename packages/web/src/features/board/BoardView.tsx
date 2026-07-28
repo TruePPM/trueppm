@@ -82,6 +82,7 @@ import { phaseColor } from './phaseColors';
 import { BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { CalmToolbar } from './CalmToolbar';
+import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
 import { BoardFilterControl, BoardFilterChips } from './BoardFilterControl';
 import { DeletedLabelNotice } from './DeletedLabelNotice';
 import { missingLabelIds } from './savedViewSummary';
@@ -1552,6 +1553,9 @@ export function BoardView() {
   const [focusedPhaseId, setFocusedPhaseId] = useState<string | null>(null);
   // Overlay state — only one is open at a time.
   const [showCheatsheet, setShowCheatsheet] = useState(false);
+  // "Recently deleted" task Trash (#2494, ADR-0689) — recovery that outlives the
+  // delete Undo toast. Every member may open it; per-row Restore is server-gated.
+  const [taskTrashOpen, setTaskTrashOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [depTask, setDepTask] = useState<Task | null>(null);
   const [riskTask, setRiskTask] = useState<Task | null>(null);
@@ -2931,6 +2935,7 @@ export function BoardView() {
             onEvmChange={setEvmMode}
             onOpenColumns={() => setShowSettings(true)}
             onOpenCheatsheet={() => setShowCheatsheet(true)}
+            onOpenTrash={projectId ? () => setTaskTrashOpen(true) : undefined}
             onShare={canShareBoard && projectId ? () => setShareOpen(true) : undefined}
             onExportPdf={onExportPdf}
             exportingPdf={exportingPdf}
@@ -3147,6 +3152,10 @@ export function BoardView() {
           });
         }}
       />
+
+      {taskTrashOpen && projectId && (
+        <TaskTrashDialog projectId={projectId} onClose={() => setTaskTrashOpen(false)} />
+      )}
 
       <BoardCardOverlays
         projectId={projectId}

@@ -319,6 +319,8 @@ export interface CalmToolbarProps {
   onEvmChange: (m: EvmMode) => void;
   onOpenColumns: () => void;
   onOpenCheatsheet: () => void;
+  /** Open the "Recently deleted" task Trash (#2494). Absent when there is no project. */
+  onOpenTrash?: () => void;
   // Public board share (#1486). Undefined for non-Admins → the item is hidden.
   onShare?: () => void;
   // Export PDF (issue 326) — rasterizes the off-screen print layout BoardView
@@ -844,6 +846,14 @@ export function CalmToolbar(props: CalmToolbarProps) {
             {props.onShare && (
               <MoreItem onClick={props.onShare} ariaLabel="Share this board with a public link">
                 ↗ Share this board…
+              </MoreItem>
+            )}
+            {props.onOpenTrash && (
+              <MoreItem
+                onClick={props.onOpenTrash}
+                ariaLabel="Recently deleted tasks — restore a task deleted from this project"
+              >
+                🗑 Recently deleted…
               </MoreItem>
             )}
             <MoreItem onClick={props.onOpenCheatsheet}>? Keyboard shortcuts</MoreItem>

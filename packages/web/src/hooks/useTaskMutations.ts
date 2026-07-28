@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { handleSyncConflict, isSyncConflict } from '@/api/conflict';
 import type { Task, TaskType, GovernanceClass, DeliveryMode } from '@/types';
@@ -520,6 +520,8 @@ export function useDeleteTask(projectId: string | null) {
     },
     onSuccess: (_data, taskId) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      // The task just became a Trash row — keep an open Recently-deleted panel honest (#2494).
+      void queryClient.invalidateQueries({ queryKey: ['tasks-trash', projectId] });
       // Refresh the deleted task's Activity feed so an open drawer shows the
       // deletion record instead of going stale (#1867).
       void queryClient.invalidateQueries({
@@ -545,12 +547,62 @@ export function useBulkDeleteTasks(projectId: string | null) {
     },
     onSuccess: (_data, taskIds) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks-trash', projectId] });
       // Refresh the Activity feed of each deleted task (#1867).
       for (const taskId of taskIds) {
         void queryClient.invalidateQueries({
           queryKey: ['task-history', projectId ?? undefined, taskId],
         });
       }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// useTrashedTasks — GET /api/v1/tasks/trash/?project=<id>
+// ---------------------------------------------------------------------------
+
+/** One restorable row in the task Trash (#2494, ADR-0689). */
+export interface TrashedTask {
+  id: string;
+  name: string;
+  /** Dotted WBS path, or '' for an unscheduled/backlog row that never had one. */
+  wbs_path: string;
+  type: string;
+  status: string;
+  /** ISO timestamp of the delete; null for a legacy tombstone (retained indefinitely). */
+  deleted_at: string | null;
+  /** Days left before the nightly reaper hard-deletes it; null when deleted_at is null. */
+  days_remaining: number | null;
+  /** Effective tombstone window in days, or null when retention is disabled. */
+  retention_days: number | null;
+  /** Tombstoned subtask descendants that come back with this row. */
+  subtree_count: number;
+  /** Delete-parity gate (Admin+ or the assignee) — the exact rule the POST enforces. */
+  can_restore: boolean;
+}
+
+export interface TrashedTasksResponse {
+  results: TrashedTask[];
+  /** True when the server capped the list — the panel must say so, not imply completeness. */
+  truncated: boolean;
+}
+
+/**
+ * GET /api/v1/tasks/trash/?project=:id — one project's restorable task tombstones.
+ *
+ * Only fetched while the Recently-deleted panel is open (`enabled`): the list is a
+ * recovery surface, not something every Schedule mount should pay for.
+ */
+export function useTrashedTasks(projectId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ['tasks-trash', projectId],
+    enabled: Boolean(projectId) && enabled,
+    queryFn: async () => {
+      const res = await apiClient.get<TrashedTasksResponse>('/tasks/trash/', {
+        params: { project: projectId },
+      });
+      return res.data;
     },
   });
 }
@@ -578,6 +630,7 @@ export function useRestoreTask(projectId: string | null) {
     },
     onSuccess: (_data, taskId) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks-trash', projectId] });
       void queryClient.invalidateQueries({
         queryKey: ['task-history', projectId ?? undefined, taskId],
       });
@@ -604,6 +657,7 @@ export function useBulkRestoreTasks(projectId: string | null) {
     },
     onSuccess: (_data, taskIds) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks-trash', projectId] });
       for (const taskId of taskIds) {
         void queryClient.invalidateQueries({
           queryKey: ['task-history', projectId ?? undefined, taskId],
