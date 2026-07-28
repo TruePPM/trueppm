@@ -25,9 +25,11 @@
 # WHAT THIS IS NOT
 #
 # A production deployment, and not a base to build one from. `demo.enabled` runs a
-# destructive seeder on every install AND every upgrade — it deletes any project
-# named "Platform Migration" or "Pilot Deployment" and re-creates it. Never point
-# this at a cluster holding real data.
+# destructive seeder on every install AND every upgrade — it deletes the demo data it
+# previously created and re-creates it. The reset is scoped to the seeder's own output
+# (it will not reap a real project that shares the demo name), but this deployment also
+# publishes unauthenticated read-only share links. Never point it at a cluster holding
+# real data.
 # ─────────────────────────────────────────────────────────────────────────────
 
 demo:

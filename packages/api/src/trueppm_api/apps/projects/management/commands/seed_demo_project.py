@@ -35,6 +35,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -138,15 +139,44 @@ class Command(BaseCommand):
         from trueppm_api.apps.projects.models import Project
         from trueppm_api.apps.resources.models import Resource
 
-        # Idempotent reset. ProjectMembership uses on_delete=PROTECT so the
-        # project drop fails until memberships go first. Resources are global
-        # (no project FK) so we match by demo-roster name.
-        prior = Project.objects.filter(name__in=(PROJECT_NAME, SECONDARY_PROJECT_NAME))
+        # Idempotent reset. This is a hard cascading delete with no undo, and in
+        # demo mode it re-fires on every `helm upgrade` — so it must be provably
+        # incapable of reaping anything this command did not itself create.
+        # ``is_sample`` is the marker for that: the seeder sets it (below), and
+        # nothing else writes it on a project an operator made. Name alone is not
+        # a safe key — ``Project.name`` is deliberately non-unique, and
+        # "Platform Migration" / "Pilot Deployment" are plausible real names.
+        prior = Project.objects.filter(
+            name__in=(PROJECT_NAME, SECONDARY_PROJECT_NAME), is_sample=True
+        )
         if prior.exists():
+            prior_ids = list(prior.values_list("pk", flat=True))
+            # Resources are workspace-global (no project FK), so the only safe
+            # reap is "resources these demo projects own outright": at least one
+            # membership in a demo project and none anywhere else. That spares a
+            # real employee who happens to share a demo-roster name ("Sarah Lee"),
+            # and spares a demo resource an operator has since assigned to real
+            # work. Collected before the project delete, which cascades the
+            # ProjectResource rows this query reads.
+            #
+            # A roster resource that ended up bound to no project at all is left
+            # behind rather than matched by name — re-seeding then leaves a stray
+            # duplicate, which is the deliberate trade: a cosmetic leak is
+            # preferable to reintroducing an unscoped name match.
+            demo_resource_ids = list(
+                Resource.objects.filter(project_memberships__project_id__in=prior_ids)
+                .exclude(
+                    project_memberships__project_id__in=Project.objects.exclude(
+                        pk__in=prior_ids
+                    ).values("pk")
+                )
+                .values_list("pk", flat=True)
+            )
+            # ProjectMembership uses on_delete=PROTECT, so it goes before the project.
             ProjectMembership.objects.filter(project__in=prior).delete()
             deleted = prior.delete()
+            Resource.objects.filter(pk__in=demo_resource_ids).delete()
             self.stdout.write(f"Cleared {deleted[0]} prior demo row(s).")
-        Resource.objects.filter(name__in=[r[0] for r in DEMO_ROSTER]).delete()
 
         if options.get("with_personas"):
             password, password_source = self._resolve_demo_password()
@@ -188,6 +218,16 @@ class Command(BaseCommand):
         # Activate the baseline last so it captures the CPM dates we just
         # set on the work packages.
         self._activate_baseline(project)
+
+        # Stamp recalculated_at: the seeder writes final CPM dates directly and
+        # never enqueues the async recompute that normally sets it. Required now
+        # that these projects carry is_sample — the Schedule toolbar shows a
+        # perpetual "Recalculating" badge on is_sample projects whose
+        # recalculated_at is null (#1053), which on the hosted demo would read as
+        # permanently broken.
+        Project.objects.filter(pk__in=[project.pk, secondary.pk]).update(
+            recalculated_at=timezone.now()
+        )
 
         self.stdout.write(self.style.SUCCESS(""))
         self.stdout.write(self.style.SUCCESS("=" * 60))
@@ -308,6 +348,10 @@ class Command(BaseCommand):
             start_date=date.today() - timedelta(days=120),
             calendar=cal,
             methodology=Methodology.HYBRID,
+            # Marks this row as disposable seed output. The idempotent reset in
+            # handle() reaps only is_sample rows, so this is what keeps a
+            # same-named real project out of the delete.
+            is_sample=True,
         )
 
     def _build_secondary_project(self, name: str, owner: Any) -> Any:
@@ -320,6 +364,7 @@ class Command(BaseCommand):
             start_date=date.today() - timedelta(days=60),
             calendar=cal,
             methodology=Methodology.AGILE,
+            is_sample=True,
         )
 
     # ------------------------------------------------------------------

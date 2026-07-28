@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from io import StringIO
 
 import pytest
@@ -18,13 +19,33 @@ from trueppm_api.apps.projects.models import Project, ShareContentKind, ShareLin
 
 def _seed() -> Project:
     call_command("seed_demo_project")
-    return Project.objects.get(name="Platform Migration")
+    return Project.objects.get(name="Platform Migration", is_sample=True)
 
 
 @pytest.mark.django_db
 def test_missing_project_raises() -> None:
     with pytest.raises(CommandError, match="not found"):
         call_command("create_demo_share_link")
+
+
+@pytest.mark.django_db
+def test_publishes_the_sample_project_not_a_real_name_collision() -> None:
+    """A real project may now share the demo name, so the lookup must be scoped (#2476).
+
+    Before #2476 the seeder deleted any same-named real project, which made an
+    unscoped ``.get()`` accidentally safe. Now that the real project survives,
+    an unscoped lookup would raise MultipleObjectsReturned — or worse, publish a
+    public share link for the operator's real schedule.
+    """
+    real = Project.objects.create(name="Platform Migration", start_date=date(2026, 1, 1))
+    sample = _seed()
+
+    call_command("create_demo_share_link", token="fixed-demo-token")
+
+    links = ShareLink.objects.filter(revoked_at__isnull=True)
+    assert links.exists()
+    assert {link.project_id for link in links} == {sample.pk}
+    assert real.pk not in {link.project_id for link in links}
 
 
 @pytest.mark.django_db

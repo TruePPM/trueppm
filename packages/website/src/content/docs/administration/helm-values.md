@@ -187,8 +187,11 @@ helm install trueppm ./packages/helm \
 
 :::danger[Never enable this against real data]
 `demo.enabled` runs `seed_demo_project` on every install **and every upgrade**, which
-deletes any project named "Platform Migration" or "Pilot Deployment" and re-seeds it.
-That is what stops a demo from drifting, and what would destroy a production instance.
+deletes the demo projects it previously created and re-seeds them. That is what stops a
+demo from drifting. The reset is scoped to the seeder's own output — it will not reap a
+real project that shares the demo name, nor a resource assigned to real work — but a
+demo deployment also publishes unauthenticated read-only share links and is configured
+for evaluation, not production. Keep it on its own instance.
 :::
 
 Two things that are easy to get wrong:

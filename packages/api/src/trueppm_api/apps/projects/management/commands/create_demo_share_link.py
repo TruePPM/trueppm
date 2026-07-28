@@ -146,8 +146,11 @@ class Command(BaseCommand):
             )
 
         try:
-            # The seed is idempotent and never creates duplicates, so .get() is safe.
-            project = Project.objects.get(name=project_name, is_deleted=False)
+            # Scoped to is_sample so this publishes the seeder's project and never
+            # an operator's same-named real one — Project.name is non-unique, and
+            # since #2476 the seeder no longer deletes a real project that
+            # collides with the demo name, so it can legitimately coexist here.
+            project = Project.objects.get(name=project_name, is_sample=True, is_deleted=False)
         except Project.DoesNotExist as exc:
             raise CommandError(
                 f"Demo project {project_name!r} not found. Run "
