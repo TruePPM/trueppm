@@ -139,6 +139,6 @@ Writing labels from an agent — attaching or detaching them — arrives with th
 ## Not in the first release
 
 - Labels do not yet appear in the **schedule PDF export** or color the **Gantt bars** — that is planned as a follow-up.
-- The **schedule / Gantt** view does not yet carry the Label facet. When it lands it will **dim** non-matching rows rather than hide them, because a filtered-out task still drives the dates of the ones that remain.
+- The **schedule / Gantt** view does not yet carry the Label facet — it is the one task view without it, since the Board, Table/Grid, and Product Backlog all have one. It lands in 0.5 as part of a single filter vocabulary shared across the task views ([#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443)), and is tracked on the [Known Issues](/overview/known-issues/#findability-and-filtering) page until then. When it arrives it will **dim** non-matching rows rather than hide them, because a filtered-out task still drives the dates of the ones that remain.
 - A **workspace-wide** "tasks with label X" view does not exist — cross-project search is scoped to a single program (see [Finding a label across a program](#finding-a-label-across-a-program)).
 - Label colors are chosen from the fixed palette; free hex colors are not supported.
