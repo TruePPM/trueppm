@@ -20,8 +20,9 @@ from typing import Any, cast
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery
-from django.http import FileResponse, Http404, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -146,6 +147,76 @@ class SeedImportThrottle(_SeedImporterThrottle):
     """
 
     scope = "seed_import"
+
+
+class SampleDownloadThrottle(UserRateThrottle):
+    """Caps bundled-fixture downloads per account (#2490).
+
+    Deliberately *not* a sibling of :class:`_SeedImporterThrottle`: a download
+    streams a file off disk and touches no table, so it belongs in a far more
+    generous tier than the teardown-and-rebuild those two guard.
+
+    Subclasses ``UserRateThrottle`` rather than ``ScopedRateThrottle`` for the
+    same reason the importer throttles do: attached per-action through
+    ``@action(throttle_classes=[…])``, the view carries no ``throttle_scope``
+    attribute, and ``ScopedRateThrottle.allow_request`` silently returns True
+    when it cannot find one — leaving the endpoint unthrottled while *looking*
+    bounded.
+    """
+
+    scope = "sample_download"
+
+
+def _if_none_match_matches(header: str | None, etag: str) -> bool:
+    """Return True when an ``If-None-Match`` header covers ``etag`` (#2490).
+
+    Minimal RFC 9110 §13.1.2 handling for the one endpoint that needs it: ``*``
+    matches anything, otherwise the comma-separated candidate list is compared
+    against our strong tag, tolerating the ``W/`` weak prefix a proxy may add.
+    """
+    if not header:
+        return False
+    candidates = [part.strip() for part in header.split(",")]
+    if "*" in candidates:
+        return True
+    return any(candidate.removeprefix("W/") == etag for candidate in candidates)
+
+
+class SampleCatalogEntrySerializer(serializers.Serializer[Any]):
+    """One bundled demo fixture, as advertised by the catalog (#375, #2490).
+
+    Response-only — the catalog is a read of files inside the installed package,
+    so nothing here is ever deserialized from a request.
+
+    The nullable fields are the honest ones. ``available`` is False when the
+    registry names a file this installation does not have; the counts and
+    ``schema_version`` are null when the file is present but could not be parsed.
+    Neither case hides the fixture from the listing, because the bytes are what
+    an auditor came for and a failed summary is our problem, not theirs.
+    """
+
+    key = serializers.CharField(help_text="Registry key, e.g. `atlas-platform-launch`.")
+    title = serializers.CharField()
+    description = serializers.CharField()
+    filename = serializers.CharField(help_text="Name the download is served under.")
+    available = serializers.BooleanField(
+        help_text="False when the registered fixture is missing from this installation."
+    )
+    size_bytes = serializers.IntegerField(allow_null=True)
+    sha256 = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "SHA-256 of the exact bytes the download serves, and the value of its "
+            "`ETag`. Proves transport integrity — not provenance."
+        ),
+    )
+    schema_version = serializers.CharField(allow_null=True)
+    project_count = serializers.IntegerField(allow_null=True)
+    task_count = serializers.IntegerField(allow_null=True)
+    resource_count = serializers.IntegerField(allow_null=True)
+    download_url = serializers.CharField(
+        help_text="Server-built download path. Clients link this rather than assembling it."
+    )
 
 
 @dataclass(frozen=True)
@@ -981,25 +1052,123 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
     @extend_schema(
         summary="List bundled demo samples available to the loader",
-        responses={
-            200: OpenApiResponse(
-                description=(
-                    "Array of available samples, each with `key`, `title`, and `description`."
-                )
-            )
-        },
+        responses={200: SampleCatalogEntrySerializer(many=True)},
     )
     @action(detail=False, methods=["get"], url_path="samples")
     def samples(self, request: Request) -> Response:
-        """List the bundled samples available to the demo loader (#375)."""
-        from trueppm_api.apps.projects.seed.samples import SAMPLES
+        """List the bundled samples, with the provenance to audit them (#375, #2490).
 
-        return Response(
-            [
-                {"key": s.key, "title": s.title, "description": s.description}
-                for s in SAMPLES.values()
-            ]
+        Beyond the loader's title/description, each entry carries what someone
+        deciding whether to trust the fixture actually needs: its size, a SHA-256
+        of the exact bytes this instance will serve, the schema version, and the
+        entity counts. The counts answer the question the demo loader otherwise
+        forces on faith — *how much is this about to write into my database?*
+
+        Counts, digest and size all come from one read of one file
+        (``sample_metadata``), so a client that verifies the digest has verified
+        the same bytes the counts describe.
+
+        A fixture that is present but unparseable reports ``null`` counts and
+        stays downloadable: failing to summarize a file is no reason to withhold
+        it from someone who wants to read it themselves.
+        """
+        from trueppm_api.apps.projects.seed.samples import SAMPLES, sample_metadata
+
+        entries = []
+        for sample in SAMPLES.values():
+            meta = sample_metadata(sample)
+            entries.append(
+                {
+                    "key": sample.key,
+                    "title": sample.title,
+                    "description": sample.description,
+                    "filename": sample.filename,
+                    "available": meta.available,
+                    "size_bytes": meta.size_bytes,
+                    "sha256": meta.sha256,
+                    "schema_version": meta.schema_version,
+                    "project_count": meta.project_count,
+                    "task_count": meta.task_count,
+                    "resource_count": meta.resource_count,
+                    "download_url": reverse("program-download-sample", kwargs={"key": sample.key}),
+                }
+            )
+        return Response(entries)
+
+    @extend_schema(
+        summary="Download a bundled demo sample's JSON seed file",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description=(
+                    "The exact committed fixture bytes, as a JSON file attachment. "
+                    "`ETag` is the same SHA-256 the catalog advertises."
+                ),
+            ),
+            404: OpenApiResponse(description="No such sample key, or the file is missing."),
+        },
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"samples/(?P<key>[^/.]+)/download",
+        url_name="download-sample",
+        throttle_classes=[SampleDownloadThrottle],
+    )
+    def download_sample(self, request: Request, key: str | None = None) -> HttpResponseBase:
+        """Stream a bundled fixture's exact bytes so it can be read before import (#2490).
+
+        "Load demo data" writes an entire program on one click. This is how a
+        self-hoster reads what it will write first — download the file, inspect
+        it, dry-run it through ``POST /programs/import/validate/``, then import.
+
+        **The security of this endpoint rests on one property: the key never
+        becomes a path.** ``SAMPLES.get(key)`` is a dict lookup and a miss is a
+        404; the fixture path is built inside the registry from the package
+        directory and the entry's own filename. There is deliberately no
+        sanitizing, no ``..`` stripping and no ``safe_join`` here — every one of
+        those constructs implies a path is being assembled from input, and a
+        reviewer should read their presence as a bug. A traversal-shaped key is
+        not scrubbed; it is simply not a key, so it 404s before any I/O.
+
+        Bytes are streamed rather than parsed and re-serialized: byte-for-byte
+        fidelity is the point, and re-encoding would invalidate the digest the
+        catalog advertised. The ``ETag`` is that same digest, so a conditional
+        request costs nothing and a client can verify what it received.
+        """
+        from trueppm_api.apps.projects.seed.samples import SAMPLES, sample_metadata
+
+        sample = SAMPLES.get(key or "")
+        if sample is None:
+            raise Http404("Unknown sample")
+
+        meta = sample_metadata(sample)
+        if not meta.available:
+            # Registered but absent from disk: a broken install, not a bad
+            # request. Still a 404 to the client — there is nothing to serve.
+            raise Http404("Sample file is not present in this installation")
+
+        etag = f'"{meta.sha256}"' if meta.sha256 else None
+        # Handled here rather than by ConditionalGetMiddleware, which this
+        # project does not install. Without it the ETag would be advertised but
+        # never honored, so every revalidation would re-send the whole file.
+        if etag and _if_none_match_matches(request.headers.get("If-None-Match"), etag):
+            not_modified = HttpResponse(status=status.HTTP_304_NOT_MODIFIED)
+            not_modified.headers["ETag"] = etag
+            return not_modified
+
+        response = FileResponse(
+            sample.path.open("rb"),
+            as_attachment=True,
+            # From the registry entry, never interpolated from the request.
+            filename=sample.filename,
+            content_type="application/json",
         )
+        if etag:
+            response.headers["ETag"] = etag
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
+        return response
 
     @extend_schema(
         summary="Load a bundled sample program",

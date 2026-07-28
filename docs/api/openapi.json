@@ -12470,9 +12470,47 @@
         },
         "/api/v1/programs/samples/": {
             "get": {
-                "operationId": "v1_programs_samples_retrieve",
-                "description": "List the bundled samples available to the demo loader (#375).",
+                "operationId": "v1_programs_samples_list",
+                "description": "List the bundled samples, with the provenance to audit them (#375, #2490).\n\nBeyond the loader's title/description, each entry carries what someone\ndeciding whether to trust the fixture actually needs: its size, a SHA-256\nof the exact bytes this instance will serve, the schema version, and the\nentity counts. The counts answer the question the demo loader otherwise\nforces on faith — *how much is this about to write into my database?*\n\nCounts, digest and size all come from one read of one file\n(``sample_metadata``), so a client that verifies the digest has verified\nthe same bytes the counts describe.\n\nA fixture that is present but unparseable reports ``null`` counts and\nstays downloadable: failing to summarize a file is no reason to withhold\nit from someone who wants to read it themselves.",
                 "summary": "List bundled demo samples available to the loader",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "tags": [
                     "programs"
                 ],
@@ -12489,7 +12527,77 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Array of available samples, each with `key`, `title`, and `description`."
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedSampleCatalogEntryList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/samples/{key}/download/": {
+            "get": {
+                "operationId": "v1_programs_samples_download_retrieve",
+                "description": "Stream a bundled fixture's exact bytes so it can be read before import (#2490).\n\n\"Load demo data\" writes an entire program on one click. This is how a\nself-hoster reads what it will write first — download the file, inspect\nit, dry-run it through ``POST /programs/import/validate/``, then import.\n\n**The security of this endpoint rests on one property: the key never\nbecomes a path.** ``SAMPLES.get(key)`` is a dict lookup and a miss is a\n404; the fixture path is built inside the registry from the package\ndirectory and the entry's own filename. There is deliberately no\nsanitizing, no ``..`` stripping and no ``safe_join`` here — every one of\nthose constructs implies a path is being assembled from input, and a\nreviewer should read their presence as a bug. A traversal-shaped key is\nnot scrubbed; it is simply not a key, so it 404s before any I/O.\n\nBytes are streamed rather than parsed and re-serialized: byte-for-byte\nfidelity is the point, and re-encoding would invalidate the digest the\ncatalog advertised. The ``ETag`` is that same digest, so a conditional\nrequest costs nothing and a client can verify what it received.",
+                "summary": "Download a bundled demo sample's JSON seed file",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "key",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": "The exact committed fixture bytes, as a JSON file attachment. `ETag` is the same SHA-256 the catalog advertises."
+                    },
+                    "404": {
+                        "description": "No such sample key, or the file is missing."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -45481,6 +45589,37 @@
                     }
                 }
             },
+            "PaginatedSampleCatalogEntryList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SampleCatalogEntry"
+                        }
+                    }
+                }
+            },
             "PaginatedSchedulerRunList": {
                 "type": "object",
                 "required": [
@@ -52252,6 +52391,73 @@
                 ],
                 "type": "string",
                 "description": "* `worst` - Worst-case\n* `average` - Average\n* `weighted_by_budget` - Budget-weighted\n* `task_weighted` - Task-weighted"
+            },
+            "SampleCatalogEntry": {
+                "type": "object",
+                "description": "One bundled demo fixture, as advertised by the catalog (#375, #2490).\n\nResponse-only — the catalog is a read of files inside the installed package,\nso nothing here is ever deserialized from a request.\n\nThe nullable fields are the honest ones. ``available`` is False when the\nregistry names a file this installation does not have; the counts and\n``schema_version`` are null when the file is present but could not be parsed.\nNeither case hides the fixture from the listing, because the bytes are what\nan auditor came for and a failed summary is our problem, not theirs.",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": "Registry key, e.g. `atlas-platform-launch`."
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Name the download is served under."
+                    },
+                    "available": {
+                        "type": "boolean",
+                        "description": "False when the registered fixture is missing from this installation."
+                    },
+                    "size_bytes": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "sha256": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "SHA-256 of the exact bytes the download serves, and the value of its `ETag`. Proves transport integrity — not provenance."
+                    },
+                    "schema_version": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "project_count": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "task_count": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "resource_count": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "download_url": {
+                        "type": "string",
+                        "description": "Server-built download path. Clients link this rather than assembling it."
+                    }
+                },
+                "required": [
+                    "available",
+                    "description",
+                    "download_url",
+                    "filename",
+                    "key",
+                    "project_count",
+                    "resource_count",
+                    "schema_version",
+                    "sha256",
+                    "size_bytes",
+                    "task_count",
+                    "title"
+                ]
             },
             "SchedulerRun": {
                 "type": "object",

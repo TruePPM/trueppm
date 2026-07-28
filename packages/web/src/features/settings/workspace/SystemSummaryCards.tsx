@@ -17,6 +17,7 @@ import { Link } from 'react-router';
 import { SettingsPageTitle, SettingsCard } from '../SettingsShell';
 import { useSystemHealth, type SystemHealthComponent } from '@/hooks/useSystemHealth';
 import { useTrashedProjects } from '@/hooks/useProjectMutations';
+import { useSamples } from '@/hooks/useProgramSeedIo';
 import { formatUpdatedAgo } from './systemHealth/formatAge';
 
 // Full literal class strings per level — never build these dynamically, or
@@ -182,6 +183,53 @@ export function RateLimitCard() {
  * Owner-gated Restore, stays at `/settings/trash`; this shows the count and
  * jumps in (#2298).
  */
+/**
+ * Demo data landing card (#2490) — bundled fixture count + a way in.
+ *
+ * A listing with per-row digests and downloads is a data surface, not a config
+ * form, so it follows the Trash pattern: a scroll-reachable card here, the full
+ * listing on its own route.
+ */
+export function DemoDataCard() {
+  const { data: samples, isLoading } = useSamples();
+  const count = samples?.length ?? 0;
+
+  return (
+    <>
+      <SettingsPageTitle
+        title="Demo data"
+        subtitle="The sample programs bundled with this instance, with a downloadable copy of each."
+      />
+      <div className="max-w-[720px] px-4 pb-8 pt-4 sm:px-6">
+        <SettingsCard>
+          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                {isLoading ? (
+                  <span className="inline-block h-[22px] w-24 animate-pulse rounded-chip bg-neutral-surface-sunken" />
+                ) : (
+                  <span className="inline-flex items-center rounded-chip border border-neutral-border bg-neutral-surface-sunken px-2 py-0.5 text-[11px] font-semibold text-neutral-text-secondary">
+                    {count === 0
+                      ? 'No samples bundled'
+                      : `${count} bundled ${count === 1 ? 'sample' : 'samples'}`}
+                  </span>
+                )}
+              </div>
+              <p className="text-[12px] text-neutral-text-secondary">
+                Read a fixture before you import it — download the file, check its SHA-256, then
+                dry-run it.
+              </p>
+            </div>
+            <Link to="/settings/demo-data" className={OPEN_LINK_CLASS}>
+              Open demo data →
+            </Link>
+          </div>
+        </SettingsCard>
+      </div>
+    </>
+  );
+}
+
 export function TrashCard() {
   const { data: projects, isLoading } = useTrashedProjects();
   const count = projects?.length ?? 0;

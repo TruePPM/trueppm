@@ -31,6 +31,7 @@ describe('buildWorkspaceNavGroups (#2013 — one source of truth, no drift)', ()
       'observability',
       'retention',
       'feedback',
+      'demo-data',
       'trash',
     ];
     expect(itemIds(buildWorkspaceNavGroups({ linked: false }))).toEqual(expected);

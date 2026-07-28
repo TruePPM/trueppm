@@ -1299,6 +1299,19 @@ REST_FRAMEWORK = {
         # until it passes, and spending the real import allowance to do that would
         # lock an operator out of the import their fixed file just earned.
         "seed_validate": env("TRUEPPM_THROTTLE_SEED_VALIDATE_RATE", default=_MODERATE_RATE),
+        # Bundled-fixture download (#2490). GET /programs/samples/{key}/download/
+        # streams a file off disk (<= ~78 KB) and touches no table, so it is orders
+        # of magnitude cheaper than sample_load and gets a correspondingly generous
+        # bound. It gets its own bucket rather than sharing sample_load's for an
+        # intent reason as much as a cost one: auditing all four fixtures before
+        # importing is the behavior this feature exists to encourage, and it must
+        # not spend the allowance a user needs to actually load a demo.
+        # Not unthrottled: it serves a file keyed by a client-supplied string, so
+        # even with the registry lookup closing traversal it would otherwise be a
+        # bandwidth amplifier and a free oracle for enumerating valid keys — and
+        # the scope becomes load-bearing the moment a deployment allowlists the
+        # route for anonymous access (ADR-0685).
+        "sample_download": env("TRUEPPM_THROTTLE_SAMPLE_DOWNLOAD_RATE", default=_STANDARD_RATE),
         # MCP read surface per-token rate limits (#1808 finding F4). These bound
         # token-authenticated reads on any McpReadableViewMixin view ONLY — human
         # JWT/Session traffic on the same views is unaffected (the throttles'

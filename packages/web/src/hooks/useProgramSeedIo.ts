@@ -23,10 +23,32 @@ export interface SampleInfo {
   key: string;
   title: string;
   description: string;
+  /** Name the download is served under. */
+  filename: string;
+  /** False when the registry names a fixture this installation does not have. */
+  available: boolean;
+  size_bytes: number | null;
+  /**
+   * SHA-256 of the exact bytes the download serves. Proves transport integrity —
+   * that you received the file this instance ships — not provenance.
+   */
+  sha256: string | null;
+  schema_version: string | null;
+  /** Null when the fixture is present but could not be parsed — it stays downloadable. */
+  project_count: number | null;
+  task_count: number | null;
+  resource_count: number | null;
+  /** Server-built. Link this rather than assembling a URL from `key`. */
+  download_url: string;
 }
 
 /**
- * GET /api/v1/programs/samples/ — list bundled demo samples for the picker (#375).
+ * GET /api/v1/programs/samples/ — list bundled demo samples (#375, #2490).
+ *
+ * One fetch feeds both consumers: the loader picker (which shows each sample's
+ * scale inline) and the Demo data page (which adds provenance and downloads).
+ * Sharing the query means the two surfaces can never disagree about what is
+ * bundled — and the picker's counts cost no extra request.
  */
 export function useSamples(): UseQueryResult<SampleInfo[], Error> {
   return useQuery({
@@ -37,6 +59,37 @@ export function useSamples(): UseQueryResult<SampleInfo[], Error> {
     },
     staleTime: 60 * 60 * 1000,
   });
+}
+
+export type SampleCatalogStatus = 'loading' | 'ready' | 'error';
+
+export interface SampleCatalog {
+  samples: SampleInfo[];
+  status: SampleCatalogStatus;
+  retry: () => void;
+}
+
+/**
+ * The sample catalog, narrowed to what the Demo data page renders (#2490).
+ *
+ * Wraps {@link useSamples} in the three-state shape the listing's states map to
+ * directly — loading skeletons, rows, or an error with a working Retry — so the
+ * component never reasons about TanStack Query's flag combinations. An empty
+ * `samples` array with `status: 'ready'` is a real, reachable state: a build
+ * that ships without bundled fixtures.
+ */
+export function useSampleCatalog(): SampleCatalog {
+  const query = useSamples();
+  const status: SampleCatalogStatus = query.isPending
+    ? 'loading'
+    : query.isError
+      ? 'error'
+      : 'ready';
+  return {
+    samples: query.data ?? [],
+    status,
+    retry: () => void query.refetch(),
+  };
 }
 
 /**

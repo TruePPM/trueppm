@@ -30,6 +30,36 @@ Schema is the contract:
 then runs a referential-integrity pass (no dangling slug or task references)
 that JSON Schema cannot express. Every error is anchored to a JSON path.
 
+## Worked examples: the bundled fixtures
+
+The prose below explains the format's shape. The four bundled fixtures *are* the
+format — correct, non-trivial, and validated on every CI run. Reading one beats
+inferring from a description, so they are downloadable from any running instance
+rather than only from a repository checkout:
+
+| Sample | Download | What it demonstrates |
+| --- | --- | --- |
+| Atlas Platform Launch | `GET /api/v1/programs/samples/atlas-platform-launch/download/` | The largest surface — a hybrid multi-project program, cross-project dependencies, three-point estimates, baselines, and a populated risk register. |
+| Aurora Mobile App | `.../aurora-mobile-app/download/` | Pure agile — an epic-grouped backlog, sprints with velocity history, no CPM. |
+| Bayside Civic Center | `.../bayside-civic-center/download/` | Pure waterfall — all four dependency types, working calendars, calendar-aware lag, a contract baseline plus a change-order rebaseline. |
+| Helios CRM Replacement | `.../helios-crm-replacement/download/` | The entry-level hybrid — a completed waterfall phase feeding an agile build phase across one cross-phase dependency. |
+
+In the UI the same list lives at **Settings → System → Demo data**, with each
+file's size, entity counts and SHA-256. The catalog endpoint
+(`GET /api/v1/programs/samples/`) returns the same metadata as JSON.
+
+The counts shown beside each file come from the same `inspect_seed()` that backs
+the dry run (`POST /api/v1/programs/import/validate/`,
+[ADR-0651](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0651-seed-import-dry-run.md)),
+so the catalog and the validator cannot disagree about a document.
+
+:::note[Two demo programs are not files]
+`seed_demo_project` and `seed_ga_launch_program` build their data procedurally in
+Python rather than from a fixture, so there is nothing to download or verify for
+those two. The four above are the inspectable ones — auditing them is not the
+same as auditing every way this codebase can produce demo data.
+:::
+
 ## Why the format looks the way it does
 
 **ltree WBS paths.** Tasks are identified within a project by an ltree path
