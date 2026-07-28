@@ -1,4 +1,7 @@
+import type { ReactNode } from 'react';
+
 import type { AgentAction, AgentActionRefusalReason, AgentActionVerdict } from '@/api/types';
+import { BanIcon, HalfCircleIcon, RadioDotIcon } from '@/components/Icons';
 
 /**
  * Verdict → display triple (#2020). A verdict is a *status* encoding mapped onto
@@ -8,18 +11,33 @@ import type { AgentAction, AgentActionRefusalReason, AgentActionVerdict } from '
  */
 export interface VerdictDisplay {
   label: string;
-  /** A leading glyph rendered aria-hidden beside the text label. */
-  symbol: string;
+  /**
+   * A leading mark rendered aria-hidden beside the text label. Held as a node
+   * rather than a glyph string so the mark is a house SVG that inherits
+   * `textClass` through `currentColor` — the render sites stay a plain `{symbol}`
+   * with no per-verdict switch.
+   */
+  symbol: ReactNode;
   textClass: string;
 }
 
+const MARK_CLASS = 'inline-block h-3.5 w-3.5 align-[-0.125em]';
+
 export const VERDICT_DISPLAY: Record<AgentActionVerdict, VerdictDisplay> = {
-  allowed: { label: 'Allowed', symbol: '●', textClass: 'text-semantic-on-track' },
-  refused: { label: 'Refused', symbol: '⛔', textClass: 'text-semantic-critical' },
+  allowed: {
+    label: 'Allowed',
+    symbol: <RadioDotIcon className={MARK_CLASS} />,
+    textClass: 'text-semantic-on-track',
+  },
+  refused: {
+    label: 'Refused',
+    symbol: <BanIcon className={MARK_CLASS} />,
+    textClass: 'text-semantic-critical',
+  },
   // Reserved for the 0.7 approval gate; defined so the vocabulary is stable.
   requires_approval: {
     label: 'Requires approval',
-    symbol: '◐',
+    symbol: <HalfCircleIcon className={MARK_CLASS} />,
     textClass: 'text-semantic-at-risk',
   },
 };

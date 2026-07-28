@@ -111,6 +111,13 @@ describe('RecurrenceSection states', () => {
     expect(screen.getByText(/doesn't repeat/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add recurrence' })).not.toBeInTheDocument();
   });
+
+  it('leads the empty state with the repeat SVG, not the 🔁 emoji', () => {
+    render();
+    const note = screen.getByRole('note');
+    expect(note.querySelector('svg')).toBeTruthy();
+    expect(note.textContent).not.toContain('🔁');
+  });
 });
 
 describe('RecurrenceSection configured rule', () => {

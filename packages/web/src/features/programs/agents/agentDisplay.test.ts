@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { isValidElement } from 'react';
 import type { AgentAction } from '@/api/types';
 import { VERDICT_DISPLAY, refusalGroup, refusalWhy } from './agentDisplay';
 
@@ -33,7 +34,9 @@ describe('agentDisplay', () => {
     for (const v of ['allowed', 'refused', 'requires_approval'] as const) {
       const d = VERDICT_DISPLAY[v];
       expect(d.label).toBeTruthy();
-      expect(d.symbol).toBeTruthy();
+      // The mark is a house icon element, not a glyph string — a plain string here
+      // would mean an emoji crept back into the verdict vocabulary.
+      expect(isValidElement(d.symbol)).toBe(true);
       expect(d.textClass).toMatch(/semantic-/);
     }
   });

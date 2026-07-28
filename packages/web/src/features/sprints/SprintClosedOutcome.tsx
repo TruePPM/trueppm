@@ -27,7 +27,7 @@ import {
   type SprintOutcome,
 } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
-import { CheckIcon, HalfCircleIcon, XMarkIcon } from '@/components/Icons';
+import { CheckIcon, HalfCircleIcon, StarIcon, XMarkIcon } from '@/components/Icons';
 
 interface Props {
   outcome: SprintOutcome;
@@ -181,7 +181,15 @@ function SprintReviewSection({
           <div className="px-3 pt-2 text-xs text-neutral-text-secondary">
             Shipped ({r.shipped.length})
             {demoStories.length > 0 && (
-              <> · <span aria-hidden="true">★ </span>{demoStories.length} for demo</>
+              <>
+                {' · '}
+                <StarIcon
+                  filled
+                  aria-hidden="true"
+                  className="mr-0.5 inline-block h-3 w-3 align-[-0.125em]"
+                />
+                {demoStories.length} for demo
+              </>
             )}
             {canCurate && demoStories.length > 1 && (
               <span className="ml-2 italic">Drag the ⠿ handle to set demo order.</span>
@@ -482,14 +490,20 @@ function DemoToggle({
               : 'border-neutral-border text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary'
           }`}
       >
-        <span aria-hidden="true">{story.demo_ready ? '★' : '☆'} </span>Demo
+        <StarIcon
+          filled={story.demo_ready}
+          aria-hidden="true"
+          className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]"
+        />
+        Demo
       </button>
     );
   }
   if (story.demo_ready) {
     return (
       <span className="shrink-0 text-xs text-brand-primary" aria-label="In the demo list">
-        <span aria-hidden="true">★ </span>Demo
+        <StarIcon filled aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]" />
+        Demo
       </span>
     );
   }

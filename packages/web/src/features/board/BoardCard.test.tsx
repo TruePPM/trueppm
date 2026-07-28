@@ -1647,7 +1647,11 @@ describe('BoardCard additional branch coverage', () => {
       task: { ...baseTask, latestNoteAt: '2026-01-14T12:00:00Z' },
       density: 'comfortable',
     });
-    expect(screen.getByLabelText(/Last note/)).toBeInTheDocument();
+    const stamp = screen.getByLabelText(/Last note/);
+    expect(stamp).toBeInTheDocument();
+    // The stamp's mark is a house SVG, not the 📝 emoji it replaced.
+    expect(stamp.querySelector('svg')).toBeTruthy();
+    expect(stamp.textContent).not.toContain('📝');
   });
 
   it('omits the notes-freshness stamp in compact density even with a latest note', () => {
