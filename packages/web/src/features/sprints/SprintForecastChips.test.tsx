@@ -56,7 +56,9 @@ describe('SprintForecastChips', () => {
   it('renders the release-horizon chip from a ready forecast, linking to overview', () => {
     forecastMock.mockReturnValue({ data: READY_FORECAST });
     renderWithRouter(<SprintForecastChips projectId="p1" sprintId="s1" />);
-    expect(chipsText()).toContain('clears in ~3 sprints (P80 4)');
+    // "at the earliest" is load-bearing, not decoration (#2495): the sampler clamps
+    // each run's sprint horizon, so P80 is a floor.
+    expect(chipsText()).toContain('clears in ~3 sprints (P80 4 at the earliest)');
     const link = screen.getByRole('link', { name: /Release horizon/ });
     expect(link.getAttribute('href')).toBe('/projects/p1/overview');
   });

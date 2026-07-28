@@ -133,6 +133,23 @@ describe('MilestoneBridgeForecast (#730)', () => {
     expect(region).not.toHaveTextContent(/\(velocity estimate\)/);
   });
 
+  /**
+   * #2495 scope boundary, asserted so it can't be widened by accident. The clamped
+   * sampler that makes a percentile a floor is `_sample_backlog_sprint_counts` behind
+   * `/sprint-forecast/`. This card reads `/forecast/`, whose milestone snapshots are
+   * written `velocity_band` (services.py `_velocity_band_percentiles`) — a deterministic
+   * band, not a simulation, and not clamped. Its existing "(velocity estimate)" is the
+   * correct and sufficient qualifier; adding a floor caveat here would claim a bias
+   * this number does not have.
+   */
+  it('#2495: the velocity-band read is not clamped, so it carries no floor caveat', () => {
+    setup([snapshot({ basis: 'velocity_band' })]);
+    const region = screen.getByTestId('milestone-bridge-forecast');
+    expect(region).toHaveTextContent(/\(velocity estimate\)/);
+    expect(region).not.toHaveTextContent(/a floor, not a percentile/i);
+    expect(screen.queryByRole('button', { name: /forecast horizon/i })).toBeNull();
+  });
+
   it('shows the CPM delta chip with sprint attribution when the finish slipped', () => {
     setup([
       snapshot({
