@@ -7,6 +7,7 @@ import {
   flaggedColumns,
   missingRequiredFields,
   normalizeColumns,
+  overrideMap,
   toColumnMap,
   unmappedHeaders,
   useCsvImportCommit,
@@ -128,20 +129,26 @@ function RowIssueList({
 }
 
 /**
- * Whole-file parser decisions — which sheet was read, how ambiguous dates were
- * resolved, whether the row cap bit.
+ * Whole-file parser decisions — which worksheet was read, how ambiguous dates
+ * were resolved, whether the row cap bit, whether label values were shortened.
  *
  * Deliberately *not* headed "Warnings": `warning_count` already owns that word
- * for a distinct legal meaning under the interchange spec (§5.8) — a row that
- * imported with a field defaulted. These are statements about the file as a
- * whole and never skip or alter a row, so blurring the two would mislead on the
- * one screen where the operator is deciding whether to commit.
+ * for a distinct meaning under the interchange spec (§5.8) — a row that imported
+ * with a field defaulted. These are scoped to the file rather than to any row,
+ * and blurring the two would mislead on the one screen where the operator is
+ * deciding whether to commit. Several of them are genuinely destructive (a
+ * dropped worksheet, truncated rows), so the tone is at-risk throughout rather
+ * than neutral provenance.
+ *
+ * A labelled `<section>` (role `region`), not a live region: this is static
+ * descriptive content that arrives with a whole step transition. `role="status"`
+ * is implicitly atomic, so it would re-announce the entire list on every
+ * re-check, on top of the focus trap's re-seat.
  */
 function FileNoticeList({ notices }: { notices: string[] }) {
   if (notices.length === 0) return null;
   return (
     <section
-      role="status"
       aria-label="How we read this file"
       className="flex flex-col gap-1 rounded-card border border-neutral-border bg-neutral-surface-raised p-3"
     >
@@ -189,7 +196,7 @@ function MappingNote({ id, confidence }: { id: string; confidence: CsvMappingCon
   const note = MAPPING_NOTES[confidence];
   if (!note) return null;
   return (
-    <span id={id} className={`mt-0.5 flex items-start gap-1 text-[11px] font-normal ${note.tone}`}>
+    <span id={id} className={`mt-0.5 flex items-start gap-1 text-xs font-normal ${note.tone}`}>
       {note.icon && <WarningIcon aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />}
       <span>{note.label}</span>
     </span>
@@ -220,13 +227,16 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
   const [preview, setPreview] = useState<CsvPreview | null>(null);
   const [columns, setColumns] = useState<CsvColumnMapping[]>([]);
   const [importId, setImportId] = useState<string | null>(null);
+  // Which columns the operator has actually touched since the last preview —
+  // the only ones a re-check may pin (web-rule 289).
+  const [changed, setChanged] = useState<ReadonlySet<number>>(() => new Set());
 
   const previewMut = useCsvImportPreview(projectId);
   const commitMut = useCsvImportCommit(projectId);
   const statusQuery = useCsvImportStatus(projectId, importId);
   const templateMut = useCsvImportTemplate();
 
-  const outcomeRef = useRef<HTMLParagraphElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const viewScheduleRef = useRef<HTMLButtonElement>(null);
 
   // Re-seat focus inside the dialog on every step swap: the control that held
@@ -246,6 +256,9 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
         onSuccess: (data) => {
           setPreview(data);
           setColumns(normalizeColumns(data.columns));
+          // The server's verdicts are authoritative again, including `override`
+          // for whatever we just pinned.
+          setChanged(new Set());
           setStep('map');
         },
       },
@@ -265,11 +278,18 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
       c.index === index ? { ...c, field, confidence: 'override' as const } : c,
     );
     setColumns(next);
+    setChanged((prev) => new Set(prev).add(index));
   }
 
-  /** Re-parse under the operator's mapping so step 3 shows real server output. */
+  /**
+   * Re-parse under the operator's mapping so step 3 shows real server output.
+   *
+   * Only the touched columns are pinned — see {@link overrideMap}. Everything
+   * else is re-detected, so a guess the operator never looked at comes back
+   * still reading as a guess.
+   */
   function handleReprocess() {
-    if (file) runPreview(file, toColumnMap(columns));
+    if (file) runPreview(file, overrideMap(columns, changed));
   }
 
   function handleCommit() {
@@ -310,14 +330,18 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
    * already cost us once. Focusing the primary action gets the same "zero
    * decisions, one keystroke" outcome with none of that.
    *
-   * When there *is* something to read, focus goes to the outcome sentence
-   * instead, so an assistive-tech user starts at the result and reads down
-   * through the line numbers rather than being dropped past them (spec §5.8).
+   * When there *is* something to read, focus goes to Close rather than to the
+   * schedule, so nobody is walked past a partial-success report on their way
+   * out (spec §5.8). The outcome sentence carries the counts and is an
+   * `aria-live` region, so it announces without needing to hold focus — which
+   * is what keeps this safe: a `tabIndex={-1}` paragraph is invisible to
+   * `useFocusTrap`'s selector, and focusing one with nothing focusable ahead of
+   * it in the dialog would let Shift+Tab walk straight out (web-rule 288).
    */
   useEffect(() => {
     if (step !== 'result' || !terminal) return;
     if (cleanSuccess) viewScheduleRef.current?.focus();
-    else outcomeRef.current?.focus();
+    else closeRef.current?.focus();
   }, [step, terminal, cleanSuccess]);
 
   return (
@@ -541,22 +565,18 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
               <dt className="text-neutral-text-secondary">Rows read</dt>
               {/* "5,000" alone is a lie on a 6,000-row file: `row_count` is
                   post-truncation. State both numbers when the cap bit. */}
-              <dd className="font-medium">
+              {/* The overflow itself is spelled out by the parser's own notice
+                  below; this only has to stop the bare count reading as though
+                  the whole file arrived. */}
+              <dd
+                className={`font-medium ${preview.truncated_rows > 0 ? 'text-semantic-at-risk' : ''}`}
+              >
                 {preview.truncated_rows > 0
                   ? `${preview.row_count.toLocaleString()} of ${(
                       preview.row_count + preview.truncated_rows
                     ).toLocaleString()}`
                   : preview.row_count.toLocaleString()}
               </dd>
-              {preview.truncated_rows > 0 && (
-                <>
-                  <dt className="text-neutral-text-secondary">Rows over the file limit</dt>
-                  <dd className="flex items-center gap-1.5 font-medium text-semantic-at-risk">
-                    <WarningIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
-                    {preview.truncated_rows.toLocaleString()} skipped
-                  </dd>
-                </>
-              )}
               <dt className="text-neutral-text-secondary">Tasks to create</dt>
               <dd className="font-medium">{preview.task_count.toLocaleString()}</dd>
               <dt className="text-neutral-text-secondary">Resources to create</dt>
@@ -607,12 +627,7 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
         {/* ---------------------------------------------------------------- */}
         {step === 'result' && (
           <div className="flex flex-col gap-3">
-            <p
-              ref={outcomeRef}
-              tabIndex={-1}
-              aria-live="polite"
-              className="text-sm text-neutral-text-primary focus:outline-none"
-            >
+            <p aria-live="polite" className="text-sm text-neutral-text-primary">
               {!terminal
                 ? 'Importing…'
                 : statusQuery.data?.status === 'dead'
@@ -635,10 +650,12 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
                     landed and the rest are addressable by line number. The
                     count itself lives in the outcome sentence above, which is
                     the live region — repeating it here would say the same
-                    thing twice, so this paragraph carries only the next step. */}
+                    thing twice, so this paragraph carries only the next step.
+                    It names the rows rather than saying "them": the file
+                    notices can sit between it and the outcome sentence. */}
                 <p className="text-sm text-semantic-at-risk">
-                  Fix them in your spreadsheet and import again — the rows that succeeded have
-                  already landed.
+                  Fix the rows listed below in your spreadsheet and import again — the rows that
+                  succeeded have already landed.
                 </p>
                 <RowIssueList issues={rowErrors} tone="error" title="Rows not imported" />
               </>
@@ -661,6 +678,7 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
             </button>
           )}
           <button
+            ref={closeRef}
             type="button"
             onClick={onClose}
             className="h-11 rounded-control border border-neutral-border px-3 text-sm font-medium

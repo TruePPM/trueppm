@@ -242,6 +242,32 @@ export function flaggedColumns(columns: CsvColumnMapping[]): CsvColumnMapping[] 
   return columns.filter((c) => c.confidence === 'fuzzy' || c.confidence === 'duplicate');
 }
 
+/**
+ * `{header: field}` for a re-preview, carrying **only** the columns the operator
+ * actually changed.
+ *
+ * Sending the whole mapping back would launder every un-reviewed guess: the
+ * server marks any pinned column `override`, so one "Re-check mapping" would
+ * turn nine untouched `fuzzy` columns into "Your choice" and drain the
+ * flagged-column count to zero without anyone having looked at them (web-rule
+ * 289). Untouched columns are left out so they get re-detected honestly and keep
+ * reading as guesses.
+ *
+ * An explicit "Don't import" is sent as `''` rather than omitted — the server
+ * resolves that to a deliberate no-mapping, whereas omitting it would let
+ * auto-detection put the column straight back.
+ */
+export function overrideMap(
+  columns: CsvColumnMapping[],
+  changed: ReadonlySet<number>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const c of columns) {
+    if (changed.has(c.index)) out[c.header] = c.field;
+  }
+  return out;
+}
+
 /** `{header: field}` for the wire, skipping columns the operator ignored. */
 export function toColumnMap(columns: CsvColumnMapping[]): Record<string, string> {
   const out: Record<string, string> = {};

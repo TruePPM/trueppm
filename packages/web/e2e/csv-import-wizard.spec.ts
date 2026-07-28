@@ -312,16 +312,16 @@ test.describe('CSV/Excel import wizard (#746)', () => {
 
     // Step 2 — the notices sit above the mapping table, and the guessed column
     // is called out so the operator knows which one to check.
-    const notices = dialog.getByRole('status', { name: 'How we read this file' });
+    const notices = dialog.getByRole('region', { name: 'How we read this file' });
     await expect(notices).toContainText('Only the first sheet');
     await expect(dialog.getByText('Guessed — check this')).toBeVisible();
 
     await dialog.getByRole('button', { name: 'Next' }).click();
 
-    // Step 3 — "5,000" on its own would be a lie about a 6,000-row file.
+    // Step 3 — "5,000" on its own would be a lie about a 6,000-row file. The
+    // overflow itself is spelled out once, by the parser's own notice.
     await expect(dialog.getByText('5,000 of 6,000')).toBeVisible();
-    await expect(dialog.getByText(/1,000 skipped/)).toBeVisible();
-    await expect(notices).toContainText('Only the first sheet');
+    await expect(notices).toContainText('1,000 were skipped');
   });
 
   test('an unmapped required field blocks Next with a reason', async ({ page }) => {

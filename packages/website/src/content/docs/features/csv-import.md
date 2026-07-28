@@ -199,7 +199,10 @@ outcome than a blocked button.
 
 Changing a mapping and pressing **Re-check mapping** re-runs the preview **on the
 server**, so what you confirm on step 3 is what the parser genuinely produced —
-not a client-side guess at what your change would do.
+not a client-side guess at what your change would do. Only the columns *you*
+changed are pinned; everything else is detected fresh, so a guess you never
+looked at still comes back flagged as a guess rather than quietly counting as
+reviewed.
 
 **Step 3 — Confirm and import.** The wizard shows the row count, how many tasks
 and resources will be created, and **names every column that will not be
@@ -207,9 +210,9 @@ imported** rather than dropping them quietly. Rows that will be *lost* and rows
 that will merely *land with a field defaulted* are counted separately, because
 they are different decisions.
 
-If your file is over the row cap, the count reads **5,000 of 6,000** with the
-overflow called out on its own line — never a bare `5,000` that would look like
-the whole file arrived.
+If your file is over the row cap, the count reads **5,000 of 6,000** — never a
+bare `5,000` that would look like the whole file arrived. What was dropped is
+spelled out under **How we read this file**.
 
 **When it finishes**, you get the number of tasks created and, if any rows had
 problems, a list of them **by spreadsheet line number** so you can fix them at
@@ -217,8 +220,8 @@ source. **View schedule** takes you to the imported plan.
 
 On a clean import — every row landed and the parser had nothing to report — that
 button is already focused, so <kbd>Enter</kbd> takes you straight to the
-schedule. When there *is* something to read, focus stays on the result instead,
-so the line numbers are not scrolled past on your behalf.
+schedule. When there *is* something to read, it is **Close** that is focused
+instead, so you are not walked past the line numbers on your way out.
 
 ## The three steps
 

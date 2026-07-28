@@ -3,6 +3,7 @@ import {
   flaggedColumns,
   missingRequiredFields,
   normalizeColumns,
+  overrideMap,
   toColumnMap,
   unmappedHeaders,
   type CsvColumnMapping,
@@ -104,6 +105,34 @@ describe('normalizeColumns', () => {
       { index: 1, header: 'Notes', field: null, confidence: 'none' },
     ];
     expect(toColumnMap(normalizeColumns(wire))).toEqual({ Title: 'name' });
+  });
+});
+
+describe('overrideMap', () => {
+  const COLS = [
+    col(0, 'Title', 'name', 'exact'),
+    col(1, 'Days', 'duration', 'fuzzy'),
+    col(2, 'Notes', 'notes', 'override'),
+  ];
+
+  it('pins only the columns the operator touched', () => {
+    // Echoing the whole mapping back would make the server mark every column
+    // `override`, laundering the untouched `fuzzy` guess into "Your choice".
+    expect(overrideMap(COLS, new Set([2]))).toEqual({ Notes: 'notes' });
+  });
+
+  it('sends an explicit ignore rather than omitting it', () => {
+    // Omitting an ignored column lets auto-detection put it straight back.
+    const cleared = [col(0, 'Title', 'name', 'exact'), col(1, 'Days', '', 'override')];
+    expect(overrideMap(cleared, new Set([1]))).toEqual({ Days: '' });
+  });
+
+  it('is empty when nothing has been touched', () => {
+    expect(overrideMap(COLS, new Set())).toEqual({});
+  });
+
+  it('never pins a column outside the changed set', () => {
+    expect(overrideMap(COLS, new Set([0]))).toEqual({ Title: 'name' });
   });
 });
 
