@@ -1054,6 +1054,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         summary="List bundled demo samples available to the loader",
         responses={200: SampleCatalogEntrySerializer(many=True)},
     )
+    # The catalog is a fixed-size list of the fixtures baked into the image — it is
+    # returned as a bare array and is never paginated. ProgramViewSet does set a
+    # pagination_class, so without this opt-out the auto-schema declares a
+    # PaginatedSampleCatalogEntryList envelope no response can satisfy (#2515,
+    # cf. the `projects` action below and #2213).
+    @suppress_list_pagination
     @action(detail=False, methods=["get"], url_path="samples")
     def samples(self, request: Request) -> Response:
         """List the bundled samples, with the provenance to audit them (#375, #2490).
