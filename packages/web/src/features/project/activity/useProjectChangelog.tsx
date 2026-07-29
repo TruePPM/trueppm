@@ -22,6 +22,7 @@ import {
   SprintIcon,
   SquareIcon,
 } from '@/components/Icons';
+import { compareCodeUnits } from '@/lib/compareStrings';
 
 /** Source object types the endpoint aggregates (mirrors changelog.object_type_choices). */
 export type ChangelogObjectType =
@@ -144,8 +145,12 @@ export function sinceForRange(range: TimeRange, now: number = Date.now()): strin
 /** Build the server query params from the current filter state (pure — unit-tested). */
 export function changelogParams(filters: ChangelogFilterState): Record<string, string> {
   const params: Record<string, string> = { page_size: '50' };
-  if (filters.objectTypes.size > 0) params.object_type = [...filters.objectTypes].sort().join(',');
-  if (filters.changeTypes.size > 0) params.change_type = [...filters.changeTypes].sort().join(',');
+  // compareCodeUnits, never localeCompare: these strings go on the wire as query
+  // params, so the order has to be reproducible across locales and ICU versions.
+  if (filters.objectTypes.size > 0)
+    params.object_type = [...filters.objectTypes].sort(compareCodeUnits).join(',');
+  if (filters.changeTypes.size > 0)
+    params.change_type = [...filters.changeTypes].sort(compareCodeUnits).join(',');
   if (filters.userId) params.user = filters.userId;
   const since = sinceForRange(filters.range);
   if (since) params.since = since;
@@ -166,8 +171,10 @@ export function useProjectChangelog(
     queryKey: [
       'project-changelog',
       projectId,
-      [...filters.objectTypes].sort().join(','),
-      [...filters.changeTypes].sort().join(','),
+      // Same comparator as changelogParams above — this is a cache key, so a
+      // locale-sensitive order would stop matching an entry already in the cache.
+      [...filters.objectTypes].sort(compareCodeUnits).join(','),
+      [...filters.changeTypes].sort(compareCodeUnits).join(','),
       filters.userId,
       filters.range,
     ],
