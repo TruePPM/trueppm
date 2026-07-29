@@ -59,7 +59,7 @@ This is where the honest losses are.
 
 | | TruePPM | Primavera P6 | MS Project |
 |---|---|---|---|
-| CPM, 4 dependency types, calendar-aware lag | Yes | Yes | Yes |
+| CPM, 4 dependency types, lead/lag on every link | Yes | Yes | Yes |
 | Monte Carlo risk | **In the core** | Separate product (Primavera Risk Analysis) | Separate product (third-party) |
 | **Resource leveling** | **No** | Yes | Yes |
 | **Constraint types** | **1** (start-no-earlier-than) | Full set | 8 + deadlines |

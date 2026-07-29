@@ -16,7 +16,7 @@ It's pure Python with just `networkx` and `numpy` underneath — no Django, no w
 
 ### Why reach for this
 
-- **Real scheduling semantics, not a toy.** All four dependency types (finish-to-start, start-to-start, finish-to-finish, start-to-finish) with calendar-aware lag — most lightweight schedulers only do finish-to-start and count raw calendar days, which silently overruns any plan with a weekend in it.
+- **Real scheduling semantics, not a toy.** All four dependency types (finish-to-start, start-to-start, finish-to-finish, start-to-finish) with lead/lag on every link — most lightweight schedulers only do finish-to-start, which cannot express an overlap or a wait without faking it with a dummy task.
 - **Working-time aware.** A built-in working-day calendar skips weekends and honors holiday exceptions, so durations resolve to real delivery dates.
 - **Risk forecasting built in.** PERT-Beta Monte Carlo, numpy-vectorized at ~10k runs/sec — the difference between "due March 3" and "70% likely by March 3, 95% by March 14."
 - **Fails loud on bad input.** Cycle detection that names the offending task IDs, plus up-front validation of durations, lag, and project span — no silent wrong answers, no spinning on a degenerate graph.
@@ -69,6 +69,36 @@ print(build.early_finish)  # 2026-01-23 (15 working days from 2026-01-05, across
 > passes — they do not change any computed date. Sub-day scheduling is a future
 > change.
 
+### Duration and lag are counted in different units
+
+This trips people up, so it is worth stating plainly:
+
+| Input | Unit |
+|-------|------|
+| `Task.duration` (and every PERT estimate) | **Working days** — weekends and calendar exceptions are skipped |
+| `Dependency.lag` | **Calendar days** — the offset is applied as elapsed time, and only the resulting date is then snapped forward to the next working day |
+
+So a 5-working-day task starting Monday finishes Friday, not the following
+Tuesday. But a 2-day FS lag after a Friday finish does **not** buy two working
+days of wait — the weekend absorbs it:
+
+```python
+# Predecessor finishes Friday 2026-01-09, Mon–Fri calendar, FS link.
+#
+#   lag=0d  → successor starts Mon 2026-01-12   (1 working day later)
+#   lag=1d  → successor starts Mon 2026-01-12   (1 working day later)
+#   lag=2d  → successor starts Mon 2026-01-12   (1 working day later)
+#   lag=3d  → successor starts Tue 2026-01-13   (2 working days later)
+#   lag=4d  → successor starts Wed 2026-01-14   (3 working days later)
+```
+
+If you need a wait of *n* working days, size the lag against the calendar the
+successor will actually land on — or model the wait as a zero-resource task,
+which is duration-counted and therefore calendar-aware end to end.
+
+Negative lag (lead) is supported and follows the same calendar-day rule, snapping
+backward to the previous working day.
+
 ### Per-task calendars
 
 By default every task is scheduled on the single `Project.calendar`. A task can
@@ -94,8 +124,9 @@ Conventions:
 - **Duration** arithmetic uses the task's *own* calendar (`calendar_id` → entry in
   `Project.calendars`). A `calendar_id` of `None`, or one with no matching entry,
   falls back to the pass-level `Project.calendar` — never an error.
-- **Lag** on a dependency edge is counted on the **successor's** calendar: the
-  constraint lands where the wait is actually consumed.
+- **Lag** on a dependency edge is applied as calendar days (above) and then
+  snapped on the **successor's** calendar: the constraint lands where the wait is
+  actually consumed.
 - It is fully backward compatible — a project with no `calendars` registry
   schedules byte-for-byte as before.
 - Both passes honor them: the CPM `schedule()` pass (early/late dates, float,

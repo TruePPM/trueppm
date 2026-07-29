@@ -67,7 +67,7 @@ print(next(t for t in result.tasks if t.id == "docs").total_float)     # 12 days
 
 Fifteen working days across two weekends, computed on a Mon–Fri calendar — and `docs`, off the critical path, carries twelve days of slack before the date moves. Check it against MS Project. That is why the engine ships on its own.
 
-All four dependency types, calendar-aware lag, multi-calendar composition, cycle detection with the offending path, and Monte Carlo with per-task sensitivity. [Full engine reference →](/features/scheduler/) · [View on PyPI →](https://pypi.org/project/trueppm-scheduler/)
+All four dependency types, lead/lag on every link, multi-calendar composition, cycle detection with the offending path, and Monte Carlo with per-task sensitivity. [Full engine reference →](/features/scheduler/) · [View on PyPI →](https://pypi.org/project/trueppm-scheduler/)
 
 :::tip[Before you evaluate further]
 Two pages exist so you can disqualify TruePPM quickly rather than slowly:

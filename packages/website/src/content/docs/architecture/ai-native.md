@@ -90,7 +90,7 @@ This is the property that makes the whole design defensible. TruePPM's Critical
 Path Method and Monte Carlo risk analysis live in a **standalone, deterministic
 package** — [`trueppm-scheduler`](/architecture/overview/#scheduling-as-a-separate-package),
 published to PyPI and independent of Django. It handles all four dependency
-types, calendar-aware lag, cycle detection, and P50/P80/P95 forecasts (see
+types, lead/lag on every link, cycle detection, and P50/P80/P95 forecasts (see
 [Monte Carlo forecasting](/features/monte-carlo/)). A second Rust + petgraph
 CPM implementation (`packages/wasm-scheduler`) is validated against it by a
 shared conformance fixture suite in CI; today that Rust engine is a conformance
