@@ -35,6 +35,7 @@ class ShareLinkSerializer(serializers.ModelSerializer[ShareLink]):
             "token_prefix",
             "label",
             "show_assignees",
+            "show_milestone_dates",
             "created_by",
             "created_at",
             "expires_at",
@@ -62,6 +63,10 @@ class ShareLinkCreateSerializer(serializers.Serializer[Any]):
         max_length=120, required=False, allow_blank=True, default=""
     )
     show_assignees = serializers.BooleanField(required=False, default=False)
+    # Schedule links only (#2532). Defaults TRUE — omitting it must mint exactly the
+    # link a pre-#2532 client minted, so this is an opt-out, not an opt-in. Ignored
+    # for board links, which have no milestone lane to hide.
+    show_milestone_dates = serializers.BooleanField(required=False, default=True)
     # Which view the link exposes; defaults to board for backward compatibility
     # with pre-#1486 clients that never sent the field.
     content_kind = serializers.ChoiceField(

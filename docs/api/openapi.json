@@ -52663,6 +52663,11 @@
                         "readOnly": true,
                         "description": "When false (default), assignee names are omitted from the public view so no individual is exposed without an explicit opt-in."
                     },
+                    "show_milestone_dates": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "Schedule links only. When false, milestone rows (and their dated diamonds) are omitted from the public schedule. Defaults true — milestones are the headline an external audience wants."
+                    },
                     "created_by": {
                         "type": "string",
                         "nullable": true,
@@ -52721,6 +52726,7 @@
                     "last_accessed_at",
                     "revoked_at",
                     "show_assignees",
+                    "show_milestone_dates",
                     "token_prefix"
                 ]
             },
@@ -52736,6 +52742,10 @@
                     "show_assignees": {
                         "type": "boolean",
                         "default": false
+                    },
+                    "show_milestone_dates": {
+                        "type": "boolean",
+                        "default": true
                     },
                     "content_kind": {
                         "allOf": [
@@ -52784,6 +52794,11 @@
                         "type": "boolean",
                         "readOnly": true,
                         "description": "When false (default), assignee names are omitted from the public view so no individual is exposed without an explicit opt-in."
+                    },
+                    "show_milestone_dates": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "Schedule links only. When false, milestone rows (and their dated diamonds) are omitted from the public schedule. Defaults true — milestones are the headline an external audience wants."
                     },
                     "created_by": {
                         "type": "string",
@@ -52852,6 +52867,7 @@
                     "revoked_at",
                     "share_path",
                     "show_assignees",
+                    "show_milestone_dates",
                     "token",
                     "token_prefix"
                 ]

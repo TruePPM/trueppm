@@ -14,6 +14,8 @@ export interface ShareLink {
   tokenPrefix: string;
   label: string;
   showAssignees: boolean;
+  /** Schedule links only — when false the public schedule omits milestone rows. */
+  showMilestoneDates: boolean;
   createdBy: string | null;
   createdAt: string;
   expiresAt: string | null;
@@ -36,6 +38,7 @@ interface ShareLinkRaw {
   token_prefix: string;
   label: string;
   show_assignees: boolean;
+  show_milestone_dates: boolean;
   created_by: string | null;
   created_at: string;
   expires_at: string | null;
@@ -58,6 +61,7 @@ function mapLink(raw: ShareLinkRaw): ShareLink {
     tokenPrefix: raw.token_prefix,
     label: raw.label,
     showAssignees: raw.show_assignees,
+    showMilestoneDates: raw.show_milestone_dates,
     createdBy: raw.created_by,
     createdAt: raw.created_at,
     expiresAt: raw.expires_at,
@@ -88,6 +92,8 @@ export function useShareLinks(projectId: string, enabled = true) {
 export interface CreateShareLinkInput {
   label?: string;
   showAssignees?: boolean;
+  /** Schedule links only. Omitted → true, matching the server's opt-out default. */
+  showMilestoneDates?: boolean;
   /** 'board' | 'schedule' — which view the link exposes. Defaults to board. */
   contentKind?: string;
   /** ISO timestamp for auto-expiry, or null/undefined for a link that never expires. */
@@ -104,6 +110,7 @@ export function useCreateShareLink(projectId: string) {
         {
           label: input.label ?? '',
           show_assignees: input.showAssignees ?? false,
+          show_milestone_dates: input.showMilestoneDates ?? true,
           content_kind: input.contentKind ?? 'board',
           expires_at: input.expiresAt ?? null,
         },

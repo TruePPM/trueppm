@@ -50,6 +50,7 @@ function link(overrides: Partial<ShareLink> = {}): ShareLink {
     tokenPrefix: 'sample-pfx-1',
     label: 'Client board',
     showAssignees: false,
+    showMilestoneDates: true,
     createdBy: 'Kelly',
     createdAt: '2026-07-06T00:00:00Z',
     expiresAt: null,

@@ -3763,6 +3763,13 @@ class ShareLink(models.Model):
     Assignee identity is exposed ONLY when ``show_assignees`` is explicitly
     enabled; the default is off so publishing a board never leaks who is working
     on what without a deliberate opt-in (the Morgan/Priya VoC boundary).
+
+    ``show_milestone_dates`` is the mirror-image reveal control for schedule links
+    and defaults **on** — milestones are the headline an external audience wants,
+    so the #1486 design made them visible by default and the opt-*out* exists for
+    the narrower vendor/client case where committed dates must stay internal. The
+    True default is load-bearing: it keeps every link minted before this field
+    existed exposing exactly what it exposed before.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -3796,6 +3803,12 @@ class ShareLink(models.Model):
         default=False,
         help_text="When false (default), assignee names are omitted from the public "
         "view so no individual is exposed without an explicit opt-in.",
+    )
+    show_milestone_dates = models.BooleanField(
+        default=True,
+        help_text="Schedule links only. When false, milestone rows (and their dated "
+        "diamonds) are omitted from the public schedule. Defaults true — milestones "
+        "are the headline an external audience wants.",
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

@@ -49,6 +49,7 @@ const schedule: PublicSchedule = {
   tasks: [task()],
   dependencies: [],
   show_assignees: false,
+  show_milestone_dates: true,
   truncated: false,
 };
 

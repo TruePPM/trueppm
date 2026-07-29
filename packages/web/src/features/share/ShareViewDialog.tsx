@@ -98,6 +98,13 @@ function CreatedLinkRow({ link, projectId }: { link: ShareLink; projectId: strin
               share/{link.contentKind}/{link.tokenPrefix}…
             </span>{' '}
             · {link.showAssignees ? 'names shown' : 'names hidden'} ·{' '}
+            {/* Milestone visibility is a schedule-only reveal (#2532) — a board link
+                has no milestone lane, so the clause would be meaningless noise there. */}
+            {link.contentKind === 'schedule' ? (
+              <>
+                {link.showMilestoneDates ? 'milestone dates shown' : 'milestone dates hidden'} ·{' '}
+              </>
+            ) : null}
             <span className={link.expiresAt ? 'text-semantic-warning' : undefined}>
               {expiryClause(link.expiresAt)}
             </span>
@@ -184,6 +191,10 @@ export function ShareViewDialog({
 
   const [label, setLabel] = useState('');
   const [showAssignees, setShowAssignees] = useState(false);
+  // Defaults ON, unlike assignees (#2532, #1486 handoff): milestones are the headline
+  // an external audience wants, so this reveal is an opt-OUT for the narrower case
+  // where committed dates must stay internal.
+  const [showMilestoneDates, setShowMilestoneDates] = useState(true);
   const [expiry, setExpiry] = useState<ExpiryChoice>('30d');
   const [customDate, setCustomDate] = useState('');
   const [created, setCreated] = useState<CreatedShareLink | null>(null);
@@ -212,6 +223,9 @@ export function ShareViewDialog({
       {
         label: label.trim(),
         showAssignees,
+        // A board link has no milestone lane; always send the server default for it
+        // so the stored flag can never read as a deliberate opt-out on a board row.
+        showMilestoneDates: kind === 'schedule' ? showMilestoneDates : true,
         contentKind: kind,
         expiresAt: resolveExpiry(expiry, customDate),
       },
@@ -274,6 +288,9 @@ export function ShareViewDialog({
                 ? `Expires ${formatInstantDate(created.expiresAt)}`
                 : 'Never expires'}{' '}
               · {created.showAssignees ? 'assignee names shown' : 'assignee names hidden'}
+              {created.contentKind === 'schedule'
+                ? ` · ${created.showMilestoneDates ? 'milestone dates shown' : 'milestone dates hidden'}`
+                : ''}
             </p>
             <div className="flex justify-end">
               <button type="button" onClick={onClose} className={PRI}>
@@ -400,7 +417,7 @@ export function ShareViewDialog({
             <span className="mb-1 block text-[12px] font-medium text-neutral-text-primary">
               What the public view reveals
             </span>
-            <label className="mb-4 flex items-start gap-2">
+            <label className="mb-3 flex items-start gap-2">
               <input
                 type="checkbox"
                 checked={showAssignees}
@@ -415,6 +432,27 @@ export function ShareViewDialog({
                 </span>
               </span>
             </label>
+            {/* Schedule only (#2532, #1486 handoff): a board has no milestone lane to
+                hide, so the board dialog keeps exactly one reveal toggle. */}
+            {kind === 'schedule' ? (
+              <label className="mb-4 flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={showMilestoneDates}
+                  onChange={(e) => setShowMilestoneDates(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="text-[12px] text-neutral-text-primary">
+                  Show milestone dates
+                  <span className="block text-xs text-neutral-text-secondary">
+                    On by default — milestones are the headline. Turn it off to share
+                    progress without committing to dates.
+                  </span>
+                </span>
+              </label>
+            ) : (
+              <div className="mb-4" />
+            )}
 
             {detail ? (
               <p className="mb-3 text-xs text-semantic-critical" role="alert">

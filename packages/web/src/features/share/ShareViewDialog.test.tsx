@@ -49,6 +49,7 @@ function link(overrides: Partial<ShareLink> = {}): ShareLink {
     tokenPrefix: 'sample-pfx-1',
     label: 'Client review',
     showAssignees: false,
+    showMilestoneDates: true,
     createdBy: 'Kelly',
     createdAt: '2026-07-06T00:00:00Z',
     expiresAt: null,
@@ -127,6 +128,8 @@ describe('ShareViewDialog — create mode', () => {
       expect.objectContaining({
         label: 'Vendor review',
         showAssignees: false,
+        // #2532: milestones default ON, so an untouched form mints today's behavior.
+        showMilestoneDates: true,
         contentKind: 'schedule',
         expiresAt: expect.any(String) as unknown,
       }),
@@ -148,10 +151,50 @@ describe('ShareViewDialog — create mode', () => {
   it('sends showAssignees true when the checkbox is toggled on', async () => {
     const user = userEvent.setup();
     renderDialog();
-    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('checkbox', { name: /Show assignee names/ }));
     await user.click(screen.getByRole('button', { name: 'Create link' }));
     expect(createMutate).toHaveBeenCalledWith(
       expect.objectContaining({ showAssignees: true }),
+      expect.anything(),
+    );
+  });
+
+  it('offers the milestone reveal on a schedule link, checked by default (#2532)', () => {
+    renderDialog({ contentKind: 'schedule' });
+    const box = screen.getByRole<HTMLInputElement>('checkbox', { name: /Show milestone dates/ });
+    expect(box).toBeChecked();
+  });
+
+  it('does NOT offer the milestone reveal on a board link (#2532)', () => {
+    // The board dialog is unchanged: exactly one reveal toggle, assignees.
+    renderDialog({ contentKind: 'board' });
+    expect(
+      screen.queryByRole('checkbox', { name: /Show milestone dates/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+  });
+
+  it('sends showMilestoneDates false when the schedule reveal is turned off (#2532)', async () => {
+    const user = userEvent.setup();
+    renderDialog({ contentKind: 'schedule' });
+    await user.click(screen.getByRole('checkbox', { name: /Show milestone dates/ }));
+    await user.click(screen.getByRole('button', { name: 'Create link' }));
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ showMilestoneDates: false, contentKind: 'schedule' }),
+      expect.anything(),
+    );
+  });
+
+  it('sends showMilestoneDates true for a board link even after the schedule box was cleared', async () => {
+    // Switching kind to board hides the toggle; the mint must not carry the stale
+    // schedule opt-out onto a board row, where it would be a meaningless false.
+    const user = userEvent.setup();
+    renderDialog({ allowKindChoice: true });
+    await user.click(screen.getByRole('checkbox', { name: /Show milestone dates/ }));
+    await user.click(screen.getByRole('button', { name: 'board' }));
+    await user.click(screen.getByRole('button', { name: 'Create link' }));
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ showMilestoneDates: true, contentKind: 'board' }),
       expect.anything(),
     );
   });
@@ -256,6 +299,24 @@ describe('ShareViewDialog — reveal state', () => {
     await screen.findByText(/won.t be able to see it again/i);
     expect(screen.getByText(/Never expires/)).toBeInTheDocument();
     expect(screen.getByText(/assignee names hidden/)).toBeInTheDocument();
+  });
+
+  it('states the milestone reveal in the schedule summary line (#2532)', async () => {
+    const user = userEvent.setup();
+    mintAndReveal({ contentKind: 'schedule', showMilestoneDates: false });
+    renderDialog();
+    await user.click(screen.getByRole('button', { name: 'Create link' }));
+    await screen.findByText(/won.t be able to see it again/i);
+    expect(screen.getByText(/milestone dates hidden/)).toBeInTheDocument();
+  });
+
+  it('omits the milestone clause from a board link summary line (#2532)', async () => {
+    const user = userEvent.setup();
+    mintAndReveal({ contentKind: 'board', sharePath: '/share/board/RAWTOKEN' });
+    renderDialog({ contentKind: 'board' });
+    await user.click(screen.getByRole('button', { name: 'Create link' }));
+    await screen.findByText(/won.t be able to see it again/i);
+    expect(screen.queryByText(/milestone dates/)).not.toBeInTheDocument();
   });
 
   it('copies the revealed link and toasts success', async () => {
@@ -378,9 +439,21 @@ describe('ShareViewDialog — CreatedLinkRow', () => {
     };
     renderDialog();
     expect(screen.getByText(/expires in 5d/)).toBeInTheDocument();
-    expect(screen.getByText(/names shown/)).toBeInTheDocument();
+    expect(screen.getByText(/· names shown/)).toBeInTheDocument();
     expect(screen.getByText(/Viewed 7×/)).toBeInTheDocument();
     expect(screen.getByText(/· last 3h ago/)).toBeInTheDocument();
+  });
+
+  it('states the milestone reveal on a schedule row (#2532)', () => {
+    sharedLinksResult = { data: [link({ contentKind: 'schedule', showMilestoneDates: false })] };
+    renderDialog({ contentKind: 'schedule' });
+    expect(screen.getByText(/milestone dates hidden/)).toBeInTheDocument();
+  });
+
+  it('omits the milestone clause on a board row (#2532)', () => {
+    sharedLinksResult = { data: [link({ contentKind: 'board', showMilestoneDates: true })] };
+    renderDialog({ contentKind: 'board' });
+    expect(screen.queryByText(/milestone dates/)).not.toBeInTheDocument();
   });
 
   it('renders "just now" for a link accessed less than a minute ago', () => {

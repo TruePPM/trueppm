@@ -137,6 +137,7 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
             request.user,
             label=write.validated_data["label"],
             show_assignees=write.validated_data["show_assignees"],
+            show_milestone_dates=write.validated_data["show_milestone_dates"],
             content_kind=write.validated_data["content_kind"],
             expires_at=write.validated_data["expires_at"],
         )

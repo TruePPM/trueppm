@@ -47,6 +47,7 @@ def mint_share_link(
     *,
     label: str = "",
     show_assignees: bool = False,
+    show_milestone_dates: bool = True,
     content_kind: str = ShareContentKind.BOARD,
     expires_at: Any = None,
 ) -> tuple[ShareLink, str]:
@@ -56,6 +57,8 @@ def mint_share_link(
     is returned exactly once — only its hash is stored, so it can never be
     retrieved again. ``expires_at`` (optional, #1486) auto-expires the link — after
     it passes, the public endpoint returns 410 exactly like a revoked link.
+    ``show_milestone_dates`` (#2532, schedule links only) defaults **True** so a
+    caller that omits it mints exactly the link it minted before the flag existed.
     """
     raw = secrets.token_urlsafe(32)
     link = ShareLink.objects.create(
@@ -65,6 +68,7 @@ def mint_share_link(
         token_hash=sha256_hex(raw),
         label=label,
         show_assignees=show_assignees,
+        show_milestone_dates=show_milestone_dates,
         expires_at=expires_at,
         created_by=user if getattr(user, "is_authenticated", False) else None,
     )
@@ -256,6 +260,14 @@ def serialize_public_schedule(link: ShareLink) -> dict[str, Any]:
         .select_related("assignee")
         .order_by("wbs_path", "early_start", "name")
     )
+    if not link.show_milestone_dates:
+        # Withheld in SQL, not filtered out of the page in Python (#2532): the row
+        # must never reach the response at all — the public renderer draws the
+        # diamond and its dated label straight from the payload — and excluding
+        # before the cap means hidden milestones can't consume the task budget and
+        # truncate real work away. Dropping the rows also drops their dependency
+        # edges below, since edges are bound to the published id set.
+        qs = qs.exclude(is_milestone=True)
     rows = list(qs[: cap + 1])
     truncated = len(rows) > cap
     rows = rows[:cap]
@@ -294,5 +306,6 @@ def serialize_public_schedule(link: ShareLink) -> dict[str, Any]:
         "tasks": tasks,
         "dependencies": dependencies,
         "show_assignees": link.show_assignees,
+        "show_milestone_dates": link.show_milestone_dates,
         "truncated": truncated,
     }

@@ -30,6 +30,7 @@ function rawLink(overrides: Record<string, unknown> = {}) {
     token_prefix: 'sample-pfx-1',
     label: 'Client board',
     show_assignees: false,
+    show_milestone_dates: true,
     created_by: 'Kelly',
     created_at: '2026-07-06T00:00:00Z',
     revoked_at: null,
@@ -58,6 +59,7 @@ describe('useShareLinks', () => {
     expect(link.tokenPrefix).toBe('sample-pfx-1');
     expect(link.accessCount).toBe(3);
     expect(link.showAssignees).toBe(false);
+    expect(link.showMilestoneDates).toBe(true);
   });
 });
 
@@ -80,11 +82,38 @@ describe('useCreateShareLink', () => {
     expect(postMock).toHaveBeenCalledWith('/projects/proj-1/share-links/', {
       label: 'X',
       show_assignees: true,
+      // #2532: omitting the input must send TRUE, matching the server's opt-out
+      // default — sending false would silently strip milestones from every link.
+      show_milestone_dates: true,
       content_kind: 'board',
       expires_at: null,
     });
     expect(created?.token).toBe('RAWTOKEN');
     expect(created?.sharePath).toBe('/share/board/RAWTOKEN');
+  });
+
+  it('POSTs show_milestone_dates false when the schedule reveal is turned off (#2532)', async () => {
+    postMock.mockResolvedValueOnce({
+      data: rawLink({
+        content_kind: 'schedule',
+        show_milestone_dates: false,
+        token: 'RAWTOKEN',
+        share_path: '/share/schedule/RAWTOKEN',
+      }),
+    });
+    const { result } = renderHook(() => useCreateShareLink('proj-1'), { wrapper: makeWrapper(qc) });
+    let created: CreatedShareLink | undefined;
+    await act(async () => {
+      created = await result.current.mutateAsync({
+        contentKind: 'schedule',
+        showMilestoneDates: false,
+      });
+    });
+    expect(postMock).toHaveBeenCalledWith(
+      '/projects/proj-1/share-links/',
+      expect.objectContaining({ show_milestone_dates: false, content_kind: 'schedule' }),
+    );
+    expect(created?.showMilestoneDates).toBe(false);
   });
 });
 
