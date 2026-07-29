@@ -132,6 +132,13 @@ channel.
 | `PATCH` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
 | `DELETE` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
 
+Program Admins and Owners manage the list. **Edit** on a row opens it in place
+using the same fields as the add row — correcting a mistyped address is an edit,
+not a remove-and-re-add. **Save** commits the change and **Cancel** discards it;
+Save stays disabled until the name and a well-formed email address are both
+present, and a malformed address explains itself under the row rather than
+failing after a round trip. **Remove** asks for a confirmation before deleting.
+
 ## Rollup KPIs
 
 The **Rollup KPIs** section chooses which health signals roll up to the program
