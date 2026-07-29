@@ -7,6 +7,10 @@ The fastest path from `git clone` to a workspace you can actually click around. 
 
 You should already have completed [Installation](/getting-started/installation/) — the stack is up via `docker compose up -d`.
 
+Already have a real plan you'd rather work with — an MPP file, a spreadsheet, or
+a Jira export? Neither route below is it; see
+[Bring your existing plan in](/getting-started/bring-your-plan-in/) instead.
+
 ## Route A — seed the demo project (recommended)
 
 :::tip[Just want a quick look?]

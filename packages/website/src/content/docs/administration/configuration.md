@@ -47,7 +47,7 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/canceled Celery task-run records to keep before the nightly purge. To disable, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window purges all rows on the next run. The legacy bare `TASK_RUN_RETENTION_DAYS` is still read as a fallback when the prefixed var is unset. |
 | `MSPROJECT_MAX_UPLOAD_MB` | `50` | Per-file size cap for MS Project (`.mpp` / `.xml`) imports, in megabytes. See [MS Project import limit](#ms-project-import-limit) below. |
 | `JIRA_IMPORT_MAX_UPLOAD_MB` | `25` | Per-file size cap for [Jira XML](/features/jira-import/) imports, in megabytes. See [Jira import limit](#jira-import-limit) below. |
-| `CSV_IMPORT_MAX_UPLOAD_MB` | `10` | Per-file size cap for [CSV / Excel](/features/csv-import/) imports, in megabytes. See [CSV / Excel import limits](#csv--excel-import-limits) below. |
+| `CSV_IMPORT_MAX_UPLOAD_MB` | `10` | Per-file size cap for [CSV / Excel](/features/csv-import-export/) imports, in megabytes. See [CSV / Excel import limits](#csv--excel-import-limits) below. |
 | `CSV_IMPORT_MAX_ROWS` | `5000` | Maximum data rows a single CSV / Excel import may contain. Rows past the cap are reported back as skipped, not silently dropped. |
 | `CSV_IMPORT_MAX_UNCOMPRESSED_MB` | `100` | Decompression-bomb ceiling for `.xlsx` uploads: the maximum total *uncompressed* size the workbook may declare. |
 | `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | General default rate limit for **unauthenticated** requests, per client IP, in DRF `<count>/<period>` form (`period` is `sec`, `min`, `hour`, or `day`). Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
@@ -364,7 +364,7 @@ parse time — the same unconditional protection the MS Project importer has.
 
 ## CSV / Excel import limits
 
-[CSV / Excel import](/features/csv-import/) is bounded on three axes, because
+[CSV / Excel import](/features/csv-import-export/) is bounded on three axes, because
 size alone does not bound the work an upload creates:
 
 | Variable | Default | Unit | What it bounds |

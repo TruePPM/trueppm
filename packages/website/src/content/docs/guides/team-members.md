@@ -5,6 +5,16 @@ description: How TruePPM keeps you focused on your work — board, sprints, task
 
 You want to know what you're working on, move things forward, and stay in sync with your team. TruePPM is designed to minimize the overhead of project management for people doing the actual work.
 
+## Already have a login?
+
+If your team already runs an instance, you don't need to install or configure
+anything. Get your URL and credentials from your project admin, sign in, and
+go straight to **My Work** (pinned at the top of the left sidebar) or your
+project's **Board** — everything below this section still applies to what you
+see once you're in, none of it is about setup. The rest of this guide,
+including [evaluating it yourself](#evaluate-it-yourself-5-minutes), is for
+someone standing up their own instance to try TruePPM out — skip it.
+
 ## Where to start: the board
 
 The board is your primary view. Five columns: **Backlog → To Do → In Progress → Review → Done**. Your sprint's stories are here. Move a card to the right when its status changes.
@@ -113,7 +123,8 @@ The two things you'd want that aren't here yet — automatic Jira sync so you ne
 
 ## Where to go next
 
-If your team already runs an instance, you don't need any of the setup above — get your credentials from your project admin, log in at the URL they give you, and find the active sprint under **Deliver → Board** or **Deliver → Sprints**.
+Signed in already? Find the active sprint under **Deliver → Board** or
+**Deliver → Sprints** and you're oriented.
 
 - [My Work](/features/my-work/) — the cross-project view of everything assigned to you
 - [Board](/features/board/) — columns, WIP limits, and what each card shows

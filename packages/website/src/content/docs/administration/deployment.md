@@ -1,6 +1,6 @@
 ---
 title: Deployment
-description: Deploy TruePPM with Docker Compose or Kubernetes Helm chart.
+description: Deploy TruePPM with Docker Compose, the Kubernetes Helm chart, or a single server managed by systemd — plus how to verify image and chart signatures.
 ---
 
 :::caution[Pre-GA]
@@ -69,10 +69,11 @@ there, because production is authenticated and has real accounts.
 
 ## Kubernetes with Helm
 
-The Helm chart in `packages/helm/` deploys TruePPM on Kubernetes with bundled
-sub-charts for PostgreSQL and Valkey (the BSD-licensed Linux Foundation fork of
-Redis; wire-compatible). The bundled datastores are intended for dev / demo / CI;
-for production, disable them and point at managed services (see below).
+The Helm chart in `packages/helm/` deploys TruePPM on any Kubernetes cluster
+(kind, k3s, EKS, GKE, AKS, or bare-metal) with bundled sub-charts for
+PostgreSQL and Valkey (the BSD-licensed Linux Foundation fork of Redis;
+wire-compatible). The bundled datastores are intended for dev / demo / CI; for
+production, disable them and point at managed services (see below).
 
 ```bash
 helm lint packages/helm
@@ -86,6 +87,133 @@ is the full value reference.
 **Good for:** production deployment, horizontal scaling, enterprise environments.
 
 For preliminary hardware sizing guidance at 50 / 100 / 200 users, see [Deployment Sizing](/administration/sizing/).
+
+### Production install walkthrough
+
+Prerequisites: Helm 3.14+, `kubectl` compatible with your cluster, and a
+running Kubernetes cluster 1.27+.
+
+**Get the chart.** Through 0.3 (alpha), install from the chart source in the
+repository:
+
+```bash
+git clone https://gitlab.com/trueppm/trueppm.git
+cd trueppm
+helm dependency update packages/helm
+```
+
+The 0.4 beta will publish the chart to a public OCI registry
+(`oci://ghcr.io/trueppm/charts`) as an additional path — the clone-based
+install above keeps working after 0.4 too. Once that lands, the same install
+will work straight from GHCR, no clone needed:
+`helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>`.
+
+**Prepare your values file.** Download the production values template and
+fill in your settings:
+
+```bash
+curl -sL https://gitlab.com/trueppm/trueppm/-/raw/main/packages/helm/values-prod.yaml \
+  -o my-values.yaml
+```
+
+At minimum, set:
+
+```yaml
+# my-values.yaml
+env:
+  SECRET_KEY: "<50+ character random string>"
+  ALLOWED_HOSTS: "trueppm.example.com"
+
+# Recommended for production: disable the bundled datastores and point at managed
+# services. When they are disabled, env.DATABASE_URL and env.REDIS_URL are
+# REQUIRED — the chart fails the render with a clear message if either is missing.
+postgresql:
+  enabled: false
+valkey:
+  enabled: false
+# env:
+#   DATABASE_URL: "postgres://trueppm:<password>@<host>:5432/trueppm"
+#   REDIS_URL: "redis://:<password>@<host>:6379"
+```
+
+With the bundled datastores **enabled** (dev / demo) instead, leave
+`postgresql.auth.password` and `valkey.auth.password` empty — see
+[Secure by default](#secure-by-default) below for what the chart generates on
+its own.
+
+**Install:**
+
+```bash
+helm install trueppm packages/helm \
+  --namespace trueppm \
+  --create-namespace \
+  -f my-values.yaml
+```
+
+For real secrets, prefer injecting `SECRET_KEY` / `DATABASE_URL` / `REDIS_URL`
+via an external Kubernetes Secret over putting them in `my-values.yaml` or
+`--set`.
+
+:::note[Bring your own Ingress]
+The chart's `Ingress` template is off by default — it exposes the API as a
+ClusterIP Service. Enable it (see [Ingress and edge TLS](#ingress-and-edge-tls)
+below) or put your own Ingress controller / LoadBalancer in front of the
+`<release>-api` Service to terminate TLS and route external traffic.
+:::
+
+**Post-install.** Migrations run automatically in an init container. Retrieve
+the generated admin password from the pod:
+
+```bash
+kubectl exec -n trueppm deployment/trueppm-api -- \
+  cat /run/trueppm/admin_password
+```
+
+When using the bundled PostgreSQL, retrieve the generated database password
+from the chart-owned connection Secret:
+
+```bash
+kubectl get secret trueppm-trueppm-connection -n trueppm \
+  -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d
+```
+
+**Verify:**
+
+```bash
+kubectl get pods -n trueppm
+# All pods should be Running / Completed
+```
+
+### Verifying image and chart signatures
+
+Starting with the 0.4 beta, every published image and chart will be signed
+with [Cosign](https://docs.sigstore.dev/) keyless (Sigstore) in CI, Trivy-scanned,
+and CycloneDX SBOM-attested — so once GHCR publishing lands you will be able to
+confirm an artifact was built by the TruePPM release pipeline before you run
+it. Verify against the GitLab CI OIDC issuer and the release-tag identity:
+
+```bash
+# API and web images (repeat for web)
+cosign verify \
+  --certificate-identity-regexp '^https://gitlab.com/trueppm/trueppm//.gitlab-ci.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer https://gitlab.com \
+  ghcr.io/trueppm/api:<version>
+
+# CycloneDX SBOM attestation
+cosign verify-attestation --type cyclonedx \
+  --certificate-identity-regexp '^https://gitlab.com/trueppm/trueppm//.gitlab-ci.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer https://gitlab.com \
+  ghcr.io/trueppm/api:<version>
+
+# Helm OCI chart
+cosign verify \
+  --certificate-identity-regexp '^https://gitlab.com/trueppm/trueppm//.gitlab-ci.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer https://gitlab.com \
+  ghcr.io/trueppm/charts/trueppm:<version>
+```
+
+A verified signature proves the image came from a TruePPM release tag; the
+attestation lets you pull the exact CycloneDX SBOM for that digest.
 
 ### Secure by default
 
@@ -260,6 +388,82 @@ for secure-by-default installs; further updates landed in 0.2 (available since t
 Large-scale production hardening (HA Postgres, dedicated Valkey) remains on the
 pre-1.0 roadmap.
 :::
+
+## Single server with systemd
+
+For production on a single Linux server without Kubernetes. Uses the pre-built
+release images with Docker Compose, managed by systemd so the stack restarts
+with the machine.
+
+**Prerequisites:**
+
+- A Linux server (Ubuntu 22.04+ or Debian 12+)
+- Docker 24+ and Docker Compose plugin
+- A domain name pointing to the server's public IP
+- Ports 80 and 443 open
+
+**Steps:**
+
+```bash
+git clone https://gitlab.com/trueppm/trueppm.git
+cd trueppm
+cp .env.example .env
+```
+
+Edit `.env` and fill in all required values:
+
+```bash
+# Required minimums — see .env.example for full list
+DOMAIN=trueppm.example.com
+TLS_MODE=letsencrypt
+CERTBOT_EMAIL=ops@example.com
+SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+REDIS_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+APP_VERSION=0.2.0
+```
+
+Run the one-time setup (obtains a TLS certificate and starts the stack):
+
+```bash
+chmod +x init-prod.sh
+./init-prod.sh
+```
+
+Retrieve the admin password:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api \
+  cat /run/trueppm/admin_password
+```
+
+**systemd auto-start.** Create `/etc/systemd/system/trueppm.service`:
+
+```ini
+[Unit]
+Description=TruePPM
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/trueppm
+EnvironmentFile=/opt/trueppm/.env
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now trueppm
+```
+
+**Good for:** production on a single box, no Kubernetes cluster available.
 
 ## Services
 
