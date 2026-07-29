@@ -129,7 +129,7 @@ We would rather you find these here than forty minutes into an evaluation. This 
 | **Cost and earned value** | Not present. Resource costs and EV-lite (PV/EV/AC, SPI/CPI) are planned for 0.8. If your practice is cost-centric, TruePPM is not ready for you. |
 | **Scale** | A project stays comfortable in the Schedule view to roughly **1,000 tasks**, bounded by the whole-project client load. Measured, not estimated — see the [tested scale envelope](https://docs.trueppm.com/administration/sizing/#tested-envelope). P6 handles two orders of magnitude more. |
 | **Mobile** | No app yet. An installable PWA lands in 0.5, a native Android app in 0.6, iOS at 1.0. |
-| **Maturity** | 0.3 is an alpha; 0.4 is the first beta. OpenProject has fifteen years and a support contract. We have a published 3–4 week release cadence and the [commit history](https://gitlab.com/trueppm/trueppm/-/commits/main) to back it. Judge accordingly. |
+| **Maturity** | 0.3 is an alpha; 0.4 is the first beta. TruePPM is built part-time. OpenProject has fifteen years, full-time staff, and a support contract. What we have is the [commit history](https://gitlab.com/trueppm/trueppm/-/commits/main) and a [roadmap](https://docs.trueppm.com/overview/roadmap/) that dates its targets at honest precision. Judge accordingly. |
 
 **API-first, so none of this is a black box.** Every feature is a REST or WebSocket endpoint; the web UI is an API consumer with no privileged access. The OpenAPI schema is the contract.
 
