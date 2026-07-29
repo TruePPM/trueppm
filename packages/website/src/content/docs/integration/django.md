@@ -34,6 +34,10 @@ def build_scheduler_project(django_project: Project) -> SchedulerProject:
 
     scheduler_cal = Calendar(
         working_days=cal.working_days,
+        # hours_per_day and timezone are reserved-but-inert: the engine schedules
+        # in whole-day units only, so these two fields are carried for API/model
+        # parity but do not change any computed date. Pass your real values
+        # anyway (round-tripping matters if you serialize the Calendar back out).
         hours_per_day=cal.hours_per_day,
         timezone=cal.timezone,
         exceptions=[

@@ -94,13 +94,21 @@ envelope change can be negotiated without breaking clients that ignore it today.
 The set is open-ended and grows as features land; current event types include:
 
 - **Tasks**: `task_created`, `task_updated`, `task_deleted`, `task_duration_changed`,
-  `tasks_reordered`, `tasks_restructured`, `tasks_bulk_mutated`
+  `task_dates_updated`, `task_restored`, `tasks_reordered`, `tasks_restructured`,
+  `tasks_bulk_mutated`
 - **Dependencies**: `dependency_created`, `dependency_updated`, `dependency_deleted`,
   `dependency_accepted`, `dependency_rejected`
 - **Task relations**: `task_relation_created`, `task_relation_updated`,
   `task_relation_deleted` (informational relates-to / blocks / duplicates links;
   payload carries the relation `id`). A cross-project relation fans to both
   endpoint projects. Inert — no schedule recompute follows.
+- **Task links** — a **separate family from Task relations above**, despite the
+  similar name: `task_link_created`, `task_link_updated`, `task_link_deleted`
+  cover an external Git/Jira/GitHub/GitLab reference attached to a task (payload
+  carries the link `id` and `task_id`), not an internal task-to-task
+  cross-reference. If you are grepping for "link" events looking for the
+  relates-to/blocks/duplicates feature, that is **Task relations** above, not
+  this family.
 - **Scheduling**: `cpm_complete`, `cpm_error`, `task_run_started`,
   `task_run_progress`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`
 - **Baselines**: `baseline_created`, `baseline_activated`, `baseline_deleted`
@@ -110,25 +118,37 @@ The set is open-ended and grows as features land; current event types include:
   `task_updated` with `changed_fields: ["labels"]`, not a distinct event.
 - **Sprints**: `sprint_created`, `sprint_updated`, `sprint_deleted`,
   `sprint_activated`, `sprint_cancelled`, `sprint_closed`, `sprint_reranked`,
-  `sprint_retro_updated`, `milestone_rollup_updated`, `poker_session_updated`
+  `sprint_retro_updated`, `milestone_rollup_updated`, `milestone_forecast_updated`,
+  `poker_session_updated`, `demo_toggled`
 - **Retro board**: `retro_item_created`, `retro_item_updated`,
   `retro_item_moved`, `retro_item_deleted`
 - **Comments / attachments**: `task_comment_created`, `task_comment_updated`,
-  `task_comment_deleted`, `task_attachment_created`, `task_attachment_deleted`,
-  `comment_created`
+  `task_comment_deleted`, `task_comment_ack_changed`,
+  `task_comment_reaction_added`, `task_comment_reaction_removed`,
+  `task_attachment_created`, `task_attachment_deleted`, `comment_created`
 - **Notes log**: `task_note_created`, `task_note_updated`, `task_note_deleted`,
   `task_note_pinned`, `task_note_decision_toggled`
 - **Roster / assignments**: `roster_changed`, `assignment_created`,
   `assignment_updated`, `assignment_deleted`
 - **Board config**: `board_config_updated`, `board_view_created`,
-  `board_view_updated`, `board_view_deleted`
+  `board_view_updated`, `board_view_deleted`, `project_custom_fields_updated`
 - **Membership / project**: `member_added`, `member_role_changed`,
   `member_removed`, `mention_group_changed`, `project_updated`,
-  `project_archived`, `project_unarchived`, `project_transferred`,
-  `project_deleted`, `project_hard_deleted`
+  `project_archived`, `project_unarchived`, `project_restored`,
+  `project_transferred`, `project_deleted`, `project_hard_deleted`
+- **Programs**: `program_closed`, `program_reopened`, `program_deleted`,
+  `program_split`, `program_sponsorship_transferred`
 - **Task suggestions**: `suggestion_created`, `suggestion_declined`,
   `suggestion_revoked` (decline/revoke carry only the suggestion + task id — never
   the actor — a silent state reconciliation, not a callout)
+- **API tokens**: `api_token_minted`, `api_token_revoked` (project/program-scoped
+  tokens only — payload carries `token_prefix` + `name`, never the raw token or
+  hash; personal access tokens broadcast nothing, see
+  [API reference](/api/reference/#personal-access-tokens-apiv1meapi-tokens-adr-0214))
+- **Workshop lifecycle**: `workshop_started`, `workshop_ended` — broadcast on the
+  **board channel** (not the workshop channel below) so project members who
+  aren't in the live session still see that one started or ended; payload
+  carries the workshop `session_id`
 - **Cross-project (ADR-0120)**: `slip_conflict_acknowledged`, `slip_conflicts_updated`
 - **Presence**: `presence_join`, `presence_leave`
 
@@ -199,6 +219,8 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `task_updated` | `task.updated` |
 | `task_deleted` | `task.deleted` |
 | `task_duration_changed` | **WS-only** |
+| `task_dates_updated` | **WS-only** |
+| `task_restored` | **WS-only** |
 | `dependency_created` | `dependency.created` |
 | `dependency_deleted` | `dependency.deleted` |
 | `dependency_updated` | **WS-only** |
@@ -207,11 +229,26 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `task_relation_created` | **WS-only** |
 | `task_relation_updated` | **WS-only** |
 | `task_relation_deleted` | **WS-only** |
+| `task_link_created` | **WS-only** — distinct family from `task_relation_*` above, see the note above |
+| `task_link_updated` | **WS-only** |
+| `task_link_deleted` | **WS-only** |
+| `task_comment_ack_changed` | **WS-only** |
+| `task_comment_reaction_added` | **WS-only** |
+| `task_comment_reaction_removed` | **WS-only** |
 | `project_created` | `project.created` |
 | `project_updated` | **WS-only** |
 | `project_archived` | **WS-only** |
 | `project_unarchived` | **WS-only** |
+| `project_restored` | **WS-only** |
 | `project_deleted` | **WS-only** |
+| `project_custom_fields_updated` | **WS-only** |
+| `api_token_minted` | **WS-only** |
+| `api_token_revoked` | **WS-only** |
+| `demo_toggled` | **WS-only** |
+| `milestone_forecast_updated` | **WS-only** |
+| `program_sponsorship_transferred` | **WS-only** |
+| `workshop_started` | **WS-only** |
+| `workshop_ended` | **WS-only** |
 | `backlog_reranked` | **WS-only** |
 | `sprint_reranked` | **WS-only** |
 | `baseline_activated` | **WS-only** |

@@ -31,13 +31,17 @@ Because the refresh token lives in a cookie, browser clients **must** send
 credentials on the auth requests (`fetch(..., { credentials: "include" })` or
 `xhr.withCredentials = true`).
 
+The access token is short-lived by design: **15 minutes** (`SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"]`).
+Clients are expected to refresh well before it expires rather than wait for a
+`401` — see [Refresh the access token](#refresh-the-access-token) below.
+
 ### Log in
 
 ```http
 POST /api/v1/auth/token/
 Content-Type: application/json
 
-{"username": "...", "password": "..."}
+{"username": "...", "password": "...", "remember_me": false}
 ```
 
 Returns **only** the access token in the body:
@@ -59,6 +63,25 @@ Pass the access token on all subsequent requests:
 ```http
 Authorization: Bearer <access_token>
 ```
+
+#### `remember_me` and refresh-token lifetime (ADR-0544)
+
+The optional `remember_me` boolean on the login body controls **both** the
+refresh JWT's `exp` and whether the refresh cookie survives browser close. The
+lifetime is **conditional on the flag** — it is not simply "long-lived":
+
+| `remember_me` | Refresh token `exp` | Cookie | Behavior |
+|----------------|---------------------|--------|----------|
+| `true` | **30 days** (`TRUEPPM_REFRESH_TOKEN_REMEMBER_DAYS`, default 30) | Persistent (`Max-Age` set) | Survives browser close; a deliberate opt-in to a long-lived credential on a trusted device. |
+| `false` (default, or omitted) | **12 hours**, sliding (`TRUEPPM_REFRESH_TOKEN_SESSION_HOURS`, default 12) | Session cookie (no `Max-Age`) | Dies when the browser closes. Each refresh rotates the token and re-mints the 12h window, so an actively-used session never expires mid-work — the 12h ceiling only bites after 12h of idle time with the browser still open. |
+
+The choice is carried as a `remember` claim inside the refresh JWT itself (not
+server-side state), so it survives rotation automatically. SSO logins
+(below) have no checkbox and are always session-scoped (`remember_me` is
+implicitly `false`). A refresh token minted before this behavior shipped (no
+`remember` claim) keeps the legacy 7-day persistent cookie unchanged — nobody
+already logged in is forced to re-authenticate or silently downgraded to a
+session cookie.
 
 ### Refresh the access token
 
@@ -102,10 +125,13 @@ The legacy bare `AUTH_REFRESH_COOKIE_*` names are still accepted as fallbacks.
 
 ### Project-scoped API token (`projectApiTokenAuth`)
 
-The [inbound task-sync](/features/inbound-task-sync/) surface uses a separate,
+The [inbound task-sync](/features/inbound-task-sync/) surface (and the
+CI acceptance-result ingest endpoint, `POST /api/v1/projects/{id}/acceptance-results/`,
+ADR-0148 — see [Acceptance criteria](#acceptance-criteria)) use a separate,
 non-JWT scheme. Mint a token in **Project settings → API tokens**; it is scoped
-to a single project and authorizes only the task-sync endpoint (ADR-0068). Send
-it as a bearer token:
+to a single project (or, for `programs/{id}/api-tokens/`, to every project in a
+program) and authorizes only these two endpoints (ADR-0068). Send it as a
+bearer token:
 
 ```http
 POST /api/v1/projects/{project_id}/task-sync/
@@ -117,6 +143,83 @@ The schema advertises this scheme as `projectApiTokenAuth`. It is deliberately
 task-sync with their normal credentials, so every inbound push is attributable
 to a minted token. A token whose project does not match the URL returns `401`
 (not `403`) so callers cannot enumerate project existence.
+
+### Personal Access Tokens (`/api/v1/me/api-tokens/`, ADR-0214)
+
+```http
+GET    /api/v1/me/api-tokens/
+POST   /api/v1/me/api-tokens/
+DELETE /api/v1/me/api-tokens/{id}/
+```
+
+A **Personal Access Token** (PAT) is a `tppm_`-prefixed, user-owned credential
+minted from your own account rather than a project or program. `POST` returns
+the raw token exactly once; it is never retrievable again. Two scopes on
+create (`scopes`, defaulting to `["legacy:full"]`): **`legacy:full`** (acts as
+you, no expiry required) or **`mcp:read`** (safe methods only, expiry
+required). Capped at 10 active tokens per user, and every PAT is revoked
+automatically when the owning account's password changes. `DELETE`
+soft-revokes; both mint and revoke are audited. See
+[Personal Access Tokens](/features/personal-access-tokens/) for the full
+walkthrough (creating, scope picker, the MCP-client config snippet) and
+[MCP server](/features/mcp-server/) for connecting an AI client with an
+`mcp:read` token.
+
+**A PAT only authenticates against the read-only MCP surface today — not the
+general write API.** `ProjectApiTokenAuthentication` is not in the API's
+default authentication stack; it is opted into two different ways, with two
+different outcomes for a *personal* (owner-scoped) token:
+
+- **`McpReadableViewMixin`** — mixed onto about fifteen read endpoints
+  (your profile, project/program overview, forecast, schedule derivation,
+  Monte Carlo, search, My Work, sprints, labels, board config, workspace
+  assets) — adds `ProjectApiTokenAuthentication` and requires only
+  `mcp:read`-or-`legacy:full` scope plus a safe HTTP method. This is the
+  surface a PAT of either scope can actually reach, and it is read-only by
+  construction (writes 403 for a token caller regardless of scope). It can
+  also be disabled per-instance or per-project — see
+  [MCP server](/features/mcp-server/#security-notes).
+- **`TaskSyncView`** and the acceptance-result ingest endpoint (above) opt in
+  directly, but both additionally require `IsTokenForProject` — the token's
+  `project`/`program` FK must resolve to the URL's project. A personal
+  token has neither set, so it fails this check with a `401` on every
+  request: **there is no way to use a PAT against inbound sync or CI
+  acceptance ingestion**, full-access scope notwithstanding. Whether that is
+  intentional or a gap to close is an open design question, tracked in
+  [issue #2547](https://gitlab.com/trueppm/trueppm/-/issues/2547).
+
+There is currently no PAT-authenticated path to any *write* endpoint outside
+that one CI-ingest exception, and none at all to the general CRUD API
+(projects, tasks, dependencies, …) — a full-access PAT's "acts as you, writes
+everything you can" promise is, in practice, scoped to whatever
+`McpReadableViewMixin` exposes (which is entirely read-only) until #2547 is
+resolved.
+
+## Single sign-on (OIDC / OAuth2)
+
+Self-service login against your own identity provider (Keycloak, Authentik,
+Authelia, Zitadel, Google, GitHub, GitLab, or any OIDC-compliant IdP) is a
+three-endpoint browser redirect flow, configured per-provider under
+**Workspace settings → SSO providers**. All three are unauthenticated and
+public by design — they *are* the login flow:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/v1/auth/oidc/discover/?email=` | Which enabled provider(s) apply to an email's domain (or all enabled providers with no `email`). Always `200`; never reveals whether an account exists. |
+| GET | `/api/v1/auth/oidc/login/?provider=<slug>` | Starts the flow for one provider: mints a single-use state/PKCE/nonce and `302`s to the IdP's authorization endpoint. |
+| GET | `/api/v1/auth/oidc/callback/?code=&state=` | The IdP redirects here. On success: validates state, exchanges the code, verifies the ID token (or fetches GitHub userinfo), resolves or creates the local user, sets the refresh cookie, and `302`s to the SPA completion route — no token ever appears in a URL. On failure it `302`s to the same completion route with a non-sensitive `?error=` code (see [SSO error codes](/api/errors/#sso-error-codes)). |
+
+SSO-authenticated sessions are always session-scoped (12h sliding, session
+cookie) — there is no `remember_me` checkbox in an IdP redirect, so the safe
+default applies unconditionally. The admin-facing provider CRUD
+(`/api/v1/workspace/sso/providers/`) is a separate, authenticated surface; see
+[Workspace Settings](/administration/workspace-settings/).
+
+This is deliberately basic, self-service login federation — OSS per the
+[auth carve-out](/license/): an admin points TruePPM at their own IdP and users
+log in through it. SAML federation, SCIM provisioning, LDAP/AD directory sync,
+enforced org-wide SSO, and group→role mapping are Enterprise org-identity
+governance, not part of this surface.
 
 ## Endpoints
 
@@ -583,9 +686,217 @@ rules:
   watermark. Replay never crosses the project *or* the user boundary.
 - **Cross-project id collisions return `409`.** A `created` row whose
   client-generated `id` collides with a task that lives in **another** project
-  returns `409 Conflict` (code `sync_id_collision`). The client must regenerate
-  the id and re-upload — the server will not silently mutate a task in a project
-  the caller's URL scope does not own.
+  returns `409 Conflict` with a `detail` message telling the client to
+  regenerate the id and re-upload — the server will not silently mutate a task
+  in a project the caller's URL scope does not own. The exception is internally
+  tagged `sync_id_collision`, but — verified against the current DRF exception
+  path — that tag is **not** serialized onto the response body; branch on the
+  `409` status, not on a `code` field. See
+  [issue #2550](https://gitlab.com/trueppm/trueppm/-/issues/2550).
+
+### Program membership sync
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/sync/user/programs/` | Pull-only delta sync for `Program` and `ProgramMembership` rows — every program the caller belongs to, plus every co-member's membership row. No path parameter (scope is derived entirely from the caller's own live memberships, so there is no per-user IDOR surface). Complements `projects/{id}/sync/`, which cannot reach the user-scoped program layer |
+
+## Additional resource groups
+
+The sections above are a curated tour, not an exhaustive endpoint dump — see
+each linked feature page for the full picture. The groups below exist in the
+API today but previously had no row anywhere in the docs; each gets at least a
+pointer here.
+
+### Teams
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/projects/{project_id}/teams/` | List a project's teams |
+| GET | `/api/v1/teams/{id}/` | Retrieve a team |
+| GET | `/api/v1/teams/{team_id}/members/` | List a team's roster |
+| PATCH | `/api/v1/teams/{team_id}/members/{id}/` | Change a member's role/facets |
+
+This release ships the read + role/facet-patch slice only; team create/delete
+and the team activity feed are tracked for a later release (#599). See
+[Multi-team lens](/features/multi-team-lens/) for the UI this powers.
+
+### Skills and resource-skills
+
+`/api/v1/skills/`, `/api/v1/resource-skills/`, and
+`/api/v1/task-skill-requirements/` are documented alongside the rest of the
+resource catalog in [Resources](/features/resources/) — see that page for
+the full CRUD surface and the skill-match warning codes.
+
+### Assets (unified file/link feed)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/assets/?mine=&program=&kind=&label=&provider=&q=&cursor=&page_size=` | Workspace-wide feed across every project the caller can read |
+| GET | `/api/v1/projects/{id}/assets/?kind=&label=&provider=&q=&cursor=&page_size=` | One project's feed (Viewer+; readable even on an archived project) |
+| GET | `/api/v1/programs/{id}/assets/?kind=&label=&provider=&q=&cursor=&page_size=` | A program's feed, aggregated across its member projects |
+
+Read-only, cursor-paginated aggregation of every task's file attachments and
+external links (ADR-0215/ADR-0428). The workspace tier never surfaces an asset
+from a project the caller cannot already open — it grants no new reach, which
+is what keeps it OSS rather than a portfolio-governance surface. `?mine=true`
+hard-scopes to the caller's own assigned tasks; there is no `?user=` escape
+hatch. See [Assets](/features/assets/).
+
+### Public share links
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET / POST | `/api/v1/projects/{id}/share-links/` | List / mint a public link (Admin+) |
+| POST | `/api/v1/projects/{id}/share-links/{link_id}/revoke/` | Revoke a link (Admin+, idempotent) |
+| GET | `/api/v1/share/board/{token}/` | Public, unauthenticated board snapshot |
+| GET | `/api/v1/share/schedule/{token}/` | Public, unauthenticated schedule/Gantt snapshot |
+
+The two public endpoints return `410` for a revoked link and a uniform `404`
+for an unknown token or a disabled instance-wide sharing kill switch (so a
+caller cannot distinguish "never existed" from "feature disabled"), and
+support `ETag`/`If-None-Match` (`304` on an unchanged snapshot). See
+[Board sharing](/features/board-sharing/).
+
+### Agent actions
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/agent-actions/` | List the append-only, hash-chained log of MCP/agent decisions |
+| GET | `/api/v1/agent-actions/{id}/` | Retrieve one action record |
+
+Read-only team-visible audit trail (ADR-0112). See
+[Agent oversight](/features/agent-oversight/).
+
+### Recurrence rules
+
+CRUD via `/api/v1/recurrence-rules/` (Resource Manager+ to write; any member
+may read). Attaching a rule pulls its template task out of the CPM graph and
+triggers a recompute; detaching puts it back. See
+[Recurring tasks](/features/recurring-tasks/) for the UI and field reference.
+
+### Estimation poker
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET / POST | `/api/v1/sprints/{sprint_id}/poker/` | List live rounds / open a new round (facilitator) |
+| POST | `/api/v1/poker/{id}/vote/` | Cast or change my vote |
+| POST | `/api/v1/poker/{id}/reveal/` | Reveal votes (facilitator) |
+| POST | `/api/v1/poker/{id}/reopen/` | Reopen for a re-vote (facilitator) |
+| POST | `/api/v1/poker/{id}/commit/` | Commit the agreed points — writes `Task.story_points` (facilitator) |
+| POST | `/api/v1/poker/{id}/cancel/` | Cancel the round (facilitator) |
+
+See [Estimation poker](/features/estimation-poker/).
+
+### Retro board items
+
+| Method | Path | Description |
+|--------|------|-------------|
+| PATCH / DELETE | `/api/v1/retro-items/{id}/` | Edit or remove a retro board item |
+| POST | `/api/v1/retro-items/{id}/convert-to-action/` | Convert a retro item into an action item |
+
+Complements the `/api/v1/sprints/{id}/retro/` read/upsert endpoints and the
+action-item promote/pull-to-sprint routes documented in
+[Retrospective](/features/retrospective/) — that page covers the retro as a
+whole; these two routes edit an individual board item once it exists.
+
+### Sprint scope changes
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/sprints/{id}/scope-changes/` | Audit list + delta of pending mid-sprint scope-injection requests |
+| POST | `/api/v1/sprints/{id}/scope-changes/accept/` / `/api/v1/scope-changes/{id}/accept/` | Accept a pending scope-injection request |
+| POST | `/api/v1/sprints/{id}/scope-changes/reject/` / `/api/v1/scope-changes/{id}/reject/` | Reject a pending scope-injection request |
+
+The mid-sprint scope-injection approve-gate (ADR-0102 §5) referenced from
+[Sprints](/features/sprints/) — a task added to an active sprint after it
+started lands here pending Scrum Master / Product Owner approval rather than
+silently joining the commitment.
+
+### Task relations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET / POST | `/api/v1/task-relations/` | List / create an informational task-to-task relation |
+| GET / PUT / PATCH / DELETE | `/api/v1/task-relations/{id}/` | Retrieve, update, or remove one relation |
+
+A relation (`relates_to` / `blocks` / `duplicates`, ADR-0455) is a
+cross-reference, **not** a scheduling [dependency](#dependencies) — it is
+inert: no CPM effect, no lag, no cycle check, and no schedule recompute on
+write. Endpoints may sit in the same project or in two projects of the same
+program; a cross-*program* relation is rejected. Returns a bare array (not
+the paginated envelope) since a task's relations are inherently few. See the
+[WebSocket event taxonomy](/api/websockets/#board-channel--server--client) for
+the corresponding `task_relation_*` events — and note that `task_link_*` is a
+**different, unrelated** family (external Jira/GitHub/GitLab links via the
+[integrations](#integrations) surface below), not a naming variant of this one.
+
+### User search
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/users/search/` | Typeahead over workspace users, for the member-invite / mention-group pickers |
+
+Throttled at `user_search` (60/min per user — see
+[Rate limiting](#rate-limiting)) to bound bulk scraping of the user directory.
+
+### Admin: failed tasks
+
+`/api/v1/admin/failed-tasks/` (list, retrieve, `requeue`, `drop`, `requeue_all`,
+`drop_all`) is the Celery dead-letter queue surface, fully documented in
+[System health](/administration/system-health/#api).
+
+### Import templates
+
+`GET /api/v1/import-templates/csv/` serves the same downloadable CSV template
+used by the in-app import wizard, for scripted use — see
+[CSV import](/features/csv-import/#download-the-template).
+
+### Integrations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET / POST / DELETE | `/api/v1/me/credentials/{provider}/` | Connect, read, or revoke your own credential for an external provider (ADR-0049) |
+| GET / PUT / DELETE | `/api/v1/me/connections/{source}/` | Your personal, read-only external task-source connection (ADR-0097 §3 — the OSS carve-out: user-scoped and one-way) |
+| POST | `/api/v1/me/connections/{source}/sync/` | Trigger a manual pull of your connection; returns `202 {"queued": true}` |
+| GET | `/api/v1/me/external-items/` | Your cached external work items, for the My Work external section |
+| GET / PUT | `/api/v1/integrations/projects/{project_id}/git-automation/` | A project's Git-event board-automation config (Admin+, ADR-0158) |
+| POST | `/api/v1/integrations/projects/{project_id}/git-automation/rotate-secret/` | Rotate the webhook signing secret |
+| POST | `/api/v1/integrations/projects/{project_id}/git-webhook/` | Inbound Git-event receiver (unauthenticated by session; verified by the rotatable secret) |
+
+The org-wide, admin-configured, bidirectional Integration Hub is Enterprise;
+everything in this table is the OSS carve-out — a personal, one-way credential
+or connection, or a single project's own Git automation. See
+[Webhooks](/features/webhooks/) for the outbound event side.
+
+### Acceptance criteria
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET / POST | `/api/v1/acceptance-criteria/?task=` | List a task's acceptance criteria / add one (Member+) |
+| GET / PATCH / DELETE | `/api/v1/acceptance-criteria/{id}/` | Read, tick met/unmet, or remove one criterion |
+
+Stamps `met_by`/`met_at` when `met` flips (ADR-0105 §2); surfaced on
+drill-down only, never aggregated to a PMO rollup. See
+[Product backlog](/features/product-backlog/#definition-of-ready) for the
+Definition-of-Ready meter this powers, and the [PAT section](#personal-access-tokens-apiv1meapi-tokens-adr-0214)
+above for the separate CI-facing `POST /api/v1/projects/{id}/acceptance-results/`
+ingest endpoint that flips these same flags from a test run.
+
+### Velocity suggestions
+
+`/api/v1/velocity-suggestions/` (list, accept, dismiss) is fully documented in
+[Velocity calibration](/features/velocity-calibration/#api-endpoints).
+
+### Readiness probe
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/readyz` | Dependency-aware readiness for Kubernetes readiness/startup probes. Unauthenticated by design (kubelet sends no credentials). Coarse `{"status": "ok"\|"fail", "checks": {...}}` body with no infrastructure detail; `200` when every checked dependency is healthy, `503` otherwise |
+
+Distinct from the plain unauthenticated liveness check at `/api/v1/health/`
+and the admin-only, deeper `/health/system/` used by
+[System health](/administration/system-health/) — `readyz` is the one
+Kubernetes should point a readiness probe at.
 
 ## Pagination
 
@@ -609,13 +920,75 @@ Both defaults are operator-configurable (`TRUEPPM_THROTTLE_ANON_RATE` and
 `TRUEPPM_THROTTLE_USER_RATE`; see
 [Configuration](/administration/configuration/#general-api-rate-limiting)).
 
-- **Probe endpoints are exempt.** `/api/v1/health/` and `/api/v1/edition/` are
-  never rate limited, so Kubernetes liveness/readiness loops are not throttled.
-- **Scoped endpoints replace the default.** Endpoints with their own limit —
-  login (`10/min`), token refresh (`60/min`), the resource catalog list
-  (`60/min` per user), Monte Carlo run (`10/min`), seed import and demo-sample
-  load (`6/min` each, separate buckets), and others — carry only that specific
-  limit. Scoped limits do **not** stack on top of the general default.
+- **Probe endpoints are exempt.** `/api/v1/health/`, `/api/v1/readyz`, and
+  `/api/v1/edition/` are never rate limited, so Kubernetes liveness/readiness
+  loops are not throttled.
+- **Scoped endpoints replace the default.** An endpoint with its own limit
+  carries only that specific limit — scoped limits do **not** stack on top of
+  the general default (two *different* scoped throttles on the same endpoint,
+  e.g. task-sync's per-project limit, do stack with each other).
+
+### Complete scoped-throttle list
+
+Two mechanisms implement a scoped limit. Most are a named entry in
+`DEFAULT_THROTTLE_RATES` (env-tunable via the `TRUEPPM_THROTTLE_*` variable
+named alongside each one below, where one exists); a handful of endpoints
+that need bespoke logic (a sliding ramp-up window, two stacked buckets, a
+Redis-atomic counter) are hand-rolled throttle classes instead. Both kinds
+return `429` with the same `Retry-After` envelope shown above.
+
+**Scoped rates** (`DEFAULT_THROTTLE_RATES`):
+
+| Scope | Rate | Applies to |
+|-------|------|------------|
+| `anon` | 60/min (`TRUEPPM_THROTTLE_ANON_RATE`) | General default, unauthenticated |
+| `user` | 1000/min (`TRUEPPM_THROTTLE_USER_RATE`) | General default, authenticated |
+| `login` | 10/min | Login, per client IP |
+| `login_account` | 5/min (`TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE`) | Login, per submitted username — stacks with `login` |
+| `password_reset` | 5/min | Password-reset request + confirm |
+| `refresh` | 60/min | JWT refresh |
+| `user_search` | 60/min | Member-invite user typeahead |
+| `omni_search` | 60/min (`TRUEPPM_THROTTLE_OMNI_SEARCH_RATE`) | ⌘K Epic/Story omni-search |
+| `ws_ticket` | 120/min | WebSocket connection-ticket minting |
+| `invite_resend` | 5/min | Workspace invite resend |
+| `email_settings` | 12/min | Workspace SMTP config writes |
+| `email_settings_probe` | 6/min | SMTP send-test + deliverability probe |
+| `oidc_discover` | 30/min | SSO domain discovery |
+| `oidc_login` | 20/min | SSO login start |
+| `oidc_callback` | 30/min | SSO callback |
+| `sso_test_connection` | 20/min | SSO admin "Test connection" |
+| `credential_rotate` | 10/min | Personal integration credentials + Git webhook secret rotation |
+| `external_sync` | 20/min | Manual external-connection pull trigger |
+| `monte_carlo` | 10/min | Synchronous Monte Carlo run |
+| `monte_carlo_whatif` | 6/min | Monte Carlo what-if (two CPM + two MC passes per call) |
+| `sample_load` | 6/min (`TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE`) | Bundled-sample demo loader |
+| `seed_import` | 6/min (`TRUEPPM_THROTTLE_SEED_IMPORT_RATE`) | Caller-supplied program seed import |
+| `seed_validate` | 20/min (`TRUEPPM_THROTTLE_SEED_VALIDATE_RATE`) | Seed import dry run |
+| `sample_download` | 60/min (`TRUEPPM_THROTTLE_SAMPLE_DOWNLOAD_RATE`) | Bundled-fixture file download |
+| `mcp_read` | 120/min (`TRUEPPM_THROTTLE_MCP_READ_RATE`) | Per-token baseline on any MCP-readable view |
+| `mcp_read_compute` | 12/min (`TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE`) | Stacks on `mcp_read` for the four compute-heavy MCP tools |
+| `share_mint` | 20/min (`TRUEPPM_THROTTLE_SHARE_MINT_RATE`) | Minting a public board/schedule share link |
+| `share_access` | 60/min (`TRUEPPM_THROTTLE_SHARE_ACCESS_RATE`) | Resolving a public share link |
+| `telemetry_test` | 6/min | Telemetry test-export probe |
+
+**Hand-rolled throttle classes** (custom windows/keys DRF's scope rates can't express):
+
+| Class | Rate | Applies to |
+|-------|------|------------|
+| `TaskSyncThrottle` | 100/min steady, 1000/min in the first 60 min after token mint | Inbound task-sync, per project |
+| `AcceptanceResultThrottle` | Same ramp as `TaskSyncThrottle` | CI acceptance-result ingest, per token |
+| `TokenIssuanceThrottle` | 5/min (`TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE`) | Minting any API token, per user |
+| `TaskAttachmentUploadThrottle` | 60/min | Task-attachment upload, per user |
+| `SyncUploadThrottle` | 60/min per (project, user) **and** 120/min per user | Offline sync push — fails **closed** (429) on a Redis outage, the one throttle in this table that does |
+| `GitWebhookThrottle` | 120/min | Inbound Git webhook receiver, per project |
+| `TaskLinkRefreshThrottle` | 30/min | Manual task-link refresh, per user |
+| `MentionRateThrottle` | 100/hour and 1000/day | Comment `@mention` fan-out, per user (both windows apply) |
+
+Every hand-rolled class fails **open** on a Redis error (never blocks
+legitimate traffic during a cache outage) except `SyncUploadThrottle`, which
+fails **closed** — a denied offline sync retries with backoff, while an
+unbounded write-path throttle bypass during an outage was judged the worse
+failure mode.
 
 When a caller exceeds a limit the API responds with `429 Too Many Requests` and
 a `Retry-After` header giving the number of seconds to wait before retrying:
@@ -637,17 +1010,22 @@ consumes no additional quota but continues to return `429`.
 |------|---------|
 | 200 | OK |
 | 201 | Created |
+| 202 | Accepted — the work was queued and runs asynchronously (e.g. MS Project / Jira / CSV import, workspace/program/project export, invite-email (re)queueing, a task-run cancellation request). The response carries a job/status resource to poll, or a bare `{"queued": true}`, not the final result |
 | 204 | No content (delete) |
+| 304 | Not modified — the caller's `If-None-Match` matched the current `ETag` (public share-link resolution; bundled-sample file download); the body is empty, refetch is unnecessary |
 | 400 | Validation error |
 | 401 | Missing or invalid token |
 | 403 | Insufficient role |
 | 404 | Not found or soft-deleted |
 | 409 | Conflict (e.g. duplicate membership, sync id collision) |
+| 410 | Gone — the resource existed but is deliberately no longer reachable and never will be again: a revoked public share link, or a completed workspace/program/project export download link past its `expires_at`. Distinct from `404` (never existed, or the caller cannot see it) |
+| 413 | Payload too large (the workspace branding-logo upload exceeds its 2 MB ceiling) |
 | 415 | Unsupported media type (attachment upload outside the MIME allow-list) |
 | 422 | Well-formed but unprocessable (idempotency-key reuse, program-schedule limits) |
 | 429 | Rate limit exceeded — general default or a scoped throttle; includes a `Retry-After` header |
 | 501 | Not implemented by this deployment's configured backend |
 | 502 | An upstream identity provider could not be reached |
+| 503 | Service unavailable — a dependency-aware readiness/health check reports a failing dependency (`/api/v1/readyz`, `/health/system/`, `/health/beat/`), or an aggregation endpoint's per-section subservice failed and degraded gracefully (e.g. the integrations-summary view, whose body then carries a `failed` key naming the section so the client falls back to that section's own endpoint) |
 
 Errors come in two shapes: field-keyed validation messages with **no** machine
 code, and structured bodies carrying a stable `code` you can branch on. See
