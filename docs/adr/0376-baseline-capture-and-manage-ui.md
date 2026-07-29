@@ -1,7 +1,8 @@
 # ADR-0376: In-app baseline capture & management UI
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified:
+`CaptureBaselineConfirmDialog.tsx`, `BaselineManagerModal.tsx`, `e2e/baseline-manage.spec.ts`).
 
 ## Context
 The baseline subsystem is **fully built on the backend and half-wired on the

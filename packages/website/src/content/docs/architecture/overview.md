@@ -156,15 +156,29 @@ Every mutation is followed by a `broadcast_board_event()` call deferred inside `
 
 ### packages/scheduler
 
-Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on PyPI as `trueppm-scheduler`.
+Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on PyPI as `trueppm-scheduler`. See [Scheduling as a separate package](#scheduling-as-a-separate-package) above — this page does not document the engine's internals.
+
+### packages/wasm-scheduler
+
+The CPM engine's Rust sibling: a `petgraph`-based implementation compiled to WebAssembly with `wasm-pack` (crate `trueppm-wasm-scheduler`). It exists for future on-device / offline scheduling (#1777) — a browser or mobile client with no network still needs to recompute dates locally. CI holds it in behavioral conformance with `packages/scheduler` (`wasm:conformance`), and gates it with `wasm:lint` (clippy `-D warnings`), `wasm:test`, and `wasm:license-check` (`deny.toml`). It is not yet wired into the web or mobile client — see [API-first](#api-first) for why an unwired offline engine doesn't compromise the "server always has the last word" invariant.
+
+### packages/mobile
+
+React Native (0.81) + Expo tooling, TypeScript, NativeWind (Tailwind for React Native). Offline-first by design: `src/db/` holds the on-device WatermelonDB-compatible store, `src/sync/` implements the delta-sync client against the same `GET /api/v1/projects/{pk}/sync/` endpoint described in [Offline-first sync protocol](#offline-first-sync-protocol), and `src/auth/`, `src/api/`, `src/features/`, and `src/navigation/` mirror the web app's layering. Android phones are the primary reference design, Android tablets second, iPhone deferred to 1.0 GA.
+
+### packages/mcp
+
+A read-only Model Context Protocol server (`trueppm-mcp`), Apache 2.0, with its own `pyproject.toml` and `Dockerfile` — a pure HTTP client of the TruePPM REST API with no Django dependency and no direct database access. It ships the read-tool surface designed in [ADR-0186](/architecture/decisions/) (stdio transport by default; `--transport http` for network use). See [Computed, not guessed](#computed-not-guessed) above for how it fits the AI-native foundation, and [MCP server](/features/mcp-server/) for the feature-level documentation.
 
 ### packages/web
 
-React 19 + TypeScript + Vite 6. Tailwind CSS with Design System v2.0 (navy/sage) tokens (WCAG 2.1 AA). TanStack Query for server state, Zustand for client state, React Router v7. The Schedule view (Gantt-style) uses a purpose-built canvas renderer in `src/features/schedule/engine/` (no third-party Gantt library). The application shell, Schedule, Board, Sprints, and supporting views are wired against the live API.
+React 19 + TypeScript + Vite 8. Tailwind CSS with Design System v2.0 (navy/sage) tokens (WCAG 2.1 AA). TanStack Query for server state, Zustand for client state, React Router v8. The Schedule view (Gantt-style) uses a purpose-built canvas renderer in `src/features/schedule/engine/` (no third-party Gantt library). The application shell, Schedule, Board, Sprints, and supporting views are wired against the live API.
 
 ### packages/api
 
 Django 5.2 + DRF 3.15. Django Channels 4 (ASGI). Celery 5.4 + Valkey (BSD-licensed Redis fork; wire-compatible). django-allauth + simplejwt. drf-spectacular (OpenAPI 3.0.3). PostgreSQL 16 with `ltree` for WBS hierarchy.
+
+Valkey serves three distinct roles, each on its own logical database index off the same `REDIS_URL` (`settings/base.py`): the Celery broker/result backend (`/0`), the Django Channels layer backing WebSocket fan-out (`/1`), and — the role most easily missed — the Django `CACHES["default"]` backend (`/2`), which holds short-lived OIDC/OAuth2 state (the PKCE verifier, nonce, and exact `redirect_uri` for an in-flight SSO login — see `apps/sso/services.py`) and backs every DRF scoped throttle counter (login, refresh, Monte Carlo, and the general anon/user rate limits).
 
 ### packages/website
 

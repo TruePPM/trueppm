@@ -1,6 +1,11 @@
 # ADR-0077: MCP Server Scope, Edition Boundary, and Token-Scope Model
 
-## Status: Proposed (v3 — post-architect); **release split superseded by [ADR-0186](0186-read-only-mcp-server-oss-scaffold-and-read-tools.md)**
+## Status
+Proposed (v3 — post-architect) for the 0.6 write surface, session auth, and full
+4-layer scope system. The 0.4 release split (§B/§D/§E/§L) is superseded by
+[ADR-0186](0186-read-only-mcp-server-oss-scaffold-and-read-tools.md) (Accepted); §A
+(OSS edition) and §F (health bands) are retained by ADR-0186. Status clarified
+2026-07-29 after ADR audit (#2539) — see erratum below for the full reconciliation.
 
 > **Erratum (2026-07-08) — release slot reconciled: read-only ships in 0.4, writes in 0.6.**
 > This supersedes the 2026-06-06 erratum below (kept for history). Issue #1449 flagged a

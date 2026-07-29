@@ -1,8 +1,9 @@
 # ADR-0662: Omni-search covers plain tasks and milestones
 
 ## Status
-Proposed (extends ADR-0508 D4 — the `GET /api/v1/me/search/` omni-search endpoint — and
-does not supersede it)
+Accepted (extends ADR-0508 D4 — the `GET /api/v1/me/search/` omni-search endpoint — and
+does not supersede it) — status corrected 2026-07-29 after ADR audit (#2539, verified:
+`_OMNI_SEARCH_TYPES` includes `milestone`, web `useOmniSearch.ts` default types).
 
 ## Context
 

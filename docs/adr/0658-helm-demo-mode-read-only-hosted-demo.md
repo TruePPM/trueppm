@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified:
+`packages/helm/templates/demo-seed-job.yaml`, `values-demo.yaml`, `helm:template` CI job
+rendering it).
 
 ## Context
 
