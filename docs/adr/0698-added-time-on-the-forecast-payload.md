@@ -298,7 +298,7 @@ from the same `delta_vs_cpm` the premium is derived from, and it is `hidden md:b
 flex-shrink-0` (always visible wherever the `xl:`-gated fragment is). So the one surface
 that made a bare number legible was the one surface already printing that number, and an
 `Added +11d` fragment there would be the same value twice on one screen with nothing
-marking either as authoritative — rule 284's defect, now generalized as **rule 290**.
+marking either as authoritative — rule 284's defect, now generalized as **rule 291**.
 `addedTimeChipContext` therefore returns a separate `fragment` flag: Schedule keeps the
 popover row (behind a click, and the only carrier of `needs estimates` and the stamped
 stale read) and loses the inline fragment. `addedTimeChipForm` keeps its
@@ -436,7 +436,7 @@ never `'number'`) swept across 320–1920, and the concrete drop at 1024.
   `unmeasurable` state only.** For every measured state the P80 chip in the same row
   already reads `P80: Nov 4 (+11d)` — the same delta, off the same field — so a second
   copy put one number twice in one row, ~100px apart, and in two different minus glyphs
-  (`useForecastPresentation` emits ASCII `-`, `addedTime` emits U+2212 `−`). Rule 290
+  (`useForecastPresentation` emits ASCII `-`, `addedTime` emits U+2212 `−`). Rule 291
   again. What the forecast chips structurally cannot say is that there was *nothing to
   measure*: a flat run renders `Forecast: Oct 24 · matches CPM`, which is exactly the
   reassuring misread the `unmeasurable` variant exists to refuse — and that gap is what

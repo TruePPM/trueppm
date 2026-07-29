@@ -43,7 +43,7 @@ describe('addedTimeChipContext', () => {
     });
   });
 
-  describe('rule 290 — the surface that supplies the baseline is printing the delta too', () => {
+  describe('rule 291 — the surface that supplies the baseline is printing the delta too', () => {
     it('drops the inline fragment on Schedule but keeps the popover row', () => {
       // `ScheduleForecastBar` renders `P80: Nov 4 (+11d)` — the same delta, off the
       // same server field — so an inline fragment there would be the number twice on

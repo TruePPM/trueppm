@@ -18,7 +18,7 @@ import { projectViewSegment } from './useLocationModel';
  * beside it, from the same `delta_vs_cpm` the premium is derived from. So the one
  * surface that made a bare number legible was the one surface already printing it, and
  * a fragment there would be the same value twice on one screen with nothing saying
- * which is authoritative (rule 284, rule 290).
+ * which is authoritative (rule 284, rule 291).
  *
  * The set is kept rather than deleted because the rule it encodes is still the right
  * one — it simply has no true case in this product today. A future surface that shows

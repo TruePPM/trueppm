@@ -50,7 +50,7 @@ export function MobileMonteCarloCard({ projectId }: Props) {
   // Only the unmeasurable state gets a chip here, and that is the whole point of the
   // chip. For every measured state the P80 chip beside it already reads
   // `P80: Nov 4 (+11d)` — the same delta, off the same server field — so a second copy
-  // would be one row carrying one number twice (rule 290). What the forecast chips
+  // would be one row carrying one number twice (rule 291). What the forecast chips
   // structurally *cannot* say is that there was nothing to measure: a flat run renders
   // `Forecast: Oct 24 · matches CPM`, which is exactly the calm reading an unestimated
   // project must never be given. That gap is what this chip closes, and it is the

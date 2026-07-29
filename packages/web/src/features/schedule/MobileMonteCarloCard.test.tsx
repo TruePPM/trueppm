@@ -193,7 +193,7 @@ describe('MobileMonteCarloCard added time (#2531)', () => {
       const facts = ADDED_TIME_FIXTURES[state];
       const button = renderWith(state);
 
-      // Rule 290: only `unmeasurable` earns a chip. Every measured state's value is
+      // Rule 291: only `unmeasurable` earns a chip. Every measured state's value is
       // already in the P80 chip beside it, off the same server field, so a second
       // copy would put one number twice in one row. What the forecast chips cannot
       // say is that there was nothing to measure — and that is the one thing the

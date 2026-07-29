@@ -718,7 +718,7 @@ describe('HealthCluster added time', () => {
     });
 
     it('drops the inline fragment on Schedule, where the forecast bar prints the delta', async () => {
-      // Rule 290. `ScheduleForecastBar` renders `P80: Nov 4 (+11d)` from the same
+      // Rule 291. `ScheduleForecastBar` renders `P80: Nov 4 (+11d)` from the same
       // `delta_vs_cpm` the premium derives from, so an inline `Added +11d` beside it
       // would be one number twice on one screen. The popover row stays — it is behind
       // a click, and it carries states the bar cannot express.
