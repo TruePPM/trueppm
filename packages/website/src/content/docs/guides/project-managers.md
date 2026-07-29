@@ -15,7 +15,7 @@ Every time you add a task, change a duration, or modify a dependency, TruePPM re
 - **Total float** — how many working days each task can slip before it affects the end date
 - **Early/late dates** — the window each task can occupy without delaying the project
 
-All four standard dependency types are supported with calendar-aware lag:
+All four standard dependency types are supported, each with an optional lead/lag:
 
 | Type | Meaning |
 |------|---------|
@@ -24,7 +24,9 @@ All four standard dependency types are supported with calendar-aware lag:
 | Finish-to-Finish (FF) | Successor finishes after predecessor finishes |
 | Start-to-Finish (SF) | Successor finishes after predecessor starts |
 
-Lag values (positive or negative) are in calendar working days — weekends and calendar exceptions are skipped automatically.
+Lag values (positive or negative) are in **calendar days**, not working days. The resulting date is then moved to the next working day, so a short lag can be swallowed by a weekend: after a Friday finish, a 1- or 2-day FS lag still starts the successor on Monday, exactly as a zero lag would. If you need a wait of a specific number of *working* days, model it as a zero-resource task — task durations are working-day counted, so weekends and calendar exceptions are skipped there.
+
+→ See [Scheduler engine](/features/scheduler/#lag-is-in-calendar-days-durations-are-in-working-days) for the full unit table.
 
 → See [Schedule view](/features/schedule/), [Scheduler engine](/features/scheduler/)
 

@@ -12,7 +12,7 @@
 
 **Most project tools store dates. This one computes them.**
 
-At the center of TruePPM is a real Critical Path Method engine — all four dependency types, calendar-aware lag, cycle detection, float on every task — with Monte Carlo risk analysis on top. Not a Gantt chart that draws bars where you drag them: an engine that works out which tasks actually drive your deadline, and what date you are 80% likely to hit.
+At the center of TruePPM is a real Critical Path Method engine — all four dependency types, lead/lag on every link, cycle detection, float on every task — with Monte Carlo risk analysis on top. Not a Gantt chart that draws bars where you drag them: an engine that works out which tasks actually drive your deadline, and what date you are 80% likely to hit.
 
 You don't have to take that on faith, and you don't have to install a platform to check. The engine is a **separate Apache-2.0 Python package**. Verify the math in sixty seconds — no signup, no Docker, no account:
 
@@ -137,7 +137,7 @@ We would rather you find these here than forty minutes into an evaluation. This 
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| **Scheduling engine** | ✅ Stable | Critical Path Method (all 4 dependency types, calendar-aware lag, cycle detection) plus Monte Carlo forecasting. Ships as a standalone PyPI package. |
+| **Scheduling engine** | ✅ Stable | Critical Path Method (all 4 dependency types, lead/lag on every link, cycle detection) plus Monte Carlo forecasting. Ships as a standalone PyPI package. |
 | **REST API** | ✅ Stable | Full create/read/update/delete for projects, tasks, dependencies, resources, calendars, members, sprints. Background auto-scheduling. OpenAPI 3.0 schema. |
 | **Permissions (RBAC)** | ✅ Stable | 5-role, per-project access control on every endpoint, real-time channel, and UI surface. Member-management UI. |
 | **Real-time** | ✅ Stable | Live updates (WebSocket) for every change, deferred until the database transaction commits. |
@@ -221,7 +221,7 @@ mc = monte_carlo(project, runs=5000, seed=42)
 print(mc.p50, mc.p80, mc.p95)
 ```
 
-All four dependency types (FS/SS/FF/SF), calendar-aware lag, multi-calendar composition, cycle detection with the offending path, and per-task sensitivity ranking. Full reference: [`docs.trueppm.com/features/scheduler`](https://docs.trueppm.com/features/scheduler/).
+All four dependency types (FS/SS/FF/SF), lead/lag on every link, multi-calendar composition, cycle detection with the offending path, and per-task sensitivity ranking. Full reference: [`docs.trueppm.com/features/scheduler`](https://docs.trueppm.com/features/scheduler/).
 
 ## Documentation
 

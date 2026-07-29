@@ -26,6 +26,7 @@ from trueppm_scheduler import (
 )
 
 _VALIDATOR_CAPS = (
+    "MAX_DEPENDENCIES",
     "MAX_DURATION_DAYS",
     "MAX_LAG_DAYS",
     "MAX_CALENDAR_SCAN_DAYS",
