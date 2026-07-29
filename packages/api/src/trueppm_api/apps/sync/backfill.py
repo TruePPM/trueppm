@@ -99,15 +99,20 @@ def seed_sync_seq(apps: Any, schema_editor: Any) -> None:
     with schema_editor.connection.cursor() as cursor:
         # The project row is itself a synced source. Do it first, while
         # last_sync_version still holds the pre-migration watermark.
-        cursor.execute(  # nosec B608 - table name from model _meta, no user input
-            f"UPDATE {tables['project']} SET sync_seq = last_sync_version + 1"
+        #
+        # Every identifier interpolated into the statements below is a db_table
+        # read from model _meta; no user input reaches them, and there is no
+        # value to bind as a parameter.
+        # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+        cursor.execute(
+            f"UPDATE {tables['project']} SET sync_seq = last_sync_version + 1"  # nosec B608
         )
 
         for label, join, predicate in _INDIRECT_SOURCES:
             app_label, model_name = label.split(".")
             table = get(app_label, model_name)._meta.db_table
-            cursor.execute(  # nosec B608 - all identifiers from model _meta
-                f"UPDATE {table} x SET sync_seq = p.last_sync_version + 1 "
+            cursor.execute(
+                f"UPDATE {table} x SET sync_seq = p.last_sync_version + 1 "  # nosec B608
                 f"FROM {join.format(**tables)} WHERE {predicate}"
             )
 
@@ -116,16 +121,16 @@ def seed_sync_seq(apps: Any, schema_editor: Any) -> None:
         # owning project's watermark to at least that value — without it a shared
         # calendar would sit permanently above one owner's checkpoint and be
         # redelivered on every pull.
-        cursor.execute(  # nosec B608 - all identifiers from model _meta
-            f"UPDATE {tables['calendar']} c SET sync_seq = sub.v FROM ("
+        cursor.execute(
+            f"UPDATE {tables['calendar']} c SET sync_seq = sub.v FROM ("  # nosec B608
             f"  SELECT calendar_id, MAX(last_sync_version) + 1 AS v"
             f"    FROM {tables['project']} WHERE calendar_id IS NOT NULL"
             f"   GROUP BY calendar_id"
             f") sub WHERE c.id = sub.calendar_id"
         )
 
-        cursor.execute(  # nosec B608 - all identifiers from model _meta
-            f"UPDATE {tables['project']} p SET last_sync_version = GREATEST("
+        cursor.execute(
+            f"UPDATE {tables['project']} p SET last_sync_version = GREATEST("  # nosec B608
             f"  p.last_sync_version + 1,"
             f"  COALESCE((SELECT c.sync_seq FROM {tables['calendar']} c"
             f"             WHERE c.id = p.calendar_id), 0))"
@@ -145,4 +150,5 @@ def unseed_sync_seq(apps: Any, schema_editor: Any) -> None:
         for label in labels:
             app_label, model_name = label.split(".")
             table = get(app_label, model_name)._meta.db_table
+            # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
             cursor.execute(f"UPDATE {table} SET sync_seq = 0")  # nosec B608
