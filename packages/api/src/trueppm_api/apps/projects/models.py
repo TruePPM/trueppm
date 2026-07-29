@@ -3769,7 +3769,19 @@ class ShareLink(models.Model):
     so the #1486 design made them visible by default and the opt-*out* exists for
     the narrower vendor/client case where committed dates must stay internal. The
     True default is load-bearing: it keeps every link minted before this field
-    existed exposing exactly what it exposed before.
+    existed exposing exactly what it exposed before. It applies to SCHEDULE links
+    only — the board projection publishes milestone cards with their due dates and
+    ignores this flag, so ``ShareLinkCreateSerializer`` normalizes it back to True
+    on any non-schedule kind rather than storing a guarantee nothing enforces.
+
+    Scope limit, stated so nobody over-reads the guarantee: hiding milestones
+    removes their rows and any dependency edge that touched them, but the
+    surviving rows still carry ``wbs_path`` and the CPM dates they were given with
+    the milestone in the graph — so a gap in the numbering, plus a successor that
+    starts when the hidden gate said it must, bounds the withheld date. This is the
+    same inference the backlog exclusion has always allowed, and closing it would
+    mean falsifying the schedule. The control withholds the dates; it is not an
+    anti-inference guarantee.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

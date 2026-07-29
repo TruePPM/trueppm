@@ -30,6 +30,12 @@ In the dialog:
    Turn it off to share progress and structure without committing to dates: every
    milestone row is withheld from the shared timeline, along with any dependency arrow
    that pointed at it. A board link has no milestone lane, so it does not offer this.
+
+   This withholds the dates; it does not hide that a milestone exists. The remaining
+   rows keep their WBS numbering, so a gap in the sequence is still visible, and the
+   surviving tasks are still scheduled *around* the hidden gate — a determined viewer
+   can bound its date from its neighbors. If a date must be provably invisible, do not
+   put it in a shared project.
 5. The link is shown **exactly once**. Copy it immediately — for security it is stored
    only as a hash and can never be retrieved again. If you lose it, revoke it and create
    a new one.
@@ -52,7 +58,10 @@ Neither view ever includes:
 - schedule float, slack, or Monte Carlo risk figures
 - blocker details
 - assignee names (unless you explicitly enabled *Show assignee names* for that link)
-- milestones and their dates (if you turned *Show milestone dates* off for that link)
+
+A shared **schedule** additionally omits milestone rows and their dates when you turned
+*Show milestone dates* off for that link. This is a schedule-only control: a shared
+board lists milestones as cards with their due dates and is not affected by it.
 
 Viewers cannot edit anything — there is no drag, no detail popover, no create action.
 

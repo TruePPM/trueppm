@@ -276,6 +276,36 @@ def test_admin_can_mint_a_schedule_link_with_milestones_hidden(admin_client, pro
 
 
 @pytest.mark.django_db
+def test_board_mint_normalizes_show_milestone_dates_back_to_true(admin_client, project):
+    """The board projection publishes milestone cards WITH their due dates and never
+    reads this flag, so accepting a board-side ``false`` would store — and echo back —
+    a restriction the public board endpoint does not apply. Normalize, don't lie."""
+    resp = admin_client.post(
+        _links_url(project),
+        {"content_kind": "board", "show_milestone_dates": False},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert resp.data["show_milestone_dates"] is True
+    assert ShareLink.objects.get(pk=resp.data["id"]).show_milestone_dates is True
+
+
+@pytest.mark.django_db
+def test_public_board_still_publishes_milestone_cards(admin_client, project):
+    """Guards the normalization above end-to-end: whatever a client sends, the shared
+    board's milestone cards are unaffected — this control is schedule-only."""
+    _seed_schedule(project)
+    resp = admin_client.post(
+        _links_url(project),
+        {"content_kind": "board", "show_milestone_dates": False},
+        format="json",
+    )
+    body = APIClient().get(_board_url(resp.data["token"])).data
+    cards = [c for col in body["columns"] for c in col["cards"]]
+    assert any(c["is_milestone"] for c in cards)
+
+
+@pytest.mark.django_db
 def test_public_schedule_includes_milestones_by_default(project):
     _seed_schedule(project)
     _link, raw = share_services.mint_share_link(
