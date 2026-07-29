@@ -1,9 +1,11 @@
 # ADR-0061: Project Members Management UI — Settings Tab and User Search Endpoint
 
 ## Status
-Accepted (2026-05-31) — implemented in #144
-
-> Superseded by [ADR-0146](0146-single-page-scroll-spy-settings-ia.md) (single-page scroll-spy Settings IA, which replaced the multi-route Settings shell this ADR established).
+Accepted (2026-05-31) — implemented in #144. The multi-route Settings shell IA this ADR
+established was superseded by [ADR-0146](0146-single-page-scroll-spy-settings-ia.md)
+(single-page scroll-spy Settings IA); the RBAC-backed member management decisions
+(user search endpoint, invite/role-change/remove flows) remain in force. Status corrected
+2026-07-29 after ADR audit (#2539).
 
 ## Context
 

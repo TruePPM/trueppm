@@ -1,7 +1,9 @@
 # ADR-0348: Mobile-first Schedule surface (DOM list-timeline)
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified:
+`packages/web/src/features/schedule/mobile/MobileSchedule.tsx`,
+`mobileScheduleGeometry.ts`, `e2e/mobile-schedule.spec.ts`).
 
 ## Context
 

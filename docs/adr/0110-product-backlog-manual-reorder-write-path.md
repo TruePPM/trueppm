@@ -1,7 +1,8 @@
 # ADR-0110: Product Backlog Manual Drag-to-Reorder Write Path
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified: `product-backlog/reorder`
+`@action`, `reorder_backlog` in `product_backlog_services.py`).
 
 Extends ADR-0105 (PO Product-Backlog Hierarchy, Acceptance Criteria, and Prioritization
 Scoring). ADR-0105 established the read model, the `priority_rank`/`sprint_rank` fields,

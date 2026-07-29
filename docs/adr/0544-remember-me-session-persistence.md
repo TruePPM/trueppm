@@ -1,7 +1,9 @@
 # ADR-0544: Remember-me session persistence for cookie-JWT auth
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified:
+`REFRESH_TOKEN_REMEMBER_LIFETIME`/`REFRESH_TOKEN_SESSION_LIFETIME` settings,
+`_apply_remember()` in `core/auth_views.py`).
 
 ## Context
 The login form has shipped a "Keep me signed in for 30 days" checkbox (`LoginPage.tsx`)

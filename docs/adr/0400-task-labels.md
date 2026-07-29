@@ -1,7 +1,9 @@
 # ADR-0400: Task Labels (colored, filterable categorization on cards and schedule)
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified: `Label`/`TaskLabel`
+models, `LabelViewSet`, migration `0117_label_tasklabel_label_tasks_and_more.py`, web
+`LabelPill.tsx`/`useLabels.ts`).
 
 > **Number reconciliation:** `0372` (delivery-loop adapter) and `0394` (activity
 > streams) are in-flight on other branches per project memory. Run `git fetch origin`

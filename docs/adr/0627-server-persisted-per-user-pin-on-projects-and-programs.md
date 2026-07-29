@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed (2026-07-25)
+Accepted (2026-07-25) — status corrected 2026-07-29 after ADR audit (#2539, verified:
+`UserPin` model, `MyPinnedView` at `auth/me/pinned/`, web `usePins.ts`).
 
 > **Promotes the device-local rail pin shipped under ADR-0126/ADR-0127 (#1682) to a
 > server-persisted, per-user, API-first object.** The user-visible vocabulary is
