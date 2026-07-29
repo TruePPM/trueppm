@@ -881,3 +881,23 @@ class TestOverviewAddedTime:
         c = APIClient()
         c.force_authenticate(user=other_user)
         assert c.get(self.url(project.pk)).status_code == 403
+
+    def test_the_forecast_payload_reports_the_same_premium_for_the_same_run(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """#2531 — two payloads, one derivation.
+
+        Added time now rides the forecast payload as well, so the shell can render it
+        on Schedule, Board and Table without fetching project health. The two must be
+        the same eight keys with the same values off the same run: if they could
+        disagree, the user would meet two different answers to "how much time is risk
+        adding" depending on which screen they were standing on.
+        """
+        self.make_run(project)
+
+        overview = client.get(self.url(project.pk)).json()
+        forecast = client.get(f"/api/v1/projects/{project.pk}/monte-carlo/latest/").json()
+
+        premium_keys = [k for k in overview if k.startswith("risk_premium_")]
+        assert len(premium_keys) == 8
+        assert {k: forecast[k] for k in premium_keys} == {k: overview[k] for k in premium_keys}

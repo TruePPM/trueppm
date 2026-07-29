@@ -3,7 +3,13 @@ import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 import { AddedTimeCard } from './AddedTimeCard';
-import { addedTimePresentation, addedTimeSpokenHeadline, type AddedTimeFacts } from './addedTime';
+import {
+  addedTimePresentation,
+  addedTimeShortForm,
+  addedTimeSpokenHeadline,
+  type AddedTimeFacts,
+} from './addedTime';
+import { ADDED_TIME_FIXTURES } from '@/fixtures/addedTime';
 
 const MEASURED: AddedTimeFacts = {
   risk_premium_state: 'premium',
@@ -218,5 +224,84 @@ describe('AddedTimeCard', () => {
       expect(within(card()).getByText(/P80 commit/)).toBeInTheDocument();
       unmount();
     }
+  });
+});
+
+describe('addedTimeShortForm', () => {
+  describe('A4 — the digit 0 never reaches a chip', () => {
+    // The failure this guards is specific: an unestimated project simulates flat, so
+    // its premium is exactly 0 days. Printing that anywhere would tell the
+    // least-understood project on the board that it carries no schedule risk.
+    it.each(['zero', 'unmeasurable', 'notRun'] as const)(
+      'the %s state produces no digit at all, in either form',
+      (state) => {
+        for (const qualified of [true, false]) {
+          const short = addedTimeShortForm(
+            addedTimePresentation(ADDED_TIME_FIXTURES[state]),
+            { qualified },
+          );
+          expect(short?.text ?? '').not.toMatch(/\d/);
+        }
+      },
+    );
+
+    it('renders the words "needs estimates" for an unmeasurable project — never a dash', () => {
+      const short = addedTimeShortForm(
+        addedTimePresentation(ADDED_TIME_FIXTURES.unmeasurable),
+        { qualified: true },
+      );
+      expect(short).toEqual({ kind: 'needsEstimates', text: 'needs estimates' });
+      expect(short?.text).not.toContain('—');
+    });
+
+    it('states a measured zero in words, so it stays distinguishable from the structural one', () => {
+      const short = addedTimeShortForm(addedTimePresentation(ADDED_TIME_FIXTURES.zero), {
+        qualified: true,
+      });
+      expect(short).toEqual({ kind: 'worded', text: 'No added time' });
+    });
+  });
+
+  describe('A3 — a stale premium is not rendered without its provenance', () => {
+    it('renders nothing in short form, where no as-of stamp is allowed', () => {
+      expect(
+        addedTimeShortForm(addedTimePresentation(ADDED_TIME_FIXTURES.stale), { qualified: true }),
+      ).toBeNull();
+      expect(
+        addedTimeShortForm(addedTimePresentation(ADDED_TIME_FIXTURES.stale), { qualified: false }),
+      ).toBeNull();
+    });
+  });
+
+  describe('A1 — the qualified form carries its own baseline', () => {
+    it('names the computed finish beside the count', () => {
+      expect(
+        addedTimeShortForm(addedTimePresentation(ADDED_TIME_FIXTURES.premium), {
+          qualified: true,
+        }),
+      ).toEqual({ kind: 'qualified', text: '+11d vs Oct 24' });
+    });
+
+    it('drops the baseline only where the surface already shows it', () => {
+      expect(
+        addedTimeShortForm(addedTimePresentation(ADDED_TIME_FIXTURES.premium), {
+          qualified: false,
+        }),
+      ).toEqual({ kind: 'number', text: '+11d' });
+    });
+
+    it('keeps the sign on a forecast that lands early', () => {
+      expect(
+        addedTimeShortForm(addedTimePresentation(ADDED_TIME_FIXTURES.negative), {
+          qualified: true,
+        }),
+      ).toEqual({ kind: 'qualified', text: '−4d vs Oct 24' });
+    });
+  });
+
+  it('says nothing at all for a project that has never been simulated', () => {
+    expect(
+      addedTimeShortForm(addedTimePresentation(ADDED_TIME_FIXTURES.notRun), { qualified: true }),
+    ).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { apiClient } from '@/api/client';
-import type { MonteCarloResult } from '@/types';
+import type { AddedTimeFacts, ForecastReason, MonteCarloResult } from '@/types';
 import { mapForecastDiagnostic, type ForecastDiagnosticWire } from '@/lib/forecastFlatMessage';
 
 export interface UseMonteCarloResultReturn {
@@ -49,6 +49,41 @@ interface MonteCarloLatestResponse {
   // Why the forecast is flat (issue 1340). Optional: absent on legacy cached payloads
   // and on the from-history fallback (the persisted run does not store it).
   forecast_diagnostic?: ForecastDiagnosticWire;
+  // "Added time" — the server-owned gap between the CPM finish and the P80 commit,
+  // with the state discriminant that says what a `0` means (ADR-0698, #2531). Derived
+  // per response rather than cached, so it is present on all three `/latest/` branches
+  // and on the live run. Optional: absent on a payload written before #2531.
+  risk_premium_state?: 'not_run' | 'unmeasurable' | 'stale' | 'zero' | 'premium' | 'negative';
+  risk_premium_days?: number | null;
+  risk_premium_ratio?: number | null;
+  risk_premium_band?: string | null;
+  risk_premium_as_of?: string | null;
+  risk_premium_reason?: ForecastReason | null;
+  risk_premium_cpm_finish?: string | null;
+  risk_premium_p80?: string | null;
+}
+
+/**
+ * Lift the eight flat `risk_premium_*` keys off the wire into one object.
+ *
+ * Kept snake_case and un-mapped on purpose: this is the same slice `GET /overview/`
+ * emits, so it feeds `addedTimePresentation` — the *single* derivation — unchanged,
+ * and the Overview card and the forecast surfaces cannot drift apart through a
+ * mapping layer. Returns `undefined` when the payload carries no state, which
+ * `addedTimePresentation` reads as "not run" rather than guessing.
+ */
+function pickRiskPremium(api: MonteCarloLatestResponse): AddedTimeFacts | undefined {
+  if (api.risk_premium_state === undefined) return undefined;
+  return {
+    risk_premium_state: api.risk_premium_state,
+    risk_premium_days: api.risk_premium_days ?? null,
+    risk_premium_ratio: api.risk_premium_ratio ?? null,
+    risk_premium_band: api.risk_premium_band ?? null,
+    risk_premium_as_of: api.risk_premium_as_of ?? null,
+    risk_premium_reason: api.risk_premium_reason ?? null,
+    risk_premium_cpm_finish: api.risk_premium_cpm_finish ?? null,
+    risk_premium_p80: api.risk_premium_p80 ?? null,
+  };
 }
 
 // issue 1231: the `/latest/` from-history fallback now returns the persisted
@@ -95,6 +130,7 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
     confidenceCurve: api.confidence_curve ?? [],
     sensitivity: (api.sensitivity ?? []).map((s) => ({ taskId: s.task_id, index: s.index })),
     forecastDiagnostic: mapForecastDiagnostic(api.forecast_diagnostic),
+    riskPremium: pickRiskPremium(api),
   };
 }
 

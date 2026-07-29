@@ -1,9 +1,11 @@
-import { useEffect, useRef } from 'react';
 import type { MonteCarloResult } from '@/types';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
 import { ForecastHistorySection } from './ForecastHistorySection';
 import { fmtForecastDate } from './forecastDelta';
 import { CloseIcon } from '@/components/Icons';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { AddedTimeCard } from '@/features/project/AddedTimeCard';
+import { addedTimePresentation } from '@/features/project/addedTime';
 
 interface Props {
   result: MonteCarloResult;
@@ -17,27 +19,32 @@ interface Props {
  * dialog, drag-handle, Escape to close, 44×44 close target (rule 5).
  */
 export function MonteCarloSheet({ result, onClose }: Props) {
-  const closeRef = useRef<HTMLButtonElement>(null);
+  // Real focus containment, replacing a mount-focus + `window` keydown pair (rule
+  // 206). The sheet declares `aria-modal`, so Tab has to stay inside it — and this
+  // change adds two focusables to the panel (the added-time card's help trigger and
+  // its remedy link), which is exactly when an untrapped modal stops being a latent
+  // bug and starts being reachable. The hook also owns Escape, so the hand-rolled
+  // `window` listener goes: two listeners for one key double-fire.
+  const sheetRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
-  // Focus the close button on mount; dismiss on Escape
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // The gap between the computed finish and the P80 commit, from the same server-owned
+  // premium the card on Overview reads — so a phone and a desktop cannot disagree
+  // about whether this project is even measurable (#2531).
+  const premium = addedTimePresentation(result.riskPremium);
+  // `base` is passed only where the card's action goes somewhere the reader is not:
+  // `Add estimates →` lands on the grid, which is the single most useful thing to do
+  // about an unmeasurable forecast on a phone. Every other state's action is
+  // `Forecast →`, i.e. the screen this sheet was opened from.
+  const cardBase =
+    premium.state === 'unmeasurable' ? `/projects/${result.projectId}` : undefined;
 
   return (
     <div
+      ref={sheetRef}
       role="dialog"
       aria-modal="true"
       aria-label="Monte Carlo confidence distribution"
-      className="fixed inset-0 z-50 md:hidden flex flex-col"
+      className="fixed inset-0 z-50 md:hidden flex flex-col focus:outline-none"
     >
       <div
         className="flex-1 bg-neutral-overlay"
@@ -67,7 +74,6 @@ export function MonteCarloSheet({ result, onClose }: Props) {
             </p>
           </div>
           <button
-            ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label="Close Monte Carlo detail"
@@ -77,6 +83,16 @@ export function MonteCarloSheet({ result, onClose }: Props) {
           >
             <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
+        </div>
+
+        {/* Added time, first — §6 asks for the sheet "scrolled to the added-time
+            section", and putting it at the top satisfies that by construction rather
+            than by scroll plumbing that would then fight the focus trap's seat. The
+            Overview card is reused verbatim, which is the strongest available
+            guarantee that the two surfaces cannot disagree about the same run. It
+            carries its own visible title, so no heading is added above it. */}
+        <div className="mt-4">
+          <AddedTimeCard presentation={premium} base={cardBase} />
         </div>
 
         <div className="mt-4 overflow-x-auto">

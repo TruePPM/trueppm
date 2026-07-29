@@ -1,4 +1,4 @@
-import type { ForecastReason } from '@/types';
+import type { AddedTimeFacts } from '@/types';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { forecastRemedyForReason } from '@/lib/forecastFlatMessage';
 
@@ -71,17 +71,12 @@ export interface AddedTimeNotRun {
 
 export type AddedTimePresentation = AddedTimeMeasured | AddedTimeUnmeasurable | AddedTimeNotRun;
 
-/** The `risk_premium_*` slice of the project overview payload. */
-export interface AddedTimeFacts {
-  risk_premium_state?: 'not_run' | 'unmeasurable' | 'stale' | 'zero' | 'premium' | 'negative';
-  risk_premium_days?: number | null;
-  risk_premium_ratio?: number | null;
-  risk_premium_band?: string | null;
-  risk_premium_as_of?: string | null;
-  risk_premium_reason?: ForecastReason | null;
-  risk_premium_cpm_finish?: string | null;
-  risk_premium_p80?: string | null;
-}
+/**
+ * The `risk_premium_*` wire slice. Defined in `@/types` (the forecast payload carries
+ * it too, and `MonteCarloResult` cannot import from `features/`), re-exported here so
+ * the many `from './addedTime'` call sites keep one import site for the whole feature.
+ */
+export type { AddedTimeFacts } from '@/types';
 
 /** The term the user learns, used as the card title, the panel heading and the help. */
 export const ADDED_TIME_LABEL = 'Added time';
@@ -97,6 +92,9 @@ export const ADDED_TIME_LABEL_QUALIFIED = 'Added time vs computed finish';
 const NO_RESULT_PREFIX = 'This is not a low-risk result — it is no result.';
 
 const NOT_RUN_REASON = 'This project has estimates but no forecast has been run.';
+
+/** A measured zero, stated rather than printed — `+0d` is never rendered (#2426). */
+export const NO_ADDED_TIME_HEADLINE = 'No added time';
 
 /** Signed day label. Zero never reaches this — it is expressed in words (#2426). */
 function deltaLabel(days: number): string {
@@ -177,6 +175,74 @@ export function formatEndpoint(iso: string, baselineIso: string): string {
  * is a `<dl>` and reads correctly on its own, so this is the only value that needs a
  * spoken alternative rather than a wholesale composite label.
  */
+/**
+ * The chip-sized rendering of a presentation, for surfaces with no room for the card.
+ *
+ * A *formatter over* {@link addedTimePresentation}, never a second derivation — it
+ * consumes the already-classified union and only chooses how much of it fits. `kind`
+ * is carried so a renderer can tone the text without re-reading `state`.
+ */
+export type AddedTimeShortForm =
+  /** A bare signed day count (`+11d`). Only legal where the CPM baseline is already
+   *  on screen — otherwise the reader has nothing to check it against. */
+  | { kind: 'number'; text: string }
+  /** The same count carrying its own baseline: `+11d vs Oct 24`. Self-contained, so
+   *  it is readable on a surface that shows no computed finish. */
+  | { kind: 'qualified'; text: string }
+  /** The simulation measured nothing. Words, never a digit (A4). */
+  | { kind: 'needsEstimates'; text: string }
+  /** A measured value expressed in words rather than digits — `No added time`. */
+  | { kind: 'worded'; text: string }
+  /** Nothing this surface is entitled to say. The caller renders no fragment at all. */
+  | null;
+
+/** A4's copy. The words are the signal — the strip spends no color on this (S1). */
+export const NEEDS_ESTIMATES_LABEL = 'needs estimates';
+
+/**
+ * Reduce a presentation to what a context-bar or mobile chip may show.
+ *
+ * Four of the six states deliberately produce no digit:
+ *
+ * - `unmeasurable` → the words `needs estimates`. **Never `+0d`, never `—`** (A4). An
+ *   unestimated project's premium is exactly 0, so printing it would tell the
+ *   least-known project on the board that it carries no schedule risk.
+ * - `zero` → the worded headline (`No added time`). Same reason in the other
+ *   direction: a real measured zero is stated, so it can never be confused with the
+ *   structural one.
+ * - `notRun` → nothing. The chip already reads `P80 —`; a second "not run" is noise.
+ * - `stale` → nothing. A3 forbids an as-of stamp on the strip, and a stale premium
+ *   *without* its provenance is an old verdict presented as current — the honest
+ *   resolution of those two constraints is to not render it here at all. It renders in
+ *   full, with its stamp, in the popover row (ADR-0698 §6).
+ *
+ * The qualified form names its baseline rather than printing the pair of dates
+ * (`+11d vs Oct 24`, not `Oct 24 → Nov 4`). Both satisfy A1 — the reader can check the
+ * number against something on screen — but only the first also carries the magnitude,
+ * which is the value the reader came for; and the pair would print the P80 date a
+ * second time on a chip that is already showing `P80 Nov 4` a few pixels to the left.
+ * It matches the phrasing `useForecastPresentation` already uses for the same gap.
+ */
+export function addedTimeShortForm(
+  presentation: AddedTimePresentation,
+  opts: { qualified: boolean },
+): AddedTimeShortForm {
+  if (presentation.state === 'unmeasurable') {
+    return { kind: 'needsEstimates', text: NEEDS_ESTIMATES_LABEL };
+  }
+  if (presentation.state === 'notRun' || presentation.state === 'stale') return null;
+
+  const { endpoints, headline } = presentation;
+  // A measured zero speaks in words, so there is no delta to qualify and no baseline
+  // to name — `No added time vs Oct 24` says nothing the shorter form does not.
+  if (headline === NO_ADDED_TIME_HEADLINE) return { kind: 'worded', text: headline };
+  if (!opts.qualified) return { kind: 'number', text: headline };
+  return {
+    kind: 'qualified',
+    text: `${headline} vs ${formatEndpoint(endpoints.cpmFinish, endpoints.cpmFinish)}`,
+  };
+}
+
 export function addedTimeSpokenHeadline(headline: string): string {
   if (!headline.startsWith('+') && !headline.startsWith('−')) return headline;
   const days = headline.replace(/[+−d]/g, '');
