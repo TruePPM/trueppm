@@ -1112,6 +1112,9 @@ export function ScheduleView() {
     projectId,
     projectStartDate,
     effectiveFloorDate,
+    // #2561: the resize popover's working-day count and its no-op guard need the
+    // project's real weekday mask (ADR-0441 / #1987), not a Mon–Fri constant.
+    workingDaysMask: projectDetail?.effective_calendar?.working_days ?? null,
     visibleTasks,
     allTasks,
     sprints,

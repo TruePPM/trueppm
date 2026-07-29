@@ -89,6 +89,22 @@ const TASK_WEEKEND: Task = {
   duration: 2,
 };
 
+/**
+ * Mon 2026-01-12 → Fri 2026-01-16, 5 working days (#2561). Finishing on a Friday is
+ * the setup where dragging the handle 1–2 columns right lands on non-working time.
+ */
+const TASK_FRIDAY_FINISH: Task = {
+  ...TASK_A,
+  id: 'tf',
+  name: 'Friday Finish',
+  start: '2026-01-12',
+  finish: '2026-01-16',
+  duration: 5,
+};
+
+/** Mon–Fri (1+2+4+8+16) plus Saturday (32) — a six-day work week. */
+const MASK_MON_SAT = 63;
+
 const SPRINT_ACTIVE: ApiSprint = {
   id: 'sp1',
   server_version: 1,
@@ -147,6 +163,8 @@ function renderCommit(
     projectId?: string | null;
     /** Force an aria-live ref whose `.current` is null (announcements skipped). */
     nullAria?: boolean;
+    /** Project working-day bitmask (#2561). Omitted → the hook's Mon–Fri fallback. */
+    workingDaysMask?: number | null;
   } = {},
 ) {
   const ariaAssertiveRef = opts.nullAria
@@ -173,6 +191,7 @@ function renderCommit(
         projectId: opts.projectId === undefined ? 'p1' : opts.projectId,
         projectStartDate: opts.projectStartDate ?? null,
         effectiveFloorDate: opts.effectiveFloorDate ?? null,
+        workingDaysMask: opts.workingDaysMask,
         visibleTasks: opts.visibleTasks ?? tasks,
         allTasks: tasks,
         sprints,
@@ -269,6 +288,121 @@ describe('useScheduleCommit', () => {
     act(() => engine.emit('resize-task-end', { id: 'tw', right: 12, cancelled: false }));
     expect(result.current.state).toBeNull();
     expect(engine.updateTaskCalls).toHaveLength(0);
+  });
+
+  // #2561: dropping the handle past a Friday finish lands on Sat/Sun, which adds no
+  // working days — so the PATCH would be a no-op and the CPM refetch would redraw
+  // the bar where it started. Previously this opened a "5d → 5d" popover and the bar
+  // appeared to snap back after the user confirmed it.
+  it.each([
+    ['Saturday', 17, 'Jan 17'],
+    ['Sunday', 18, 'Jan 18'],
+  ])(
+    'does NOT open the popover when the resize drops on %s — no duration change is possible (#2561)',
+    (_label, right, dayLabel) => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { tasks: [TASK_FRIDAY_FINISH] });
+
+      act(() => engine.emit('resize-task-end', { id: 'tf', right, cancelled: false }));
+
+      expect(result.current.state).toBeNull();
+      // No optimistic preview, and nothing sent — the bar simply stays put.
+      expect(engine.updateTaskCalls).toHaveLength(0);
+      expect(patchMock).not.toHaveBeenCalled();
+      // The user is told why, naming the day they dropped on and the real finish.
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+        `${dayLabel} isn't a working day — this task still finishes Jan 16.`,
+      );
+    },
+  );
+
+  it('announces the suppressed resize on the assertive live region (#2561)', () => {
+    const engine = new ControllableEngine();
+    const { ariaAssertiveRef } = renderCommit(engine, { tasks: [TASK_FRIDAY_FINISH] });
+
+    act(() => engine.emit('resize-task-end', { id: 'tf', right: 17, cancelled: false }));
+
+    expect(ariaAssertiveRef.current?.textContent).toBe(
+      'Resize not applied. Jan 17 is not a working day.',
+    );
+  });
+
+  it('still opens the popover when the drop reaches the next WORKING day (#2561)', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, { tasks: [TASK_FRIDAY_FINISH] });
+
+    // right=19 → inclusive finish Mon 2026-01-19: one working day past Fri 01-16.
+    act(() => engine.emit('resize-task-end', { id: 'tf', right: 19, cancelled: false }));
+
+    expect(result.current.state).not.toBeNull();
+    expect(result.current.state!.action).toMatchObject({
+      kind: 'resize',
+      oldDurationDays: 5,
+      newDurationDays: 6,
+    });
+    expect(result.current.state!.newFinish).toBe('2026-01-19');
+  });
+
+  // The guard must read the PROJECT's weekday mask, not a Mon–Fri constant. On a
+  // six-day week Saturday IS a working day, so the identical gesture is a real
+  // resize and must be offered — suppressing it would be the mirror-image bug.
+  it('offers the resize when the project calendar treats Saturday as a working day (#2561)', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, {
+      tasks: [TASK_FRIDAY_FINISH],
+      workingDaysMask: MASK_MON_SAT,
+    });
+
+    act(() => engine.emit('resize-task-end', { id: 'tf', right: 17, cancelled: false }));
+
+    expect(result.current.state).not.toBeNull();
+    expect(result.current.state!.action).toMatchObject({
+      kind: 'resize',
+      oldDurationDays: 5,
+      newDurationDays: 6,
+    });
+    expect(result.current.state!.newFinish).toBe('2026-01-17');
+    expect(useScheduleStore.getState().scheduleActionToast).toBeNull();
+  });
+
+  // The mask arrives with the project-detail fetch, which resolves AFTER the engine
+  // listeners subscribe. A plain closure over the prop would pin the Mon–Fri
+  // fallback for the session, so a six-day-week project would keep getting the
+  // suppression this fix adds — the original bug, inverted.
+  it('picks up a working-day mask that arrives after the listeners subscribed (#2561)', () => {
+    const engine = new ControllableEngine();
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    function Wrapper({ children }: { children: ReactNode }) {
+      return createElement(QueryClientProvider, { client: qc }, children);
+    }
+    const view = renderHook(
+      ({ mask }: { mask: number | null }) =>
+        useScheduleCommit({
+          engine,
+          projectId: 'p1',
+          projectStartDate: null,
+          effectiveFloorDate: null,
+          workingDaysMask: mask,
+          visibleTasks: [TASK_FRIDAY_FINISH],
+          allTasks: [TASK_FRIDAY_FINISH],
+          sprints: [],
+          canvasContainerRef: makeContainerRef(),
+          ariaAssertiveRef: makeAriaRef(),
+        }),
+      { wrapper: Wrapper, initialProps: { mask: null as number | null } },
+    );
+
+    // Detail not loaded yet → Mon–Fri fallback → a Saturday drop is a no-op.
+    act(() => engine.emit('resize-task-end', { id: 'tf', right: 17, cancelled: false }));
+    expect(view.result.current.state).toBeNull();
+
+    // Detail lands: this project works Saturdays, so the same gesture is real.
+    view.rerender({ mask: MASK_MON_SAT });
+    act(() => engine.emit('resize-task-end', { id: 'tf', right: 17, cancelled: false }));
+    expect(view.result.current.state).not.toBeNull();
+    expect(view.result.current.state!.action).toMatchObject({ newDurationDays: 6 });
   });
 
   it('surfaces the ACTIVE sprint name on the popover state', () => {
