@@ -8,6 +8,7 @@
  * Slack and the recipient lands on the same filtered feed.
  */
 
+import { compareCodeUnits } from '@/lib/compareStrings';
 import type {
   ChangelogEntry,
   ChangelogFilterState,
@@ -37,11 +38,14 @@ const RANGE_SET = new Set<string>(RANGES);
 /** Serialize filter state into URL search params (omits defaults for clean links). */
 export function filtersToSearchParams(filters: ChangelogFilterState): URLSearchParams {
   const params = new URLSearchParams();
+  // compareCodeUnits, never localeCompare: this string lands in the address bar
+  // and gets shared/bookmarked, so the same filter set must always produce the
+  // same link regardless of the reader's locale.
   if (filters.objectTypes.size > 0) {
-    params.set('type', [...filters.objectTypes].sort().join(','));
+    params.set('type', [...filters.objectTypes].sort(compareCodeUnits).join(','));
   }
   if (filters.changeTypes.size > 0) {
-    params.set('change', [...filters.changeTypes].sort().join(','));
+    params.set('change', [...filters.changeTypes].sort(compareCodeUnits).join(','));
   }
   if (filters.userId) params.set('user', filters.userId);
   if (filters.range !== 'any') params.set('range', filters.range);
