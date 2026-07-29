@@ -70,7 +70,10 @@ function stakeholderFixture(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function setup(page: Page, opts: { myRole?: number; stakeholders?: unknown[] } = {}) {
+async function setup(
+  page: Page,
+  opts: { myRole?: number; stakeholders?: unknown[]; viewerMemberCount?: number } = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -125,6 +128,21 @@ async function setup(page: Page, opts: { myRole?: number; stakeholders?: unknown
   );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/mention-groups/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  // #2529: the reach strip's Viewer arm. Must be mocked with its real OBJECT shape —
+  // the catch-all returns the list envelope `{count:0,…}`, which is truthy but has
+  // no `viewer_member_count`, so the strip would silently degrade to its
+  // count-unavailable state and the assertions below would pass for the wrong reason.
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/mention-reach/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        group_key: 'program-stakeholders',
+        viewer_member_count: opts.viewerMemberCount ?? 6,
+        external_stakeholder_count: (opts.stakeholders ?? []).length,
+      }),
+    }),
   );
 
   // Stateful stakeholder registry — list + create + delete. Registered LAST so it
@@ -193,7 +211,10 @@ test.describe('Program Settings → External stakeholders', () => {
     // Page-rendered signal: the section heading appears only after the program +
     // stakeholder reads resolve.
     await expect(page.getByRole('heading', { name: 'External stakeholders' })).toBeVisible();
-    await expect(page.getByText('No external stakeholders yet.')).toBeVisible();
+    // #2529: the empty state states current reach, so the bare string is gone.
+    await expect(page.getByRole('status').filter({ hasText: 'No external stakeholders yet' })).toContainText(
+      'reaches 6 Viewer-role members in this program.',
+    );
 
     // The settings shell renders every section in one scroll, so scope the form
     // interaction to this section's labeled form region to avoid collisions with
@@ -219,7 +240,44 @@ test.describe('Program Settings → External stakeholders', () => {
     await page.getByRole('button', { name: 'Confirm' }).click();
 
     await expect(page.getByText('Jane Client')).toHaveCount(0);
-    await expect(page.getByText('No external stakeholders yet.')).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'No external stakeholders yet' })).toBeVisible();
+  });
+
+  // #2529 — the strip is the page's stated job: state who @program-stakeholders
+  // actually reaches. The two arms are never summed (the union #1675 removed from
+  // the resolver must not reappear in the UI).
+  test('the reach summary states both arms separately and never sums them', async ({ page }) => {
+    await setup(page, { stakeholders: [stakeholderFixture()] });
+    await page.goto(`/programs/${PROGRAM_ID}/settings/stakeholders`);
+
+    await expect(page.getByRole('heading', { name: 'External stakeholders' })).toBeVisible();
+    await expect(page.getByText('Jane Client')).toBeVisible();
+
+    await expect(page.getByText('1 external contact — listed only.')).toBeVisible();
+    await expect(
+      page.getByText(/No email or notification is sent to them yet/),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/6 Viewer-role members get an in-app notification/),
+    ).toBeVisible();
+    // 1 + 6 = 7 — no combined total, and no version number in user-facing copy.
+    await expect(page.getByText(/reaches 7|7 people|7 recipients/)).toHaveCount(0);
+    await expect(page.getByText(/email delivery is a future, operator-enabled/)).toBeVisible();
+  });
+
+  test('the reach summary omits the Viewer clause when the count is unavailable', async ({
+    page,
+  }) => {
+    await setup(page, { stakeholders: [stakeholderFixture()] });
+    // A non-Admin is 403'd on the reach read (ADR-0264 §3 floor). Absence beats a
+    // wrong figure — the strip must not render 0 or a placeholder.
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/mention-reach/`, (r) =>
+      r.fulfill({ status: 403, contentType: 'application/json', body: '{"detail":"nope"}' }),
+    );
+    await page.goto(`/programs/${PROGRAM_ID}/settings/stakeholders`);
+
+    await expect(page.getByText('1 external contact — listed only.')).toBeVisible();
+    await expect(page.getByText(/Viewer-role member/)).toHaveCount(0);
   });
 
   // Rule 248 covers chunk- and query-loading alike (#2431): the loading state is a

@@ -378,6 +378,40 @@ def test_program_aggregate_does_not_leak_opted_out_child(
 
 
 @pytest.mark.django_db
+def test_program_mention_reach_excludes_opted_out_child(
+    project: Project, other_project: Project, program: Program, owner: Any
+) -> None:
+    """ADR-0678 T1 for the sixth program aggregate (#2529, ADR-0697).
+
+    The reach endpoint returns counts only, so the name/id substring assertion the
+    parametrized guard above uses cannot detect a leak here — the number itself is
+    the payload. A Viewer who exists only inside an opted-out project must not be
+    counted for an agent token, while the human read on the same program still sees
+    them. The external arm is program-owned with no project FK, so a project-level
+    opt-out must leave it untouched.
+    """
+    from django.contrib.auth import get_user_model
+
+    from trueppm_api.apps.access.models import ExternalStakeholder, ProjectMembership, Role
+
+    user_model = get_user_model()
+    hidden_viewer = user_model.objects.create_user(username="mcp_reach_viewer", password="pw")
+    ProjectMembership.objects.create(project=project, user=hidden_viewer, role=Role.VIEWER)
+    ExternalStakeholder.objects.create(program=program, name="Dana", email="dana@client.com")
+    _opt_out(project)
+
+    agent = _agent(owner).get(f"/api/v1/programs/{program.pk}/mention-reach/")
+    human = _human(owner).get(f"/api/v1/programs/{program.pk}/mention-reach/")
+
+    assert agent.status_code == 200, agent.data
+    assert human.status_code == 200, human.data
+    assert human.data["viewer_member_count"] == 1
+    assert agent.data["viewer_member_count"] == 0, "opted-out project's Viewer was counted"
+    # Program-owned rows are governed by the program's own denial, not a child's.
+    assert agent.data["external_stakeholder_count"] == 1
+
+
+@pytest.mark.django_db
 def test_program_schedule_drops_rather_than_redacts(
     project: Project, program: Program, owner: Any
 ) -> None:

@@ -94,10 +94,33 @@ projects inside the program. See [Roles & Permissions](/administration/rbac/).
 ## External stakeholders
 
 The **External stakeholders** section records people **without a TruePPM
-account** — client sponsors, vendors, reviewers — so they can be referenced in
-`@program-stakeholders` mentions. Each entry has a **Name**, **Email**, and an
-optional **Note**. This is a directory for mentions and context; email
-notifications to external stakeholders are planned for a future release.
+account** — client sponsors, vendors, reviewers — kept as a **separate recipient
+list** for `@program-stakeholders` mentions. Each entry has a **Name**,
+**Email**, and an optional **Note**.
+
+They are deliberately *not* merged into the mention group itself, so an internal
+`@program-stakeholders` mention can never silently reach a client.
+
+:::note[Ships in 0.4]
+The **reach summary** described below ships in **TruePPM 0.4** (the first beta),
+along with the `mention-reach` endpoint that computes it. Before 0.4 the section
+shows only a count of the external rows.
+:::
+
+The two halves of the alias have different fates, and the reach summary above the
+table states both so you can see exactly who a mention touches:
+
+- **External contacts are listed only.** No email or notification is sent to
+  them yet — email delivery is a future, operator-enabled capability.
+- **Viewer-role members get an in-app notification.** These are the members
+  holding the Viewer role on any project inside the program, counted once each.
+  If the program has no Viewer-role members, the summary says so plainly — the
+  alias notifies nobody in-app.
+
+Reading the summary requires the program **Admin** role, the same role that
+manages the list. The count comes from
+`GET /api/v1/programs/{id}/mention-reach/`, which returns the two arms
+separately and never a combined total.
 
 ## Rollup KPIs
 

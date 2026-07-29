@@ -37,10 +37,14 @@ the RBAC-derived auto-groups above.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 if TYPE_CHECKING:
-    from trueppm_api.apps.access.models import ExternalStakeholder
+    from collections.abc import Iterable
+
+    from django.db.models import QuerySet
+
+    from trueppm_api.apps.access.models import ExternalStakeholder, ProjectMembership
 
 # ADR-0075 locked constraint #1 — @all resolve cardinality cap.
 ALL_GROUP_HARD_CAP: int = 200
@@ -186,6 +190,110 @@ def resolve_group_members(
     raise InvalidGroupKeyError(group_key)  # pragma: no cover
 
 
+def _program_membership_base_qs(
+    program_id: uuid.UUID | str,
+) -> QuerySet[ProjectMembership]:
+    """Every live ``ProjectMembership`` across a program's live projects.
+
+    The one base every ``@program-*`` key narrows, and the one the reach counter
+    narrows too. It exists so a recipient-narrowing filter added here — excluding
+    deactivated users, a privacy suppression gate — cannot be inherited by three of
+    the four group keys and silently skipped by the fourth. Add such filters
+    **here**, never in a per-key branch.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership
+
+    return ProjectMembership.objects.filter(
+        project__program_id=program_id,
+        project__is_deleted=False,
+        is_deleted=False,
+    )
+
+
+def _program_stakeholder_membership_qs(
+    program_id: uuid.UUID | str,
+) -> QuerySet[ProjectMembership]:
+    """The ``ProjectMembership`` rows the ``@program-stakeholders`` alias draws on.
+
+    Narrows :func:`_program_membership_base_qs` to an **exact** ``Role.VIEWER`` —
+    not the ``role__gte`` floor the project-level ``@viewers`` uses, which would
+    resolve to everyone (Viewer is the lowest band) and duplicate ``@program-all``.
+
+    Extracted so the resolver and the reach counter (ADR-0697) cannot drift: a
+    change to the role band or the soft-delete rules moves both at once.
+
+    Note the rows are per-(user, project): a person who is a Viewer on two projects
+    in the program has two rows but is **one** recipient. Callers must dedupe on
+    ``user_id`` — the resolver does, and so does the counter.
+    """
+    from trueppm_api.apps.access.models import Role
+
+    return _program_membership_base_qs(program_id).filter(role=Role.VIEWER)
+
+
+def _program_external_stakeholder_qs(
+    program_id: uuid.UUID | str,
+) -> QuerySet[ExternalStakeholder]:
+    """The ``ExternalStakeholder`` rows registered against a program.
+
+    The non-account arm of the ``@program-stakeholders`` fan-out. Extracted
+    alongside :func:`_program_stakeholder_membership_qs` so the resolver and the
+    reach counter share one definition (ADR-0697).
+    """
+    from trueppm_api.apps.access.models import ExternalStakeholder
+
+    return ExternalStakeholder.objects.filter(program_id=program_id, is_deleted=False)
+
+
+class ProgramStakeholderReach(NamedTuple):
+    """The two arms of ``@program-stakeholders``, counted separately (ADR-0697).
+
+    Deliberately **not** summable into a headline total: the two arms have
+    materially different fates today. ``viewer_member_count`` people receive a
+    durable in-app notification; ``external_stakeholder_count`` people receive
+    nothing at all — they have no ``User`` account and outbound delivery is
+    deferred to #1675. A combined number would re-introduce in the UI the same
+    union the resolver was changed to stop making.
+    """
+
+    viewer_member_count: int
+    external_stakeholder_count: int
+
+
+def count_program_stakeholder_reach(
+    program_id: uuid.UUID | str,
+    exclude_project_ids: Iterable[uuid.UUID] | QuerySet[Any] | None = None,
+) -> ProgramStakeholderReach:
+    """Count both arms of ``@program-stakeholders`` for a program (ADR-0697).
+
+    Backs ``GET /api/v1/programs/{id}/mention-reach/``. Shares its querysets with
+    :func:`_resolve_program_group_members` and :func:`resolve_external_stakeholders`
+    so the number a PM reads on the settings page is the number the mention will
+    actually fan out to.
+
+    Args:
+        program_id: The program whose alias is being counted.
+        exclude_project_ids: Projects to drop from the internal arm — the MCP
+            team opt-out intersection (ADR-0678 T1). ``None`` for a human caller,
+            which is the common case and leaves the query plan untouched. The
+            external arm is program-owned with no project FK, so it is never
+            narrowed by a project-level opt-out.
+
+    Returns:
+        A :class:`ProgramStakeholderReach` with the two arms counted separately.
+    """
+    memberships = _program_stakeholder_membership_qs(program_id)
+    if exclude_project_ids is not None:
+        memberships = memberships.exclude(project_id__in=exclude_project_ids)
+    # Distinct on ``user_id``, never ``.count()`` on the membership rows: a Viewer
+    # on two projects in the program is one recipient, and the resolver this
+    # mirrors returns distinct users.
+    return ProgramStakeholderReach(
+        viewer_member_count=memberships.values("user_id").distinct().count(),
+        external_stakeholder_count=_program_external_stakeholder_qs(program_id).count(),
+    )
+
+
 def _resolve_program_group_members(
     project_id: uuid.UUID | str,
     key: str,
@@ -206,7 +314,7 @@ def _resolve_program_group_members(
         GroupTooLargeError: ``@program-all`` exceeds ``ALL_GROUP_HARD_CAP`` — a
             program-wide fan-out is exactly the blast radius ADR-0075 caps.
     """
-    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.access.models import Role
     from trueppm_api.apps.projects.models import Project
 
     program_id = Project.objects.filter(pk=project_id).values_list("program_id", flat=True).first()
@@ -216,11 +324,7 @@ def _resolve_program_group_members(
     # Join through the sibling projects in one query rather than materializing
     # their ids first — bounded by (# projects in program × members), no N+1.
     # Exclude soft-deleted sibling projects and soft-deleted memberships.
-    memberships = ProjectMembership.objects.filter(
-        project__program_id=program_id,
-        project__is_deleted=False,
-        is_deleted=False,
-    )
+    memberships = _program_membership_base_qs(program_id)
     if key == "program-pms":
         memberships = memberships.filter(role__gte=Role.ADMIN)
     elif key == "program-schedulers":
@@ -233,6 +337,10 @@ def _resolve_program_group_members(
         # additively by ``resolve_external_stakeholders`` (#1658, ADR-0264) — those
         # rows have no User account, so they are never unioned into this User-keyed
         # result; the caller threads them onto a distinct ``external_targets`` field.
+        # Narrows the SAME base the other keys narrow — the extracted helper is a
+        # composition of it, not a replacement — so a future base-level recipient
+        # filter cannot be inherited by three keys and skipped by this one, and the
+        # reach counter behind ``/mention-reach/`` stays in lockstep (ADR-0697).
         memberships = memberships.filter(role=Role.VIEWER)
     # program-all: no role filter — every member of every project in the program.
 
@@ -266,17 +374,14 @@ def resolve_external_stakeholders(
         The program's non-deleted external stakeholders, ordered by name. Empty for
         a standalone project (no program) — there is no program registry to draw on.
     """
-    from trueppm_api.apps.access.models import ExternalStakeholder
     from trueppm_api.apps.projects.models import Project
 
     program_id = Project.objects.filter(pk=project_id).values_list("program_id", flat=True).first()
     if program_id is None:
         return []
-    return list(
-        ExternalStakeholder.objects.filter(program_id=program_id, is_deleted=False).order_by(
-            "name", "email"
-        )
-    )
+    # Shares its queryset with the reach counter (ADR-0697) so the registry the PM
+    # is shown a count of is exactly the registry a mention resolves against.
+    return list(_program_external_stakeholder_qs(program_id).order_by("name", "email"))
 
 
 def resolve_user_defined_group_members(
