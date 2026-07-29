@@ -18,11 +18,15 @@ Two enforcement paths share the same validator:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from django.core.checks import Error, register
 from django.core.checks.messages import CheckMessage
 from django.core.checks.registry import Tags
+from django.core.exceptions import ImproperlyConfigured
+from django.utils.module_loading import import_string
+
+from trueppm_api.core.storage_config import S3_STORAGE_BACKENDS
 
 MIN_SECRET_KEY_LENGTH = 32
 
@@ -226,6 +230,125 @@ def check_attachment_storage(
         backend,
         debug=bool(getattr(settings, "DEBUG", False)),
         allow_local=bool(getattr(settings, "ALLOW_LOCAL_ATTACHMENT_STORAGE", False)),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Storage-backend importability (#2559)
+#
+# TRUEPPM_DEFAULT_FILE_STORAGE is a dotted path resolved lazily by Django, so a
+# typo — or a backend whose package the image does not carry — surfaces as a bare
+# ``ModuleNotFoundError`` on the first attachment upload rather than at deploy
+# time. The image bundles django-storages' S3 extra only; GCS and Azure Blob are
+# on the signed-url allow-list but need extras we do not ship, so the hint has to
+# name the specific package to install rather than say "install django-storages".
+# ---------------------------------------------------------------------------
+
+#: Dotted-path prefix -> the pip requirement that provides it. Prefix-matched so a
+#: subclass or a future backend module in the same package still resolves to the
+#: right remediation.
+_STORAGE_BACKEND_PACKAGES: tuple[tuple[str, str], ...] = (
+    ("storages.backends.gcloud", "django-storages[google]"),
+    ("storages.backends.azure_storage", "django-storages[azure]"),
+    ("storages.backends.sftpstorage", "django-storages[sftp]"),
+    ("storages.backends.dropbox", "django-storages[dropbox]"),
+    ("storages.backends.s3", "django-storages[s3]"),
+    ("storages.", "django-storages"),
+)
+
+
+def _remediation_package(backend_path: str) -> str | None:
+    """Return the pip requirement providing ``backend_path``, if we know one."""
+    for prefix, requirement in _STORAGE_BACKEND_PACKAGES:
+        if backend_path.startswith(prefix):
+            return requirement
+    return None
+
+
+def validate_storage_backend(
+    default_storage_backend: str | None,
+    *,
+    backend_options: Mapping[str, object] | None = None,
+) -> list[CheckMessage]:
+    """Return deploy errors when the configured storage backend cannot work.
+
+    Two failure modes, both of which used to surface only on the first upload:
+
+    1. The dotted path does not import — the operator followed documentation for a
+       backend whose package is absent from this image. The hint names the exact
+       requirement to install, because the S3 extra we bundle does not cover the
+       GCS/Azure backends the signed-url allow-list also recognizes.
+    2. The path imports but an S3-family backend has no ``bucket_name`` — boto3
+       raises an opaque ``ValueError: Required parameter name not set`` on save,
+       which names neither the setting nor the backend.
+
+    Runs in every environment including DEBUG: an unimportable backend is a
+    misconfiguration on a developer workstation too, and catching it at
+    ``manage.py check`` is strictly better than at upload time.
+    """
+    if not default_storage_backend:
+        return []
+
+    # ImproperlyConfigured as well as ImportError: django-storages' gcloud, azure,
+    # and dropbox modules catch their own missing bindings at import and re-raise as
+    # ImproperlyConfigured ("Could not load Google Cloud Storage bindings"), so an
+    # ImportError-only except would miss exactly the unbundled extras this check is
+    # for. Everything here is a "the configured backend cannot be loaded" failure
+    # regardless of which exception type carries it.
+    try:
+        import_string(default_storage_backend)
+    except (ImportError, ImproperlyConfigured) as exc:
+        requirement = _remediation_package(default_storage_backend)
+        hint = (
+            f"Install it with: pip install '{requirement}' (this image bundles "
+            "django-storages[s3] only), or point TRUEPPM_DEFAULT_FILE_STORAGE at a "
+            "backend the image carries."
+            if requirement
+            else (
+                "Check TRUEPPM_DEFAULT_FILE_STORAGE for a typo, or install the "
+                "package that provides this backend."
+            )
+        )
+        return [
+            Error(
+                f"STORAGES['default']['BACKEND'] is set to "
+                f"{default_storage_backend!r}, which cannot be imported: {exc}.",
+                hint=hint,
+                id="trueppm.E007",
+            )
+        ]
+
+    if default_storage_backend in S3_STORAGE_BACKENDS and not (backend_options or {}).get(
+        "bucket_name"
+    ):
+        return [
+            Error(
+                f"{default_storage_backend} is configured without a bucket name; "
+                "attachment uploads would fail with 'Required parameter name not set'.",
+                hint=(
+                    "Set TRUEPPM_S3_BUCKET_NAME to the bucket that holds task "
+                    "attachments. For a non-AWS endpoint (MinIO, Ceph, R2) also set "
+                    "TRUEPPM_S3_ENDPOINT_URL and TRUEPPM_S3_ADDRESSING_STYLE=path."
+                ),
+                id="trueppm.E008",
+            )
+        ]
+    return []
+
+
+@register(Tags.security, deploy=True)
+def check_storage_backend(
+    app_configs: Sequence[object] | None = None,
+    **kwargs: object,
+) -> list[CheckMessage]:
+    """Django system check entry point — resolves the live STORAGES default."""
+    from django.conf import settings
+
+    storages = getattr(settings, "STORAGES", {}) or {}
+    default = storages.get("default", {}) or {}
+    return validate_storage_backend(
+        default.get("BACKEND"),
+        backend_options=default.get("OPTIONS"),
     )
 
 

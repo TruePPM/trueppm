@@ -258,15 +258,25 @@ API, Celery worker, **and** the init containers all consume it):
 | `SECRET_KEY` | ≥ 32 chars; Django signing | #566 |
 | `ALLOWED_HOSTS` | comma-separated hostnames | — |
 | `INTEGRATION_ENCRYPTION_KEY` | Fernet key; encrypts integration PATs at rest | #1002 |
-| `TRUEPPM_DEFAULT_FILE_STORAGE` *or* `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` | attachment storage choice | #775 |
+| `TRUEPPM_DEFAULT_FILE_STORAGE` + `TRUEPPM_S3_BUCKET_NAME` *or* `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` | attachment storage choice | #775, #2559 |
 
 ```bash
 kubectl create secret generic trueppm-env \
   --from-literal=SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))") \
   --from-literal=ALLOWED_HOSTS=trueppm.example.com \
   --from-literal=INTEGRATION_ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())") \
-  --from-literal=TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage
+  --from-literal=TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage \
+  --from-literal=TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
 ```
+
+The API image bundles the S3 backend, so those two keys are all an AWS S3 deploy
+needs — credentials resolve from IRSA or the instance profile. For MinIO or
+another non-AWS endpoint add `TRUEPPM_S3_ENDPOINT_URL`,
+`TRUEPPM_S3_ADDRESSING_STYLE=path`, and the access/secret keys. The bucket name is
+**required** whenever the backend is S3: startup fails with `trueppm.E008` if it
+is missing, instead of booting and failing on the first upload. GCS and Azure Blob
+backends are **not** bundled — see
+[object storage](https://trueppm.com/administration/configuration/#object-storage-s3--minio).
 
 Reference it in your values override (this is the `envFrom` pattern the templates
 render — explicit `env:` entries such as the chart-built `DATABASE_URL` always

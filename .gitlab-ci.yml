@@ -2345,6 +2345,81 @@ api:test:
     expire_in: 1 day
     when: always
 
+api:s3-drill:
+  # Live object-storage drill against a real MinIO service (#2559).
+  #
+  # The gap this closes: four operator-facing surfaces (the configuration
+  # reference, the Helm README, a shipped values.yaml comment, .env.example) tell
+  # operators to set TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage,
+  # and settings/prod.py refuses to boot on the local default (#775) — so the boot
+  # guard steered operators at that value while django-storages was not a
+  # dependency at all and the import crashed. No job set TRUEPPM_DEFAULT_FILE_STORAGE
+  # to an object-storage backend and there was no S3/MinIO service anywhere in this
+  # file, so nothing could have caught it.
+  #
+  # tests/test_s3_round_trip.py skips itself unless TRUEPPM_S3_ENDPOINT_URL is set,
+  # so it is inert in api:test and a developer's local run stays hermetic; this job
+  # is the only place it executes. It asserts the attachment round-trips, the
+  # presigned URL downloads unauthenticated, an UNsigned URL is denied (or the
+  # presigned URL is security theater), and file_overwrite=False holds.
+  #
+  # Deliberately its own small job rather than a service bolted onto api:test:
+  # api:test is sharded x4, so a MinIO service there would spawn four idle copies
+  # for a handful of tests.
+  extends: .api
+  stage: test
+  needs:
+    - api:lint
+    - job: ci:build-api-image
+      optional: true
+  <<: *rules-api
+  services:
+    # .api's services are REPLACED, not merged — postgres/valkey are re-declared
+    # because the tests import Django settings, which parse DATABASE_URL/REDIS_URL.
+    - name: postgres:16-alpine
+      alias: postgres
+    - name: valkey/valkey:8-alpine
+      alias: valkey
+    # Pinned to a dated release tag (same convention as the postgres/valkey
+    # services above — not `latest`). `server /data` is the command MinIO needs to
+    # start; the console port is unused here.
+    - name: minio/minio:RELEASE.2025-09-07T16-13-09Z
+      alias: minio
+      command: ["server", "/data"]
+  variables:
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
+    TRUEPPM_S3_ENDPOINT_URL: "http://minio:9000"
+    # MinIO serves path-style; virtual-hosted addressing would need per-bucket DNS.
+    TRUEPPM_S3_ADDRESSING_STYLE: path
+    TRUEPPM_S3_ACCESS_KEY_ID: minioadmin
+    TRUEPPM_S3_SECRET_ACCESS_KEY: minioadmin
+  script:
+    - cd packages/api
+    # The drill skips itself when TRUEPPM_S3_ENDPOINT_URL is unset, and a skip
+    # exits 0 — so a green job proving nothing is the exact false assurance #2559
+    # was about. Write the report to a file and fail on any skip, so renaming the
+    # env var or dropping it from `variables` breaks the job loudly.
+    - python -m pytest tests/test_s3_round_trip.py -v -rs --tb=short | tee s3-drill.log
+    - |
+      if grep -qE '^SKIPPED|skipped' s3-drill.log; then
+        echo "FAIL: the S3 drill skipped — MinIO env is not reaching the tests" >&2
+        exit 1
+      fi
+    # The documented configuration must also satisfy the deploy checks it ships
+    # with, so `manage.py check --deploy` can never contradict a working install.
+    # --fail-level ERROR: dev settings legitimately raise deploy WARNINGs (no TLS
+    # redirect, etc.); only our trueppm.E0xx errors should fail this.
+    - |
+      TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage \
+      TRUEPPM_S3_BUCKET_NAME=trueppm-attachments \
+      python manage.py check --deploy --fail-level ERROR
+  artifacts:
+    when: always
+    paths:
+      - packages/api/s3-drill.log
+    expire_in: 1 week
+
 api:coverage:
   # Combines the per-shard coverage data from api:test into a single coverage.xml
   # for api:diff-coverage (the primary tests gate) and enforces the package-total

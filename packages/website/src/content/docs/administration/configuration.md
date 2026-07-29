@@ -20,7 +20,7 @@ All configuration is via environment variables. For local development, `docker-c
 | `DJANGO_SETTINGS_MODULE` | Settings module to load. | `trueppm_api.settings.prod` |
 | `ALLOWED_HOSTS` | Comma-separated list of allowed hostnames. | `trueppm.example.com` |
 | `INTEGRATION_ENCRYPTION_KEY` | Fernet key that encrypts stored integration credentials (connected-account PATs) at rest. **Production refuses to boot if this is empty** — the guard runs at settings-import time, so a missing key crash-loops the deploy rather than failing later. | `$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")` |
-| Attachment storage | Pick one: set `TRUEPPM_DEFAULT_FILE_STORAGE` to a persistent object-storage backend, **or** set `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` if local disk is backed by a persistent volume. **Production refuses to boot on the ephemeral local default** otherwise (see [optional settings](#optional--advanced-settings) for the two variables). | `storages.backends.s3.S3Storage` |
+| Attachment storage | Pick one: set `TRUEPPM_DEFAULT_FILE_STORAGE` to a persistent object-storage backend **and** `TRUEPPM_S3_BUCKET_NAME` to its bucket, **or** set `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` if local disk is backed by a persistent volume. **Production refuses to boot on the ephemeral local default** otherwise (see [object storage](#object-storage-s3--minio) for the full variable set). | `storages.backends.s3.S3Storage` |
 
 ## Default values (development only)
 
@@ -80,7 +80,7 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_SHARE_BOARD_MAX_CARDS` | `1000` | Maximum cards in a public board snapshot; a larger board is truncated (the viewer sees a "showing the first N cards" note). |
 | `TRUEPPM_SHARE_SCHEDULE_MAX_TASKS` | `1000` | Maximum tasks in a public [schedule share](/features/board-sharing/) snapshot; a larger schedule is truncated the same way as an over-cap board. |
 | `VITE_FEATURE_FLAGS` | `{}` | Build-time JSON blob of feature flag overrides for the React frontend, e.g. `'{"schedule_build_mode_v1":true}'`. Set in `packages/web/.env` or `.env.production` before `npm run build`. Per-user `localStorage` overrides win over this default at runtime. |
-| `TRUEPPM_DEFAULT_FILE_STORAGE` | `django.core.files.storage.FileSystemStorage` | Backend for task-attachment storage. The local default is **ephemeral in a container** — uploads are lost on every pod restart, and `prod` refuses to boot on it (see `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE`). Point this at a persistent object-storage backend for production, e.g. `storages.backends.s3.S3Storage`. |
+| `TRUEPPM_DEFAULT_FILE_STORAGE` | `django.core.files.storage.FileSystemStorage` | Backend for task-attachment storage. The local default is **ephemeral in a container** — uploads are lost on every pod restart, and `prod` refuses to boot on it (see `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE`). Point this at a persistent object-storage backend for production, e.g. `storages.backends.s3.S3Storage`, and set `TRUEPPM_S3_BUCKET_NAME` — see [object storage](#object-storage-s3--minio). The image bundles the **S3** backend only; naming a backend it cannot import fails startup with a message telling you which package to install. |
 | `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` | `false` | Operator opt-in to run production on the local `FileSystemStorage` default (e.g. when local disk is backed by a persistent volume). `prod` refuses to boot on local storage unless this is `true` or `TRUEPPM_DEFAULT_FILE_STORAGE` is set to a remote backend. |
 | `STATIC_ROOT` | `staticfiles/` under the app directory | Filesystem path WhiteNoise collects and serves Django static assets from (`manage.py collectstatic`). Override only if your container image lays out paths differently than the shipped image. |
 | `TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS` | `false` | Operator opt-in confirming `TRUEPPM_DEFAULT_FILE_STORAGE` produces a real time-limited signed URL. The attachment **Get signed download URL** action only recognizes the built-in django-storages S3, GCS, and Azure Blob backends automatically; on `FileSystemStorage` (the default) or any other backend it refuses with `501 Not Implemented` rather than hand back a link labeled "signed" that never actually expires. Set this to `true` only if your configured backend genuinely signs its URLs. |
@@ -116,6 +116,93 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_IDEMPOTENCY_RETENTION_HOURS` | `24` | Hours to retain stored `Idempotency-Key` responses, purged hourly by the Celery beat task. After expiry, a retry with the same key re-runs the mutation. Set the Django setting to `None` to disable automatic purging. The legacy bare `IDEMPOTENCY_RETENTION_HOURS` is still read as a fallback when the prefixed var is unset. |
 | `TRUEPPM_IDEMPOTENCY_MAX_BODY_BYTES` | `1048576` | Maximum stored response body size, in bytes (1 MiB default). Responses larger than this are not stored — the claim row is dropped so a retry re-runs the mutation. Single-object mutation responses effectively never approach this limit. The legacy bare `IDEMPOTENCY_MAX_BODY_BYTES` is still read as a fallback when the prefixed var is unset. |
 | `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_HOST_USER` / `EMAIL_TIMEOUT` / … | _(Django default)_ | SMTP settings for notification and invite email. **Every one of these binds directly from the container environment** — set them as plain env vars or Helm `env:` values, no settings override needed. See [Outbound email](/administration/email/) for the full variable list and how they relate to the in-app Email & SMTP page. |
+
+## Object storage (S3 / MinIO)
+
+Task attachments are the only user data TruePPM writes outside PostgreSQL. The
+local `FileSystemStorage` default is **ephemeral in a container**, and production
+refuses to boot on it, so a durable deploy points
+`TRUEPPM_DEFAULT_FILE_STORAGE` at an S3-compatible bucket.
+
+The API image bundles the S3 backend, so the two variables below are all a
+deploy against AWS S3 needs:
+
+```bash
+TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage
+TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
+```
+
+Credentials are deliberately **not** required. Left unset, the AWS SDK resolves
+them from its own chain — IRSA on EKS, an IAM instance profile, or `~/.aws` —
+which is preferable to pinning static keys into a Secret. Set
+`TRUEPPM_S3_ACCESS_KEY_ID` / `TRUEPPM_S3_SECRET_ACCESS_KEY` only when no such
+role is available (MinIO, Ceph, Wasabi).
+
+| Variable | Default | Description |
+|---|---|---|
+| `TRUEPPM_S3_BUCKET_NAME` | _(empty)_ | Bucket that holds task attachments. **Required** when `TRUEPPM_DEFAULT_FILE_STORAGE` names an S3 backend — startup fails with `trueppm.E008` if it is missing, rather than accepting the config and failing on the first upload. |
+| `TRUEPPM_S3_ENDPOINT_URL` | _(empty)_ | Endpoint for a non-AWS S3-compatible store, e.g. `http://minio:9000`. Leave empty for AWS S3 so the SDK resolves the real regional endpoint. |
+| `TRUEPPM_S3_REGION_NAME` | `us-east-1` | Region for the bucket. Must be non-empty even against MinIO: SigV4 embeds the region in the credential scope, so an empty value produces an unusable signature. |
+| `TRUEPPM_S3_ADDRESSING_STYLE` | _(SDK default `auto`)_ | Set to `path` for MinIO and Ceph RGW, which do not serve virtual-hosted bucket URLs without per-bucket DNS. Leave unset for AWS S3. |
+| `TRUEPPM_S3_ACCESS_KEY_ID` | _(empty)_ | Static access key. Omit to use the SDK credential chain (IRSA / instance profile). |
+| `TRUEPPM_S3_SECRET_ACCESS_KEY` | _(empty)_ | Static secret key. Omit to use the SDK credential chain. |
+| `TRUEPPM_S3_SIGNATURE_VERSION` | `s3v4` | Signing algorithm for presigned URLs. Leave at the default — the SDK would otherwise fall back to the deprecated SigV2 whenever an endpoint URL is set, and AWS rejects SigV2 in every region created after 2014. |
+| `TRUEPPM_S3_QUERYSTRING_EXPIRE` | `900` | Lifetime, in seconds, of the presigned URL returned by the attachment **Get signed download URL** action. |
+
+### MinIO
+
+```bash
+TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage
+TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
+TRUEPPM_S3_ENDPOINT_URL=http://minio:9000
+TRUEPPM_S3_ADDRESSING_STYLE=path
+TRUEPPM_S3_ACCESS_KEY_ID=minioadmin
+TRUEPPM_S3_SECRET_ACCESS_KEY=minioadmin
+```
+
+Create the bucket before first use — TruePPM does not create it for you. Keep it
+**private**: attachments are reached only through a presigned URL, and a
+world-readable bucket makes that signature meaningless.
+
+### Which backends the image can import
+
+The image bundles **S3 only**. `storages.backends.gcloud.GoogleCloudStorage` and
+`storages.backends.azure_storage.AzureStorage` are recognized as signing-capable
+by the signed-URL action, but their client libraries are not installed — naming
+one fails startup with `trueppm.E007` and the exact package to install:
+
+```
+(trueppm.E007) STORAGES['default']['BACKEND'] is set to
+'storages.backends.gcloud.GoogleCloudStorage', which cannot be imported:
+Could not load Google Cloud Storage bindings.
+    HINT: Install it with: pip install 'django-storages[google]' (this image
+    bundles django-storages[s3] only), or point TRUEPPM_DEFAULT_FILE_STORAGE at
+    a backend the image carries.
+```
+
+To run on GCS or Azure Blob, install the extra into a derived image:
+
+```dockerfile
+FROM registry.gitlab.com/trueppm/trueppm/api:latest
+USER root
+RUN pip install --no-cache-dir 'django-storages[google]'
+USER trueppm
+```
+
+### Signed download URLs
+
+The attachment **Get signed download URL** action returns a time-limited URL only
+when it can confirm the backend genuinely signs one. On the S3 backend above it
+does, and the URL carries a real `X-Amz-Expires`. On `FileSystemStorage` — or any
+backend the action does not recognize — it refuses with `501 Not Implemented`
+rather than hand back a permanent link labeled "signed". If you run a
+signing-capable backend that is not recognized, opt in with
+`TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS=true`.
+
+The caller may request a lifetime with `?ttl=<seconds>` (default 900, hard-capped
+at 3600). That value is applied to the **signature itself**, so the `expires_at`
+in the response and the URL's real expiry always agree.
+`TRUEPPM_S3_QUERYSTRING_EXPIRE` sets the default used when a request omits `ttl`.
 
 ## General API rate limiting
 
