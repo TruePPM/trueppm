@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from trueppm_api.apps.msproject.dataclasses import CalendarData, ProjectData, TaskData
+from trueppm_api.apps.sync.sequence import allocate_for_projects
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,9 @@ def import_project(
 
     # --- Step 3: Create dependencies ---
     _update(50, "Creating dependencies...")
-    _import_dependencies(data, task_uid_to_pk, summary, batch_size=batch_size)
+    _import_dependencies(
+        data, task_uid_to_pk, summary, project_id=project_id, batch_size=batch_size
+    )
 
     # --- Step 4: Create resource assignments ---
     _update(70, "Creating resource assignments...")
@@ -190,10 +193,15 @@ def _import_labels(
         for offset, key in enumerate(k for k in wanted if k not in existing)
     ]
     if new_labels:
-        # bulk_create leaves server_version at its default, matching how this
-        # importer creates tasks and resources (ADR-0011): the import is one
-        # bulk write, and the post-import recalculation is what advances the
-        # sync watermark for the whole project.
+        # bulk_create bypasses VersionedModel.save(), so these rows draw no delta
+        # cursor of their own and would sit at sync_seq=0 — below every checkpoint,
+        # and so never delivered to an offline client. `labels` is its own sync
+        # collection, so it needs the same one-value-per-import treatment the task
+        # rows get above (ADR-0686). The post-import recalculation cannot stand in
+        # for this: it writes through bulk_update and allocates nothing.
+        seq = allocate_for_projects([project_id])
+        for label in new_labels:
+            label.sync_seq = seq
         Label.objects.bulk_create(new_labels, batch_size=batch_size)
         summary["labels_created"] = len(new_labels)
         existing.update({label.name.lower(): label for label in new_labels})
@@ -295,6 +303,14 @@ def _create_tasks(
     ]
 
     _maybe_shift_project_start(project_id, data, summary)
+
+    # bulk_create bypasses VersionedModel.save(), so nothing draws a delta cursor
+    # for these rows — they would sit at sync_seq=0, below every checkpoint, and
+    # never reach an offline client. One value for the whole import is right: the
+    # rows are created together, and the delta is `> since` (ADR-0686).
+    seq = allocate_for_projects([project_id])
+    for task in task_objects:
+        task.sync_seq = seq
 
     Task.objects.bulk_create(task_objects, batch_size=batch_size)
     summary["tasks_created"] = len(task_objects)
@@ -407,6 +423,7 @@ def _import_dependencies(
     task_uid_to_pk: dict[int, str],
     summary: dict[str, Any],
     *,
+    project_id: str,
     batch_size: int,
 ) -> None:
     """Create Dependency rows from parsed predecessor links.
@@ -438,6 +455,13 @@ def _import_dependencies(
             )
 
     if dep_objects:
+        # `dependencies` is its own delta collection filtered on the row's own
+        # cursor, and bulk_create bypasses save() — so without this the imported
+        # graph would sit at sync_seq=0 and never reach an offline client, leaving
+        # it a task list with no edges to recompute from (ADR-0686).
+        seq = allocate_for_projects([project_id])
+        for dep in dep_objects:
+            dep.sync_seq = seq
         Dependency.objects.bulk_create(dep_objects, ignore_conflicts=True, batch_size=batch_size)
         summary["dependencies_created"] = len(dep_objects)
 

@@ -8,7 +8,7 @@ TruePPM's mobile client uses [WatermelonDB](https://watermelondb.dev/) as a loca
 ## Pull endpoint
 
 ```
-GET /api/v1/projects/{project_id}/sync/?since={server_version}
+GET /api/v1/projects/{project_id}/sync/?since={cursor}
 Authorization: Bearer <token>
 ```
 
@@ -16,7 +16,7 @@ Any project member (Viewer+) may call this endpoint.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `since` | integer | `0` | Return rows with `server_version > since`. Use `0` for a full sync. Keep constant for the whole paging session. |
+| `since` | integer | `0` | Opaque cursor from a previous response's `timestamp`. Returns rows changed strictly after it. Use `0` for a full sync. Keep constant for the whole paging session. |
 | `cursor` | string | — | Opaque continuation token for the next page. Omit on the first request; pass the previous response's `next_cursor` on each subsequent one. |
 | `page_size` | integer | `TRUEPPM_SYNC_PULL_PAGE_SIZE` (1000) | Maximum rows returned across all collections in one page. Clamped to `TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE` (5000). |
 
@@ -61,19 +61,41 @@ The pull is **cursor-paginated** so a cold start (`since=0`) on a large project 
 3. If `has_more` is `true`, request again with the same `since` and the returned `next_cursor`.
 4. When `has_more` is `false` (`next_cursor` is `null`), the session is complete — adopt `timestamp` as the `since` for the next sync.
 
-The cursor is a **compound keyset** on `(collection, server_version, id)`, not a scalar `server_version` ceiling. This is required because `server_version` is a per-row edit counter, not a global sequence: on a cold start every freshly created row shares `server_version = 1`. A scalar version cursor could not split a page between two rows of the same version without either dropping rows or leaving the page unbounded. Keying on the row `id` (a unique UUID) as a tiebreak makes every page boundary unambiguous — **no row is skipped and no row is duplicated**, even when thousands of rows share a version. Because `server_version` only ever increases, a row edited mid-session moves forward in the stream and is either delivered later or re-delivered under upsert — never lost.
+The cursor is a **compound keyset** on `(collection, sync_seq, id)`, not a scalar `sync_seq` ceiling. Rows written together share a `sync_seq`, and a scalar cursor could not split a page between two rows of the same value without either dropping rows or leaving the page unbounded. Keying on the row `id` (a unique UUID) as a tiebreak makes every page boundary unambiguous — **no row is skipped and no row is duplicated**, even when thousands of rows share a value. Because the cursor only ever increases, a row edited mid-session moves forward in the stream and is either delivered later or re-delivered under upsert — never lost.
 
 Retro rows are visibility-filtered (ADR-0071): a Viewer pulling a project whose retros are **team-only** does not receive the retro's raw notes or action-item text — those rows are excluded at the queryset level, and tombstones are delivered for visibility-removed rows so the local database drops them.
 
-## server_version
+## Two version fields, two jobs
 
-Every synced model has a `server_version` field:
+Every synced model carries two counters. They look interchangeable and are not.
 
-- Starts at `1` on INSERT
-- Incremented atomically on every UPDATE via `F()` expression (no lost-update races)
-- Soft-deleted rows get one final increment
+**`server_version` — the per-row save count.** Starts at `1` on INSERT, increments
+atomically on every UPDATE (no lost-update races), and gets one final increment on
+soft delete. This is the optimistic-lock token: it is what you send back as
+`X-Base-Version`, and what a conflict response reports.
 
-`since=0` returns all rows (every row has `server_version ≥ 1`).
+**`sync_seq` — the delta cursor.** Drawn from the project's own monotonic sequence,
+so every synced row in a project is ordered against every other one. This is what
+`since` filters on and what `timestamp` reports. It is **not** serialized on rows —
+treat `timestamp` as an opaque checkpoint and echo it back, which is what the
+protocol has always asked for.
+
+`since=0` returns all rows.
+
+:::caution[Changing in 0.4]
+`since` and `timestamp` move from `server_version` to `sync_seq` in 0.4. Comparing
+a per-row save count against a project-wide maximum is not a valid ordering: a
+frequently-edited row drags the checkpoint above every other row's counter, and
+those rows stop being delivered — silently, with the client believing it is fully
+synced.
+
+**No client change is required.** `timestamp` has always been documented as a value
+to adopt verbatim, and the new numbering starts above the old watermark, so the
+first pull after upgrading redelivers the project once under upsert semantics —
+which also repairs anything the old scheme had already dropped. Every pull after
+that is a normal delta. A client that compares `since` against a row's
+`server_version` is relying on the defect and must stop.
+:::
 
 ## Conflict resolution
 
@@ -119,11 +141,13 @@ cannot reorder).
 
 ## TOCTOU safety
 
-The server snapshots `max(server_version)` across all synced tables **before** running the delta queries. This prevents the race where a write lands between the version-snapshot and the row-queries, causing a row to be included in `updated` but the `timestamp` to be set too low — making the client miss it on the next sync.
+The server snapshots the project's cursor **before** running the delta queries. This prevents the race where a write lands between the checkpoint read and the row queries, causing a row to be included in `updated` but the `timestamp` to be set too low — making the client miss it on the next sync.
+
+Cursor allocation takes the project row's write lock, so concurrent writes to one project serialize and commit in allocation order. Without that a transaction could take a cursor value, a later one take the next value and commit first, and a pull in between would report the higher checkpoint and permanently skip the lower row.
 
 ## Soft delete
 
-Deleting a resource sets `is_deleted = True`, increments `server_version`, and records `deleted_version`. The row is never physically removed. On the next sync, the ID appears in `deleted`; WatermelonDB removes the local record.
+Deleting a resource sets `is_deleted = True`, increments `server_version`, draws a fresh `sync_seq`, and records `deleted_version`. The row is never physically removed. On the next sync, the ID appears in `deleted`; WatermelonDB removes the local record.
 
 Task deletion cascades: all Dependency rows where the task is predecessor or successor are also soft-deleted. Mobile clients receive tombstones for both.
 

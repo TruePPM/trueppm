@@ -222,11 +222,18 @@ def _update_inbound_task(
     new_status = resolved.status
     status_changed = old_status != new_status
 
+    # The bulk UPDATE bypasses VersionedModel.save(), so the sync delta cursor
+    # must be drawn explicitly — otherwise this write moves server_version but
+    # not sync_seq, and the row stays below the project's checkpoint and is never
+    # delivered to an offline client (ADR-0686).
+    from trueppm_api.apps.sync.sequence import allocate_for_projects
+
     update_fields: dict[str, Any] = {
         "name": resolved.name[:512],
         "notes": resolved.description,
         "story_points": resolved.story_points,
         "server_version": F("server_version") + 1,
+        "sync_seq": allocate_for_projects([task.project_id]),
     }
     # Only set assignee on resolve — never overwrite an existing assignment.
     if task.assignee_id is None and resolved.assignee is not None:

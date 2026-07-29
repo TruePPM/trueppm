@@ -6,7 +6,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
-from django.db import IntegrityError, connection, transaction
+from django.db import IntegrityError, transaction
 from django.db.models import BooleanField, Max, Prefetch
 from django.db.models.expressions import RawSQL
 from drf_spectacular.types import OpenApiTypes
@@ -114,13 +114,21 @@ class WebSocketTicketView(IdempotencyMixin, APIView):
 class ProjectSyncView(IdempotencyMixin, APIView):
     """Pull-only delta sync endpoint for the mobile offline store.
 
-    Returns all rows (live and soft-deleted) whose server_version is strictly
+    Returns all rows (live and soft-deleted) whose ``sync_seq`` is strictly
     greater than `since` for the given project, formatted for WatermelonDB's
     synchronize() helper.
 
+    ``sync_seq`` — not ``server_version`` — is the cursor (ADR-0686, #2491). It is
+    drawn from the project's own monotonic sequence, so every synced row in the
+    project is totally ordered against every other one and the project-wide
+    maximum is a meaningful checkpoint. ``server_version`` counts a single row's
+    saves; comparing it against that maximum let a frequently-edited row raise the
+    checkpoint above every other row's counter and drop those rows from the delta
+    permanently.
+
     The response `timestamp` is snapshotted *before* the delta queries run
     (inside REPEATABLE READ isolation) to eliminate the TOCTOU gap where a
-    write could land between the max-version read and the row queries.
+    write could land between the watermark read and the row queries.
 
     Usage:
         GET /api/v1/projects/{pk}/sync/?since=0
@@ -142,11 +150,11 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 required=False,
                 default=0,
                 description=(
-                    "WatermelonDB high-water mark. Returns only rows whose "
-                    "`server_version` is strictly greater than this value. Omit "
-                    "(or pass `0`) for a full initial sync; passing the previous "
-                    "response's `timestamp` fetches just the delta since then. "
-                    "Omitting it silently triggers a full re-sync."
+                    "WatermelonDB high-water mark — an opaque cursor, not a row "
+                    "version. Returns only rows changed strictly after this point. "
+                    "Omit (or pass `0`) for a full initial sync; passing the "
+                    "previous response's `timestamp` fetches just the delta since "
+                    "then. Omitting it silently triggers a full re-sync."
                 ),
             ),
             OpenApiParameter(
@@ -212,12 +220,12 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         # retro does not receive the retro's raw notes — the sync filters them
         # out at the queryset level. The sync protocol delivers tombstones for
         # visibility-removed rows so WatermelonDB can drop them client-side.
-        retro_qs = SprintRetro.objects.filter(sprint__project=project, server_version__gt=since)
+        retro_qs = SprintRetro.objects.filter(sprint__project=project, sync_seq__gt=since)
         if caller_role < Role.MEMBER:
             retro_qs = retro_qs.exclude(team_visibility=RetroVisibility.TEAM_ONLY)
 
         retro_action_item_qs = RetroActionItem.objects.filter(
-            retro__sprint__project=project, server_version__gt=since
+            retro__sprint__project=project, sync_seq__gt=since
         ).select_related("retro")
         if caller_role < Role.MEMBER:
             retro_action_item_qs = retro_action_item_qs.exclude(
@@ -225,15 +233,15 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             )
 
         # Ordered sync sources: (collection, base queryset, serializer). Each base
-        # queryset carries the project scope, the `server_version__gt=since` floor,
+        # queryset carries the project scope, the `sync_seq__gt=since` floor,
         # and any RBAC/visibility filters. The pager (#1013) drains them in this
-        # fixed order, keyset-seeking on (server_version, id) within each, so the
+        # fixed order, keyset-seeking on (sync_seq, id) within each, so the
         # response is bounded by page_size without skipping or duplicating rows.
         # The order is stable across pages — do not reorder without a protocol bump.
         sources: list[SyncSource] = [
             (
                 "projects",
-                Project.objects.filter(pk=project.pk, server_version__gt=since),
+                Project.objects.filter(pk=project.pk, sync_seq__gt=since),
                 SyncProjectSerializer,
             ),
             (
@@ -243,7 +251,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 # offline clients receive the same computed rollup flag. Static SQL
                 # literal, empty params — no user input interpolated; the ltree
                 # operator can't be expressed in the ORM.
-                Task.objects.filter(project=project, server_version__gt=since)
+                Task.objects.filter(project=project, sync_seq__gt=since)
                 .annotate(
                     # nosemgrep: avoid-raw-sql
                     is_phase=RawSQL(
@@ -286,7 +294,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 Dependency.objects.filter(
                     predecessor__project=project,
                     successor__project=project,
-                    server_version__gt=since,
+                    sync_seq__gt=since,
                 ).select_related("predecessor"),
                 SyncDependencySerializer,
             ),
@@ -297,7 +305,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 # per-calendar lazy load — parity with CalendarViewSet and
                 # N+1-safe for the future program-sync multi-calendar slice.
                 Calendar.objects.filter(
-                    pk=project.calendar_id, server_version__gt=since
+                    pk=project.calendar_id, sync_seq__gt=since
                 ).prefetch_related("exceptions")
                 if project.calendar_id
                 else Calendar.objects.none(),
@@ -305,39 +313,35 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             ),
             (
                 "memberships",
-                ProjectMembership.objects.filter(project=project, server_version__gt=since),
+                ProjectMembership.objects.filter(project=project, sync_seq__gt=since),
                 SyncMembershipSerializer,
             ),
             (
                 "risks",
-                Risk.objects.filter(project=project, server_version__gt=since).prefetch_related(
-                    "tasks"
-                ),
+                Risk.objects.filter(project=project, sync_seq__gt=since).prefetch_related("tasks"),
                 SyncRiskSerializer,
             ),
             (
                 "sprints",
-                Sprint.objects.filter(project=project, server_version__gt=since),
+                Sprint.objects.filter(project=project, sync_seq__gt=since),
                 SyncSprintSerializer,
             ),
             ("sprint_retros", retro_qs, SyncSprintRetroSerializer),
             ("retro_action_items", retro_action_item_qs, SyncRetroActionItemSerializer),
             (
                 "task_suggested_assignees",
-                TaskSuggestedAssignee.objects.filter(
-                    task__project=project, server_version__gt=since
-                ),
+                TaskSuggestedAssignee.objects.filter(task__project=project, sync_seq__gt=since),
                 SyncTaskSuggestedAssigneeSerializer,
             ),
             (
                 "task_links",
-                TaskLink.objects.filter(task__project=project, server_version__gt=since),
+                TaskLink.objects.filter(task__project=project, sync_seq__gt=since),
                 SyncTaskLinkSerializer,
             ),
             (
                 "task_recurrence_rules",
                 TaskRecurrenceRule.objects.filter(
-                    task__project=project, server_version__gt=since
+                    task__project=project, sync_seq__gt=since
                 ).select_related("task"),
                 SyncTaskRecurrenceRuleSerializer,
             ),
@@ -350,7 +354,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 TimeEntry.objects.filter(
                     task__project=project,
                     user=cast("_User", request.user),
-                    server_version__gt=since,
+                    sync_seq__gt=since,
                 ).select_related("task"),
                 SyncTimeEntrySerializer,
             ),
@@ -358,7 +362,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 # Label catalog (ADR-0400) — appended to preserve the stable protocol
                 # order. Assignment is NOT a source here; it rides Task.label_ids.
                 "labels",
-                Label.objects.filter(project=project, server_version__gt=since),
+                Label.objects.filter(project=project, sync_seq__gt=since),
                 SyncLabelSerializer,
             ),
             (
@@ -373,14 +377,18 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 TaskRelation.objects.filter(
                     source__project=project,
                     target__project=project,
-                    server_version__gt=since,
+                    sync_seq__gt=since,
                 ).select_related("source"),
                 SyncTaskRelationSerializer,
             ),
         ]
 
         changes, next_cursor, has_more = paginate_changes(
-            sources, cursor=cursor, page_size=page_size, collect=self._collect
+            sources,
+            cursor=cursor,
+            page_size=page_size,
+            collect=self._collect,
+            version_field="sync_seq",
         )
 
         return Response(
@@ -549,7 +557,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         from trueppm_api.apps.scheduling.services import enqueue_recalculate
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
         from trueppm_api.apps.sync.models import SyncBatch, SyncBatchStatus
-        from trueppm_api.apps.sync.receivers import coalesce_watermark_bumps
+        from trueppm_api.apps.sync.sequence import coalesce_sync_seq
         from trueppm_api.apps.sync.upload import apply_task_changes
 
         with transaction.atomic():
@@ -559,10 +567,10 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 actor_user=request.user,  # type: ignore[misc]
                 status=SyncBatchStatus.PENDING,
             )
-            # Coalesce the per-row watermark UPDATEs into one Greatest UPDATE for the
-            # whole batch (#1527); the flush runs inside this atomic block so a
-            # rollback still discards the watermark.
-            with coalesce_watermark_bumps():
+            # Draw one sync_seq per project for the whole batch rather than one
+            # per row (#1527, ADR-0686). The allocations run inside this atomic
+            # block, so a rollback discards them with the rows.
+            with coalesce_sync_seq():
                 applied = apply_task_changes(
                     project=project,
                     request=request,
@@ -635,116 +643,21 @@ class ProjectSyncView(IdempotencyMixin, APIView):
 
     @classmethod
     def _watermark(cls, project: Project) -> int:
-        """Return the sync high-water mark for ``project`` (ADR-0142, #822).
+        """Return the project's sync cursor high-water mark (ADR-0686, #2491).
 
-        Reads the denormalized ``Project.last_sync_version`` column, maintained by
-        the watermark receivers (``apps/sync/receivers.py``) to equal
-        :meth:`_snapshot_max_version`. The 14-table union is kept as a one-release
-        fallback behind ``settings.SYNC_WATERMARK_USE_COLUMN`` (default ``True``)
-        in case a drift bug is found in production; a conformance test asserts the
-        two agree.
+        ``Project.last_sync_version`` is the allocator every synced row in this
+        project drew its ``sync_seq`` from (``apps/sync/sequence.py``), so it is
+        by construction greater than or equal to every row's cursor — the safe
+        upper bound the client adopts as its next ``since``.
+
+        It used to cache ``MAX(server_version)`` over a 14-table ``UNION ALL``
+        (ADR-0142). The cache was faithful; the value was not a valid ordering,
+        because ``server_version`` counts one row's own saves. The union, its
+        ``SYNC_WATERMARK_USE_COLUMN`` fallback, and the receiver-vs-union
+        conformance test are gone with it: there is nothing left to derive the
+        column from, and nothing left to drift.
         """
-        if settings.SYNC_WATERMARK_USE_COLUMN:
-            return int(project.last_sync_version)
-        return cls._snapshot_max_version(project)
-
-    @staticmethod
-    def _snapshot_max_version(project: Project) -> int:
-        """Return the current maximum server_version across all synced tables.
-
-        Executed before delta queries so the returned timestamp is a safe
-        upper bound — the client can use it as `since` on the next pull.
-        """
-        project_pk = str(project.pk)
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT COALESCE(MAX(v), 0) FROM (
-                    SELECT MAX(server_version) AS v
-                      FROM projects_project WHERE id = %s
-                    UNION ALL
-                    SELECT MAX(server_version)
-                      FROM projects_task WHERE project_id = %s
-                    UNION ALL
-                    SELECT MAX(t.server_version)
-                      FROM projects_dependency d
-                      JOIN projects_task t ON d.predecessor_id = t.id
-                     WHERE t.project_id = %s
-                    UNION ALL
-                    SELECT MAX(server_version)
-                      FROM projects_calendar WHERE id = (
-                          SELECT calendar_id FROM projects_project WHERE id = %s
-                      )
-                    UNION ALL
-                    SELECT MAX(server_version)
-                      FROM access_project_membership WHERE project_id = %s
-                    UNION ALL
-                    SELECT MAX(server_version)
-                      FROM projects_risk WHERE project_id = %s
-                    UNION ALL
-                    SELECT MAX(server_version)
-                      FROM projects_sprint WHERE project_id = %s
-                    UNION ALL
-                    SELECT MAX(r.server_version)
-                      FROM projects_sprintretro r
-                      JOIN projects_sprint s ON r.sprint_id = s.id
-                     WHERE s.project_id = %s
-                    UNION ALL
-                    SELECT MAX(a.server_version)
-                      FROM projects_retroactionitem a
-                      JOIN projects_sprintretro r ON a.retro_id = r.id
-                      JOIN projects_sprint s ON r.sprint_id = s.id
-                     WHERE s.project_id = %s
-                    UNION ALL
-                    SELECT MAX(sa.server_version)
-                      FROM projects_tasksuggestedassignee sa
-                      JOIN projects_task t ON sa.task_id = t.id
-                     WHERE t.project_id = %s
-                    UNION ALL
-                    SELECT MAX(tl.server_version)
-                      FROM integrations_tasklink tl
-                      JOIN projects_task t ON tl.task_id = t.id
-                     WHERE t.project_id = %s
-                    UNION ALL
-                    SELECT MAX(rr.server_version)
-                      FROM projects_taskrecurrencerule rr
-                      JOIN projects_task t ON rr.task_id = t.id
-                     WHERE t.project_id = %s
-                    UNION ALL
-                    SELECT MAX(te.server_version)
-                      FROM timetracking_time_entry te
-                      JOIN projects_task t ON te.task_id = t.id
-                     WHERE t.project_id = %s
-                    UNION ALL
-                    SELECT MAX(server_version)
-                      FROM projects_label WHERE project_id = %s
-                    UNION ALL
-                    SELECT MAX(t.server_version)
-                      FROM projects_task_relation tr
-                      JOIN projects_task t ON tr.source_id = t.id
-                     WHERE t.project_id = %s
-                ) sub
-                """,
-                [
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                    project_pk,
-                ],
-            )
-            result = cursor.fetchone()
-        return int(result[0]) if result and result[0] is not None else 0
+        return int(project.last_sync_version)
 
 
 class UserProgramSyncView(IdempotencyMixin, APIView):
@@ -853,6 +766,13 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
         # or the next (its version > timestamp = next since); never lost. This is
         # the same concurrency argument pagination.py makes, so no REPEATABLE READ
         # wrapper is needed (ProjectSyncView's is belt-and-suspenders).
+        #
+        # This slice still keys on the per-row server_version and so still carries
+        # the ordering defect ADR-0686 fixed for projects: a hot program raises the
+        # watermark above a cold program's row counters and those rows drop out of
+        # the delta. It is NOT fixed by the project sequence — programs have no
+        # single owning row to sequence from, so the accessible-set cursor needs its
+        # own design. Tracked in #2498.
         timestamp = self._watermark(accessible_ids)
 
         # Program rows include soft-deleted ones so a program deleted while the

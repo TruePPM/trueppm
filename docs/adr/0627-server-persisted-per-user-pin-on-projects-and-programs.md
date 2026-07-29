@@ -247,6 +247,9 @@ failure mode.
    broadcast"*), `ProjectVisit` (*"never synced to mobile, never broadcast"*),
    `UserNotificationSettings`, `ProjectNotificationPreference`, `AgentAction`.
 
+> **Wiring note (ADR-0686).** The mechanics named here — `register_watermark_receivers()`, the `_snapshot_max_version` union branch, and the column-vs-union conformance test — no longer exist. Adding a sync collection now means a `SyncSource` entry, a `Sync*Serializer`, a `_TOMBSTONE_MODEL_REGISTRY` entry, and an `OWNER_RESOLVERS` entry in `apps/sync/sequence.py` so the model allocates a `sync_seq`. **That last one is not optional**: each collection is filtered on its own cursor, so a model that never allocates stays at 0 and is never delivered at all. The argument this ADR makes is unchanged — only the list of wiring is.
+
+
 **Unpin = hard `DELETE` of the row.** A tombstone exists to let an offline client converge; no
 offline client holds this collection, so there is nothing to converge. Hard delete also means
 the table cannot accumulate an unpin *history* — which is itself a privacy property (there is

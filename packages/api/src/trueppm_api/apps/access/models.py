@@ -127,6 +127,7 @@ class ProjectMembership(VersionedModel):
         indexes = [
             # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
             models.Index(fields=["project", "server_version"], name="pm_proj_serverver_idx"),
+            models.Index(fields=["project", "sync_seq"], name="pm_proj_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -195,6 +196,7 @@ class ProgramMembership(VersionedModel):
             # program side too — introduced with the #561 user-scoped program
             # sync endpoint.
             models.Index(fields=["program", "server_version"], name="progm_serverver_idx"),
+            models.Index(fields=["program", "sync_seq"], name="progm_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -273,6 +275,7 @@ class UserDefinedMentionGroup(VersionedModel):
         indexes = [
             # Sync delta pull: WHERE project_id = X AND server_version > since.
             models.Index(fields=["project", "server_version"], name="udmg_proj_serverver_idx"),
+            models.Index(fields=["project", "sync_seq"], name="udmg_proj_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -348,6 +351,7 @@ class ProgramUserDefinedMentionGroup(VersionedModel):
         indexes = [
             # Sync delta pull: WHERE program_id = X AND server_version > since.
             models.Index(fields=["program", "server_version"], name="pudmg_prog_serverver_idx"),
+            models.Index(fields=["program", "sync_seq"], name="pudmg_prog_syncseq_idx"),
         ]
 
     def __str__(self) -> str:

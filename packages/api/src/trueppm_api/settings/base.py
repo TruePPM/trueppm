@@ -1384,12 +1384,6 @@ TRUEPPM_TASK_SYNC_STEADY_STATE_LIMIT: int = env.int(
 )
 TRUEPPM_TASK_SYNC_BACKFILL_LIMIT: int = env.int("TRUEPPM_TASK_SYNC_BACKFILL_LIMIT", default=1000)
 
-# Sync watermark source (#822, ADR-0142). When True the sync pull reads the
-# denormalized Project.last_sync_version column; set False to fall back to the
-# 12-table UNION ALL (_snapshot_max_version) for one release if a drift bug is
-# found in production. The conformance test asserts the two agree.
-SYNC_WATERMARK_USE_COLUMN = env.bool("SYNC_WATERMARK_USE_COLUMN", default=True)
-
 # Public read-only sharing — board (#283, ADR-0245) and schedule (#1486, ADR-0265).
 # The instance kill switch governs BOTH share kinds: when False, minting new links
 # (403) and every public share endpoint (uniform 404, retroactively disabling

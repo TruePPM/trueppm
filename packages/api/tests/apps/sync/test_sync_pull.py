@@ -181,28 +181,19 @@ def test_sync_invalid_since_returns_400(
 def test_sync_delta_respects_since(
     authed_client: APIClient, project: Project, membership: ProjectMembership
 ) -> None:
-    # Both tasks start at server_version=1 on INSERT.
     task_a = Task.objects.create(project=project, name="A", duration=1)
     task_b = Task.objects.create(project=project, name="B", duration=1)
-    assert task_a.server_version == 1
-    assert task_b.server_version == 1
 
-    # Update task_a only — it now has server_version=2.
+    # Checkpoint here: both tasks are now at or below the project's cursor.
+    since = authed_client.get(_url(project), {"since": "0"}).data["timestamp"]
+
     task_a.name = "A-modified"
     task_a.save()
-    task_a.refresh_from_db()
-    assert task_a.server_version == 2
 
-    # A client that last synced at version=1 should see task_a (modified to v=2)
-    # but not task_b (still at v=1, unchanged since the checkpoint).
-    with patch.object(
-        __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_watermark",
-        return_value=99,
-    ):
-        resp = authed_client.get(_url(project), {"since": "1"})
+    # A client resuming from that checkpoint sees task_a and not task_b.
+    resp = authed_client.get(_url(project), {"since": str(since)})
     task_ids = [t["id"] for t in resp.data["changes"]["tasks"]["updated"]]
-    assert str(task_a.pk) in task_ids
+    assert task_ids == [str(task_a.pk)]
     assert str(task_b.pk) not in task_ids
 
 
@@ -336,13 +327,15 @@ from trueppm_api.apps.sync.pagination import SyncCursor  # noqa: E402
 _short_id_seq = _count(1)
 
 
-def _seed_tasks(project: Project, count: int, *, server_version: int = 1) -> list[str]:
-    """Bulk-insert ``count`` tasks at a fixed server_version; return their id strings.
+def _seed_tasks(project: Project, count: int, *, sync_seq: int = 1) -> list[str]:
+    """Bulk-insert ``count`` tasks at a fixed delta cursor; return their id strings.
 
-    bulk_create bypasses ``VersionedModel.save`` (which would set server_version=1
-    and allocate short_id), so both are set explicitly: server_version so the rows
-    clear the ``server_version__gt=since`` floor, and a unique short_id so the
-    per-project unique constraint is satisfied.
+    bulk_create bypasses ``VersionedModel.save``, which would set server_version=1,
+    draw a ``sync_seq`` from the project sequence (ADR-0686), and allocate a
+    short_id — so all three are set explicitly: ``sync_seq`` so the rows clear the
+    ``sync_seq__gt=since`` floor, and a unique short_id so the per-project unique
+    constraint is satisfied. ``server_version`` tracks ``sync_seq`` here only to
+    keep the fixture coherent; nothing in the pull reads it.
     """
     tasks = [
         Task(
@@ -350,7 +343,8 @@ def _seed_tasks(project: Project, count: int, *, server_version: int = 1) -> lis
             name=f"T{n}",
             short_id=f"T{n}",
             duration=1,
-            server_version=server_version,
+            server_version=sync_seq,
+            sync_seq=sync_seq,
         )
         for n in (next(_short_id_seq) for _ in range(count))
     ]
@@ -454,8 +448,8 @@ def test_sync_incremental_pull_paginates(
     membership: ProjectMembership,
 ) -> None:
     """An incremental (since>0) pull returns only bumped rows, and still pages."""
-    _seed_tasks(project, 500, server_version=1)  # baseline, already synced
-    bumped = _seed_tasks(project, 300, server_version=2)  # edited since checkpoint
+    _seed_tasks(project, 500, sync_seq=1)  # baseline, already synced
+    bumped = _seed_tasks(project, 300, sync_seq=2)  # edited since checkpoint
 
     emitted, pages = _drain(authed_client, project, since="1", page_size=50)
 
@@ -520,3 +514,258 @@ def test_sync_soft_deleted_risk_appears_in_deleted_list(
     assert str(risk.pk) in resp.data["changes"]["risks"]["deleted"]
     risk_updated_ids = [r["id"] for r in resp.data["changes"]["risks"]["updated"]]
     assert str(risk.pk) not in risk_updated_ids
+
+
+# ---------------------------------------------------------------------------
+# Delta-cursor correctness (#2491, ADR-0686)
+#
+# These drive the real endpoint end to end — `since` comes only from a prior
+# response's `timestamp`, exactly as the docstring instructs a client to do it.
+# Nothing here reads server_version: the point of the fix is that the cursor and
+# the row version are different things.
+# ---------------------------------------------------------------------------
+
+
+def _pull(client: APIClient, project: Project, since: int) -> dict:
+    resp = client.get(_url(project), {"since": str(since)})
+    assert resp.status_code == 200
+    return resp.data
+
+
+def _names(body: dict, collection: str = "tasks") -> list[str]:
+    return [row["name"] for row in body["changes"][collection]["updated"]]
+
+
+@pytest.mark.django_db
+def test_low_version_row_edit_survives_a_high_watermark(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """The #2491 repro: one edit to a cold row after many edits to a hot one.
+
+    Under the old scheme `cold` never climbed past the watermark `hot` had
+    dragged upward, so this pull returned an empty list and the client believed
+    it was fully synced.
+    """
+    task_hot = Task.objects.create(project=project, name="hot", duration=1)
+    task_cold = Task.objects.create(project=project, name="cold", duration=1)
+
+    since = _pull(authed_client, project, 0)["timestamp"]
+
+    for i in range(6):
+        task_hot.name = f"hot-{i}"
+        task_hot.save()
+    since = _pull(authed_client, project, since)["timestamp"]
+
+    task_cold.name = "cold-EDITED"
+    task_cold.save()
+
+    assert "cold-EDITED" in _names(_pull(authed_client, project, since))
+
+
+@pytest.mark.django_db
+def test_a_single_edit_survives_a_hundred_edits_to_another_row(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """Acceptance criterion: 1 edit after 100 elsewhere is still delivered."""
+    hot = Task.objects.create(project=project, name="hot", duration=1)
+    cold = Task.objects.create(project=project, name="cold", duration=1)
+    since = _pull(authed_client, project, 0)["timestamp"]
+
+    for i in range(100):
+        hot.name = f"hot-{i}"
+        hot.save()
+    since = _pull(authed_client, project, since)["timestamp"]
+
+    cold.name = "cold-once"
+    cold.save()
+
+    assert _names(_pull(authed_client, project, since)) == ["cold-once"]
+
+
+@pytest.mark.django_db
+def test_a_hot_task_does_not_hide_edits_in_other_collections(
+    authed_client: APIClient, project: Project, membership: ProjectMembership, user: object
+) -> None:
+    """Acceptance criterion: the defect spanned every synced table, not just tasks.
+
+    The watermark unioned 15 sources, so a hot Task raised the bar for Risk,
+    Sprint, Label, and ProjectMembership alike — and a membership row is what an
+    offline client enforces RBAC from.
+    """
+    from datetime import date as _date
+
+    from trueppm_api.apps.projects.models import Label, Sprint
+
+    hot = Task.objects.create(project=project, name="hot", duration=1)
+    risk = Risk.objects.create(project=project, title="R", probability=1, impact=1)
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S",
+        start_date=_date(2026, 1, 1),
+        finish_date=_date(2026, 1, 14),
+    )
+    label = Label.objects.create(project=project, name="lbl", color="amber")
+
+    since = _pull(authed_client, project, 0)["timestamp"]
+    for i in range(50):
+        hot.name = f"hot-{i}"
+        hot.save()
+    since = _pull(authed_client, project, since)["timestamp"]
+
+    risk.title = "R-EDITED"
+    risk.save()
+    sprint.name = "S-EDITED"
+    sprint.save()
+    label.name = "lbl-EDITED"
+    label.save()
+    membership.role = Role.ADMIN
+    membership.save()
+
+    body = _pull(authed_client, project, since)
+    assert [r["title"] for r in body["changes"]["risks"]["updated"]] == ["R-EDITED"]
+    assert _names(body, "sprints") == ["S-EDITED"]
+    assert _names(body, "labels") == ["lbl-EDITED"]
+    assert [m["role"] for m in body["changes"]["memberships"]["updated"]] == [Role.ADMIN]
+
+
+@pytest.mark.django_db
+def test_every_edit_is_delivered_exactly_once_under_arbitrary_interleaving(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """Property test: N rows edited in an uneven, deterministic interleaving.
+
+    Each round records what was edited, then pulls with the previous round's
+    `timestamp` and asserts the delta is exactly that set — no omission (the
+    #2491 defect) and no duplicate (which would mean the watermark lagged the
+    rows it reported).
+
+    The interleaving is deliberately lopsided — `i % (n + 1)` gives row 0 far
+    more saves than row 9 — because an *even* edit distribution keeps every row's
+    counter near the maximum and hides the bug entirely.
+    """
+    n = 10
+    tasks = [Task.objects.create(project=project, name=f"t{i}", duration=1) for i in range(n)]
+    since = _pull(authed_client, project, 0)["timestamp"]
+
+    for round_no in range(20):
+        touched = set()
+        for i in range(round_no % (n + 1) + 1):
+            task = tasks[(round_no * 7 + i * 3) % n]
+            task.name = f"t{tasks.index(task)}-r{round_no}"
+            task.save()
+            touched.add(task.name)
+
+        body = _pull(authed_client, project, since)
+        delivered = _names(body)
+        assert sorted(delivered) == sorted(touched), f"round {round_no}"
+        assert len(delivered) == len(set(delivered)), f"round {round_no}: duplicate rows"
+        since = body["timestamp"]
+
+    # Steady state: with nothing edited, the delta is empty and the cursor holds.
+    final = _pull(authed_client, project, since)
+    assert final["changes"]["tasks"]["updated"] == []
+    assert final["timestamp"] == since
+
+
+@pytest.mark.django_db
+def test_timestamp_is_a_stable_checkpoint_when_nothing_changes(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """Adopting `timestamp` as the next `since` must converge, not oscillate."""
+    Task.objects.create(project=project, name="T", duration=1)
+    first = _pull(authed_client, project, 0)
+    assert _names(first) == ["T"]
+
+    second = _pull(authed_client, project, first["timestamp"])
+    assert second["changes"]["tasks"]["updated"] == []
+    assert second["timestamp"] == first["timestamp"]
+
+
+@pytest.mark.django_db
+def test_cold_start_delivers_every_collection_including_graph_edges(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """A `since=0` pull must hand back the graph, not just the task list.
+
+    Guards the whole-collection failure mode that a per-collection delta test
+    cannot see: a model that is filtered on `sync_seq` but never *allocates* one
+    sits at 0 forever, and `sync_seq__gt=0` is already false — so it vanishes
+    from every pull, including the cold start. Dependencies and task relations
+    carry no project FK and so are the models most easily left out of the
+    allocator; an offline client that got tasks with no edges could not run CPM
+    at all.
+    """
+    from trueppm_api.apps.projects.models import Dependency, TaskRelation
+
+    a = Task.objects.create(project=project, name="A", duration=1)
+    b = Task.objects.create(project=project, name="B", duration=1)
+    Dependency.objects.create(predecessor=a, successor=b)
+    TaskRelation.objects.create(source=a, target=b, relation_type="relates_to")
+
+    body = _pull(authed_client, project, 0)
+
+    def delivered(collection: str) -> int:
+        rows = body["changes"][collection]
+        return len(rows["created"]) + len(rows["updated"])
+
+    assert delivered("tasks") == 2
+    assert delivered("dependencies") == 1, "cold start dropped the dependency graph"
+    assert delivered("task_relations") == 1, "cold start dropped task relations"
+
+
+@pytest.mark.django_db
+def test_a_graph_edge_edit_is_delivered_on_the_next_delta(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """An edge-only change reaches the client without an accompanying task edit."""
+    from trueppm_api.apps.projects.models import TaskRelation
+
+    a = Task.objects.create(project=project, name="A", duration=1)
+    b = Task.objects.create(project=project, name="B", duration=1)
+    rel = TaskRelation.objects.create(source=a, target=b, relation_type="relates_to")
+
+    since = _pull(authed_client, project, 0)["timestamp"]
+
+    rel.note = "edge-only edit"
+    rel.save()
+
+    body = _pull(authed_client, project, since)
+    notes = [r["note"] for r in body["changes"]["task_relations"]["updated"]]
+    assert notes == ["edge-only edit"]
+
+
+@pytest.mark.django_db
+def test_project_delete_and_restore_cascades_are_delivered(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """Trash and restore must reach an offline client as tombstones and revivals.
+
+    The cascades write through bulk `.update()` rather than `save()`, so nothing
+    allocates a cursor for them automatically. If they don't stamp one explicitly
+    the rows keep a cursor at or below the client's checkpoint and the delete is
+    never delivered — the client goes on showing tasks the server has trashed.
+    """
+    from trueppm_api.apps.projects.models import (
+        Dependency,
+        cascade_project_children_restore,
+        cascade_project_children_soft_delete,
+    )
+
+    a = Task.objects.create(project=project, name="A", duration=1)
+    b = Task.objects.create(project=project, name="B", duration=1)
+    Dependency.objects.create(predecessor=a, successor=b)
+
+    since = _pull(authed_client, project, 0)["timestamp"]
+
+    cascade_project_children_soft_delete(project)
+
+    body = _pull(authed_client, project, since)
+    assert len(body["changes"]["tasks"]["deleted"]) == 2, "trash delivered no task tombstones"
+    assert len(body["changes"]["dependencies"]["deleted"]) == 1
+
+    since = body["timestamp"]
+    cascade_project_children_restore(project)
+
+    body = _pull(authed_client, project, since)
+    revived = body["changes"]["tasks"]["created"] + body["changes"]["tasks"]["updated"]
+    assert len(revived) == 2, "restore delivered no revived tasks"

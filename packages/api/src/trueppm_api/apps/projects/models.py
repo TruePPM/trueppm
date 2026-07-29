@@ -186,7 +186,11 @@ def three_point_estimates_ordered(
 # NOT no-op for a field the model lacks, it raises FieldDoesNotExist on the
 # next post_save. So a field name may only appear in a model's excluded_fields
 # list if that model actually declares it.
-_HISTORY_EXCLUDED_BASE = ["server_version", "deleted_version"]
+# ``sync_seq`` joins ``server_version`` here for the same reason: it is a
+# server-owned counter, not a user-meaningful audit fact. Tracking it would also
+# make it a "changed field" on literally every write, so the ADR-0217 merge would
+# name it in the ``X-Merged-Concurrent-Fields`` header a client reconciles from.
+_HISTORY_EXCLUDED_BASE = ["server_version", "sync_seq", "deleted_version"]
 _HISTORY_EXCLUDED_TASK = [
     *_HISTORY_EXCLUDED_BASE,
     "deleted_at",
@@ -204,6 +208,13 @@ _HISTORY_EXCLUDED_TASK = [
 _HISTORY_EXCLUDED_DEPENDENCY = [*_HISTORY_EXCLUDED_BASE, "deleted_at", "is_driving"]
 
 
+#: Counters the server owns and writes with dedicated statements — an ordinary
+#: ``save()`` must never carry them, or it would overwrite the atomic increment
+#: (``server_version``) or the sequence allocation (``last_sync_version``,
+#: ADR-0686) that ran moments earlier in the same call.
+_SERVER_OWNED_FIELDS = frozenset({"server_version", "last_sync_version"})
+
+
 class ImmutableModelError(Exception):
     """Raised when code attempts to UPDATE an immutable model row.
 
@@ -217,20 +228,49 @@ class ImmutableModelError(Exception):
 class VersionedModel(models.Model):
     """Abstract base for all models that participate in offline sync.
 
-    server_version is a monotonically increasing integer incremented on every
-    save. The mobile sync protocol uses it to detect changes since a given
-    checkpoint without needing created_at/updated_at timestamps.
+    Two version fields with deliberately different jobs (ADR-0686):
+
+    ``server_version`` counts **this row's own saves**. It starts at 1 and
+    increments once per save, 1:1 with the ``HistoricalRecords`` row that save
+    writes — arithmetic the ADR-0217 field-level merge depends on
+    (``apps/sync/conflict.py`` slices exactly ``current - base_version`` history
+    rows). It is the optimistic-lock token clients echo back as
+    ``X-Base-Version``, and it is what the serializers publish.
+
+    ``sync_seq`` is the **replication cursor**: a value drawn from the owning
+    project's monotonic sequence (``Project.last_sync_version``), so every synced
+    row in a project is totally ordered against every other one. The delta pull
+    filters ``sync_seq__gt=since`` and reports ``last_sync_version`` as the next
+    ``since``.
+
+    The two are not interchangeable, and the reason is the bug that motivated the
+    split (#2491): comparing a per-row save counter against a project-wide
+    maximum is not a valid ordering, so a frequently-edited row raised the
+    checkpoint above every other row's counter and those rows fell out of the
+    delta permanently.
+
+    Rows with no owning project (``PulseResponse``, ``ApiToken``, resources,
+    teams, …) are outside the sync union and keep ``sync_seq = 0``; nothing reads
+    it for them.
 
     is_deleted / deleted_version support soft-delete so the sync endpoint can
     return tombstones to mobile clients rather than silently dropping rows.
+    ``deleted_version`` records the ``server_version`` at deletion as a GC marker
+    only — tombstones are selected by the same ``sync_seq__gt=since`` filter and
+    split on ``is_deleted``.
 
-    Concurrency safety: server_version is updated via F() expression in an
-    atomic update() call, so concurrent writes produce a strict order rather
-    than a lost-update race.
+    Concurrency safety: server_version is updated via an atomic
+    ``UPDATE … RETURNING``, so concurrent writes produce a strict order rather
+    than a lost-update race. ``sync_seq`` allocation takes the owning project's
+    row lock, which is what makes commit order equal allocation order.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     server_version = models.BigIntegerField(default=0, editable=False)
+    #: Per-project replication cursor (ADR-0686). No ``db_index`` here — the
+    #: synced models declare composite ``(owner, sync_seq)`` indexes in their own
+    #: ``Meta``, and the ~30 non-synced VersionedModel tables need no index at all.
+    sync_seq = models.BigIntegerField(default=0, editable=False)
     is_deleted = models.BooleanField(default=False, db_index=True)
     deleted_version = models.BigIntegerField(null=True, blank=True, editable=False)
 
@@ -238,7 +278,12 @@ class VersionedModel(models.Model):
         abstract = True
 
     def save(self, *args: Any, known_exists: bool | None = None, **kwargs: Any) -> None:
-        """Increment ``server_version`` atomically on every save (INSERT and UPDATE).
+        """Advance both version fields on every save (INSERT and UPDATE).
+
+        ``server_version`` increments atomically — this row's own save count.
+        ``sync_seq`` is drawn from the owning project's sequence (ADR-0686) so the
+        write is visible to the delta pull. A model outside the sync union skips
+        the second step and keeps ``sync_seq = 0``.
 
         Args:
             known_exists: When the caller already knows whether this row exists in
@@ -278,25 +323,47 @@ class VersionedModel(models.Model):
             # round-trip so concurrent writes produce a strict version order rather
             # than a lost-update race.
             self._increment_server_version_returning()
-            # Exclude server_version from the subsequent UPDATE so super().save()
-            # does not overwrite the increment applied and read back above. Passing
-            # update_fields also forces Django to UPDATE (not INSERT) even when the
-            # instance was constructed fresh with an explicit pk.
+            self._allocate_sync_seq(is_insert=False)
+            # Exclude the server-owned counters from the subsequent UPDATE so
+            # super().save() does not overwrite the values the two statements above
+            # already applied and read back. Passing update_fields also forces
+            # Django to UPDATE (not INSERT) even when the instance was constructed
+            # fresh with an explicit pk.
             if kwargs.get("update_fields") is not None:
-                kwargs["update_fields"] = [
-                    f for f in kwargs["update_fields"] if f != "server_version"
-                ]
+                fields = [f for f in kwargs["update_fields"] if f not in _SERVER_OWNED_FIELDS]
+                # The caller's list would otherwise drop the freshly allocated
+                # cursor, leaving the row invisible to the delta pull (ADR-0686).
+                if fields and "sync_seq" not in fields:
+                    fields.append("sync_seq")
+                kwargs["update_fields"] = fields
             else:
                 kwargs["update_fields"] = [
                     f.attname
                     for f in self._meta.concrete_fields
-                    if not f.primary_key and f.attname != "server_version"
+                    if not f.primary_key and f.attname not in _SERVER_OWNED_FIELDS
                 ]
         else:
-            # INSERT path: start at 1 so the sync endpoint can find new rows
-            # with server_version__gt=0 (since=0 means "give me everything").
+            # INSERT path: a brand-new row has saved exactly once. Its visibility
+            # to the delta pull comes from the cursor drawn below, not from this
+            # counter.
             self.server_version = 1
+            self._allocate_sync_seq(is_insert=True)
         super().save(*args, **kwargs)
+
+    def _allocate_sync_seq(self, *, is_insert: bool) -> None:
+        """Draw this row's sync delta cursor from its owning project (ADR-0686).
+
+        A no-op for models outside the sync union. ``Project`` on the INSERT path
+        is the one special case: it is both a synced row and the allocator's home,
+        and there is no row to ``UPDATE`` yet — so its sequence is seeded in memory
+        and written by the INSERT itself.
+        """
+        from trueppm_api.apps.sync.sequence import allocate, seed_project_sequence
+
+        if is_insert and self._meta.label == "projects.Project":
+            seed_project_sequence(self)
+            return
+        allocate(self)
 
     def _increment_server_version_returning(self) -> None:
         """Atomically ``server_version += 1`` and read the new value in one round-trip.
@@ -361,11 +428,11 @@ class VersionedModel(models.Model):
     def restore(self) -> None:
         """Un-tombstone the row — the symmetric inverse of :meth:`soft_delete` (#1113).
 
-        Clears ``is_deleted`` and the ``deleted_version`` GC marker and bumps
-        ``server_version`` via ``save()``. The version bump is the load-bearing part:
-        the offline sync pull splits rows into 'updated' (live) vs 'deleted' buckets
-        purely on the current ``is_deleted`` value, gated by ``server_version__gt=since``
-        — so a restored row re-materializes on the client's next delta without any
+        Clears ``is_deleted`` and the ``deleted_version`` GC marker and saves. The
+        cursor ``save()`` draws is the load-bearing part: the offline sync pull
+        splits rows into 'updated' (live) vs 'deleted' buckets purely on the current
+        ``is_deleted`` value, gated by ``sync_seq__gt=since`` (ADR-0686) — so a
+        restored row re-materializes on the client's next delta without any
         special-casing (ADR-0202). A row being restored was, by definition, loaded from
         the DB, so the UPDATE path is known — skip the exists() probe.
         """
@@ -1406,13 +1473,24 @@ class Project(VersionedModel):
     # (excluded from history); updated via bulk .update() to avoid a sync bump.
     recalculated_at = models.DateTimeField(null=True, blank=True)
 
-    # Denormalized sync watermark (ADR-0142, #822): caches MAX(server_version)
-    # across this project's synced rows — the value the sync pull returns as its
-    # `timestamp`. Maintained by post_save receivers (apps/sync/receivers.py),
-    # never written through save() (which would bump the project's own
-    # server_version and recurse). Server-internal: editable=False, excluded from
-    # history and from the sync serializer. Replaces the 12-table UNION ALL in
-    # ProjectSyncView (kept as a fallback behind SYNC_WATERMARK_USE_COLUMN).
+    # The project's sync sequence (ADR-0686, #2491). Every synced row in this
+    # project draws its `sync_seq` from here via
+    # `UPDATE … SET last_sync_version = last_sync_version + 1 … RETURNING`
+    # (apps/sync/sequence.py), so it is simultaneously the allocator and the
+    # watermark the sync pull returns as its `timestamp`.
+    #
+    # It began (ADR-0142, #822) as a cache of MAX(server_version) across the
+    # project's synced rows. That cache was faithful; the value it cached was not
+    # a valid ordering — server_version counts one row's own saves, so a
+    # frequently-edited row raised the watermark above every other row's counter
+    # and those rows fell out of `server_version__gt=since` permanently. It is now
+    # authoritative rather than derived, which is why the 14-table UNION ALL and
+    # its SYNC_WATERMARK_USE_COLUMN fallback are gone.
+    #
+    # Never written through save(): _SERVER_OWNED_FIELDS excludes it, so an
+    # ordinary project save cannot clobber an allocation a concurrent row write
+    # applied. Server-internal — editable=False, excluded from history and from
+    # the sync serializer.
     last_sync_version = models.BigIntegerField(default=0, editable=False)
 
     # Soft-delete timestamp, stamped in ``soft_delete()`` (mirrors Task/Dependency).
@@ -1463,6 +1541,30 @@ class Project(VersionedModel):
     def __str__(self) -> str:
         return self.name
 
+    @classmethod
+    def from_db(cls, db: Any, field_names: Any, values: Any) -> Project:
+        """Remember the calendar this row was loaded with (ADR-0686).
+
+        A ``Calendar`` created before any project points at it resolves to no
+        owning project, so it draws no ``sync_seq`` and would never be delivered
+        by the delta pull. The sequence receiver allocates it the moment a project
+        links to it — which needs to know whether this save *repointed* the FK.
+        Capturing the loaded value here makes that a free comparison instead of a
+        refetch on every project save.
+
+        Only when the column was actually loaded. Reading a *deferred*
+        ``calendar_id`` here would trigger ``DeferredAttribute``'s refresh query
+        once per instance, turning any ``.only()``/``.defer()`` queryset into an
+        N+1 — e.g. the stale-task digest, which iterates every live project with
+        ``.only("id", "stale_task_threshold_days")``. When it is deferred the
+        attribute stays unset and the receiver simply re-allocates, which is
+        wasted work on a rare path rather than a query on a hot one.
+        """
+        instance = super().from_db(db, field_names, values)
+        if "calendar_id" not in instance.get_deferred_fields():
+            instance._sync_loaded_calendar_id = instance.calendar_id  # type: ignore[attr-defined]
+        return instance
+
     def soft_delete(self) -> None:
         """Soft-delete the project row only — the child cascade runs separately.
 
@@ -1512,6 +1614,25 @@ class Project(VersionedModel):
         super().restore()
 
 
+def _allocate_cascade_seq(project_id: uuid.UUID | str) -> int:
+    """Draw one delta cursor for a whole cascade of bulk ``.update()`` writes.
+
+    The cascades below write through ``QuerySet.update()`` rather than ``save()``
+    — deliberately, so one statement replaces a per-row sweep — which means
+    nothing allocates a ``sync_seq`` for them. Stamping the drawn value on every
+    updated row is what makes a project delete or restore visible to an offline
+    client; without it the rows keep whatever cursor they last had, which is at or
+    below the client's checkpoint, and the change is never delivered (ADR-0686).
+
+    Sharing one value across the cascade is correct for the same reason a batched
+    upload shares one: the delta is ``> since`` and the checkpoint is the maximum,
+    so the cascade is wholly before or wholly after any checkpoint.
+    """
+    from trueppm_api.apps.sync.sequence import allocate_for_projects
+
+    return allocate_for_projects([project_id])
+
+
 def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None:
     """Un-tombstone every child of a soft-deleted project (#1113, ADR-0202).
 
@@ -1551,6 +1672,12 @@ def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None
     """
     project_id = project.pk if isinstance(project, Project) else project
 
+    # These bulk .update()s bypass save(), so they draw no delta cursor on their own
+    # and the restored rows would stay below every client checkpoint — an offline
+    # client would never learn the project came back (ADR-0686). One value for the
+    # whole cascade is right: it is one logical operation.
+    seq = _allocate_cascade_seq(project_id)
+
     # Tasks first — un-tombstoning a task makes it a live endpoint, which the edge
     # pass below relies on. Clear deleted_at/deleted_version and bump server_version;
     # within one UPDATE every F() reads the pre-update column, so server_version and the
@@ -1558,6 +1685,7 @@ def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None
     Task.objects.filter(project_id=project_id, is_deleted=True).update(
         is_deleted=False,
         server_version=F("server_version") + 1,
+        sync_seq=seq,
         deleted_version=None,
         deleted_at=None,
     )
@@ -1577,14 +1705,17 @@ def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None
     ).exclude(Exists(live_duplicate)).update(
         is_deleted=False,
         server_version=F("server_version") + 1,
+        sync_seq=seq,
         deleted_version=None,
         deleted_at=None,
     )
     Sprint.objects.filter(project_id=project_id, is_deleted=True).update(
         is_deleted=False,
         server_version=F("server_version") + 1,
+        sync_seq=seq,
         deleted_version=None,
     )
+    # Baseline takes no cursor: it is not a sync delta source.
     Baseline.objects.filter(project_id=project_id, is_deleted=True).update(
         is_deleted=False,
         server_version=F("server_version") + 1,
@@ -1628,6 +1759,10 @@ def cascade_task_children_restore(task: Task) -> None:
     deleted subtask — the same bounded, accepted tradeoff ("half-restore is worse than
     none"), with a narrower blast radius (one task's ``is_subtask`` subtree, not a project).
     """
+    # Bulk .update() bypasses save(), so the restored subtree needs an explicit
+    # cursor or it stays below every client checkpoint and never syncs (ADR-0686).
+    seq = _allocate_cascade_seq(task.project_id)
+
     if task.wbs_path:
         Task.objects.filter(
             is_deleted=True,
@@ -1636,6 +1771,7 @@ def cascade_task_children_restore(task: Task) -> None:
         ).update(
             is_deleted=False,
             server_version=F("server_version") + 1,
+            sync_seq=seq,
             deleted_version=None,
             deleted_at=None,
         )
@@ -1657,6 +1793,7 @@ def cascade_task_children_restore(task: Task) -> None:
     ).exclude(Exists(live_duplicate)).update(
         is_deleted=False,
         server_version=F("server_version") + 1,
+        sync_seq=seq,
         deleted_version=None,
         deleted_at=None,
     )
@@ -1704,6 +1841,12 @@ def cascade_project_children_soft_delete(project: Project | uuid.UUID | str) -> 
     project_id = project.pk if isinstance(project, Project) else project
     now = timezone.now()
 
+    # These tombstones are the *only* way an offline client learns the children are
+    # gone, and bulk .update() bypasses save() — without an explicit cursor they sit
+    # below every checkpoint and the client keeps showing deleted rows forever
+    # (ADR-0686). One value for the whole cascade: it is one logical operation.
+    seq = _allocate_cascade_seq(project_id)
+
     # Edges before tasks is not required for correctness — soft-delete leaves each
     # task's project_id in place, so the edge match by endpoint→project is stable
     # regardless of order — but tombstoning edges in one predecessor-or-successor
@@ -1714,20 +1857,24 @@ def cascade_project_children_soft_delete(project: Project | uuid.UUID | str) -> 
     ).update(
         is_deleted=True,
         server_version=F("server_version") + 1,
+        sync_seq=seq,
         deleted_version=F("server_version") + 1,
         deleted_at=now,
     )
     Task.objects.filter(project_id=project_id, is_deleted=False).update(
         is_deleted=True,
         server_version=F("server_version") + 1,
+        sync_seq=seq,
         deleted_version=F("server_version") + 1,
         deleted_at=now,
     )
     Sprint.objects.filter(project_id=project_id, is_deleted=False).update(
         is_deleted=True,
         server_version=F("server_version") + 1,
+        sync_seq=seq,
         deleted_version=F("server_version") + 1,
     )
+    # Baseline takes no cursor: it is not a sync delta source.
     Baseline.objects.filter(project_id=project_id, is_deleted=False).update(
         is_deleted=True,
         server_version=F("server_version") + 1,
@@ -2393,6 +2540,7 @@ class Task(VersionedModel):
             # Postgres visits every project row on a near-high-water-mark resync
             # (#810). The composite turns it into a single index range seek.
             models.Index(fields=["project", "server_version"], name="task_proj_serverver_idx"),
+            models.Index(fields=["project", "sync_seq"], name="task_proj_syncseq_idx"),
             # Board card full-text search (#323, ADR-0145). gin_trgm_ops GIN indexes
             # turn the `?q=` board search's `name ILIKE '%q%' OR notes ILIKE '%q%'`
             # into index scans instead of per-row seq-scans — the same pattern the
@@ -2769,6 +2917,7 @@ class TaskRecurrenceRule(VersionedModel):
         indexes = [
             # Sync delta pull joins via task then filters server_version (#810).
             models.Index(fields=["task", "server_version"], name="trr_task_serverver_idx"),
+            models.Index(fields=["task", "sync_seq"], name="trr_task_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -2878,6 +3027,7 @@ class Dependency(VersionedModel):
             # Dependency has no direct project FK; (predecessor, server_version) lets
             # the per-predecessor join seek the changed rows without a full scan.
             models.Index(fields=["predecessor", "server_version"], name="dep_pred_serverver_idx"),
+            models.Index(fields=["predecessor", "sync_seq"], name="dep_pred_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -2966,6 +3116,7 @@ class TaskRelation(VersionedModel):
             # Sync delta pull: TaskRelation has no project FK, so the pull joins via
             # source. Mirrors dep_pred_serverver_idx.
             models.Index(fields=["source", "server_version"], name="taskrel_source_ver_idx"),
+            models.Index(fields=["source", "sync_seq"], name="taskrel_source_syncseq_idx"),
             # Incoming-relations lookup for GET ?task=<id> (target side of the union).
             models.Index(fields=["target"], name="taskrel_target_idx"),
             # Tombstone reap seek — mirrors the Dependency deleted_at reap index.
@@ -3203,6 +3354,7 @@ class Risk(VersionedModel):
             models.Index(fields=["project", "status"], name="risk_project_status_idx"),
             # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
             models.Index(fields=["project", "server_version"], name="risk_proj_serverver_idx"),
+            models.Index(fields=["project", "sync_seq"], name="risk_proj_syncseq_idx"),
             # The register loads project-scoped in the model's default order
             # (-impact, -probability, title). This index covers that ORDER BY so
             # RiskViewSet stops sorting the register in memory past ~register size.
@@ -3380,6 +3532,7 @@ class Label(VersionedModel):
         indexes = [
             # Sync delta pull: WHERE project_id = X AND server_version > since.
             models.Index(fields=["project", "server_version"], name="label_proj_serverver_idx"),
+            models.Index(fields=["project", "sync_seq"], name="label_proj_syncseq_idx"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -3864,6 +4017,7 @@ class Sprint(VersionedModel):
             models.Index(fields=["project", "finish_date"], name="sprint_project_finish_idx"),
             # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
             models.Index(fields=["project", "server_version"], name="sprint_proj_serverver_idx"),
+            models.Index(fields=["project", "sync_seq"], name="sprint_proj_syncseq_idx"),
             # Velocity rollup scan (ADR-0113): velocity_eligible_sprints() filters
             # WHERE project_id = X AND exclude_from_velocity = false AND state = 'COMPLETED'
             # ORDER BY closed_at DESC. The leading equality columns (project,
@@ -4282,6 +4436,7 @@ class SprintRetro(VersionedModel):
         indexes = [
             # Sync delta pull joins via sprint then filters server_version (#810).
             models.Index(fields=["sprint", "server_version"], name="retro_sprint_serverver_idx"),
+            models.Index(fields=["sprint", "sync_seq"], name="retro_sprint_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -4328,6 +4483,7 @@ class RetroActionItem(VersionedModel):
         indexes = [
             # Sync delta pull joins via retro then filters server_version (#810).
             models.Index(fields=["retro", "server_version"], name="rai_retro_serverver_idx"),
+            models.Index(fields=["retro", "sync_seq"], name="rai_retro_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -4412,6 +4568,7 @@ class RetroBoardItem(VersionedModel):
             # server_version after joining via retro (#810 pattern).
             models.Index(fields=["retro", "column", "position"], name="rbi_retro_col_pos_idx"),
             models.Index(fields=["retro", "server_version"], name="rbi_retro_serverver_idx"),
+            models.Index(fields=["retro", "sync_seq"], name="rbi_retro_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -4472,6 +4629,7 @@ class PulseResponse(VersionedModel):
         ]
         indexes = [
             models.Index(fields=["retro", "server_version"], name="pulse_retro_serverver_idx"),
+            models.Index(fields=["retro", "sync_seq"], name="pulse_retro_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
@@ -4566,6 +4724,7 @@ class TaskSuggestedAssignee(VersionedModel):
             ),
             # Sync delta pull joins via task then filters server_version (#810).
             models.Index(fields=["task", "server_version"], name="tsa_task_serverver_idx"),
+            models.Index(fields=["task", "sync_seq"], name="tsa_task_syncseq_idx"),
         ]
 
     def __str__(self) -> str:
