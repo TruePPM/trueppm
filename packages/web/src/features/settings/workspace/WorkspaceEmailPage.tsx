@@ -278,6 +278,130 @@ const GMAIL_HELP_BODY: ReactNode = (
   </div>
 );
 
+/**
+ * Per-provider Username guidance (#2552).
+ *
+ * The credential field has always carried a walkthrough while Username sat bare
+ * beside it, so an admin could not tell what belonged in it — or whether an App
+ * Password made it unnecessary. It does not: SMTP AUTH is a (username, password)
+ * pair, and the server now rejects a blank username for smtp/ses rather than
+ * letting the transport probe pass unauthenticated. SendGrid is absent because
+ * its username is server-fixed to "apikey" and the field never renders.
+ */
+interface UsernameGuidance {
+  /** Inline hint under the label — states the requirement in one line. */
+  hint: string;
+  placeholder: string;
+  /** Provider-specific detail, wrapped by the shared pair explanation. */
+  detail: ReactNode;
+}
+
+type UsernameProviderId = Exclude<ProviderId, 'cloud' | 'sendgrid'>;
+
+/** Wraps provider detail in the shared "why a username at all" explanation. */
+function usernameHelpBody(detail: ReactNode): ReactNode {
+  return (
+    <div className="space-y-2">
+      <p>
+        Signing in to a mail server is always a pair: the username says <em>which</em> account, the
+        password proves it. An app password replaces your account <em>password</em> — never your
+        username — so this field is required whenever a password is.
+      </p>
+      {detail}
+    </div>
+  );
+}
+
+const USERNAME_GUIDANCE = {
+  gmail: {
+    hint: 'Required — the full Gmail address that owns the App Password.',
+    placeholder: 'you@gmail.com',
+    detail: (
+      <>
+        <p>
+          Enter the full address of the Google account you created the App Password on, including
+          the domain. The App Password authenticates that one account, so the two must match — a
+          mismatch fails with <span className="tppm-mono">535 Username and Password not accepted</span>
+          .
+        </p>
+        <p>
+          On Google Workspace, use the account&apos;s <strong>primary</strong> address here even if
+          you send as an alias; put the alias in <strong>From address</strong> below instead.
+        </p>
+      </>
+    ),
+  },
+  m365: {
+    hint: 'Required — the full sign-in address (UPN) of the sending mailbox.',
+    placeholder: 'notifications@yourcompany.com',
+    detail: (
+      <>
+        <p>
+          Enter the mailbox&apos;s full sign-in address, not a display name or alias.
+        </p>
+        <p>
+          Microsoft 365 also requires <strong>Authenticated SMTP</strong> to be enabled on that
+          mailbox — it is off by default on new tenants. Turn it on under Microsoft 365 admin center
+          → Users → Active users → the mailbox → Mail → Manage email apps.
+        </p>
+      </>
+    ),
+  },
+  fastmail: {
+    hint: 'Required — your full Fastmail address.',
+    placeholder: 'you@fastmail.com',
+    detail: (
+      <p>
+        Enter your full Fastmail address, including the domain. Create the matching app password
+        under Fastmail Settings → Password &amp; Security → App Passwords, and give it the{' '}
+        <strong>Mail (SMTP)</strong> scope — a password scoped to another service will authenticate
+        and then refuse to send.
+      </p>
+    ),
+  },
+  ses: {
+    hint: 'Required — the SES SMTP username (begins AKIA), not an ordinary IAM key.',
+    placeholder: 'AKIA…',
+    detail: (
+      <p>
+        Amazon SES issues a dedicated SMTP credential pair: create it in the SES console under SMTP
+        settings → <strong>Create SMTP credentials</strong>. The username is the access key it shows
+        (beginning <span className="tppm-mono">AKIA</span>), and the matching SMTP password is
+        derived from the secret key at that moment and shown once. An ordinary IAM access key and
+        secret will <em>not</em> work here — the secret has to go through SES&apos;s derivation.
+      </p>
+    ),
+  },
+  custom: {
+    hint: 'Required — the account your relay authenticates.',
+    placeholder: 'postmaster@example.com',
+    detail: (
+      <p>
+        Enter whatever account your SMTP server signs in as — many relays expect the full email
+        address, others a bare login name. Check your provider&apos;s SMTP documentation. A relay
+        that accepts mail with no credentials at all cannot be configured here; use{' '}
+        <strong>Server default (built-in)</strong> and your deploy-time{' '}
+        <span className="tppm-mono">EMAIL_*</span> settings for that.
+      </p>
+    ),
+  },
+} satisfies Record<UsernameProviderId, UsernameGuidance>;
+
+function usernameGuidanceFor(id: ProviderId): UsernameGuidance {
+  switch (id) {
+    case 'gmail':
+      return USERNAME_GUIDANCE.gmail;
+    case 'm365':
+      return USERNAME_GUIDANCE.m365;
+    case 'fastmail':
+      return USERNAME_GUIDANCE.fastmail;
+    case 'ses':
+      return USERNAME_GUIDANCE.ses;
+    default:
+      return USERNAME_GUIDANCE.custom;
+  }
+}
+
 const SES_REGIONS = [
   'us-east-1',
   'us-east-2',
@@ -692,17 +816,42 @@ export function WorkspaceEmailPage() {
     </>
   );
 
+  const usernameGuidance = usernameGuidanceFor(providerId);
+
+  /**
+   * Username row, shared by the preset and Custom paths. Uses FieldRow's render-
+   * prop child so the input's `aria-describedby` points at the hint *and* any
+   * inline error — `invalidProps` would set its own describedby and clobber the
+   * hint, so only `aria-invalid` is taken from the error state here.
+   */
   const usernameField = (
-    <FieldRow label="Username" error={fieldErrors.username} errorId={errId('username')}>
-      <input
-        type="text"
-        value={form.username}
-        disabled={disabled}
-        onChange={(e) => set('username', e.target.value)}
-        className={INPUT_CLASS}
-        aria-label="SMTP username"
-        {...invalidProps('username')}
-      />
+    <FieldRow
+      label="Username"
+      hint={usernameGuidance.hint}
+      error={fieldErrors.username}
+      errorId={errId('username')}
+      help={
+        <FieldHelp
+          label="SMTP username"
+          body={usernameHelpBody(usernameGuidance.detail)}
+          docHref="administration/email/#smtp-username"
+          docLabel="SMTP username guide"
+        />
+      }
+    >
+      {({ describedBy }) => (
+        <input
+          type="text"
+          value={form.username}
+          disabled={disabled}
+          onChange={(e) => set('username', e.target.value)}
+          className={INPUT_CLASS}
+          placeholder={usernameGuidance.placeholder}
+          aria-label="SMTP username"
+          aria-describedby={describedBy}
+          aria-invalid={fieldErrors.username ? true : undefined}
+        />
+      )}
     </FieldRow>
   );
 
@@ -922,18 +1071,31 @@ export function WorkspaceEmailPage() {
             </FieldRow>
             <FieldRow
               label="SMTP username"
+              hint={usernameGuidance.hint}
               error={fieldErrors.username}
               errorId={errId('username')}
+              help={
+                <FieldHelp
+                  label="SES SMTP username"
+                  body={usernameHelpBody(usernameGuidance.detail)}
+                  docHref="administration/email/#smtp-username"
+                  docLabel="SMTP username guide"
+                />
+              }
             >
-              <input
-                type="text"
-                value={form.username}
-                disabled={disabled}
-                onChange={(e) => set('username', e.target.value)}
-                className={INPUT_CLASS}
-                aria-label="SES SMTP username"
-                {...invalidProps('username')}
-              />
+              {({ describedBy }) => (
+                <input
+                  type="text"
+                  value={form.username}
+                  disabled={disabled}
+                  onChange={(e) => set('username', e.target.value)}
+                  className={INPUT_CLASS}
+                  placeholder={usernameGuidance.placeholder}
+                  aria-label="SES SMTP username"
+                  aria-describedby={describedBy}
+                  aria-invalid={fieldErrors.username ? true : undefined}
+                />
+              )}
             </FieldRow>
             <SettingsCard className="my-2 bg-neutral-surface-sunken max-w-[420px]">
               <div className="px-4 py-2.5">

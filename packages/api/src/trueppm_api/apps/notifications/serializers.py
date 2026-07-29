@@ -41,6 +41,10 @@ _CREDENTIAL_MODES = {
 }
 # Transports where the admin supplies the relay host (SendGrid's host is fixed).
 _HOST_REQUIRED_MODES = {EmailTransportMode.SMTP, EmailTransportMode.SES}
+# Transports where the admin supplies the SMTP AUTH username. SendGrid is excluded
+# because its username is server-fixed to the literal "apikey" (the key travels as
+# the password), and CLOUD stores no credentials at all.
+_USERNAME_REQUIRED_MODES = {EmailTransportMode.SMTP, EmailTransportMode.SES}
 
 
 class MentionAuthorSerializer(serializers.Serializer[Any]):
@@ -503,6 +507,23 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
 
         if mode in _HOST_REQUIRED_MODES and not host:
             raise serializers.ValidationError({"host": "Host is required for this transport."})
+
+        # SMTP AUTH is a (username, password) pair, so a blank username is not a
+        # weaker credential — it is *no* credential. Django's SMTP backend calls
+        # login() only when both are truthy, so a blank username makes the probe
+        # below open an unauthenticated connection that succeeds, persisting a
+        # config whose every real send then fails 530 Authentication Required.
+        # Requiring it here is what makes the validate-before-persist gate honest.
+        if mode in _USERNAME_REQUIRED_MODES and not username:
+            raise serializers.ValidationError(
+                {
+                    "username": (
+                        "A username is required for this transport — the mail server "
+                        "authenticates as this account. It is usually the full email "
+                        "address that owns the password or app password."
+                    )
+                }
+            )
 
         effective_pw = incoming_pw or stored_pw
         if not effective_pw:
