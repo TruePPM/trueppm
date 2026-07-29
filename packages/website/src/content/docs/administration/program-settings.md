@@ -93,11 +93,44 @@ projects inside the program. See [Roles & Permissions](/administration/rbac/).
 
 ## External stakeholders
 
-The **External stakeholders** section records people **without a TruePPM
-account** — client sponsors, vendors, reviewers — so they can be referenced in
-`@program-stakeholders` mentions. Each entry has a **Name**, **Email**, and an
-optional **Note**. This is a directory for mentions and context; email
-notifications to external stakeholders are planned for a future release.
+The **External stakeholders** section is a registry of people **without a
+TruePPM account** — client sponsors, vendor contacts, external reviewers — who
+are included in the `@program-stakeholders` mention fan-out alongside the
+program's own Viewer-role members. It is a first-class CRUD list, not a
+free-text field: each row has a **Name**, an **Email** (unique per program),
+and an optional **Note**, plus who added it.
+
+### Managing the list
+
+Add a stakeholder with the **Name / Email / Note** form at the bottom of the
+list; a duplicate email within the same program is rejected inline rather than
+silently creating a second entry for the same person. **Remove** asks for a
+one-click confirmation before it deletes a row.
+
+### Access
+
+Reading and writing the list both require the program **Admin** role or
+above — managing who is externally pinged is treated as an administrative
+act, so Scheduler, Member, Viewer, and non-members cannot see or change it.
+Writes are additionally blocked once the program is closed (reads still work).
+
+### What it does — and does not — do yet
+
+This registry only manages **who** is on the list. Email delivery to these
+addresses is not wired up yet: an external stakeholder shows up as a
+recipient in the `@program-stakeholders` mention target, but no email
+actually reaches them until a future release closes that gap. Treat this
+section today as directory and mention context, not as a notification
+channel.
+
+### Endpoints
+
+| Method | Path | Access |
+|---|---|---|
+| `GET` | `/api/v1/programs/{id}/external-stakeholders/` | Program Admin+ |
+| `POST` | `/api/v1/programs/{id}/external-stakeholders/` | Program Admin+ |
+| `PATCH` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
+| `DELETE` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
 
 ## Rollup KPIs
 

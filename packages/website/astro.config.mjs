@@ -372,6 +372,7 @@ export default defineConfig({
               items: [
                 { slug: "features/real-time" },
                 { slug: "features/task-collaboration" },
+                { slug: "features/notifications" },
                 { slug: "features/decisions" },
                 { slug: "features/change-history" },
                 { slug: "features/project-activity" },
