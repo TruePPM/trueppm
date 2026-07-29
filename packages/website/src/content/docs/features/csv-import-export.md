@@ -1,20 +1,47 @@
 ---
-title: CSV import & export
-description: What TruePPM's CSV files can and cannot do — the file format, the column sets, the limits, and why a CSV is not a backup.
+title: CSV / Excel import & export
+description: What TruePPM's CSV and Excel surfaces can and cannot do — the round-trip table, the file format, the import wizard, the column-alias reference, the limits, and why a CSV is not a backup.
 ---
 
-TruePPM reads and writes CSV so your data can move between a spreadsheet and a
-schedule. This page tells you exactly what each CSV surface does, what it does
-**not** do, and which file to use when CSV is the wrong tool.
+TruePPM reads and writes CSV and Excel files so data can move between a
+spreadsheet and a schedule. This page tells you exactly what each surface does,
+what it does **not** do, and which file to use when CSV is the wrong tool —
+then covers the import wizard and the reference tables for anyone scripting
+against the endpoints directly.
+
+:::note[Task CSV / Excel import ships in 0.4]
+Task **export** to CSV is available today from the Table view. Task **import**
+from CSV or Excel ships in **TruePPM 0.4**, the first beta — on unreleased
+builds the column aliases and endpoints may still be changing. Risk CSV
+import and export are both shipped today and are true counterparts of each
+other.
+:::
 
 :::caution[A CSV is not a backup]
-A CSV file holds one flat list — tasks, or risks — with no hierarchy beyond a WBS
-column, no version, and no way to represent a whole project. It is for moving a
-table between tools.
+A CSV file holds one flat list — tasks, or risks — with no hierarchy beyond a
+WBS column, no version, and no way to represent a whole project. It is for
+moving a table between tools.
 
 To back up, archive, or move a project between instances, export a
 **[JSON seed or an export bundle](/administration/data-export/)** instead. That is
 the format built for it.
+:::
+
+Most teams that have never used dedicated project software still run a real
+schedule — in Excel, or in a Google Sheet shared over email. For them the
+barrier to adopting TruePPM is not features, it is **getting the existing plan
+in without retyping it**. CSV / Excel import removes that barrier: upload the
+sheet, confirm what each column means, and TruePPM builds a CPM-schedulable
+network from it — tasks, durations, dates, a WBS hierarchy, dependencies, and
+assignees. This is also the import path for the many tools that export CSV —
+Asana, Trello, Basecamp and others all produce a CSV you can feed directly to
+this endpoint.
+
+:::note[An offline import, not a live connector]
+Like [MS Project](/features/msproject-import-export/) and
+[Jira](/features/jira-import/) import, this is a **one-way, file-based,
+point-in-time** migration. TruePPM never talks to your spreadsheet's source,
+never authenticates against it, and never writes anything back.
 :::
 
 ## What round-trips, and what doesn't
@@ -30,8 +57,8 @@ the format built for it.
 
 ### Why tasks don't round-trip
 
-The task CSV export is a **snapshot of what's on your screen**. Three of its eight
-columns are values TruePPM *calculated* rather than values you entered:
+The task CSV export is a **snapshot of what's on your screen**. Three of its
+eight columns are values TruePPM *calculated* rather than values you entered:
 
 | Column | Where it comes from |
 |---|---|
@@ -75,67 +102,325 @@ Only `Title` is required. On import:
 - A probability or impact outside 1–5 skips that row — a stray value there usually
   means the columns were mapped wrong, and guessing would be worse.
 
-**Limits:** 2 MB, 500 rows. A larger file is rejected outright rather than
-partially imported, so a truncated import can never look like a successful one.
+A larger file than the [risk import limit](#limits) is rejected outright
+rather than partially imported, so a truncated import can never look like a
+successful one.
 
 ## Tasks
 
 Task CSV **export** is available today from the Table view's **CSV** toolbar
 action. It exports the rows currently shown — your filters and sort apply.
 
-Task CSV and Excel **import** ships in 0.4. It will accept `.csv` and `.xlsx`,
-auto-detect your column headers, show you the mapping and the first ten rows to
-confirm before anything is written, and report problems by line number.
+Task CSV and Excel **import** ships in 0.4. Upload the sheet, confirm what
+each column means in the wizard below, and TruePPM builds a
+CPM-schedulable network from it — tasks, durations, dates, a WBS hierarchy,
+dependencies, and assignees.
 
-**Planned limits:** 10 MB, 5 000 rows.
+## What a good spreadsheet looks like
 
-Headers it will recognize, case-insensitively:
+The importer expects a **header row** followed by task rows. Nothing else is
+required — every column below is optional except the task name. Download the
+[known-good template](#download-the-template) if you want a target shape to
+paste into.
 
-| Your column becomes | Headers accepted |
+This is the single reference for every header the importer recognizes — there
+is only one alias table, so it can't drift from itself:
+
+| TruePPM field | Header spellings recognized |
 |---|---|
-| Task name | Name, Task, Title, Task Name, Summary |
-| Duration | Duration, Days, Effort |
-| Start date | Start, Begin, Start Date |
-| Finish date | Finish, End, Due, Due Date |
-| Percent complete | % Complete, Percent Complete, Done, Progress |
-| Assignee | Assignee, Owner, Resource, Assigned To |
-| Predecessor | Predecessor, Predecessors, Depends On, Blocked By |
-| Labels | Labels, Label, Tags, Tag, Category, Component, Stream, Workstream |
-| Hierarchy | WBS, Phase, Level, Outline Level — or indentation in the name column |
+| Task name **(required)** | `Name`, `Task`, `Title`, `Task Name`, `Activity`, `Summary` |
+| ID | `ID`, `Task ID`, `UID`, `No`, `Number`, `Ref`, `Key` |
+| WBS / phase | `WBS`, `WBS Code`, `Phase`, `Level`, `Outline`, `Outline Number` |
+| Duration | `Duration`, `Days`, `Effort`, `Estimate`, `Work Days` |
+| Start | `Start`, `Begin`, `Start Date`, `Planned Start` |
+| Finish | `Finish`, `End`, `Due`, `Due Date`, `Planned Finish` |
+| % complete | `% Complete`, `Percent Complete`, `Done`, `Progress` |
+| Assignee | `Assignee`, `Owner`, `Resource`, `Assigned To`, `Responsible` |
+| Predecessors | `Predecessors`, `Depends On`, `Dependency`, `Blocked By`, `After` |
+| Milestone | `Milestone` |
+| Notes | `Notes`, `Description`, `Comment`, `Detail` |
+| Labels | `Labels`, `Label`, `Tags`, `Tag`, `Category`, `Component`, `Stream`, `Workstream` |
 
-**Labels** and **Predecessor** each accept *several* source columns, and the
-values are unioned — a sheet with both `Tags` and `Component`, or with
-`Predecessor 1` and `Predecessor 2`, keeps all of them. Every other field takes
-exactly one column. See
-[Columns that can appear more than once](/features/csv-import/#columns-that-can-appear-more-than-once).
+Matching is **case-insensitive, punctuation-insensitive, and plural-aware**, so
+`% Complete`, `%complete` and `Percent Completes` all resolve to the same field.
+Anything the importer cannot place is shown to you as unmapped rather than
+silently dropped, and you can assign it yourself before committing.
 
-Excel files are read as one sheet of values: the **first sheet only**, **no
-formulas evaluated**. If your workbook has other sheets, the import warns and
-ignores them. TruePPM never writes `.xlsx`.
+### Columns that can appear more than once
 
-## The file format
+Most fields take exactly one column — two `Name` columns is a mistake, so the
+second is reported as a duplicate and dropped rather than merged.
 
-Every CSV TruePPM writes or reads follows the same rules
-([RFC 4180](https://www.rfc-editor.org/rfc/rfc4180)):
+**Labels and Predecessors are the exceptions.** Both accept several source
+columns, and the values are unioned onto the task:
 
-| | |
+- A sheet carrying `Tags`, `Component` **and** `Team` gets all three as labels.
+- An MS Project export that spreads dependencies across `Predecessor 1` and
+  `Predecessor 2` gets both links. The same reference appearing in two columns
+  is one relationship, not two.
+
+If auto-detection places only one of them, map the others to the same field
+yourself in the [column overrides](#2-override-any-column-you-disagree-with).
+
+### Labels
+
+One cell can carry several labels, separated by `,` `;` or `/` — the same
+convention the assignee column uses. `safety, rework` becomes two labels.
+
+Names are matched against your project's **existing label catalog,
+case-insensitively**, so importing a sheet that says `Safety` into a project
+that already has `safety` reuses the existing label instead of creating a
+near-duplicate you then have to merge. The catalog's spelling wins. Labels that
+do not exist yet are created and given distinct colors.
+
+Labels are **project-scoped**: a label of the same name in another project is a
+different label and is not matched.
+
+An import is capped at 100 distinct labels and 20 per task, and label names are
+shortened to 50 characters. Exceeding a cap does not fail the import — the
+excess is reported as a row warning and everything else is imported.
+
+### Rows that are skipped
+
+- **Blank rows** — ignored entirely.
+- **Rows whose first cell starts with `#`** — treated as comments, so you can
+  annotate the sheet without breaking the import.
+
+## How the hierarchy is read
+
+TruePPM builds a real WBS tree, and it recognizes the two ways spreadsheets
+actually encode one:
+
+**A WBS / outline column.** Dotted codes map straight to the tree:
+
+```
+WBS   Name
+1     Discovery
+1.1   Stakeholder interviews
+1.2   Requirements draft
+2     Build
+2.1   Data model
+```
+
+**Indentation in the name column.** Two spaces (or one tab, or one leading dot)
+per level — the convention most hand-built sheets use:
+
+```
+Name
+Phase One
+  Design
+  Build
+    Backend
+    Frontend
+```
+
+Both produce the same nested schedule.
+
+## How dependencies are read
+
+The predecessor column accepts the MS Project shorthand, comma- or
+semicolon-separated:
+
+| Cell | Meaning |
 |---|---|
-| **Separator** | Comma |
-| **Encoding** | UTF-8. A byte-order mark is accepted on import (Excel adds one) |
-| **Line endings** | CRLF written; either accepted |
-| **Quoting** | Fields containing a comma, quote, or newline are wrapped in `"`; embedded quotes are doubled |
-| **First row** | Column headers. Their **order doesn't matter** on import — only their names |
-| **Dates** | `YYYY-MM-DD` |
-| **Blank rows** | Skipped |
-| **Rows starting with `#`** | Skipped — use them for comments |
-| **Unrecognized columns** | Ignored, with a warning. They never fail the import |
+| `3` | Finish-to-Start on task 3 |
+| `3FS+2d` | Finish-to-Start on task 3, with 2 days of lag |
+| `5SS` | Start-to-Start with task 5 |
+| `9FS-1d` | Finish-to-Start with 1 day of lead |
+| `6,7` | Two Finish-to-Start predecessors |
 
-The full normative definition is the
-[data interchange specification](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/specs/data-interchange.spec.md).
+References resolve against your **ID column** when the sheet has one, and against
+**row position** otherwise — so both an MS Project-style export and a hand-typed
+sheet work without changes.
 
-## Working with Excel
+:::caution[A circular predecessor column rejects the whole file]
+If your predecessors form a cycle (task 1 depends on 2, and 2 depends on 1) the
+import is rejected **before anything is written**. A cyclic network has no
+critical path, so importing it would produce a schedule the engine cannot
+compute. Fix the loop in the sheet and re-upload.
+:::
 
-Two things will bite you, and neither is specific to TruePPM.
+## Dates, durations and percentages
+
+**Durations** may be written as `5`, `5d`, `5 days`, `16 hours` (converted on an
+8-hour day) or `2 weeks`. A duration of `0` marks the row as a milestone.
+
+**Percent complete** accepts `50`, `50%`, or Excel's native `0.5`.
+
+**Dates** are read as `YYYY-MM-DD` unambiguously. For slash dates the importer
+scans the **whole file** before deciding: if any row is unambiguously
+day-first (`13/04/2026` cannot be a month), every slash date is read day-first.
+With no evidence either way it assumes month/day/year and **tells you which
+convention it used** in the import warnings — a silently-guessed date order is
+a data-integrity bug, not a formatting detail.
+
+## The wizard
+
+Open a project's **Schedule**, then **Project actions → Import from spreadsheet
+(CSV/Excel)…**. The wizard walks the three steps below so you never have to call
+the API yourself.
+
+**Step 1 — Upload.** Drag a `.csv`, `.tsv`, `.txt`, `.xlsx`, or `.xlsm` file onto
+the drop zone, or pick one. Files over the size cap are rejected before the
+upload runs, so you do not wait on a request that is certain to fail.
+**Download a template** here if you want a known-good shape to paste into —
+it is the same file the [template endpoint](#download-the-template) serves.
+
+**Step 2 — Map columns.** Every detected column is listed with the TruePPM field
+it will import into, already filled in from auto-detection — you confirm rather
+than map from scratch. Change any dropdown that is wrong, or set one to
+**Don't import** to ignore that column. The first parsed rows sit underneath, so
+you can see what the mapping actually produces.
+
+Columns the importer had to guess at are flagged **Guessed — check this**, and a
+count above the table tells you how many are waiting on you. A column that lost a
+tie for a field — two headers both matching `Name`, say — reads **Not imported —
+another column already uses this field**, so it is never just mysteriously blank.
+Columns matched exactly carry no note at all: silence is the confident state, and
+badging all of them would bury the ones that need an eye.
+
+Anything the parser decided about the **file as a whole** appears under **How we
+read this file** — which worksheet was read, how ambiguous dates were resolved,
+whether the row cap bit. These are not row problems; they are choices made on
+your behalf, and they are repeated on step 3 because that is the last screen
+before the import commits.
+
+If a **required** field has no column mapped to it, **Next is disabled** and the
+wizard says which field is missing. This is deliberate: a spreadsheet with no
+recognizable task-name column imports *zero tasks*, and a silent no-op is a worse
+outcome than a blocked button.
+
+Changing a mapping and pressing **Re-check mapping** re-runs the preview **on the
+server**, so what you confirm on step 3 is what the parser genuinely produced —
+not a client-side guess at what your change would do. Only the columns *you*
+changed are pinned; everything else is detected fresh, so a guess you never
+looked at still comes back flagged as a guess rather than quietly counting as
+reviewed.
+
+**Step 3 — Confirm and import.** The wizard shows the row count, how many tasks
+and resources will be created, and **names every column that will not be
+imported** rather than dropping them quietly. Rows that will be *lost* and rows
+that will merely *land with a field defaulted* are counted separately, because
+they are different decisions.
+
+If your file is over the row cap, the count reads **5,000 of 6,000** — never a
+bare `5,000` that would look like the whole file arrived. What was dropped is
+spelled out under **How we read this file**.
+
+**When it finishes**, you get the number of tasks created and, if any rows had
+problems, a list of them **by spreadsheet line number** so you can fix them at
+source. **View schedule** takes you to the imported plan.
+
+On a clean import — every row landed and the parser had nothing to report — that
+button is already focused, so <kbd>Enter</kbd> takes you straight to the
+schedule. When there *is* something to read, it is **Close** that is focused
+instead, so you are not walked past the line numbers on your way out.
+
+## The three endpoints
+
+The wizard is a client of the same three endpoints, documented here for anyone
+scripting an import.
+
+### 1. Preview — nothing is saved
+
+`POST /api/v1/projects/{id}/import/csv/preview/` parses the file and returns the
+detected column mapping, the first ten parsed rows, the task and resource counts,
+and any row-level problems. **It writes nothing.** Use it to confirm the mapping
+before committing.
+
+### 2. Override any column you disagree with
+
+Send a `column_map` alongside the file — a JSON object of
+`{"header": "field"}` — to pin a column explicitly. An override always beats
+auto-detection. Map a column to `""` to have it ignored.
+
+### 3. Commit
+
+`POST /api/v1/projects/{id}/import/csv/` queues the import and returns
+**`202`** with an `import_request_id`. The import runs asynchronously; poll
+`GET /api/v1/projects/{id}/import/csv/{import_request_id}/` for its terminal
+status and summary.
+
+## Partial success is a result, not a failure
+
+A real spreadsheet has a few bad cells in it, and for spreadsheet data that's
+the normal outcome — not an exceptional one. A row with an unreadable date, an
+unreadable duration, or a predecessor that matches nothing **still imports**,
+minus that one field, and the problem is reported against its row number — the
+same number you see in Excel's row gutter.
+
+```json
+{
+  "tasks_created": 5,
+  "row_error_count": 2,
+  "error_count": 0,
+  "warning_count": 2,
+  "row_errors": [
+    { "row": 3, "column": "Start", "code": "bad_date", "severity": "warning",
+      "message": "Could not read 'not-a-date' as a date; the start was left unset." },
+    { "row": 5, "column": "Predecessors", "code": "unknown_predecessor", "severity": "warning",
+      "message": "Predecessor '99' does not match any row; the link was skipped." }
+  ]
+}
+```
+
+### Severity: did the row survive?
+
+Every diagnostic carries a `severity`, and it answers exactly one question:
+
+| Severity | Meaning |
+|---|---|
+| `warning` | The row **imported**, with one field dropped or defaulted — a bad date, an unreadable duration, a predecessor that matched nothing. |
+| `error` | The row **did not import** at all. Today the only cause is a row with no task name. |
+
+They are counted separately (`error_count` / `warning_count`) rather than totalled,
+because the two are not the same event: seven warnings means seven tasks landed slightly
+lossy, while one error means a row of your spreadsheet is simply not there. Both are
+returned by the preview endpoint too, so you can see the split **before** committing.
+
+Only a **structurally unusable** file fails outright: no header row, no column
+that could be the task name, unreadable bytes, or a cyclic predecessor column —
+and in that case nothing is written.
+
+## Who can import and export
+
+- **Importing tasks** requires the **Scheduler** role or above (Scheduler,
+  Admin, or Owner) on the destination project. Members and Viewers are denied.
+  The preview endpoint is gated identically — it parses an uploaded file, so it
+  is not a lighter-privilege surface just because it saves nothing.
+- **Importing risks** requires the **Member** role or above (Member,
+  Scheduler, Admin, or Owner).
+- **Exporting** requires the same permission as the equivalent
+  [JSON export](/administration/data-export/) of the same data. A CSV export
+  isn't a lower-privilege action just because the file is smaller.
+
+## Limits
+
+| Limit | Default | Setting |
+|---|---|---|
+| Task import upload size | 10 MB | `CSV_IMPORT_MAX_UPLOAD_MB` |
+| Task import data rows | 5 000 | `CSV_IMPORT_MAX_ROWS` |
+| Task import `.xlsx` uncompressed size | 100 MB | `CSV_IMPORT_MAX_UNCOMPRESSED_MB` |
+| Risk import upload size | 2 MB | — |
+| Risk import data rows | 500 | — |
+
+Rows past the task-import cap are **reported back to you** as skipped, not
+silently dropped. A risk import over its cap is **rejected outright** rather
+than partially imported. See
+[CSV / Excel import limits](/administration/configuration/#csv--excel-import-limits)
+for operator configuration.
+
+## Excel specifics
+
+- **Only the first worksheet is imported.** Extra sheets are ignored and you are
+  told how many were skipped.
+- **Values, not formulas.** The workbook is read with cached values, so a cell
+  containing `=SUM(...)` imports as the number Excel last computed.
+- `.xlsx` and `.xlsm` are accepted. The legacy `.xls` format is not — re-save it
+  as `.xlsx` or export it as CSV.
+
+Two more things will bite you when working with Excel, and neither is specific
+to TruePPM:
 
 ### Your file opens as a single column
 
@@ -161,29 +446,36 @@ TruePPM's importers tolerate the common damage — including dates written back 
 values, re-export from the source tool and import the file **without** opening it
 in Excel first.
 
-## Errors, warnings, and partial imports
+## Download the template
 
-An import reports two kinds of problem, both by line number (the header is line 1):
+**Download a template** on step 1 of the wizard saves a known-good CSV with the
+canonical headers and a worked example demonstrating nesting, a lagged
+dependency, a Start-to-Start link, a zero-duration milestone, and a multi-value
+Labels cell.
 
-- **Errors** skip that one row. The rest of the file still imports.
-- **Warnings** import the row with a substituted value — an unrecognized status
-  becomes the default, an unreadable date is left blank, an unmatched owner is left
-  unassigned.
+The same file is served by `GET /api/v1/import-templates/csv/` for scripted use.
+The endpoint requires authentication, so it needs your bearer token — pasting the
+URL into a browser address bar will not work.
 
-**A partial import is a result, not a failure.** For spreadsheet data it's the
-normal outcome. You get the rows that landed plus a list of what didn't and why, so
-you can fix those lines and re-import just them.
+## The file format
 
-Whole-file problems — an unreadable file, a missing required column, too many rows
-— reject the upload and write **nothing**. You never end up with half an import.
+Every CSV TruePPM writes or reads follows the same rules
+([RFC 4180](https://www.rfc-editor.org/rfc/rfc4180)):
 
-## Who can import and export
+| | |
+|---|---|
+| **Separator** | Comma |
+| **Encoding** | UTF-8. A byte-order mark is accepted on import (Excel adds one) |
+| **Line endings** | CRLF written; either accepted |
+| **Quoting** | Fields containing a comma, quote, or newline are wrapped in `"`; embedded quotes are doubled |
+| **First row** | Column headers. Their **order doesn't matter** on import — only their names |
+| **Dates** | `YYYY-MM-DD` |
+| **Blank rows** | Skipped |
+| **Rows starting with `#`** | Skipped — use them for comments |
+| **Unrecognized columns** | Ignored, with a warning. They never fail the import |
 
-- **Importing tasks** requires Project Manager or above.
-- **Importing risks** requires Member or above.
-- **Exporting** requires the same permission as the equivalent
-  [JSON export](/administration/data-export/) of the same data. A CSV export isn't a
-  lower-privilege action just because the file is smaller.
+The full normative definition is the
+[data interchange specification](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/specs/data-interchange.spec.md).
 
 ## What CSV can't do
 
@@ -201,6 +493,15 @@ things still to be built:
    longer guaranteed to match what TruePPM wrote.
 6. **Not a backup.** No version, no manifest, no integrity check, and no way to
    represent most of a project.
+7. **Calendars and working-time exceptions don't import.** Imported tasks use
+   the project's calendar.
+8. **Baselines, sprints, and board columns don't import.** Set these up in
+   TruePPM after import.
+9. **Three-point (PERT) estimates don't import.** A single duration column
+   maps to duration only.
+10. **Cross-project dependencies don't import.** Import is scoped to one project.
+11. **Resource rates, capacity, and calendars don't import.** Assignees are
+    matched or created by name; everything else about them stays unset.
 
 For anything on that list, use
 [JSON export or an export bundle](/administration/data-export/).
@@ -210,4 +511,6 @@ For anything on that list, use
 - [Data export](/administration/data-export/) — JSON seeds and full project bundles
 - [Risk register](/features/risk-register/) — the risk CSV workflow
 - [MS Project import & export](/features/msproject-import-export/) — for schedules coming from Project
+- [Jira import](/features/jira-import/) — for issue sets coming from Jira Server / Data Center
+- [Bring your existing plan in](/getting-started/bring-your-plan-in/) — decision table for which importer to use
 - [Seed data schema](/architecture/seed-data-schema/) — the canonical JSON format

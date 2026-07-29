@@ -5,6 +5,29 @@ description: How to contribute to TruePPM — branching, commits, testing, and t
 
 TruePPM is in its early days and contributions are welcome. The project uses GitLab for issue tracking and merge requests.
 
+## Before you start
+
+**Looking for something to work on?** Browse issues carrying the
+[`backlog` label](https://gitlab.com/trueppm/trueppm/-/issues?label_name%5B%5D=backlog) —
+triaged and not yet scheduled. Check that an issue doesn't already have an
+open merge request or an assignee before you pick it up.
+
+**For anything beyond a typo or one-line fix**, open an issue first describing
+what you want to change and why. This avoids wasted effort if the change
+conflicts with the roadmap or the [OSS/Enterprise boundary](#oss--enterprise-boundary)
+below.
+
+**Who reviews, and how fast:** the maintainer monitors the issue tracker and
+merge requests, and responds within a few business days.
+
+**Community channel:** GitLab issues and merge requests are the project's only
+channel today — there is no separate chat or forum yet.
+
+**Code of conduct:** participation is governed by the
+[Contributor Covenant 2.1](https://gitlab.com/trueppm/trueppm/-/blob/main/CODE_OF_CONDUCT.md).
+Be respectful — disagreement about technical choices is fine, disrespect
+toward contributors is not.
+
 ## Getting set up
 
 ```bash

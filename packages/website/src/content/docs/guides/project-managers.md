@@ -66,7 +66,10 @@ This is where TruePPM is different from every other scheduling tool.
 
 ### The hybrid data model
 
-When your team creates sprint stories, those stories are child tasks under your WBS work packages. They're not in a separate tool. They're not imported via a connector. They're in the same task hierarchy, sharing the same row in the database, visible from both the Gantt and the board.
+Sprint stories are child tasks under your WBS work packages — see
+[The data model, in 90 seconds](/overview/data-model/) for why that's true at
+the row level, not just conceptually. They're not in a separate tool and not
+imported via a connector.
 
 A work package with a 10-day CPM duration might decompose into 8 stories worth 34 story points. When the sprint closes and the team delivered 28 of those points, TruePPM computes the team's velocity and offers a revised duration suggestion in the task drawer — accept it and the schedule re-forecasts. Durations are never silently rewritten; you stay in control of the plan.
 

@@ -78,6 +78,14 @@ const versionPlugins =
 
 export default defineConfig({
   site: "https://docs.trueppm.com",
+  // features/csv-import and features/csv-import-export documented one feature
+  // (task/risk CSV & Excel import and export) across two drifting pages —
+  // merged into a single features/csv-import-export (#2545). The redirect
+  // keeps the old slug resolvable instead of 404ing for anyone with it
+  // bookmarked or indexed.
+  redirects: {
+    "/features/csv-import/": "/features/csv-import-export/",
+  },
   // Build-time (SSR) Mermaid rendering (ADR-0198). `rehype-mermaid` renders each
   // ```mermaid fence to a static inline <svg> at build time using a headless
   // Chromium (Playwright) — the browser runs only on the build machine, so the
@@ -212,6 +220,7 @@ export default defineConfig({
             { slug: "overview" },
             { slug: "overview/why-now" },
             { slug: "overview/principles" },
+            { slug: "overview/data-model" },
             { slug: "overview/computed-not-guessed" },
             // Evaluation trio: the named comparison, the maintained gap list, and
             // the defect list sit next to each other on purpose — an evaluator who
@@ -241,6 +250,7 @@ export default defineConfig({
             // zero-config paths go live with the 0.4 tag (#1775, #939).
             { slug: "getting-started/installation" },
             { slug: "getting-started/quickstart" },
+            { slug: "getting-started/bring-your-plan-in" },
             { slug: "getting-started/try-it" },
             { slug: "getting-started/sample-projects" },
             { slug: "getting-started/sample-project-tour" },
@@ -388,7 +398,6 @@ export default defineConfig({
                 { slug: "features/msproject-import-export" },
                 { slug: "features/csv-import-export" },
                 { slug: "features/jira-import" },
-                { slug: "features/csv-import" },
               ],
             },
             {

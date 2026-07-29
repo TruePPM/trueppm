@@ -119,7 +119,7 @@ If you're the Scrum Master for more than one team, the multi-team lens aggregate
 
 The most important thing to understand about TruePPM's hybrid model: **you and the PM are not looking at two different tools that sync.** You're both looking at two views of the same data.
 
-When the PM builds the schedule, they create work packages with CPM dependencies. Your team's stories are child tasks of those work packages. Your sprint work and the PM's schedule are structurally linked — not via integration, not via export, not via a Monday morning sync.
+When the PM builds the schedule, they create work packages with CPM dependencies. Your team's stories are child tasks of those work packages — see [The data model, in 90 seconds](/overview/data-model/) for why that's a structural fact, not an integration. Your sprint work and the PM's schedule are structurally linked — not via integration, not via export, not via a Monday morning sync.
 
 This means:
 - You never have to update a "status report" for the PM. Your burndown is their forecast input.
