@@ -91,6 +91,21 @@ function viewSegment(pathname: string, id: string, fallback: string): string {
   return (idx >= 0 ? segments[idx + 1] : undefined) ?? fallback;
 }
 
+/**
+ * The active project view for a pathname, or `null` off a project route.
+ *
+ * A bare `/projects/:id` resolves to `overview`, matching what the location switcher's
+ * leaf shows — so a caller reasoning about "which view am I on" agrees with the label
+ * the user is reading. Exported so the shell keeps **one** view parser: anything that
+ * needs to branch on the view (rule-284 suppression, per-view chip forms) comes
+ * through here rather than adding a second `pathname.split('/')`.
+ */
+export function projectViewSegment(pathname: string): string | null {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'projects' || !segments[1]) return null;
+  return segments[2] ?? 'overview';
+}
+
 function titleCase(segment: string): string {
   if (!segment) return 'Home';
   return segment.charAt(0).toUpperCase() + segment.slice(1);

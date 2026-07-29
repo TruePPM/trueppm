@@ -1,9 +1,11 @@
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
 import type { UseMonteCarloResultReturn } from '@/hooks/useMonteCarloResult';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
+import { ADDED_TIME_FIXTURES, ADDED_TIME_STATES } from '@/fixtures/addedTime';
+import { addedTimePresentation, addedTimeShortForm } from '@/features/project/addedTime';
 
 const useMonteCarloResultSpy = vi.hoisted(() =>
   vi.fn<(projectId?: string) => UseMonteCarloResultReturn>(),
@@ -89,7 +91,7 @@ describe('MobileMonteCarloCard (#33)', () => {
     expect(close.className).toMatch(/w-11/);
     expect(close.className).toMatch(/h-11/);
 
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(
       screen.queryByRole('dialog', { name: /Monte Carlo confidence distribution/i }),
     ).not.toBeInTheDocument();
@@ -162,5 +164,87 @@ describe('MobileMonteCarloCard (#33)', () => {
       expect(screen.getByText(/Could not run simulation\./i)).toBeInTheDocument();
       expect(screen.getByRole('button')).toHaveTextContent(/Try again/);
     });
+  });
+});
+
+/**
+ * #2531 DoD item 8 — the mobile card and the Overview card consume the *same*
+ * premium object.
+ *
+ * The failure this rules out: the two surfaces read different sources, one of them
+ * re-derives state from a raw day count, and a project with no estimates is told it
+ * carries no schedule risk on a phone while the desktop card correctly says it cannot
+ * be measured. Both are driven here from one fixture set for exactly that reason.
+ */
+describe('MobileMonteCarloCard added time (#2531)', () => {
+  function renderWith(state: keyof typeof ADDED_TIME_FIXTURES) {
+    useMonteCarloResultSpy.mockReturnValue({
+      data: { ...FIXTURE_MC_RESULT, riskPremium: ADDED_TIME_FIXTURES[state] },
+      isLoading: false,
+      error: null,
+    });
+    renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
+    return screen.getByRole('button', { name: /Monte Carlo confidence/ });
+  }
+
+  it.each(ADDED_TIME_STATES)(
+    'agrees with AddedTimeCard about the %s state — including by saying nothing',
+    (state) => {
+      const facts = ADDED_TIME_FIXTURES[state];
+      const button = renderWith(state);
+
+      // Rule 291: only `unmeasurable` earns a chip. Every measured state's value is
+      // already in the P80 chip beside it, off the same server field, so a second
+      // copy would put one number twice in one row. What the forecast chips cannot
+      // say is that there was nothing to measure — and that is the one thing the
+      // card and this row must never disagree about.
+      const card = addedTimeShortForm(addedTimePresentation(facts), { qualified: false });
+      if (state === 'unmeasurable') {
+        expect(card?.kind).toBe('needsEstimates');
+        expect(button).toHaveTextContent('needs estimates');
+      } else {
+        expect(within(button).queryByText('needs estimates')).not.toBeInTheDocument();
+        expect(within(button).queryByText('No added time')).not.toBeInTheDocument();
+        // The delta appears at most once in the row — in the P80 chip, never twice.
+        expect(within(button).queryAllByText('+11d')).toHaveLength(0);
+      }
+    },
+  );
+
+  it('shows "needs estimates" — never a calm zero — for an unestimated project', () => {
+    const button = renderWith('unmeasurable');
+    expect(button).toHaveTextContent('needs estimates');
+    // The whole safety property in one assertion: no digit anywhere near the
+    // added-time read for a project the simulation could not measure.
+    expect(button).not.toHaveTextContent('+0d');
+    expect(button).not.toHaveTextContent('0d');
+  });
+
+  it('names the unmeasurable state in the accessible label', () => {
+    const button = renderWith('unmeasurable');
+    expect(button).toHaveAccessibleName(/Added time needs estimates/);
+  });
+
+  it('adds no clause for a measured state — the forecast chips already speak it', () => {
+    const button = renderWith('premium');
+    expect(button).not.toHaveAccessibleName(/Added time/);
+  });
+
+  it('takes no health hue — added time is a magnitude, not a verdict', () => {
+    const button = renderWith('unmeasurable');
+    const chip = within(button).getByText('needs estimates');
+    expect(chip.className).toContain('border-neutral-border');
+    expect(chip.className).not.toMatch(/semantic-(critical|at-risk|on-track|warning)/);
+  });
+
+  it('says nothing about added time on a payload that predates the metric', () => {
+    useMonteCarloResultSpy.mockReturnValue({
+      data: { ...FIXTURE_MC_RESULT, riskPremium: undefined },
+      isLoading: false,
+      error: null,
+    });
+    renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
+    const button = screen.getByRole('button', { name: /Monte Carlo confidence/ });
+    expect(button).not.toHaveTextContent('needs estimates');
   });
 });

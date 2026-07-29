@@ -833,6 +833,36 @@ export interface MonteCarloResult {
    * field existed — consumers treat `undefined` as "no explanation available".
    */
   forecastDiagnostic?: ForecastDiagnostic;
+  /**
+   * The server-owned "added time" slice, carried verbatim off the wire (ADR-0698).
+   *
+   * Kept snake_case on purpose: this is the shared wire contract, byte-identical on
+   * `GET /projects/{id}/overview/` and on the forecast payload, so `AddedTimeFacts`
+   * is literally the same interface on both and there is no mapping layer to
+   * diverge. `undefined` on a payload written before #2531 — which
+   * `addedTimePresentation` already reads as "not run", never as "no risk".
+   */
+  riskPremium?: AddedTimeFacts;
+}
+
+/**
+ * The `risk_premium_*` slice of a project overview or Monte Carlo payload.
+ *
+ * `risk_premium_state` is the discriminant, and it is the whole point: the server
+ * decides what a premium of `0` means, because a project with no three-point
+ * estimates simulates flat and a client re-deriving state from the day count alone
+ * would tell it that it carries no schedule risk (#2483, ADR-0698). Every field is
+ * optional so a payload predating the metric maps to "not run" rather than raising.
+ */
+export interface AddedTimeFacts {
+  risk_premium_state?: 'not_run' | 'unmeasurable' | 'stale' | 'zero' | 'premium' | 'negative';
+  risk_premium_days?: number | null;
+  risk_premium_ratio?: number | null;
+  risk_premium_band?: string | null;
+  risk_premium_as_of?: string | null;
+  risk_premium_reason?: ForecastReason | null;
+  risk_premium_cpm_finish?: string | null;
+  risk_premium_p80?: string | null;
 }
 
 // ---------------------------------------------------------------------------

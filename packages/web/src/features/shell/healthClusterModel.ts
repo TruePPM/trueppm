@@ -1,6 +1,7 @@
 import type { Methodology } from '@/types';
 import type { ApiSprint, ShellStats } from '@/types';
 import type { ProjectVelocity } from '@/hooks/useSprints';
+import type { AddedTimePresentation } from '@/features/project/addedTime';
 
 /**
  * Methodology-adaptive health cluster model (ADR-0128 §B).
@@ -42,7 +43,13 @@ export type HealthSegment =
   | { kind: 'velocity'; avg: number | null; low: number | null; high: number | null; excluded: number }
   /** ADR-0104: requester is below the velocity signal's audience — render the
    *  content-free privacy wall (rule 168), never a number. */
-  | { kind: 'velocityGated' };
+  | { kind: 'velocityGated' }
+  /** "Added time" — the gap between the CPM finish and the P80 commit (#2531).
+   *  Carries the already-classified presentation rather than the raw day count, so
+   *  no renderer can decide for itself what a premium of `0` means. Appended for
+   *  every methodology (a forecast is not agile-specific) and omitted entirely when
+   *  the surface owns the value itself — see `addedTime` on the input. */
+  | { kind: 'addedTime'; presentation: AddedTimePresentation };
 
 export interface HealthClusterInput {
   methodology: Methodology;
@@ -53,6 +60,11 @@ export interface HealthClusterInput {
    *  here from the cached distribution that already drives the drill-through panel;
    *  P80 still falls back to the status-summary value when no MC result is cached. */
   mc: { p50: string | null; p80: string | null } | undefined;
+  /** Added time for this project, or `null` to omit the segment entirely (#2531).
+   *  The model stays route-unaware: the caller resolves rule-284 suppression with
+   *  `addedTimeChipContext` and passes `null` on the surfaces that render the value
+   *  themselves, so the segment list never carries a value the screen already shows. */
+  addedTime: AddedTimePresentation | null;
   /** `new Date()` injected by the caller so the selector stays pure/testable. */
   now: Date;
 }
@@ -152,12 +164,8 @@ function velocitySegment(velocity: ProjectVelocity | undefined): HealthSegment {
   };
 }
 
-/**
- * Build the 2—3 ordered segments for the active methodology. AGILE may return 2
- * segments when the team sizes in neither points nor counts (the Points slot is
- * omitted); every other case returns exactly 3.
- */
-export function healthClusterModel(input: HealthClusterInput): HealthSegment[] {
+/** The methodology's own 2—3 segments, before the methodology-neutral tail. */
+function methodologySegments(input: HealthClusterInput): HealthSegment[] {
   const { methodology, stats, activeSprint, velocity, mc, now } = input;
 
   if (methodology === 'WATERFALL') {
@@ -175,4 +183,30 @@ export function healthClusterModel(input: HealthClusterInput): HealthSegment[] {
     ...(points ? [points] : []),
     velocitySegment(velocity),
   ];
+}
+
+/**
+ * Build the ordered segments: the methodology's 2—3, plus added time when this surface
+ * does not already render it.
+ *
+ * AGILE may contribute 2 when the team sizes in neither points nor counts (the Points
+ * slot is omitted); every other methodology contributes exactly 3.
+ *
+ * Added time is methodology-neutral — a forecast premium is not an agile or a
+ * waterfall fact — but its *position* is not free. It sits immediately after the
+ * forecast segment, because it is a delta measured from the forecast's own baseline
+ * and the at-risk / critical segments below expand into task drill lists. Appended
+ * last, it would land a dozen rows below the date it is measured against on a busy
+ * project, which is the separated-delta defect #2426 fixed. With no forecast segment
+ * to anchor to (AGILE) it goes last, where it is still self-verifying because the row
+ * carries its own baseline date.
+ */
+export function healthClusterModel(input: HealthClusterInput): HealthSegment[] {
+  const segments = methodologySegments(input);
+  if (input.addedTime === null) return segments;
+
+  const addedTime: HealthSegment = { kind: 'addedTime', presentation: input.addedTime };
+  const forecastAt = segments.findIndex((s) => s.kind === 'forecast');
+  if (forecastAt === -1) return [...segments, addedTime];
+  return [...segments.slice(0, forecastAt + 1), addedTime, ...segments.slice(forecastAt + 1)];
 }

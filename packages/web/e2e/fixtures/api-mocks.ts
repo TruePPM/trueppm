@@ -367,7 +367,26 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   // Wave-7 unified Monte Carlo data path — a separate per-project endpoint.
   await page.route('**/api/v1/projects/*/monte-carlo/latest/', (route) =>
     route.fulfill(
-      jsonResponse({ runs: 0, p50: null, p80: null, p95: null, buckets: [], last_run_at: null }),
+      jsonResponse({
+        runs: 0,
+        p50: null,
+        p80: null,
+        p95: null,
+        buckets: [],
+        last_run_at: null,
+        // The server always states the premium state explicitly rather than omitting
+        // the key (#2531). `not_run` matches this fixture's `runs: 0`, and stating it
+        // keeps the shell's added-time row on the same code path it takes in
+        // production instead of the absent-key fallback.
+        risk_premium_state: 'not_run',
+        risk_premium_days: null,
+        risk_premium_ratio: null,
+        risk_premium_band: null,
+        risk_premium_as_of: null,
+        risk_premium_reason: null,
+        risk_premium_cpm_finish: null,
+        risk_premium_p80: null,
+      }),
     ),
   );
 

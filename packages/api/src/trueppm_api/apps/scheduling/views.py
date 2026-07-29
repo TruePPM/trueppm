@@ -61,7 +61,12 @@ from trueppm_api.apps.scheduling.models import (
     ScheduleRequestReason,
     VelocitySuggestion,
 )
-from trueppm_api.apps.scheduling.risk_premium import delta_vs_cpm_days
+from trueppm_api.apps.scheduling.risk_premium import (
+    build_risk_premium,
+    delta_vs_cpm_days,
+    risk_premium_for_forecast_payload,
+    risk_premium_from_values,
+)
 from trueppm_api.apps.scheduling.serializers import (
     FailedTaskDropSerializer,
     FailedTaskRequeueSerializer,
@@ -379,8 +384,15 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 "duration tornado — tasks that move the finish most, index 0..1, "
                 "ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, "
                 "tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity} "
-                "— explains a flat forecast; reason is null when a real band exists) "
-                "and last_run_at (ISO 8601)."
+                "— explains a flat forecast; reason is null when a real band exists), "
+                "last_run_at (ISO 8601), and the risk_premium_* family (ADR-0698): "
+                "risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — "
+                "the discriminant every client renders from, never null), "
+                "risk_premium_days, risk_premium_ratio, risk_premium_band (always null "
+                "until #2299), risk_premium_as_of, risk_premium_reason, "
+                "risk_premium_cpm_finish, risk_premium_p80. Derived at response time, "
+                "never cached, so the ratio never describes a remaining duration that "
+                "has since elapsed."
             ),
         ),
         400: OpenApiResponse(
@@ -589,7 +601,9 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # `last_run_at` lets the frontend surface a "Last run: 2h ago" freshness
     # signal and decide whether to nudge a rerun (#335). Captured at cache-write
     # time so it always tracks the most recent successful simulation, never the
-    # cache read.
+    # cache read. Held as a datetime as well as an ISO string because the risk
+    # premium ages the run against it (ADR-0698).
+    run_at = timezone.now()
     result_dict = {
         **mc_result.to_dict(),
         "cpm_finish": cpm_finish.isoformat() if cpm_finish else None,
@@ -610,7 +624,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             has_velocity_signal=bool(velocity_samples),
             deterministic=(mc_result.p50 == mc_result.p80 == mc_result.p95),
         ),
-        "last_run_at": timezone.now().isoformat(),
+        "last_run_at": run_at.isoformat(),
     }
     cache.set(f"mc_latest:{pk}", result_dict, timeout=86400)
 
@@ -625,7 +639,24 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         task_count=len(db_tasks),
         result_dict=result_dict,
     )
-    return Response(result_dict)
+    # Added time (#2531, ADR-0698) rides the response but NOT the cache entry above.
+    # Two of its terms depend on when the response is built rather than when the run
+    # happened: `ratio` divides by the duration remaining as of today, which collapses
+    # to null once the CPM finish passes, and `state` flips to `stale` with age. A
+    # premium frozen at cache-write would keep reporting a share of a remainder that
+    # has since elapsed, so it is derived per response instead.
+    return Response(
+        {
+            **result_dict,
+            **risk_premium_from_values(
+                p80=mc_result.p80,
+                cpm_finish=cpm_finish,
+                taken_at=run_at,
+                diagnostic=result_dict["forecast_diagnostic"],
+                today=timezone.localdate(),
+            ),
+        }
+    )
 
 
 class MonteCarloLatestView(McpReadableViewMixin, APIView):
@@ -652,9 +683,16 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                     "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 "
                     "(ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} "
                     "calendar-day deltas vs the CPM finish), runs (n_simulations), "
-                    "confidence_curve, histogram_buckets, sensitivity, last_run_at, and "
+                    "confidence_curve, histogram_buckets, sensitivity, last_run_at, "
                     "from_history (true when served from a persisted run after the 24h cache "
-                    "TTL expired). Legacy runs with no stored distribution return empty "
+                    "TTL expired), and the risk_premium_* family (ADR-0698): "
+                    "risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — "
+                    "the discriminant every client renders from, never null), "
+                    "risk_premium_days, risk_premium_ratio, risk_premium_band (always null "
+                    "until #2299), risk_premium_as_of, risk_premium_reason, "
+                    "risk_premium_cpm_finish, risk_premium_p80. The premium is derived on "
+                    "every response and is never stored in the cache entry. Legacy runs with "
+                    "no stored distribution return empty "
                     "confidence_curve/histogram_buckets/sensitivity arrays."
                 ),
             ),
@@ -679,7 +717,14 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
         self.check_object_permissions(request, project)
         cached = cache.get(f"mc_latest:{pk}")
         if cached is not None:
-            return Response(cached)
+            # Added time is layered on at read time, never taken from the entry — the
+            # entry has no premium keys to take (ADR-0698 §2). A cached forecast can be
+            # served for 24 hours, and both `risk_premium_ratio` (a share of the
+            # duration still remaining today) and `risk_premium_state` (which ages into
+            # `stale`) would be wrong by the time it is read back.
+            return Response(
+                {**cached, **risk_premium_for_forecast_payload(cached, today=timezone.localdate())}
+            )
 
         latest = MonteCarloRun.objects.filter(project_id=pk).order_by("-taken_at").first()
         if latest is None:
@@ -695,6 +740,13 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
         dist = latest.distribution or {}
         return Response(
             {
+                # The live-run payload has carried `project_id` since #172; the
+                # from-history branch omitted it, and the client maps it straight
+                # through as a non-optional field. Harmless while nothing read it —
+                # but the added-time card's "Add estimates →" target is built from it
+                # (#2531), so past the 24h TTL that link resolved to
+                # `/projects/undefined`.
+                "project_id": str(latest.project_id),
                 "p50": latest.p50.isoformat() if latest.p50 else None,
                 "p80": latest.p80.isoformat() if latest.p80 else None,
                 "p95": latest.p95.isoformat() if latest.p95 else None,
@@ -715,6 +767,10 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 "forecast_diagnostic": latest.diagnostic,
                 "last_run_at": latest.taken_at.isoformat(),
                 "from_history": True,
+                # The same call `ProjectOverviewView` makes, on the same row — so the
+                # Overview card and every forecast surface read one derivation of what
+                # a premium of 0 means, and cannot disagree (ADR-0698).
+                **build_risk_premium(latest, today=timezone.localdate()),
             }
         )
 

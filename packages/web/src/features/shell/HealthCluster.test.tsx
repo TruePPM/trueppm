@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { FIXTURE_SHELL_STATS } from '@/fixtures/shellStats';
-import type { ShellStats, ApiSprint, Methodology } from '@/types';
+import type { ShellStats, ApiSprint, Methodology, AddedTimeFacts } from '@/types';
+import { ADDED_TIME_FIXTURES } from '@/fixtures/addedTime';
 import type { ProjectVelocity } from '@/hooks/useSprints';
 import { HealthCluster } from './HealthCluster';
 
@@ -78,15 +79,30 @@ const mcResult = vi.hoisted<{
 // percentile triple — an incomplete mock would mask any read of those fields
 // (#1365). Async factory: vi.mock is hoisted above imports, so import the fixture
 // inside the factory rather than referencing a top-level import binding.
+// Added time (#2531): the premium slice the shell now reads off the same payload,
+// plus the two non-settled query states — an in-flight or failed forecast read must
+// suppress the row rather than let an undefined premium assert "Not run yet".
+const riskPremium = vi.hoisted<{ current: AddedTimeFacts | undefined }>(() => ({
+  current: undefined,
+}));
+const mcLoading = vi.hoisted<{ current: boolean }>(() => ({ current: false }));
+const mcErrored = vi.hoisted<{ current: boolean }>(() => ({ current: false }));
 vi.mock('@/hooks/useMonteCarloResult', async () => {
   const { FIXTURE_MC_RESULT } = await import('@/fixtures/monteCarlo');
   return {
     useMonteCarloResult: () => ({
       data: mcResult.current
-        ? { ...FIXTURE_MC_RESULT, projectId: 'p', runs: 1000, ...mcResult.current, buckets: [] }
+        ? {
+            ...FIXTURE_MC_RESULT,
+            projectId: 'p',
+            runs: 1000,
+            ...mcResult.current,
+            buckets: [],
+            riskPremium: riskPremium.current,
+          }
         : undefined,
-      isLoading: false,
-      error: null,
+      isLoading: mcLoading.current,
+      error: mcErrored.current ? new Error('forecast read failed') : null,
     }),
   };
 });
@@ -139,6 +155,9 @@ beforeEach(() => {
   velocity.current = VELOCITY;
   mcResult.current = { p50: '2026-10-05', p80: '2026-11-03', p95: '2026-11-30' };
   sprintTargets.current = [];
+  riskPremium.current = undefined;
+  mcLoading.current = false;
+  mcErrored.current = false;
   mockNavigate.mockClear();
 });
 
@@ -661,5 +680,176 @@ describe('HealthCluster degraded / edge reads', () => {
     );
     expect(mockNavigate).toHaveBeenCalledWith('/projects/test-project-id/sprints');
     expect(screen.queryByRole('dialog', { name: 'Project health' })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Added time in the context bar (#2531).
+ *
+ * The defect this closes: added time rendered on Overview and *nowhere else*, so a
+ * user on Schedule, Board or Table had no pointer to it at all.
+ */
+describe('HealthCluster added time', () => {
+  function renderAt(pathname: string) {
+    return renderWithRouter(<HealthCluster onTaskNavigate={vi.fn()} />, {
+      initialEntries: [pathname],
+    });
+  }
+
+  const P = '/projects/test-project-id';
+
+  beforeEach(() => {
+    riskPremium.current = ADDED_TIME_FIXTURES.premium;
+  });
+
+  describe('rule 284 — one value, one render per screen', () => {
+    it('is suppressed on Overview, where AddedTimeCard already carries it', async () => {
+      const user = userEvent.setup();
+      renderAt(`${P}/overview`);
+
+      expect(screen.getByTestId('health-cluster')).not.toHaveTextContent('Added');
+      const dialog = await openPopover(user);
+      expect(within(dialog).queryByText('Added time')).not.toBeInTheDocument();
+    });
+
+    it('is suppressed on the bare project route, which resolves to Overview', () => {
+      renderAt(P);
+      expect(screen.getByTestId('health-cluster')).not.toHaveTextContent('Added');
+    });
+
+    it('drops the inline fragment on Schedule, where the forecast bar prints the delta', async () => {
+      // Rule 291. `ScheduleForecastBar` renders `P80: Nov 4 (+11d)` from the same
+      // `delta_vs_cpm` the premium derives from, so an inline `Added +11d` beside it
+      // would be one number twice on one screen. The popover row stays — it is behind
+      // a click, and it carries states the bar cannot express.
+      const user = userEvent.setup();
+      renderAt(`${P}/schedule`);
+
+      expect(screen.getByTestId('health-cluster')).not.toHaveTextContent('Added');
+      const dialog = await openPopover(user);
+      expect(within(dialog).getByText('Added time')).toBeInTheDocument();
+    });
+
+    it('still names the added time in the chip label on Schedule', () => {
+      // The fragment is dropped for redundancy on screen; the accessible name is the
+      // only path a screen-reader user has to the chip's own read, so it stays.
+      renderAt(`${P}/schedule`);
+      expect(screen.getByTestId('health-cluster')).toHaveAccessibleName(
+        /11 days added versus the computed finish/,
+      );
+    });
+
+    it('renders on Board, where nothing else on screen carries it', async () => {
+      const user = userEvent.setup();
+      renderAt(`${P}/board`);
+      const dialog = await openPopover(user);
+      expect(within(dialog).getByText('Added time')).toBeInTheDocument();
+    });
+  });
+
+  describe('the popover row is never dropped — it is what fixes "no pointer at all"', () => {
+    it('carries the delta with its baseline named, because the popover shows no computed finish', async () => {
+      const user = userEvent.setup();
+      renderAt(`${P}/board`);
+      const dialog = await openPopover(user);
+      expect(dialog).toHaveTextContent('+11d vs Oct 24');
+    });
+
+    it('renders "needs estimates" for an unmeasurable project, never a calm number', async () => {
+      riskPremium.current = ADDED_TIME_FIXTURES.unmeasurable;
+      const user = userEvent.setup();
+      renderAt(`${P}/board`);
+      const dialog = await openPopover(user);
+
+      expect(within(dialog).getByText('needs estimates')).toBeInTheDocument();
+      expect(dialog).not.toHaveTextContent('+0d');
+      expect(dialog).not.toHaveTextContent('0d');
+    });
+
+    it('states a measured zero in words, so it stays distinct from the unmeasurable one', async () => {
+      riskPremium.current = ADDED_TIME_FIXTURES.zero;
+      const user = userEvent.setup();
+      renderAt(`${P}/board`);
+      const dialog = await openPopover(user);
+      expect(within(dialog).getByText('No added time')).toBeInTheDocument();
+    });
+
+    it('says "Not run yet" rather than a dash for a project with no forecast', async () => {
+      riskPremium.current = ADDED_TIME_FIXTURES.notRun;
+      const user = userEvent.setup();
+      renderAt(`${P}/board`);
+      const dialog = await openPopover(user);
+      expect(within(dialog).getByText('Not run yet')).toBeInTheDocument();
+    });
+
+    it('stamps a stale premium with the date it was measured — the one place A3 allows it', async () => {
+      riskPremium.current = ADDED_TIME_FIXTURES.stale;
+      const user = userEvent.setup();
+      renderAt(`${P}/board`);
+      const dialog = await openPopover(user);
+      expect(dialog).toHaveTextContent('as of Jul 14');
+    });
+
+    it('sits directly after the forecast rows, not below the task drill lists', async () => {
+      const user = userEvent.setup();
+      renderAt(`${P}/board`);
+      const dialog = await openPopover(user);
+
+      // A delta separated from its baseline by a dozen expandable task rows is the
+      // #2426 defect. Position is load-bearing, so it is asserted, not assumed.
+      // "At risk" is unusable as a marker here — it is also the popover header's
+      // worst-state word, at index 0. "Critical path" is the drill group that
+      // actually follows.
+      const text = dialog.textContent ?? '';
+      expect(text.indexOf('Added time')).toBeGreaterThan(text.indexOf('Forecast P80'));
+      expect(text.indexOf('Added time')).toBeLessThan(text.indexOf('Critical path'));
+    });
+
+    it('carries no band and no proportion track (A3)', async () => {
+      const user = userEvent.setup();
+      renderAt(`${P}/board`);
+      const dialog = await openPopover(user);
+      expect(dialog).not.toHaveTextContent('% of remaining duration');
+    });
+  });
+
+  describe('the value reaches assistive tech at every width', () => {
+    it('names the added time in the chip label, with the sign spoken as a word', () => {
+      renderAt(`${P}/board`);
+      expect(screen.getByTestId('health-cluster')).toHaveAccessibleName(
+        /11 days added versus the computed finish/,
+      );
+    });
+
+    it('says "needs estimates" in the label for an unmeasurable project', () => {
+      riskPremium.current = ADDED_TIME_FIXTURES.unmeasurable;
+      renderAt(`${P}/board`);
+      expect(screen.getByTestId('health-cluster')).toHaveAccessibleName(
+        /added time needs estimates/,
+      );
+    });
+
+    it('adds no added-time clause on Overview, where the card carries it', () => {
+      renderAt(`${P}/overview`);
+      expect(screen.getByTestId('health-cluster')).not.toHaveAccessibleName(/added time/i);
+    });
+  });
+
+  describe('a forecast that has not resolved must not assert "Not run yet"', () => {
+    it('suppresses the row entirely while the query is in flight', async () => {
+      mcLoading.current = true;
+      const user = userEvent.setup();
+      renderAt(`${P}/board`);
+      const dialog = await openPopover(user);
+      expect(within(dialog).queryByText('Added time')).not.toBeInTheDocument();
+    });
+
+    it('suppresses the row when the forecast read failed', async () => {
+      mcErrored.current = true;
+      const user = userEvent.setup();
+      renderAt(`${P}/board`);
+      const dialog = await openPopover(user);
+      expect(within(dialog).queryByText('Added time')).not.toBeInTheDocument();
+    });
   });
 });
