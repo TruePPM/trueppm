@@ -77,7 +77,7 @@ A personal token is minted with one of two scopes:
 When you create a read-only AI token, the one-time reveal also shows a
 ready-to-paste `claude_desktop_config.json` snippet built from it — copy that
 straight into your MCP client and skip the manual setup. See
-[Connect your MCP client](/administration/mcp-connect) for the full walkthrough.
+[Connect your MCP client](/features/mcp-connect/) for the full walkthrough.
 
 ## The 10-token cap
 

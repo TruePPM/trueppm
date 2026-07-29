@@ -62,23 +62,29 @@ to break on an additive change that this policy considers backward-compatible.
 
 ## Deprecation window & notice
 
-When a **breaking** change to a stable element becomes necessary, it goes
-through a deprecation window rather than being removed outright:
+No stable element has been deprecated yet — this section states the policy
+TruePPM intends to follow the first time one is, not a mechanism already
+exercised in production. When a **breaking** change to a stable element
+becomes necessary, the intent is for it to go through a deprecation window
+rather than being removed outright:
 
-1. **Announcement.** The deprecation is called out in the
+1. **Announcement.** The deprecation will be called out in the
    [changelog](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/CHANGELOG.md)
-   under a `Changed` or `Deprecated` heading, and the affected endpoint or field
-   is marked `deprecated` in the OpenAPI schema.
-2. **Runtime signal.** Responses from a deprecated endpoint carry a `Deprecation`
-   header (and, where a replacement exists, a `Link` header pointing at it), so a
-   client can detect reliance on a deprecated surface without reading release
-   notes.
-3. **Window.** The deprecated element keeps working for **at least one full minor
-   release** (one 3–4 week release cycle) after the announcement before it may be
-   removed — and never less. Security-critical removals are the only exception and
-   are documented as such.
-4. **Removal.** The element is removed only after the window elapses, in a minor
-   release before GA or in the next major version at and after GA.
+   under a `Changed` or `Deprecated` heading, and the affected endpoint or
+   field will be marked `deprecated` in the OpenAPI schema.
+2. **Runtime signal.** The plan is for responses from a deprecated endpoint to
+   carry a `Deprecation` header (and, where a replacement exists, a `Link`
+   header pointing at it), so a client can detect reliance on a deprecated
+   surface without reading release notes. This header does not exist in the
+   codebase today; it will be built ahead of the first deprecation, not
+   asserted as already wired.
+3. **Window.** Once a deprecation is announced, the intent is for the
+   deprecated element to keep working for **at least one full minor release**
+   (one 3–4 week release cycle) before it may be removed — and never less.
+   Security-critical removals would be the only exception, and would be
+   documented as such.
+4. **Removal.** The element would be removed only after the window elapses, in
+   a minor release before GA or in the next major version at and after GA.
 
 ## Versioning approach
 
@@ -103,7 +109,9 @@ Two upcoming surfaces make an early, written contract worthwhile:
   computed values they can depend on across releases.
 - The **MCP write surface arriving in 0.6** will let automation create and
   update work. A write client that pins against a moving target is fragile, so
-  the deprecation guarantees above are in place before that surface lands.
+  the deprecation policy above is committed to in writing before that surface
+  lands — ahead of the runtime `Deprecation`-header mechanism itself, which
+  will be built out before it is first needed.
 
 Publishing the policy at beta — rather than waiting for the 0.9 freeze — means
 early integrators build against a known contract from the start. The **0.9
