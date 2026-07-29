@@ -105,7 +105,8 @@ valkey:
   # `valkey.sentinel` below.
   #
   # Supported HA topologies (ADR-0716): a replicated primary behind ONE stable
-  # endpoint (managed service, Service, or VIP), or Sentinel. Cluster mode is
+  # endpoint (managed service, Service, or VIP), or Sentinel (EXPERIMENTAL in
+  # 0.4 — see the sentinel block below). Cluster mode is
   # NOT supported — a clustered endpoint exposes only database 0 and TruePPM
   # uses four (0 Celery, 1 Channels, 2 cache, 3 notification throttles).
   # See docs → Administration → Valkey High Availability
@@ -118,11 +119,18 @@ valkey:
     enabled: true
     password: ""
 
-  # External Valkey Sentinel (#2554, ADR-0716). Only consulted when
-  # `valkey.enabled: false` — Sentinel replaces the bundled pod, it does not
-  # front it. When `sentinel.enabled: true`, `env.REDIS_URL` is no longer
-  # required: the primary is discovered from the Sentinels at connect time, so
-  # failover needs no restart and no config change.
+  # External Valkey Sentinel (#2554, ADR-0716). EXPERIMENTAL in 0.4: the wiring
+  # is unit-tested (every consumer gets the right topology, database, and
+  # credentials) but has NOT been verified against a live Sentinel quorum
+  # performing a real failover — the bundled dev stack is single-node, so there
+  # is no end-to-end promotion test. Validate a full failover in staging before
+  # depending on it; prefer a replicated primary behind one stable endpoint if
+  # you need an already-proven path.
+  #
+  # Only consulted when `valkey.enabled: false` — Sentinel replaces the bundled
+  # pod, it does not front it. When `sentinel.enabled: true`, `env.REDIS_URL` is
+  # no longer required: the primary is discovered from the Sentinels at connect
+  # time, so failover is designed to need no restart and no config change.
   sentinel:
     enabled: false
     # Comma-separated host:port list of the Sentinel nodes. Use three or more —

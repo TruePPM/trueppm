@@ -273,6 +273,8 @@ TRUEPPM_PUBLIC_API_BASE_URL = env("TRUEPPM_PUBLIC_API_BASE_URL", default="")
 REDIS_URL = env("REDIS_URL", default="redis://redis:6379")
 
 # --- Valkey topology (ADR-0716, #2554) ------------------------------------
+# Sentinel mode is EXPERIMENTAL as of 0.4: the wiring below is unit-tested, but no
+# live-quorum failover has been exercised (the bundled dev stack is single-node).
 # Setting TRUEPPM_VALKEY_SENTINELS switches every consumer to Sentinel mode; left
 # empty (the default) everything below derives from REDIS_URL exactly as before,
 # so an existing deploy needs no config change. Sentinel is a *block* rather than

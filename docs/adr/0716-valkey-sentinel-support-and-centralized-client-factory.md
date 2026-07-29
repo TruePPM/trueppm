@@ -1,7 +1,7 @@
 # ADR-0716: Valkey Sentinel support and a centralized client factory
 
 ## Status
-Accepted
+Accepted — Sentinel support ships **experimental** in 0.4 (see Consequences → Risks)
 
 ## Context
 

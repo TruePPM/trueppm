@@ -49,7 +49,7 @@ whether a given topology can work at all:
 |----------|-----------|-------|
 | **Replicated Valkey behind one stable endpoint** | Yes | Primary with one or more replicas, fronted by a managed service endpoint, Kubernetes Service, or VIP that always resolves to the current primary. **The simplest production path.** |
 | **Managed Valkey / Redis-compatible service** | Yes | Cluster mode must be **disabled** — see below. The provider handles failover, patching, and backups. |
-| **Sentinel** | Yes | Ships in 0.4. Configure it with the `TRUEPPM_VALKEY_*` settings below; all four databases follow the primary across a failover with no restart. |
+| **Sentinel** | **Experimental** | Ships in 0.4 as experimental. Configure it with the `TRUEPPM_VALKEY_*` settings below; all four databases are wired to follow the primary across a failover with no restart. **Not yet verified against a live Sentinel quorum** — see the caution below. |
 | **Cluster mode** | **No** | Not supported, and not planned. A clustered endpoint exposes only database `0`, and TruePPM uses four. The Channels layer has no cluster support in any case. |
 
 :::caution[Do not enable Cluster mode]
@@ -63,11 +63,30 @@ So the goal is reachable two ways: **no single Valkey process whose loss takes
 down real-time, async, and caching together** — via replication behind one
 endpoint that survives failover, or via Sentinel.
 
+**For a production deployment you can only rely on today, choose a replicated
+primary behind one stable endpoint.** That path is the one this project exercises;
+Sentinel is new and carries the caveat below.
+
 ## Configuring Sentinel
+
+:::caution[Sentinel support is experimental in 0.4]
+The Sentinel wiring is unit-tested — the right topology, database, and credentials
+reach every one of TruePPM's Valkey consumers — but it has **not been verified
+against a live Sentinel quorum with a real failover**. TruePPM's bundled
+development stack is a single-node Valkey, so there is no continuous end-to-end
+test of promotion behavior.
+
+Treat it as experimental: **validate a full failover in a staging environment that
+mirrors your production topology before you depend on it**, and prefer a
+replicated primary behind one stable endpoint if you need a path that is already
+proven. Please report what you find on
+[#2554](https://gitlab.com/trueppm/trueppm/-/issues/2554) — real-world results are
+what will move this from experimental to supported.
+:::
 
 Sentinel monitors a primary/replica set and promotes a replica when the primary
 fails. TruePPM resolves the current primary from the Sentinels **on every
-connection**, so a failover needs no restart and no config change.
+connection**, so a failover is designed to need no restart and no config change.
 
 Set these on the API and every Celery worker. A non-empty
 `TRUEPPM_VALKEY_SENTINELS` is what switches Sentinel on; when it is empty (the
@@ -108,9 +127,13 @@ valkey:
 With `sentinel.enabled: true` you do **not** need to supply `env.REDIS_URL` — the
 chart stops requiring it, because there is no single endpoint to name.
 
-Verify a failover in staging before relying on it: stop the primary, confirm the
-Sentinels promote a replica, and check that real-time updates, background jobs,
-and logins all continue without a pod restart.
+**Verify a failover in staging before relying on it** — this is the step that
+matters most while support is experimental. Stop the primary, confirm the
+Sentinels promote a replica, then check that all four roles recover without a pod
+restart: real-time updates resume (Channels), queued jobs drain (Celery), logins
+succeed (cache-backed SSO state), and WebSocket reconnects authenticate (ticket
+auth). If any of those stay broken, that is a bug worth reporting on
+[#2554](https://gitlab.com/trueppm/trueppm/-/issues/2554).
 
 ## Licensing and cost — you do not need a commercial Redis
 

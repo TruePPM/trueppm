@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
-from django.core.checks import Error, register
+from django.core.checks import Error, Info, register
 from django.core.checks import Warning as CheckWarning
 
 from trueppm_api.core.valkey_config import DEFAULT_REDIS_URL, parse_sentinels
@@ -67,6 +67,25 @@ def check_valkey_topology(
                 id="trueppm.valkey.E001",
             )
         )
+
+    # Info, not Warning: operators legitimately run `manage.py check --deploy
+    # --fail-level WARNING` in CI, and an experimental-status notice must not fail
+    # their pipeline. It still puts the caveat in front of anyone who never read the
+    # HA page — which is the whole point of surfacing it at boot.
+    errors.append(
+        Info(
+            "Valkey Sentinel support is EXPERIMENTAL in 0.4: the wiring is unit-tested "
+            "but has not been verified against a live Sentinel quorum performing a real "
+            "failover.",
+            hint=(
+                "Validate a full failover in a staging environment that mirrors "
+                "production before depending on this, and report results on "
+                "https://gitlab.com/trueppm/trueppm/-/issues/2554. A replicated primary "
+                "behind one stable endpoint (REDIS_URL) is the already-proven path."
+            ),
+            id="trueppm.valkey.I001",
+        )
+    )
 
     if getattr(settings, "REDIS_URL", DEFAULT_REDIS_URL) != DEFAULT_REDIS_URL:
         errors.append(

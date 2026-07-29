@@ -94,6 +94,7 @@ def test_parse_sentinels_rejects_malformed_entries(bad: str) -> None:
 
 @override_settings(VALKEY_SENTINELS_RAW="")
 def test_check_is_silent_in_single_endpoint_mode() -> None:
+    """Single-endpoint mode emits nothing at all — not even the experimental notice."""
     assert check_valkey_topology() == []
 
 
@@ -118,7 +119,18 @@ def test_check_warns_when_redis_url_is_shadowed_by_sentinel_mode() -> None:
 
 @override_settings(**sentinel_settings(), REDIS_URL="redis://redis:6379")
 def test_check_is_clean_for_a_correct_sentinel_block() -> None:
-    assert check_valkey_topology() == []
+    """No errors or warnings — only the experimental-status notice."""
+    assert [m.id for m in check_valkey_topology()] == ["trueppm.valkey.I001"]
+
+
+@override_settings(**sentinel_settings(), REDIS_URL="redis://redis:6379")
+def test_experimental_notice_is_info_not_warning() -> None:
+    """Info level so `check --deploy --fail-level WARNING` does not fail a deploy."""
+    from django.core.checks import Info
+
+    notice = next(m for m in check_valkey_topology() if m.id == "trueppm.valkey.I001")
+    assert isinstance(notice, Info)
+    assert "EXPERIMENTAL" in notice.msg
 
 
 def test_check_is_registered_with_django() -> None:

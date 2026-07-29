@@ -210,10 +210,12 @@ on the roadmap.
 - **Celery beat is single-replica by design**, not a gap — exactly one Beat process
   fires the periodic drains, and running two would double-dispatch every job.
 - **The bundled Valkey pod is single-node, with no replication or failover.** For
-  real HA you disable it and bring your own: either a replicated primary behind
-  one stable endpoint (`REDIS_URL`), or a **Sentinel** topology configured with
-  the `TRUEPPM_VALKEY_*` settings. **Cluster mode is not supported** — TruePPM
-  uses four logical databases and a clustered endpoint exposes only one. See
+  real HA you disable it and bring your own: a replicated primary behind one
+  stable endpoint (`REDIS_URL`) is the path to rely on today. **Sentinel** is
+  configurable via the `TRUEPPM_VALKEY_*` settings but ships **experimental** in
+  0.4 — wired and unit-tested, not yet verified against a live quorum failover.
+  **Cluster mode is not supported** — TruePPM uses four logical databases and a
+  clustered endpoint exposes only one. See
   [Valkey HA](/administration/valkey-ha/).
 - **Postgres HA is not part of the chart.** Large-scale production hardening — HA
   Postgres and a dedicated highly-available Valkey deployment — remains on the
