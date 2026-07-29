@@ -119,6 +119,7 @@ knobs operators reach for first:
 | `env.TRUEPPM_NUM_PROXIES` | `"1"` | Trusted reverse-proxy depth for real-client-IP extraction. A wrong value lets clients spoof `X-Forwarded-For`. |
 | `env.TRUEPPM_RATE_LIMIT_ENABLED` | `"true"` | Global API rate-limiting kill switch. Leave `"true"` in production. Disabling also requires `TRUEPPM_RATE_LIMIT_DISABLE_ACK`; for load testing only ([details](/administration/configuration/#disabling-rate-limiting-entirely)). |
 | `env.TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `"30"` | Trashed-project hard-delete window. |
+| `envFrom` | `[]` | Bulk-inject env vars from existing Secrets/ConfigMaps (e.g. `- secretRef: {name: trueppm-env}`) into the API, Celery worker, **and** the bootstrap/migrate init containers. This is the supported way to supply `SECRET_KEY`, `ALLOWED_HOSTS`, and `INTEGRATION_ENCRYPTION_KEY` — the values `prod` refuses to boot without — without rendering them in plaintext into `env`. An explicit `env:` key of the same name (e.g. the chart-built `DATABASE_URL`) always takes precedence over an `envFrom` entry. |
 
 ## Observability
 
@@ -126,12 +127,36 @@ knobs operators reach for first:
 |---|---|---|
 | `observability.otlp.endpoint` | `""` | OTLP collector endpoint. Empty ⇒ telemetry off. |
 | `observability.otlp.protocol` | `grpc` | `grpc` (4317) or `http/protobuf` (4318). |
+| `observability.otlp.serviceName` | `trueppm-api` | Resource `service.name` reported on every exported span/metric. |
 | `observability.otlp.enabled` | `true` | Master export switch (only exports when an endpoint is also set). |
-| `observability.otlp.tracesSampler` / `Arg` | `""` | Trace sampling for busy instances, e.g. `parentbased_traceidratio` + `0.1`. |
+| `observability.otlp.tracesEnabled` / `metricsEnabled` | `true` / `true` | Per-signal export toggles, consulted only when `enabled` is true and an endpoint is set. Turn one off to export only the other. |
+| `observability.otlp.tracesSampler` / `Arg` | `""` | Trace sampling for busy instances, e.g. `parentbased_traceidratio` + `0.1`. Empty keeps the SDK default (`parentbased_always_on`). |
+| `observability.otlp.headers` | `""` | Comma-separated `key=value` OTLP headers (e.g. an auth token), rendered inline. Prefer `headersSecret` below for anything sensitive. |
 | `observability.otlp.headersSecret` | unset | Prefer this over inline `headers` so auth tokens never render into a plaintext manifest. |
-| `dashboards.enabled` | `false` | Ship the starter Grafana dashboard as a labeled ConfigMap (needs a Grafana sidecar). |
-| `alerts.enabled` | `false` | Ship starter PrometheusRule alerts (**requires the Prometheus Operator CRDs**). Thresholds tunable under `alerts.thresholds`. |
+| `observability.otlp.exportHealth.enabled` | `true` | Master switch for the live export-health recorder (ADR-0601). When on, each pod records per-signal export success/error/counts into Valkey DB 2 so the System Health → Telemetry card shows a cross-process live strip. `false` reverts the card to a config-only posture; export itself is unaffected either way. **Requires the Valkey DB 2 instance to run `maxmemory-policy noeviction`** — the same requirement the rate-limit counters already impose. |
+| `observability.otlp.exportHealth.stalenessSeconds` | `""` (app default `600`) | How long a pod counts as live after its last export; beyond this a silent pod reads "never" instead of stalled. |
+| `observability.otlp.exportHealth.healthyWithinSeconds` | `""` (app default `150`) | A success newer than this reads healthy; older (but still live) reads stalled (metrics) / idle (traces). **Must stay below `stalenessSeconds`**, or the stalled/idle states become unobservable. Set all three `exportHealth` tuning keys together, or none. |
+| `observability.otlp.exportHealth.windowSeconds` | `""` (app default `60`) | Rolling window the exported-item counts cover; the System Health card labels the strip from it (e.g. "last 60s"). |
+| `dashboards.enabled` | `false` | Ship the starter Grafana dashboard as a labeled ConfigMap (needs a Grafana sidecar watching for the label below). |
+| `dashboards.label` / `labelValue` | `grafana_dashboard` / `"1"` | Label key/value your Grafana sidecar watches for auto-import. Defaults match the upstream kube-prometheus-stack sidecar convention. |
+| `dashboards.annotations` | `{}` | Extra annotations on the dashboard ConfigMap. |
+| `alerts.enabled` | `false` | Ship starter PrometheusRule alerts (**requires the Prometheus Operator CRDs**) covering beat staleness, outbox depth/age, and dead-letter. Thresholds tunable under `alerts.thresholds` below. |
+| `alerts.labels` | `{}` | Extra labels stamped on the PrometheusRule, e.g. `release: kube-prometheus-stack` so the operator's `ruleSelector` picks it up. |
+| `alerts.thresholds.beatStaleFor` | `2m` | How long the Beat heartbeat must read stale (via the `/api/v1/health/beat/` Blackbox probe) before the alert fires. |
+| `alerts.thresholds.outboxDepth` | `500` | Outbox row-count threshold that starts the `outboxDepthFor` clock. |
+| `alerts.thresholds.outboxDepthFor` | `10m` | How long `outboxDepth` must stay breached before the alert fires. |
+| `alerts.thresholds.outboxOldestAgeSeconds` | `900` | Age (seconds) of the oldest pending outbox row that starts the `outboxOldestAgeFor` clock. |
+| `alerts.thresholds.outboxOldestAgeFor` | `10m` | How long `outboxOldestAgeSeconds` must stay breached before the alert fires. |
+| `alerts.thresholds.deadLetter` | `0` | Dead-letter gauge value that starts the `deadLetterFor` clock — any dead-lettered message is worth alerting on. |
+| `alerts.thresholds.deadLetterFor` | `5m` | How long the dead-letter gauge must stay above `deadLetter` before the alert fires. |
 | `otelCollector.enabled` | `false` | Documentation-only reminder — the chart bundles no Collector; deploy one as a sibling release. |
+
+## `helm test`
+
+| Key | Default | What it does |
+|---|---|---|
+| `tests.image.repository` / `tag` | `curlimages/curl` / `8.11.1` | Image for the `helm test` connection-check Job. Only pulled when you run `helm test <release>`, never during a normal install/upgrade. Runs under the same restricted `securityContext` as the app containers. |
+| `tests.probeReadyz` | `true` | Whether the connection check also probes `/api/v1/readyz` in addition to `/api/v1/health/`. Set `false` only when testing this chart against an app image that predates `readyz` (e.g. a CI drill pinned to the last released image while the chart is ahead of it) — otherwise the probe 404s on an endpoint that image doesn't have yet. |
 
 ## Scheduled backups
 

@@ -125,6 +125,48 @@ project leads, and task assignees reference them — but they carry unusable pas
 and cannot be logged into. The command is **idempotent**: re-running clears any prior
 "1.0 GA Launch" program and re-seeds it, so it is safe to run repeatedly.
 
+## `seed_capacity`
+
+Generates a **synthetic** program at a chosen scale, for capacity testing rather than
+demonstration. Where `seed_demo_project`, `seed_ga_launch_program`, and
+`load_sample_project` each load a *fixed-size* curated fixture, `seed_capacity` builds an
+arbitrarily large, structurally realistic program so the [published scale
+envelope](/administration/sizing/#tested-envelope) can be measured to its first sustained
+breach rather than against a fixed load. It is the seeder the [capacity
+harness](/administration/sizing/#re-running-this) drives on every step.
+
+```bash
+export TRUEPPM_CAPACITY_PASSWORD=$(python3 -c \
+  'import secrets; print(secrets.token_urlsafe(16))')
+python manage.py seed_capacity --projects 1 --tasks 4000 --edge-ratio 1.2
+python manage.py seed_capacity --reset
+```
+
+| Flag | Effect |
+|------|--------|
+| `--projects <N>` | Projects to create under the seeded `CAPACITY` program (default `1`) |
+| `--tasks <N>` | Tasks per project, not the total across all projects (default `1000`) |
+| `--edge-ratio <F>` | Dependency edges per task. `1.0` is a single forward chain; above `1.0` adds forward cross-links. CPM recompute cost is edge-driven, so this is the dimension that moves recompute time (default `1.0`) |
+| `--breadth <N>` | Children per WBS summary row, setting how deep the task hierarchy runs (default `12`) |
+| `--reset` | Delete the existing capacity program's projects first, leaving all other data alone |
+
+`TRUEPPM_CAPACITY_PASSWORD` is **required** and has no default — the command creates (or
+resets the password on) a real, loginable `capacity@trueppm.local` account the load driver
+authenticates as, and a fixed committed password for a real account is a secret-scanner
+finding regardless of how disposable the stack it runs against is. The supplied value is
+still checked against the configured password validators.
+
+**Not a demo seed — rows are synthetic filler.** Two fidelity caveats are worth knowing
+before reading capacity numbers off it: rows are written with `bulk_create()`, so they
+carry no `django-simple-history` rows and leave `server_version` at `0` (a schedule read
+touches neither, so read-latency measurements are unaffected, but on-disk size and any
+sync-delta timing would understate an organically grown database); and generated
+dependencies are strictly forward-linked (a lower task index always precedes a higher
+one), which is acyclic by construction but tidier than a real plan's topology.
+
+This command must never be pointed at a real deployment — it is intended only for the
+disposable local capacity stack described in `packages/api/perf/capacity/README.md`.
+
 ## Sample data & JSON seed
 
 Three commands cover bundled sample projects and the canonical JSON seed format
@@ -212,6 +254,18 @@ These exist for specific operational situations and are not part of routine use:
   and off-server archival are part of TruePPM Enterprise.
 - **`seed_integration_fixtures`** — seeds stable fixtures for the integration-test CI
   job. It is intended for CI and local test runs, not production.
+- **`seed_sso_keycloak`** — provisions a `keycloak` OIDC provider (an allauth
+  `SocialApp` plus its `SsoProviderPolicy`) pointing at a live Keycloak instance, plus a
+  workspace-admin account, for the `sso:integration` nightly CI job. Idempotent —
+  re-running updates the existing rows rather than duplicating them. Configured entirely
+  through environment variables (`SSO_KEYCLOAK_ISSUER`, `SSO_KEYCLOAK_CLIENT_ID`,
+  `SSO_KEYCLOAK_CLIENT_SECRET`, `SSO_KEYCLOAK_ALLOWED_DOMAIN`, `SSO_ADMIN_EMAIL`,
+  `INTEGRATION_USER_PASSWORD`), all with CI-friendly defaults; the CI job sets them
+  explicitly so the values match the baked realm export. Like
+  `seed_integration_fixtures`, it is intended for CI and local test runs, not
+  production — the issuer host must also be present in the SSRF egress
+  allow-list ([`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`](/administration/single-sign-on/),
+  ADR-0590), which the CI job sets alongside it.
 - **`flushexpiredtokens`** — deletes expired `OutstandingToken`/`BlacklistedToken`
   rows created by JWT refresh-token rotation and logout (provided by the
   `token_blacklist` app). TruePPM runs this automatically via the
