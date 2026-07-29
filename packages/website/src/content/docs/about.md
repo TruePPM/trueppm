@@ -13,7 +13,8 @@ sidebar:
 
 Prior roles include Strategic Alliances Architect at GitLab, Senior Specialist (OpenShift/Kubernetes) at Red Hat, Director of Global Alliances at MayaData (acquired by DataCore), and senior positions across PLUMgrid (acquired by VMware), Chef, Savvis, and HSBC. The pattern across those roles is the same one that drives TruePPM: taking technically strong platforms to market in categories where incumbents have become complacent, and doing it without overstating what the product can actually do.
 
-- GitLab: [gitlab.com/khair1](https://gitlab.com/khair1)
+- GitLab: [gitlab.com/kellyhair](https://gitlab.com/kellyhair)
+- GitHub: [github.com/kellyhair](https://github.com/kellyhair)
 - LinkedIn: [linkedin.com/in/kellyhair](https://www.linkedin.com/in/kellyhair)
 - Contact: [kelly@trueppm.com](mailto:kelly@trueppm.com)
 
