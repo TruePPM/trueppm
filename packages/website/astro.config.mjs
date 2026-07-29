@@ -433,6 +433,10 @@ export default defineConfig({
           items: [
             { slug: "architecture/overview" },
             { slug: "architecture/ai-native" },
+            { slug: "architecture/rbac" },
+            { slug: "architecture/auth" },
+            { slug: "architecture/offline-sync" },
+            { slug: "architecture/broadcast-pipeline" },
             { slug: "architecture/decisions" },
             { slug: "architecture/websocket-events" },
             { slug: "architecture/seed-data-schema" },
