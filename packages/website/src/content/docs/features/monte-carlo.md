@@ -110,9 +110,9 @@ Carlo runs so you can read finish-date *drift* over time: "my P80 was Aug 14 two
 weeks ago, now it's Aug 28." Each recorded run carries its P50/P80/P95 as of that
 moment, so the history is a true before/after, not just the latest snapshot.
 
-From **0.4**, a run is recorded only when it is triggered by a **Scheduler** or
-above — the members who own the schedule. Everyone from Viewer up can still run
-the forecast and read the result and the drift history; their runs simply do not
+From **0.4**, a run will be recorded only when it is triggered by a **Scheduler** or
+above — the members who own the schedule. Everyone from Viewer up will still be able to run
+the forecast and read the result and the drift history; their runs will simply not
 add a history row. This keeps the drift timeline a signal about deliberate
 re-planning rather than a log of every incidental read, and prevents a
 low-privilege member from flooding the history or skewing run attribution.

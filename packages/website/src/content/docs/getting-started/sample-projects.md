@@ -82,11 +82,11 @@ and a **20-risk register**.
   lane running its own sprint cadence.
 
 :::note[Coming in 0.4]
-From 0.4 the Atlas sample also carries **60 days of forecast history**, PTO on
+From 0.4 the Atlas sample will also carry **60 days of forecast history**, PTO on
 its calendars, and an at-risk cross-project sprint commitment, so the
-forecast-trend chart, capacity view, and dependency-reality indicator render out
+forecast-trend chart, capacity view, and dependency-reality indicator will render out
 of the box. The [Sample project tour](/getting-started/sample-project-tour/)
-walks through that history and a go-offline demo. 0.4 is
+will walk through that history and a go-offline demo. 0.4 is
 [Underway](/overview/roadmap/).
 :::
 

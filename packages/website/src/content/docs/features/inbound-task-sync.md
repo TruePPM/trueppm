@@ -35,7 +35,7 @@ project scope (**Project → Settings → Integrations**) and program scope
 (**Program → Settings → Integrations**), or via the API as shown below.
 
 ```bash
-curl -X POST "https://your-truppm/api/v1/projects/${PROJECT_ID}/api-tokens/" \
+curl -X POST "https://your-trueppm/api/v1/projects/${PROJECT_ID}/api-tokens/" \
   -H "Authorization: Bearer ${YOUR_JWT}" \
   -H "Content-Type: application/json" \
   -d '{"name": "Jira Production"}'
@@ -46,7 +46,7 @@ The response contains the raw token in the `token` field. **Copy it now** — it
 To configure a custom status mapping for a source whose vocabulary doesn't match the default:
 
 ```bash
-curl -X POST "https://your-truppm/api/v1/projects/${PROJECT_ID}/api-tokens/" \
+curl -X POST "https://your-trueppm/api/v1/projects/${PROJECT_ID}/api-tokens/" \
   -H "Authorization: Bearer ${YOUR_JWT}" \
   -d '{
     "name": "Linear",
@@ -63,7 +63,7 @@ curl -X POST "https://your-truppm/api/v1/projects/${PROJECT_ID}/api-tokens/" \
 ### 2. Push tasks
 
 ```bash
-curl -X POST "https://your-truppm/api/v1/projects/${PROJECT_ID}/task-sync/" \
+curl -X POST "https://your-trueppm/api/v1/projects/${PROJECT_ID}/task-sync/" \
   -H "Authorization: Bearer ${TPPM_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
@@ -95,7 +95,7 @@ Same payload re-pushed: `created: false`, same `task_id`. The task name, descrip
 ### 3. Revoke a token
 
 ```bash
-curl -X DELETE "https://your-truppm/api/v1/projects/${PROJECT_ID}/api-tokens/${TOKEN_ID}/" \
+curl -X DELETE "https://your-trueppm/api/v1/projects/${PROJECT_ID}/api-tokens/${TOKEN_ID}/" \
   -H "Authorization: Bearer ${YOUR_JWT}"
 ```
 
@@ -158,7 +158,7 @@ If an inbound push references an email that doesn't match any current project me
 PMs can see the count of unresolved assignees on the project detail response:
 
 ```bash
-curl "https://your-truppm/api/v1/projects/${PROJECT_ID}/" \
+curl "https://your-trueppm/api/v1/projects/${PROJECT_ID}/" \
   -H "Authorization: Bearer ${YOUR_JWT}" \
   | jq '.unresolved_assignee_count'
 ```
@@ -170,7 +170,7 @@ A non-zero count usually means a new contributor still needs to be invited to th
 Every token mint, revoke, and use is recorded in an append-only audit log:
 
 ```bash
-curl "https://your-truppm/api/v1/projects/${PROJECT_ID}/api-token-audit/" \
+curl "https://your-trueppm/api/v1/projects/${PROJECT_ID}/api-token-audit/" \
   -H "Authorization: Bearer ${YOUR_JWT}"
 ```
 

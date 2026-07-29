@@ -9,8 +9,10 @@ This page documents functionality added in **TruePPM 0.2**, available since the 
 :::
 
 TruePPM's workspace is the installation itself — a single-tenant configuration
-row that backs the three pages under **Workspace → Settings**: General, Members,
-and Groups & teams (#517/#518/#519, ADR-0087).
+row that backs the pages under **Workspace → Settings**: General, Members,
+Invites, Groups & teams, and Programs, plus workspace archive/delete actions
+(#517/#518/#519, ADR-0087). ADR-0087 scoped the original three — General,
+Members, and Groups & teams — and the section has grown since.
 
 Multi-tenancy is an Enterprise feature. In the community edition there is exactly
 one workspace per deployment.

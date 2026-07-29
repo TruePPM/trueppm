@@ -7,11 +7,11 @@ description: Preliminary hardware sizing best-guesses for 50, 100, and 200 concu
 The **[Tested envelope](#tested-envelope)** section immediately below reports *measured* data-shape limits. Everything after it — the CPU/RAM/replica tiers — remains a **preliminary best-guess, not a benchmarked guarantee.** Large-scale hardening is on the pre-1.0 roadmap. Treat every hardware figure on this page as a starting point to **load-test against your own workload** before committing budget.
 :::
 
-This page has two halves. The **tested envelope** states what the 0.4 beta has actually been measured to hold and names the constraint that sets each ceiling. The **sizing tiers** that follow are derived from the shipped Helm defaults and the shape of the workload, not from measured capacity — adjust them once you have run TruePPM against your real schedules.
+This page has two halves. The **tested envelope** states what a pre-release build ahead of the 0.4 beta tag has been measured to hold and names the constraint that sets each ceiling. The **sizing tiers** that follow are derived from the shipped Helm defaults and the shape of the workload, not from measured capacity — adjust them once you have run TruePPM against your real schedules.
 
 ## Tested envelope
 
-Measured for **0.4 beta**, on **2026-07-26**, against commit `89fc5137f`.
+Measured against a pre-release build ahead of the **0.4 beta** tag, on **2026-07-26**, against commit `89fc5137f`.
 
 These are the numbers TruePPM has been *tested* to hold. They are not the maximum it can hold, and they are not a promise about your hardware. Where a ceiling is set by known, already-triaged work, that issue is named — so you can judge whether your shape of project sits near an edge.
 
