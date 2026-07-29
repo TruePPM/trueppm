@@ -138,6 +138,45 @@ describe('useTogglePin — optimistic cache patching', () => {
       expect(cached?.[0]?.id).toBe('new');
     });
   });
+
+  it('patches a project row keyed under its PROGRAM, not under ["projects"]', async () => {
+    // useProgramProjects keys the Program → Projects tab as
+    // ['programs', {programId}, 'projects'] — the owning program, not the
+    // entity being pinned — so the ['projects'] prefix never reached it and the
+    // toggle sat inert on that surface until a manual refetch (#2553).
+    postMock.mockResolvedValue({ data: {} });
+    const qc = newClient();
+    qc.setQueryData(['programs', 'g1', 'projects'], [{ id: 'p1', isPinned: false }]);
+
+    const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
+    act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true }));
+
+    await waitFor(() => {
+      const cached = qc.getQueryData<{ isPinned: boolean }[]>(['programs', 'g1', 'projects']);
+      expect(cached?.[0]?.isPinned).toBe(true);
+    });
+  });
+
+  it('leaves an unrelated program-scoped cache entry referentially identical', async () => {
+    // The consequence of the broad ['programs'] sweep above: it spans every
+    // program-scoped list. Rebuilding arrays that hold no copy of the pinned
+    // project would re-render those surfaces for nothing, so a no-match map
+    // must return the original array.
+    postMock.mockResolvedValue({ data: {} });
+    const qc = newClient();
+    const otherRows = [{ id: 'someone-else', isPinned: false }];
+    qc.setQueryData(['programs', 'g1', 'projects'], [{ id: 'p1', isPinned: false }]);
+    qc.setQueryData(['programs', 'g2', 'projects'], otherRows);
+
+    const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
+    act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true }));
+
+    await waitFor(() => {
+      const patched = qc.getQueryData<{ isPinned: boolean }[]>(['programs', 'g1', 'projects']);
+      expect(patched?.[0]?.isPinned).toBe(true);
+    });
+    expect(qc.getQueryData(['programs', 'g2', 'projects'])).toBe(otherRows);
+  });
 });
 
 describe('useTogglePin — failure handling', () => {

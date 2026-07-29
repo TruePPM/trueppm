@@ -155,6 +155,7 @@ Pin from any of these:
 - the **pin in the Project Overview header**, beside the project's actions;
 - the **pin beside a program's name** on its Overview;
 - the **pin in the top corner of a program card** on the Programs directory;
+- the **project rows on a program's Projects tab**;
 - the **project and program rows** in the sidebar's Browse switcher;
 - the command palette — <kbd>Cmd</kbd>+<kbd>K</kbd> (<kbd>Ctrl</kbd>+<kbd>K</kbd> on
   Windows and Linux) opens on your pins, and typing a name offers **Pin** and

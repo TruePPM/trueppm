@@ -18,6 +18,8 @@ interface ApiProject {
   /** Per-project rollup counts annotated by this endpoint (issue 560). */
   overdue_count?: number | null;
   at_risk_count?: number | null;
+  /** The requesting user's own pin (#2390); annotated per-caller (#2553). */
+  is_pinned?: boolean;
 }
 
 /**
@@ -48,6 +50,12 @@ export function useProgramProjects(
         inheritedMethodology: p.inherited_methodology,
         overdueCount: p.overdue_count ?? null,
         atRiskCount: p.at_risk_count ?? null,
+        // Dropping this rendered every pinned project on the Projects tab as
+        // unpinned (#2553) — and because the toggle is hover-revealed until it
+        // is pinned, as nothing at all at rest. `useTogglePin` patches the
+        // camelCase `isPinned` flag on cached rows, so the domain object has to
+        // carry it for the optimistic flip to land here too.
+        isPinned: p.is_pinned ?? false,
       }));
     },
     enabled: !!programId,
