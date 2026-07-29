@@ -35,6 +35,7 @@ class ShareLinkSerializer(serializers.ModelSerializer[ShareLink]):
             "token_prefix",
             "label",
             "show_assignees",
+            "show_milestone_dates",
             "created_by",
             "created_at",
             "expires_at",
@@ -62,6 +63,9 @@ class ShareLinkCreateSerializer(serializers.Serializer[Any]):
         max_length=120, required=False, allow_blank=True, default=""
     )
     show_assignees = serializers.BooleanField(required=False, default=False)
+    # Schedule links only (#2532). Defaults TRUE — omitting it must mint exactly the
+    # link a pre-#2532 client minted, so this is an opt-out, not an opt-in.
+    show_milestone_dates = serializers.BooleanField(required=False, default=True)
     # Which view the link exposes; defaults to board for backward compatibility
     # with pre-#1486 clients that never sent the field.
     content_kind = serializers.ChoiceField(
@@ -77,6 +81,20 @@ class ShareLinkCreateSerializer(serializers.Serializer[Any]):
         if value is not None and value <= timezone.now():
             raise serializers.ValidationError("Expiry must be in the future.")
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Force ``show_milestone_dates`` back to True on a non-schedule link (#2532).
+
+        The board projection publishes milestone cards *with their due dates* and has
+        no notion of this flag, so persisting a client's ``false`` would store — and
+        echo back through the read serializer — a restriction the public board
+        endpoint does not apply. Rather than 400 on a field that is merely
+        inapplicable, normalize it, so the stored row can never claim a guarantee the
+        server is not keeping.
+        """
+        if attrs.get("content_kind") != ShareContentKind.SCHEDULE:
+            attrs["show_milestone_dates"] = True
+        return attrs
 
 
 class ShareLinkCreateResponseSerializer(ShareLinkSerializer):

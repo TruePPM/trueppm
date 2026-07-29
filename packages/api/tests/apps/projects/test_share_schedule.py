@@ -24,6 +24,7 @@ from trueppm_api.apps.projects.models import (
     Dependency,
     Project,
     ShareContentKind,
+    ShareLink,
     Task,
     TaskStatus,
 )
@@ -237,6 +238,118 @@ def test_public_schedule_assignee_only_when_enabled(project):
     task = next(t for t in body["tasks"] if t["name"] == "Frame walls")
     assert task["assignee"] is not None
     assert "Dana" in task["assignee"]
+
+
+# --------------------------------------------------------------------------- #
+# Milestone reveal toggle (#2532)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db
+def test_mint_defaults_show_milestone_dates_to_true(admin_client, project):
+    """The default is the whole point: a pre-#2532 client that never sends the field
+    must mint a link that exposes exactly what it exposed before — milestones shown."""
+    resp = admin_client.post(_links_url(project), {"content_kind": "schedule"}, format="json")
+    assert resp.status_code == 201
+    assert resp.data["show_milestone_dates"] is True
+    link = ShareLink.objects.get(pk=resp.data["id"])
+    assert link.show_milestone_dates is True
+
+
+@pytest.mark.django_db
+def test_service_mint_defaults_show_milestone_dates_to_true(project):
+    link, _raw = share_services.mint_share_link(
+        project, None, content_kind=ShareContentKind.SCHEDULE
+    )
+    assert link.show_milestone_dates is True
+
+
+@pytest.mark.django_db
+def test_admin_can_mint_a_schedule_link_with_milestones_hidden(admin_client, project):
+    resp = admin_client.post(
+        _links_url(project),
+        {"content_kind": "schedule", "show_milestone_dates": False},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert resp.data["show_milestone_dates"] is False
+
+
+@pytest.mark.django_db
+def test_board_mint_normalizes_show_milestone_dates_back_to_true(admin_client, project):
+    """The board projection publishes milestone cards WITH their due dates and never
+    reads this flag, so accepting a board-side ``false`` would store — and echo back —
+    a restriction the public board endpoint does not apply. Normalize, don't lie."""
+    resp = admin_client.post(
+        _links_url(project),
+        {"content_kind": "board", "show_milestone_dates": False},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert resp.data["show_milestone_dates"] is True
+    assert ShareLink.objects.get(pk=resp.data["id"]).show_milestone_dates is True
+
+
+@pytest.mark.django_db
+def test_public_board_still_publishes_milestone_cards(admin_client, project):
+    """Guards the normalization above end-to-end: whatever a client sends, the shared
+    board's milestone cards are unaffected — this control is schedule-only."""
+    _seed_schedule(project)
+    resp = admin_client.post(
+        _links_url(project),
+        {"content_kind": "board", "show_milestone_dates": False},
+        format="json",
+    )
+    body = APIClient().get(_board_url(resp.data["token"])).data
+    cards = [c for col in body["columns"] for c in col["cards"]]
+    assert any(c["is_milestone"] for c in cards)
+
+
+@pytest.mark.django_db
+def test_public_schedule_includes_milestones_by_default(project):
+    _seed_schedule(project)
+    _link, raw = share_services.mint_share_link(
+        project, None, content_kind=ShareContentKind.SCHEDULE
+    )
+    body = APIClient().get(_schedule_url(raw)).data
+    assert body["show_milestone_dates"] is True
+    assert "Foundation done" in {t["name"] for t in body["tasks"]}
+    assert any(t["is_milestone"] for t in body["tasks"])
+
+
+@pytest.mark.django_db
+def test_public_schedule_omits_milestone_rows_when_disabled(project):
+    """Withheld at the projection, not dimmed at the renderer: the row must never
+    reach the payload, because the public page draws the diamond and its dated label
+    straight from it."""
+    _seed_schedule(project)
+    _link, raw = share_services.mint_share_link(
+        project, None, content_kind=ShareContentKind.SCHEDULE, show_milestone_dates=False
+    )
+    body = APIClient().get(_schedule_url(raw)).data
+    assert body["show_milestone_dates"] is False
+    names = {t["name"] for t in body["tasks"]}
+    assert "Foundation done" not in names
+    # Non-milestone work is untouched — this hides dates, it does not hide the plan.
+    assert names == {"Frame walls", "Pour slab"}
+    assert not any(t["is_milestone"] for t in body["tasks"])
+
+
+@pytest.mark.django_db
+def test_hidden_milestone_drops_its_dependency_edges(project):
+    """An edge whose endpoint was withheld must not be emitted — a dangling arrow
+    would leak the milestone's existence and its date by position."""
+    t1, _t2, milestone = _seed_schedule(project)
+    Dependency.objects.create(predecessor=t1, successor=milestone, dep_type="FS", lag=0)
+    _link, raw = share_services.mint_share_link(
+        project, None, content_kind=ShareContentKind.SCHEDULE, show_milestone_dates=False
+    )
+    body = APIClient().get(_schedule_url(raw)).data
+    published = {t["short_id"] for t in body["tasks"]}
+    for edge in body["dependencies"]:
+        assert edge["predecessor_short_id"] in published
+        assert edge["successor_short_id"] in published
+    assert milestone.short_id not in published
 
 
 @pytest.mark.django_db

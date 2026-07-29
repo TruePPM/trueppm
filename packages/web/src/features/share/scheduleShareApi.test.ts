@@ -19,6 +19,7 @@ describe('fetchPublicSchedule', () => {
       tasks: [],
       dependencies: [],
       show_assignees: false,
+      show_milestone_dates: true,
       truncated: false,
     };
     const get = vi.spyOn(axios, 'get').mockResolvedValue({ data: schedule });
