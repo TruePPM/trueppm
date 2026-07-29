@@ -231,6 +231,11 @@ source of truth. Mirrors the subchart naming convention (`<release>-postgresql`,
 DATABASE_URL / REDIS_URL env entries, sourced from the chart-owned connection
 Secret via secretKeyRef. Used by the API and Celery worker containers so the
 password is never rendered into the Deployment manifest in plaintext.
+
+The Valkey Sentinel block is appended here rather than in each Deployment so it
+reaches every container that already receives REDIS_URL. Adding it per-workload
+would silently miss one — and a worker that resolves a different primary from the
+API is exactly the split-brain this issue set out to remove.
 */}}
 {{- define "trueppm.connectionEnv" -}}
 - name: DATABASE_URL
@@ -243,6 +248,7 @@ password is never rendered into the Deployment manifest in plaintext.
     secretKeyRef:
       name: {{ include "trueppm.urlSecretName" . }}
       key: REDIS_URL
+{{- include "trueppm.valkeySentinelEnv" . }}
 {{- end -}}
 
 {{/*
@@ -370,7 +376,59 @@ operator-supplied `.Values.env.REDIS_URL` when valkey.enabled is false.
 {{- else -}}
 {{- printf "redis://%s:6379" $host -}}
 {{- end -}}
+{{- else if (include "trueppm.valkeySentinelEnabled" .) -}}
+{{/* Sentinel mode discovers the primary from the sentinels, so there is no
+     single URL to supply. Emit the app's own default rather than requiring one;
+     settings ignores REDIS_URL entirely when TRUEPPM_VALKEY_SENTINELS is set,
+     and its trueppm.valkey.W001 check warns if a stale value is left behind. */}}
+{{- printf "redis://redis:6379" -}}
 {{- else -}}
-{{- required "valkey.enabled is false: set env.REDIS_URL to your managed Redis/Valkey URL" (index .Values.env "REDIS_URL") -}}
+{{- required "valkey.enabled is false: set env.REDIS_URL to your managed Valkey/Redis URL, or configure valkey.sentinel" (index .Values.env "REDIS_URL") -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+Whether external Valkey Sentinel is configured. Non-empty string = true (Helm's
+truthiness convention for template output). Sentinel REPLACES the bundled pod, so
+it is only honored when valkey.enabled is false — otherwise an operator who set
+both would get a chart that renders bundled-pod credentials while the app talks
+to a completely different cluster, with nothing to signal the mismatch.
+*/}}
+{{- define "trueppm.valkeySentinelEnabled" -}}
+{{- if and (not .Values.valkey.enabled) .Values.valkey.sentinel .Values.valkey.sentinel.enabled -}}
+{{- required "valkey.sentinel.enabled is true: set valkey.sentinel.nodes to a comma-separated host:port list" .Values.valkey.sentinel.nodes | trim | trunc 0 -}}
+{{- required "valkey.sentinel.enabled is true: set valkey.sentinel.masterName to the name the sentinels monitor (e.g. mymaster)" .Values.valkey.sentinel.masterName | trim | trunc 0 -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Non-secret Valkey Sentinel env for the API and worker containers. The two
+passwords are deliberately NOT here — they go through the chart-owned connection
+Secret via trueppm.valkeySentinelSecretEnv so they are never rendered in
+plaintext into a Deployment manifest.
+*/}}
+{{- define "trueppm.valkeySentinelEnv" -}}
+{{- if (include "trueppm.valkeySentinelEnabled" .) }}
+- name: TRUEPPM_VALKEY_SENTINELS
+  value: {{ .Values.valkey.sentinel.nodes | quote }}
+- name: TRUEPPM_VALKEY_MASTER_NAME
+  value: {{ .Values.valkey.sentinel.masterName | quote }}
+- name: TRUEPPM_VALKEY_USE_TLS
+  value: {{ .Values.valkey.sentinel.tls | default false | quote }}
+{{- if .Values.valkey.sentinel.password }}
+- name: TRUEPPM_VALKEY_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "trueppm.urlSecretName" . }}
+      key: TRUEPPM_VALKEY_PASSWORD
+{{- end }}
+{{- if .Values.valkey.sentinel.sentinelPassword }}
+- name: TRUEPPM_VALKEY_SENTINEL_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "trueppm.urlSecretName" . }}
+      key: TRUEPPM_VALKEY_SENTINEL_PASSWORD
+{{- end }}
+{{- end }}
 {{- end -}}

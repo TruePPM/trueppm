@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import redis as redis_lib
 from django.db.models import QuerySet
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
@@ -68,12 +67,11 @@ class ProjectTaskRunViewSet(
                 status=status.HTTP_409_CONFLICT,
             )
 
-        from django.conf import settings
-
         from trueppm_api.apps.taskruns.tracker import _CANCEL_KEY, _CANCEL_TTL
+        from trueppm_api.core import valkey
 
         try:
-            r = redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
+            r = valkey.client(valkey.DB_CELERY, decode_responses=True)
             cancel_key = _CANCEL_KEY.format(task_run_id=str(task_run.pk))
             r.set(cancel_key, "1", ex=_CANCEL_TTL)
         except Exception:

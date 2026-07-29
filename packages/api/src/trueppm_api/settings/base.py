@@ -9,6 +9,7 @@ from pathlib import Path
 import environ
 
 from trueppm_api.core.ratelimit import apply_rate_limit_disable, resolve_rate_limit_enabled
+from trueppm_api.core.valkey_config import parse_sentinels
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -271,24 +272,84 @@ TRUEPPM_PUBLIC_API_BASE_URL = env("TRUEPPM_PUBLIC_API_BASE_URL", default="")
 
 REDIS_URL = env("REDIS_URL", default="redis://redis:6379")
 
+# --- Valkey topology (ADR-0716, #2554) ------------------------------------
+# Sentinel mode is EXPERIMENTAL as of 0.4: the wiring below is unit-tested, but no
+# live-quorum failover has been exercised (the bundled dev stack is single-node).
+# Setting TRUEPPM_VALKEY_SENTINELS switches every consumer to Sentinel mode; left
+# empty (the default) everything below derives from REDIS_URL exactly as before,
+# so an existing deploy needs no config change. Sentinel is a *block* rather than
+# per-role URL overrides because the blocking constraint is that neither
+# channels-redis nor the Django cache can express Sentinel as a URL at all — see
+# ADR-0716 for the rejected alternatives. Cluster mode is unsupported: a clustered
+# endpoint exposes only db 0 and we use four (0 Celery, 1 Channels, 2 cache, 3
+# notification throttles).
+VALKEY_SENTINELS_RAW = env("TRUEPPM_VALKEY_SENTINELS", default="")
+VALKEY_MASTER_NAME = env("TRUEPPM_VALKEY_MASTER_NAME", default="")
+VALKEY_PASSWORD = env("TRUEPPM_VALKEY_PASSWORD", default="")
+# Sentinel nodes commonly carry a different password from the data nodes (often
+# none at all), so this is deliberately separate rather than reusing the above.
+VALKEY_SENTINEL_PASSWORD = env("TRUEPPM_VALKEY_SENTINEL_PASSWORD", default="")
+VALKEY_USE_TLS = env.bool("TRUEPPM_VALKEY_USE_TLS", default=False)
+
+try:
+    VALKEY_SENTINELS: list[tuple[str, int]] = parse_sentinels(VALKEY_SENTINELS_RAW)
+except ValueError:
+    # A malformed entry must not raise out of settings import — that surfaces as an
+    # unreadable traceback before Django can report anything. Fall back to
+    # single-endpoint mode and let core.valkey_checks emit trueppm.valkey.E002,
+    # which names the bad entry and refuses the boot cleanly.
+    VALKEY_SENTINELS = []
+
+VALKEY_SENTINEL_MODE = bool(VALKEY_SENTINELS)
+
 # Shared cache backend (Valkey/Redis db 2 — db 1 is the channel layer, db 0 is
 # Celery). Backs the short-lived, single-use OIDC login state / PKCE verifier /
 # nonce (ADR-0187 §Durable Execution) and the DRF scoped throttles, both of which
 # must be consistent across worker processes in a multi-worker deploy. ``dev.py``
 # overrides this to LocMemCache so a local run / pytest needs no separate cache
 # service (single process, so per-process memory is sufficient there).
+# In Sentinel mode the backend swaps to our own RedisCache subclass (ADR-0716) —
+# Django's built-in has no Sentinel support, and subclassing it is ~30 lines
+# against adding django-redis, which ADR-0065/0068 declined.
 CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": f"{REDIS_URL}/2",
-    },
+    "default": (
+        {
+            "BACKEND": "trueppm_api.core.valkey_cache.SentinelRedisCache",
+            # LOCATION is ignored by that backend (topology comes from the
+            # TRUEPPM_VALKEY_* settings) but Django requires the key present.
+            "LOCATION": "",
+        }
+        if VALKEY_SENTINEL_MODE
+        else {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": f"{REDIS_URL}/2",
+        }
+    ),
 }
+
+# channels-redis accepts Sentinel ONLY as a dict host — it can never be carried in
+# a URL, which is the single fact that made Sentinel unreachable before ADR-0716.
+_CHANNEL_HOST: dict[str, object] | str = (
+    {
+        "sentinels": VALKEY_SENTINELS,
+        "master_name": VALKEY_MASTER_NAME,
+        "db": 1,
+        **({"password": VALKEY_PASSWORD} if VALKEY_PASSWORD else {}),
+        **(
+            {"sentinel_kwargs": {"password": VALKEY_SENTINEL_PASSWORD}}
+            if VALKEY_SENTINEL_PASSWORD
+            else {}
+        ),
+    }
+    if VALKEY_SENTINEL_MODE
+    else f"{REDIS_URL}/1"
+)
 
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [f"{REDIS_URL}/1"],
+            "hosts": [_CHANNEL_HOST],
             "capacity": 1500,
             "expiry": 10,
         },
@@ -305,8 +366,30 @@ TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED: bool = env.bool(
     "TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED", default=False
 )
 
-CELERY_BROKER_URL = f"{REDIS_URL}/0"
-CELERY_RESULT_BACKEND = f"{REDIS_URL}/0"
+# Celery accepts a sentinel:// URL, but ONLY together with a master_name in the
+# transport options — the URL alone silently connects to whichever sentinel
+# answers rather than to the primary. Broker and result backend take separate
+# option dicts; setting only broker_transport_options is the common half-fix and
+# leaves the result backend pointed at a sentinel port (ADR-0716).
+if VALKEY_SENTINEL_MODE:
+    _sentinel_authority = ";".join(
+        f"sentinel://{f':{VALKEY_PASSWORD}@' if VALKEY_PASSWORD else ''}{host}:{port}"
+        for host, port in VALKEY_SENTINELS
+    )
+    CELERY_BROKER_URL = _sentinel_authority
+    CELERY_RESULT_BACKEND = _sentinel_authority
+    _celery_transport_options: dict[str, object] = {
+        "master_name": VALKEY_MASTER_NAME,
+        "db": 0,
+    }
+    if VALKEY_SENTINEL_PASSWORD:
+        _celery_transport_options["sentinel_kwargs"] = {"password": VALKEY_SENTINEL_PASSWORD}
+    CELERY_BROKER_TRANSPORT_OPTIONS = _celery_transport_options
+    CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS = _celery_transport_options
+else:
+    CELERY_BROKER_URL = f"{REDIS_URL}/0"
+    CELERY_RESULT_BACKEND = f"{REDIS_URL}/0"
+
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"

@@ -113,7 +113,12 @@ knobs operators reach for first:
 | Key | Default | What it does |
 |---|---|---|
 | `env.DJANGO_SETTINGS_MODULE` | `trueppm_api.settings.prod` | Settings module. |
-| `env.DATABASE_URL` / `env.REDIS_URL` | unset | **Required** when the bundled datastores are disabled — the chart fails the render if either is missing. Supply via an external Secret. |
+| `env.DATABASE_URL` / `env.REDIS_URL` | unset | **Required** when the bundled datastores are disabled — the chart fails the render if either is missing. Supply via an external Secret. `env.REDIS_URL` is **not** required when `valkey.sentinel.enabled` is true. |
+| `valkey.sentinel.enabled` | `false` | **Experimental** (0.4). Use a Valkey Sentinel topology instead of a single endpoint. Only honored when `valkey.enabled` is `false`. Validate a real failover in staging before depending on it. |
+| `valkey.sentinel.nodes` | `""` | Comma-separated `host:port` Sentinel list. **Required** when `valkey.sentinel.enabled` is true. |
+| `valkey.sentinel.masterName` | `""` | Name the Sentinels monitor the primary under. **Required** when `valkey.sentinel.enabled` is true. |
+| `valkey.sentinel.password` / `.sentinelPassword` | `""` | Data-node and Sentinel-node passwords. Routed through the chart-owned connection Secret, never rendered into a Deployment. |
+| `valkey.sentinel.tls` | `false` | Use TLS to the Valkey data nodes. |
 | `env.TRUEPPM_FRONTEND_BASE_URL` | `""` | Public origin for absolute deep-links in notification emails. |
 | `env.TRUEPPM_THROTTLE_ANON_RATE` / `_USER_RATE` | `60/min` / `1000/min` | API rate limits; probe endpoints are always exempt. |
 | `env.TRUEPPM_NUM_PROXIES` | `"1"` | Trusted reverse-proxy depth for real-client-IP extraction. A wrong value lets clients spoof `X-Forwarded-For`. |

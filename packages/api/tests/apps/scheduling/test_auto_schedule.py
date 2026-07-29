@@ -104,10 +104,10 @@ def test_schedule_lock_collision_requeues(project: Project) -> None:
     mock_redis.set.return_value = None
 
     with (
-        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.core.idempotent.valkey") as mock_redis_module,
         patch.object(recalculate_schedule, "apply_async") as mock_apply,
     ):
-        mock_redis_module.from_url.return_value = mock_redis
+        mock_redis_module.client.return_value = mock_redis
 
         # Call the task's run() method directly so self=recalculate_schedule
         # (the Celery task instance), which is what bind=True provides at runtime.
@@ -136,11 +136,11 @@ def test_successful_recalc_stamps_recalculated_at(project: Project, task: Task) 
     mock_redis.set.return_value = "OK"
 
     with (
-        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.core.idempotent.valkey") as mock_redis_module,
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
         patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
     ):
-        mock_redis_module.from_url.return_value = mock_redis
+        mock_redis_module.client.return_value = mock_redis
         recalculate_schedule.run(str(project.pk))
 
     project.refresh_from_db()
@@ -168,11 +168,11 @@ def test_completed_task_without_actuals_keeps_full_span(project: Project) -> Non
     mock_redis = MagicMock()
     mock_redis.set.return_value = "OK"  # lock acquired → task body runs
     with (
-        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.core.idempotent.valkey") as mock_redis_module,
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
         patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
     ):
-        mock_redis_module.from_url.return_value = mock_redis
+        mock_redis_module.client.return_value = mock_redis
         recalculate_schedule.run(str(project.pk))
 
     done.refresh_from_db()
@@ -413,11 +413,11 @@ def _run_recalc(project: Project) -> None:
     mock_redis = MagicMock()
     mock_redis.set.return_value = "OK"  # lock acquired → task body runs
     with (
-        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.core.idempotent.valkey") as mock_redis_module,
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
         patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
     ):
-        mock_redis_module.from_url.return_value = mock_redis
+        mock_redis_module.client.return_value = mock_redis
         recalculate_schedule.run(str(project.pk))
 
 
@@ -517,11 +517,11 @@ def test_backlog_and_soft_deleted_tasks_are_excluded_from_cpm(project: Project) 
     mock_redis = MagicMock()
     mock_redis.set.return_value = "OK"  # lock acquired → task body runs
     with (
-        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.core.idempotent.valkey") as mock_redis_module,
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
         patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
     ):
-        mock_redis_module.from_url.return_value = mock_redis
+        mock_redis_module.client.return_value = mock_redis
         recalculate_schedule.run(str(project.pk))
 
     committed.refresh_from_db()

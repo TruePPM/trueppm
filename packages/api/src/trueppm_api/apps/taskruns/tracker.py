@@ -210,10 +210,9 @@ class TaskRunTracker:
 
     def _get_redis(self) -> Any:
         try:
-            import redis as redis_lib
-            from django.conf import settings
+            from trueppm_api.core import valkey
 
-            return redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
+            return valkey.client(valkey.DB_CELERY, decode_responses=True)
         except Exception:
             return None
 

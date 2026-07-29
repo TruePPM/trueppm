@@ -11,9 +11,9 @@ import logging
 from typing import TYPE_CHECKING, cast
 
 import redis
-from django.conf import settings
 from rest_framework.throttling import BaseThrottle
 
+from trueppm_api.core import valkey
 from trueppm_api.core.ratelimit import bypass_when_disabled
 from trueppm_api.core.redis_throttle import incrby_with_ttl
 
@@ -31,11 +31,9 @@ _pool: redis.ConnectionPool | None = None
 def _client() -> redis.Redis:
     global _pool
     if _pool is None:
-        # /3 reserved for mention-counter buckets (distinct from task-sync /2)
-        _pool = redis.ConnectionPool.from_url(
-            f"{settings.REDIS_URL}/3",
-            decode_responses=True,
-        )
+        # DB_NOTIFICATIONS (/3) is reserved for mention-counter buckets,
+        # distinct from the task-sync counters on DB_CACHE (/2).
+        _pool = valkey.pool(valkey.DB_NOTIFICATIONS, decode_responses=True)
     return redis.Redis(connection_pool=_pool)
 
 

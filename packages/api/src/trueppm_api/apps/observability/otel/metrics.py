@@ -455,12 +455,15 @@ def _broker_queue_depth_rows() -> list[tuple[str, int]]:
     A short redis-py socket timeout bounds the probe so an unreachable broker can
     never stall the exporter thread; the client is always closed afterward.
     """
-    import redis
-    from django.conf import settings
+    from trueppm_api.core import valkey
 
     queue_names = _broker_queue_names()
-    client = redis.from_url(
-        settings.CELERY_BROKER_URL,
+    # Goes through the factory rather than redis.from_url(settings.CELERY_BROKER_URL):
+    # in Sentinel mode that setting is a ``sentinel://`` URL, which redis-py's
+    # from_url cannot parse at all (ADR-0716). DB_CELERY is the same database the
+    # broker URL addresses in either mode.
+    client = valkey.client(
+        valkey.DB_CELERY,
         socket_timeout=_BROKER_PROBE_TIMEOUT_S,
         socket_connect_timeout=_BROKER_PROBE_TIMEOUT_S,
     )

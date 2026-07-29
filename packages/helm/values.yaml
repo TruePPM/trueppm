@@ -94,23 +94,60 @@ postgresql:
     database: trueppm
 
 valkey:
-  # Redis-compatible cache. NOTE: this bundled Valkey pod is SINGLE-NODE — no
-  # replication, no failover. It is load-bearing for THREE subsystems at once
-  # (Django Channels real-time layer, Celery broker, and Django cache backend),
-  # so its loss degrades real-time, async, and caching together. For production
-  # on-prem, HA Valkey is effectively mandatory: set `enabled: false` and point
-  # `env.REDIS_URL` at an external replicated or managed endpoint (e.g. AWS
-  # ElastiCache for Valkey, GCP Memorystore for Valkey). Sentinel and Cluster
-  # topologies are NOT supported yet — the three roles are addressed as db 0/1/2
-  # off a single REDIS_URL, which neither topology can express (#2554).
+  # Valkey (BSD-licensed Redis fork, wire-compatible). NOTE: this bundled Valkey
+  # pod is SINGLE-NODE — no replication, no failover. It is load-bearing for
+  # FOUR subsystems at once (Django Channels real-time layer, Celery broker,
+  # Django cache backend, and notification throttles), so its loss degrades
+  # real-time, async, and caching together. For production on-prem, an HA
+  # topology is effectively mandatory: set `enabled: false` and either point
+  # `env.REDIS_URL` at a replicated endpoint that survives failover (e.g. AWS
+  # ElastiCache for Valkey, GCP Memorystore for Valkey), or configure
+  # `valkey.sentinel` below.
+  #
+  # Supported HA topologies (ADR-0716): a replicated primary behind ONE stable
+  # endpoint (managed service, Service, or VIP), or Sentinel (EXPERIMENTAL in
+  # 0.4 — see the sentinel block below). Cluster mode is
+  # NOT supported — a clustered endpoint exposes only database 0 and TruePPM
+  # uses four (0 Celery, 1 Channels, 2 cache, 3 notification throttles).
   # See docs → Administration → Valkey High Availability
   # (packages/website/src/content/docs/administration/valkey-ha.md).
+  #
   # Auth is ON by default. Leave password empty to have the chart generate and
   # persist a strong random password (same pattern as postgresql.auth.password).
   enabled: true
   auth:
     enabled: true
     password: ""
+
+  # External Valkey Sentinel (#2554, ADR-0716). EXPERIMENTAL in 0.4: the wiring
+  # is unit-tested (every consumer gets the right topology, database, and
+  # credentials) but has NOT been verified against a live Sentinel quorum
+  # performing a real failover — the bundled dev stack is single-node, so there
+  # is no end-to-end promotion test. Validate a full failover in staging before
+  # depending on it; prefer a replicated primary behind one stable endpoint if
+  # you need an already-proven path.
+  #
+  # Only consulted when `valkey.enabled: false` — Sentinel replaces the bundled
+  # pod, it does not front it. When `sentinel.enabled: true`, `env.REDIS_URL` is
+  # no longer required: the primary is discovered from the Sentinels at connect
+  # time, so failover is designed to need no restart and no config change.
+  sentinel:
+    enabled: false
+    # Comma-separated host:port list of the Sentinel nodes. Use three or more —
+    # Sentinel needs a quorum to authorize a failover, so two can never promote.
+    nodes: ""
+    # The name the Sentinels monitor the primary under: the first argument of
+    # `sentinel monitor` in sentinel.conf. Commonly "mymaster".
+    masterName: ""
+    # Password for the DATA nodes (primary/replicas). Rendered into the
+    # chart-owned connection Secret, never into a Deployment manifest.
+    password: ""
+    # Password for the SENTINEL nodes themselves. Deliberately separate —
+    # sentinels frequently carry a different password from the data nodes, or
+    # none at all. Leave empty when the sentinels are unauthenticated.
+    sentinelPassword: ""
+    # Use TLS to the data nodes.
+    tls: false
 
 # NetworkPolicy — ON by default (#1715). The bundled PostgreSQL and Valkey pods
 # speak PLAINTEXT on the pod network (no in-transit TLS), so on a flat network any

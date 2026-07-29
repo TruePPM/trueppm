@@ -55,10 +55,10 @@ def issue_ticket(user_id: str) -> str:
     WebSocket URL. The value is unguessable (256 bits of entropy) and expires
     after :data:`TICKET_TTL_SECONDS`.
     """
-    import redis
+    from trueppm_api.core import valkey
 
     ticket = secrets.token_urlsafe(32)
-    client = redis.from_url(settings.REDIS_URL)
+    client = valkey.client(valkey.DB_CELERY)
     try:
         client.set(_ticket_key(ticket), str(user_id), ex=TICKET_TTL_SECONDS)
     finally:
@@ -72,9 +72,9 @@ async def consume_ticket(ticket: str) -> str | None:
     ``GETDEL`` makes the ticket single-use: a concurrent or replayed consume sees
     ``None``. ``None`` is also returned for an expired or never-issued ticket.
     """
-    import redis.asyncio as aioredis
+    from trueppm_api.core import valkey
 
-    client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+    client = valkey.async_client(valkey.DB_CELERY, decode_responses=True)
     try:
         return await client.getdel(_ticket_key(ticket))  # type: ignore[no-any-return]
     finally:
