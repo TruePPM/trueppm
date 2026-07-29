@@ -93,6 +93,22 @@ def test_samples_endpoint_lists_all(owner: Any) -> None:
     assert all({"key", "title", "description"} <= set(s) for s in resp.data)
 
 
+def test_samples_endpoint_returns_a_bare_array_not_a_pagination_envelope(owner: Any) -> None:
+    """The catalog body is a bare array, and the schema must say so (#2515).
+
+    ``ProgramViewSet`` sets a ``pagination_class``, so drf-spectacular wraps any
+    ``many=True`` response in a ``Paginated…List`` envelope unless the action opts
+    out. It did not, and the committed schema declared an object body that no
+    response satisfied — caught by the nightly ``api:fuzz`` conformance run, not by
+    ``api:schema-drift`` (which only proves the schema matches its own generator).
+    Assert the runtime shape here; the generated schema is asserted in
+    ``tests/test_openapi_pagination_envelope.py``.
+    """
+    resp = _client(owner).get("/api/v1/programs/samples/")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
 def test_samples_endpoint_requires_auth() -> None:
     resp = APIClient().get("/api/v1/programs/samples/")
     assert resp.status_code in (401, 403)

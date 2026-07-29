@@ -78,3 +78,11 @@ schema:SourceEnum
 # now-unused PaginatedTaskRelationList envelope schema is dropped. The
 # /api/v1/task-relations/ path is unchanged; only the phantom component is removed.
 schema:PaginatedTaskRelationList
+
+# #2515 — GET /programs/samples/ advertised a pagination envelope its bare-array
+# response never satisfied (drf-spectacular auto-wraps a many=True response on a
+# viewset that sets pagination_class; the action was missing the
+# @suppress_list_pagination opt-out). The endpoint's body is unchanged — only the
+# phantom envelope component is dropped, as in #2127. The /api/v1/programs/samples/
+# path is unchanged.
+schema:PaginatedSampleCatalogEntryList

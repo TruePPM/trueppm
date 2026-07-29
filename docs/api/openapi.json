@@ -12484,24 +12484,6 @@
                         }
                     },
                     {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "page_size",
-                        "required": false,
-                        "in": "query",
-                        "description": "Number of results to return per page.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "name": "search",
                         "required": false,
                         "in": "query",
@@ -12530,7 +12512,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedSampleCatalogEntryList"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/SampleCatalogEntry"
+                                    }
                                 }
                             }
                         },
@@ -45649,37 +45634,6 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Risk"
-                        }
-                    }
-                }
-            },
-            "PaginatedSampleCatalogEntryList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/SampleCatalogEntry"
                         }
                     }
                 }
