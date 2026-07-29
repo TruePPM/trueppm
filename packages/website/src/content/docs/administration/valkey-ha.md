@@ -4,8 +4,8 @@ description: Why Valkey is load-bearing for real-time, async, and caching at onc
 ---
 
 TruePPM uses **Valkey** — the BSD-3-Clause, Linux Foundation fork of Redis — for
-three distinct roles **at the same time**. A single Valkey outage therefore
-degrades or disables three subsystems simultaneously. For a production on-prem
+four distinct roles **at the same time**. A single Valkey outage therefore
+degrades or disables four subsystems simultaneously. For a production on-prem
 deployment, running Valkey highly available is **effectively mandatory**, not
 optional.
 
@@ -22,19 +22,19 @@ failover**. It is fine for evaluation and small single-team installs, but it is
 collaboration, background jobs, and caching are all affected at once.
 :::
 
-## The dependency surface — one Valkey, three load-bearing roles
+## The dependency surface — one Valkey, four load-bearing roles
 
-Valkey is not a "nice to have" cache you can shed. It is wired into three
-independent subsystems, each on its own logical database index off the same
-`REDIS_URL`:
+Valkey is not a "nice to have" cache you can shed. It is wired into four
+independent subsystems, each on its own logical database index:
 
 | Role | Database | What uses it | What it does |
 |------|----------|--------------|--------------|
 | **Celery broker** | `/0` | Async / background work | Queues every asynchronous job — CPM recalculation drains, MS Project imports, webhook delivery, retention purges, notification email. |
 | **Django Channels layer** | `/1` | Real-time collaboration, WebSocket fan-out | Carries live board/schedule updates and presence between API pods. Every connected client depends on it. |
 | **Django cache backend** | `/2` | Read-path caching, rate limiting, transient state | Backs cached reads, DRF throttle counters, and short-lived OIDC/OAuth login state (the PKCE verifier and nonce for an in-flight SSO login). |
+| **Notification throttles** | `/3` | Mention fan-out limits | Counters bounding notification volume per user. |
 
-Because all three point at the same Valkey instance, its availability is a
+Because all four point at the same Valkey instance, its availability is a
 **shared fate**: a broker outage is also a Channels outage is also a cache outage.
 Sizing and hardening Valkey is therefore a production concern on par with the
 database, not an afterthought.
@@ -42,31 +42,75 @@ database, not an afterthought.
 ## Which HA topologies TruePPM supports today
 
 This is the part that determines your deployment, so read it before choosing a
-topology.
-
-TruePPM derives all three roles from a single `REDIS_URL` by appending the
-database index. That shape constrains which HA topologies you can actually
-configure:
+topology. TruePPM addresses **four logical databases**, which is what decides
+whether a given topology can work at all:
 
 | Topology | Supported | Notes |
 |----------|-----------|-------|
-| **Replicated Valkey behind one stable endpoint** | Yes | Primary with one or more replicas, fronted by a managed service endpoint, Kubernetes Service, or VIP that always resolves to the current primary. **This is the recommended production path.** |
+| **Replicated Valkey behind one stable endpoint** | Yes | Primary with one or more replicas, fronted by a managed service endpoint, Kubernetes Service, or VIP that always resolves to the current primary. **The simplest production path.** |
 | **Managed Valkey / Redis-compatible service** | Yes | Cluster mode must be **disabled** — see below. The provider handles failover, patching, and backups. |
-| **Sentinel** | Not yet | Requires per-role configuration TruePPM does not expose. Tracked in [#2554](https://gitlab.com/trueppm/trueppm/-/issues/2554). |
-| **Cluster mode** | Not yet | Cluster exposes only database `0`, so the `/1` and `/2` indexes are invalid against a clustered endpoint. Tracked in [#2554](https://gitlab.com/trueppm/trueppm/-/issues/2554). |
+| **Sentinel** | Yes | Ships in 0.4. Configure it with the `TRUEPPM_VALKEY_*` settings below; all four databases follow the primary across a failover with no restart. |
+| **Cluster mode** | **No** | Not supported, and not planned. A clustered endpoint exposes only database `0`, and TruePPM uses four. The Channels layer has no cluster support in any case. |
 
-:::caution[Do not configure Sentinel or Cluster yet]
-Pointing `REDIS_URL` at Sentinel endpoints or a cluster-mode-enabled service will
-**not** work. None of the three consumers can resolve a Sentinel primary from a
-URL alone, and two of the three cannot address a non-zero database on a clustered
-endpoint. Follow [#2554](https://gitlab.com/trueppm/trueppm/-/issues/2554) for
-support.
+:::caution[Do not enable Cluster mode]
+Pointing TruePPM at a cluster-mode-enabled endpoint will fail: databases `/1`,
+`/2`, and `/3` are invalid against a clustered server. On a managed service
+(ElastiCache, Memorystore, Azure Managed Redis) choose the
+**cluster-mode-disabled** configuration.
 :::
 
-So the goal is achievable, just narrower than it looks: **no single Valkey process
-whose loss takes down real-time, async, and caching together** — reached with
-replication behind one endpoint that survives failover, not with Sentinel or
-Cluster.
+So the goal is reachable two ways: **no single Valkey process whose loss takes
+down real-time, async, and caching together** — via replication behind one
+endpoint that survives failover, or via Sentinel.
+
+## Configuring Sentinel
+
+Sentinel monitors a primary/replica set and promotes a replica when the primary
+fails. TruePPM resolves the current primary from the Sentinels **on every
+connection**, so a failover needs no restart and no config change.
+
+Set these on the API and every Celery worker. A non-empty
+`TRUEPPM_VALKEY_SENTINELS` is what switches Sentinel on; when it is empty (the
+default), TruePPM uses `REDIS_URL` exactly as before.
+
+| Variable | Required | Meaning |
+|----------|----------|---------|
+| `TRUEPPM_VALKEY_SENTINELS` | Yes | Comma-separated `host:port` list of the Sentinel nodes. Use **three or more** — Sentinel needs a quorum to authorize a promotion, so two can never fail over. |
+| `TRUEPPM_VALKEY_MASTER_NAME` | Yes | The name the Sentinels monitor the primary under — the first argument of `sentinel monitor` in `sentinel.conf`, commonly `mymaster`. |
+| `TRUEPPM_VALKEY_PASSWORD` | No | Password for the **data** nodes (primary and replicas). |
+| `TRUEPPM_VALKEY_SENTINEL_PASSWORD` | No | Password for the **Sentinel** nodes themselves. Separate on purpose: sentinels commonly carry a different password, or none. |
+| `TRUEPPM_VALKEY_USE_TLS` | No | `true` to use TLS to the data nodes. Default `false`. |
+
+In Sentinel mode `REDIS_URL` is **ignored**. Leave it unset — TruePPM emits a
+startup warning (`trueppm.valkey.W001`) if a stale value is left behind, so it is
+never ambiguous which topology is in effect. A missing
+`TRUEPPM_VALKEY_MASTER_NAME` or a malformed sentinel list refuses to boot
+(`trueppm.valkey.E001` / `E002`) rather than silently degrading.
+
+### With Helm
+
+Disable the bundled pod and fill in the `valkey.sentinel` block. The chart routes
+both passwords through its connection Secret, so neither is rendered into a
+Deployment manifest in plaintext:
+
+```yaml
+valkey:
+  enabled: false
+  sentinel:
+    enabled: true
+    nodes: "sentinel-0.valkey:26379,sentinel-1.valkey:26379,sentinel-2.valkey:26379"
+    masterName: "mymaster"
+    password: "DATA_NODE_PASSWORD"
+    sentinelPassword: ""   # leave empty if the sentinels are unauthenticated
+    tls: false
+```
+
+With `sentinel.enabled: true` you do **not** need to supply `env.REDIS_URL` — the
+chart stops requiring it, because there is no single endpoint to name.
+
+Verify a failover in staging before relying on it: stop the primary, confirm the
+Sentinels promote a replica, and check that real-time updates, background jobs,
+and logins all continue without a pod restart.
 
 ## Licensing and cost — you do not need a commercial Redis
 
@@ -120,12 +164,12 @@ point TruePPM at an external, highly available endpoint.
    env:
      # A managed Valkey endpoint, or your own replicated Valkey behind a Service.
      # Use rediss:// for TLS-terminated managed services.
-     # Cluster mode must be DISABLED — TruePPM needs databases 0, 1, and 2.
+     # Cluster mode must be DISABLED — TruePPM needs databases 0, 1, 2, and 3.
      REDIS_URL: "rediss://:PASSWORD@my-valkey.example.internal:6379"
    ```
 
-   Do **not** append a database index yourself — TruePPM appends `/0`, `/1`, and
-   `/2` to this base URL for the three roles.
+   Do **not** append a database index yourself — TruePPM appends `/0`, `/1`,
+   `/2`, and `/3` to this base URL for the four roles.
 
 3. **Keep the password out of plaintext.** As with `DATABASE_URL`, prefer sourcing
    `REDIS_URL` (or just its password) from a Kubernetes Secret via `secretKeyRef`
@@ -135,10 +179,12 @@ point TruePPM at an external, highly available endpoint.
    is that the hostname in `REDIS_URL` keeps resolving to a writable primary after
    a failover, without a TruePPM restart. Managed services do this for you. If you
    assemble it yourself, test it by killing the primary and confirming that
-   WebSocket updates and Celery jobs resume on their own.
+   WebSocket updates and Celery jobs resume on their own — or use
+   [Sentinel](#configuring-sentinel), which removes the need for a stable
+   endpoint entirely.
 
-The same three roles all read `REDIS_URL`, so one correct external endpoint moves
-all three onto your HA Valkey at once.
+All four roles read `REDIS_URL`, so one correct external endpoint moves all four
+onto your HA Valkey at once.
 
 ## Failure-mode matrix — what happens when Valkey is down
 

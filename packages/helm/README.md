@@ -82,7 +82,8 @@ kubectl get secret <release>-trueppm-connection \
 | `autoscaling.enabled` | `false` | Optional HPA for the API (and `autoscaling.worker.enabled` for the worker). Needs metrics-server. |
 | `dashboards.enabled` | `false` | Ship the starter Grafana dashboard as a labeled ConfigMap. |
 | `alerts.enabled` | `false` | Ship async/outbox `PrometheusRule` alerts. Requires the Prometheus Operator CRDs. |
-| `env.DATABASE_URL` / `env.REDIS_URL` | unset (built by chart) | Required only when the bundled datastores are disabled. |
+| `env.DATABASE_URL` / `env.REDIS_URL` | unset (built by chart) | Required only when the bundled datastores are disabled. `env.REDIS_URL` is not required when `valkey.sentinel.enabled` is true. |
+| `valkey.sentinel.enabled` | `false` | Use an external Valkey Sentinel topology. Requires `valkey.enabled: false`, `valkey.sentinel.nodes`, and `valkey.sentinel.masterName`. |
 | `global.trueppm.connectionSecretName` | `""` (derived) | Override only if you renamed the connection Secret. |
 | `backup.enabled` | `false` | Opt-in scheduled `pg_dump` backup CronJob (see below). |
 | `backup.schedule` | `0 2 * * *` | Cron schedule (cluster timezone). |

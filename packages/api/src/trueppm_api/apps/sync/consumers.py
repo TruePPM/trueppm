@@ -348,10 +348,9 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         """
         client = getattr(self, "_redis", None)
         if client is None:
-            import redis.asyncio as aioredis
-            from django.conf import settings
+            from trueppm_api.core import valkey
 
-            client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+            client = valkey.async_client(valkey.DB_CELERY, decode_responses=True)
             self._redis = client
         return client
 

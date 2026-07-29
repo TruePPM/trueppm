@@ -45,13 +45,11 @@ def test_registry_allows_different_keys() -> None:
 # ---------------------------------------------------------------------------
 
 
-@patch("trueppm_api.core.idempotent.settings")
-@patch("trueppm_api.core.idempotent.redis_lib")
-def test_task_runs_when_lock_acquired(mock_redis_mod: MagicMock, mock_settings: MagicMock) -> None:
+@patch("trueppm_api.core.idempotent.valkey")
+def test_task_runs_when_lock_acquired(mock_valkey: MagicMock) -> None:
     """When the lock is acquired, the wrapped function executes normally."""
-    mock_settings.REDIS_URL = "redis://localhost:6379"
     mock_client = MagicMock()
-    mock_redis_mod.from_url.return_value = mock_client
+    mock_valkey.client.return_value = mock_client
     mock_client.set.return_value = True  # Lock acquired
     mock_client.register_script.return_value = MagicMock()  # release script
 
@@ -75,13 +73,11 @@ def test_task_runs_when_lock_acquired(mock_redis_mod: MagicMock, mock_settings: 
     assert call_log == ["abc"]
 
 
-@patch("trueppm_api.core.idempotent.settings")
-@patch("trueppm_api.core.idempotent.redis_lib")
-def test_lock_released_on_success(mock_redis_mod: MagicMock, mock_settings: MagicMock) -> None:
+@patch("trueppm_api.core.idempotent.valkey")
+def test_lock_released_on_success(mock_valkey: MagicMock) -> None:
     """The lock is released (compare-and-delete) after successful execution."""
-    mock_settings.REDIS_URL = "redis://localhost:6379"
     mock_client = MagicMock()
-    mock_redis_mod.from_url.return_value = mock_client
+    mock_valkey.client.return_value = mock_client
     mock_client.set.return_value = True
     mock_release = MagicMock()
     mock_client.register_script.return_value = mock_release
@@ -103,13 +99,11 @@ def test_lock_released_on_success(mock_redis_mod: MagicMock, mock_settings: Magi
     mock_release.assert_called_once()
 
 
-@patch("trueppm_api.core.idempotent.settings")
-@patch("trueppm_api.core.idempotent.redis_lib")
-def test_lock_released_on_exception(mock_redis_mod: MagicMock, mock_settings: MagicMock) -> None:
+@patch("trueppm_api.core.idempotent.valkey")
+def test_lock_released_on_exception(mock_valkey: MagicMock) -> None:
     """The lock is released even when the wrapped function raises."""
-    mock_settings.REDIS_URL = "redis://localhost:6379"
     mock_client = MagicMock()
-    mock_redis_mod.from_url.return_value = mock_client
+    mock_valkey.client.return_value = mock_client
     mock_client.set.return_value = True
     mock_release = MagicMock()
     mock_client.register_script.return_value = mock_release
@@ -136,13 +130,11 @@ def test_lock_released_on_exception(mock_redis_mod: MagicMock, mock_settings: Ma
 # ---------------------------------------------------------------------------
 
 
-@patch("trueppm_api.core.idempotent.settings")
-@patch("trueppm_api.core.idempotent.redis_lib")
-def test_skip_on_contention(mock_redis_mod: MagicMock, mock_settings: MagicMock) -> None:
+@patch("trueppm_api.core.idempotent.valkey")
+def test_skip_on_contention(mock_valkey: MagicMock) -> None:
     """With on_contention='skip', a held lock causes the task to be discarded."""
-    mock_settings.REDIS_URL = "redis://localhost:6379"
     mock_client = MagicMock()
-    mock_redis_mod.from_url.return_value = mock_client
+    mock_valkey.client.return_value = mock_client
     mock_client.set.return_value = None  # Lock NOT acquired
 
     from trueppm_api.core.idempotent import idempotent_task
@@ -168,13 +160,11 @@ def test_skip_on_contention(mock_redis_mod: MagicMock, mock_settings: MagicMock)
 # ---------------------------------------------------------------------------
 
 
-@patch("trueppm_api.core.idempotent.settings")
-@patch("trueppm_api.core.idempotent.redis_lib")
-def test_queue_on_contention_requeues(mock_redis_mod: MagicMock, mock_settings: MagicMock) -> None:
+@patch("trueppm_api.core.idempotent.valkey")
+def test_queue_on_contention_requeues(mock_valkey: MagicMock) -> None:
     """With on_contention='queue', a held lock causes the task to be re-queued."""
-    mock_settings.REDIS_URL = "redis://localhost:6379"
     mock_client = MagicMock()
-    mock_redis_mod.from_url.return_value = mock_client
+    mock_valkey.client.return_value = mock_client
     mock_client.set.return_value = None  # Lock NOT acquired
 
     from trueppm_api.core.idempotent import idempotent_task
@@ -201,13 +191,11 @@ def test_queue_on_contention_requeues(mock_redis_mod: MagicMock, mock_settings: 
         )
 
 
-@patch("trueppm_api.core.idempotent.settings")
-@patch("trueppm_api.core.idempotent.redis_lib")
-def test_queue_drops_at_max_attempts(mock_redis_mod: MagicMock, mock_settings: MagicMock) -> None:
+@patch("trueppm_api.core.idempotent.valkey")
+def test_queue_drops_at_max_attempts(mock_valkey: MagicMock) -> None:
     """With on_contention='queue', exceeding max attempts drops the task."""
-    mock_settings.REDIS_URL = "redis://localhost:6379"
     mock_client = MagicMock()
-    mock_redis_mod.from_url.return_value = mock_client
+    mock_valkey.client.return_value = mock_client
     mock_client.set.return_value = None  # Lock NOT acquired
 
     from trueppm_api.core.idempotent import idempotent_task
@@ -239,13 +227,11 @@ def test_queue_drops_at_max_attempts(mock_redis_mod: MagicMock, mock_settings: M
 # ---------------------------------------------------------------------------
 
 
-@patch("trueppm_api.core.idempotent.settings")
-@patch("trueppm_api.core.idempotent.redis_lib")
-def test_retry_on_contention(mock_redis_mod: MagicMock, mock_settings: MagicMock) -> None:
+@patch("trueppm_api.core.idempotent.valkey")
+def test_retry_on_contention(mock_valkey: MagicMock) -> None:
     """With on_contention='retry', a held lock raises self.retry()."""
-    mock_settings.REDIS_URL = "redis://localhost:6379"
     mock_client = MagicMock()
-    mock_redis_mod.from_url.return_value = mock_client
+    mock_valkey.client.return_value = mock_client
     mock_client.set.return_value = None  # Lock NOT acquired
 
     from trueppm_api.core.idempotent import idempotent_task
@@ -275,13 +261,11 @@ def test_retry_on_contention(mock_redis_mod: MagicMock, mock_settings: MagicMock
 # ---------------------------------------------------------------------------
 
 
-@patch("trueppm_api.core.idempotent.settings")
-@patch("trueppm_api.core.idempotent.redis_lib")
-def test_lock_extender_runs(mock_redis_mod: MagicMock, mock_settings: MagicMock) -> None:
+@patch("trueppm_api.core.idempotent.valkey")
+def test_lock_extender_runs(mock_valkey: MagicMock) -> None:
     """The lock extension thread calls the extend script periodically."""
-    mock_settings.REDIS_URL = "redis://localhost:6379"
     mock_client = MagicMock()
-    mock_redis_mod.from_url.return_value = mock_client
+    mock_valkey.client.return_value = mock_client
     mock_client.set.return_value = True  # Lock acquired
 
     extend_calls: list[dict] = []
@@ -324,13 +308,11 @@ def test_lock_extender_runs(mock_redis_mod: MagicMock, mock_settings: MagicMock)
 # ---------------------------------------------------------------------------
 
 
-@patch("trueppm_api.core.idempotent.settings")
-@patch("trueppm_api.core.idempotent.redis_lib")
-def test_lock_key_formatted_from_args(mock_redis_mod: MagicMock, mock_settings: MagicMock) -> None:
+@patch("trueppm_api.core.idempotent.valkey")
+def test_lock_key_formatted_from_args(mock_valkey: MagicMock) -> None:
     """The lock key template is formatted using positional task args."""
-    mock_settings.REDIS_URL = "redis://localhost:6379"
     mock_client = MagicMock()
-    mock_redis_mod.from_url.return_value = mock_client
+    mock_valkey.client.return_value = mock_client
     mock_client.set.return_value = True
     mock_client.register_script.return_value = MagicMock()
 
@@ -357,13 +339,11 @@ def test_lock_key_formatted_from_args(mock_redis_mod: MagicMock, mock_settings: 
 # ---------------------------------------------------------------------------
 
 
-@patch("trueppm_api.core.idempotent.settings")
-@patch("trueppm_api.core.idempotent.redis_lib")
-def test_static_lock_key(mock_redis_mod: MagicMock, mock_settings: MagicMock) -> None:
+@patch("trueppm_api.core.idempotent.valkey")
+def test_static_lock_key(mock_valkey: MagicMock) -> None:
     """A static lock key (no placeholders) works for global locks."""
-    mock_settings.REDIS_URL = "redis://localhost:6379"
     mock_client = MagicMock()
-    mock_redis_mod.from_url.return_value = mock_client
+    mock_valkey.client.return_value = mock_client
     mock_client.set.return_value = True
     mock_client.register_script.return_value = MagicMock()
 

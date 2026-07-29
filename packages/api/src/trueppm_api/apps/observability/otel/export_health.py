@@ -46,6 +46,8 @@ from django.conf import settings
 from opentelemetry.sdk.metrics.export import MetricExporter, MetricExportResult
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 
+from trueppm_api.core import valkey
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -138,8 +140,8 @@ def _client() -> redis.Redis:
     """
     global _pool
     if _pool is None:
-        _pool = redis.ConnectionPool.from_url(
-            f"{settings.REDIS_URL}/2",  # /2 is the throttle/cache DB (noeviction)
+        _pool = valkey.pool(
+            valkey.DB_CACHE,  # the throttle/cache DB (noeviction)
             decode_responses=True,
             # Bound both the aggregate read (on the polled /settings/health request
             # thread) and the recorder write (on the SDK export thread) so a silently

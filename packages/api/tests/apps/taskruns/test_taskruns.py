@@ -393,9 +393,11 @@ def test_cancel_running_task_run(
     task_run.status = TaskRunStatus.RUNNING
     task_run.save()
 
-    with patch("trueppm_api.apps.taskruns.views.redis_lib") as mock_redis_mod:
+    # The view imports the factory inside the function, so patch the factory
+    # itself rather than a module attribute that does not exist at import time.
+    with patch("trueppm_api.core.valkey.client") as mock_client:
         mock_redis_inst = MagicMock()
-        mock_redis_mod.from_url.return_value = mock_redis_inst
+        mock_client.return_value = mock_redis_inst
 
         resp = admin_client.post(f"/api/v1/projects/{project.pk}/task-runs/{task_run.pk}/cancel/")
     assert resp.status_code == 202

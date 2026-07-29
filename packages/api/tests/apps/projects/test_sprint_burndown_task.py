@@ -30,8 +30,8 @@ def _mock_redis_lock() -> object:
     mock_client = MagicMock()
     mock_client.set.return_value = True
     mock_client.register_script.return_value = MagicMock(return_value=1)
-    with patch("trueppm_api.core.idempotent.redis_lib") as redis_module:
-        redis_module.from_url.return_value = mock_client
+    with patch("trueppm_api.core.idempotent.valkey") as redis_module:
+        redis_module.client.return_value = mock_client
         yield mock_client
 
 

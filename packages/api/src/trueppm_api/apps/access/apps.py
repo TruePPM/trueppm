@@ -14,5 +14,6 @@ class AccessConfig(AppConfig):
         # registration point for app-wide hooks that have no better home:
         #   - signals: ProjectMembership revocation evicts live WS sockets (#813).
         #   - security_checks: registers the SECRET_KEY system check (#566).
+        #   - valkey_checks: registers the Valkey topology system check (#2554).
         from trueppm_api.apps.access import signals  # noqa: F401
-        from trueppm_api.core import security_checks  # noqa: F401
+        from trueppm_api.core import security_checks, valkey_checks  # noqa: F401

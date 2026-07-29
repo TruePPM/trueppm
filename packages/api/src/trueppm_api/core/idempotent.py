@@ -18,7 +18,8 @@ from typing import Any, Literal
 
 import redis as redis_lib
 from celery import shared_task
-from django.conf import settings
+
+from trueppm_api.core import valkey
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,7 @@ def idempotent_task(
     def decorator(fn: Callable[..., Any]) -> Any:
         @functools.wraps(fn)
         def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
-            redis_client: redis_lib.Redis = redis_lib.from_url(settings.REDIS_URL)
+            redis_client: redis_lib.Redis = valkey.client(valkey.DB_CELERY)
             lock_key = lock_key_template.format(*args)
             token = uuid.uuid4().hex
 

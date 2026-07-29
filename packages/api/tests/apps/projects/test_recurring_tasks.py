@@ -412,13 +412,13 @@ def test_beat_task_isolates_per_rule_failures(project: Project, template: Task) 
     mock_redis = MagicMock()
     mock_redis.set.return_value = True
     with (
-        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.core.idempotent.valkey") as mock_redis_module,
         patch(
             "trueppm_api.apps.projects.services._generate_due_occurrences",
             side_effect=fake_generate,
         ),
     ):
-        mock_redis_module.from_url.return_value = mock_redis
+        mock_redis_module.client.return_value = mock_redis
         generate_recurring_occurrences.run()  # must not raise despite the bad rule
 
     assert good.pk in calls
@@ -551,11 +551,11 @@ def test_generation_broadcasts_bulk_event_per_project(
     mock_redis = MagicMock()
     mock_redis.set.return_value = True
     with (
-        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.core.idempotent.valkey") as mock_redis_module,
         patch(_BROADCAST) as mock_bcast,
         django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
     ):
-        mock_redis_module.from_url.return_value = mock_redis
+        mock_redis_module.client.return_value = mock_redis
         generate_recurring_occurrences.run()
 
     # One bulk event per project — no per-task spam.
@@ -590,19 +590,19 @@ def test_no_new_occurrences_does_not_broadcast(
 
     # First sweep materializes the 2 occurrences.
     with (
-        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.core.idempotent.valkey") as mock_redis_module,
         patch(_BROADCAST),
         django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
     ):
-        mock_redis_module.from_url.return_value = mock_redis
+        mock_redis_module.client.return_value = mock_redis
         generate_recurring_occurrences.run()
 
     # Second sweep finds nothing due (AFTER_N count reached) → no broadcast.
     with (
-        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.core.idempotent.valkey") as mock_redis_module,
         patch(_BROADCAST) as mock_bcast,
         django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
     ):
-        mock_redis_module.from_url.return_value = mock_redis
+        mock_redis_module.client.return_value = mock_redis
         generate_recurring_occurrences.run()
     mock_bcast.assert_not_called()

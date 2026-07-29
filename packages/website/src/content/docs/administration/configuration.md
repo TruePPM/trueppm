@@ -11,7 +11,12 @@ All configuration is via environment variables. For local development, `docker-c
 |----------|-------------|---------|
 | `SECRET_KEY` | Django secret key. Use a long random string. | `$(python -c "import secrets; print(secrets.token_urlsafe(50))")` |
 | `DATABASE_URL` | PostgreSQL connection string. **Include `?sslmode=require`** — production refuses to boot on a URL without an `sslmode` parameter (the connection could otherwise fall back to unencrypted transport), unless you set `TRUEPPM_ALLOW_UNENCRYPTED_DB=true` because TLS is enforced at the network layer. | `postgres://trueppm:password@db:5432/trueppm?sslmode=require` |
-| `REDIS_URL` | Connection string for the Celery broker / Channels layer. TruePPM ships with [Valkey](https://valkey.io) (BSD-licensed Redis fork, wire-compatible); the `redis://` scheme works against either. | `redis://valkey:6379` |
+| `REDIS_URL` | Connection string for the Celery broker / Channels layer / cache. TruePPM ships with [Valkey](https://valkey.io) (BSD-licensed Redis fork, wire-compatible); the `redis://` scheme works against either. Do not append a database index — TruePPM addresses four (`0`–`3`) and adds them itself. **Ignored when `TRUEPPM_VALKEY_SENTINELS` is set.** | `redis://valkey:6379` |
+| `TRUEPPM_VALKEY_SENTINELS` | Comma-separated `host:port` list of Valkey Sentinel nodes. Setting it to a non-empty value switches every consumer to Sentinel mode, replacing `REDIS_URL`. Use three or more so a quorum can authorize failover. See [Valkey HA](/administration/valkey-ha/#configuring-sentinel). | `s0:26379,s1:26379,s2:26379` |
+| `TRUEPPM_VALKEY_MASTER_NAME` | The name the Sentinels monitor the primary under. **Required** whenever `TRUEPPM_VALKEY_SENTINELS` is set — the app refuses to boot without it. | `mymaster` |
+| `TRUEPPM_VALKEY_PASSWORD` | Password for the Valkey **data** nodes in Sentinel mode. | `s3cret` |
+| `TRUEPPM_VALKEY_SENTINEL_PASSWORD` | Password for the **Sentinel** nodes themselves, when it differs from the data-node password. | `s3ntinel` |
+| `TRUEPPM_VALKEY_USE_TLS` | Use TLS to the Valkey data nodes in Sentinel mode. | `false` |
 | `DJANGO_SETTINGS_MODULE` | Settings module to load. | `trueppm_api.settings.prod` |
 | `ALLOWED_HOSTS` | Comma-separated list of allowed hostnames. | `trueppm.example.com` |
 | `INTEGRATION_ENCRYPTION_KEY` | Fernet key that encrypts stored integration credentials (connected-account PATs) at rest. **Production refuses to boot if this is empty** — the guard runs at settings-import time, so a missing key crash-loops the deploy rather than failing later. | `$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")` |

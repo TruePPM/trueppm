@@ -8467,12 +8467,10 @@ class ProjectPresenceView(APIView):
         try:
             import json as _json
 
-            import redis as redis_lib
-            from django.conf import settings
-
             from trueppm_api.apps.sync.consumers import _presence_key
+            from trueppm_api.core import valkey
 
-            r = redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
+            r = valkey.client(valkey.DB_CELERY, decode_responses=True)
             raw: dict[str, str] = r.hgetall(_presence_key(pk))  # type: ignore[assignment]
         except Exception:
             logger.exception("ProjectPresenceView: failed to read presence for project %s", pk)

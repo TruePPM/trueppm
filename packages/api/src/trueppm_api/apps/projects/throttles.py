@@ -18,6 +18,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.throttling import BaseThrottle
 
+from trueppm_api.core import valkey
 from trueppm_api.core.ratelimit import bypass_when_disabled
 from trueppm_api.core.redis_throttle import incr_with_ttl
 
@@ -35,10 +36,7 @@ _pool: redis.ConnectionPool | None = None
 def _client() -> redis.Redis:
     global _pool
     if _pool is None:
-        _pool = redis.ConnectionPool.from_url(
-            f"{settings.REDIS_URL}/2",  # /2 is reserved for throttle counters
-            decode_responses=True,
-        )
+        _pool = valkey.pool(valkey.DB_CACHE, decode_responses=True)
     return redis.Redis(connection_pool=_pool)
 
 

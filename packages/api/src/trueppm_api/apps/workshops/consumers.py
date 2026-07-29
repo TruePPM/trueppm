@@ -8,11 +8,11 @@ from typing import Any
 
 import redis
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
-from django.conf import settings
 
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.sync.broadcast import WS_PROTOCOL_VERSION
 from trueppm_api.apps.sync.ws_auth import authenticate_scope, warn_if_legacy
+from trueppm_api.core import valkey
 from trueppm_api.core.redis_throttle import incr_with_ttl
 
 logger = logging.getLogger(__name__)
@@ -28,10 +28,7 @@ _pool: redis.ConnectionPool | None = None
 def _client() -> redis.Redis:
     global _pool
     if _pool is None:
-        _pool = redis.ConnectionPool.from_url(
-            f"{settings.REDIS_URL}/2",  # /2 is reserved for throttle counters
-            decode_responses=True,
-        )
+        _pool = valkey.pool(valkey.DB_CACHE, decode_responses=True)
     return redis.Redis(connection_pool=_pool)
 
 
