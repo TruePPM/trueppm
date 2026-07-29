@@ -125,7 +125,7 @@ test.describe('Workspace Email & SMTP — writable', () => {
     // Pick the Custom provider to reveal the SMTP fields, fill the transport.
     await page.getByLabel('Provider', { exact: true }).selectOption('custom');
     await page.getByLabel('SMTP host').fill('mail.truescope.io');
-    await page.getByLabel('SMTP username').fill('postmaster');
+    await page.getByLabel('SMTP username', { exact: true }).fill('postmaster');
     await page.getByLabel('Password', { exact: true }).fill('s3cret');
 
     // Save via the shell save-bar.
@@ -158,7 +158,7 @@ test.describe('Workspace Email & SMTP — writable', () => {
 
     await page.getByLabel('Provider', { exact: true }).selectOption('custom');
     await page.getByLabel('SMTP host').fill('bad.host.example');
-    await page.getByLabel('SMTP username').fill('u');
+    await page.getByLabel('SMTP username', { exact: true }).fill('u');
     await page.getByLabel('Password', { exact: true }).fill('s3cret');
     await page.getByRole('button', { name: 'Save changes' }).click();
 
@@ -189,7 +189,7 @@ test.describe('Workspace Email & SMTP — writable', () => {
 
     await page.getByLabel('Provider', { exact: true }).selectOption('custom');
     await page.getByLabel('SMTP host').fill('bad.host.example');
-    await page.getByLabel('SMTP username').fill('u');
+    await page.getByLabel('SMTP username', { exact: true }).fill('u');
     await page.getByLabel('Password', { exact: true }).fill('s3cret');
     await page.getByRole('button', { name: 'Save changes' }).click();
 
@@ -259,5 +259,57 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await expect(email.getByText(/Public URL not set/i)).toBeVisible();
     // The read-only value row is absent when the origin is unset.
     await expect(page.getByLabel('Public URL (read-only)')).toHaveCount(0);
+  });
+
+  test('Username carries provider-aware guidance and surfaces a blank-username 400 (#2552)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/email-settings/', (r) => {
+      if (r.request().method() === 'PUT') {
+        return r.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: pj({
+            username: ['A username is required for this transport.'],
+          }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(EMAIL_GET) });
+    });
+
+    await page.goto('/settings/email');
+    await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
+    const email = page.locator('[data-settings-section="email"]');
+
+    // Gmail: the hint states the requirement and names the value to enter, and
+    // the help popover answers the "but I have an App Password" question.
+    await page.getByLabel('Provider', { exact: true }).selectOption('gmail');
+    await expect(email.getByText(/Required — the full Gmail address/i)).toBeVisible();
+    await expect(page.getByLabel('SMTP username', { exact: true })).toHaveAttribute(
+      'placeholder',
+      'you@gmail.com',
+    );
+    await page.getByRole('button', { name: 'About the SMTP username options' }).click();
+    await expect(
+      page.getByText(/so this field is required whenever a password is/i),
+    ).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // The guidance is provider-aware — SES asks for a different credential.
+    await page.getByLabel('Provider', { exact: true }).selectOption('ses');
+    await expect(email.getByText(/begins AKIA\), not an ordinary IAM key/i)).toBeVisible();
+
+    // A server rejection lands inline on the Username input, not just in the banner.
+    await page.getByLabel('Provider', { exact: true }).selectOption('custom');
+    await page.getByLabel('SMTP host').fill('mail.truescope.io');
+    await page.getByLabel('Password', { exact: true }).fill('s3cret');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await expect(page.getByText('A username is required for this transport.')).toBeVisible();
+    await expect(page.getByLabel('SMTP username', { exact: true })).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
   });
 });

@@ -71,6 +71,40 @@ connection — a preset is just a Custom SMTP configuration with the host, port,
 and security filled in for you. All of them are `transport_mode='smtp'` on the
 server except SendGrid and SES, which have their own relay modes.
 
+Every provider except Server default and SendGrid also needs a **username** —
+see [SMTP username](#smtp-username) for what each one expects and where to find
+it.
+
+### SMTP username
+
+Signing in to a mail server is always a **pair**: the username says *which*
+account, the password proves it. An app password replaces your account
+*password* — never your username — so **a username is required whenever a
+password is**, app password or not.
+
+TruePPM rejects a save with a blank username on the Custom SMTP, preset, and
+Amazon SES transports. This is deliberate: an SMTP connection with no username
+does not authenticate *at all*, so it would connect successfully and then fail
+every real send with `530 Authentication Required` — the save would look fine
+and mail would silently stop.
+
+| Provider | What to enter | Where to get it |
+|---|---|---|
+| **Gmail** | The full address of the Google account that owns the App Password (`you@gmail.com`). On Google Workspace use the account's **primary** address even when sending as an alias — put the alias in **From address** instead. | The Google account itself |
+| **Microsoft 365 / Outlook** | The mailbox's full sign-in address (UPN), not a display name or alias. | The M365 account. **Authenticated SMTP** must also be enabled for that mailbox — it is off by default on new tenants (admin center → Users → Active users → the mailbox → Mail → Manage email apps). |
+| **Fastmail** | Your full Fastmail address, including the domain. | Fastmail Settings → Password & Security → App Passwords. Give the app password the **Mail (SMTP)** scope — one scoped to another service authenticates and then refuses to send. |
+| **Amazon SES** | The SES **SMTP username** — the access key beginning `AKIA` that SES issues in the SMTP-credentials flow. | SES console → SMTP settings → **Create SMTP credentials**. The matching SMTP password is *derived* from the secret key and shown once; an ordinary IAM access key and secret will not work, because the secret has to go through that derivation. |
+| **SendGrid** | Nothing — the field is not shown. The username is fixed server-side to the literal `apikey` and the API key travels as the password. | n/a |
+| **Custom (generic) SMTP** | Whatever account your relay signs in as — many expect the full email address, others a bare login name. | Your relay's SMTP documentation |
+
+A relay that accepts mail with **no** credentials at all cannot be configured on
+this page (a password is required for every non-default transport). Use **Server
+default (built-in)** and the deploy-time `EMAIL_*` settings for that case.
+
+A username that does not match the account the password belongs to fails with
+`535 Username and Password not accepted` on save, because the transport is
+probed before it is persisted (see [Validation before save](#validation-before-save)).
+
 ### Gmail App Password
 
 Gmail no longer accepts your normal Google account password over SMTP —

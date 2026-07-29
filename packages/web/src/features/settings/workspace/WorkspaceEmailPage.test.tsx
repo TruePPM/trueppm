@@ -808,3 +808,77 @@ describe('WorkspaceEmailPage — health and test-send fallbacks', () => {
     expect(screen.getByText('Send failed.')).toBeInTheDocument();
   });
 });
+
+describe('WorkspaceEmailPage — Username guidance (#2552)', () => {
+  it('answers "is a username required with an app password?" in the shared help body', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'gmail' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'About the SMTP username options' }));
+    expect(
+      screen.getByText(/so this field is required whenever a password is/i),
+    ).toBeInTheDocument();
+  });
+
+  it('gives Gmail the address-that-owns-the-app-password hint and placeholder', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'gmail' } });
+
+    expect(screen.getByText(/Required — the full Gmail address/i)).toBeInTheDocument();
+    expect(screen.getByLabelText<HTMLInputElement>('SMTP username').placeholder).toBe(
+      'you@gmail.com',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'About the SMTP username options' }));
+    expect(screen.getByText('535 Username and Password not accepted')).toBeInTheDocument();
+  });
+
+  it('warns Microsoft 365 admins that Authenticated SMTP is off by default', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'm365' } });
+
+    expect(screen.getByText(/Required — the full sign-in address/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'About the SMTP username options' }));
+    expect(screen.getByText(/off by default on new tenants/i)).toBeInTheDocument();
+  });
+
+  it('tells SES admins the username is the AKIA SMTP key, not an ordinary IAM key', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'ses' } });
+
+    expect(screen.getByText(/begins AKIA\), not an ordinary IAM key/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'About the SES SMTP username options' }));
+    expect(screen.getByText(/has to go through SES/i)).toBeInTheDocument();
+  });
+
+  it('tells Custom SMTP admins a no-credential relay belongs on the built-in transport', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'custom' } });
+
+    expect(screen.getByText(/Required — the account your relay authenticates/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'About the SMTP username options' }));
+    expect(
+      screen.getByText(/A relay that accepts mail with no credentials/i),
+    ).toBeInTheDocument();
+  });
+
+  it('describes the username input by its hint so the requirement reaches AT', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'gmail' } });
+
+    const input = screen.getByLabelText('SMTP username');
+    const describedBy = input.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)?.textContent).toMatch(/Required — the full Gmail/i);
+  });
+
+  it('shows no username field for SendGrid, whose username is server-fixed', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'sendgrid' } });
+
+    expect(screen.queryByLabelText('SMTP username')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'About the SMTP username options' }),
+    ).not.toBeInTheDocument();
+  });
+});
