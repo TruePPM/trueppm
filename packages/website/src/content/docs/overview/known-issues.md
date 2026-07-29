@@ -56,6 +56,42 @@ after that is the API surface, which is why this entry is separate.
   combination manually — this understates joint risk and is not a substitute.
 - **Fix planned for 0.5** — [#2467](https://gitlab.com/trueppm/trueppm/-/issues/2467).
 
+### The risk register does not affect the forecast — planned for 0.5
+
+The risk register and Monte Carlo are separate systems that do not exchange
+information. A risk's severity is the product of two 1–5 ordinals; a simulated
+finish date is computed from three-point estimates and team velocity. Nothing
+connects them.
+
+The register's `probability × impact` score therefore says nothing about the
+schedule. A high-severity risk sitting on a task with weeks of total float moves
+the finish date not at all, while a low-severity risk on the critical path may be
+the single largest driver of the P80 — and the register ranks them the other way
+around. Linking a risk to a task (which the register supports) records the
+relationship for a human to read; it does not reach the engine.
+
+- **Impact:** P80 does not reflect known risks. The register cannot answer "what
+  would mitigating this buy me?", so mitigation work completes without the forecast
+  moving.
+- **Workaround:** widen the pessimistic value of the three-point estimate on the
+  affected task. This is a genuine workaround with genuine costs, and it is worth
+  knowing what they are: a 40%-likely 10-day event is not a wider spread but a
+  second peak, and PERT-Beta cannot represent one — it spreads probability across a
+  gap the real distribution does not have. The padding is also unattributable
+  (nothing records which risk it was for, so it is never removed when the risk
+  closes) and uncorrelated (one risk affecting five tasks becomes five independent
+  spreads, which understates the tail rather than overstating it).
+- **Fix planned for 0.5** — [#2556](https://gitlab.com/trueppm/trueppm/-/issues/2556)
+  makes risks first-class simulation inputs, with one shared draw per risk per
+  iteration across every task it touches. See
+  [ADR-0711](/architecture/decisions/).
+- **Cost impact is a separate axis and lands later.** ADR-0711 treats schedule and
+  cost as the two axes a simulation can answer. Only schedule is in scope for 0.5:
+  TruePPM has no cost data model yet, and resource costs are a 1.0 item
+  ([#2557](https://gitlab.com/trueppm/trueppm/-/issues/2557)). Risk impact on scope,
+  quality, safety, and compliance is recorded but deliberately never simulated or
+  folded into a combined score.
+
 ### Velocity-driven P80/P95 is a lower bound — planned for 0.6
 
 For sprint-delivered work sampled from team velocity, each run's sprint horizon is
