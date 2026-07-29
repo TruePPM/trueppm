@@ -564,6 +564,29 @@ lint:todo-grep:
     - bash scripts/check-todo-grep.sh
     - bash scripts/check-todo-grep.sh --self-test
 
+lint:sonar-exclusions:
+  extends: .fast-job
+  # Sonar exclusion-integrity gate (#2520). Every
+  # `sonar.issue.ignore.multicriteria.*` criterion is a reviewed false positive;
+  # nothing verified its glob still pointed at anything. #2517: the #1749 sweep
+  # renamed useProjectChangelog.ts → .tsx, `activity/*.ts` stopped matching it,
+  # four suppressed findings resurfaced, and the reliability rating fell A → D
+  # with no job going red. This is the job that goes red.
+  #
+  # Pure path matching against `git ls-files` — no network, no SONAR_TOKEN, <1s.
+  # Deliberately NOT tied to the nightly sonar:scan, which is scheduled-only and
+  # allow_failure; this runs on every MR.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash git grep sed
+  script:
+    - bash scripts/check-sonar-exclusions.sh
+    - bash scripts/check-sonar-exclusions.sh --self-test
+
 lint:design-system-v2:
   extends: .fast-job
   # Design System v2 conformance gate (ADR-0125). Blocks design drift: arbitrary

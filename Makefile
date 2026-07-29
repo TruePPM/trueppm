@@ -257,7 +257,14 @@ pre-push-behind-warn: ## Warn (non-blocking) if HEAD is behind origin/main — c
 	  fi; \
 	fi
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+sonar-exclusions-check: ## Fail if a sonar-project.properties exclusion has gone dead or drifted (#2520)
+	@# Offline path matching against `git ls-files` — milliseconds, no SONAR_TOKEN.
+	@# Catches a criterion whose glob matches nothing (the code it excused was
+	@# renamed/deleted) and the `*.ts`-in-a-.tsx-directory shape that silently
+	@# under-matches, which is how #2517 dropped the reliability rating A → D.
+	@bash scripts/check-sonar-exclusions.sh
+
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/
