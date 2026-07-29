@@ -434,6 +434,46 @@ risk-policy fields are always-set columns (no "inherit" state).
 | `GET` | `/api/v1/programs/` | Any member | List programs (the matrix reads `methodology`, `iteration_label`, `risk_slip_propagation`, and `risk_escalation_days`). |
 | `POST` | `/api/v1/programs/bulk-fields/` | Admin+ | Set one field across the selected programs in one atomic call. |
 
+## Demo data (`/settings/demo-data`)
+
+The **Demo data** page (Settings → System → Demo data) lists every sample
+program bundled with this instance — the same catalog the **Load demo
+data** picker on the Programs page offers — with, for each one, its entity
+counts (projects / tasks / resources), file size, and a SHA-256 of the exact
+bytes the download serves. A **Download** button lets you read the raw JSON
+fixture before trusting it, and a **Load** button builds the sample program
+in one click, same as the Programs-page picker. See
+[Sample projects & JSON import/export](/getting-started/sample-projects/) for
+what each bundled sample contains and the full load/import/export walkthrough,
+and [Inspect before you import](/getting-started/try-it/#inspect-before-you-import)
+for verifying a download's hash from the command line.
+
+Two of the bundled programs build their data procedurally in Python rather
+than from a file — the page says so explicitly rather than letting a reader
+believe they have audited every sample once they have checked the
+downloadable ones.
+
+### Not admin-gated — on purpose
+
+Unlike every other page under Workspace → Settings, Demo data carries **no**
+workspace-admin requirement — any authenticated user can open it, and any
+authenticated user can already call the underlying load endpoint (they become
+the new program's owner). The reasoning: this page only ever discloses
+**public, Apache-2.0-licensed files already committed to the OSS repository**,
+so gating the page would block a non-admin from following the demo loader's
+own **Inspect files ↗** link — a link any authenticated user can already
+see — into a page they suddenly cannot open. The mutation this page exposes
+(loading a sample) is gated the same way it always was: by the API's own rate
+limit, not by a role check on this page.
+
+### Endpoints
+
+| Method | Path | Access | Notes |
+|---|---|---|---|
+| `GET` | `/api/v1/programs/samples/` | Any authenticated user | The catalog: key, title, description, size, SHA-256, and entity counts per bundled sample. |
+| `GET` | `/api/v1/programs/samples/{key}/download/` | Any authenticated user | The exact bytes of one fixture, rate-limited per account. |
+| `POST` | `/api/v1/programs/load-sample/` | Any authenticated user | Builds the sample program; the caller becomes its owner. Rate-limited (six loads per minute per account). |
+
 ## Archive / Delete
 
 The **Archive / Delete** section holds the workspace-wide actions that cannot be undone.
