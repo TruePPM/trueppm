@@ -209,10 +209,10 @@ on the roadmap.
   connected to any API pod, so horizontal API scaling is safe.
 - **Celery beat is single-replica by design**, not a gap — exactly one Beat process
   fires the periodic drains, and running two would double-dispatch every job.
-- **The bundled Valkey (Redis) pod is single-node, with no replication or
-  failover.** For real HA you disable it and point `REDIS_URL` at an external
-  Sentinel, Cluster, or managed Redis-compatible endpoint yourself — see
-  [Redis HA](/administration/redis-ha/).
+- **The bundled Valkey pod is single-node, with no replication or failover.** For
+  real HA you disable it and point `REDIS_URL` at an external replicated or
+  managed Valkey endpoint yourself. Sentinel and Cluster topologies are **not**
+  supported yet — see [Valkey HA](/administration/valkey-ha/).
 - **Postgres HA is not part of the chart.** Large-scale production hardening — HA
   Postgres and a dedicated highly-available Valkey deployment — remains on the
   pre-1.0 roadmap; today you bring your own HA database, the same as you would with
@@ -220,8 +220,8 @@ on the roadmap.
 
 **If "no single point of failure" out of the box is a requirement, TruePPM is not
 there yet** — every tier can be made HA, but you assemble it yourself. See
-[Deployment](/administration/deployment/) and [Redis HA](/administration/redis-ha/)
-for the how.
+[Deployment](/administration/deployment/) and [Valkey
+HA](/administration/valkey-ha/) for the how.
 
 ## Governance and portfolio — out of the OSS core by design
 
