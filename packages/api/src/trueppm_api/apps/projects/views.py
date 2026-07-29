@@ -323,6 +323,106 @@ _REORDER_TOO_MANY = "Too many entries to reorder in one request (max 2000)."
 _REORDER_DUPLICATE_IDS = "Duplicate task ids in the ordered list."
 
 
+def _parse_reorder_entries(entries: list[Any]) -> tuple[list[tuple[str, int]], list[str]]:
+    """Parse a reorder body's ``{id, server_version}`` entries.
+
+    Returns ``(parsed, invalid)``. Every rejected entry is collected rather than
+    failing on the first, so the 400 can name all of them in one response.
+
+    ``bool`` is an ``int`` subclass, so it is excluded explicitly — without that
+    check ``{"server_version": true}`` would validate as version 1.
+
+    Shared by the product-backlog, board-queue, and sprint reorder endpoints so
+    the three cannot drift in what they accept.
+    """
+    invalid: list[str] = []
+    parsed: list[tuple[str, int]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            invalid.append(repr(entry))
+            continue
+        tid = entry.get("id")
+        sv = entry.get("server_version")
+        if not isinstance(tid, str) or not isinstance(sv, int) or isinstance(sv, bool):
+            invalid.append(repr(entry))
+            continue
+        try:
+            uuid.UUID(tid)
+        except ValueError:
+            invalid.append(tid)
+            continue
+        parsed.append((tid, sv))
+    return parsed, invalid
+
+
+class _ScheduleNotComputedError(Exception):
+    """No task carries CPM dates, so a default allocation window cannot be resolved.
+
+    Callers map this to 409: the request is well-formed, but the schedule has not
+    been computed yet, which is a state conflict rather than a bad request.
+    """
+
+
+def _parse_window_date(value: str, param: str) -> datetime.date:
+    """Parse an ISO-8601 date query param, raising a caller-safe message on bad input.
+
+    The message is deliberately curated rather than the parser's own text, because
+    it is returned to the client verbatim in the 400 body.
+    """
+    try:
+        return datetime.date.fromisoformat(value)
+    except ValueError:
+        raise ValueError(f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD).") from None
+
+
+def _resolve_allocation_window(request: Request, tasks: Any) -> tuple[datetime.date, datetime.date]:
+    """Resolve the ``[start, end]`` allocation window from the ?start/?end params.
+
+    Either bound falls back to the CPM span of ``tasks`` when not supplied — the
+    earliest ``early_start`` and the latest ``early_finish``. ``tasks`` is a task
+    queryset the caller has already scoped (to one project, or to every member
+    project of a program) and filtered to non-deleted rows.
+
+    Shared by the per-project allocation endpoint (#85) and its program-scoped
+    contention counterpart (#1149) so the two window semantics cannot drift.
+
+    Raises:
+        ValueError: a supplied bound is not a valid ISO-8601 date.
+        _ScheduleNotComputedError: no start was supplied and no task has an
+            ``early_start`` to default to.
+    """
+    start_str = request.query_params.get("start")
+    end_str = request.query_params.get("end")
+
+    if start_str:
+        window_start = _parse_window_date(start_str, "start")
+    else:
+        first = (
+            tasks.filter(early_start__isnull=False)
+            .order_by("early_start")
+            .values_list("early_start", flat=True)
+            .first()
+        )
+        if first is None:
+            raise _ScheduleNotComputedError
+        window_start = first
+
+    if end_str:
+        window_end = _parse_window_date(end_str, "end")
+    else:
+        last = (
+            tasks.filter(early_finish__isnull=False)
+            .order_by("-early_finish")
+            .values_list("early_finish", flat=True)
+            .first()
+        )
+        # An end with no finish dates collapses to a single-day window rather
+        # than an inverted one.
+        window_end = last if last is not None else window_start
+
+    return window_start, window_end
+
+
 # ---------------------------------------------------------------------------
 # OpenAPI response serializers (#781)
 #
@@ -1348,24 +1448,7 @@ class ProjectViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        invalid: list[str] = []
-        parsed: list[tuple[str, int]] = []
-        for entry in stories_data:
-            if not isinstance(entry, dict):
-                invalid.append(repr(entry))
-                continue
-            tid = entry.get("id")
-            sv = entry.get("server_version")
-            # bool is an int subclass — exclude it so {"server_version": true} is rejected.
-            if not isinstance(tid, str) or not isinstance(sv, int) or isinstance(sv, bool):
-                invalid.append(repr(entry))
-                continue
-            try:
-                uuid.UUID(tid)
-            except ValueError:
-                invalid.append(tid)
-                continue
-            parsed.append((tid, sv))
+        parsed, invalid = _parse_reorder_entries(stories_data)
 
         if invalid:
             bad = ", ".join(invalid)
@@ -1452,24 +1535,7 @@ class ProjectViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        invalid: list[str] = []
-        parsed: list[tuple[str, int]] = []
-        for entry in tasks_data:
-            if not isinstance(entry, dict):
-                invalid.append(repr(entry))
-                continue
-            tid = entry.get("id")
-            sv = entry.get("server_version")
-            # bool is an int subclass — exclude it so {"server_version": true} is rejected.
-            if not isinstance(tid, str) or not isinstance(sv, int) or isinstance(sv, bool):
-                invalid.append(repr(entry))
-                continue
-            try:
-                uuid.UUID(tid)
-            except ValueError:
-                invalid.append(tid)
-                continue
-            parsed.append((tid, sv))
+        parsed, invalid = _parse_reorder_entries(tasks_data)
 
         if invalid:
             bad = ", ".join(invalid)
@@ -2392,44 +2458,13 @@ class ProjectViewSet(
 
         project = self.get_object()
 
-        def _parse_date(s: str, param: str) -> datetime.date:
-            try:
-                return datetime.date.fromisoformat(s)
-            except ValueError:
-                raise ValueError(f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD).") from None
-
         # --- Resolve window bounds ---
-        start_str = request.query_params.get("start")
-        end_str = request.query_params.get("end")
-
         try:
-            if start_str:
-                window_start: datetime.date = _parse_date(start_str, "start")
-            else:
-                first = (
-                    project.tasks.filter(is_deleted=False, early_start__isnull=False)
-                    .order_by("early_start")
-                    .values_list("early_start", flat=True)
-                    .first()
-                )
-                if first is None:
-                    return Response(
-                        {"detail": _SCHEDULE_NOT_COMPUTED},
-                        status=status.HTTP_409_CONFLICT,
-                    )
-                window_start = first
-
-            if end_str:
-                window_end: datetime.date = _parse_date(end_str, "end")
-            else:
-                last = (
-                    project.tasks.filter(is_deleted=False, early_finish__isnull=False)
-                    .order_by("-early_finish")
-                    .values_list("early_finish", flat=True)
-                    .first()
-                )
-                window_end = last if last is not None else window_start
-
+            window_start, window_end = _resolve_allocation_window(
+                request, project.tasks.filter(is_deleted=False)
+            )
+        except _ScheduleNotComputedError:
+            return Response({"detail": _SCHEDULE_NOT_COMPUTED}, status=status.HTTP_409_CONFLICT)
         except ValueError as exc:
             # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -3149,26 +3184,34 @@ class ProjectViewSet(
             # Skip if the action item has been promoted AND that task is COMPLETE.
             if promoted_task is not None and promoted_task.status == TaskStatus.COMPLETE:
                 continue
-            from_sprint = it.retro.sprint
-            rows.append(
-                {
-                    "action_item_id": it.pk,
-                    "text": it.text,
-                    "from_retro_id": it.retro_id,
-                    "from_sprint_id": from_sprint.pk,
-                    "from_sprint_short_id": from_sprint.short_id,
-                    "promoted_task_id": it.promoted_task_id,
-                    "promoted_task_status": promoted_task.status if promoted_task else None,
-                    "promoted_task_short_id": promoted_task.short_id if promoted_task else None,
-                    "age_days": (today - it.created_at.date()).days,
-                    "assignee_id": it.assignee_id,
-                    "assignee_username": (
-                        getattr(it.assignee, "username", None) if it.assignee_id else None
-                    ),
-                    "story_points": it.story_points,
-                }
-            )
+            rows.append(self._retro_carryover_row(it, promoted_task, today))
         return Response({"items": rows}, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _retro_carryover_row(item: Any, promoted_task: Any, today: datetime.date) -> dict[str, Any]:
+        """Shape one unresolved retro action item for the planning carryover lane.
+
+        ``promoted_task`` is None when the item was never promoted to a Task,
+        which is a valid unresolved state — the promoted-task fields go null
+        rather than the row being dropped.
+        """
+        from_sprint = item.retro.sprint
+        return {
+            "action_item_id": item.pk,
+            "text": item.text,
+            "from_retro_id": item.retro_id,
+            "from_sprint_id": from_sprint.pk,
+            "from_sprint_short_id": from_sprint.short_id,
+            "promoted_task_id": item.promoted_task_id,
+            "promoted_task_status": promoted_task.status if promoted_task else None,
+            "promoted_task_short_id": promoted_task.short_id if promoted_task else None,
+            "age_days": (today - item.created_at.date()).days,
+            "assignee_id": item.assignee_id,
+            "assignee_username": (
+                getattr(item.assignee, "username", None) if item.assignee_id else None
+            ),
+            "story_points": item.story_points,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -7163,6 +7206,76 @@ class TaskOutdentView(IdempotencyMixin, APIView):
         )
 
 
+class _ReparentRejected(Exception):
+    """Carries the 4xx ``Response`` produced by a reparent guard.
+
+    The guards live in a helper so each reads as a flat early exit; raising keeps
+    them that way instead of threading an optional error value back through the
+    caller and re-testing it.
+    """
+
+    def __init__(self, response: Response) -> None:
+        super().__init__("reparent rejected")
+        self.response = response
+
+
+def _resolve_reparent_target(
+    new_parent_id: Any, task: Task, project_pk: str, old_path: str
+) -> tuple[Task | None, str]:
+    """Resolve a reparent destination to ``(parent, parent_wbs_path)``.
+
+    ``(None, "")`` means "move to the project root", which is a valid request —
+    distinct from a malformed body, which the caller rejects before getting here.
+
+    Guard order is part of the API contract (which error a bad request reports
+    first) and must not be rearranged: self-parent, existence, WBS path,
+    milestone, then cycle.
+
+    Raises:
+        _ReparentRejected: wrapping the 4xx Response for the failed guard.
+    """
+    if new_parent_id is None:
+        return None, ""
+
+    if str(new_parent_id) == str(task.pk):
+        raise _ReparentRejected(
+            Response(
+                {"detail": "Cannot reparent a task under itself."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        )
+    try:
+        new_parent = Task.objects.select_for_update().get(
+            pk=new_parent_id, project_id=project_pk, is_deleted=False
+        )
+    except Task.DoesNotExist:
+        raise _ReparentRejected(
+            Response({"detail": "New parent not found."}, status=status.HTTP_404_NOT_FOUND)
+        ) from None
+    if not new_parent.wbs_path:
+        raise _ReparentRejected(
+            Response({"detail": "New parent has no WBS path."}, status=status.HTTP_400_BAD_REQUEST)
+        )
+    # Milestone guard (#1773): a milestone is a single point and cannot acquire
+    # children via reparent.
+    if new_parent.is_milestone:
+        raise _ReparentRejected(
+            Response(
+                {"code": "child_of_milestone", "detail": _MILESTONE_NO_CHILDREN},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        )
+    # Cycle guard — the new parent cannot be a descendant of the task.
+    if new_parent.wbs_path.startswith(f"{old_path}."):
+        raise _ReparentRejected(
+            Response(
+                {"detail": "Cannot reparent under own descendant."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        )
+    return new_parent, new_parent.wbs_path
+
+
 @extend_schema_view(
     post=extend_schema(
         summary="Reparent a task under an arbitrary summary (or to root)",
@@ -7232,46 +7345,12 @@ class TaskReparentView(IdempotencyMixin, APIView):
             old_path = task.wbs_path
             old_parent_path = _get_parent_path(old_path)
 
-            if new_parent_id is None:
-                new_parent: Task | None = None
-                new_parent_path = ""
-            else:
-                if str(new_parent_id) == str(task.pk):
-                    return Response(
-                        {"detail": "Cannot reparent a task under itself."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                try:
-                    new_parent = Task.objects.select_for_update().get(
-                        pk=new_parent_id, project_id=pk, is_deleted=False
-                    )
-                except Task.DoesNotExist:
-                    return Response(
-                        {"detail": "New parent not found."},
-                        status=status.HTTP_404_NOT_FOUND,
-                    )
-                if not new_parent.wbs_path:
-                    return Response(
-                        {"detail": "New parent has no WBS path."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                # Milestone guard (#1773): a milestone is a single point and cannot
-                # acquire children via reparent.
-                if new_parent.is_milestone:
-                    return Response(
-                        {
-                            "code": "child_of_milestone",
-                            "detail": _MILESTONE_NO_CHILDREN,
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                # Cycle guard — new parent cannot be a descendant of the task.
-                if new_parent.wbs_path.startswith(f"{old_path}."):
-                    return Response(
-                        {"detail": "Cannot reparent under own descendant."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                new_parent_path = new_parent.wbs_path
+            try:
+                new_parent, new_parent_path = _resolve_reparent_target(
+                    new_parent_id, task, pk, old_path
+                )
+            except _ReparentRejected as rejected:
+                return rejected.response
 
             # No-op when the task is already a child of the target parent.
             if old_parent_path == new_parent_path:
@@ -7365,18 +7444,6 @@ class TaskBulkView(IdempotencyMixin, APIView):
         # select_for_update() call — avoids repeated individual lookups.
         locked_tasks = _lock_bulk_targets(pk, operations)
 
-        result: dict[str, Any] = {"created": [], "updated": [], "deleted": []}
-        # #998: collect mutated PKs and serialize them in ONE annotated batch
-        # fetch after the loop. Serializing a bare freshly-created / locked Task
-        # degrades every annotation-backed TaskSerializer field (is_summary,
-        # has_predecessors, baseline_*, …) to a per-row live query or a
-        # silently-wrong default — O(N) extra queries on this hot write path.
-        created_ids: list[uuid.UUID] = []
-        updated_ids: list[uuid.UUID] = []
-        # #867: track whether any create/update pulled the project start earlier
-        # so a single project_updated event rides the bulk on_commit batch.
-        project_start_shifted = False
-
         # Fetch the caller's role once for the per-op permission checks below.
         from django.contrib.auth.models import User as _User
 
@@ -7387,34 +7454,19 @@ class TaskBulkView(IdempotencyMixin, APIView):
             .first()
             or -1
         )
+        ctx = _BulkOpContext(
+            project=project,
+            locked_tasks=locked_tasks,
+            request=request,
+            caller_role=caller_role,
+            caller=_caller,
+        )
+        op_batch = _BulkOpBatch()
 
         with transaction.atomic():
-            for op in operations:
-                op_type: str = op["op"]
-                data: dict[str, Any] = op.get("data", {})
-
-                if op_type == "delete":
-                    error = _bulk_delete_task(locked_tasks[op["id"]], caller_role, _caller)
-                    if error is not None:
-                        return error
-                    result["deleted"].append(str(op["id"]))
-                    continue
-
-                if op_type == "create":
-                    outcome = _bulk_create_task(project, data, request, caller_role)
-                elif op_type == "update":
-                    outcome = _bulk_update_task(locked_tasks[op["id"]], data, request, caller_role)
-                else:
-                    continue
-                # A rejected op fails the whole batch, mirroring the pre-extraction
-                # control flow: this `return` leaves the atomic block normally, so
-                # everything applied so far still commits.
-                if isinstance(outcome, Response):
-                    return outcome
-
-                (created_ids if op_type == "create" else updated_ids).append(outcome.pk)
-                if getattr(outcome, "_project_start_shifted_from", None) is not None:
-                    project_start_shifted = True
+            error = _apply_bulk_operations(operations, ctx, op_batch)
+            if error is not None:
+                return error
 
             project_id = str(project.pk)
             # #1009: carry the ids of the tasks this bulk op touched (created,
@@ -7423,9 +7475,9 @@ class TaskBulkView(IdempotencyMixin, APIView):
             # clients that key off task_ids can target the refetch instead of
             # blind-refetching the whole board. Bound via a default arg so closure
             # late-binding can't swap the list.
-            mutated_task_ids: list[str] = [str(tid) for tid in created_ids + updated_ids] + list(
-                result["deleted"]
-            )
+            mutated_task_ids: list[str] = [
+                str(tid) for tid in op_batch.created_ids + op_batch.updated_ids
+            ] + list(op_batch.deleted_ids)
 
             def _broadcast_bulk_mutated(ids: list[str] = mutated_task_ids) -> None:
                 broadcast_board_event(project_id, "tasks_bulk_mutated", {"task_ids": ids})
@@ -7434,10 +7486,18 @@ class TaskBulkView(IdempotencyMixin, APIView):
             transaction.on_commit(_broadcast_bulk_mutated)
             # #867: a bulk op pulled the project start earlier — collaborators
             # must re-fetch the boundary, which tasks_bulk_mutated doesn't carry.
-            if project_start_shifted:
+            if op_batch.project_start_shifted:
                 transaction.on_commit(
                     lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
                 )
+
+        created_ids = op_batch.created_ids
+        updated_ids = op_batch.updated_ids
+        result: dict[str, Any] = {
+            "created": [],
+            "updated": [],
+            "deleted": list(op_batch.deleted_ids),
+        }
 
         # #998: one annotated batch fetch for every created/updated task, instead
         # of serializing bare instances inside the loop. Runs after the atomic
@@ -7446,10 +7506,10 @@ class TaskBulkView(IdempotencyMixin, APIView):
         # out per-row on read. Order is preserved per bucket via the id lists.
         all_ids = created_ids + updated_ids
         if all_ids:
-            batch = annotate_tasks_queryset(
+            annotated = annotate_tasks_queryset(
                 Task.objects.filter(pk__in=all_ids, is_deleted=False), request, str(project.pk)
             )
-            by_id = {t.pk: t for t in batch}
+            by_id = {t.pk: t for t in annotated}
             _attach_milestone_rollups(list(by_id.values()))
             result["created"] = [
                 TaskSerializer(by_id[tid]).data for tid in created_ids if tid in by_id
@@ -7552,6 +7612,87 @@ def _bulk_delete_task(task: Task, caller_role: int, caller: Any) -> Response | N
             status.HTTP_403_FORBIDDEN,
         )
     task.soft_delete()
+    return None
+
+
+@dataclass(frozen=True)
+class _BulkOpContext:
+    """Per-request inputs every operation in a bulk task write shares."""
+
+    project: Project
+    locked_tasks: dict[uuid.UUID, Task]
+    request: Request
+    caller_role: int
+    caller: Any
+
+
+@dataclass
+class _BulkOpBatch:
+    """Mutable accumulator for one bulk request's outcomes.
+
+    IDs are collected rather than serialized inline so the whole batch can be
+    re-fetched in one annotated query after commit (#998) — serializing a bare
+    locked Task degrades every annotation-backed serializer field to a per-row
+    query.
+    """
+
+    created_ids: list[uuid.UUID] = dataclasses.field(default_factory=list)
+    updated_ids: list[uuid.UUID] = dataclasses.field(default_factory=list)
+    deleted_ids: list[str] = dataclasses.field(default_factory=list)
+    project_start_shifted: bool = False
+
+
+def _apply_one_bulk_op(
+    op: dict[str, Any], ctx: _BulkOpContext, batch: _BulkOpBatch
+) -> Response | None:
+    """Apply one operation to ``batch``.
+
+    Returns the 4xx ``Response`` that aborts the batch, or ``None`` on success.
+    An unrecognized ``op`` is skipped rather than rejected — the serializer has
+    already constrained the vocabulary, so this is defense in depth.
+    """
+    op_type: str = op["op"]
+    data: dict[str, Any] = op.get("data", {})
+
+    if op_type == "delete":
+        error = _bulk_delete_task(ctx.locked_tasks[op["id"]], ctx.caller_role, ctx.caller)
+        if error is not None:
+            return error
+        batch.deleted_ids.append(str(op["id"]))
+        return None
+
+    if op_type == "create":
+        outcome = _bulk_create_task(ctx.project, data, ctx.request, ctx.caller_role)
+    elif op_type == "update":
+        outcome = _bulk_update_task(ctx.locked_tasks[op["id"]], data, ctx.request, ctx.caller_role)
+    else:
+        return None
+
+    if isinstance(outcome, Response):
+        return outcome
+
+    (batch.created_ids if op_type == "create" else batch.updated_ids).append(outcome.pk)
+    # #867: a create/update that pulled the project start earlier must also
+    # broadcast the new boundary, which tasks_bulk_mutated does not carry.
+    if getattr(outcome, "_project_start_shifted_from", None) is not None:
+        batch.project_start_shifted = True
+    return None
+
+
+def _apply_bulk_operations(
+    operations: list[dict[str, Any]], ctx: _BulkOpContext, batch: _BulkOpBatch
+) -> Response | None:
+    """Apply every operation in request order, stopping at the first rejection.
+
+    A rejected op fails the whole batch. The caller returns the Response from
+    inside its ``transaction.atomic()`` block, which leaves the block normally —
+    so everything applied before the rejection still commits, matching the
+    pre-extraction control flow.
+    """
+    for op in operations:
+        error = _apply_one_bulk_op(op, ctx, batch)
+        if error is not None:
+            return error
     return None
 
 
@@ -9027,6 +9168,64 @@ class BoardSavedViewDetailView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
+def _spi_health_band(spi: float) -> str:
+    """Map an SPI proxy onto the overview card's three health bands."""
+    if spi >= 0.95:
+        return "on_track"
+    if spi >= 0.85:
+        return "at_risk"
+    return "critical"
+
+
+def _project_spi_and_health(project: Project, today: datetime.date) -> tuple[float | None, str]:
+    """SPI proxy and its health band for the project overview KPI card.
+
+    SPI = BCWP / BCWS, deliberately uncapped — a value above 1.0 is a genuine
+    ahead-of-schedule signal, not an error to clamp.
+
+    The denominator prefers the active baseline's finish dates because those are
+    stable across CPM reruns; with no baseline it falls back to ``early_finish``
+    and merges both counts into a single aggregate so the no-baseline path stays
+    one DB round-trip (P17). The numerator counts tasks COMPLETE by today —
+    keying on ``actual_finish`` rather than status alone stops a late completion
+    from masquerading as on-time. A null ``actual_finish`` on a COMPLETE task
+    still counts.
+
+    Returns ``(None, "unknown")`` when there is no planned work to measure
+    against, which the card renders as an absent ratio rather than zero.
+    """
+    active_baseline = Baseline.objects.filter(
+        project=project, is_active=True, is_deleted=False
+    ).first()
+    if active_baseline is not None:
+        planned_count = active_baseline.tasks.filter(finish__lte=today).count()
+        planned_complete = 0
+        if planned_count > 0:
+            planned_complete = (
+                Task.objects.filter(project=project, is_deleted=False, status=TaskStatus.COMPLETE)
+                .filter(
+                    db_models.Q(actual_finish__lte=today) | db_models.Q(actual_finish__isnull=True)
+                )
+                .count()
+            )
+    else:
+        spi_agg = Task.objects.filter(project=project, is_deleted=False).aggregate(
+            planned=Count("id", filter=db_models.Q(early_finish__lte=today)),
+            planned_complete=Count(
+                "id",
+                filter=db_models.Q(status=TaskStatus.COMPLETE)
+                & (db_models.Q(actual_finish__lte=today) | db_models.Q(actual_finish__isnull=True)),
+            ),
+        )
+        planned_count = spi_agg["planned"] or 0
+        planned_complete = spi_agg["planned_complete"] or 0
+
+    if planned_count <= 0:
+        return None, "unknown"
+    spi = round(planned_complete / planned_count, 3)
+    return spi, _spi_health_band(spi)
+
+
 class ProjectOverviewView(McpReadableViewMixin, APIView):
     """Aggregated KPI snapshot for the single-project overview dashboard.
 
@@ -9131,64 +9330,7 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         tasks_late: int = counts["late"] or 0
 
         # ── Schedule health: SPI proxy ─────────────────────────────────────
-        # SPI = BCWP / BCWS (can exceed 1.0 when ahead of schedule).
-        #
-        # BCWS denominator: tasks whose baseline finish is ≤ today — stable
-        # across CPM reruns. Falls back to early_finish when no baseline exists.
-        # BCWP numerator: tasks that are COMPLETE with actual_finish ≤ today
-        # (or COMPLETE with no actual_finish recorded). Using actual_finish
-        # rather than status alone prevents late completions from masquerading
-        # as on-time. The 1.0 cap is intentionally absent — SPI > 1.0 is a
-        # genuine ahead-of-schedule signal.
-        active_baseline_for_spi = Baseline.objects.filter(
-            project=project, is_active=True, is_deleted=False
-        ).first()
-
-        if active_baseline_for_spi is not None:
-            planned_count = active_baseline_for_spi.tasks.filter(finish__lte=today).count()
-            if planned_count > 0:
-                # Count tasks complete by today; null actual_finish on a complete task counts.
-                planned_complete: int = (
-                    Task.objects.filter(
-                        project=project, is_deleted=False, status=TaskStatus.COMPLETE
-                    )
-                    .filter(
-                        db_models.Q(actual_finish__lte=today)
-                        | db_models.Q(actual_finish__isnull=True)
-                    )
-                    .count()
-                )
-            else:
-                planned_complete = 0
-        else:
-            # P17: No baseline — merge both SPI COUNT queries into one aggregate()
-            # call so a single DB round-trip returns both the denominator (tasks
-            # with early_finish ≤ today) and numerator (COMPLETE tasks).
-            spi_agg = Task.objects.filter(project=project, is_deleted=False).aggregate(
-                planned=Count("id", filter=db_models.Q(early_finish__lte=today)),
-                planned_complete=Count(
-                    "id",
-                    filter=db_models.Q(status=TaskStatus.COMPLETE)
-                    & (
-                        db_models.Q(actual_finish__lte=today)
-                        | db_models.Q(actual_finish__isnull=True)
-                    ),
-                ),
-            )
-            planned_count = spi_agg["planned"] or 0
-            planned_complete = spi_agg["planned_complete"] or 0
-
-        if planned_count > 0:
-            spi = round(planned_complete / planned_count, 3)
-            if spi >= 0.95:
-                health = "on_track"
-            elif spi >= 0.85:
-                health = "at_risk"
-            else:
-                health = "critical"
-        else:
-            spi = None
-            health = "unknown"
+        spi, health = _project_spi_and_health(project, today)
 
         # ── Next milestone ─────────────────────────────────────────────────
         next_milestone_qs = (
@@ -9358,9 +9500,19 @@ class ProjectAttentionView(APIView):
         self.check_object_permissions(request, project)
 
         today = timezone.localdate()
-        items: list[dict[str, Any]] = []
+        # Bucket concatenation order is the response order — the client renders
+        # items as given rather than re-sorting by severity, so this sequence is
+        # part of the contract and must not be rearranged.
+        items = [
+            *self._critical_late_items(project, today),
+            *self._unassigned_soon_items(project, today),
+            *self._baseline_drift_items(project),
+            *self._overallocation_items(project),
+        ]
+        return Response({"items": items}, status=status.HTTP_200_OK)
 
-        # ── Critical-path tasks that are already late ──────────────────────
+    def _critical_late_items(self, project: Project, today: datetime.date) -> list[dict[str, Any]]:
+        """Critical-path tasks whose CPM finish has passed but are not complete."""
         critical_late = (
             Task.objects.filter(
                 project=project,
@@ -9378,25 +9530,28 @@ class ProjectAttentionView(APIView):
             .select_related("assignee")
             .order_by("early_finish")[: self._MAX_PER_BUCKET]
         )
-        for task in critical_late:
-            items.append(
-                {
-                    "severity": "critical",
-                    "type": "critical_task_late",
-                    "task_id": str(task.id),
-                    "task_name": task.name,
-                    "assignee_name": (
-                        task.assignee.get_full_name() or task.assignee.username
-                        if task.assignee
-                        else None
-                    ),
-                    "date": task.early_finish.isoformat() if task.early_finish else None,
-                    "detail": "On critical path",
-                    "link_target": None,
-                }
-            )
+        return [
+            {
+                "severity": "critical",
+                "type": "critical_task_late",
+                "task_id": str(task.id),
+                "task_name": task.name,
+                "assignee_name": (
+                    task.assignee.get_full_name() or task.assignee.username
+                    if task.assignee
+                    else None
+                ),
+                "date": task.early_finish.isoformat() if task.early_finish else None,
+                "detail": "On critical path",
+                "link_target": None,
+            }
+            for task in critical_late
+        ]
 
-        # ── Unassigned tasks starting within 7 days ────────────────────────
+    def _unassigned_soon_items(
+        self, project: Project, today: datetime.date
+    ) -> list[dict[str, Any]]:
+        """Not-started, unassigned tasks whose CPM start falls in the next 7 days."""
         soon = today + datetime.timedelta(days=7)
         unassigned_soon = Task.objects.filter(
             project=project,
@@ -9405,68 +9560,78 @@ class ProjectAttentionView(APIView):
             early_start__range=(today, soon),
             status=TaskStatus.NOT_STARTED,
         ).order_by("early_start")[: self._MAX_PER_BUCKET]
-        for task in unassigned_soon:
-            items.append(
-                {
-                    "severity": "warning",
-                    "type": "unassigned_approaching",
-                    "task_id": str(task.id),
-                    "task_name": task.name,
-                    "assignee_name": None,
-                    "date": task.early_start.isoformat() if task.early_start else None,
-                    "detail": "Unassigned — starts soon",
-                    "link_target": None,
-                }
-            )
+        return [
+            {
+                "severity": "warning",
+                "type": "unassigned_approaching",
+                "task_id": str(task.id),
+                "task_name": task.name,
+                "assignee_name": None,
+                "date": task.early_start.isoformat() if task.early_start else None,
+                "detail": "Unassigned — starts soon",
+                "link_target": None,
+            }
+            for task in unassigned_soon
+        ]
 
-        # ── Baseline drift: tasks that have slipped vs the active baseline ─
+    def _baseline_drift_items(self, project: Project) -> list[dict[str, Any]]:
+        """Critical tasks whose CPM finish has slipped past the active baseline.
+
+        Returns an empty list when the project has no active baseline — there is
+        no comparison basis, which is not the same as "no drift".
+        """
         try:
             active_baseline = project.baselines.filter(is_deleted=False).get(is_active=True)
         except Exception:
             active_baseline = None
 
-        if active_baseline:
-            # Tasks where CPM early_finish is later than the baseline snapshot finish.
-            # BaselineTask.finish mirrors Task.early_finish at snapshot time (field is
-            # named "finish", not "early_finish" — see BaselineTask model).
-            drift_items = (
-                Task.objects.filter(
-                    project=project,
-                    is_deleted=False,
-                    is_critical=True,
-                    early_finish__isnull=False,
-                )
-                .annotate(
-                    baseline_finish=Subquery(
-                        active_baseline.tasks.filter(task_id=OuterRef("pk")).values("finish")[:1]
-                    )
-                )
-                .filter(
-                    baseline_finish__isnull=False,
-                    early_finish__gt=db_models.F("baseline_finish"),
-                )
-                .order_by((db_models.F("early_finish") - db_models.F("baseline_finish")).desc())[
-                    : self._MAX_PER_BUCKET
-                ]
-            )
-            for task in drift_items:
-                baseline_finish = getattr(task, "baseline_finish", None)
-                if baseline_finish and task.early_finish:
-                    drift_days = (task.early_finish - baseline_finish).days
-                    items.append(
-                        {
-                            "severity": "info",
-                            "type": "baseline_drift",
-                            "task_id": str(task.id),
-                            "task_name": task.name,
-                            "assignee_name": None,
-                            "date": task.early_finish.isoformat(),
-                            "detail": f"Slipped +{drift_days}d vs baseline",
-                            "link_target": None,
-                        }
-                    )
+        if not active_baseline:
+            return []
 
-        # ── Over-allocated resources ───────────────────────────────────────
+        # Tasks where CPM early_finish is later than the baseline snapshot finish.
+        # BaselineTask.finish mirrors Task.early_finish at snapshot time (field is
+        # named "finish", not "early_finish" — see BaselineTask model).
+        drift_items = (
+            Task.objects.filter(
+                project=project,
+                is_deleted=False,
+                is_critical=True,
+                early_finish__isnull=False,
+            )
+            .annotate(
+                baseline_finish=Subquery(
+                    active_baseline.tasks.filter(task_id=OuterRef("pk")).values("finish")[:1]
+                )
+            )
+            .filter(
+                baseline_finish__isnull=False,
+                early_finish__gt=db_models.F("baseline_finish"),
+            )
+            .order_by((db_models.F("early_finish") - db_models.F("baseline_finish")).desc())[
+                : self._MAX_PER_BUCKET
+            ]
+        )
+        out: list[dict[str, Any]] = []
+        for task in drift_items:
+            baseline_finish = getattr(task, "baseline_finish", None)
+            if baseline_finish and task.early_finish:
+                drift_days = (task.early_finish - baseline_finish).days
+                out.append(
+                    {
+                        "severity": "info",
+                        "type": "baseline_drift",
+                        "task_id": str(task.id),
+                        "task_name": task.name,
+                        "assignee_name": None,
+                        "date": task.early_finish.isoformat(),
+                        "detail": f"Slipped +{drift_days}d vs baseline",
+                        "link_target": None,
+                    }
+                )
+        return out
+
+    def _overallocation_items(self, project: Project) -> list[dict[str, Any]]:
+        """Resources whose committed units exceed their capacity on open tasks."""
         from trueppm_api.apps.resources.models import Resource, TaskResource
 
         overalloc_rows = cast(
@@ -9482,27 +9647,27 @@ class ProjectAttentionView(APIView):
                 .filter(total__gt=db_models.F("resource__max_units"))
             )[: self._MAX_PER_BUCKET],
         )
+        if not overalloc_rows:
+            return []
 
-        if overalloc_rows:
-            resource_ids = [r["resource_id"] for r in overalloc_rows]
-            resource_map = {str(r.pk): r for r in Resource.objects.filter(pk__in=resource_ids)}
-            for row in overalloc_rows:
-                res = resource_map.get(str(row["resource_id"]))
-                resource_name = res.name if res else str(row["resource_id"])
-                items.append(
-                    {
-                        "severity": "warning",
-                        "type": "overallocation",
-                        "task_id": None,
-                        "task_name": resource_name,
-                        "assignee_name": None,
-                        "date": None,
-                        "detail": f"Allocated {row['total']:.0%} — over capacity",
-                        "link_target": None,
-                    }
-                )
-
-        return Response({"items": items}, status=status.HTTP_200_OK)
+        resource_ids = [r["resource_id"] for r in overalloc_rows]
+        resource_map = {str(r.pk): r for r in Resource.objects.filter(pk__in=resource_ids)}
+        out: list[dict[str, Any]] = []
+        for row in overalloc_rows:
+            res = resource_map.get(str(row["resource_id"]))
+            out.append(
+                {
+                    "severity": "warning",
+                    "type": "overallocation",
+                    "task_id": None,
+                    "task_name": res.name if res else str(row["resource_id"]),
+                    "assignee_name": None,
+                    "date": None,
+                    "detail": f"Allocated {row['total']:.0%} — over capacity",
+                    "link_target": None,
+                }
+            )
+        return out
 
 
 class ProjectMyTasksView(APIView):
@@ -12237,24 +12402,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        invalid: list[str] = []
-        parsed: list[tuple[str, int]] = []
-        for entry in tasks_data:
-            if not isinstance(entry, dict):
-                invalid.append(repr(entry))
-                continue
-            tid = entry.get("id")
-            sv = entry.get("server_version")
-            # bool is an int subclass — exclude it so {"server_version": true} is rejected.
-            if not isinstance(tid, str) or not isinstance(sv, int) or isinstance(sv, bool):
-                invalid.append(repr(entry))
-                continue
-            try:
-                uuid.UUID(tid)
-            except ValueError:
-                invalid.append(tid)
-                continue
-            parsed.append((tid, sv))
+        parsed, invalid = _parse_reorder_entries(tasks_data)
 
         if invalid:
             bad = ", ".join(invalid)
@@ -13147,29 +13295,33 @@ class MeSearchView(McpReadableViewMixin, APIView):
                 :_OMNI_SEARCH_SCAN_CAP
             ]
         )
-        results: list[dict[str, Any]] = []
-        for task in rows:
-            program = task.project.program
-            parent_epic = task.parent_epic
-            results.append(
-                {
-                    "id": str(task.id),
-                    "kind": "task",
-                    # Report milestone-ness as the row's identity. Derived from the row
-                    # rather than the matching key so the value is correct for any
-                    # requested combination, and safe because the serializer field is a
-                    # plain CharField — no OpenAPI enum to rename (ADR-0662 D2).
-                    "type": "milestone" if task.is_milestone else task.type,
-                    "title": task.name,
-                    "program_id": str(program.id) if program else None,
-                    "program_name": program.name if program else None,
-                    "project_id": str(task.project_id),
-                    "project_name": task.project.name,
-                    "parent_epic_id": str(parent_epic.id) if parent_epic else None,
-                    "parent_epic_name": parent_epic.name if parent_epic else None,
-                }
-            )
-        return results
+        return [self._task_search_row(task) for task in rows]
+
+    @staticmethod
+    def _task_search_row(task: Any) -> dict[str, Any]:
+        """Shape one Task hit, with its project → program → epic breadcrumb.
+
+        The caller's ``select_related`` already folded the breadcrumb into the
+        row, so nothing here issues a query.
+        """
+        program = task.project.program
+        parent_epic = task.parent_epic
+        return {
+            "id": str(task.id),
+            "kind": "task",
+            # Report milestone-ness as the row's identity. Derived from the row
+            # rather than the matching key so the value is correct for any
+            # requested combination, and safe because the serializer field is a
+            # plain CharField — no OpenAPI enum to rename (ADR-0662 D2).
+            "type": "milestone" if task.is_milestone else task.type,
+            "title": task.name,
+            "program_id": str(program.id) if program else None,
+            "program_name": program.name if program else None,
+            "project_id": str(task.project_id),
+            "project_name": task.project.name,
+            "parent_epic_id": str(parent_epic.id) if parent_epic else None,
+            "parent_epic_name": parent_epic.name if parent_epic else None,
+        }
 
     def _backlog_results(
         self,
@@ -13800,15 +13952,26 @@ def _me_work_retro_action_items(user: Any) -> list[dict[str, Any]]:
     items whose Task is in a sprint do not show here — those already appear in
     the user's My Work sprint groups.
     """
+    today = timezone.now().date()
+    suggested_rows, seen_task_ids = _retro_suggested_rows(user, today)
+    return suggested_rows + _retro_owned_rows(user, today, seen_task_ids)
+
+
+def _retro_suggested_rows(
+    user: Any, today: datetime.date
+) -> tuple[list[dict[str, Any]], set[uuid.UUID]]:
+    """PENDING retro suggestions addressed to ``user``, newest retro first.
+
+    Returns the rows together with the task ids they covered, so the owned pass
+    can skip them — a task appears at most once and a suggestion outranks
+    ownership.
+    """
     from trueppm_api.apps.projects.models import (
         RetroActionItem,
         SuggestionState,
-        Task,
-        TaskStatus,
         TaskSuggestedAssignee,
     )
 
-    today = timezone.now().date()
     rows: list[dict[str, Any]] = []
     seen_task_ids: set[uuid.UUID] = set()
 
@@ -13861,6 +14024,23 @@ def _me_work_retro_action_items(user: Any) -> list[dict[str, Any]]:
             }
         )
         seen_task_ids.add(s.task_id)
+
+    return rows, seen_task_ids
+
+
+def _retro_owned_rows(
+    user: Any, today: datetime.date, seen_task_ids: set[uuid.UUID]
+) -> list[dict[str, Any]]:
+    """Retro action items whose promoted Task ``user`` owns and has not completed.
+
+    Sprint-tracked owned items are excluded: they already appear in the user's My
+    Work sprint groups, so surfacing only the orphan-backlog ones here avoids
+    double-counting. Tasks already covered by ``seen_task_ids`` (the suggestion
+    pass) are skipped for the same reason.
+    """
+    from trueppm_api.apps.projects.models import RetroActionItem, Task, TaskStatus
+
+    rows: list[dict[str, Any]] = []
 
     # Owned retro action items: promoted Task is assigned to user, not COMPLETE,
     # and not in any sprint (sprint-tracked owned items already show in the
@@ -15452,14 +15632,92 @@ class TaskCommentViewSet(
             return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
-    def perform_create(self, serializer: BaseSerializer[TaskComment]) -> None:
+    def _fan_out_comment_mentions(
+        self, comment: TaskComment, task: Task, parsed: list[Any], project_pk: str
+    ) -> int:
+        """Resolve @mentions on a new comment, notify targets, fire task.mentioned.
+
+        Returns the number of non-account external stakeholders reached (#1658,
+        ADR-0264) — informational only: no email is sent (delivery deferred to
+        #1675) and no Notification rows are created for them.
+
+        Raises a structured 400 listing exactly what was rejected rather than
+        partially committing, so the caller can fix the body and retry.
+        """
         from trueppm_api.apps.access.permissions import _membership_role
         from trueppm_api.apps.notifications.services import (
             create_mention_notifications,
-            parse_mentions,
             resolve_parsed_mentions,
         )
         from trueppm_api.apps.notifications.throttles import record_mention_usage
+
+        actor_role = _membership_role(self.request, project_pk)
+        resolved = resolve_parsed_mentions(parsed, project_pk, actor_role=actor_role)
+        if resolved.skipped_users or resolved.skipped_groups:
+            detail: dict[str, list[str] | str] = {
+                "detail": "One or more @mentions could not be resolved.",
+            }
+            if resolved.skipped_users:
+                detail["skipped_users"] = resolved.skipped_users
+            if resolved.skipped_groups:
+                detail["skipped_groups"] = resolved.skipped_groups
+            raise serializers.ValidationError(detail, code="mention_resolution_failed")
+
+        created = create_mention_notifications(
+            task_comment=comment,
+            mentioner=self.request.user,  # type: ignore[arg-type]
+            parsed_result=resolved,
+            project_id=project_pk,
+        )
+        record_mention_usage(str(self.request.user.pk), created)
+
+        # Fire task.mentioned (#638) once per comment that actually mentioned
+        # someone. The webhook is deferred (on_commit) even though the
+        # notification fan-out is synchronous — the notification count must be
+        # in the API response, but the outbound webhook must not enqueue for a
+        # rolled-back comment (ADR-0083 / ADR-0019).
+        if created:
+            project_id_str = str(project_pk)
+            mention_payload = {
+                **_task_webhook_payload(task),
+                "comment_id": str(comment.pk),
+                "mention_count": created,
+            }
+            transaction.on_commit(
+                lambda: _dispatch_webhooks(project_id_str, "task.mentioned", mention_payload)
+            )
+        return len(resolved.external_targets)
+
+    def _notify_assignee_of_comment(
+        self, task: Task, parsed: list[Any], project_id_str: str
+    ) -> None:
+        """Notify the task's assignee that their task got a comment (#639, ADR-0085 §4).
+
+        Skipped when the assignee wrote the comment themselves, or was already
+        @mentioned in it — the mention path notifies them separately, so this
+        de-dups to avoid two pings for one comment.
+        """
+        from django.contrib.auth.models import User as _User
+
+        author = cast(_User, self.request.user)
+        author_id = str(author.pk)
+        assignee_id = str(task.assignee_id) if task.assignee_id else None
+        if not assignee_id or assignee_id == author_id or not task.assignee:
+            return
+        mentioned_usernames = {p.value for p in parsed if p.kind == "user"}
+        if task.assignee.username in mentioned_usernames:
+            return
+        author_name = author.get_full_name() or author.username
+        c_subj = f"New comment on {task.name}"
+        c_body = f'{author_name} commented on your task "{task.name}" in TruePPM.'
+        transaction.on_commit(
+            lambda: _notify_event(
+                "comment_on_my_task", [assignee_id], c_subj, c_body, project_id_str
+            )
+        )
+
+    def perform_create(self, serializer: BaseSerializer[TaskComment]) -> None:
+        from trueppm_api.apps.notifications.services import parse_mentions
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project_pk = self.kwargs["project_pk"]
@@ -15490,64 +15748,11 @@ class TaskCommentViewSet(
         # Parse mentions + fan out notifications transactionally
         parsed = parse_mentions(comment.body)
         if parsed:
-            actor_role = _membership_role(self.request, project_pk)
-            resolved = resolve_parsed_mentions(parsed, project_pk, actor_role=actor_role)
-            if resolved.skipped_users or resolved.skipped_groups:
-                # Caller gets a structured 400 listing exactly what was rejected
-                # — they can fix the body and retry. We do not partially commit.
-                detail: dict[str, list[str] | str] = {
-                    "detail": "One or more @mentions could not be resolved.",
-                }
-                if resolved.skipped_users:
-                    detail["skipped_users"] = resolved.skipped_users
-                if resolved.skipped_groups:
-                    detail["skipped_groups"] = resolved.skipped_groups
-                raise serializers.ValidationError(detail, code="mention_resolution_failed")
-            external_recipient_count = len(resolved.external_targets)
-            created = create_mention_notifications(
-                task_comment=comment,
-                mentioner=self.request.user,  # type: ignore[arg-type]
-                parsed_result=resolved,
-                project_id=project_pk,
+            external_recipient_count = self._fan_out_comment_mentions(
+                comment, task, parsed, project_pk
             )
-            record_mention_usage(str(self.request.user.pk), created)
 
-            # Fire task.mentioned (#638) once per comment that actually mentioned
-            # someone. The webhook is deferred (on_commit) even though the
-            # notification fan-out is synchronous — the notification count must be
-            # in the API response, but the outbound webhook must not enqueue for a
-            # rolled-back comment (ADR-0083 / ADR-0019).
-            if created:
-                mention_payload = {
-                    **_task_webhook_payload(task),
-                    "comment_id": comment_id_str,
-                    "mention_count": created,
-                }
-                transaction.on_commit(
-                    lambda: _dispatch_webhooks(project_id_str, "task.mentioned", mention_payload)
-                )
-
-        # comment_on_my_task (#639, ADR-0085 §4): notify the task's assignee that
-        # their task got a comment — unless they wrote it, or were already
-        # @mentioned in it (the mention path notifies them separately, so we
-        # de-dup to avoid two pings for one comment).
-        from django.contrib.auth.models import User as _User
-
-        author = cast(_User, self.request.user)
-        author_id = str(author.pk)
-        assignee_id = str(task.assignee_id) if task.assignee_id else None
-        if assignee_id and assignee_id != author_id and task.assignee:
-            mentioned_usernames = {p.value for p in parsed if p.kind == "user"}
-            assignee_username = task.assignee.username
-            if assignee_username not in mentioned_usernames:
-                author_name = author.get_full_name() or author.username
-                c_subj = f"New comment on {task.name}"
-                c_body = f'{author_name} commented on your task "{task.name}" in TruePPM.'
-                transaction.on_commit(
-                    lambda: _notify_event(
-                        "comment_on_my_task", [assignee_id], c_subj, c_body, project_id_str
-                    )
-                )
+        self._notify_assignee_of_comment(task, parsed, project_id_str)
 
         transaction.on_commit(
             lambda: broadcast_board_event(

@@ -12,7 +12,6 @@ delete, role checks) is in :mod:`trueppm_api.apps.access.services` and
 
 from __future__ import annotations
 
-import datetime
 import json
 from dataclasses import asdict, dataclass
 from typing import Any, cast
@@ -84,10 +83,13 @@ from trueppm_api.apps.projects.serializers import (
     ProjectSerializer,
 )
 from trueppm_api.apps.projects.views import (
+    _SCHEDULE_NOT_COMPUTED,
     PIN_ENDPOINT_DESCRIPTION,
     PIN_LIMIT_RESPONSE,
     PROGRAM_PIN_RESPONSE,
     DirectoryPagination,
+    _resolve_allocation_window,
+    _ScheduleNotComputedError,
     pin_limit_detail,
 )
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
@@ -927,49 +929,19 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             member_qs = member_qs.exclude(pk__in=_excluded)
         member_project_ids = list(member_qs.values_list("id", flat=True))
 
-        def _parse_date(s: str, param: str) -> datetime.date:
-            try:
-                return datetime.date.fromisoformat(s)
-            except ValueError:
-                raise ValueError(f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD).") from None
-
         # --- Resolve window bounds across all member projects ---
-        start_str = request.query_params.get("start")
-        end_str = request.query_params.get("end")
-
         base_tasks = Task.objects.filter(project_id__in=member_project_ids, is_deleted=False)
 
         try:
-            if start_str:
-                window_start: datetime.date = _parse_date(start_str, "start")
-            else:
-                first = (
-                    base_tasks.filter(early_start__isnull=False)
-                    .order_by("early_start")
-                    .values_list("early_start", flat=True)
-                    .first()
-                )
-                if first is None:
-                    return Response(
-                        {"detail": "Schedule has not been computed. Run the scheduler first."},
-                        status=status.HTTP_409_CONFLICT,
-                    )
-                window_start = first
-
-            if end_str:
-                window_end: datetime.date = _parse_date(end_str, "end")
-            else:
-                last = (
-                    base_tasks.filter(early_finish__isnull=False)
-                    .order_by("-early_finish")
-                    .values_list("early_finish", flat=True)
-                    .first()
-                )
-                window_end = last if last is not None else window_start
-
+            window_start, window_end = _resolve_allocation_window(request, base_tasks)
+        except _ScheduleNotComputedError:
+            return Response(
+                {"detail": _SCHEDULE_NOT_COMPUTED},
+                status=status.HTTP_409_CONFLICT,
+            )
         except ValueError as exc:
-            # False positive: the only ValueError raised in this block is the
-            # curated _parse_date message ("'start'/'end' must be ISO 8601 …").
+            # False positive: the only ValueError raised here is the curated
+            # _parse_window_date message ("'start'/'end' must be ISO 8601 …").
             return Response(
                 {"detail": str(exc)},  # codeql[py/stack-trace-exposure]
                 status=status.HTTP_400_BAD_REQUEST,
