@@ -292,6 +292,10 @@ test.describe('Schedule share — milestone reveal', () => {
     await expect(page.getByText('Scope sign-off')).toHaveCount(0);
     await expect(page.getByText(/Scope sign-off · \d+ May/)).toHaveCount(0);
     await expect(page.getByText('Milestone', { exact: true })).toHaveCount(0);
+    // …and the omission is named, so the WBS gap doesn't read as missing data.
+    await expect(
+      page.getByText('Milestone dates were not included in this shared view.'),
+    ).toBeVisible();
   });
 
   test('the board dialog still carries a single reveal toggle (unchanged by #2532)', async ({

@@ -97,6 +97,23 @@ describe('PublicScheduleSharePage', () => {
     expect(screen.getByText('Milestone')).toBeInTheDocument();
   });
 
+  it('explains the omission when the link hid milestone dates (#2532)', async () => {
+    // The server withholds the rows; without this note the resulting WBS gap reads
+    // as missing data rather than a deliberate choice by whoever shared the link.
+    fetchMock.mockResolvedValueOnce({ ...schedule, show_milestone_dates: false });
+    renderAt();
+    expect(
+      await screen.findByText('Milestone dates were not included in this shared view.'),
+    ).toBeInTheDocument();
+  });
+
+  it('says nothing about milestones when the link kept them (#2532)', async () => {
+    fetchMock.mockResolvedValueOnce(schedule);
+    renderAt();
+    await screen.findByText('Frame walls');
+    expect(screen.queryByText(/were not included in this shared view/)).not.toBeInTheDocument();
+  });
+
   it('renders the empty-schedule state', async () => {
     fetchMock.mockResolvedValueOnce({ ...schedule, tasks: [] });
     renderAt();

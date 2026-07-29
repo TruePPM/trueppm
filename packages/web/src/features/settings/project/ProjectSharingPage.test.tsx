@@ -113,6 +113,35 @@ describe('ProjectSharingPage (#283 / #1486)', () => {
     expect(screen.getByText(/never expires/)).toBeInTheDocument();
   });
 
+  it('states the milestone reveal on a schedule row only (#2532)', () => {
+    sharedLinksResult = {
+      data: [
+        link({ id: 'b1', contentKind: 'board', label: 'Vendor board' }),
+        link({
+          id: 's1',
+          contentKind: 'schedule',
+          label: 'Client review',
+          showMilestoneDates: false,
+        }),
+      ],
+      isLoading: false,
+    };
+    render(<ProjectSharingPage />);
+    // Exactly one row carries the clause — the board row has no milestone lane, so
+    // the clause there would be meaningless noise.
+    expect(screen.getByText(/milestone dates hidden/)).toBeInTheDocument();
+    expect(screen.queryByText(/milestone dates shown/)).not.toBeInTheDocument();
+  });
+
+  it('says "milestone dates shown" on a schedule row that keeps them (#2532)', () => {
+    sharedLinksResult = {
+      data: [link({ id: 's1', contentKind: 'schedule', showMilestoneDates: true })],
+      isLoading: false,
+    };
+    render(<ProjectSharingPage />);
+    expect(screen.getByText(/milestone dates shown/)).toBeInTheDocument();
+  });
+
   it('creates a schedule link (with a content kind + expiry) and reveals the one-time token', async () => {
     const user = userEvent.setup();
     createMutate.mockImplementation(

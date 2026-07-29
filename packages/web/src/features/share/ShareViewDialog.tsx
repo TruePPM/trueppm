@@ -445,8 +445,9 @@ export function ShareViewDialog({
                 <span className="text-[12px] text-neutral-text-primary">
                   Show milestone dates
                   <span className="block text-xs text-neutral-text-secondary">
-                    On by default — milestones are the headline. Turn it off to share
-                    progress without committing to dates.
+                    On by default — milestones are the headline. Turn it off and
+                    milestone rows are left out of the shared timeline entirely, so the
+                    audience sees progress without committed dates.
                   </span>
                 </span>
               </label>
