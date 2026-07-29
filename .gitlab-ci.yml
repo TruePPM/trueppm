@@ -1250,6 +1250,75 @@ helm:install:
   script:
     - bash scripts/helm-install-drill.sh
 
+helm:netpol:
+  # Datastore NetworkPolicy ENFORCEMENT drill (#2560). See
+  # scripts/helm-netpol-drill.sh for the full rationale and the probe list.
+  #
+  # helm:install above boots the chart on a kind cluster running the DEFAULT CNI
+  # (kindnetd), which does not implement NetworkPolicy — by design, per the kindnet
+  # project. So the policy objects are admitted and silently ignored there, and a
+  # policy that selected the wrong pods or omitted a legitimate client passed every
+  # gate we had. That is not a hypothetical: #2560 found the `backup` CronJob and
+  # `demo-seed` Job missing from the ingress allow-list.
+  #
+  # This job therefore creates its OWN cluster with disableDefaultCNI + Calico and
+  # asserts behavior: positive probes (api/worker/beat/backup/demo-seed reach the
+  # datastores), negative probes (unlabeled and wrong-component pods are denied),
+  # datastore egress default-deny, plus two controls that prove a DENIED result came
+  # from the policy rather than from a broken CNI.
+  #
+  # It is a SEPARATE cluster rather than a flag on helm:install because swapping the
+  # CNI there would slow the common deploy smoke test and couple two unrelated
+  # failure modes. Same dind + kind-in-dind recipe otherwise.
+  stage: test
+  interruptible: false
+  timeout: 30m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs:
+    - job: ci:build-deploy-images
+      artifacts: false
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    KIND_VERSION: "0.24.0"
+    KUBECTL_VERSION: "1.31.2"
+    HELM_VERSION: "3.16.3"
+    CALICO_VERSION: "v3.32.1"
+    RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
+    APISERVER_HOST: "docker"
+  rules:
+    # Schedule stays advisory, matching helm:install: a nightly blip on the shared
+    # pipeline (Calico manifest fetch, image pull) is a signal, not a hard red.
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    # BLOCKING on MR + main. Scoped to the whole chart rather than just
+    # networkpolicy.yaml on purpose: the policy names its allowed clients by
+    # `app.kubernetes.io/component`, so ADDING a template that opens a datastore
+    # connection breaks isolation without touching the policy file itself — which
+    # is precisely how #2560's backup/demo-seed gap went unnoticed.
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-netpol-drill.sh
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-netpol-drill.sh
+        - .gitlab-ci.yml
+  before_script:
+    - apk add --no-cache bash curl
+    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
+    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/helm-netpol-drill.sh
+
 backup:restore-drill:
   # Restore drill (#320): the standing evidence that scripts/backup.sh and
   # scripts/restore.sh actually work end to end. Seeds a database (required

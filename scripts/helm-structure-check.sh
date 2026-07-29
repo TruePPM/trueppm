@@ -78,8 +78,89 @@ cm_mount="$(echo "$WEB_DEP" | yq '.spec.template.spec.containers[0].volumeMounts
 [ "$cm_mount" = "default.conf" ] \
   || fail "web deployment does not mount the nginx ConfigMap over /etc/nginx/conf.d/default.conf"
 
+# 5. NetworkPolicy allow-lists must cover every datastore client (#2560).
+#
+#    The datastore policies allow ingress by `app.kubernetes.io/component`. A
+#    workload that receives DATABASE_URL / REDIS_URL but is missing from the
+#    corresponding list has its connections DROPPED on any policy-enforcing CNI —
+#    while `helm lint`, `helm template`, kubeconform, and the helm:install drill
+#    (which runs on kind's non-enforcing default CNI) all stay green. That is
+#    exactly how the `backup` CronJob and `demo-seed` Job came to be omitted.
+#
+#    This is the cheap static half of the guarantee; scripts/helm-netpol-drill.sh
+#    proves enforcement for real on a Calico cluster. This one runs in seconds with
+#    no cluster, so a newly-added datastore client fails in the lint stage.
+#
+#    Rendered with backup + demo enabled because both are off by default and both
+#    open PostgreSQL — a default-values render cannot see them at all.
+NP_ALL="$(helm template trueppm "$CHART" \
+  --set image.tag=latest \
+  --set backup.enabled=true \
+  --set demo.enabled=true \
+  --set demo.baseUrl=https://demo.example.com \
+  --set demo.shareToken.schedule=structurecheckschedule \
+  --set demo.shareToken.board=structurecheckboard)"
+
+np_split="$(mktemp -d)"
+trap 'rm -rf "$np_split"' EXIT
+# shellcheck disable=SC2016  # $index is a yq expression variable, not a shell one
+echo "$NP_ALL" | (cd "$np_split" && yq -s '"doc_" + $index' >/dev/null)
+
+# The rendered allow-lists, as comma-wrapped strings for substring matching.
+# `select()` over a multi-document stream emits a blank line per non-matching
+# document, so squeeze ALL whitespace out before wrapping — otherwise the list
+# reads ",\napi,celery-worker,…" and the ",api," substring test never matches.
+np_components() {
+  echo "$NP_ALL" \
+    | yq "select(.kind == \"NetworkPolicy\" and (.metadata.name | test(\"$1\$\"))) | [.spec.ingress[].from[].podSelector.matchLabels[\"app.kubernetes.io/component\"]] | join(\",\")" \
+    | tr -d '[:space:]'
+}
+pg_allowed=",$(np_components postgresql),"
+vk_allowed=",$(np_components valkey),"
+[ "$pg_allowed" != ",," ] || fail "could not read the postgresql NetworkPolicy ingress allow-list"
+[ "$vk_allowed" != ",," ] || fail "could not read the valkey NetworkPolicy ingress allow-list"
+
+np_checked=0
+for f in "$np_split"/doc_*.yml; do
+  kind="$(yq '.kind' "$f")"
+  case "$kind" in Deployment|StatefulSet|Job|CronJob|Pod) ;; *) continue ;; esac
+
+  # Datastore pods are the policy TARGETS, not clients — they carry no chart
+  # component label and must not be required to appear in their own allow-list.
+  ds_name="$(yq '[.spec.template.metadata.labels["app.kubernetes.io/name"], .metadata.labels["app.kubernetes.io/name"]] | map(select(. != null)) | .[0] // ""' "$f")"
+  case "$ds_name" in postgresql|valkey) continue ;; esac
+
+  wl_name="$(yq '.metadata.name' "$f")"
+  # CronJob nests its pod template one level deeper than Deployment/Job.
+  comp="$(yq '[.spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/component"], .spec.template.metadata.labels["app.kubernetes.io/component"], .metadata.labels["app.kubernetes.io/component"]] | map(select(. != null)) | .[0] // ""' "$f")"
+  urls="$(yq '[(.spec.jobTemplate.spec.template.spec, .spec.template.spec, .spec) | select(. != null) | (.containers // []) + (.initContainers // []) | .[].env // [] | .[].name] | map(select(. == "DATABASE_URL" or . == "REDIS_URL")) | unique | join(",")' "$f")"
+
+  case ",$urls," in
+    *,DATABASE_URL,*)
+      [ -n "$comp" ] || fail "$kind/$wl_name receives DATABASE_URL but carries no app.kubernetes.io/component label, so no NetworkPolicy rule can ever match it"
+      case "$pg_allowed" in
+        *",$comp,"*) np_checked=$((np_checked + 1)) ;;
+        *) fail "$kind/$wl_name (component '$comp') receives DATABASE_URL but is NOT in the postgresql NetworkPolicy ingress allow-list (${pg_allowed}) — its connections are dropped on an enforcing CNI. Add it in templates/networkpolicy.yaml." ;;
+      esac
+      ;;
+  esac
+  case ",$urls," in
+    *,REDIS_URL,*)
+      [ -n "$comp" ] || fail "$kind/$wl_name receives REDIS_URL but carries no app.kubernetes.io/component label"
+      case "$vk_allowed" in
+        *",$comp,"*) np_checked=$((np_checked + 1)) ;;
+        *) fail "$kind/$wl_name (component '$comp') receives REDIS_URL but is NOT in the valkey NetworkPolicy ingress allow-list (${vk_allowed}) — its connections are dropped on an enforcing CNI. Add it in templates/networkpolicy.yaml." ;;
+      esac
+      ;;
+  esac
+done
+# A zero here would mean the loop matched nothing and the check silently proved
+# nothing — the same false-assurance failure mode this check exists to close.
+[ "$np_checked" -gt 0 ] || fail "NetworkPolicy client check inspected no workloads — the render or the yq paths changed"
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches migrate, bootstrap, and api"
 echo "  - shared admin-password emptyDir mounted by bootstrap ($boot_mount) and api ($api_mount)"
 echo "  - web nginx proxies to release-scoped trueppm-api (baked compose 'api' host overridden)"
+echo "  - all $np_checked datastore-client bindings are covered by the NetworkPolicy allow-lists"

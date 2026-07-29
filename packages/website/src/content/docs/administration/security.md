@@ -232,10 +232,57 @@ the operator-facing highlights:
   `emptyDir` mounts only where required (`/tmp`, `/app/staticfiles`,
   `/run/trueppm`). Tune via `podSecurityContext` / `containerSecurityContext`.
 - **`automountServiceAccountToken: false`** on the API and worker pods.
-- **Opt-in NetworkPolicy** (`networkPolicy.enabled: true`) restricting ingress
-  to the bundled PostgreSQL (5432) and Valkey (6379) to only the API and worker
-  pods. Off by default because it requires a CNI that enforces NetworkPolicy —
-  a silently-unenforced policy is worse than an explicit opt-in.
+- **NetworkPolicy on by default** (`networkPolicy.enabled: true`) restricting
+  ingress to the bundled PostgreSQL (5432) and Valkey (6379) to only the pods that
+  legitimately open them — the API, Celery worker, Celery beat, backup, and
+  demo-seed tiers — and applying a default-deny **egress** posture to the datastore
+  pods themselves. See [datastore network isolation](#datastore-network-isolation)
+  for what enforcement requires and how it is verified.
+
+### Datastore network isolation
+
+The bundled PostgreSQL and Valkey pods speak **plaintext** on the pod network, so
+the NetworkPolicy is the transport-security boundary for the bundled dev/demo
+posture — not a defense-in-depth extra. The chart leans on it directly: it
+auto-injects `TRUEPPM_ALLOW_UNENCRYPTED_DB` whenever
+`postgresql.enabled && networkPolicy.enabled`, which relaxes the API's
+unencrypted-database boot guard **on the strength of this isolation**.
+
+**Enforcement requires a CNI that implements NetworkPolicy** — Calico, Cilium,
+Antrea, or similar. On a cluster whose CNI does not, the policy objects are
+accepted by the API server and then silently ignored, leaving the datastores
+reachable from any pod. This is a property of the cluster, not of the chart, and
+nothing in the chart can detect it.
+
+:::caution
+If your cluster has no policy-enforcing CNI, do not put anything sensitive in the
+bundled datastores. Use managed external datastores with TLS
+(`values-prod.yaml`) instead.
+:::
+
+#### How this is verified
+
+Two CI gates cover the policy, and they cover different things:
+
+| Gate | Cluster | What it proves |
+|---|---|---|
+| `helm:template` | none (render only) | The policy objects render, with valid schema, for the current values. |
+| `helm:install` | kind, **default CNI** | The chart boots with the policy enabled. **Does not prove enforcement** — kind's default CNI (kindnetd) does not implement NetworkPolicy, by design, so the objects are admitted and ignored. |
+| `helm:netpol` | kind + **Calico** | Enforcement itself. Positive probes (every allowed tier reaches the datastores), negative probes (an unlabeled pod, and a pod with the chart's labels but a non-client component, are both denied), datastore egress default-deny, and two controls proving a denial came from the policy rather than a broken CNI. |
+
+`helm:netpol` runs on every merge request that touches the chart, on `main`, and
+nightly. It is the gate that makes the `TRUEPPM_ALLOW_UNENCRYPTED_DB`
+auto-injection defensible; before it existed, the isolation the chart relies on was
+never actually tested.
+
+#### Adding a component that talks to a datastore
+
+The policy allow-lists clients by `app.kubernetes.io/component`. A new Deployment,
+Job, or CronJob that opens PostgreSQL or Valkey **must be added to the
+corresponding list** in `templates/networkpolicy.yaml`, or its connections are
+dropped on any enforcing cluster — while `helm lint`, `helm template`, and
+`helm:install` all stay green. `helm:netpol` is scoped to the whole chart precisely
+so that adding such a template triggers it.
 
 ### External (managed) datastores
 

@@ -51,6 +51,31 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+NetworkPolicy ingress `from:` podSelector list for a bundled datastore (#2560).
+
+Emits one podSelector per component name in `.components`, each matching this
+release's chart-level selector labels plus that component's
+`app.kubernetes.io/component`. Factored out because the list was previously
+duplicated verbatim across both datastore policies, and every duplicate is a place
+for a component to be forgotten — which is exactly what happened: the `backup`
+CronJob and `demo-seed` Job both open PostgreSQL but neither was listed, so with an
+enforcing CNI their connections were dropped. Nothing caught it because the only
+cluster the chart is installed on (kind, kindnetd) does not enforce NetworkPolicy
+at all.
+
+Usage: include "trueppm.datastoreClientSelectors" (dict "root" . "components" (list "api" "backup"))
+*/}}
+{{- define "trueppm.datastoreClientSelectors" -}}
+{{- $root := .root -}}
+{{- range .components }}
+- podSelector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: {{ . }}
+{{- end }}
+{{- end }}
+
+{{/*
 Build a list of env vars from values.env for use in container specs.
 
 Each entry in .Values.env may be either:
