@@ -39,8 +39,12 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_REFRESH_TOKEN_REMEMBER_DAYS` | `30` | Session length when a user checks **"Keep me signed in"** at login: a persistent refresh cookie (survives browser close) and matching token lifetime, in days. |
 | `TRUEPPM_REFRESH_TOKEN_SESSION_HOURS` | `12` | Sliding idle lifetime for a **not-remembered** login (the default, and all SSO logins): the refresh cookie is a session cookie (dropped on browser close) and the token expires after this many idle hours. |
 | `TRUEPPM_EDITION` | `community` | Edition discriminator read by `/api/v1/edition/`. Set to `enterprise` in the enterprise Helm chart so the React shell can make the post-login redirect decision without importing enterprise code (ADR-0029). Never set this in an OSS deployment. |
-| `HISTORY_RETENTION_DAYS` | `90` | How many days of object-change history to keep. Records older than this are purged nightly by Celery beat. To disable automatic purging, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window makes the cutoff "now" and purges all rows on the next run. |
-| `TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/canceled Celery task-run records to keep before the nightly purge. To disable, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window purges all rows on the next run. |
+| `TRUEPPM_VERSION` | the installed package version | Version string surfaced on `/api/v1/edition/`; will also feed the [in-product feedback](#in-product-feedback-report-a-bug) payload once that control ships in 0.4, so a bug report names the exact release it came from. Leave unset to use the running package's own version. |
+| `TRUEPPM_BUILD_SHA` | _(empty)_ | Commit SHA of the image build, surfaced alongside `TRUEPPM_VERSION`. Set by the Helm chart's image build pipeline; empty on a source checkout, where the version string alone is identifying enough. |
+| `TRUEPPM_SECURE_SSL_REDIRECT` | `false` | Production-only HTTP→HTTPS redirect. See [TLS redirect posture](#tls-redirect-posture) below before enabling it. |
+| `TRUEPPM_PUBLIC_API_BASE_URL` | _(empty)_ | Public origin of the API itself (not the web app), used only to build the OIDC `redirect_uri` your identity provider redirects back to: `{TRUEPPM_PUBLIC_API_BASE_URL}/api/v1/auth/oidc/callback/`. Empty (the default) falls back to the incoming request's absolute URL — correct for a single-origin dev setup, but **behind a reverse proxy or load balancer set this explicitly** so the value your IdP's allow-listed redirect URI must match is deterministic rather than dependent on request headers. A trailing slash is stripped. See [Single sign-on](/administration/single-sign-on/). |
+| `TRUEPPM_HISTORY_RETENTION_DAYS` | `90` | How many days of object-change history to keep. Records older than this are purged nightly by Celery beat. To disable automatic purging, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window makes the cutoff "now" and purges all rows on the next run. The legacy bare `HISTORY_RETENTION_DAYS` is still read as a fallback when the prefixed var is unset. |
+| `TRUEPPM_TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/canceled Celery task-run records to keep before the nightly purge. To disable, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window purges all rows on the next run. The legacy bare `TASK_RUN_RETENTION_DAYS` is still read as a fallback when the prefixed var is unset. |
 | `MSPROJECT_MAX_UPLOAD_MB` | `50` | Per-file size cap for MS Project (`.mpp` / `.xml`) imports, in megabytes. See [MS Project import limit](#ms-project-import-limit) below. |
 | `JIRA_IMPORT_MAX_UPLOAD_MB` | `25` | Per-file size cap for [Jira XML](/features/jira-import/) imports, in megabytes. See [Jira import limit](#jira-import-limit) below. |
 | `CSV_IMPORT_MAX_UPLOAD_MB` | `10` | Per-file size cap for [CSV / Excel](/features/csv-import/) imports, in megabytes. See [CSV / Excel import limits](#csv--excel-import-limits) below. |
@@ -57,17 +61,23 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE` | `6/min` | Rate limit for loading a bundled demo sample (`POST /programs/load-sample/`), per account, in DRF `<count>/<period>` form. Each call rebuilds an entire program — a teardown of the caller's previous copy plus a full fixture import, run synchronously — so the cap is deliberately tight. Ample for a person clicking **Load demo data** and trying a couple of samples; raise it only if you are scripting demo environments. |
 | `TRUEPPM_THROTTLE_SEED_IMPORT_RATE` | `6/min` | Rate limit for importing a JSON seed bundle (`POST /programs/import/`), per account, in DRF `<count>/<period>` form. Runs the same synchronous importer as the demo loader above, on a payload the caller supplies. Separate bucket, so loading a demo does not spend an import allowance. Raise it if you bulk-migrate programs through the API. |
 | `TRUEPPM_THROTTLE_SEED_VALIDATE_RATE` | `20/min` | Rate limit for the seed **dry run** (`POST /programs/import/validate/`), per account, in DRF `<count>/<period>` form. Looser than the import bucket because the dry run never reaches the importer — it parses and validates, then writes nothing. Separate bucket for a usability reason as much as a cost one: iterating on a file until it validates must not spend the allowance for importing the file that finally passes. |
+| `TRUEPPM_THROTTLE_OMNI_SEARCH_RATE` | `60/min` | Rate limit for the ⌘K global Epic/Story omni-search, per account, in DRF `<count>/<period>` form. Matches the general user-typeahead rate — snug enough to block a scripted scrape of every title an account can see, loose enough that live typing never trips it. |
+| `TRUEPPM_THROTTLE_SAMPLE_DOWNLOAD_RATE` | `60/min` | Rate limit for downloading a bundled sample fixture (`GET /programs/samples/{key}/download/`), per account, in DRF `<count>/<period>` form. Looser than `TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE` because a download only streams a small file off disk and touches no table — but it is still throttled, since it serves a file keyed by a client-supplied string and would otherwise double as an enumeration oracle. |
+| `TRUEPPM_THROTTLE_TELEMETRY_TEST_RATE` | `6/min` | Rate limit for the admin-only telemetry test-export probe (each call opens a real outbound connection to the configured OTLP collector), per account, in DRF `<count>/<period>` form. Tight enough that the probe cannot be used to hammer the collector. |
 | `TRUEPPM_THROTTLE_MCP_READ_RATE` | `120/min` | Baseline rate limit for **API-token** reads on the [MCP read surface](/features/mcp-server/), per token, in DRF `<count>/<period>` form. Does not affect human session/JWT traffic. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
 | `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE` | `12/min` | Tighter rate limit stacked on the four **compute-heavy** MCP tools (what-if, latest Monte Carlo, forecast, sprint-forecast), per token, in DRF `<count>/<period>` form. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
 | `TRUEPPM_MCP_ENABLED` | `true` | Instance-wide kill switch for [MCP (AI-agent) token access](/features/mcp-server/). When `false`, every `mcp:read` token read is denied (`403`) across the whole instance — even for tokens that already exist — while human session/JWT traffic on the same endpoints is unaffected. The operator lever for "no agent access on this instance, period." See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
 | `TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS` | `10` | Maximum number of **active** [personal access tokens](/features/personal-access-tokens/) a single user may hold at once (not revoked, not expired). Bounds the blast radius of a leaked account. Once at the cap a user must revoke one before minting another. |
+| `TRUEPPM_MAX_USER_PINS` | `100` | Maximum pinned projects + programs a single user may hold. This is a navigability cap on the pinned rail and `/me/pinned/`, not a security control — exceeding it returns `400` with `code: "pin_limit_reached"`. |
 | `TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE` | `5` | Per-account rate limit (requests per minute) on the token-mint endpoint. Caps the blast radius of a scripted attacker on a compromised admin session even when RBAC is satisfied. |
 | `TRUEPPM_TASK_SYNC_STEADY_STATE_LIMIT` | `100` | Per-project steady-state rate limit (requests per minute) for the inbound [task-sync](/features/jira-import/) endpoint, applied after the 60-minute backfill window. |
 | `TRUEPPM_TASK_SYNC_BACKFILL_LIMIT` | `1000` | Per-project rate limit (requests per minute) for inbound task-sync during the first 60 minutes after a token is minted, giving a large first import headroom before dropping to the steady-state limit. |
 | `TRUEPPM_SHARE_BOARD_MAX_CARDS` | `1000` | Maximum cards in a public board snapshot; a larger board is truncated (the viewer sees a "showing the first N cards" note). |
+| `TRUEPPM_SHARE_SCHEDULE_MAX_TASKS` | `1000` | Maximum tasks in a public [schedule share](/features/board-sharing/) snapshot; a larger schedule is truncated the same way as an over-cap board. |
 | `VITE_FEATURE_FLAGS` | `{}` | Build-time JSON blob of feature flag overrides for the React frontend, e.g. `'{"schedule_build_mode_v1":true}'`. Set in `packages/web/.env` or `.env.production` before `npm run build`. Per-user `localStorage` overrides win over this default at runtime. |
 | `TRUEPPM_DEFAULT_FILE_STORAGE` | `django.core.files.storage.FileSystemStorage` | Backend for task-attachment storage. The local default is **ephemeral in a container** — uploads are lost on every pod restart, and `prod` refuses to boot on it (see `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE`). Point this at a persistent object-storage backend for production, e.g. `storages.backends.s3.S3Storage`. |
 | `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` | `false` | Operator opt-in to run production on the local `FileSystemStorage` default (e.g. when local disk is backed by a persistent volume). `prod` refuses to boot on local storage unless this is `true` or `TRUEPPM_DEFAULT_FILE_STORAGE` is set to a remote backend. |
+| `STATIC_ROOT` | `staticfiles/` under the app directory | Filesystem path WhiteNoise collects and serves Django static assets from (`manage.py collectstatic`). Override only if your container image lays out paths differently than the shipped image. |
 | `TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS` | `false` | Operator opt-in confirming `TRUEPPM_DEFAULT_FILE_STORAGE` produces a real time-limited signed URL. The attachment **Get signed download URL** action only recognizes the built-in django-storages S3, GCS, and Azure Blob backends automatically; on `FileSystemStorage` (the default) or any other backend it refuses with `501 Not Implemented` rather than hand back a link labeled "signed" that never actually expires. Set this to `true` only if your configured backend genuinely signs its URLs. |
 | `TRUEPPM_ALLOW_UNENCRYPTED_DB` | `false` | Operator opt-in to run production against a `DATABASE_URL` that has no `sslmode` parameter (e.g. when TLS to the database is enforced at the network layer). `prod` refuses to boot on such a URL unless this is `true`; when set, the boot logs a warning instead. |
 | `CSRF_TRUSTED_ORIGINS` | _(empty)_ | Comma-separated origins (scheme included) trusted for cross-origin POST/CSRF. Required only for split-origin deploys where the web app and API are served from different hostnames, e.g. `https://app.example.com,https://api.example.com`. |
@@ -82,18 +92,25 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | Hours of processed offline-sync upload batches to keep before purge. See [Retention](/administration/retention/). |
 | `TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES` | `4` | Maximum offline-sync upload batches one user may have applying **at the same time**. Each accepted batch is a heavy transaction (row locks + a schedule recompute), so this bounds simultaneous heavy writes per user as defense-in-depth over the per-minute upload rate limit. A user exceeding the cap gets an HTTP 429 with a short `Retry-After` and retries once in-flight work drains. If the throttle store (Valkey/Redis) is unreachable the guard degrades to off — the rate limit remains the hard bound. |
 | `TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS` | `120` | Time-to-live (seconds) on the per-user in-flight sync-batch counter that backs `TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES`. Guards against a slot leaking if a worker dies mid-apply: the counter is reclaimed once no further batch refreshes it within this window. Set comfortably above the longest legitimate batch-apply time so an in-progress upload is never counted out from under a live request. |
+| `TRUEPPM_SYNC_BATCH_MAX_ROWS` | `500` | Maximum rows (created + updated + deleted combined) a single mobile sync **upload** batch may contain. The batch applies in one transaction, so this bounds how long that transaction — and its per-task row locks — can be held by a single request. A client with more pending rows splits them across multiple upload batches. |
+| `TRUEPPM_SYNC_PULL_PAGE_SIZE` | `1000` | Default page size for the offline delta **pull** (`since=` cursor). Bounds a cold-start sync (`since=0`) to this many rows per response instead of materializing an entire project into one unbounded multi-MB payload; the client loops on the returned cursor for the rest. |
+| `TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE` | `5000` | Hard ceiling on a client-requested `page_size` for the sync pull. Clamps a caller-supplied page size so a single request can never re-open the unbounded-response cliff `TRUEPPM_SYNC_PULL_PAGE_SIZE` exists to close. |
 | `RETENTION_PURGE_INFLIGHT_SECONDS` | `600` | Lock TTL (seconds) guarding against overlapping retention-purge runs. See [Retention](/administration/retention/). |
 | `TRUEPPM_BEAT_STALE_SECONDS` | `120` | Age (seconds) after which the last Celery-beat heartbeat is considered stale by `/health/beat/`. See [Durability](/administration/durability/). |
 | `TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS` | `300` | Age (seconds) past which a connected personal external source (e.g. Jira, see [Connected Accounts](/features/connected-accounts/)) is considered stale enough that opening My Work enqueues a background refresh pull. Raise this on a rate-sensitive token; the pull never blocks the My Work response either way. |
 | `TRUEPPM_INTEGRATION_ALLOWED_HOSTS` | _(empty)_ | Comma-separated allow-list of **self-hosted** integration hosts a user's [Connected Account](/features/connected-accounts/) credential may be sent to — GitHub Enterprise / GitLab CE for task links, and **self-hosted Jira Data Center / Server** for personal read-only sync. Atlassian Cloud (`*.atlassian.net`) and github.com / gitlab.com are always allowed and need no entry. This is a security gate: a personal access token is only ever put on the wire toward a host on this list, so a user cannot be tricked into exfiltrating their PAT to an arbitrary host (host is matched by name, e.g. `jira.example.com`). **The host must also be reachable from the TruePPM server over a public (non-private) IP** — the outbound-request SSRF guard independently blocks any host resolving to a private/internal address, so an internal-only Data Center instance is not yet supported. |
 | `TRUEPPM_RECURRENCE_HORIZON_DAYS` | `14` | Look-ahead window (days) for spawning recurring-task occurrences. See [Recurring tasks](/features/recurring-tasks/). |
-| `WORKFLOW_BACKEND` | `trueppm_api.workflows.backends.default.DefaultWorkflowBackend` | Dotted path to the `WorkflowBackend` implementation for the durable-execution engine. The OSS default composes the transactional outbox with Celery. Enterprise editions register an alternate backend (e.g. Temporal) by overriding this; do not change it in an OSS deployment. |
-| `WORKFLOW_HISTORY_RETENTION_DAYS` | `30` | Days of `WorkflowHistoryEvent` records to keep before the nightly `workflows.purge_old_records` task purges them. Set the Django setting to `None` (or `0`) to disable history purging. |
-| `WORKFLOW_DRAIN_BATCH_SIZE` | `200` | Maximum rows the workflow outbox/timer drains process per tick. Bounds the work per run so a large backlog (e.g. after a broker outage) cannot exceed the Celery task time limit — later ticks drain the remainder. |
-| `WORKFLOW_PURGE_BATCH_SIZE` | `500` | Rows deleted per statement by the nightly workflow retention purge. The purge deletes in bounded chunks rather than one unbounded statement, so the first run on a mature install cannot hold a long lock over a large slice of the history/outbox tables. |
-| `IDEMPOTENCY_RETENTION_HOURS` | `24` | Hours to retain stored `Idempotency-Key` responses, purged hourly by the Celery beat task. After expiry, a retry with the same key re-runs the mutation. Set the Django setting to `None` to disable automatic purging. |
-| `IDEMPOTENCY_MAX_BODY_BYTES` | `1048576` | Maximum stored response body size, in bytes (1 MiB default). Responses larger than this are not stored — the claim row is dropped so a retry re-runs the mutation. Single-object mutation responses effectively never approach this limit. |
-| `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_HOST_USER` / … | _(Django default)_ | SMTP settings for notification and invite email. **Currently must be set via a Django settings override — dedicated env-var / Helm bindings are not yet wired**, so setting bare `EMAIL_HOST` env vars has no effect. See [Outbound email](/administration/email/). |
+| `TIMETRACKING_TIMER_MAX_MINUTES` | `600` | Stale-timer ceiling (minutes) for the running work timer that feeds the [Timesheet](/features/timesheet/). A running timer past this many minutes is flagged `stale` on `GET /me/timer/`, and **stop** caps the logged duration at the ceiling rather than the raw elapsed time — so a timer left running over a weekend logs the ceiling, not thousands of minutes. |
+| `TIMETRACKING_BACKDATE_DAYS` | `60` | Manual time-entry backdate window (days). A manual `entry_date` is rejected if it is in the future or older than this many days, so a contributor can fill in last week's hours but not rewrite arbitrary history. |
+| `SIGNAL_CEILING_PROPOSAL_TTL_HOURS` | `72` | How long a team-ratification proposal to raise a signal's visibility ceiling stays open before it lazily expires unratified (the ceiling is left unchanged — silence is never consent for widening a team signal's exposure). Evaluated lazily on read/vote/propose; no Beat sweep is required. |
+| `TRUEPPM_TELEMETRY_TEST_EXPORT_TIMEOUT_SECONDS` | `5` | Wall-clock bound (seconds) for the admin telemetry test-export probe: caps the one-off canary export and reachability check to the configured OTLP collector so a dead collector can never hang the request thread. |
+| `TRUEPPM_WORKFLOW_BACKEND` | `trueppm_api.workflows.backends.default.DefaultWorkflowBackend` | Dotted path to the `WorkflowBackend` implementation for the durable-execution engine. The OSS default composes the transactional outbox with Celery. Enterprise editions register an alternate backend (e.g. Temporal) by overriding this; do not change it in an OSS deployment. The legacy bare `WORKFLOW_BACKEND` is still read as a fallback when the prefixed var is unset. |
+| `TRUEPPM_WORKFLOW_HISTORY_RETENTION_DAYS` | `30` | Days of `WorkflowHistoryEvent` records to keep before the nightly `workflows.purge_old_records` task purges them. Set the Django setting to `None` (or `0`) to disable history purging. The legacy bare `WORKFLOW_HISTORY_RETENTION_DAYS` is still read as a fallback when the prefixed var is unset. |
+| `TRUEPPM_WORKFLOW_DRAIN_BATCH_SIZE` | `200` | Maximum rows the workflow outbox/timer drains process per tick. Bounds the work per run so a large backlog (e.g. after a broker outage) cannot exceed the Celery task time limit — later ticks drain the remainder. The legacy bare `WORKFLOW_DRAIN_BATCH_SIZE` is still read as a fallback when the prefixed var is unset. |
+| `TRUEPPM_WORKFLOW_PURGE_BATCH_SIZE` | `500` | Rows deleted per statement by the nightly workflow retention purge. The purge deletes in bounded chunks rather than one unbounded statement, so the first run on a mature install cannot hold a long lock over a large slice of the history/outbox tables. The legacy bare `WORKFLOW_PURGE_BATCH_SIZE` is still read as a fallback when the prefixed var is unset. |
+| `TRUEPPM_IDEMPOTENCY_RETENTION_HOURS` | `24` | Hours to retain stored `Idempotency-Key` responses, purged hourly by the Celery beat task. After expiry, a retry with the same key re-runs the mutation. Set the Django setting to `None` to disable automatic purging. The legacy bare `IDEMPOTENCY_RETENTION_HOURS` is still read as a fallback when the prefixed var is unset. |
+| `TRUEPPM_IDEMPOTENCY_MAX_BODY_BYTES` | `1048576` | Maximum stored response body size, in bytes (1 MiB default). Responses larger than this are not stored — the claim row is dropped so a retry re-runs the mutation. Single-object mutation responses effectively never approach this limit. The legacy bare `IDEMPOTENCY_MAX_BODY_BYTES` is still read as a fallback when the prefixed var is unset. |
+| `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_HOST_USER` / `EMAIL_TIMEOUT` / … | _(Django default)_ | SMTP settings for notification and invite email. **Every one of these binds directly from the container environment** — set them as plain env vars or Helm `env:` values, no settings override needed. See [Outbound email](/administration/email/) for the full variable list and how they relate to the in-app Email & SMTP page. |
 
 ## General API rate limiting
 
@@ -246,16 +263,48 @@ deployment, or as an incident-response lever — then back to `true` to restore 
 ## MS Project import limit
 
 [MS Project import](/features/msproject-import-export/) accepts `.mpp` and
-`.xml` files. The per-file size cap is configurable:
+`.xml` files. The upload is bounded on three axes, because file size alone does
+not bound either the derived object count or the work converting a `.mpp` creates:
 
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
 | `MSPROJECT_MAX_UPLOAD_MB` | `50` | MB | Maximum size of a single MS Project import upload |
+| `MSPROJECT_MAX_ROWS` | `20000` | tasks | Maximum tasks (also applied to resources and dependency links) a single import may contain |
+| `MPXJ_MAX_OUTPUT_MB` | `512` | MB | Ceiling on the XML MPXJ streams to stdout while converting a `.mpp` to MSPDI XML |
+| `MPXJ_MAX_HEAP_MB` | `512` | MB | JVM max-heap (`-Xmx`) for the MPXJ conversion subprocess |
 
 This cap was raised from a previously hardcoded 10 MB. An import is read fully
 into memory and stored base64-encoded in a single database row (about +33%), so
 a 50 MB upload already costs roughly 67 MB of memory and row size — keep the
 limit close to the practical MS Project file ceiling rather than maximizing it.
+
+**The byte cap alone does not bound the object graph a request can materialize.**
+A 50 MB MSPDI XML file can encode roughly a million tasks, and the importer builds
+one `Task` object per row, computes the WBS over all of them, then bulk-creates the
+lot — a worker-memory / transaction-time denial-of-service that the byte ceiling
+alone does not stop. `MSPROJECT_MAX_ROWS` rejects the import outright once the task
+count (or resource or dependency-link count) exceeds it, rather than partially
+processing an oversized file. 20,000 tasks is far above any realistic
+hand-authored schedule.
+
+**Converting a `.mpp` is a bigger risk than parsing MSPDI XML.** MS Project's
+binary `.mpp` format is converted to XML by an external MPXJ (Java) subprocess. A
+decompression-bomb `.mpp`, still comfortably inside the 50 MB upload cap, can
+expand to multi-gigabyte XML — buffering that unbounded would OOM the worker.
+`MPXJ_MAX_OUTPUT_MB` streams the subprocess's stdout and aborts past this many
+bytes; `MPXJ_MAX_HEAP_MB` is a second line of defense that bounds the JVM's own
+heap, so even a bomb the byte ceiling hasn't yet caught dies with a JVM
+`OutOfMemoryError` (a clean non-zero exit) rather than driving the host into swap.
+
+The MS Project and Jira import paths (below) share one more bulk-write knob:
+
+| Variable | Default | Unit | What it bounds |
+|----------|---------|------|----------------|
+| `IMPORT_BULK_BATCH_SIZE` | `500` | rows | `batch_size` for the shared importer's `bulk_create()` calls |
+
+Without a `batch_size`, Django would emit one giant multi-row `INSERT` that pins
+the whole task/dependency set in a single statement (and can exceed PostgreSQL's
+parameter limit); chunking bounds the per-statement memory and parameter count.
 
 :::caution[Do not configure above the hard ceiling]
 `MSPROJECT_MAX_UPLOAD_MB` must stay **at or below 100 MB**. The global Django
@@ -282,17 +331,25 @@ the import is processed, then purged on the schedule set by
 ## Jira import limit
 
 [Jira import](/features/jira-import/) accepts a **Jira Server / Data Center XML
-export** (`.xml` only). The per-file size cap is configurable:
+export** (`.xml` only). Like MS Project import, it is bounded on both size and
+row count:
 
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
 | `JIRA_IMPORT_MAX_UPLOAD_MB` | `25` | MB | Maximum size of a single Jira XML import upload |
+| `JIRA_IMPORT_MAX_ROWS` | `20000` | issues | Maximum issues a single Jira XML import may contain |
 
-The default is lower than the MS Project cap because a Jira issue export is
+The size default is lower than the MS Project cap because a Jira issue export is
 typically small and, like the MS Project importer, an upload is read fully into
 memory and stored base64-encoded in a single database row (about +33%) until the
 import is processed. Files larger than the cap are rejected with HTTP 400 before
 any parsing happens.
+
+`JIRA_IMPORT_MAX_ROWS` exists for the same reason as `MSPROJECT_MAX_ROWS` above:
+the byte cap does not bound the derived task count, and every issue becomes a
+`Task` object built and bulk-created through the same shared importer
+(`msproject.importer.import_project`). An import past the row cap is rejected
+outright.
 
 ```bash
 # Allow Jira XML imports up to 40 MB. Same edge caps apply as MS Project imports:
@@ -348,6 +405,23 @@ cap. Before parsing, TruePPM sums the sizes declared in the zip's central
 directory and rejects anything above `CSV_IMPORT_MAX_UNCOMPRESSED_MB`. The check
 reads no member data and runs before any XML parser is invoked.
 
+## Seed import limit
+
+A [JSON program seed](/administration/management-commands/#sample-data--json-seed)
+(`POST /programs/import/`, ADR-0109) has its own, much smaller size cap:
+
+| Variable | Default | Unit | What it bounds |
+|----------|---------|------|----------------|
+| `SEED_MAX_UPLOAD_MB` | `5` | MB | Maximum size of a single JSON program seed upload |
+
+Seeds are bounded relative to the other importers because they are a different
+kind of payload: the largest bundled sample seed is a few hundred KB, so 5 MB is
+generous headroom while still bounding the memory a single authenticated import
+request can consume. See [general API rate limiting](#general-api-rate-limiting)
+above for the separate `TRUEPPM_THROTTLE_SEED_IMPORT_RATE` /
+`TRUEPPM_THROTTLE_SEED_VALIDATE_RATE` throttles that bound *how often* a caller
+may hit this endpoint, independent of payload size.
+
 ## Monte Carlo simulation caps
 
 The Community (OSS) tier bounds [Monte Carlo risk analysis](/features/monte-carlo/)
@@ -377,6 +451,30 @@ cheap.
 # settings override — raise the task ceiling for a large-project deployment.
 MC_TASK_CAP = 10_000
 ```
+
+## TLS redirect posture
+
+`TRUEPPM_SECURE_SSL_REDIRECT` controls whether the `prod` settings module issues an
+HTTP→HTTPS redirect for every request. It is **opt-in and defaults to `false`** for a
+reason that trips up a first deploy: most self-hosted installs terminate TLS at an
+ingress or load balancer and speak plain HTTP from there to the app pod, including the
+Kubernetes liveness/readiness probes hitting `/api/v1/health/` and `/api/v1/edition/`.
+An unconditional redirect in that topology would 301-loop the probes and take the pod
+out of rotation.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TRUEPPM_SECURE_SSL_REDIRECT` | `false` | When `true`, `prod` redirects every non-HTTPS request to HTTPS, using `SECURE_PROXY_SSL_HEADER` (`X-Forwarded-Proto`) to detect the original scheme behind a proxy. |
+
+Turn it on only when TruePPM itself terminates TLS or otherwise receives the original
+request scheme reliably — for example, a deployment that exposes the app directly over
+HTTPS with no intervening proxy, or a proxy configured to forward `X-Forwarded-Proto`
+correctly. The Kubernetes health-probe paths (`/api/v1/health/`, `/api/v1/readyz`,
+`/api/v1/edition/`) are always exempt from the redirect regardless of this setting, so
+turning it on never breaks the probes even if they are reached over plain HTTP.
+
+This setting has no effect outside `trueppm_api.settings.prod` — the `dev` settings
+module never enforces an HTTPS redirect.
 
 ## Split-origin deploys
 
