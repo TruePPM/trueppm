@@ -56,8 +56,8 @@ cluster-specific, so a default-on ingress would render a broken object.
 :::caution[Dev / demo only]
 The bundled `postgresql` and `valkey` subcharts are single-node with small PVCs.
 For production, set both to `enabled: false` and point `env.DATABASE_URL` /
-`env.REDIS_URL` at managed services. See [Redis (Valkey) High
-Availability](/administration/redis-ha/).
+`env.REDIS_URL` at managed services. See [Valkey High
+Availability](/administration/valkey-ha/).
 :::
 
 | Key | Default | What it does |

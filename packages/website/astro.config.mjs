@@ -78,13 +78,17 @@ const versionPlugins =
 
 export default defineConfig({
   site: "https://docs.trueppm.com",
-  // features/csv-import and features/csv-import-export documented one feature
-  // (task/risk CSV & Excel import and export) across two drifting pages —
-  // merged into a single features/csv-import-export (#2545). The redirect
-  // keeps the old slug resolvable instead of 404ing for anyone with it
-  // bookmarked or indexed.
+  // Permanent redirects for pages that have been renamed after publication. A
+  // published docs URL is a promise — operators bookmark them, and they are cited
+  // from `packages/helm/values.yaml` comments that ship inside released charts, so
+  // a rename that 404s strands users on a version of the chart we can no longer
+  // edit. Astro emits a meta-refresh page per entry in the static build.
   redirects: {
+    // One feature (task/risk CSV & Excel import and export) was documented across
+    // two drifting pages; merged into features/csv-import-export (#2545).
     "/features/csv-import/": "/features/csv-import-export/",
+    // Renamed to lead with Valkey, which is what actually ships (#2555).
+    "/administration/redis-ha": "/administration/valkey-ha",
   },
   // Build-time (SSR) Mermaid rendering (ADR-0198). `rehype-mermaid` renders each
   // ```mermaid fence to a static inline <svg> at build time using a headless
@@ -289,7 +293,7 @@ export default defineConfig({
             { slug: "administration/data-export" },
             { slug: "administration/durability" },
             { slug: "administration/backup-restore" },
-            { slug: "administration/redis-ha" },
+            { slug: "administration/valkey-ha" },
             { slug: "administration/dead-letter-alerting" },
             { slug: "administration/system-health" },
             { slug: "administration/observability" },
