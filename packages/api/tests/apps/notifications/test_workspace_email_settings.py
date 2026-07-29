@@ -302,6 +302,105 @@ def test_transport_change_requires_password_reentry(
 
 
 # ---------------------------------------------------------------------------
+# Username is required wherever a password is (#2552)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("mode", "payload"),
+    [
+        ("smtp", {"host": "mail.corp.test", "port": 587, "security": "tls"}),
+        ("ses", {"host": "email-smtp.us-east-1.amazonaws.com"}),
+    ],
+)
+def test_blank_username_rejected_and_probe_never_runs(
+    operator_client: APIClient,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    payload: dict[str, object],
+) -> None:
+    """A blank username must 400 *before* the transport probe (#2552).
+
+    Django's SMTP backend calls login() only when username and password are both
+    truthy, so a blank username would make probe_transport open an unauthenticated
+    connection that succeeds — persisting a config whose every real send then
+    fails 530. Assert the probe is not reached at all, not merely that the save
+    failed: a probe that ran and passed is the exact false green this closes.
+    """
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(email_backend, "probe_transport", lambda **kw: calls.append(kw))
+
+    resp = operator_client.put(
+        URL,
+        {"transport_mode": mode, "username": "", "password": "pw", **payload},
+        format="json",
+    )
+
+    assert resp.status_code == 400
+    assert "username" in resp.data
+    assert calls == []
+    assert WorkspaceEmailSettings.load().transport_mode == EmailTransportMode.CLOUD
+
+
+def test_whitespace_only_username_rejected(operator_client: APIClient, _no_probe: None) -> None:
+    """ "   " is a blank username — the serializer strips before checking."""
+    resp = operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "port": 587,
+            "security": "tls",
+            "username": "   ",
+            "password": "pw",
+        },
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "username" in resp.data
+
+
+def test_sendgrid_accepts_blank_username(operator_client: APIClient, _no_probe: None) -> None:
+    """SendGrid's username is server-fixed to "apikey" — the UI hides the field."""
+    resp = operator_client.put(
+        URL,
+        {"transport_mode": "sendgrid", "username": "", "password": "SG.key"},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert WorkspaceEmailSettings.load().transport_mode == EmailTransportMode.SENDGRID
+
+
+def test_cloud_accepts_blank_username(operator_client: APIClient, _no_probe: None) -> None:
+    """The built-in relay stores no credentials, so there is nothing to require."""
+    resp = operator_client.put(URL, {"transport_mode": "cloud", "username": ""}, format="json")
+    assert resp.status_code == 200
+
+
+def test_username_preserved_on_unrelated_patch(operator_client: APIClient, _no_probe: None) -> None:
+    """The requirement reads through to the stored value, not just the payload.
+
+    A PATCH that omits `username` entirely must not trip the new gate — the
+    effective value comes from the instance.
+    """
+    operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "port": 587,
+            "security": "tls",
+            "username": "postmaster@corp.test",
+            "password": "pw",
+        },
+        format="json",
+    )
+    resp = operator_client.patch(URL, {"from_name": "Ops"}, format="json")
+    assert resp.status_code == 200
+    assert WorkspaceEmailSettings.load().username == "postmaster@corp.test"
+
+
+# ---------------------------------------------------------------------------
 # SSRF + header-injection guards (H1/M3)
 # ---------------------------------------------------------------------------
 
