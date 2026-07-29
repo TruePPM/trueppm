@@ -855,11 +855,11 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   // show a form the layout cannot hold. Element measurement is deliberately avoided
   // (see addedTimeChipFit) so this cannot fight the cluster's container rules.
   const addedTimeForm =
-    addedTime && forecastSeg
+    addedTime && forecastSeg && !addedTimeCtx.suppressed && addedTimeCtx.fragment
       ? addedTimeChipForm({
           viewportWidth: window.innerWidth,
           siblingCount: RIGHT_CLUSTER_MAX_SIBLINGS,
-          baselineOnScreen: !addedTimeCtx.suppressed && addedTimeCtx.baselineOnScreen,
+          baselineOnScreen: addedTimeCtx.baselineOnScreen,
           hasP80Fragment: true,
         })
       : null;
@@ -948,7 +948,13 @@ export function HealthCluster({ onTaskNavigate }: Props) {
           // Neutral ink only. The chip's state word may be critical red; the fragment
           // never inherits it, because a fourth colored signal in this bar would turn
           // it into a wall where nothing is loudest (S1, rule 172).
-          <span className="hidden xl:inline-flex items-center gap-1">
+          // `xl` (1280) rather than the P80 fragment's `md`: it is the first band at
+          // which `addedTimeChipForm` returns anything, so the CSS gate and the budget
+          // agree instead of the CSS revealing a form the budget rejected. `ml-1`
+          // separates the two fragments — at 12px the chip's `gap-1.5` is only 2px
+          // wider than each fragment's internal `gap-1`, so without it `P80 · Nov 4 ·
+          // Added · +11d` reads as one four-part run.
+          <span className="hidden xl:inline-flex items-center gap-1 ml-1">
             {/* The label is the boundary marker — the chip carries no separator glyph,
                 and `Added` plays the part `P80` plays for the date beside it. Omitted
                 for the worded states, where "Added needs estimates" is not English. */}

@@ -717,6 +717,28 @@ describe('HealthCluster added time', () => {
       expect(screen.getByTestId('health-cluster')).not.toHaveTextContent('Added');
     });
 
+    it('drops the inline fragment on Schedule, where the forecast bar prints the delta', async () => {
+      // Rule 290. `ScheduleForecastBar` renders `P80: Nov 4 (+11d)` from the same
+      // `delta_vs_cpm` the premium derives from, so an inline `Added +11d` beside it
+      // would be one number twice on one screen. The popover row stays — it is behind
+      // a click, and it carries states the bar cannot express.
+      const user = userEvent.setup();
+      renderAt(`${P}/schedule`);
+
+      expect(screen.getByTestId('health-cluster')).not.toHaveTextContent('Added');
+      const dialog = await openPopover(user);
+      expect(within(dialog).getByText('Added time')).toBeInTheDocument();
+    });
+
+    it('still names the added time in the chip label on Schedule', () => {
+      // The fragment is dropped for redundancy on screen; the accessible name is the
+      // only path a screen-reader user has to the chip's own read, so it stays.
+      renderAt(`${P}/schedule`);
+      expect(screen.getByTestId('health-cluster')).toHaveAccessibleName(
+        /11 days added versus the computed finish/,
+      );
+    });
+
     it('renders on Board, where nothing else on screen carries it', async () => {
       const user = userEvent.setup();
       renderAt(`${P}/board`);

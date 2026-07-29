@@ -11,26 +11,50 @@ import { projectViewSegment } from './useLocationModel';
 /**
  * Views that already carry the deterministic CPM finish on screen.
  *
- * Schedule qualifies through the dashed CPM reference chip #2426 added to the forecast
- * row. That is the whole precondition for showing a bare `+11d`: a signed delta whose
- * baseline is not visible is unverifiable, and the natural wrong guess about what it is
- * measured against makes a correct figure look like a bug. Everywhere else the strip
- * must state the pair or say nothing.
+ * **Empty, and deliberately so.** The precondition for a bare `+11d` is that the reader
+ * can see what it is measured against; Schedule was the obvious candidate, through the
+ * dashed CPM reference chip #2426 put in the forecast row. But the component that
+ * renders that chip — `ScheduleForecastBar` — renders `P80: Nov 4 (+11d)` immediately
+ * beside it, from the same `delta_vs_cpm` the premium is derived from. So the one
+ * surface that made a bare number legible was the one surface already printing it, and
+ * a fragment there would be the same value twice on one screen with nothing saying
+ * which is authoritative (rule 284, rule 290).
+ *
+ * The set is kept rather than deleted because the rule it encodes is still the right
+ * one — it simply has no true case in this product today. A future surface that shows
+ * the CPM finish *without* its delta belongs here.
  */
-const BASELINE_ON_SCREEN_VIEWS = new Set(['schedule']);
+const BASELINE_ON_SCREEN_VIEWS = new Set<string>();
 
 /**
- * Views that render added time themselves.
+ * Views that render added time themselves, in full.
  *
- * Overview mounts `AddedTimeCard`, so a strip segment there would be the same value
- * twice on one screen — the duplication rule 284 exists to stop. Suppression is total:
- * neither the inline fragment nor the popover row renders.
+ * Overview mounts `AddedTimeCard`, so anything here would be a second copy of a value
+ * the screen already explains better. Suppression is total: neither the inline fragment
+ * nor the popover row renders.
  */
 const ADDED_TIME_OWNED_VIEWS = new Set(['overview']);
 
+/**
+ * Views that already print the *number* somewhere in the page body.
+ *
+ * Weaker than {@link ADDED_TIME_OWNED_VIEWS}: the inline fragment is suppressed
+ * because it would duplicate what the page shows, but the popover row stays, because a
+ * row the user has to open the chip to see is a reference rather than a second render
+ * — and it carries the two operational states (`needs estimates`, a stamped stale
+ * read) that `ScheduleForecastBar` structurally cannot say.
+ */
+const DELTA_ON_SCREEN_VIEWS = new Set(['schedule']);
+
 export type AddedTimeChipContext =
   | { suppressed: true }
-  | { suppressed: false; baselineOnScreen: boolean };
+  | {
+      suppressed: false;
+      /** Whether the inline chip fragment may render at all. */
+      fragment: boolean;
+      /** Whether a bare, unqualified day count would be verifiable here. */
+      baselineOnScreen: boolean;
+    };
 
 /**
  * Resolve the added-time context-bar behavior for a route.
@@ -45,5 +69,9 @@ export function addedTimeChipContext(pathname: string): AddedTimeChipContext {
   if (view === null || ADDED_TIME_OWNED_VIEWS.has(view) || view === 'settings') {
     return { suppressed: true };
   }
-  return { suppressed: false, baselineOnScreen: BASELINE_ON_SCREEN_VIEWS.has(view) };
+  return {
+    suppressed: false,
+    fragment: !DELTA_ON_SCREEN_VIEWS.has(view),
+    baselineOnScreen: BASELINE_ON_SCREEN_VIEWS.has(view),
+  };
 }

@@ -31,12 +31,16 @@ export function MonteCarloSheet({ result, onClose }: Props) {
   // premium the card on Overview reads — so a phone and a desktop cannot disagree
   // about whether this project is even measurable (#2531).
   const premium = addedTimePresentation(result.riskPremium);
-  // `base` is passed only where the card's action goes somewhere the reader is not:
-  // `Add estimates →` lands on the grid, which is the single most useful thing to do
-  // about an unmeasurable forecast on a phone. Every other state's action is
-  // `Forecast →`, i.e. the screen this sheet was opened from.
+  // `base` is passed only where the card's action goes somewhere the reader is not.
+  // `Add estimates →` lands on the grid, the most useful thing to do about an
+  // unmeasurable forecast on a phone; `Re-run forecast →` is the only path a phone
+  // user has to refresh a stale premium at all, so without it the stale read is a
+  // dead end. Every other state's action is `Forecast →`, i.e. the screen this sheet
+  // was opened from, so it is withheld.
   const cardBase =
-    premium.state === 'unmeasurable' ? `/projects/${result.projectId}` : undefined;
+    premium.state === 'unmeasurable' || premium.state === 'stale'
+      ? `/projects/${result.projectId}`
+      : undefined;
 
   return (
     <div
@@ -44,6 +48,9 @@ export function MonteCarloSheet({ result, onClose }: Props) {
       role="dialog"
       aria-modal="true"
       aria-label="Monte Carlo confidence distribution"
+      // `useFocusTrap`'s documented contract: the container must be focusable so it
+      // can take the fallback seat if the sheet ever renders with no focusable child.
+      tabIndex={-1}
       className="fixed inset-0 z-50 md:hidden flex flex-col focus:outline-none"
     >
       <div

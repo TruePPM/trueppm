@@ -188,25 +188,25 @@ describe('MobileMonteCarloCard added time (#2531)', () => {
   }
 
   it.each(ADDED_TIME_STATES)(
-    'renders the same headline as AddedTimeCard for the %s state',
+    'agrees with AddedTimeCard about the %s state — including by saying nothing',
     (state) => {
       const facts = ADDED_TIME_FIXTURES[state];
       const button = renderWith(state);
 
-      // The card is the reference rendering; the chip is a projection of the same
-      // presentation, so whatever the card shows as its headline is what must
-      // appear here — or, for the states the chip deliberately withholds, nothing.
-      const expected = addedTimeShortForm(addedTimePresentation(facts), { qualified: false });
-      if (expected === null) {
-        // notRun / stale: the chip says nothing rather than saying it without its
-        // provenance. The sheet still carries the full card. Asserted against the
-        // premium's own value (+11d) rather than a digit pattern — the P80 forecast
-        // chip beside it legitimately carries its own delta.
-        expect(within(button).queryByText('+11d')).not.toBeInTheDocument();
+      // Rule 290: only `unmeasurable` earns a chip. Every measured state's value is
+      // already in the P80 chip beside it, off the same server field, so a second
+      // copy would put one number twice in one row. What the forecast chips cannot
+      // say is that there was nothing to measure — and that is the one thing the
+      // card and this row must never disagree about.
+      const card = addedTimeShortForm(addedTimePresentation(facts), { qualified: false });
+      if (state === 'unmeasurable') {
+        expect(card?.kind).toBe('needsEstimates');
+        expect(button).toHaveTextContent('needs estimates');
+      } else {
         expect(within(button).queryByText('needs estimates')).not.toBeInTheDocument();
         expect(within(button).queryByText('No added time')).not.toBeInTheDocument();
-      } else {
-        expect(button).toHaveTextContent(expected.text);
+        // The delta appears at most once in the row — in the P80 chip, never twice.
+        expect(within(button).queryAllByText('+11d')).toHaveLength(0);
       }
     },
   );
@@ -220,21 +220,19 @@ describe('MobileMonteCarloCard added time (#2531)', () => {
     expect(button).not.toHaveTextContent('0d');
   });
 
-  it('names the added time in the accessible label, with the sign spoken as a word', () => {
-    const button = renderWith('negative');
-    // "−4d" read character-by-character loses the minus for some screen readers,
-    // which flips "finishing early" into "finishing late".
-    expect(button).toHaveAccessibleName(/4 days earlier than the computed finish/);
+  it('names the unmeasurable state in the accessible label', () => {
+    const button = renderWith('unmeasurable');
+    expect(button).toHaveAccessibleName(/Added time needs estimates/);
   });
 
-  it('spells out an added premium against its baseline', () => {
+  it('adds no clause for a measured state — the forecast chips already speak it', () => {
     const button = renderWith('premium');
-    expect(button).toHaveAccessibleName(/11 days added versus the computed finish/);
+    expect(button).not.toHaveAccessibleName(/Added time/);
   });
 
   it('takes no health hue — added time is a magnitude, not a verdict', () => {
-    const button = renderWith('premium');
-    const chip = within(button).getByText('+11d');
+    const button = renderWith('unmeasurable');
+    const chip = within(button).getByText('needs estimates');
     expect(chip.className).toContain('border-neutral-border');
     expect(chip.className).not.toMatch(/semantic-(critical|at-risk|on-track|warning)/);
   });

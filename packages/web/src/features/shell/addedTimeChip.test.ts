@@ -43,22 +43,35 @@ describe('addedTimeChipContext', () => {
     });
   });
 
-  describe('A1 — the bare number needs its baseline on screen', () => {
-    it('Schedule qualifies: the dashed CPM chip puts the computed finish on screen', () => {
+  describe('rule 290 — the surface that supplies the baseline is printing the delta too', () => {
+    it('drops the inline fragment on Schedule but keeps the popover row', () => {
+      // `ScheduleForecastBar` renders `P80: Nov 4 (+11d)` — the same delta, off the
+      // same server field — so an inline fragment there would be the number twice on
+      // one screen. The row survives: it is behind a click, and it carries the two
+      // states the forecast bar structurally cannot say.
       expect(addedTimeChipContext(`${P}/schedule`)).toEqual({
         suppressed: false,
-        baselineOnScreen: true,
+        fragment: false,
+        baselineOnScreen: false,
       });
     });
 
     it.each(['board', 'grid', 'timesheet', 'risks', 'sprints'])(
-      '%s does not: it renders no computed finish, so the value must name its own baseline',
+      '%s gets the fragment, and it must name its own baseline there',
       (view) => {
         expect(addedTimeChipContext(`${P}/${view}`)).toEqual({
           suppressed: false,
+          fragment: true,
           baselineOnScreen: false,
         });
       },
     );
+
+    it('no view claims the baseline is on screen — the bare form has no true case today', () => {
+      for (const view of ['schedule', 'board', 'grid', 'timesheet', 'risks', 'sprints']) {
+        const ctx = addedTimeChipContext(`${P}/${view}`);
+        expect(ctx.suppressed === false && ctx.baselineOnScreen).toBe(false);
+      }
+    });
   });
 });

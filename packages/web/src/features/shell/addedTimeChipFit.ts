@@ -33,10 +33,10 @@ const CHIP_BASE_PX = 104;
 /** The existing `P80 {date}` fragment, when the methodology cluster has a forecast. */
 const P80_FRAGMENT_PX = 76;
 
-/** `+11d` / `−4d` / `No added time`, plus its separator. */
+/** `+11d` / `−4d` / `No added time`, plus its separator and the `Added` label. */
 const ADDED_TIME_NUMBER_PX = 105;
 
-/** `Oct 24 → Nov 4`, plus its separator. */
+/** `+11d vs Oct 24`, plus its separator and the `Added` label. */
 const ADDED_TIME_QUALIFIED_PX = 230;
 
 /**

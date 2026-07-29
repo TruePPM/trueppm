@@ -740,6 +740,13 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
         dist = latest.distribution or {}
         return Response(
             {
+                # The live-run payload has carried `project_id` since #172; the
+                # from-history branch omitted it, and the client maps it straight
+                # through as a non-optional field. Harmless while nothing read it —
+                # but the added-time card's "Add estimates →" target is built from it
+                # (#2531), so past the 24h TTL that link resolved to
+                # `/projects/undefined`.
+                "project_id": str(latest.project_id),
                 "p50": latest.p50.isoformat() if latest.p50 else None,
                 "p80": latest.p80.isoformat() if latest.p80 else None,
                 "p95": latest.p95.isoformat() if latest.p95 else None,

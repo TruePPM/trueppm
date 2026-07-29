@@ -167,15 +167,6 @@ export function formatEndpoint(iso: string, baselineIso: string): string {
 }
 
 /**
- * Spoken form of the headline, for the states that print a signed day count.
- *
- * `−11d` is read as "dash eleven d" by some screen readers, which loses the sign that
- * carries the entire meaning — the difference between the forecast running late and
- * running early. Everything else on the card (both dates, the ratio, the as-of stamp)
- * is a `<dl>` and reads correctly on its own, so this is the only value that needs a
- * spoken alternative rather than a wholesale composite label.
- */
-/**
  * The chip-sized rendering of a presentation, for surfaces with no room for the card.
  *
  * A *formatter over* {@link addedTimePresentation}, never a second derivation — it
@@ -243,6 +234,15 @@ export function addedTimeShortForm(
   };
 }
 
+/**
+ * Spoken form of the headline, for the states that print a signed day count.
+ *
+ * `−11d` is read as "dash eleven d" by some screen readers, which loses the sign that
+ * carries the entire meaning — the difference between the forecast running late and
+ * running early. Everything else on the card (both dates, the ratio, the as-of stamp)
+ * is a `<dl>` and reads correctly on its own, so this is the only value that needs a
+ * spoken alternative rather than a wholesale composite label.
+ */
 export function addedTimeSpokenHeadline(headline: string): string {
   if (!headline.startsWith('+') && !headline.startsWith('−')) return headline;
   const days = headline.replace(/[+−d]/g, '');

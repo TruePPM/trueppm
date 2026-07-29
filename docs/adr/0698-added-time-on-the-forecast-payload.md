@@ -229,8 +229,9 @@ over its output* is added to `addedTime.ts` — not a second derivation:
 ```ts
 export type AddedTimeShortForm =
   | { kind: 'number'; text: string }          // "+11d" / "−4d"
-  | { kind: 'qualified'; text: string }       // "Oct 24 → Nov 4"
+  | { kind: 'qualified'; text: string }       // "+11d vs Oct 24"
   | { kind: 'needsEstimates'; text: string }  // "needs estimates"
+  | { kind: 'worded'; text: string }          // "No added time"
   | null;                                     // nothing to say
 
 export function addedTimeShortForm(
@@ -250,9 +251,18 @@ Rules encoded in it, so no renderer re-decides them:
   at all; it renders in full, with its stamp, in the popover row. **This is a decision the
   handoff did not make** (§4 state 06 says `Strip: +11d · Jul 14`, which A3 forbids); it is
   resolved here in A3's favor because A3 is the invariant and the state-06 caption is an example.
-- `premium` / `negative` → `qualified ? "{cpm} → {p80}" : headline`.
-- `qualified` requested but `endpoints.p80 === null` → falls back to `needsEstimates` / `null`.
-  Never half a pair.
+- `premium` / `negative` → `qualified ? "{headline} vs {cpm}" : headline`.
+
+**Amended during implementation (ux-design gate).** The qualified form is
+`+11d vs Oct 24`, **not** the `Oct 24 → Nov 4` pair this ADR first specified. The pair
+was carried over from the handoff's deleted standalone strip, which had no P80
+neighbour; on the chip, `P80 Nov 4` sits two spans to the left, so the pair would print
+`Nov 4` twice inside one 34px control. The replacement also carries the *magnitude* —
+the value the reader came for, which the pair silently drops — names its baseline
+explicitly rather than trusting a route predicate, is ~22px narrower, and matches the
+phrasing `useForecastPresentation.baselineClause` already uses for the same gap. The
+union also gained a fourth `worded` kind, because `zero → 'No added time'` matched none
+of the three originally listed.
 
 ### 7. How A1–A4 and S1 map onto the chip-plus-popover reality
 
@@ -260,7 +270,7 @@ This is the mapping the implementer must not have to guess.
 
 | Handoff rule (written for the deleted strip) | Chip-plus-popover realization |
 |---|---|
-| **A1** number only where a baseline date is on screen; Schedule qualifies via the #2426 dashed CPM chip; Board/Table render the pair | Applies to the **inline chip fragment**. `baselineOnScreen` is a route predicate (§8). |
+| **A1** number only where a baseline date is on screen; Schedule qualifies via the #2426 dashed CPM chip; Board/Table render the pair | Applies to the **inline chip fragment**. `baselineOnScreen` is a route predicate (§8) — but see the amendment below: it has **no true case**, and Schedule drops the fragment entirely. |
 | **A2** if the qualified form does not fit the width budget, drop entirely — never degrade to an unqualified number | Applies to the **inline chip fragment only**. |
 | **A3** no band word, no track, no as-of stamp in the strip | Applies to the chip fragment. The popover row may carry the as-of, and does so **only** in the `stale` state, where it is load-bearing. No band, no track, anywhere in the chip or popover. |
 | **A4** unmeasurable renders `needs estimates`, never `0d`, never `—` | Applies to **both** the chip fragment and the popover row. |
@@ -279,6 +289,21 @@ surface where **S1 and rule 172 both forbid one**. So A4 renders in
 `text-neutral-text-secondary`. The discriminating signal is the *words* `needs estimates`, which
 is what rule 6 requires anyway — colour was never carrying it. This is a deliberate, recorded
 deviation from the handoff's literal token.
+
+**Amended during implementation (ux-review gate): `baselineOnScreen` is empty, and
+Schedule drops the fragment.** Schedule was the sole candidate for the bare number,
+because #2426 put a dashed `CPM: Oct 24` chip in its forecast row. But the component
+that renders that chip — `ScheduleForecastBar` — renders `P80: Nov 4 (+11d)` beside it,
+from the same `delta_vs_cpm` the premium is derived from, and it is `hidden md:block
+flex-shrink-0` (always visible wherever the `xl:`-gated fragment is). So the one surface
+that made a bare number legible was the one surface already printing that number, and an
+`Added +11d` fragment there would be the same value twice on one screen with nothing
+marking either as authoritative — rule 284's defect, now generalized as **rule 290**.
+`addedTimeChipContext` therefore returns a separate `fragment` flag: Schedule keeps the
+popover row (behind a click, and the only carrier of `needs estimates` and the stamped
+stale read) and loses the inline fragment. `addedTimeChipForm` keeps its
+`baselineOnScreen` parameter and its invariant test — the rule is still the right one;
+it simply has no true case in this product today.
 
 **The popover row is never dropped.** A2's motive is that an unqualified number is worse than no
 number; a dropped *chip fragment* whose qualified value is one click away in the popover does not
@@ -403,16 +428,31 @@ never `'number'`) swept across 320–1920, and the concrete drop at 1024.
 ### 10. Mobile (§6)
 
 - **`MobileMonteCarloCard` consumes the same premium object** — the DoD item. It renders one
-  extra chip after the forecast chips, from
-  `addedTimeShortForm(addedTimePresentation(result.riskPremium), { qualified: true })`, in
-  **neutral** tokens only (`border-neutral-border text-neutral-text-secondary`), never a semantic
-  border like the P50/P80/P95 chips (S1). The chip text joins the card's `aria-label`.
+  extra chip after the forecast chips, in **neutral** tokens only
+  (`border-neutral-border text-neutral-text-secondary`), never a semantic border like the
+  P50/P80/P95 chips (S1). The chip text joins the card's `aria-label`.
+
+  **Amended during implementation (ux-review gate): the chip renders for the
+  `unmeasurable` state only.** For every measured state the P80 chip in the same row
+  already reads `P80: Nov 4 (+11d)` — the same delta, off the same field — so a second
+  copy put one number twice in one row, ~100px apart, and in two different minus glyphs
+  (`useForecastPresentation` emits ASCII `-`, `addedTime` emits U+2212 `−`). Rule 290
+  again. What the forecast chips structurally cannot say is that there was *nothing to
+  measure*: a flat run renders `Forecast: Oct 24 · matches CPM`, which is exactly the
+  reassuring misread the `unmeasurable` variant exists to refuse — and that gap is what
+  DoD item 8 is actually about. The row already overflows at 320px, so the narrower
+  outcome is also the kinder one.
 - **`MonteCarloSheet` gains an added-time section, placed first** — above the histogram. §6 asks
   for the sheet "scrolled to the added-time section"; putting it first satisfies that *by
   construction* and removes the scroll plumbing (and its focus fight with the sheet's
   mount-focus on the close button) entirely.
 - **The section reuses `AddedTimeCard` verbatim** — the actual Overview component, with `base`
-  omitted so the redundant `Forecast →` link does not render. Reusing the component, not a copy,
+  omitted so the redundant `Forecast →` link does not render. **Amended: `base` is passed
+  for `unmeasurable` and `stale`.** `Add estimates →` lands on the grid and
+  `Re-run forecast →` is the only path a phone user has to refresh a stale premium at
+  all; withholding both left the sheet's two actionable states as dead ends. Every other
+  state's action is `Forecast →`, i.e. the screen the sheet was opened from, and stays
+  withheld. Reusing the component, not a copy,
   is the strongest available discharge of DoD item 8 ("the same premium object … so the two
   cannot disagree").
 - **The `?` requirement is already met.** `AddedTimeCard` mounts `ForecastBasisHelp` →

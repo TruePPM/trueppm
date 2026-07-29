@@ -6,7 +6,6 @@ import { MonteCarloSheet } from './MonteCarloSheet';
 import {
   addedTimePresentation,
   addedTimeShortForm,
-  addedTimeSpokenHeadline,
   type AddedTimePresentation,
 } from '@/features/project/addedTime';
 
@@ -18,18 +17,12 @@ interface Props {
  * The added-time clause spoken as part of the card's accessible name.
  *
  * The visible chip is inside a `<button aria-label=…>`, so it is invisible to a screen
- * reader unless it is composed into that label — and a signed count read without its
- * sign inverts the finding, which is why the spoken form is used rather than the
- * printed one. `notRun` and `stale` render no chip and contribute no clause.
+ * reader unless it is composed into it. Only the unmeasurable state contributes: every
+ * other state's value is already spoken through the forecast chips, and repeating it
+ * here would read the same delta twice in one label.
  */
 function addedTimeSpokenClause(presentation: AddedTimePresentation): string {
-  if (presentation.state === 'notRun' || presentation.state === 'stale') return '';
-  if (presentation.state === 'unmeasurable') return ' Added time needs estimates.';
-
-  const { headline } = presentation;
-  const spoken = addedTimeSpokenHeadline(headline);
-  if (spoken === headline) return ` ${spoken}.`;
-  return headline.startsWith('+') ? ` ${spoken} versus the computed finish.` : ` ${spoken}.`;
+  return presentation.state === 'unmeasurable' ? ' Added time needs estimates.' : '';
 }
 
 /**
@@ -54,12 +47,16 @@ export function MobileMonteCarloCard({ projectId }: Props) {
   // Sharing the object, not just the endpoint, is what makes it impossible for this
   // card to report a calm number on a project the card calls unmeasurable.
   const premium = addedTimePresentation(result?.riskPremium);
-  // Unqualified: this row already carries the CPM baseline — `useForecastPresentation`
-  // pushes a dashed `CPM: …` chip into it whenever a baseline exists, and a zero-spread
-  // run's solo chip ends "· matches CPM". A1's precondition is met structurally, so the
-  // bare count is the correct form and it costs less than half the width of the
-  // qualified one on a 320px screen.
-  const addedShort = addedTimeShortForm(premium, { qualified: false });
+  // Only the unmeasurable state gets a chip here, and that is the whole point of the
+  // chip. For every measured state the P80 chip beside it already reads
+  // `P80: Nov 4 (+11d)` — the same delta, off the same server field — so a second copy
+  // would be one row carrying one number twice (rule 290). What the forecast chips
+  // structurally *cannot* say is that there was nothing to measure: a flat run renders
+  // `Forecast: Oct 24 · matches CPM`, which is exactly the calm reading an unestimated
+  // project must never be given. That gap is what this chip closes, and it is the
+  // reason DoD item 8 asks the card to consume the same premium object.
+  const addedShort =
+    premium.state === 'unmeasurable' ? addedTimeShortForm(premium, { qualified: false }) : null;
 
   if (!result) {
     // No project context yet — render nothing rather than a CTA that cannot fire.
