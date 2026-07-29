@@ -37,6 +37,7 @@ import {
   type GanttScaleData,
 } from '../engine';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { compareCodeUnits } from '@/lib/compareStrings';
 import { scheduleExportFooterWatermark } from './scheduleExportEdition';
 import {
   barBorderClass,
@@ -89,7 +90,11 @@ function projectSpan(rows: SchedulePrintRow[]): { start: string; finish: string 
   const starts = rows.filter((r) => r.start).map((r) => r.start as string);
   const finishes = rows.filter((r) => r.finish).map((r) => r.finish as string);
   if (starts.length === 0 || finishes.length === 0) return null;
-  return { start: starts.slice().sort()[0], finish: finishes.slice().sort().at(-1) as string };
+  // ISO-8601 dates — code-unit order is chronological order (see schedulePrintData).
+  return {
+    start: starts.slice().sort(compareCodeUnits)[0],
+    finish: finishes.slice().sort(compareCodeUnits).at(-1) as string,
+  };
 }
 
 /**

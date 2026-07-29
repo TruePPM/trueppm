@@ -15,6 +15,7 @@
 import type { ApiSprint, Task, TaskLink, LinkType, MonteCarloResult } from '@/types';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { initialsOf } from '@/lib/initials';
+import { compareCodeUnits } from '@/lib/compareStrings';
 
 const MS_PER_DAY = 86_400_000;
 
@@ -414,8 +415,11 @@ function buildKpis(
   forecast: MonteCarloResult | null | undefined,
 ): SchedulePrintKpis {
   const dated = rows.filter((r) => r.start && r.finish);
-  const starts = dated.map((r) => r.start as string).sort();
-  const finishes = dated.map((r) => r.finish as string).sort();
+  // ISO-8601 `YYYY-MM-DD`, so code-unit order *is* chronological order. Collation
+  // would not be — it treats `-` as variable — and these feed the printed
+  // project start/finish, so the ordering has to be the calendar's, not a locale's.
+  const starts = dated.map((r) => r.start as string).sort(compareCodeUnits);
+  const finishes = dated.map((r) => r.finish as string).sort(compareCodeUnits);
   const projectStart = starts[0] ?? null;
   const projectFinish = finishes[finishes.length - 1] ?? null;
   const durationDays =
@@ -439,7 +443,7 @@ function buildKpis(
   const nextMilestone = milestones
     .filter((r) => !r.milestoneMet && r.finish)
     .map((r) => r.finish as string)
-    .sort()[0];
+    .sort(compareCodeUnits)[0];
 
   // Forecast P80 + slip vs CPM (signed days).
   let forecastValue = '—';

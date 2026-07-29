@@ -285,7 +285,13 @@ export function NotificationPreferencesPage() {
     // rows would bury that distinction.
     const ordered = (set: Set<string>, primary: string[], trailing: string[] = []) => {
       const out = primary.filter((k) => set.has(k));
-      const rest = [...set].filter((k) => !primary.includes(k) && !trailing.includes(k)).sort();
+      // localeCompare, not compareCodeUnits: this order is consumed by a person
+      // reading the matrix, and nothing persists or transmits it. The keys are
+      // ASCII snake_case today so the two agree — the choice states which rule
+      // applies if that ever stops being true.
+      const rest = [...set]
+        .filter((k) => !primary.includes(k) && !trailing.includes(k))
+        .sort((a, b) => a.localeCompare(b));
       return [...out, ...rest, ...trailing.filter((k) => set.has(k))];
     };
     return {
