@@ -17,6 +17,8 @@
  * trust boundary.
  */
 
+import { stripTrailingSlash } from '@/lib/stripTrailingSlash';
+
 export type ProviderKind = 'free' | 'fixed' | 'derived' | 'oauth';
 export type ProviderType = 'OIDC' | 'OAuth';
 
@@ -57,15 +59,12 @@ export interface ProviderDef {
 
 /** Strip a trailing slash (issuer URLs are compared without one). */
 function trimSlash(s: string): string {
-  return (s || '').trim().replace(/\/+$/, '');
+  return stripTrailingSlash((s || '').trim());
 }
 
 /** Strip scheme + trailing slash from a bare host/domain input. */
 function bareHost(s: string): string {
-  return (s || '')
-    .trim()
-    .replace(/^https?:\/\//, '')
-    .replace(/\/+$/, '');
+  return stripTrailingSlash((s || '').trim().replace(/^https?:\/\//, ''));
 }
 
 export const PROVIDERS: ProviderDef[] = [

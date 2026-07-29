@@ -89,6 +89,23 @@ def anon_client() -> APIClient:
 # ---------------------------------------------------------------------------
 
 
+# The eight flat keys "added time" rides on (#2531, ADR-0698). Identical to the set
+# `GET /projects/<pk>/overview/` emits, deliberately — one wire shape means the card
+# and the forecast surfaces share a contract rather than two that can drift.
+PREMIUM_KEYS = frozenset(
+    {
+        "risk_premium_state",
+        "risk_premium_days",
+        "risk_premium_ratio",
+        "risk_premium_band",
+        "risk_premium_as_of",
+        "risk_premium_reason",
+        "risk_premium_cpm_finish",
+        "risk_premium_p80",
+    }
+)
+
+
 @pytest.mark.django_db
 class TestMonteCarloLatest:
     def url(self, pk: object) -> str:
@@ -239,3 +256,155 @@ class TestMonteCarloLatest:
         # survive the TTL (the headline #1231 fix).
         assert data["confidence_curve"] != []
         assert data["histogram_buckets"] != []
+
+    # ── #2531 / ADR-0698 — added time rides the forecast payload ─────────────
+
+    def test_live_run_response_carries_the_premium(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """Every forecast surface reads one server-owned state, not a raw day count.
+
+        Schedule, Board, Table and the mobile card all consume this payload; without
+        the discriminant they would have to decide for themselves what a premium of
+        `0` means, which is the false all-clear the metric exists to prevent (#2531).
+        """
+        self._scheduled_task(project)
+        data = member_client.post(
+            self.mc_url(project.pk), {"n_simulations": 200}, format="json"
+        ).json()
+
+        assert set(data) >= PREMIUM_KEYS
+        assert data["risk_premium_state"] in {
+            "not_run",
+            "unmeasurable",
+            "stale",
+            "zero",
+            "premium",
+            "negative",
+        }
+        assert data["risk_premium_cpm_finish"] == "2026-01-09"
+
+    def test_cached_read_carries_the_premium(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        self._scheduled_task(project)
+        member_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
+
+        data = member_client.get(self.url(project.pk)).json()
+        assert set(data) >= PREMIUM_KEYS
+        assert data["risk_premium_state"] is not None
+
+    def test_history_fallback_carries_the_premium(
+        self, member_client: APIClient, scheduler_client: APIClient, project: Project
+    ) -> None:
+        self._scheduled_task(project)
+        scheduler_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
+        cache.clear()  # simulate TTL expiry → history fallback path
+
+        data = member_client.get(self.url(project.pk)).json()
+        assert data["from_history"] is True
+        assert set(data) >= PREMIUM_KEYS
+
+    def test_the_404_body_carries_no_premium(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """A project with no forecast at all says so with a 404, not a null premium."""
+        res = member_client.get(self.url(project.pk))
+        assert res.status_code == 404
+        assert PREMIUM_KEYS.isdisjoint(res.json())
+
+    def test_the_premium_is_never_written_into_the_cache_entry(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """The freeze guard (ADR-0698 §2).
+
+        `risk_premium_ratio` is a share of the duration remaining *today* and
+        `risk_premium_state` ages into `stale`, so both are wrong the moment they are
+        stored. The entry must hold only the run's own facts; the premium is layered
+        on at read time.
+        """
+        self._scheduled_task(project)
+        member_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
+
+        entry = cache.get(f"mc_latest:{project.pk}")
+        assert entry is not None
+        assert PREMIUM_KEYS.isdisjoint(entry)
+
+    def test_the_ratio_recomputes_as_today_advances_over_one_cache_entry(
+        self, member_client: APIClient, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The same cached forecast, read twice, reports the ratio it should each time.
+
+        This is what read-time derivation buys: once the computed finish has passed
+        there is no remaining duration to take a share of, and a frozen percentage
+        would keep describing a window that has already closed.
+        """
+        import datetime as _dt
+
+        from django.utils import timezone as dj_timezone
+
+        self._scheduled_task(project)
+        member_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
+        cpm_finish = _dt.date.fromisoformat(cache.get(f"mc_latest:{project.pk}")["cpm_finish"])
+
+        monkeypatch.setattr(
+            dj_timezone, "localdate", lambda *a, **kw: cpm_finish - _dt.timedelta(days=30)
+        )
+        before = member_client.get(self.url(project.pk)).json()
+
+        monkeypatch.setattr(
+            dj_timezone, "localdate", lambda *a, **kw: cpm_finish + _dt.timedelta(days=1)
+        )
+        after = member_client.get(self.url(project.pk)).json()
+
+        assert before["risk_premium_ratio"] is not None
+        assert after["risk_premium_ratio"] is None
+        # The gap itself is time-invariant — only its normalization is not.
+        assert before["risk_premium_days"] == after["risk_premium_days"]
+
+    def test_a_viewer_reads_the_premium(self, project: Project, pert_task: Task) -> None:
+        """Same role floor as the payload it rides on — no new disclosure (#2531).
+
+        The premium is derived entirely from `p80`, `cpm_finish` and
+        `forecast_diagnostic`, all of which this caller already receives here.
+        """
+        scheduler = User.objects.create_user(username="mc_premium_scheduler", password="pw")
+        ProjectMembership.objects.create(project=project, user=scheduler, role=Role.SCHEDULER)
+        sc = APIClient()
+        sc.force_authenticate(user=scheduler)
+        sc.post(self.mc_url(project.pk), {"n_simulations": 100}, format="json")
+
+        viewer = User.objects.create_user(username="mc_premium_viewer", password="pw")
+        ProjectMembership.objects.create(project=project, user=viewer, role=Role.VIEWER)
+        vc = APIClient()
+        vc.force_authenticate(user=viewer)
+
+        res = vc.get(self.url(project.pk))
+        assert res.status_code == 200
+        assert set(res.json()) >= PREMIUM_KEYS
+
+    def test_an_unestimated_project_is_unmeasurable_not_a_calm_zero(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """The headline safety property, end-to-end through the forecast payload.
+
+        A project with no three-point estimates simulates flat, so its premium is
+        exactly 0 days. If the payload reported that as a measured zero the strip
+        would tell the least-known project on the board that it carries no schedule
+        risk — the inverse of the truth, not a weaker version of it.
+        """
+        Task.objects.create(
+            project=project,
+            name="No estimates",
+            duration=5,
+            early_start=date(2026, 1, 5),
+            early_finish=date(2026, 1, 9),
+        )
+        data = member_client.post(
+            self.mc_url(project.pk), {"n_simulations": 100}, format="json"
+        ).json()
+
+        assert data["risk_premium_state"] == "unmeasurable"
+        # No commitment date to act on: a flat run's "P80" is the CPM date under
+        # another name.
+        assert data["risk_premium_p80"] is None

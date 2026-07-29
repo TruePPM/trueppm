@@ -373,3 +373,98 @@ describe('useMonteCarloResult', () => {
     expect(getMock).toHaveBeenCalledTimes(2);
   });
 });
+
+/**
+ * The `risk_premium_*` slice (#2531).
+ *
+ * Lifted off the wire un-mapped and un-renamed on purpose: it is the same slice
+ * `GET /overview/` emits, so `addedTimePresentation` — the single derivation of what a
+ * premium of `0` means — consumes it unchanged from either endpoint. A mapping layer
+ * here is exactly where the Overview card and the forecast surfaces would drift apart.
+ */
+describe('useMonteCarloResult risk premium', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.clearAllMocks();
+  });
+
+  const WIRE = {
+    project_id: 'proj-1',
+    runs: 1000,
+    p50: '2026-10-05',
+    p80: '2026-11-04',
+    p95: '2026-11-30',
+    histogram_buckets: [],
+  };
+
+  it('lifts all eight keys off the wire verbatim', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        ...WIRE,
+        risk_premium_state: 'premium',
+        risk_premium_days: 11,
+        risk_premium_ratio: 0.124,
+        risk_premium_band: null,
+        risk_premium_as_of: '2026-07-27T09:12:00Z',
+        risk_premium_reason: null,
+        risk_premium_cpm_finish: '2026-10-24',
+        risk_premium_p80: '2026-11-04',
+      },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.data?.riskPremium).toEqual({
+      risk_premium_state: 'premium',
+      risk_premium_days: 11,
+      risk_premium_ratio: 0.124,
+      risk_premium_band: null,
+      risk_premium_as_of: '2026-07-27T09:12:00Z',
+      risk_premium_reason: null,
+      risk_premium_cpm_finish: '2026-10-24',
+      risk_premium_p80: '2026-11-04',
+    });
+  });
+
+  it('normalizes absent optional keys to null while keeping the state', async () => {
+    // A partial payload must not leave `undefined` holes that read differently from
+    // an explicit null once the presentation function inspects them.
+    getMock.mockResolvedValueOnce({
+      data: { ...WIRE, risk_premium_state: 'unmeasurable', risk_premium_reason: 'no_estimates' },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.data?.riskPremium).toEqual({
+      risk_premium_state: 'unmeasurable',
+      risk_premium_days: null,
+      risk_premium_ratio: null,
+      risk_premium_band: null,
+      risk_premium_as_of: null,
+      risk_premium_reason: 'no_estimates',
+      risk_premium_cpm_finish: null,
+      risk_premium_p80: null,
+    });
+  });
+
+  it('leaves the premium undefined on a payload written before the metric existed', async () => {
+    // Absence is "we do not know" — `addedTimePresentation` reads it as `notRun`
+    // rather than as a state assembled from a partial payload.
+    getMock.mockResolvedValueOnce({ data: WIRE });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.data?.riskPremium).toBeUndefined();
+  });
+});

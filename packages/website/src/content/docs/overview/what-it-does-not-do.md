@@ -96,14 +96,19 @@ For comparison, Primavera P6 routinely carries schedules two orders of magnitude
 larger. Large EPC, construction, and defense programs are out of TruePPM's range
 today, and we are not going to pretend otherwise.
 
-## Mobile — no app yet
+## Mobile — no released app yet
 
-- **Today:** the web UI is responsive, but there is no installable app and no
-  offline-capable mobile shell.
+- **Today:** the web UI is responsive, but there is nothing installable and no
+  offline-capable shell you can add to a home screen. A React Native app already
+  exists in the repository — five working screens (Projects, Schedule, Tasks, Time,
+  Settings), offline sync, and authentication — and is under active CI, but it is an
+  internal build with no store distribution and no public release. "No app yet"
+  describes what you can install, not what has been written.
 - **0.5:** an installable PWA with an offline shell — add to home screen, time entry
   and board reads without a signal.
-- **0.6:** a native Android app (React Native / Expo + WatermelonDB), Android phones
-  first, tablets second.
+- **0.6:** the in-progress React Native app above reaches GA on Android — Android
+  phones first, tablets second — as the first mobile release anyone outside the
+  project can install.
 - **1.0:** iPhone and iPad parity.
 
 ## Integrations — thin, deliberately
@@ -121,6 +126,102 @@ MS Project XML round-trips today. Beyond that the surface is narrow:
 There is no marketplace, and there will not be one soon. The internal plugin
 architecture is planned for 0.7 and a public Extension SDK for 0.9. Redmine's
 ecosystem is its main advantage over TruePPM and will stay that way for some time.
+
+## Internationalization — English only, hardcoded
+
+There is no i18n framework wired into the web app — no i18next, react-intl, or
+equivalent — and UI strings are hardcoded English throughout. There is no locale
+switcher, no translated string catalog, and no RTL support.
+
+- **0.4:** the i18n framework decision itself
+  ([#728](https://gitlab.com/trueppm/trueppm/-/issues/728)) — whether to commit to
+  string externalization now or defer, made while the UI surface is still small
+  because retrofitting extraction gets more expensive every release.
+- **0.9:** i18n/l10n execution against whatever framework decision 0.4 makes, as part
+  of GA hardening.
+
+A framework decision is not a commitment to any particular translated language.
+**If you need TruePPM in a language other than English, there is no workaround today**
+beyond running a browser translation extension over the UI.
+
+## AI scheduling / auto-optimization — not present
+
+TruePPM has no AI-driven auto-scheduling, auto-optimization, or AI-generated
+sequencing anywhere in the product. Nothing re-sequences a schedule, chooses a
+critical path, or performs resource leveling by inference — that is math, computed
+by the deterministic CPM/Monte Carlo engine, not a model's opinion. See
+[Computed, not guessed](/overview/computed-not-guessed/).
+
+This is worth stating plainly because it is easy to conflate with two things that
+are **not** it:
+
+- **The read-only [MCP server](/features/mcp-server/)** answers questions about a
+  schedule the engine already computed — critical path, a non-mutating Monte Carlo
+  what-if, sprint status. It does not decide anything and it cannot write.
+- **Hybrid human/AI scheduling**, planned for 0.5–0.6, represents an AI *agent* as a
+  schedulable resource — effort separated from duration, throughput and concurrency
+  on a worker profile — so a team whose work spans people and agents gets one plan.
+  The schedule is still computed by CPM; nothing about that work has the engine
+  deciding a schedule instead of computing one.
+
+"AI scheduling and scenario modeling" appears on the enterprise roadmap with no
+committed release. It does not exist in any form today, OSS or enterprise.
+
+## Data residency and multi-region — not present, not currently planned
+
+TruePPM does not support pinning data to a geographic region or replicating it
+across regions. A self-hosted instance runs wherever you deploy it — which is
+itself a form of jurisdictional control — but there is no in-app region tag, no
+data-locality enforcement, and no multi-region active-active deployment topology.
+If your organization needs a formal data-residency guarantee or a multi-region
+deployment, you have to build it at the infrastructure layer yourself; TruePPM has
+no first-class support for it, and it is not currently on the roadmap.
+
+## Account erasure (GDPR-style right to be forgotten) — not present, not currently planned
+
+An administrator can deactivate or delete a user account, but a deleted account
+leaves its historical work in place — the tasks, comments, and time entries it
+authored resolve their owner to null rather than being erased with the account.
+There is no self-service "delete my account and data" flow and no anonymization
+routine. If your organization needs a formal right-to-erasure workflow for
+compliance, that is a manual, database-level exercise today. It is not currently
+on the roadmap.
+
+## Notification channels — email and in-app only
+
+- **Today:** a user's personal notification preferences cover **email** and
+  **in-app** only. Separately, project-level outgoing event automation can post to
+  a Slack-compatible incoming webhook URL (this also works for Discord and
+  Mattermost) — that is a different mechanism from personal notification
+  preferences and does not extend them.
+- **Push notifications** (browser/PWA and mobile) are not yet built.
+  [#2132](https://gitlab.com/trueppm/trueppm/-/issues/2132) tracks the PWA
+  push-notification foundation.
+- **Slack DM, Teams DM, and SMS** as personal notification channels are registered
+  as enterprise extension points ([ADR-0049](/architecture/decisions/)) — not
+  planned for the OSS core.
+
+## High availability — partial, and not turnkey
+
+- **The API and Celery worker tiers support multiple replicas today.** An optional
+  `PodDisruptionBudget` and `HorizontalPodAutoscaler` ship in the 0.4 Helm chart,
+  both off by default. Celery-originated broadcasts reach WebSocket clients
+  connected to any API pod, so horizontal API scaling is safe.
+- **Celery beat is single-replica by design**, not a gap — exactly one Beat process
+  fires the periodic drains, and running two would double-dispatch every job.
+- **The bundled Valkey (Redis) pod is single-node, with no replication or
+  failover.** For real HA you disable it and point `REDIS_URL` at an external
+  Sentinel, Cluster, or managed Redis-compatible endpoint yourself — see
+  [Redis HA](/administration/redis-ha/).
+- **Postgres HA is not part of the chart.** Large-scale production hardening — HA
+  Postgres and a dedicated highly-available Valkey deployment — remains on the
+  pre-1.0 roadmap; today you bring your own HA database, the same as you would with
+  most self-hosted software.
+
+**If "no single point of failure" out of the box is a requirement, TruePPM is not
+there yet** — every tier can be made HA, but you assemble it yourself. See
+[Deployment](/administration/deployment/) and [Redis HA](/administration/redis-ha/)
+for the how.
 
 ## Governance and portfolio — out of the OSS core by design
 

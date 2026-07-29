@@ -52,6 +52,9 @@ function input(over: Partial<HealthClusterInput>): HealthClusterInput {
     activeSprint: sprint({}),
     velocity: VELOCITY,
     mc: MC,
+    // Default to suppressed: every pre-#2531 case asserts the methodology shapes, and
+    // those must be unchanged by the added-time tail.
+    addedTime: null,
     now: new Date('2026-06-10T12:00:00Z'),
     ...over,
   };

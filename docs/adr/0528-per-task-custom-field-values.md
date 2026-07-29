@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed (2026-07-18)
+Accepted (2026-07-18) — status corrected 2026-07-29 after ADR audit (#2539, verified:
+`TaskCustomFieldValue` model, migration `0126_projectcustomfield_show_on_card_taskcustomfieldvalue.py`,
+`field-values/<field_id>/` endpoint).
 
 > **Amends [ADR-0050](0050-task-detail-drawer-section-extension-points.md).** ADR-0050
 > filed the Custom Fields drawer *section* as Enterprise-only (`trueppm-enterprise#59`).

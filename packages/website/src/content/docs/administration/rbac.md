@@ -59,7 +59,7 @@ membership payloads, invite responses, and MCP reads — and in JavaScript `0` i
 a consumer writing `role || DEFAULT` would read a Viewer as *absent* and quietly grant
 them the default instead. Starting the ladder at 1 makes every role truthy and removes
 that failure mode. "No membership" is expressed as `null`, a distinct type, never as an
-ordinal. If you have integrated against the numeric field, note that a Viewer changed
+ordinal. If you integrate against the numeric field, note that a Viewer will change
 from `0` to `1` in 0.4; see the changelog.
 
 ## Permission matrix

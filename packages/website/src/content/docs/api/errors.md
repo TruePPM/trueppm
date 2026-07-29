@@ -71,6 +71,7 @@ failure of its HTTP status class.
 | `base_url_not_allowed` | The supplied integration base URL is not permitted | — |
 | `invalid_token` | The password-reset uid+token pair is bad, unknown, or expired | — |
 | `weak_password` | The new password failed validation | `messages` |
+| `pin_limit_reached` | Pinning this project/program would exceed the account's configured pin cap | — |
 
 ### 403 — refused by policy
 
@@ -139,6 +140,39 @@ merge rather than guess:
 The **general** rate limiter is different: it returns a bare `detail` with **no
 `code`**, plus a `Retry-After` header. See
 [rate limiting](/api/reference/#rate-limiting).
+
+## Codes that exist in code but not on the wire
+
+The codes on this page are the complete set that a client can actually branch
+on. A separate, larger family of `code="..."` values exists **only** as an
+internal annotation on a Django REST Framework `ErrorDetail` object — task
+comments, attachments, notes, reactions, signed download URLs, idempotency-key
+reuse, the sync id-collision conflict, and the phase-rollup-lock family
+(`summary_rollup_locked`, `phase_status_rollup_locked`,
+`phase_estimate_rollup_locked`, `assignee_on_phase`, `time_log_on_phase`,
+`phase_in_sprint_forbidden`, `subtask_on_phase`) all pass a `code` keyword when
+raising a `ValidationError` or a custom `APIException`.
+
+**That `code` never reaches the response body.** Verified by invoking DRF's own
+`exception_handler` against the exact raise sites: when `detail` is a plain
+string (or a dict whose value is a string), `code` stays attached to the
+`ErrorDetail` string subclass as a Python-side attribute — DRF's JSON encoder
+renders an `ErrorDetail` as its plain string, so the wire body is just
+`{"detail": "..."}` (or a field-keyed message, for the phase-rollup family),
+with no sibling `code` key at all. This is a different code path from every
+structured code on this page, which is built as a literal
+`Response({"code": "...", "detail": "...", ...}, status=...)` — a real dict
+with `code` as its own key.
+
+**Do not rely on any of the codes named above as a wire contract.** They read
+like the structured codes elsewhere on this page, but a client that
+`if error.code === "attachment_too_large"` will never match — only the
+`detail` prose changes, and this page tells you elsewhere never to match on
+that. Whether this is a bug (the raise sites should build a flat body like the
+rest of Shape 2) or intentional (these were meant to stay internal) is an open
+question, tracked in
+[issue #2550](https://gitlab.com/trueppm/trueppm/-/issues/2550) — not resolved
+here.
 
 ## SSO error codes
 

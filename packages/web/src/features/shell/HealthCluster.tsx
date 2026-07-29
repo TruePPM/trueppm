@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useMatch } from 'react-router';
+import { useNavigate, useMatch, useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useShellStats } from '@/hooks/useShellStats';
@@ -12,6 +12,17 @@ import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { MCResultPanel } from './MCResultPanel';
 import { healthClusterModel, type HealthSegment } from './healthClusterModel';
+import { addedTimeChipContext } from './addedTimeChip';
+import { addedTimeChipForm, RIGHT_CLUSTER_MAX_SIBLINGS } from './addedTimeChipFit';
+import {
+  ADDED_TIME_LABEL,
+  addedTimePresentation,
+  addedTimeShortForm,
+  addedTimeSpokenHeadline,
+  formatEndpoint,
+  type AddedTimePresentation,
+  type AddedTimeShortForm,
+} from '@/features/project/addedTime';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 
 interface Props {
@@ -387,6 +398,140 @@ function VelocityRow({
   );
 }
 
+/**
+ * The added-time clause appended to the chip's `aria-label`.
+ *
+ * Two templates rather than one, because `addedTimeSpokenHeadline` returns two shapes:
+ * `"11 days added"` needs its baseline named, while `"4 days earlier than the computed
+ * finish"` is already a complete sentence and would read broken with one appended. A
+ * generic `", added time ${spoken}"` prefix was the other option and yields "added time
+ * 11 days added".
+ *
+ * `notRun` contributes nothing — the forecast clause immediately before it already
+ * says "forecast not run", and a second one is noise.
+ */
+function addedTimeAriaClause(presentation: AddedTimePresentation | null): string {
+  if (presentation === null || presentation.state === 'notRun') return '';
+  if (presentation.state === 'unmeasurable') return ', added time needs estimates';
+
+  const { headline } = presentation;
+  const spoken = addedTimeSpokenHeadline(headline);
+  // "11 days added" needs the baseline named; "4 days earlier than the computed
+  // finish" already names it; "No added time" is a complete read on its own.
+  const core =
+    spoken === headline
+      ? spoken.toLowerCase()
+      : headline.startsWith('+')
+        ? `${spoken} versus the computed finish`
+        : spoken;
+  const asOf =
+    presentation.state === 'stale' && presentation.asOf
+      ? `, from a forecast as of ${formatEndpoint(presentation.asOf, presentation.asOf)}`
+      : '';
+  return `, ${core}${asOf}`;
+}
+
+/**
+ * "Added time" — the gap between the computed finish and the P80 commit (#2531).
+ *
+ * A static row, not a button. Every other actionable row in this popover closes it
+ * and navigates; added time is an advisory the reader glanced at on their way
+ * somewhere else, and yanking them off Board to satisfy it would cost more than it
+ * gives. The Forecast P80 row directly above already offers `Details ›` into the
+ * distribution, and Overview carries the full card.
+ *
+ * The delta always names its baseline here (`+11d vs Oct 24`). The popover renders
+ * `Forecast P80` but nothing anywhere carries the *computed* finish, so a bare `+11d`
+ * inside this dialog would be a delta with no visible reference — the #2426 defect.
+ *
+ * No band, no proportion track, and no as-of stamp except in the one state where the
+ * stamp is the point (A3): a stale premium without its date is an old verdict wearing
+ * a current one's clothes.
+ */
+function AddedTimeRows({ presentation }: { presentation: AddedTimePresentation }): ReactNode {
+  const label = <span className="text-neutral-text-secondary">{ADDED_TIME_LABEL}</span>;
+
+  if (presentation.state === 'notRun') {
+    return (
+      <div className={ROW}>
+        {label}
+        {/* Words, not a dash: the two forecast rows above already render "—", and a
+            third would read as one more missing number rather than a state. */}
+        <span className="text-neutral-text-secondary">Not run yet</span>
+      </div>
+    );
+  }
+
+  if (presentation.state === 'unmeasurable') {
+    return (
+      <div className={ROW}>
+        {label}
+        {/* A4, verbatim and lowercase — the same literal the chip fragment and the
+            mobile card render, so the three cannot drift and one assertion covers all
+            of them. Never "0d", never an em dash. */}
+        <span className="text-neutral-text-secondary">needs estimates</span>
+      </div>
+    );
+  }
+
+  const { headline, endpoints, asOf, state } = presentation;
+  const cpmShort = formatEndpoint(endpoints.cpmFinish, endpoints.cpmFinish);
+  const spoken = addedTimeSpokenHeadline(headline);
+
+  if (spoken === headline) {
+    // A worded headline ("No added time") reads correctly as-is, so it renders once —
+    // an sr-only twin would announce it twice for no gain.
+    return (
+      <div className={ROW}>
+        {label}
+        <span className="text-neutral-text-primary">{headline}</span>
+      </div>
+    );
+  }
+
+  const value = (
+    <>
+      <span aria-hidden="true">{`${headline} vs ${cpmShort}`}</span>
+      {/* Some screen readers drop the "−" from "−4d", which inverts the finding from
+          "finishing early" to "finishing late" (rule 6). */}
+      <span className="sr-only">{`${spoken}, versus the computed finish ${cpmShort}`}</span>
+    </>
+  );
+
+  if (state === 'stale') {
+    const asOfShort = asOf ? formatEndpoint(asOf, asOf) : null;
+    return (
+      // Two-line, so `ROW`'s `items-center` cannot be reused. The stamp sits under the
+      // label rather than beside the value: a single line would run ~300px and the
+      // popover clamps to 100vw−1rem, which is 304px on the narrowest phone — the one
+      // width at which this row is the *only* carrier of the value.
+      <div className="flex items-start justify-between gap-3 px-2 py-1.5 text-xs whitespace-nowrap">
+        <span className="flex flex-col items-start">
+          {label}
+          {asOfShort && (
+            <span className="text-neutral-text-secondary">as of {asOfShort}</span>
+          )}
+        </span>
+        <span className="tppm-mono text-neutral-text-secondary underline decoration-dotted underline-offset-4">
+          <span aria-hidden="true">{`${headline} vs ${cpmShort}`}</span>
+          <span className="sr-only">
+            {`${spoken}, versus the computed finish ${cpmShort}${
+              asOfShort ? `, from a forecast as of ${asOfShort}` : ''
+            }`}
+          </span>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={ROW}>
+      {label}
+      <span className="tppm-mono text-neutral-text-primary">{value}</span>
+    </div>
+  );
+}
+
 /** Dispatches a single health segment to its row renderer. Forecast expands to a
  *  P50 + P80 band (ADR-0144/0175); at-risk/critical drill; sprint/points/velocity
  *  render their agile reads with the ADR-0104 velocity privacy wall honored. */
@@ -471,6 +616,9 @@ function SegmentRows({
       return (
         <VelocityRow segment={segment} iterationLower={iterationLower} onGoToSprints={onGoToSprints} />
       );
+
+    case 'addedTime':
+      return <AddedTimeRows presentation={segment.presentation} />;
 
     default:
       return null;
@@ -562,8 +710,13 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   // Sprint-jump targets (issue 1594) folded into the popover's sprint row (#1680) —
   // one source shared with the ⌘K "Current sprint" action (web-rule 214).
   const sprintTargets = useCurrentSprintTargets(projectId);
-  const { data: mcResult } = useMonteCarloResult(projectId ?? undefined);
+  const {
+    data: mcResult,
+    isLoading: mcLoading,
+    error: mcError,
+  } = useMonteCarloResult(projectId ?? undefined);
   const navigate = useNavigate();
+  const location = useLocation();
   const onSettingsRoute = useMatch('/projects/:projectId/settings/*');
 
   const [open, setOpen] = useState(false);
@@ -640,6 +793,18 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   // covers My Work / Notifications / Portfolio / Program / workspace settings.
   if (!projectId || onSettingsRoute) return null;
 
+  // ── Added time (#2531) ────────────────────────────────────────────────────
+  // Suppressed on Overview, which mounts `AddedTimeCard` — one value, one render
+  // per screen (rule 284) — and while the forecast query is in flight or errored.
+  // That second gate matters: an undefined premium maps to `notRun`, so without it
+  // a loading project would assert "Not run yet" about a forecast it has, which is
+  // worse than saying nothing.
+  const addedTimeCtx = addedTimeChipContext(location.pathname);
+  const addedTime: AddedTimePresentation | null =
+    addedTimeCtx.suppressed || mcLoading || mcError !== null
+      ? null
+      : addedTimePresentation(mcResult?.riskPremium);
+
   // Default to HYBRID (richest cluster) until the project loads — mirrors ViewTabs.
   const methodology = project?.methodology ?? 'HYBRID';
   const segments = healthClusterModel({
@@ -650,6 +815,7 @@ export function HealthCluster({ onTaskNavigate }: Props) {
     // P50 for the forecast band comes from the same MC result the drill-through
     // panel renders (issue 1197); P80 stays sourced from the status-summary.
     mc: mcResult ? { p50: mcResult.p50, p80: mcResult.p80 } : undefined,
+    addedTime,
     now: new Date(),
   });
 
@@ -671,6 +837,38 @@ export function HealthCluster({ onTaskNavigate }: Props) {
         ? `, forecast P80 ${formatForecastDate(forecastSeg.p80)}`
         : ', forecast not run';
   }
+  // The chip is a button with an aria-label, so its inner text is suppressed for
+  // assistive tech — anything not in this string does not exist to a screen reader.
+  // The clause therefore tracks the *popover row*, not the CSS-hidden fragment: the
+  // value is available at every width, exactly as the P80 clause already is.
+  chipAria += addedTimeAriaClause(addedTime);
+
+  // The inline fragment. Held to the methodologies whose cluster carries a forecast at
+  // all — an added-time read is a forecast derivative, so a chip with no forecast must
+  // not carry one — then budget-gated. `null` from the budget means *drop*, never
+  // "render the shorter form": an unqualified number on a surface with no computed
+  // finish on screen is a delta the reader cannot check, which is worse than silence.
+  // Dropping costs nothing, because the popover row below still carries the value.
+  //
+  // `window.innerWidth` is read inline rather than subscribed to: the CSS `xl:` gate
+  // owns the only boundary that matters, so a width that is one resize stale can never
+  // show a form the layout cannot hold. Element measurement is deliberately avoided
+  // (see addedTimeChipFit) so this cannot fight the cluster's container rules.
+  const addedTimeForm =
+    addedTime && forecastSeg && !addedTimeCtx.suppressed && addedTimeCtx.fragment
+      ? addedTimeChipForm({
+          viewportWidth: window.innerWidth,
+          siblingCount: RIGHT_CLUSTER_MAX_SIBLINGS,
+          baselineOnScreen: addedTimeCtx.baselineOnScreen,
+          hasP80Fragment: true,
+        })
+      : null;
+  const addedTimeShort: AddedTimeShortForm =
+    addedTime && addedTimeForm
+      ? addedTimeShortForm(addedTime, { qualified: addedTimeForm === 'qualified' })
+      : null;
+  const addedTimeIsValue =
+    addedTimeShort?.kind === 'number' || addedTimeShort?.kind === 'qualified';
 
   // The in-context project's active-sprint board (the primary jump) and the other
   // teams' sprints (multi-team rows). `sprintTargets` is "here first", so the
@@ -739,6 +937,39 @@ export function HealthCluster({ onTaskNavigate }: Props) {
             <span>—</span>
           </span>
         )}
+        {addedTimeShort && (
+          // Trailing, immediately before the caret: this is the only element on the
+          // chip that disappears by width budget, so at the edge its absence leaves
+          // no hole for the rest of the chip to reflow around. It also reads in the
+          // right order — verdict, then the commitment, then the gap the commitment
+          // buys over the plan, which cannot be understood before the commitment it
+          // is measured from.
+          //
+          // Neutral ink only. The chip's state word may be critical red; the fragment
+          // never inherits it, because a fourth colored signal in this bar would turn
+          // it into a wall where nothing is loudest (S1, rule 172).
+          // `xl` (1280) rather than the P80 fragment's `md`: it is the first band at
+          // which `addedTimeChipForm` returns anything, so the CSS gate and the budget
+          // agree instead of the CSS revealing a form the budget rejected. `ml-1`
+          // separates the two fragments — at 12px the chip's `gap-1.5` is only 2px
+          // wider than each fragment's internal `gap-1`, so without it `P80 · Nov 4 ·
+          // Added · +11d` reads as one four-part run.
+          <span className="hidden xl:inline-flex items-center gap-1 ml-1">
+            {/* The label is the boundary marker — the chip carries no separator glyph,
+                and `Added` plays the part `P80` plays for the date beside it. Omitted
+                for the worded states, where "Added needs estimates" is not English. */}
+            {addedTimeIsValue && <span className="text-neutral-text-secondary">Added</span>}
+            <span
+              className={
+                addedTimeIsValue
+                  ? 'tppm-mono text-neutral-text-primary'
+                  : 'text-neutral-text-secondary'
+              }
+            >
+              {addedTimeShort.text}
+            </span>
+          </span>
+        )}
         <span aria-hidden="true" className="text-neutral-text-secondary">
           {open ? '▴' : '▾'}
         </span>
@@ -770,9 +1001,14 @@ export function HealthCluster({ onTaskNavigate }: Props) {
               <span className={`text-xs font-medium ${chip.wordClass}`}>{chip.word}</span>
             </div>
 
-            {segments.map((segment, i) => (
+            {segments.map((segment) => (
               <SegmentRows
-                key={`${segment.kind}-${i}`}
+                // Keyed on `kind` alone, not on the index: a cluster never carries
+                // two segments of the same kind, and the added-time segment is
+                // spliced in mid-list once the forecast query resolves — an index
+                // key would renumber every row after it and remount them, dropping
+                // keyboard focus if the popover happened to be open.
+                key={segment.kind}
                 segment={segment}
                 iterationSingular={iteration.singular}
                 iterationLower={iteration.lower}

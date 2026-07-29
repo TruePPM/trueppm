@@ -1,7 +1,9 @@
 # ADR-0663: Scheduled Program-Health and Resource-Overallocation Digests
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified:
+`NotificationDigestRun` model, migration `0011_usernotificationsettings_digest_hour_and_more.py`,
+`send_scheduled_digests` Celery Beat task).
 
 ## Context
 

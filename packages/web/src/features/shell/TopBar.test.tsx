@@ -43,10 +43,22 @@ vi.mock('@/hooks/useNotifications', () => ({
 // exercise `handleTaskNavigate` (the "what's on fire → take me there" route, #2032)
 // without rendering the real cluster's data hooks.
 let capturedTaskNavigate: ((id: string) => void) | undefined;
+// Segment count is mutable so the #2533 overflow specs can grow the cluster from
+// three segments to seven without reaching into `healthClusterModel` (which #2531
+// owns) — the bar's contract is that segment count is the cluster's business.
+let healthSegmentCount = 3;
 vi.mock('./HealthCluster', () => ({
   HealthCluster: (props: { onTaskNavigate: (id: string) => void }) => {
     capturedTaskNavigate = props.onTaskNavigate;
-    return <div data-testid="health-cluster" />;
+    return (
+      <div data-testid="health-cluster">
+        {Array.from({ length: healthSegmentCount }, (_, i) => (
+          <span key={i} data-testid="health-segment">
+            segment {i}
+          </span>
+        ))}
+      </div>
+    );
   },
 }));
 vi.mock('./CreateMenu', () => ({ CreateMenu: () => null }));
@@ -82,6 +94,7 @@ beforeEach(() => {
   programData = { id: 'prog-1', name: 'Apollo', color: '#3E8C6D', code: 'APL' };
   presenceUsers = [];
   currentUser = null;
+  healthSegmentCount = 3;
   useThemeStore.setState({ theme: 'auto' });
   useShellStore.setState({ sidebarCollapsed: false, sidebarUserControlled: false });
 });
@@ -232,5 +245,107 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
     expect(bellIndex).toBeGreaterThanOrEqual(0);
     expect(dividerIndex).toBeGreaterThan(bellIndex);
     expect(accountIndex).toBeGreaterThan(dividerIndex);
+  });
+
+  // --- context-bar overflow contract (#2533) ---
+  //
+  // JSDOM has no layout engine, so a literal `offsetWidth` comparison here would
+  // assert 0 === 0 and pass no matter what the bar does. These specs therefore
+  // pin the *structural* invariants that make the breadcrumb's width stable —
+  // it is outside the scrolling region, and nothing about its box changes as the
+  // cluster grows — and leave the measured, pixel-level assertion to the
+  // Playwright spec (`unified-shell-bar.spec.ts`), which has a real engine.
+  describe('overflow contract (#2533)', () => {
+    /** Every direct child of the bar, as `tag.className` — the bar's own layout. */
+    function barLayout(container: HTMLElement): string[] {
+      const header = container.querySelector('header');
+      expect(header).not.toBeNull();
+      return Array.from(header!.children).map((c) => `${c.tagName}.${c.className}`);
+    }
+
+    it('leaves the breadcrumb\'s layout untouched as the cluster grows from 3 to 7 segments', () => {
+      healthSegmentCount = 3;
+      const three = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+      // Guard against a vacuous pass: the cluster really did grow.
+      expect(three.getAllByTestId('health-segment')).toHaveLength(3);
+      const layoutAtThree = barLayout(three.container);
+      three.unmount();
+
+      healthSegmentCount = 7;
+      const seven = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+      expect(seven.getAllByTestId('health-segment')).toHaveLength(7);
+
+      // The bar's own children — including the breadcrumb — are byte-identical:
+      // four extra segments changed nothing outside the scrolling cluster.
+      expect(barLayout(seven.container)).toEqual(layoutAtThree);
+    });
+
+    it('keeps the breadcrumb out of the scrolling region entirely', () => {
+      healthSegmentCount = 7;
+      const { container, getByTestId } = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+      const scroller = getByTestId('shell-status-cluster');
+      const breadcrumb = getByTestId('location-switcher');
+
+      // A scrolling ancestor is the mechanism by which the breadcrumb would be
+      // displaced; it must be a direct child of the bar instead.
+      expect(scroller.contains(breadcrumb)).toBe(false);
+      expect(breadcrumb.parentElement).toBe(container.querySelector('header'));
+    });
+
+    it('gives the status cluster the overflow rule, with no reserved scrollbar gutter', () => {
+      const { getByTestId } = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+      const cls = getByTestId('shell-status-cluster').className;
+
+      // The fix itself: the cluster scrolls instead of pushing.
+      expect(cls).toContain('min-w-0');
+      expect(cls).toContain('overflow-x-auto');
+      // Each segment keeps its natural width inside the viewport — without this
+      // the flex items compress and the overflow never happens (#2208).
+      expect(cls).toContain('[&>*]:shrink-0');
+      // Same scrollbar treatment as the shell's other horizontal scroller
+      // (`ShellNavScroller`, rule 174): no gutter is reserved, so overflow
+      // appearing shifts nothing.
+      expect(cls).toContain('[scrollbar-width:none]');
+      expect(cls).toContain('[&::-webkit-scrollbar]:hidden');
+      // The one animated affordance is gated (rule 70 — motion only, never
+      // function: reduced motion still scrolls, just without the easing).
+      expect(cls).toContain('scroll-smooth');
+      expect(cls).toContain('motion-reduce:scroll-auto');
+    });
+
+    it('makes the right region absorb the bar\'s shrink so the breadcrumb keeps its width', () => {
+      const { getByTestId } = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+      const region = getByTestId('shell-status-cluster').closest('header > div');
+      expect(region).not.toBeNull();
+      expect(region!.className).toContain('md:shrink-[9999]');
+      // …but the region must KEEP its automatic minimum size. `min-w-0` here
+      // would let the 9999 shrink weight drive the whole region to zero, and the
+      // `shrink-0` pinned chrome inside it would spill off the right edge of the
+      // bar — the account chip leaving the viewport is the exact defect the split
+      // exists to prevent. The floor belongs on the region; the two inner groups
+      // carry `min-w-0` themselves.
+      expect(region!.className).not.toContain('min-w-0');
+    });
+
+    it('keeps the pinned chrome outside the scroll viewport — the account chip can never scroll out of reach', () => {
+      healthSegmentCount = 7;
+      const { getByTestId, getAllByRole } = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+      const scroller = getByTestId('shell-status-cluster');
+      const account = getAllByRole('button', { name: /account/i })[0];
+      const bell = screen.getByRole('button', { name: /notifications/i });
+      expect(scroller.contains(account)).toBe(false);
+      expect(scroller.contains(bell)).toBe(false);
+    });
+
+    it('never makes the scroll viewport a focus dead-end — no inert/negative tabindex on the region', () => {
+      const { getByTestId } = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+      const scroller = getByTestId('shell-status-cluster');
+      // A scrolled-out segment stays reachable because it is still a normal
+      // focusable control in document order; the container must not remove it
+      // from the tab sequence or hide it from assistive tech.
+      expect(scroller).not.toHaveAttribute('tabindex');
+      expect(scroller).not.toHaveAttribute('inert');
+      expect(scroller).not.toHaveAttribute('aria-hidden');
+    });
   });
 });

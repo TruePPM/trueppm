@@ -15460,7 +15460,7 @@
                                 }
                             }
                         },
-                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] duration tornado — tasks that move the finish most, index 0..1, ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity} — explains a flat forecast; reason is null when a real band exists) and last_run_at (ISO 8601)."
+                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] duration tornado — tasks that move the finish most, index 0..1, ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity} — explains a flat forecast; reason is null when a real band exists), last_run_at (ISO 8601), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. Derived at response time, never cached, so the ratio never describes a remaining duration that has since elapsed."
                     },
                     "400": {
                         "content": {
@@ -15640,7 +15640,7 @@
                                 }
                             }
                         },
-                        "description": "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 (ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} calendar-day deltas vs the CPM finish), runs (n_simulations), confidence_curve, histogram_buckets, sensitivity, last_run_at, and from_history (true when served from a persisted run after the 24h cache TTL expired). Legacy runs with no stored distribution return empty confidence_curve/histogram_buckets/sensitivity arrays."
+                        "description": "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 (ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} calendar-day deltas vs the CPM finish), runs (n_simulations), confidence_curve, histogram_buckets, sensitivity, last_run_at, from_history (true when served from a persisted run after the 24h cache TTL expired), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. The premium is derived on every response and is never stored in the cache entry. Legacy runs with no stored distribution return empty confidence_curve/histogram_buckets/sensitivity arrays."
                     },
                     "404": {
                         "content": {
@@ -52743,6 +52743,11 @@
                         "readOnly": true,
                         "description": "When false (default), assignee names are omitted from the public view so no individual is exposed without an explicit opt-in."
                     },
+                    "show_milestone_dates": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "Schedule links only. When false, milestone rows (and their dated diamonds) are omitted from the public schedule. Defaults true — milestones are the headline an external audience wants."
+                    },
                     "created_by": {
                         "type": "string",
                         "nullable": true,
@@ -52801,6 +52806,7 @@
                     "last_accessed_at",
                     "revoked_at",
                     "show_assignees",
+                    "show_milestone_dates",
                     "token_prefix"
                 ]
             },
@@ -52816,6 +52822,10 @@
                     "show_assignees": {
                         "type": "boolean",
                         "default": false
+                    },
+                    "show_milestone_dates": {
+                        "type": "boolean",
+                        "default": true
                     },
                     "content_kind": {
                         "allOf": [
@@ -52864,6 +52874,11 @@
                         "type": "boolean",
                         "readOnly": true,
                         "description": "When false (default), assignee names are omitted from the public view so no individual is exposed without an explicit opt-in."
+                    },
+                    "show_milestone_dates": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "Schedule links only. When false, milestone rows (and their dated diamonds) are omitted from the public schedule. Defaults true — milestones are the headline an external audience wants."
                     },
                     "created_by": {
                         "type": "string",
@@ -52932,6 +52947,7 @@
                     "revoked_at",
                     "share_path",
                     "show_assignees",
+                    "show_milestone_dates",
                     "token",
                     "token_prefix"
                 ]

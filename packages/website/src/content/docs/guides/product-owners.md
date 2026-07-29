@@ -11,13 +11,12 @@ The backlog lives in the Sprints workspace as the pool of unprioritized work wai
 
 ### Backlog and WBS: the hybrid view
 
-When the PM builds a schedule, work packages become the high-level containers in the WBS (think epics or features). When you decompose those into stories, each story is a child task of its work package. This means:
-
-- **Your epics are the PM's work packages.** They share the same row in the database.
-- **Your stories are their leaf children.** Story point estimates roll up to the work package.
-- **Your sprint commitment feeds the PM's Gantt automatically.** When the team delivers stories, the work package's remaining duration updates in real time.
-
-You don't have to manually maintain two systems. Your backlog IS the schedule's leaf layer.
+Work packages and stories are the same underlying task row — see
+[The data model, in 90 seconds](/overview/data-model/) for the mechanics. In
+practice: your epics are the PM's work packages, your stories are their leaf
+children with story points rolling up automatically, and your sprint
+commitment feeds the PM's Gantt the moment a story's status changes. You
+don't have to manually maintain two systems.
 
 :::tip[Feature/Epic hierarchy]
 Full epic task type with dedicated backlog and board hierarchy shipped in 0.3: epics have a dedicated view with child story hierarchy, and they remain WBS work packages under the hood, so an epic is still the same row the PM sees as a summary task.

@@ -148,49 +148,53 @@ async function setup(
   // Stateful stakeholder registry — list + create + delete. Registered LAST so it
   // wins the exact URL over the catch-all.
   const stakeholders = [...(opts.stakeholders ?? [])] as Record<string, unknown>[];
-  await page.route(
-    `**/api/v1/programs/${PROGRAM_ID}/external-stakeholders/`,
-    async (route) => {
-      if (route.request().method() === 'POST') {
-        const body = route.request().postDataJSON() as {
-          name: string;
-          email: string;
-          note?: string;
-        };
-        const created = stakeholderFixture({
-          id: `stk-${stakeholders.length + 1}`,
-          name: body.name,
-          email: body.email,
-          note: body.note ?? '',
-        });
-        stakeholders.push(created);
-        await route.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify(created),
-        });
-        return;
-      }
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/external-stakeholders/`, async (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as {
+        name: string;
+        email: string;
+        note?: string;
+      };
+      const created = stakeholderFixture({
+        id: `stk-${stakeholders.length + 1}`,
+        name: body.name,
+        email: body.email,
+        note: body.note ?? '',
+      });
+      stakeholders.push(created);
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(created),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(stakeholders),
+    });
+  });
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/external-stakeholders/*/`, async (route) => {
+    const id = route.request().url().split('/').filter(Boolean).pop();
+    const idx = stakeholders.findIndex((s) => s.id === id);
+    if (route.request().method() === 'DELETE') {
+      if (idx >= 0) stakeholders.splice(idx, 1);
+      await route.fulfill({ status: 204, body: '' });
+      return;
+    }
+    if (route.request().method() === 'PATCH') {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      if (idx >= 0) stakeholders[idx] = { ...stakeholders[idx], ...body };
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(stakeholders),
+        body: JSON.stringify(idx >= 0 ? stakeholders[idx] : {}),
       });
-    },
-  );
-  await page.route(
-    `**/api/v1/programs/${PROGRAM_ID}/external-stakeholders/*/`,
-    async (route) => {
-      if (route.request().method() === 'DELETE') {
-        const id = route.request().url().split('/').filter(Boolean).pop();
-        const idx = stakeholders.findIndex((s) => s.id === id);
-        if (idx >= 0) stakeholders.splice(idx, 1);
-        await route.fulfill({ status: 204, body: '' });
-        return;
-      }
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
-    },
-  );
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
 }
 
 test.describe('Program Settings → External stakeholders', () => {
@@ -227,6 +231,41 @@ test.describe('Program Settings → External stakeholders', () => {
     await expect.poll(() => postBody?.email).toBe('jane@client.com');
     await expect(page.getByText('Jane Client')).toBeVisible();
     await expect(page.getByText('jane@client.com')).toBeVisible();
+  });
+
+  // #2530 — the row is editable in place, so fixing a typo no longer costs a
+  // remove + re-add (which #1675 would make destructive of verified state).
+  test('admin edits an external stakeholder inline', async ({ page }) => {
+    await setup(page, { stakeholders: [stakeholderFixture()] });
+    let patchBody: { email?: string } | null = null;
+    page.on('request', (req) => {
+      if (req.method() === 'PATCH' && req.url().includes('/external-stakeholders/')) {
+        patchBody = req.postDataJSON() as { email?: string };
+      }
+    });
+
+    await page.goto(`/programs/${PROGRAM_ID}/settings/stakeholders`);
+
+    await expect(page.getByRole('heading', { name: 'External stakeholders' })).toBeVisible();
+    await expect(page.getByText('jane@client.com')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Edit Jane Client' }).click();
+    const form = page.getByRole('form', { name: 'Edit Jane Client' });
+    const email = form.getByPlaceholder('email@example.com');
+
+    // A malformed address disables Save and — once the field is left — says why,
+    // so no round trip is spent on a typo.
+    await email.fill('jane@@nope');
+    await email.blur();
+    await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    await expect(form.getByRole('alert')).toHaveText('Enter a valid email address.');
+
+    await email.fill('jane@newclient.com');
+    await form.getByRole('button', { name: 'Save', exact: true }).click();
+
+    await expect.poll(() => patchBody?.email).toBe('jane@newclient.com');
+    await expect(page.getByText('jane@newclient.com')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Edit Jane Client' })).toBeVisible();
   });
 
   test('admin removes an external stakeholder', async ({ page }) => {

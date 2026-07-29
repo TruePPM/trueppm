@@ -1,7 +1,8 @@
 # ADR-0361: Chain-Aware Admin-Triggered Pruning of the AgentAction Audit Log
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified: `AgentActionCheckpoint`
+model, management command `agents/management/commands/audit_prune.py`).
 
 Amends the retention posture stated in **ADR-0112** (§1.3, Durable Execution item 6)
 and **ADR-0157** (§5) for the `AgentAction` chain. Does **not** modify the ADR-0173

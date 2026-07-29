@@ -1,9 +1,7 @@
 # ADR-0103: Design System v2.0 — Navy/Sage Rebrand and Brand Token Architecture
 
 ## Status
-Proposed
-
-> Superseded by [ADR-0126](0126-design-system-v2-golden-standard.md) (Design System v2 golden standard, which extended and resolved the brand token architecture).
+Superseded by [ADR-0126](0126-design-system-v2-golden-standard.md) (Design System v2 golden standard, which extended and resolved the brand token architecture); status corrected 2026-07-29 after ADR audit (#2539).
 
 > **Source of truth.** The uploaded brand package — `packages/web/brand/`
 > (`brand-guidelines.html`, `tokens.css`, `tokens.json`,

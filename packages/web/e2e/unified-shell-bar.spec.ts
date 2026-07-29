@@ -22,10 +22,37 @@ const FIXTURE_PROJECTS = [
   },
 ];
 
+// Worst-case health chip: an at-risk state word AND a P80 forecast date both
+// render, which is the widest single segment the cluster ever carries (#2533).
+const STATUS_SUMMARY = {
+  task_count: 12,
+  critical_path_count: 3,
+  monte_carlo_p80: '2026-09-07',
+  at_risk_count: 4,
+  critical_count: 2,
+  at_risk_tasks: [],
+  critical_tasks: [],
+  last_saved: null,
+  recalculated_at: null,
+};
+
 async function setup(page: import('@playwright/test').Page) {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
+}
+
+/** Setup with a full-width health chip and an Admin role, so every self-gating
+ *  segment in the status cluster renders (#2533). */
+async function setupFullCluster(page: import('@playwright/test').Page) {
+  await setupAuth(page);
+  await setupCatchAll(page);
+  await setupApiMocks(page, {
+    projects: FIXTURE_PROJECTS,
+    projectId: PROJECT_ID,
+    statusSummary: STATUS_SUMMARY,
+    members: [{ id: 'mem-admin', role: 300, user_id: 'e2e-user' }],
+  });
 }
 
 test.describe('v2 unified shell bar (#1204)', () => {
@@ -141,5 +168,212 @@ test.describe('v2 unified shell bar (#1204)', () => {
     expect(accountBox).not.toBeNull();
     expect(dividerBox!.x).toBeGreaterThan(bellBox!.x);
     expect(accountBox!.x).toBeGreaterThan(dividerBox!.x);
+  });
+});
+
+/**
+ * The status cluster's overflow rule (#2533). Before this, the bar's right region
+ * was one `shrink-0` row with no overflow rule: it neither wrapped nor scrolled,
+ * so every segment added to it pushed the location switcher. These run at 1024 —
+ * the tightest desktop width, where the #2483 handoff (§5.1) measured the cluster
+ * already inside its own budget at five segments.
+ */
+test.describe('context-bar status cluster overflow (#2533)', () => {
+  const VIEWPORT_W = 1024;
+
+  test('at 1024 with a full cluster the breadcrumb is not truncated and stays in the viewport', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: VIEWPORT_W, height: 768 });
+    await setupFullCluster(page);
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    const bar = page.getByRole('banner');
+    const location = bar.getByRole('navigation', { name: 'Location' });
+    await expect(location).toBeVisible({ timeout: 10_000 });
+    // Gate on the cluster having rendered before measuring anything — the
+    // breadcrumb is laid out against it, so measuring first would measure the
+    // pre-cluster bar and pass vacuously.
+    await expect(page.getByTestId('shell-status-cluster')).toBeVisible();
+    await expect(page.getByTestId('health-cluster')).toBeVisible();
+
+    // Not truncated: every ellipsis-capable node in the breadcrumb renders its
+    // full text. `scrollWidth > clientWidth` is exactly what `text-overflow`
+    // clipping looks like in the DOM.
+    const clipped = await location.evaluate((nav) =>
+      Array.from(nav.querySelectorAll<HTMLElement>('.truncate'))
+        .filter((el) => el.scrollWidth > el.clientWidth + 1)
+        .map((el) => el.textContent),
+    );
+    expect(clipped).toEqual([]);
+
+    // Not pushed: the breadcrumb sits wholly inside the viewport, and the cluster
+    // starts at or after the breadcrumb's right edge (no overlap).
+    const locationBox = await location.boundingBox();
+    const clusterBox = await page.getByTestId('shell-status-cluster').boundingBox();
+    expect(locationBox).not.toBeNull();
+    expect(clusterBox).not.toBeNull();
+    expect(locationBox!.x).toBeGreaterThanOrEqual(0);
+    expect(locationBox!.x + locationBox!.width).toBeLessThanOrEqual(VIEWPORT_W + 1);
+    expect(clusterBox!.x + 1).toBeGreaterThanOrEqual(locationBox!.x + locationBox!.width);
+
+    // Nothing is pushed past the right edge either. This is the assertion that
+    // fails on the pre-#2533 bar: with every item `shrink-0` and no overflow
+    // rule, the row did not squeeze the breadcrumb — it simply ran off the end,
+    // taking the account chip with it (verified against `origin/main`, where the
+    // chip reports a viewport ratio of 0 at this width).
+    const account = bar.getByRole('button', { name: 'Account — E2E User' }).last();
+    await expect(account).toBeInViewport();
+    const accountBox = await account.boundingBox();
+    expect(accountBox).not.toBeNull();
+    expect(accountBox!.x + accountBox!.width).toBeLessThanOrEqual(VIEWPORT_W + 1);
+
+    // …and the breadcrumb is at its *natural* width, not merely "un-clipped":
+    // widening the viewport to where nothing competes must not change it. This is
+    // the assertion that fails on the pre-#2533 bar, where the cluster's ~470px
+    // of segments squeezed the switcher at 1024 and let it back out at 1600.
+    await page.setViewportSize({ width: 1600, height: 768 });
+    await expect(page.getByTestId('shell-status-cluster')).toBeVisible();
+    const roomy = await location.boundingBox();
+    expect(roomy).not.toBeNull();
+    expect(locationBox!.width).toBeCloseTo(roomy!.width, 0);
+  });
+
+  test('adding a segment to the cluster does not move the breadcrumb', async ({ page }) => {
+    await page.setViewportSize({ width: VIEWPORT_W, height: 768 });
+    await setupFullCluster(page);
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    const bar = page.getByRole('banner');
+    const location = bar.getByRole('navigation', { name: 'Location' });
+    await expect(location).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('health-cluster')).toBeVisible();
+    const before = await location.boundingBox();
+    expect(before).not.toBeNull();
+
+    // Collapsing the rail adds the `MethodologyIndicator` segment to the cluster
+    // (#1907) — a real, in-product +1 segment. The bar is full-width above the
+    // rail (AppShell), so the rail's own width is not a confound: the only thing
+    // that changed is the cluster's content width.
+    await page.getByRole('button', { name: 'Hide navigation' }).click();
+    await expect(bar.getByRole('img', { name: /workspace$/i })).toBeVisible();
+
+    const after = await location.boundingBox();
+    expect(after).not.toBeNull();
+    expect(after!.width).toBeCloseTo(before!.width, 0);
+    expect(after!.x).toBeCloseTo(before!.x, 0);
+
+    // …and the +1 segment scrolled instead of pushing: the bar's trailing control
+    // is still inside the viewport. On the pre-#2533 bar this is where the extra
+    // segment went — straight off the right edge.
+    await expect(bar.getByRole('button', { name: 'Account — E2E User' }).last()).toBeInViewport();
+  });
+
+  test('the trailing segment stays reachable and the cluster is not a focus trap', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: VIEWPORT_W, height: 768 });
+    await setupFullCluster(page);
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    const cluster = page.getByTestId('shell-status-cluster');
+    await expect(cluster).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('health-cluster')).toBeVisible();
+
+    // The last control in the cluster — the one a growing cluster scrolls out
+    // first. Focusing it must bring it into view (the browser scrolls a focused
+    // element into its scroll container), never leave it stranded.
+    const trailing = cluster.locator('button').last();
+    await trailing.focus();
+    await expect(trailing).toBeInViewport();
+
+    // …and Tab out of it lands on the pinned chrome, not back inside the cluster:
+    // a scroll container is not allowed to become a keyboard dead-end.
+    await page.keyboard.press('Tab');
+    const escaped = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="shell-status-cluster"]');
+      const active = document.activeElement;
+      return Boolean(active && active !== document.body && !el?.contains(active));
+    });
+    expect(escaped).toBe(true);
+
+    // The pinned chrome never scrolls: the account chip is outside the scroll
+    // viewport and always in the viewport.
+    const account = page.getByRole('button', { name: 'Account — E2E User' }).last();
+    await expect(account).toBeInViewport();
+    expect(await cluster.locator('button', { hasText: 'Account' }).count()).toBe(0);
+  });
+
+  // The shrink order has to bottom out somewhere, and it must bottom out on the
+  // breadcrumb — not on the pinned chrome. A long `Program › Project` pair is the
+  // one input that can consume the whole bar: at lg+ both segments render their
+  // full name, and a single-option segment is a static identity row with no width
+  // cap of its own, so the switcher's natural width scales with the name string.
+  // With the region carrying a 9999 shrink weight, giving it `min-w-0` would make
+  // it — not the breadcrumb — the first thing driven to zero, and the `shrink-0`
+  // pinned chrome would then spill straight off the right edge of the bar. The
+  // region therefore keeps its automatic minimum size; this pins that.
+  test('a breadcrumb long enough to fill the bar truncates before the chrome leaves the viewport', async ({
+    page,
+  }) => {
+    const LONG_PROGRAM =
+      'Global Manufacturing Execution System Rollout Across EMEA and APAC Regions Consolidated Governance Track';
+    const LONG_PROJECT =
+      'Warehouse Management System Replacement and Inventory Data Migration Programme Phase Three Delivery';
+
+    await page.setViewportSize({ width: VIEWPORT_W, height: 768 });
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: [{ ...FIXTURE_PROJECTS[0], name: LONG_PROJECT }],
+      projectId: PROJECT_ID,
+      statusSummary: STATUS_SUMMARY,
+      members: [{ id: 'mem-admin', role: 300, user_id: 'e2e-user' }],
+    });
+    // A single program renders the static identity row — the uncapped branch.
+    await page.route('**/api/v1/programs/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [
+            { id: 'shellbar-prog-1', name: LONG_PROGRAM, color: '#3E8C6D', code: 'GMX' },
+          ],
+        }),
+      }),
+    );
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    const bar = page.getByRole('banner');
+    await expect(bar.getByRole('navigation', { name: 'Location' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId('health-cluster')).toBeVisible();
+
+    // The bar itself never overflows — nothing is pushed past the right edge.
+    const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+
+    // The pinned chrome is intact and reachable at both ends of the group.
+    await expect(bar.getByRole('button', { name: 'Account — E2E User' }).last()).toBeInViewport();
+    const accountBox = await bar
+      .getByRole('button', { name: 'Account — E2E User' })
+      .last()
+      .boundingBox();
+    expect(accountBox).not.toBeNull();
+    expect(accountBox!.x + accountBox!.width).toBeLessThanOrEqual(VIEWPORT_W + 1);
+
+    // The breadcrumb gave — that is the intended last resort — and the status
+    // cluster held its `md:min-w-[6rem]` floor (96px) rather than being squeezed
+    // out of existence to make room. Without the floor the strip is driven to
+    // zero before a rigid neighbour yields a pixel, and the health chip vanishes
+    // with no scroll affordance left to recover it (rule 290b).
+    const clusterBox = await page.getByTestId('shell-status-cluster').boundingBox();
+    expect(clusterBox).not.toBeNull();
+    expect(clusterBox!.width).toBeGreaterThanOrEqual(96);
+    await expect(page.getByTestId('health-cluster')).toBeInViewport();
   });
 });

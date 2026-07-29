@@ -17,6 +17,8 @@ trueppm-suite/
 │   ├── wasm-scheduler/  # Rust + petgraph CPM engine, compiled to WASM (wasm-pack)
 │   ├── api/             # Django 5.2 REST + Channels backend
 │   ├── web/             # React 19 + TypeScript + Vite frontend
+│   ├── mobile/          # React Native + Expo offline-first mobile app
+│   ├── mcp/             # trueppm-mcp — read-only MCP server (Apache 2.0)
 │   ├── helm/            # Helm 3 chart for Kubernetes deployment
 │   └── website/         # Docusaurus documentation site
 ├── docs/                # ADRs (source of record; mirrored into website)
@@ -32,7 +34,7 @@ trueppm-suite/
 | Queue | Celery + Valkey (Redis-compatible) | 5.4+ / 8+ |
 | Database | PostgreSQL | 16+ |
 | Cache | Valkey (Redis-compatible) | 8+ |
-| Web UI | React + TypeScript + Vite | 19 / 5.x / 6 |
+| Web UI | React + TypeScript + Vite | 19 / 5.x / 8 |
 | Schedule view | Custom canvas renderer (packages/web/src/features/schedule/engine/) | — |
 | E2E tests | Playwright | latest |
 | Scheduler | Python (networkx + numpy) | — |

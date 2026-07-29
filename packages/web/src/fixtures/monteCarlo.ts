@@ -69,4 +69,19 @@ export const FIXTURE_MC_RESULT: MonteCarloResult = {
     { taskId: 't4', index: 0.52 }, // Frontend Build
     { taskId: 't7', index: 0.14 }, // Documentation (off critical path)
   ],
+  // "Added time" as the server derives it for this run (#2531): P80 2026-11-03 is
+  // 29 days past the CPM finish of 2026-10-05, and the state says that is a real
+  // measurement rather than a project with nothing to measure. Present on the
+  // fixture so a mock built from it is structurally complete and cannot mask a
+  // consumer that reads the premium (the #1365 discipline).
+  riskPremium: {
+    risk_premium_state: 'premium',
+    risk_premium_days: 29,
+    risk_premium_ratio: 0.31,
+    risk_premium_band: null,
+    risk_premium_as_of: '2026-07-27T09:12:00Z',
+    risk_premium_reason: null,
+    risk_premium_cpm_finish: '2026-10-05',
+    risk_premium_p80: '2026-11-03',
+  },
 };

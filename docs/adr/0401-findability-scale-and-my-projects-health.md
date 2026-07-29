@@ -1,7 +1,8 @@
 # ADR-0401: Findability at scale + a "my projects" health summary
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified: `DirectoryPagination`,
+`ProjectViewSet.health_summary` action, web `MyProjectsHealthSummary.tsx`).
 
 ## Context
 Two findings from the 2026-07-14 persona-informed UX review surface the same class

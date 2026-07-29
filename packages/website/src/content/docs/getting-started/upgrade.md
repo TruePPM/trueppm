@@ -25,7 +25,7 @@ Release images publish to the **GitLab Container Registry**
 (`ghcr.io/trueppm/…`) and public OCI chart publication are planned with the 0.4
 beta supply-chain work (#939); until GHCR is live, the `oci://ghcr.io/trueppm/…`
 paths below apply once you have configured GHCR, otherwise upgrade from the chart
-source (see [Installation](/getting-started/installation/#helm--kubernetes)).
+source (see [Deployment](/administration/deployment/#kubernetes-with-helm)).
 :::
 
 ---

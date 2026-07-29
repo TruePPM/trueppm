@@ -1,6 +1,6 @@
 # ADR-0078: Team Entity (OSS)
 
-## Status: Proposed (v3 — post-re-VoC, panel cleared 🔴 at 6.5/10 panel avg, 7.5/10 across the four critical reviewers)
+## Status: Accepted (v3 — post-re-VoC, panel cleared 🔴 at 6.5/10 panel avg, 7.5/10 across the four critical reviewers) — status corrected 2026-07-29 after ADR audit (#2539, verified: `packages/api/src/trueppm_api/apps/teams/` app + web `ProjectTeamPage.tsx`)
 
 ## Context
 

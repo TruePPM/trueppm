@@ -89,6 +89,16 @@ const FIXTURE_MC_RESULT = {
   // buckets above (500 runs), which the panel renders directly.
   cpm_finish: '2026-11-30',
   delta_vs_cpm: { p50: -15, p80: 10, p95: 28 },
+  // Added time (#2531): the same gap, carried with the server-owned state so the
+  // shell can render it without re-deciding what a premium of 0 would mean.
+  risk_premium_state: 'premium',
+  risk_premium_days: 10,
+  risk_premium_ratio: 0.05,
+  risk_premium_band: null,
+  risk_premium_as_of: '2026-05-09T10:00:00Z',
+  risk_premium_reason: null,
+  risk_premium_cpm_finish: '2026-11-30',
+  risk_premium_p80: '2026-12-10',
   confidence_curve: [
     { date: '2026-10-26', pct: 10 },
     { date: '2026-11-02', pct: 28 },
@@ -572,5 +582,81 @@ test.describe('Monte Carlo forecast history (#961, ADR-0175)', () => {
     ).toBeVisible();
     // The drawer opens, but the history region must not render with no runs.
     await expect(page.getByRole('region', { name: /Forecast history/i })).toHaveCount(0);
+  });
+});
+
+/**
+ * Added time in the context bar (#2531).
+ *
+ * Before this, added time rendered on the project Overview and nowhere else — a user
+ * standing on Schedule had no pointer to it at all.
+ */
+test.describe('added time from Schedule (#2531)', () => {
+  test('golden path: the health popover carries the gap and names its baseline', async ({
+    page,
+  }) => {
+    await gotoScheduleWithMC(page);
+
+    await page.getByTestId('health-cluster').click();
+    const health = page.getByRole('dialog', { name: 'Project health' });
+    await expect(health).toBeVisible();
+
+    await expect(health.getByText('Added time')).toBeVisible();
+    // cpm_finish 2026-11-30 → P80 2026-12-10 is ten days out. The row names the
+    // computed finish because nothing else in this popover carries it.
+    await expect(health).toContainText('+10d vs Nov 30');
+    // A3 — no band, no proportion track in the strip or its popover.
+    await expect(health).not.toContainText('% of remaining duration');
+  });
+
+  test('an unestimated project reads "needs estimates", not a calm number', async ({ page }) => {
+    // The load-bearing case. A project with no three-point estimates simulates flat,
+    // so the raw premium is exactly 0 days — identical to a well-estimated project
+    // with genuinely low variance. Rendering that as "+0d" would tell the
+    // least-understood project on the board that it carries no schedule risk.
+    await gotoScheduleWithMC(page, {
+      ...FIXTURE_MC_RESULT,
+      p50: '2026-11-30',
+      p80: '2026-11-30',
+      p95: '2026-11-30',
+      delta_vs_cpm: { p50: 0, p80: 0, p95: 0 },
+      forecast_diagnostic: {
+        deterministic: true,
+        reason: 'no_estimates',
+        tasks_total: 2,
+        tasks_with_variance: 0,
+        tasks_pending_approval: 0,
+        agile_tasks_without_velocity: 0,
+      },
+      risk_premium_state: 'unmeasurable',
+      risk_premium_days: 0,
+      risk_premium_ratio: 0,
+      risk_premium_reason: 'no_estimates',
+      risk_premium_p80: null,
+    });
+
+    await page.getByTestId('health-cluster').click();
+    const health = page.getByRole('dialog', { name: 'Project health' });
+    await expect(health).toBeVisible();
+
+    await expect(health.getByText('needs estimates')).toBeVisible();
+    // Neither a signed zero nor an em dash standing in for the added-time value.
+    await expect(health).not.toContainText('+0d');
+    await expect(health).not.toContainText('0d');
+  });
+
+  test('the value reaches a screen reader even where the inline fragment is dropped', async ({
+    page,
+  }) => {
+    // A narrow desktop drops the chip fragment by width budget (A2), so the chip's
+    // accessible name is the only path to the value until the popover is opened.
+    await page.setViewportSize({ width: 1024, height: 800 });
+    await gotoScheduleWithMC(page);
+
+    const chip = page.getByTestId('health-cluster');
+    await expect(chip).toHaveAttribute(
+      'aria-label',
+      /10 days added versus the computed finish/,
+    );
   });
 });

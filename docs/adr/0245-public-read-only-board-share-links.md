@@ -1,7 +1,8 @@
 # ADR-0245: Public read-only board share links (revocable token)
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified: `ShareLink` model,
+migration `0110_sharelink.py`, `share_views.py`, web `PublicBoardSharePage.tsx`).
 
 ## Context
 

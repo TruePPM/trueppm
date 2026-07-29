@@ -1,6 +1,6 @@
 ---
 title: "CPM Scheduler"
-description: "Forward/backward pass, calendar-aware lag, Monte Carlo simulation, and auto-scheduling."
+description: "Forward/backward pass, lead/lag on every link, Monte Carlo simulation, and auto-scheduling."
 ---
 
 The scheduling engine lives in `packages/scheduler` and ships independently as [`trueppm-scheduler`](https://pypi.org/project/trueppm-scheduler/) on PyPI. It has no Django dependency.
@@ -37,7 +37,42 @@ jupyter notebook packages/scheduler/notebooks/
 | `FF` | Finish-to-Finish | Successor finishes after predecessor finishes (+ lag) |
 | `SF` | Start-to-Finish | Successor finishes after predecessor starts (+ lag) |
 
-Lag is in **calendar working days**. Negative lag (lead) is supported.
+Negative lag (lead) is supported on every type.
+
+#### Lag is in calendar days, durations are in working days
+
+The two inputs are counted in different units, which is the single most common
+source of surprise in the engine:
+
+| Input | Unit |
+|-------|------|
+| `Task.duration` (and each PERT estimate) | **Working days** — weekends and `Calendar.exceptions` are skipped |
+| `Dependency.lag` | **Calendar days** — applied as elapsed time; only the *resulting date* is then snapped to the successor's next working day |
+
+A 5-working-day task starting Monday finishes Friday. But a 2-day FS lag after a
+Friday finish does not buy two working days of wait, because the weekend absorbs
+it — the successor still starts Monday:
+
+| FS `lag` after a Friday finish | Successor starts | Working days of delay |
+|---|---|---|
+| `0d` | Mon | 1 |
+| `1d` | Mon | 1 |
+| `2d` | Mon | 1 |
+| `3d` | Tue | 2 |
+| `4d` | Wed | 3 |
+
+To express a wait of *n* working days, either size the lag against the calendar
+the successor lands on, or model the wait as a zero-resource task — durations are
+working-day counted, so that path is calendar-aware end to end.
+
+Negative lag snaps backward to the previous working day under the same rule.
+
+:::note
+Whether lag *should* be working-day counted — MS Project's default duration-unit
+lag, with `ed` as the elapsed-day opt-in — is an open engine-semantics question
+tracked in [#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535). Today's
+behavior is calendar-day lag, as described above.
+:::
 
 ### Output fields
 
@@ -48,21 +83,29 @@ Lag is in **calendar working days**. Negative lag (lead) is supported.
 | `late_start` | `date` | Latest start without delaying the project |
 | `late_finish` | `date` | Latest finish without delaying the project |
 | `total_float` | `timedelta` | Working days of slack before the task delays the project end |
-| `free_float` | `timedelta` | Working days a task can slip without delaying any immediate successor's early start (see note) |
+| `free_float` | `timedelta` | Working days a task can slip without moving any live successor's early dates (see note) |
 | `is_critical` | `bool` | `True` when `total_float == timedelta(0)` |
 
 :::note
-`free_float` is currently computed only across finish-to-start (FS) successors; start-to-start (SS), finish-to-finish (FF), and start-to-finish (SF) links do not yet tighten it, so a task whose only successors are non-FS reports `free_float == total_float`. `total_float` and `is_critical` account for all four dependency types.
+`free_float`, `total_float`, and `is_critical` all account for **all four**
+dependency types — an SS, FF, or SF successor pins a task's free float exactly as
+an FS successor does. Two behaviors are worth knowing:
+
+- **Completed successors are skipped.** A successor with an `actual_finish` is out
+  of network logic (ADR-0136) and cannot bound its predecessor's slip, so it does
+  not tighten free float.
+- **A task with no live successor falls back to its total float.** There is
+  nothing downstream for it to move, so its free float is its total float.
 :::
 
 ### Calendar arithmetic
 
-Working-day arithmetic skips weekends and any dates listed in `Calendar.exceptions` (`DateRange` entries). Applied to all lag calculations and task duration expansions.
+Working-day arithmetic skips weekends and any dates listed in `Calendar.exceptions` (`DateRange` entries). It governs task duration expansion and float counting. Dependency lag is applied in calendar days and then snapped to a working day — see [Lag is in calendar days](#lag-is-in-calendar-days-durations-are-in-working-days) above.
 
 :::note
 Scheduling is in **whole working-day units**. `Calendar.hours_per_day` and `Calendar.timezone` round-trip through serialization for API parity but are not consumed by the CPM or Monte Carlo passes — they do not change any computed date. Sub-day scheduling is a future change.
 
-Durations, lags, and estimates are expressed in whole working days for the beta. **This unit is not a stable contract before GA** — a finer canonical unit (minutes) and an effort/duration split are planned, so do not depend on the day granularity as a fixed API guarantee. Import/export adapters that must cross into hours (MS Project, Jira) do so through a single conversion seam, not scattered constants.
+Durations and estimates are expressed in whole working days for the beta, lags in whole calendar days (above). **Neither unit is a stable contract before GA** — a finer canonical unit (minutes) and an effort/duration split are planned, so do not depend on the day granularity as a fixed API guarantee. Import/export adapters that must cross into hours (MS Project, Jira) do so through a single conversion seam, not scattered constants.
 :::
 
 ### Cycle detection
@@ -261,8 +304,9 @@ Every exception the engine raises subclasses `ValueError`, so a single
 | Exception | Raised when |
 |-----------|-------------|
 | `CyclicDependencyError` | The dependency graph contains a cycle. `.cycle` holds the offending task IDs. |
-| `SimulationCapExceeded` | `monte_carlo(runs=…)` exceeds `max_runs`, or the project has more tasks than `max_tasks`. |
+| `SimulationCapExceeded` | `monte_carlo(runs=…)` exceeds `max_runs`, or the project has more tasks than `max_tasks`. Both caps default to `None` (uncapped) — they are opt-in guards for an embedder exposing the engine to untrusted input. |
 | `InvalidScheduleInput` | The input is structurally valid but out of range (see below). |
+| `UnknownTaskError` | `derive_value(project, task_id, …)` is called with a `task_id` that names no task in the project. |
 
 Because the engine walks the working calendar one day at a time, it validates
 input up front rather than spinning on a degenerate project (a calendar with no
@@ -274,6 +318,7 @@ walk to the `date` ceiling and raise an opaque `OverflowError`):
 | `Calendar.working_days` | Must set at least one weekday bit (Mon–Sun). A calendar whose `exceptions` blanket the whole search window is also rejected. |
 | Task `duration` (and each PERT estimate) | `0` to `MAX_DURATION_DAYS` (`36_525`, ~100 years); negatives rejected. |
 | `Dependency.lag` | Within `±MAX_LAG_DAYS` (`36_525`). |
+| Dependency count | At most `MAX_DEPENDENCIES` (`100_000`) edges. |
 | Cumulative project span | Sum of every task's worst-case duration + every lag must stay under `MAX_PROJECT_SPAN_DAYS` (`366_000`, ~1000 years), regardless of task count. |
 | `monte_carlo(runs=…)` | Must be `>= 1`. |
 
@@ -290,9 +335,79 @@ except InvalidScheduleInput as e:
 ```
 
 :::note
-`MAX_DURATION_DAYS` and `MAX_LAG_DAYS` are exported from `trueppm_scheduler.engine`
-so an application embedding the engine (such as the TruePPM API) can enforce the
-same bounds at its own edge instead of letting them drift.
+Every `MAX_*` cap is exported from the top-level `trueppm_scheduler` package — the
+surface the API stability policy covers — so an application embedding the engine
+(such as the TruePPM API) can enforce the same bounds at its own edge instead of
+letting them drift:
+
+```python
+from trueppm_scheduler import MAX_DEPENDENCIES, MAX_DURATION_DAYS, MAX_LAG_DAYS
+```
+:::
+
+## Pre-flight helpers
+
+Two exported helpers let an embedder validate and normalize a graph at its own API
+edge, without building a full `Project` or paying for a CPM pass.
+
+### `find_cycle()` — reject a bad edge on write
+
+```python
+from trueppm_scheduler import find_cycle
+
+# Raw (predecessor_id, successor_id) tuples — no model objects needed.
+edges = [("design", "build"), ("build", "test"), ("test", "design")]
+
+check = find_cycle(edges)
+if check:                     # truthy when a cycle WAS found
+    return 400, {"cycle": check.cycle}
+    # check.cycle == ['design', 'build', 'test', 'design']
+```
+
+`CycleCheck.cycle` is the cycle as an ordered list of task IDs with the first
+repeated at the end, so a UI can render an unambiguous path; it is `None` when the
+graph is acyclic. Because it takes raw tuples, this is the cheap check to run when
+validating a *single proposed dependency* before persisting it — you do not have
+to construct `Task` and `Dependency` objects just to answer "would this close a
+loop?".
+
+Pass the optional `children_map` to also catch logical cycles that only exist
+through summary tasks (a summary depending on one of its own descendants):
+
+```python
+find_cycle(edges, children_map={"phase-1": ["design", "build"]})
+```
+
+### `expand_summary_dependencies()` — flatten summary-level links
+
+A planner can draw a dependency on a *summary* task, but CPM operates on leaves.
+This fans those links out to the cross-product of the endpoints' leaf descendants
+and drops the summaries from the task list:
+
+```python
+from trueppm_scheduler import expand_summary_dependencies
+
+expansion = expand_summary_dependencies(
+    tasks,          # including the summary tasks
+    dependencies,   # may reference summaries
+    children_map={"phase-1": ["design", "build"], "phase-2": ["test", "ship"]},
+)
+
+expansion.tasks         # input tasks with summaries removed — leaves only
+expansion.dependencies  # leaf-level edges, self-links skipped and deduplicated
+```
+
+`SummaryExpansion` also unpacks as a pair for backward compatibility:
+`leaf_tasks, expanded_deps = expand_summary_dependencies(...)`.
+
+:::caution
+A **start-anchored link *from* a summary** — `SS` or `SF` with a summary as the
+*predecessor* — is rejected with `InvalidScheduleInput` rather than expanded. A
+summary's start is its earliest-starting leaf, but the cross-product preserves the
+dep type across *every* leaf, which turns the successor's `max()` over its
+predecessors into "wait for the last-starting leaf" and silently over-constrains it
+by up to the summary's whole span (ADR-0370). `FS` and `FF` links from a summary
+anchor on the finish and expand correctly.
 :::
 
 ## Auto-scheduling in the API

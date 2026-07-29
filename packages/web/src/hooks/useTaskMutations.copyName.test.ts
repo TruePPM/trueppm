@@ -46,4 +46,32 @@ describe('buildCopyName (#477 duplicate suffix)', () => {
     // part of the real name and must survive.
     expect(buildCopyName('Frame (copy) west wall', [])).toBe('Frame (copy) west wall (copy)');
   });
+
+  // #2519 replaced the suffix regex with a tail scan (it backtracked
+  // super-linearly on a whitespace-heavy name). These pin the boundaries the
+  // old `\s*\(copy(?:\s+\d+)?\)$` drew, so the scan can't quietly widen them.
+  it('only treats a parenthesized group as a copy marker when it matches exactly', () => {
+    // "copy" must be the whole word, and a number must be separated by space.
+    expect(buildCopyName('Frame (copyy)', [])).toBe('Frame (copyy) (copy)');
+    expect(buildCopyName('Frame (copy3)', [])).toBe('Frame (copy3) (copy)');
+    expect(buildCopyName('Frame (copy x)', [])).toBe('Frame (copy x) (copy)');
+    expect(buildCopyName('Frame (copy 3 )', [])).toBe('Frame (copy 3 ) (copy)');
+  });
+
+  it('matches the copy marker case-insensitively', () => {
+    expect(buildCopyName('Frame (COPY)', [])).toBe('Frame (copy)');
+    expect(buildCopyName('Frame (Copy 4)', [])).toBe('Frame (copy)');
+  });
+
+  it('allows multiple spaces between "copy" and its number', () => {
+    expect(buildCopyName('Frame (copy  12)', [])).toBe('Frame (copy)');
+  });
+
+  it('stays linear on a pathologically whitespace-heavy name', () => {
+    // The input shape that made the old pattern quadratic: a long whitespace run
+    // that never reaches the "(copy)" literal.
+    const started = performance.now();
+    expect(buildCopyName(`${' '.repeat(200_000)}x`, [])).toContain('(copy)');
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
 });

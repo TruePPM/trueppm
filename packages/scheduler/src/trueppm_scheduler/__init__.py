@@ -21,6 +21,7 @@ from trueppm_scheduler.derive import (
 from trueppm_scheduler.engine import (
     MAX_CALENDAR_EXCEPTIONS,
     MAX_CALENDAR_SCAN_DAYS,
+    MAX_DEPENDENCIES,
     MAX_DURATION_DAYS,
     MAX_EXPANDED_EDGES,
     MAX_LAG_DAYS,
@@ -59,6 +60,7 @@ from trueppm_scheduler.models import (
 __all__ = [
     "MAX_CALENDAR_EXCEPTIONS",
     "MAX_CALENDAR_SCAN_DAYS",
+    "MAX_DEPENDENCIES",
     "MAX_DURATION_DAYS",
     "MAX_EXPANDED_EDGES",
     "MAX_LAG_DAYS",

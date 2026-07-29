@@ -13,7 +13,7 @@ TruePPM 0.3 shipped in June 2026 (as the `0.3.0-alpha.1` pre-release) — the en
 
 ## Core capabilities
 
-**Critical Path Method scheduling.** Every time you create or change a task or dependency, TruePPM runs a full CPM pass — forward, backward, float calculation, and critical-path identification. All four dependency types (FS, SS, FF, SF) with calendar-aware lag. You always know which tasks drive your deadline and where you have slack.
+**Critical Path Method scheduling.** Every time you create or change a task or dependency, TruePPM runs a full CPM pass — forward, backward, float calculation, and critical-path identification. All four dependency types (FS, SS, FF, SF), each with an optional lead/lag. You always know which tasks drive your deadline and where you have slack.
 
 **Monte Carlo risk analysis.** Add three-point estimates to any task and run a probabilistic simulation. Get P50, P80, and P95 completion dates. The CPM finish date is typically P50 — there's only a 50% chance you'll hit it. Commit to P80.
 

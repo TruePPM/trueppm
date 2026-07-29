@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -10,6 +10,8 @@ const useProgram = vi.fn();
 const useProgramExternalStakeholders = vi.fn();
 const useProgramMentionReach = vi.fn();
 const createMutate = vi.fn();
+const updateMutate = vi.fn();
+const updateReset = vi.fn();
 const removeMutate = vi.fn();
 
 vi.mock('@/hooks/useProgram', () => ({
@@ -29,8 +31,9 @@ vi.mock('../hooks/useProgramExternalStakeholders', () => ({
       isError: boolean;
     },
   useProgramExternalStakeholderMutations: () => ({
-    create: { mutate: createMutate, isPending: false, error: null },
-    remove: { mutate: removeMutate, isPending: false, error: null },
+    create: { mutate: createMutate, reset: vi.fn(), isPending: false, error: null },
+    update: { mutate: updateMutate, reset: updateReset, isPending: false, error: null },
+    remove: { mutate: removeMutate, reset: vi.fn(), isPending: false, error: null },
   }),
 }));
 
@@ -127,8 +130,12 @@ describe('ProgramStakeholdersPage (settings)', () => {
     });
     renderPage();
     expect(screen.getByText('Dana Client')).toBeInTheDocument();
-    expect(screen.queryByRole('form', { name: /Add external stakeholder/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('form', { name: /Add external stakeholder/i }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Remove Dana Client/i })).not.toBeInTheDocument();
+    // #2530: edit is Admin+ only — a viewer gets no edit affordance at all.
+    expect(screen.queryByRole('button', { name: /Edit Dana Client/i })).not.toBeInTheDocument();
   });
 
   it('submits the add form with the trimmed name + email', async () => {
@@ -229,5 +236,124 @@ describe('ProgramStakeholdersPage (settings)', () => {
     expect(removeMutate).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: /^Confirm$/ }));
     expect(removeMutate).toHaveBeenCalledWith('s-1');
+  });
+
+  // #2530 — inline edit. The row swaps to the SAME StakeholderEditRow the add
+  // row renders, so these also pin the shared component's contract.
+  describe('inline edit', () => {
+    function renderWithRow() {
+      useProgram.mockReturnValue({ data: ADMIN });
+      useProgramExternalStakeholders.mockReturnValue({
+        data: [STAKEHOLDER],
+        isLoading: false,
+        isError: false,
+      });
+      renderPage();
+    }
+
+    it('edits a stakeholder and PATCHes the changed field', async () => {
+      const user = userEvent.setup();
+      renderWithRow();
+
+      await user.click(screen.getByRole('button', { name: 'Edit Dana Client' }));
+      const form = screen.getByRole('form', { name: 'Edit Dana Client' });
+      const email = within(form).getByLabelText(/^Email/);
+      await user.clear(email);
+      await user.type(email, 'dana@newclient.example');
+      await user.click(within(form).getByRole('button', { name: /^Save$/ }));
+
+      expect(updateMutate).toHaveBeenCalledTimes(1);
+      expect(updateMutate.mock.calls[0][0]).toEqual({
+        id: 's-1',
+        name: 'Dana Client',
+        email: 'dana@newclient.example',
+        note: 'Sponsor',
+      });
+    });
+
+    it('cancels an edit without mutating and restores the read row', async () => {
+      const user = userEvent.setup();
+      renderWithRow();
+
+      await user.click(screen.getByRole('button', { name: 'Edit Dana Client' }));
+      const form = screen.getByRole('form', { name: 'Edit Dana Client' });
+      await user.clear(within(form).getByLabelText(/^Name/));
+      await user.type(within(form).getByLabelText(/^Name/), 'Typo McTypo');
+      await user.click(within(form).getByRole('button', { name: /^Cancel$/ }));
+
+      expect(updateMutate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('form', { name: 'Edit Dana Client' })).not.toBeInTheDocument();
+      expect(screen.getByText('Dana Client')).toBeInTheDocument();
+      expect(screen.queryByText('Typo McTypo')).not.toBeInTheDocument();
+    });
+
+    it('blocks Save on a malformed email and explains why', async () => {
+      const user = userEvent.setup();
+      renderWithRow();
+
+      await user.click(screen.getByRole('button', { name: 'Edit Dana Client' }));
+      const form = screen.getByRole('form', { name: 'Edit Dana Client' });
+      const email = within(form).getByLabelText(/^Email/);
+      await user.clear(email);
+      await user.type(email, 'dana@@nope');
+
+      // The hint is advisory: it waits for blur rather than shouting at a
+      // half-typed address, but Save is inert from the first bad character.
+      expect(within(form).queryByRole('alert')).not.toBeInTheDocument();
+      await user.tab();
+
+      expect(within(form).getByRole('button', { name: /^Save$/ })).toBeDisabled();
+      expect(within(form).getByRole('alert')).toHaveTextContent(/Enter a valid email address/i);
+      expect(email).toHaveAttribute('aria-invalid', 'true');
+
+      // Enter must not commit the value the helper text is warning about (rule 225).
+      await user.click(email);
+      await user.keyboard('{Enter}');
+      expect(updateMutate).not.toHaveBeenCalled();
+    });
+
+    it('leaves Save inert until something actually changed', async () => {
+      const user = userEvent.setup();
+      renderWithRow();
+
+      await user.click(screen.getByRole('button', { name: 'Edit Dana Client' }));
+      const form = screen.getByRole('form', { name: 'Edit Dana Client' });
+      expect(within(form).getByRole('button', { name: /^Save$/ })).toBeDisabled();
+
+      await user.type(within(form).getByLabelText(/^Note/), '!');
+      expect(within(form).getByRole('button', { name: /^Save$/ })).toBeEnabled();
+    });
+
+    it('seats focus in the edit row and returns it to Edit on cancel', async () => {
+      const user = userEvent.setup();
+      renderWithRow();
+
+      await user.click(screen.getByRole('button', { name: 'Edit Dana Client' }));
+      const form = screen.getByRole('form', { name: 'Edit Dana Client' });
+      expect(within(form).getByLabelText(/^Name/)).toHaveFocus();
+
+      await user.click(within(form).getByRole('button', { name: /^Cancel$/ }));
+      expect(screen.getByRole('button', { name: 'Edit Dana Client' })).toHaveFocus();
+    });
+
+    it('discards a dirty add row on Cancel without creating anything', async () => {
+      const user = userEvent.setup();
+      useProgram.mockReturnValue({ data: ADMIN });
+      useProgramExternalStakeholders.mockReturnValue({
+        data: [],
+        isLoading: false,
+        isError: false,
+      });
+      renderPage();
+
+      const form = screen.getByRole('form', { name: /Add external stakeholder/i });
+      await user.type(within(form).getByLabelText(/^Name/), 'Oops');
+      await user.click(within(form).getByRole('button', { name: /^Cancel$/ }));
+
+      expect(createMutate).not.toHaveBeenCalled();
+      expect(within(form).getByLabelText(/^Name/)).toHaveValue('');
+      // …and the Cancel affordance folds away again once nothing is staged.
+      expect(within(form).queryByRole('button', { name: /^Cancel$/ })).not.toBeInTheDocument();
+    });
   });
 });

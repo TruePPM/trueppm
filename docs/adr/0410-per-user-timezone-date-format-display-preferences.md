@@ -1,7 +1,8 @@
 # ADR-0410: Per-user timezone and date-format display preferences
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified: `UserProfile.timezone`/
+`date_format`, `formatUserDateTime.ts`, `useUserDateFormat.ts`, `TimezoneFormatSection.tsx`).
 
 ## Context
 Issue #1953 (OSS) asks for two personal display preferences — an IANA

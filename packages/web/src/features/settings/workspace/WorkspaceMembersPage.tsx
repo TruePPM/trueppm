@@ -226,7 +226,7 @@ const ROLE_OPTIONS = ['Admin', 'PM', 'Lead', 'Member', 'Viewer'] as const;
 
 /** Quote a CSV cell only when it contains a comma, quote, or newline. */
 function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
 /**

@@ -67,7 +67,9 @@ print(next(t for t in result.tasks if t.id == "docs").total_float)     # 12 days
 
 Fifteen working days across two weekends, computed on a Mon–Fri calendar — and `docs`, off the critical path, carries twelve days of slack before the date moves. Check it against MS Project. That is why the engine ships on its own.
 
-All four dependency types, calendar-aware lag, multi-calendar composition, cycle detection with the offending path, and Monte Carlo with per-task sensitivity. [Full engine reference →](/features/scheduler/) · [View on PyPI →](https://pypi.org/project/trueppm-scheduler/)
+All four dependency types, lead/lag on every link, multi-calendar composition, cycle detection with the offending path, and Monte Carlo with per-task sensitivity. [Full engine reference →](/features/scheduler/) · [View on PyPI →](https://pypi.org/project/trueppm-scheduler/)
+
+Want the whole platform, not just the engine? [Install with Docker Compose](/getting-started/installation/) — one command, five services, running in a few minutes — or read [What TruePPM's evaluators check first](/getting-started/evaluation-guide/) for a guided tour. Nothing to install yet? [Try it](/getting-started/try-it/) covers the zero-config paths.
 
 :::tip[Before you evaluate further]
 Two pages exist so you can disqualify TruePPM quickly rather than slowly:
@@ -78,59 +80,19 @@ gap list (no resource leveling, one constraint type, no cost/EVM, a ~1,000-task
 Schedule-view ceiling).
 :::
 
-## One platform, every methodology
-
-Most P3M tools force a choice. TruePPM is designed from the ground up so teams can work the way they work — and every stakeholder still sees what they need.
-
-<CardGrid>
-  <Card title="Waterfall" icon="document">
-    CPM forward/backward pass, milestones, baseline comparison, Monte Carlo risk. The Project Manager gets a Gantt that computes the math — P50, P80, P95 confidence intervals, not a single optimistic date. [PM guide →](/guides/project-managers/)
-  </Card>
-  <Card title="Agile" icon="rocket">
-    Sprint boards, WIP limits, velocity tracking, burndown charts, retrospectives. The Scrum Master lives in the board view and never has to open a Gantt. [Scrum Master guide →](/guides/scrum-masters/)
-  </Card>
-  <Card title="Hybrid" icon="random">
-    The same task is both a WBS node and a sprint story. Sprint velocity feeds the CPM forecast — non-destructive suggestions today; automatic reforecast on sprint close landed in 0.3. Zero reconciliation meetings. [Read the full story →](/the-story/)
-  </Card>
-</CardGrid>
-
-## 5-minute local demo
-
-:::tip[Just want to look, not install?]
-Two zero-config paths — a hosted read-only demo at `try.trueppm.com` and a
-one-command local demo (`docker compose -f docker-compose.demo.yml up`) — **ship
-with the 0.4 beta**; the [**Try it**](/getting-started/try-it/) page previews
-them. Until 0.4 tags, the dev stack below is the fastest way to a populated
-instance — six persona logins, full write access.
-:::
-
-```bash
-git clone https://gitlab.com/trueppm/trueppm.git && cd trueppm
-docker compose up -d
-docker compose exec api python manage.py seed_demo_project --with-personas
-# Web UI → http://localhost:5173   (six persona logins, password: demo)
-# API    → http://localhost:8000/api/schema/swagger-ui/
-```
-
-The persona password is `demo` because the local Docker stack runs with `DEBUG=True`; on a non-dev install the seed prints a one-time random password unless you set `TRUEPPM_DEMO_PASSWORD`. See [`seed_demo_project`](/administration/management-commands/#seed_demo_project).
-
-Just want the math, not the platform? That's [the engine package](#start-with-the-engine-not-the-platform) above.
-
-**Stack:** Django 5.2 + Channels · React 19 + Vite · PostgreSQL 16 + ltree · Apache 2.0
-
 ## Why TruePPM?
 
-Four claims, each one checkable rather than taken on trust — and one page of the ones that go the other way.
+Five claims, each one checkable rather than taken on trust — and one page of the ones that go the other way.
 
 <CardGrid>
   <Card title="Monte Carlo, in the free core" icon="random">
     Three-point estimates give you P50/P80/P95 plus a per-task sensitivity ranking — which tasks actually move the finish. Across the commercial field this is a separately licensed product (Acumen Risk, Full Monte, Safran Risk, Primavera Risk Analysis) bolted onto an exported schedule. No other open-source PPM platform ships it at all. [The comparison →](/overview/how-it-compares/)
   </Card>
   <Card title="The engine is separable" icon="puzzle">
-    `pip install trueppm-scheduler` — CPM and Monte Carlo, no server, no account, the same code the platform runs on. No other PPM tool, open or commercial, lets you audit its scheduling engine in isolation. That's why you should believe the rest of this page.
+    `pip install trueppm-scheduler` — CPM and Monte Carlo, no server, no account, the same code the platform runs on. No other PPM tool, open or commercial, lets you audit its scheduling engine in isolation.
   </Card>
   <Card title="Board card = Gantt bar" icon="rocket">
-    Not synced. Not mirrored. The same row. MS Project has no agile surface; Jira has no critical path; OpenProject keeps board and Gantt as adjacent views. Here, a contributor drags a card to Done and the project manager's finish date moves — and closing a sprint reforecasts the schedule from measured velocity.
+    Not synced. Not mirrored. The same row. MS Project has no agile surface; Jira has no critical path; OpenProject keeps board and Gantt as adjacent views. Here, a contributor drags a card to Done and the project manager's finish date moves — and closing a sprint reforecasts the schedule from measured velocity. [The full story →](/the-story/)
   </Card>
   <Card title="Nothing that should be free is taxed" icon="open-book">
     Apache 2.0, no seat count, no feature flags, no telemetry. SSO through your own identity provider ships in the OSS core at 0.4 — OpenProject gates OIDC behind Enterprise, Plane behind Commercial. [SSO is not an enterprise feature →](/overview/sso-is-not-enterprise/)
@@ -142,14 +104,6 @@ Four claims, each one checkable rather than taken on trust — and one page of t
     No resource leveling. One constraint type. No cost or earned value until 0.8. A measured ~1,000-task ceiling in the Schedule view. If you need automatic leveling today, use P6. The full maintained list: [What TruePPM doesn't do yet →](/overview/what-it-does-not-do/)
   </Card>
 </CardGrid>
-
-## Ready for teams of people — and agents
-
-Software teams increasingly run work across people *and* AI agents: an agent drafts, a human reviews. That breaks a fifty-year assumption baked into every project tool — that a task takes days and a person does one thing at a time. TruePPM's scheduling-first engine is built to model it honestly, and the difference between *effort* (work content) and *duration* (elapsed time) is the seam that makes it possible.
-
-Starting in **0.5**, TruePPM will represent AI agents as first-class *resources* — separating effort from duration so an agent's throughput and round-the-clock availability no longer have to masquerade as an 8-hour human day, and giving a team a **team-owned** read on when its own review queue, not authoring, has become the bottleneck. The engine depth — sub-day scheduling, a probabilistic human-fallback branch, and reporting whose true unit is the length of the human-bound critical path — will follow in 0.6.
-
-One principle is load-bearing here, and it is why we built the pillar the way we did: that review signal belongs to the **team**, opt-in to roll upward — never a management dashboard. See [**Team ownership is not surveillance**](/overview/team-ownership-not-surveillance/). AI that *does* the scheduling for you — auto-optimization, cross-program agent leveling — is the enterprise layer, after 1.0. TruePPM plans *for* hybrid teams; it does not take the plan out of their hands.
 
 ## Who is it for?
 
@@ -163,44 +117,7 @@ One principle is load-bearing here, and it is why we built the pillar the way we
 | **PMO Directors** | Any | Program coordination; portfolio health scores, demand intake, governance in Enterprise | [Guide →](/guides/executives/) |
 | **Executives** | Any | Monte Carlo confidence intervals per project; portfolio RAG status, board-ready reports in Enterprise | [Guide →](/guides/executives/) |
 
-## What's built today
-
-The **Since** column is the release a capability first shipped in. 0.3 (the `0.3.0-alpha.1` pre-release) is the current build; the 0.1 and 0.2 rows are the foundation it builds on.
-
-| Capability | Since | Description |
-|-----------|--------|-------------|
-| Scheduling engine | **0.1** | CPM + Monte Carlo. Ships standalone as [`trueppm-scheduler`](https://pypi.org/project/trueppm-scheduler/) on PyPI. |
-| REST API | **0.1** | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. OpenAPI 3.0.3 schema. |
-| RBAC | **0.1** | 5-role per-project permissions (Owner / Admin / Scheduler / Member / Viewer) on every endpoint. |
-| Real-time | **0.1** | WebSocket broadcasts for all mutations, deferred to transaction commit. |
-| Offline sync | **0.1** | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
-| Schedule (Gantt) | **0.1** | Custom canvas renderer — critical path, baseline comparison, milestones, build mode. |
-| Board / Kanban | **0.1** | 5-column board with WIP limit overload detection and drag-to-status. |
-| Sprints | **0.1** | Full plan → activate → close lifecycle, burndown, velocity, capacity preflight, retrospective. |
-| Risk Register | **0.1** | Probability × impact scoring, lifecycle states, task links, CSV export. |
-| My Work | **0.1** | Contributor surface — flat task list across projects, planned vs. estimated dates. |
-| Velocity feedback loop | **0.1** | Sprint velocity suggests revised CPM durations non-destructively (ADR-0065). |
-| MS Project import / export | **0.1** | `.xml` import/export; `.mpp` accepted when the optional MPXJ dependency is installed (full `.mpp` support lands in 0.6). |
-| Inbound task sync | **0.1** | Webhook ingest endpoint for upstream task systems. |
-| Helm chart | **0.1** | Kubernetes deployment with vendored sub-charts for PostgreSQL and Valkey. |
-| Settings & administration | **0.2** | Workspace / Program / Project settings shell on live APIs — members, roles, methodology, workflow, notifications, access, integrations, and lifecycle. |
-| Programs (OSS) | **0.2** | Program entity with rollup KPIs, cadence, cross-project risk policy, and a dual-level program backlog (epic / feature / story / task). |
-| Recurring tasks | **0.2** | Recurrence-rule generator with custom and fractional work hours, excluded from the CPM critical path. |
-| Durable execution | **0.2** | Outbox-dispatch hardening, Beat heartbeat, dead-letter alerting, retention purge editor, and Idempotency-Key support. |
-| Task collaboration | **0.2** | In-drawer comments with threaded replies, `@mention` fan-out to project members, emoji reactions, file and external-URL attachments, and a notification bell + inbox (ADR-0075). |
-| Notifications | **0.2** | Per-user email and Slack-webhook notifications with a preference matrix; Git-aware task automation. |
-| MS Project import UI | **0.2** | In-app create-from-import flow layered on the 0.1 import / export REST endpoints. |
-| Sample projects | **0.3** | Four richly-modeled sample projects (waterfall, agile, hybrid, and a multi-project program) loadable in one click, plus universal JSON project import / export. |
-| Program schedule | **0.3** | Compute-on-read merged cross-project critical path for a program — within-program scheduling visibility (the program-true critical path across member projects). |
-| Daily standup | **0.3** | A walk-the-board standup surface — step person-by-person through assigned work, projector-friendly and keyboard-driven. |
-| [Today view](/features/view-focus/#the-today-view) | **0.3** | A personal "what needs me today" surface that pulls your due and in-progress work across every project into one list. |
-| Retro board | **0.3** | A live, multi-column sprint retrospective board with a team-health pulse and retro-to-backlog action items. |
-| [Flow analytics](/features/flow-analytics/) | **0.3** | Cumulative-flow diagram, weekly throughput, cycle / lead-time percentiles, and throughput-based flow forecasts for continuous-flow teams. |
-| Scope-change audit | **0.3** | An audit trail for post-activation sprint scope changes — every injection and removal recorded, with forecast-transparency on accepted-only scope. |
-| Task classification | **0.3** | Task type, readiness, and governance-class fields powering board readiness chips and Product Backlog grooming. |
-| v2 interface & View focus | **0.3** | The navy/sage v2 interface refresh — unified app-shell bar, ⌘K command palette, and context bar — plus the role-context "View focus" lens. |
-
-Beyond the new capabilities above, several 0.1 rows gained substantial 0.2 depth that doesn't surface as its own line — schedule UX (continuous zoom, drag-to-pan, backlog-to-timeline promotion, dependency-chain hover, pull-to-commit), board depth (bulk actions, full-text search, swimlanes, activity feed, PDF export, per-card real-time sync), and the velocity → CPM hybrid bridge (sprint-close calibration, sprint → milestone rollup). The `0.2.0-alpha.1` CHANGELOG entry is the full record.
+For everything shipped so far, release by release, see the [roadmap](/overview/roadmap/).
 
 ## Next steps
 

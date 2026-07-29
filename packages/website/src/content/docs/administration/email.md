@@ -183,6 +183,7 @@ Under the Helm chart, set them under `env:` in `values.yaml` (they flow to the
 | `EMAIL_USE_SSL` | Use implicit SSL/TLS (mutually exclusive with TLS). |
 | `EMAIL_HOST_USER` | SMTP username. **Never exposed by the API.** |
 | `EMAIL_HOST_PASSWORD` | SMTP password. **Never exposed by the API**, never logged. |
+| `EMAIL_TIMEOUT` | Socket timeout in seconds for the SMTP connection (default `10`). Raise it if your relay is slow to respond; a hung connection otherwise blocks the Beat-driven notification drain until it times out. |
 | `DEFAULT_FROM_EMAIL` | From address on every message (e.g. `notify@example.com`). |
 | `EMAIL_BACKEND` | Django backend; use the SMTP backend in production. |
 

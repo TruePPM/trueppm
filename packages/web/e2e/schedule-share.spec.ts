@@ -65,7 +65,19 @@ const SCHEDULE = {
     { predecessor_short_id: 'ATLAS-1', successor_short_id: 'ATLAS-2', dep_type: 'FS', lag: 0 },
   ],
   show_assignees: false,
+  show_milestone_dates: true,
   truncated: false,
+};
+
+/**
+ * The same snapshot as the server builds it for a link minted with the milestone
+ * reveal OFF (#2532): the milestone ROW is gone entirely — it is withheld at the
+ * projection, not hidden at the renderer — and so is the edge that pointed at it.
+ */
+const SCHEDULE_NO_MILESTONES = {
+  ...SCHEDULE,
+  tasks: SCHEDULE.tasks.filter((t) => !t.is_milestone),
+  show_milestone_dates: false,
 };
 
 test.describe('Public schedule share viewer', () => {
@@ -147,5 +159,161 @@ test.describe('Public schedule share viewer', () => {
 
     await page.goto('/share/schedule/tok123');
     await expect(page.getByText('Too many requests')).toBeVisible();
+  });
+});
+
+/**
+ * "Show milestone dates" reveal toggle (#2532) — the second toggle the #1486
+ * handoff specified. Drives the real Project Settings → Sharing dialog: turn the
+ * reveal off, mint, then open the resulting public page and prove no milestone
+ * row survives. The mint response and the public snapshot are mocked with the
+ * shapes the server actually returns for `show_milestone_dates: false`.
+ */
+const PROJECT_ID = 'e2e-project-00000000-0000-0000-0000-000000002532';
+
+test.describe('Schedule share — milestone reveal', () => {
+  async function setupSettings(page: import('@playwright/test').Page, minted: { body?: unknown }) {
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'trueppm-auth',
+        JSON.stringify({
+          state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+          version: 0,
+        }),
+      );
+    });
+    const pj = (data: unknown) => JSON.stringify(data);
+    await setupCatchAll(page);
+    await page.route('**/api/v1/auth/me/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ id: 'u-1', username: 'alice', display_name: 'Alice', initials: 'AL' }),
+      }),
+    );
+    await page.route('**/api/v1/edition/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ edition: 'community' }),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({
+          id: PROJECT_ID,
+          server_version: 1,
+          name: 'Atlas Rollout',
+          start_date: '2026-05-01',
+          public_sharing: true,
+          effective_public_sharing: true,
+        }),
+      }),
+    );
+    // Admin (ADR-0072 ordinal 300) so the Sharing section renders its write controls.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj([{ id: 'membership-self', role: 300 }]),
+      }),
+    );
+    // Route order: the more specific share-links route is declared AFTER the
+    // project detail route, and Playwright matches most-recently-added first.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/share-links/`, async (route) => {
+      if (route.request().method() === 'POST') {
+        minted.body = JSON.parse(route.request().postData() ?? '{}');
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: pj({
+            id: 'link-2532',
+            content_kind: 'schedule',
+            token_prefix: 'nomiles-tok',
+            label: 'Vendor review',
+            show_assignees: false,
+            show_milestone_dates: false,
+            created_by: 'Alice',
+            created_at: '2026-07-29T00:00:00Z',
+            expires_at: null,
+            revoked_at: null,
+            access_count: 0,
+            last_accessed_at: null,
+            is_active: true,
+            is_expired: false,
+            token: 'nomiles',
+            share_path: '/share/schedule/nomiles',
+          }),
+        });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: pj([]) });
+    });
+  }
+
+  test('minting with the reveal off omits every milestone row from the public page', async ({
+    page,
+  }) => {
+    const minted: { body?: unknown } = {};
+    await setupSettings(page, minted);
+
+    await page.goto(`/projects/${PROJECT_ID}/settings#sharing`);
+    await page.getByRole('button', { name: 'Create link…' }).click();
+
+    // One dialog is ever mounted, and its accessible NAME changes as the phase
+    // swaps (create → reveal), so locate it by role only and assert the phase copy.
+    const dialog = page.getByRole('dialog');
+    await expect(page.getByRole('dialog', { name: 'Share this schedule' })).toBeVisible();
+    const milestones = dialog.getByRole('checkbox', { name: /Show milestone dates/ });
+    // On by default — this is a missing option, not a disclosure fix.
+    await expect(milestones).toBeChecked();
+    await milestones.uncheck();
+    await dialog.getByRole('button', { name: 'Create link' }).click();
+
+    await expect(dialog.getByText(/milestone dates hidden/)).toBeVisible();
+    expect(minted.body).toMatchObject({ show_milestone_dates: false, content_kind: 'schedule' });
+
+    // Open the link that was just minted — the server withheld the milestone rows.
+    await page.route(SHARE_URL, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(SCHEDULE_NO_MILESTONES),
+      }),
+    );
+    await page.goto('/share/schedule/nomiles');
+
+    await expect(page.getByRole('heading', { name: 'Atlas Rollout — Schedule' })).toBeVisible();
+    // Real work still renders…
+    await expect(page.getByText('Requirements baseline')).toBeVisible();
+    // …but no milestone row, no dated diamond label, and no legend entry for one.
+    await expect(page.getByText('Scope sign-off')).toHaveCount(0);
+    await expect(page.getByText(/Scope sign-off · \d+ May/)).toHaveCount(0);
+    await expect(page.getByText('Milestone', { exact: true })).toHaveCount(0);
+    // …and the omission is named, so the WBS gap doesn't read as missing data.
+    await expect(
+      page.getByText('Milestone dates were not included in this shared view.'),
+    ).toBeVisible();
+  });
+
+  test('the board dialog still carries a single reveal toggle (unchanged by #2532)', async ({
+    page,
+  }) => {
+    const minted: { body?: unknown } = {};
+    await setupSettings(page, minted);
+
+    await page.goto(`/projects/${PROJECT_ID}/settings#sharing`);
+    await page.getByRole('button', { name: 'Create link…' }).click();
+    // Role-only locator: switching kind renames the dialog, so a name-scoped one
+    // would silently stop resolving after the click and pass by matching nothing.
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('checkbox')).toHaveCount(2);
+    await dialog.getByRole('button', { name: 'board', exact: true }).click();
+
+    await expect(page.getByRole('dialog', { name: 'Share this board' })).toBeVisible();
+    await expect(dialog.getByRole('checkbox')).toHaveCount(1);
+    await expect(dialog.getByRole('checkbox', { name: /Show assignee names/ })).toBeVisible();
   });
 });

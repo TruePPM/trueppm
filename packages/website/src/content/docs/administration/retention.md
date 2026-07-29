@@ -44,13 +44,14 @@ the window — the next scheduled or manual run enforces it.
 
 | Setting | Default | Unit | What it bounds |
 |---|---|---|---|
-| `HISTORY_RETENTION_DAYS` | `90` | days | django-simple-history object-change records |
-| `TASK_RUN_RETENTION_DAYS` | `30` | days | Completed/failed/canceled `TaskRun` records |
+| `TRUEPPM_HISTORY_RETENTION_DAYS` | `90` | days | django-simple-history object-change records |
+| `TRUEPPM_TASK_RUN_RETENTION_DAYS` | `30` | days | Completed/failed/canceled `TaskRun` records |
 | `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | days | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs |
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | days | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows |
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | hours | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) |
 | `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `30` | days | Soft-deleted ("trashed") `Project` rows, hard-deleted with all child data (see [Trashed projects](#trashed-projects-are-hard-deleted-after-the-window) below) |
 | `TRUEPPM_TOMBSTONE_RETENTION_DAYS` | `90` | days | Per-row soft-delete tombstones (`Task`, `Dependency`, `TaskRelation`, `Risk`, `Sprint`) in live projects. This is also the window a deleted **task** stays restorable — see [What you can get back](#what-you-can-get-back) |
+| `TRUEPPM_BOARD_EVENT_RETENTION_HOURS` | `24` | hours | WebSocket event-replay buffer (`BoardEvent`) rows (ADR-0236) — see the note below the table |
 
 **One purge coordinator, not many nightly jobs.** The outbox and history tables were
 originally purged by separate nightly Beat jobs at staggered UTC times. As of ADR-0173 the
@@ -64,6 +65,17 @@ coordinator above: it reads the setting directly, writes no purge-log row, and i
 listed on the Retention & purge settings page. Changing the coordinator's schedule — or
 setting its frequency to `Off` — does not affect it. Tombstones inside an **archived**
 project are skipped entirely and retained indefinitely.
+
+**The WebSocket event-replay buffer is reaped on its own schedule, too.**
+`TRUEPPM_BOARD_EVENT_RETENTION_HOURS` (default `24`) bounds how long `BoardEvent` rows —
+the replay buffer a reconnecting collaboration client uses to catch up on missed
+board/schedule events — are kept. A separate nightly job (02:35 UTC) reaps rows past the
+window; it is deliberately **not** part of the coordinator above and is not exposed on the
+Retention & purge settings page, because the buffer is internal WebSocket transport
+plumbing rather than an operator-facing data-retention decision. A client reconnecting
+with a `?since=` cursor older than the retained window receives a `resync_required` frame
+and refetches full state instead of replaying — the buffer being reaped is expected steady
+state, not a failure.
 
 **Workspace export archives are purged separately.** A completed workspace export
 (Settings → Archive / Delete → *Export all data*, ADR-0174) writes a full `.tar.gz` to
@@ -274,13 +286,18 @@ purge" component card reports real state (`ok` / `partial` / `failed`) instead o
   program-scoped token mint/revoke events) are **never** purged — they are kept
   indefinitely as compliance evidence and have no retention window.
 
-## Why two prefixes?
+## Why the legacy bare names still work
 
-The older retention knobs (`HISTORY_RETENTION_DAYS`, `TASK_RUN_RETENTION_DAYS`) are
-unprefixed; the newer ones (`TRUEPPM_IMPORT_RETENTION_DAYS`,
-`TRUEPPM_WEBHOOK_RETENTION_DAYS`) carry the `TRUEPPM_` prefix for env-var namespacing in
-shared Kubernetes ConfigMaps and Secrets (see ADR-0081). The unprefixed names are kept
-as-is — renaming them would break existing deployments.
+Every retention knob has a `TRUEPPM_`-prefixed name today — `TRUEPPM_HISTORY_RETENTION_DAYS`
+and `TRUEPPM_TASK_RUN_RETENTION_DAYS` were standardized onto the prefix pre-0.3 (#1325),
+matching `TRUEPPM_IMPORT_RETENTION_DAYS` and `TRUEPPM_WEBHOOK_RETENTION_DAYS`, which
+carried it from the start (ADR-0081) for env-var namespacing in shared Kubernetes
+ConfigMaps and Secrets. Django reads the **prefixed name first**; only when it is unset
+does it fall back to the legacy bare name (`HISTORY_RETENTION_DAYS`,
+`TASK_RUN_RETENTION_DAYS`). The bare names are kept working indefinitely as a fallback —
+removing them would break any deployment that still sets the old name — but a
+deployment configuring these for the first time should always use the `TRUEPPM_`-prefixed
+form.
 
 ## Disabling a purge safely
 

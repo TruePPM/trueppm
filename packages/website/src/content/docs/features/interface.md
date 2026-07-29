@@ -39,6 +39,27 @@ two stacked rows). Left to right it carries:
 - **Presence, run status, notifications, and your account menu** — including the
   Light / Dark / Auto theme toggle, which lives only here.
 
+## Background task runs
+
+A small badge in the TopBar's right cluster — `role="status"`, reading "N
+background operation(s) running" — appears **only** while at least one task is
+in flight (a schedule recalculation, an import, an export job); it disappears
+the moment the count returns to zero, so the calm shell stays quiet rather than
+carrying a permanently-visible, empty run indicator. A spinner and a live count
+sit inside it.
+
+The badge is driven by real-time WebSocket events (`task_run_started`,
+`task_run_progress`, `task_run_completed`, `task_run_failed`,
+`task_run_cancelled`) landing in a small client-side store — it does not poll.
+Three read APIs back the same underlying task-run records at different scopes:
+
+| Endpoint | Scope |
+|---|---|
+| `GET /api/v1/task-runs/{id}/` | A single run by id, from anywhere. |
+| `GET /api/v1/task-runs/active/` | Every pending/running run across the projects you belong to — the personal in-flight view this badge summarizes into one count. Not a PMO rollup. |
+| `GET /api/v1/projects/{project_id}/task-runs/` | A project's own run history; `POST .../task-runs/{id}/cancel/` (project Admin+) requests cancellation of one still in flight. |
+| `GET /api/v1/projects/{project_id}/scheduler-runs/` | The scheduler-recalculation subset of a project's run history, filterable by status and date range — the audit trail behind the Schedule view's "last recalculated" indicator. |
+
 ## The command palette (⌘K)
 
 Press **⌘K** (Ctrl+K on Windows/Linux) anywhere to open the command palette. It

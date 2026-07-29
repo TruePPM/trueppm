@@ -15,7 +15,7 @@ Every time you add a task, change a duration, or modify a dependency, TruePPM re
 - **Total float** — how many working days each task can slip before it affects the end date
 - **Early/late dates** — the window each task can occupy without delaying the project
 
-All four standard dependency types are supported with calendar-aware lag:
+All four standard dependency types are supported, each with an optional lead/lag:
 
 | Type | Meaning |
 |------|---------|
@@ -24,7 +24,9 @@ All four standard dependency types are supported with calendar-aware lag:
 | Finish-to-Finish (FF) | Successor finishes after predecessor finishes |
 | Start-to-Finish (SF) | Successor finishes after predecessor starts |
 
-Lag values (positive or negative) are in calendar working days — weekends and calendar exceptions are skipped automatically.
+Lag values (positive or negative) are in **calendar days**, not working days. The resulting date is then moved to the next working day, so a short lag can be swallowed by a weekend: after a Friday finish, a 1- or 2-day FS lag still starts the successor on Monday, exactly as a zero lag would. If you need a wait of a specific number of *working* days, model it as a zero-resource task — task durations are working-day counted, so weekends and calendar exceptions are skipped there.
+
+→ See [Scheduler engine](/features/scheduler/#lag-is-in-calendar-days-durations-are-in-working-days) for the full unit table.
 
 → See [Schedule view](/features/schedule/), [Scheduler engine](/features/scheduler/)
 
@@ -64,7 +66,10 @@ This is where TruePPM is different from every other scheduling tool.
 
 ### The hybrid data model
 
-When your team creates sprint stories, those stories are child tasks under your WBS work packages. They're not in a separate tool. They're not imported via a connector. They're in the same task hierarchy, sharing the same row in the database, visible from both the Gantt and the board.
+Sprint stories are child tasks under your WBS work packages — see
+[The data model, in 90 seconds](/overview/data-model/) for why that's true at
+the row level, not just conceptually. They're not in a separate tool and not
+imported via a connector.
 
 A work package with a 10-day CPM duration might decompose into 8 stories worth 34 story points. When the sprint closes and the team delivered 28 of those points, TruePPM computes the team's velocity and offers a revised duration suggestion in the task drawer — accept it and the schedule re-forecasts. Durations are never silently rewritten; you stay in control of the plan.
 

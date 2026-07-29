@@ -21,6 +21,7 @@ import {
   type SsoProviderWrite,
 } from '@/hooks/useSso';
 import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
+import { stripTrailingSlash } from '@/lib/stripTrailingSlash';
 import { FieldRow } from '../SettingsShell';
 import { Toggle } from '../components/Toggle';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
@@ -475,7 +476,7 @@ export function SsoProviderPanel({
   }, []);
 
   const composedIssuer = rawIssuerMode
-    ? (fieldValues.issuer ?? '').trim().replace(/\/+$/, '')
+    ? stripTrailingSlash((fieldValues.issuer ?? '').trim())
     : resolvedIssuer(def, fieldValues);
 
   const scopes =

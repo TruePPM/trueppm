@@ -16,6 +16,8 @@ from trueppm_api.apps.scheduling.risk_premium import (
     STALE_AFTER_DAYS,
     build_risk_premium,
     delta_vs_cpm_days,
+    risk_premium_for_forecast_payload,
+    risk_premium_from_values,
 )
 
 TODAY = datetime.date(2026, 7, 27)
@@ -216,3 +218,119 @@ class TestBandIsWithheldUntilItCanBeDefended:
     @pytest.mark.parametrize("p80", [CPM, datetime.date(2026, 11, 4), datetime.date(2027, 1, 20)])
     def test_no_verdict_is_emitted_at_any_magnitude(self, p80: datetime.date) -> None:
         assert build_risk_premium(make_run(p80=p80), today=TODAY)["risk_premium_band"] is None
+
+
+class TestValuesEntryPointIsTheOnlyDerivation:
+    """#2531 / ADR-0698 — every caller reaches the state machine through one function.
+
+    The forecast payload needed the premium too, and the live Monte Carlo path has no
+    persisted run in hand when it builds its response. Rather than let that path grow a
+    second derivation — the one thing the metric cannot survive — the module exposes a
+    values-level entry point that ``build_risk_premium`` itself delegates to.
+    """
+
+    def test_matches_the_run_adapter_for_the_same_inputs(self) -> None:
+        run = make_run()
+        assert risk_premium_from_values(
+            p80=run.p80,
+            cpm_finish=run.cpm_finish,
+            taken_at=run.taken_at,
+            diagnostic=run.diagnostic,
+            today=TODAY,
+        ) == build_risk_premium(run, today=TODAY)
+
+    def test_a_never_run_project_is_all_null(self) -> None:
+        premium = risk_premium_from_values(
+            p80=None, cpm_finish=None, taken_at=None, diagnostic=None, today=TODAY
+        )
+        assert premium["risk_premium_state"] == "not_run"
+        assert premium["risk_premium_days"] is None
+        assert premium["risk_premium_as_of"] is None
+
+    def test_the_structural_zero_guard_survives_the_indirection(self) -> None:
+        """The whole point of the refactor is that this cannot be bypassed."""
+        premium = risk_premium_from_values(
+            p80=CPM,
+            cpm_finish=CPM,
+            taken_at=datetime.datetime.combine(TODAY, datetime.time(9), tzinfo=datetime.UTC),
+            diagnostic=banded("no_estimates", with_variance=0),
+            today=TODAY,
+        )
+        assert premium["risk_premium_state"] == "unmeasurable"
+        # Not a calm zero: the P80 is withheld and no measured presentation exists.
+        assert premium["risk_premium_p80"] is None
+
+
+class TestForecastPayloadAdapter:
+    """The cached-forecast read path (#2531).
+
+    The 24-hour ``mc_latest`` entry stores a plain dict, so the premium is derived from
+    it on every read rather than frozen into it — see
+    :class:`TestRatioIsNotSafeToFreeze`.
+    """
+
+    def payload(self, **overrides: Any) -> dict[str, Any]:
+        base: dict[str, Any] = {
+            "p50": "2026-10-30",
+            "p80": "2026-11-04",
+            "p95": "2026-11-20",
+            "cpm_finish": "2026-10-24",
+            "last_run_at": "2026-07-27T09:12:00+00:00",
+            "forecast_diagnostic": banded(None, with_variance=9, deterministic=False),
+        }
+        base.update(overrides)
+        return base
+
+    def test_reads_a_live_shaped_entry(self) -> None:
+        premium = risk_premium_for_forecast_payload(self.payload(), today=TODAY)
+        assert premium["risk_premium_state"] == "premium"
+        assert premium["risk_premium_days"] == 11
+        assert premium["risk_premium_cpm_finish"] == "2026-10-24"
+
+    def test_a_legacy_entry_without_a_cpm_spine_reads_as_not_run(self) -> None:
+        """Absence is "we do not know", never a measured state assembled from scraps."""
+        premium = risk_premium_for_forecast_payload(self.payload(cpm_finish=None), today=TODAY)
+        assert premium["risk_premium_state"] == "not_run"
+        assert premium["risk_premium_days"] is None
+
+    def test_an_entry_predating_the_field_entirely_reads_as_not_run(self) -> None:
+        premium = risk_premium_for_forecast_payload({"p50": "2026-10-30"}, today=TODAY)
+        assert premium["risk_premium_state"] == "not_run"
+
+    @pytest.mark.parametrize("bad", ["yesterday", "", 17, None])
+    def test_an_unparseable_timestamp_degrades_instead_of_raising(self, bad: Any) -> None:
+        """A malformed cache entry must not 500 the forecast read."""
+        premium = risk_premium_for_forecast_payload(self.payload(last_run_at=bad), today=TODAY)
+        assert premium["risk_premium_as_of"] is None
+        # Ageless, so it cannot be classified stale — but the gap itself is still true.
+        assert premium["risk_premium_days"] == 11
+
+    def test_the_structural_zero_guard_applies_to_cached_entries_too(self) -> None:
+        premium = risk_premium_for_forecast_payload(
+            self.payload(
+                p80="2026-10-24",
+                forecast_diagnostic=banded("no_estimates", with_variance=0),
+            ),
+            today=TODAY,
+        )
+        assert premium["risk_premium_state"] == "unmeasurable"
+
+
+class TestRatioIsNotSafeToFreeze:
+    """Why the premium is derived per response and never written into the cache.
+
+    ``ratio`` divides by the duration still remaining *today*. A cached forecast is
+    served for up to 24 hours and the same run can be read back after its computed
+    finish has passed — at which point there is no remainder to take a share of, and a
+    stored percentage would be describing a window that has already closed.
+    """
+
+    def test_the_same_run_reports_a_ratio_before_the_finish_and_none_after(self) -> None:
+        run = make_run()
+        before = build_risk_premium(run, today=TODAY)
+        after = build_risk_premium(run, today=CPM + datetime.timedelta(days=1))
+
+        assert before["risk_premium_ratio"] is not None
+        assert after["risk_premium_ratio"] is None
+        # The gap itself is time-invariant; only its normalization is not.
+        assert before["risk_premium_days"] == after["risk_premium_days"] == 11

@@ -320,6 +320,28 @@ def _schedule_health_by_project(project_ids: list[Any], today: datetime.date) ->
     return out
 
 
+def _milestone_band(milestones: list[Any], today: datetime.date, soon: datetime.date) -> str:
+    """Worst health band across one project's milestones.
+
+    ``critical`` dominates ``at_risk``, so an overdue milestone short-circuits the
+    scan — no later milestone can improve the band. A milestone that is complete
+    or has no finish date contributes nothing either way.
+    """
+    if not milestones:
+        return "unknown"
+    band = "on_track"
+    for m in milestones:
+        done = m["status"] == TaskStatus.COMPLETE or (m["percent_complete"] or 0) >= 100
+        ef = m["early_finish"]
+        if done or ef is None:
+            continue
+        if ef < today:
+            return "critical"
+        if ef <= soon:
+            band = "at_risk"
+    return band
+
+
 def _milestone_health_by_project(project_ids: list[Any], today: datetime.date) -> dict[Any, str]:
     """project_id → milestone health band from milestone task dates.
 
@@ -337,24 +359,7 @@ def _milestone_health_by_project(project_ids: list[Any], today: datetime.date) -
         grouped[r["project_id"]].append(r)
 
     soon = today + datetime.timedelta(days=7)
-    out: dict[Any, str] = {}
-    for pid, milestones in grouped.items():
-        if not milestones:
-            out[pid] = "unknown"
-            continue
-        band = "on_track"
-        for m in milestones:
-            done = m["status"] == TaskStatus.COMPLETE or (m["percent_complete"] or 0) >= 100
-            ef = m["early_finish"]
-            if done or ef is None:
-                continue
-            if ef < today:
-                band = "critical"
-                break
-            if ef <= soon:
-                band = "at_risk"
-        out[pid] = band
-    return out
+    return {pid: _milestone_band(ms, today, soon) for pid, ms in grouped.items()}
 
 
 def _baseline_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:

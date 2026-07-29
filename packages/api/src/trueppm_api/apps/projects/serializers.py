@@ -314,6 +314,41 @@ _EXTERNAL_LINK_SUMMARY_SCHEMA = {
 }
 
 
+def _require_admin_role(role: int | None, message: str) -> None:
+    """Raise a 400 unless ``role`` is at least ADMIN on the container in question.
+
+    ``None`` means the caller has no membership at all, which must fail the gate
+    exactly as an insufficient role does — a non-member is not implicitly allowed.
+    """
+    if role is None or role < Role.ADMIN:
+        raise serializers.ValidationError(message)
+
+
+def _reject_conflicting_settings_sources(attrs: dict[str, Any]) -> None:
+    """Create-time cross-field checks for the settings-seeding sources (#1909).
+
+    ``inherit_program_defaults`` seeds a new project from its parent program and
+    ``copy_settings_from`` seeds it from another project. They are mutually
+    exclusive — one settings source at a time — and inheriting is meaningless
+    without a program to inherit from, so both are rejected up front rather than
+    resolved to an arbitrary winner in ``create()``.
+    """
+    if not attrs.get("inherit_program_defaults"):
+        return
+    if "copy_settings_from" in attrs:
+        raise serializers.ValidationError(
+            {
+                "inherit_program_defaults": (
+                    "Cannot combine with copy_settings_from — choose one settings source."
+                )
+            }
+        )
+    if not attrs.get("program"):
+        raise serializers.ValidationError(
+            {"inherit_program_defaults": ("Assign the project to a program to use its defaults.")}
+        )
+
+
 class ProjectSerializer(serializers.ModelSerializer[Project]):
     """Read/write serializer for projects.
 
@@ -929,29 +964,26 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         # Project-side ADMIN required for any change.
         if instance is not None:
-            project_role = _membership_role(request, instance.pk)
-            if project_role is None or project_role < Role.ADMIN:
-                raise serializers.ValidationError(
-                    "You need at least Project Manager role on this project to change its program."
-                )
+            _require_admin_role(
+                _membership_role(request, instance.pk),
+                "You need at least Project Manager role on this project to change its program.",
+            )
 
         # Old program ADMIN required when leaving or moving away.
         if old_program is not None:
-            old_role = _program_membership_role(request, old_program.pk)
-            if old_role is None or old_role < Role.ADMIN:
-                raise serializers.ValidationError(
-                    f"You need at least Project Manager role on '{old_program.name}' "
-                    "to move this project out of it."
-                )
+            _require_admin_role(
+                _program_membership_role(request, old_program.pk),
+                f"You need at least Project Manager role on '{old_program.name}' "
+                "to move this project out of it.",
+            )
 
         # New program ADMIN required when assigning to or moving to a program.
         if new_program is not None:
-            new_role = _program_membership_role(request, new_program.pk)
-            if new_role is None or new_role < Role.ADMIN:
-                raise serializers.ValidationError(
-                    f"You need at least Project Manager role on '{new_program.name}' "
-                    "to add this project to it."
-                )
+            _require_admin_role(
+                _program_membership_role(request, new_program.pk),
+                f"You need at least Project Manager role on '{new_program.name}' "
+                "to add this project to it.",
+            )
 
         return value
 
@@ -1361,27 +1393,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
                 {"inherit_program_defaults": "This field is only accepted when creating a project."}
             )
         if instance is None:
-            # #1909 create-time cross-field checks: seeding from the parent program
-            # requires a program to seed from, and cannot combine with the
-            # project-source template (one settings source at a time).
-            if attrs.get("inherit_program_defaults"):
-                if "copy_settings_from" in attrs:
-                    raise serializers.ValidationError(
-                        {
-                            "inherit_program_defaults": (
-                                "Cannot combine with copy_settings_from — choose one "
-                                "settings source."
-                            )
-                        }
-                    )
-                if not attrs.get("program"):
-                    raise serializers.ValidationError(
-                        {
-                            "inherit_program_defaults": (
-                                "Assign the project to a program to use its defaults."
-                            )
-                        }
-                    )
+            _reject_conflicting_settings_sources(attrs)
             return attrs
         request = self.context.get("request")
         if request is None or not request.user.is_authenticated:
@@ -5797,6 +5809,55 @@ _CANONICAL_STATUSES = frozenset({"BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIE
 _HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
+def _require_positive_int_or_none(value: Any, field: str) -> None:
+    """Reject anything that is not a positive integer or None.
+
+    ``bool`` is a subclass of ``int``, so True/False must be excluded explicitly
+    or ``True`` would silently validate as a wip_limit of 1.
+    """
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise serializers.ValidationError(f"{field} must be a positive integer or null")
+
+
+def _validate_board_column(entry: dict[str, Any], seen: set[str]) -> dict[str, Any]:
+    """Validate one column entry and return it normalized to the known keys.
+
+    ``seen`` is mutated with each accepted status so duplicate detection stays in
+    its original position in the guard order — callers rely on which error a
+    malformed entry reports first, so the sequence of checks here is significant
+    and must not be reordered.
+    """
+    status = entry.get("status")
+    label = entry.get("label")
+    visible = entry.get("visible")
+    color = entry.get("color")
+    wip_limit = entry.get("wip_limit")
+    age_threshold_days = entry.get("age_threshold_days")
+    if status not in _CANONICAL_STATUSES:
+        raise serializers.ValidationError(f"Unknown status: {status!r}")
+    if status in seen:
+        raise serializers.ValidationError(f"Duplicate status: {status!r}")
+    seen.add(status)
+    if not isinstance(label, str) or len(label) > 32:
+        raise serializers.ValidationError("label must be a string ≤ 32 chars")
+    if not isinstance(visible, bool):
+        raise serializers.ValidationError("visible must be a boolean")
+    if color is not None and not (isinstance(color, str) and _HEX_COLOR_RE.fullmatch(color)):
+        raise serializers.ValidationError("color must be a #RRGGBB hex string or null")
+    _require_positive_int_or_none(wip_limit, "wip_limit")
+    _require_positive_int_or_none(age_threshold_days, "age_threshold_days")
+    return {
+        "status": status,
+        "label": label,
+        "visible": visible,
+        "color": color,
+        "wip_limit": wip_limit,
+        "age_threshold_days": age_threshold_days,
+    }
+
+
 class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
     """Read/write serializer for BoardColumnConfig.
 
@@ -5818,50 +5879,7 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
 
     def validate_columns(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen: set[str] = set()
-        normalized: list[dict[str, Any]] = []
-        for entry in value:
-            status = entry.get("status")
-            label = entry.get("label")
-            visible = entry.get("visible")
-            color = entry.get("color")
-            wip_limit = entry.get("wip_limit")
-            age_threshold_days = entry.get("age_threshold_days")
-            if status not in _CANONICAL_STATUSES:
-                raise serializers.ValidationError(f"Unknown status: {status!r}")
-            if status in seen:
-                raise serializers.ValidationError(f"Duplicate status: {status!r}")
-            seen.add(status)
-            if not isinstance(label, str) or len(label) > 32:
-                raise serializers.ValidationError("label must be a string ≤ 32 chars")
-            if not isinstance(visible, bool):
-                raise serializers.ValidationError("visible must be a boolean")
-            if color is not None and not (
-                isinstance(color, str) and _HEX_COLOR_RE.fullmatch(color)
-            ):
-                raise serializers.ValidationError("color must be a #RRGGBB hex string or null")
-            # bool is a subclass of int — reject True/False explicitly.
-            if wip_limit is not None and (
-                isinstance(wip_limit, bool) or not isinstance(wip_limit, int) or wip_limit < 1
-            ):
-                raise serializers.ValidationError("wip_limit must be a positive integer or null")
-            if age_threshold_days is not None and (
-                isinstance(age_threshold_days, bool)
-                or not isinstance(age_threshold_days, int)
-                or age_threshold_days < 1
-            ):
-                raise serializers.ValidationError(
-                    "age_threshold_days must be a positive integer or null"
-                )
-            normalized.append(
-                {
-                    "status": status,
-                    "label": label,
-                    "visible": visible,
-                    "color": color,
-                    "wip_limit": wip_limit,
-                    "age_threshold_days": age_threshold_days,
-                }
-            )
+        normalized = [_validate_board_column(entry, seen) for entry in value]
         missing = _CANONICAL_STATUSES - seen
         if missing:
             raise serializers.ValidationError(f"Missing statuses: {missing}")
@@ -6481,12 +6499,12 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         user = getattr(request, "user", None) if request else None
         if user is None or not getattr(user, "is_authenticated", False):
             raise serializers.ValidationError(
-                {field: "Authentication required." for field in scheduler_fields}
+                dict.fromkeys(scheduler_fields, "Authentication required.")
             )
         membership = self._resolve_scheduler_gate_membership(user)
         if membership is None or membership.role < Role.SCHEDULER:
             raise serializers.ValidationError(
-                {field: "Only Scheduler+ may set this sprint field." for field in scheduler_fields}
+                dict.fromkeys(scheduler_fields, "Only Scheduler+ may set this sprint field.")
             )
 
     def _resolve_scheduler_gate_membership(self, user: Any) -> Any:
@@ -8640,6 +8658,34 @@ class PhaseSerializer(serializers.ModelSerializer[Task]):
         return value
 
 
+def _validate_custom_field_option(entry: Any, seen_values: set[str]) -> dict[str, Any]:
+    """Validate one select-field option and return it normalized.
+
+    ``seen_values`` is mutated with each accepted value so duplicate detection
+    keeps its original position in the guard order — which error a malformed
+    option reports first is part of the API contract and must not be reordered.
+    """
+    if not isinstance(entry, dict):
+        raise serializers.ValidationError("each option must be an object.")
+    opt_value = entry.get("value")
+    opt_label = entry.get("label", opt_value)
+    opt_color = entry.get("color")
+    if not isinstance(opt_value, str) or not opt_value.strip():
+        raise serializers.ValidationError("each option must have a non-empty value.")
+    if len(opt_value) > 32:
+        raise serializers.ValidationError("option value must be ≤ 32 characters.")
+    if opt_value in seen_values:
+        raise serializers.ValidationError(f"duplicate option value: {opt_value!r}")
+    seen_values.add(opt_value)
+    if not isinstance(opt_label, str) or len(opt_label) > 64:
+        raise serializers.ValidationError("option label must be a string ≤ 64 chars.")
+    if opt_color is not None and not (
+        isinstance(opt_color, str) and _PHASE_COLOR_RE.fullmatch(opt_color)
+    ):
+        raise serializers.ValidationError("option color must be a #RRGGBB hex string or null.")
+    return {"value": opt_value, "label": opt_label, "color": opt_color}
+
+
 class ProjectCustomFieldSerializer(serializers.ModelSerializer[ProjectCustomField]):
     """Read/write serializer for project custom field definitions (#521).
 
@@ -8681,33 +8727,10 @@ class ProjectCustomFieldSerializer(serializers.ModelSerializer[ProjectCustomFiel
     def validate_options(self, value: Any) -> list[dict[str, Any]]:
         if not isinstance(value, list):
             raise serializers.ValidationError("options must be a list.")
-        normalized: list[dict[str, Any]] = []
         seen_values: set[str] = set()
         if len(value) > 50:
             raise serializers.ValidationError("options must contain at most 50 entries.")
-        for entry in value:
-            if not isinstance(entry, dict):
-                raise serializers.ValidationError("each option must be an object.")
-            opt_value = entry.get("value")
-            opt_label = entry.get("label", opt_value)
-            opt_color = entry.get("color")
-            if not isinstance(opt_value, str) or not opt_value.strip():
-                raise serializers.ValidationError("each option must have a non-empty value.")
-            if len(opt_value) > 32:
-                raise serializers.ValidationError("option value must be ≤ 32 characters.")
-            if opt_value in seen_values:
-                raise serializers.ValidationError(f"duplicate option value: {opt_value!r}")
-            seen_values.add(opt_value)
-            if not isinstance(opt_label, str) or len(opt_label) > 64:
-                raise serializers.ValidationError("option label must be a string ≤ 64 chars.")
-            if opt_color is not None and not (
-                isinstance(opt_color, str) and _PHASE_COLOR_RE.fullmatch(opt_color)
-            ):
-                raise serializers.ValidationError(
-                    "option color must be a #RRGGBB hex string or null."
-                )
-            normalized.append({"value": opt_value, "label": opt_label, "color": opt_color})
-        return normalized
+        return [_validate_custom_field_option(entry, seen_values) for entry in value]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # field_type is immutable after create — the model's PATCH path filters

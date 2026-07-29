@@ -1,7 +1,9 @@
 # ADR-0606: Settings findability — ⌘K section indexing and in-rail filter
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified: `keywords` field
+on `SettingsNavItem`, rail filter in `SettingsShell.tsx`, `settings` command-palette group
+in `commandItems.ts`).
 
 ## Context
 The Workspace settings surface grew to ~16 sections across 4 groups (Organization /

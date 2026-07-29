@@ -71,8 +71,11 @@ human decides.
 
 :::note[Version status]
 The deterministic engine behind all four verbs is **shipped today**. The AI-facing surface
-arrives across releases, and the [roadmap](/overview/roadmap/) is the authoritative
-shipped-vs-planned status:
+arrives across releases; where an item below is already merged to `main` ahead of the 0.4 tag,
+this page says so explicitly. That is not a special claim about these items — most of 0.4's
+feature list is at the same "built, not yet tagged" stage at this point in the cycle; this page
+just states it for the AI-contract items it covers. The [roadmap](/overview/roadmap/) is the
+authoritative shipped-vs-planned status for everything else:
 
 - **Compute / cite** — the read-only [MCP server](/features/mcp-server/) and the provenance
   graph (the *cite* derivation) **land with the 0.4 beta**; both are already merged to `main`.

@@ -13,7 +13,7 @@ const CSV_HEADERS = ['WBS', 'Name', 'Start', 'Finish', 'Duration (days)', 'Progr
 
 export function escapeField(value: string): string {
   if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
+    return `"${value.replaceAll('"', '""')}"`;
   }
   return value;
 }

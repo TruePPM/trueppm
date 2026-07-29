@@ -37,6 +37,8 @@ export interface PublicSchedule {
   tasks: PublicScheduleTask[];
   dependencies: PublicScheduleDependency[];
   show_assignees: boolean;
+  /** When false the server withheld every milestone row — none reach this payload. */
+  show_milestone_dates: boolean;
   truncated: boolean;
 }
 

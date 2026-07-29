@@ -93,13 +93,16 @@ projects inside the program. See [Roles & Permissions](/administration/rbac/).
 
 ## External stakeholders
 
-The **External stakeholders** section records people **without a TruePPM
-account** — client sponsors, vendors, reviewers — kept as a **separate recipient
-list** for `@program-stakeholders` mentions. Each entry has a **Name**,
-**Email**, and an optional **Note**.
+The **External stakeholders** section is a registry of people **without a
+TruePPM account** — client sponsors, vendor contacts, external reviewers — kept
+as a **separate recipient list** for `@program-stakeholders` mentions. It is a
+first-class CRUD list, not a free-text field: each row has a **Name**, an
+**Email** (unique per program), and an optional **Note**, plus who added it.
 
 They are deliberately *not* merged into the mention group itself, so an internal
 `@program-stakeholders` mention can never silently reach a client.
+
+### Who the alias actually reaches
 
 :::note[Ships in 0.4]
 The **reach summary** described below ships in **TruePPM 0.4** (the first beta),
@@ -121,6 +124,35 @@ Reading the summary requires the program **Admin** role, the same role that
 manages the list. The count comes from
 `GET /api/v1/programs/{id}/mention-reach/`, which returns the two arms
 separately and never a combined total.
+
+### Managing the list
+
+Add a stakeholder with the **Name / Email / Note** form at the bottom of the
+list; a duplicate email within the same program is rejected inline rather than
+silently creating a second entry for the same person. **Edit** on a row opens it
+in place using the same fields as the add row — correcting a mistyped address is
+an edit, not a remove-and-re-add. **Save** commits the change and **Cancel**
+discards it; Save stays disabled until the name and a well-formed email address
+are both present, and a malformed address explains itself under the row rather
+than failing after a round trip. **Remove** asks for a one-click confirmation
+before it deletes a row.
+
+### Access
+
+Reading and writing the list both require the program **Admin** role or
+above — managing who is externally pinged is treated as an administrative
+act, so Scheduler, Member, Viewer, and non-members cannot see or change it.
+Writes are additionally blocked once the program is closed (reads still work).
+
+### Endpoints
+
+| Method | Path | Access |
+|---|---|---|
+| `GET` | `/api/v1/programs/{id}/external-stakeholders/` | Program Admin+ |
+| `POST` | `/api/v1/programs/{id}/external-stakeholders/` | Program Admin+ |
+| `PATCH` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
+| `DELETE` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
+| `GET` | `/api/v1/programs/{id}/mention-reach/` | Program Admin+ |
 
 ## Rollup KPIs
 

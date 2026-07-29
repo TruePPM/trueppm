@@ -1,7 +1,9 @@
 # ADR-0678: Team-level MCP opt-out — restrictive-only consent cascade and a fail-closed enforcement point
 
 ## Status
-Proposed
+Accepted — status corrected 2026-07-29 after ADR audit (#2539, verified: `McpScope` enum,
+`filter_queryset` hook in `access/permissions.py`, `mcp_enabled` migrations on
+`Program`/`Workspace`).
 
 ## Context
 

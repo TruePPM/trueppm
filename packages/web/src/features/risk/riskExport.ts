@@ -5,7 +5,7 @@ import type { Risk } from '@/api/types';
 function csvCell(value: string | number | null | undefined): string {
   const s = value == null ? '' : String(value);
   if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-    return `"${s.replace(/"/g, '""')}"`;
+    return `"${s.replaceAll('"', '""')}"`;
   }
   return s;
 }

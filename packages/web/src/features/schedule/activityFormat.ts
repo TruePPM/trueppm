@@ -108,6 +108,6 @@ export function summaryVerb(entry: TaskActivityEntry): string {
     case 'risk_unlinked':
       return 'unlinked a risk';
     default:
-      return et.replace(/_/g, ' ');
+      return et.replaceAll('_', ' ');
   }
 }

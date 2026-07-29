@@ -110,9 +110,9 @@ Carlo runs so you can read finish-date *drift* over time: "my P80 was Aug 14 two
 weeks ago, now it's Aug 28." Each recorded run carries its P50/P80/P95 as of that
 moment, so the history is a true before/after, not just the latest snapshot.
 
-From **0.4**, a run is recorded only when it is triggered by a **Scheduler** or
-above — the members who own the schedule. Everyone from Viewer up can still run
-the forecast and read the result and the drift history; their runs simply do not
+From **0.4**, a run will be recorded only when it is triggered by a **Scheduler** or
+above — the members who own the schedule. Everyone from Viewer up will still be able to run
+the forecast and read the result and the drift history; their runs will simply not
 add a history row. This keeps the drift timeline a signal about deliberate
 re-planning rather than a log of every incidental read, and prevents a
 low-privilege member from flooding the history or skewing run attribution.
@@ -481,8 +481,27 @@ the computed (CPM) finish. The computed finish is what your plan says if nothing
 varies; P80 is the date 4 in 5 simulations finished by. The difference between
 them is the time schedule uncertainty adds on top of the plan.
 
-It appears on the project **Overview**, alongside both dates it spans, and on the
-project overview API as `risk_premium_days`.
+It appears on the project **Overview**, alongside both dates it spans, and in the
+**project health chip** in the top bar on every other project view — Schedule,
+Board, Table and the rest — so it is one glance away wherever you are working. On
+Overview the chip stays quiet, because the full card is already on that screen.
+
+The chip shows added time in whichever form is readable where you are standing.
+On **Schedule** it is a bare `+11d`, because the dashed CPM chip in the forecast
+row already puts the computed finish on screen beside it. Everywhere else it
+names its own baseline — `+11d vs Oct 24` — because a signed number with no
+visible reference is a figure you cannot check. If the top bar is too narrow to
+hold the qualified form, the chip drops it rather than showing the bare number:
+open the chip and the full read is in the popover, which never drops it.
+
+On a phone the same value rides the Monte Carlo card at the foot of the schedule,
+and tapping through opens the full added-time card at the top of the forecast
+sheet.
+
+Every one of those surfaces reads the same server-computed value, delivered on
+both the project overview API (`risk_premium_days` and friends) and the Monte
+Carlo forecast payload. None of them decides for itself what the number means —
+which is what the next section is about.
 
 **It is a gap between two forecasts, not a prediction of lateness.** A project
 with 11 days of added time is not forecast to run 11 days late — it is forecast

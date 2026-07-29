@@ -439,6 +439,13 @@ function Schedule({ schedule }: { schedule: PublicSchedule }) {
             </div>
           </>
         )}
+        {schedule.show_milestone_dates ? null : (
+          // Without this the suppression reads as a data gap: WBS numbering skips a
+          // row and nothing explains why. Say it plainly instead (#2532).
+          <p className="mt-4 text-center text-xs text-neutral-text-secondary">
+            Milestone dates were not included in this shared view.
+          </p>
+        )}
         {schedule.truncated ? (
           <p className="mt-4 text-center text-xs text-neutral-text-secondary">
             Showing the first 1,000 tasks.
