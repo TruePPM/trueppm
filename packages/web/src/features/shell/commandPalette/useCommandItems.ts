@@ -38,7 +38,7 @@ const THEME_CYCLE: Record<Theme, Theme> = { light: 'dark', dark: 'auto', auto: '
  *  in which case the detail line just drops the status segment. */
 function formatStatus(status: string | null | undefined): string {
   if (!status) return '';
-  const lower = status.replace(/_/g, ' ').toLowerCase();
+  const lower = status.replaceAll('_', ' ').toLowerCase();
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
 

@@ -33,7 +33,7 @@ const PACKAGE_MARKER = '/packages/web/';
 // returned unchanged so it fails loudly in the scanner rather than silently
 // resolving to the wrong file.
 export function toRepoRelPath(filePath) {
-  const norm = filePath.replace(/\\/g, '/');
+  const norm = filePath.replaceAll('\\', '/');
   const idx = norm.lastIndexOf(PACKAGE_MARKER);
   if (idx !== -1) return 'packages/web/' + norm.slice(idx + PACKAGE_MARKER.length);
   if (norm.startsWith('src/')) return 'packages/web/' + norm;

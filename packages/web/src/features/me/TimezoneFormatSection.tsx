@@ -135,7 +135,7 @@ export function TimezoneFormatSection() {
     if (!q) return zones;
     return zones.filter((z) => {
       const lower = z.toLowerCase();
-      const normalized = lower.replace(/_/g, ' ').replace(/\//g, ' ');
+      const normalized = lower.replaceAll('_', ' ').replaceAll('/', ' ');
       return lower.includes(q) || normalized.includes(q);
     });
   }, [zones, query]);

@@ -6799,7 +6799,7 @@ class TaskReorderView(IdempotencyMixin, APIView):
         siblings_by_id = {t.pk: t for t in siblings_qs}
 
         # Validate: every supplied ID must be a live sibling.
-        supplied_ids = {uid: True for uid in ordered_ids}
+        supplied_ids = set(ordered_ids)
         unknown = [str(uid) for uid in ordered_ids if uid not in siblings_by_id]
         if unknown:
             return Response(

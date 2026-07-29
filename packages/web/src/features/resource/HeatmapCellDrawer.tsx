@@ -27,7 +27,7 @@ interface Props {
 }
 
 function statusLabel(s: string): string {
-  return s.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+  return s.replaceAll('_', ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }
 
 function formatDateRange(start: string | null, end: string | null): string {

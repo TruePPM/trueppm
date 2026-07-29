@@ -1077,13 +1077,41 @@ export interface DuplicateTaskPayload {
   siblingNames: string[];
 }
 
+/**
+ * Strip one trailing "(copy)" / "(copy N)" so re-duplicating a copy doesn't
+ * produce "Foo (copy) (copy)".
+ *
+ * Scans rather than matching. The regex spellings of this — `\s*\(copy(?:\s+\d+)?\)$`
+ * and its predecessor — both backtrack super-linearly on a task name that is
+ * mostly whitespace, because the unbounded `\s` matchers are retried from every
+ * start position (S5852, then S8786 on the "fixed" form). A task name is
+ * user-supplied and unbounded in length, so this is the one site of the four in
+ * #2519 where the input isn't operator-typed. Reading the tail directly is O(n)
+ * and has no such shape.
+ */
+function stripCopySuffix(name: string): string {
+  const s = name.trimEnd();
+  if (!s.endsWith(')')) return s;
+  const open = s.lastIndexOf('(');
+  if (open < 0) return s;
+
+  const inner = s.slice(open + 1, -1).toLowerCase();
+  if (!inner.startsWith('copy')) return s;
+
+  const rest = inner.slice(4);
+  if (rest !== '') {
+    // "(copy 12)" — at least one space, then digits only. `trimStart` shrinking
+    // `rest` is what proves the whitespace was there, standing in for `\s+`.
+    const digits = rest.trimStart();
+    if (digits.length === rest.length || digits === '') return s;
+    for (const c of digits) if (c < '0' || c > '9') return s;
+  }
+  return s.slice(0, open).trimEnd();
+}
+
 /** Build the "(copy)" suffix that doesn't collide with an existing sibling. */
 export function buildCopyName(sourceName: string, siblingNames: string[]): string {
-  // Strip an existing "(copy)" or "(copy N)" suffix so re-duplicating a copy
-  // doesn't produce "Foo (copy) (copy)". trimEnd() first so the pattern needs a
-  // single `\s*` (before the literal) rather than a `\s*...\s*$` pair, whose two
-  // unbounded whitespace matchers backtrack super-linearly (S5852).
-  const stripped = sourceName.trimEnd().replace(/\s*\(copy(?:\s+\d+)?\)$/i, '');
+  const stripped = stripCopySuffix(sourceName);
   const taken = new Set(siblingNames);
   if (!taken.has(`${stripped} (copy)`)) return `${stripped} (copy)`;
   for (let n = 2; n < 1000; n++) {
