@@ -348,3 +348,81 @@ def test_pin_description_is_published():
     # The contrast with the shared meaning is the point of the paragraph.
     assert "tasknote.pinned" in text
     assert "shared" in text
+
+
+# ---------------------------------------------------------------------------
+# List surfaces that build their own queryset (#2553)
+# ---------------------------------------------------------------------------
+#
+# `is_pinned` is annotated in `ProjectViewSet.get_queryset`, and
+# `ProjectSerializer.get_is_pinned` reads it with a defaulting `getattr`. Any
+# custom @action that hand-builds a queryset therefore loses the annotation and
+# degrades *silently* to `false` on every row instead of raising — which is
+# exactly how the Program → Projects tab shipped rendering pinned projects as
+# unpinned. These tests assert the annotation on that endpoint directly.
+
+
+def _dual_member(username: str, program, project, *, role: Role) -> object:
+    """A user with BOTH program and project membership.
+
+    `/programs/{id}/projects/` only needs program membership, but `/projects/{id}/pin/`
+    is scoped by project membership — a program-only user gets a 404 there, which
+    is the documented split. Pinning from the rail or a project's own Overview,
+    the paths that produce the state this endpoint has to report, always implies
+    both, so the fixture carries both.
+    """
+    from trueppm_api.apps.access.models import ProgramMembership
+
+    user = User.objects.create_user(username=username, password="pw")
+    ProgramMembership.objects.create(program=program, user=user, role=role)
+    ProjectMembership.objects.create(project=project, user=user, role=role)
+    return user
+
+
+@pytest.fixture
+def program_project_member(program, project):
+    return _dual_member("program-tab-pinner", program, project, role=Role.MEMBER)
+
+
+@pytest.fixture
+def other_program_project_member(program, project):
+    return _dual_member("program-tab-colleague", program, project, role=Role.ADMIN)
+
+
+def _program_projects_url(program_id: str) -> str:
+    return f"/api/v1/programs/{program_id}/projects/"
+
+
+@pytest.mark.django_db
+def test_program_projects_reports_the_callers_pin(program_project_member, project, program):
+    """The regression: a pinned project must not come back `is_pinned: false`."""
+    c = _client(program_project_member)
+
+    rows = c.get(_program_projects_url(str(program.pk))).data
+    assert [r["id"] for r in rows] == [str(project.pk)]
+    assert rows[0]["is_pinned"] is False
+
+    assert c.post(_pin_url(str(project.pk))).status_code == 200
+    assert c.get(_program_projects_url(str(program.pk))).data[0]["is_pinned"] is True
+
+    assert c.delete(_pin_url(str(project.pk))).status_code == 204
+    assert c.get(_program_projects_url(str(program.pk))).data[0]["is_pinned"] is False
+
+
+@pytest.mark.django_db
+def test_program_projects_pin_does_not_leak_across_users(
+    program_project_member, other_program_project_member, project, program
+):
+    """The privacy half of the gate (ADR-0627 §D5), on this endpoint.
+
+    A true/false round trip alone would still pass against an annotation bound
+    to the wrong user, so the leak is asserted separately: `other_program_project_member`
+    is an ADMIN — the highest-privilege role that could plausibly expect
+    to see someone else's pin — and must read `false` on a project the other
+    member pinned.
+    """
+    assert _client(program_project_member).post(_pin_url(str(project.pk))).status_code == 200
+
+    rows = _client(other_program_project_member).get(_program_projects_url(str(program.pk))).data
+    assert rows[0]["is_pinned"] is False
+    assert "pinned_at" not in rows[0]

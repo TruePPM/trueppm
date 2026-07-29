@@ -115,13 +115,13 @@ export function useTogglePin() {
 
     onMutate: async (vars) => {
       await qc.cancelQueries({ queryKey: PINNED_KEY });
-      const { listKey, detailKey } = cacheKeys(vars.kind, vars.id);
+      const { listKeys, detailKey } = cacheKeys(vars.kind, vars.id);
 
       const snapshot = {
         pinned: qc.getQueryData<PinnedItem[]>(PINNED_KEY),
         // Snapshot by prefix so the rollback also restores the program *detail*
         // entry, which is a prefix-extension of the program list key.
-        lists: qc.getQueriesData({ queryKey: listKey }),
+        lists: listKeys.flatMap((key) => qc.getQueriesData({ queryKey: key })),
         detail: qc.getQueryData(detailKey),
       };
 
@@ -141,7 +141,7 @@ export function useTogglePin() {
         return [optimistic, ...rest];
       });
 
-      patchIsPinned(qc, listKey, detailKey, vars.id, vars.next);
+      patchIsPinned(qc, listKeys, detailKey, vars.id, vars.next);
       return snapshot;
     },
 
@@ -191,9 +191,9 @@ export function useTogglePin() {
     },
 
     onSettled: (_data, _err, vars) => {
-      const { listKey, detailKey } = cacheKeys(vars.kind, vars.id);
+      const { listKeys, detailKey } = cacheKeys(vars.kind, vars.id);
       void qc.invalidateQueries({ queryKey: PINNED_KEY });
-      void qc.invalidateQueries({ queryKey: listKey });
+      for (const key of listKeys) void qc.invalidateQueries({ queryKey: key });
       void qc.invalidateQueries({ queryKey: detailKey });
     },
   });
@@ -211,11 +211,20 @@ export function useTogglePin() {
  * key, `['programs', id]`. Deriving them as `[kind, id]` — the obvious guess —
  * silently misses the program detail entry, so the star on a program's own
  * Overview header would not flip until a refetch.
+ *
+ * A **project** carries two list prefixes for the same reason. `useProgramProjects`
+ * keys its rows under `['programs', {programId}, 'projects']` — the program that
+ * owns them, not the entity being pinned — so the `['projects']` prefix does not
+ * reach it and the Program → Projects tab was the one list surface where a pin
+ * neither flipped optimistically nor refetched on settle (#2553). Sweeping
+ * `['programs']` as well is safe because `patchRow` matches on the row's own id
+ * and returns anything else untouched: a program row can never collide with a
+ * project's UUID.
  */
-function cacheKeys(kind: PinKind, id: string): { listKey: string[]; detailKey: string[] } {
+function cacheKeys(kind: PinKind, id: string): { listKeys: string[][]; detailKey: string[] } {
   return kind === 'project'
-    ? { listKey: ['projects'], detailKey: ['project', id] }
-    : { listKey: ['programs'], detailKey: ['programs', id] };
+    ? { listKeys: [['projects'], ['programs']], detailKey: ['project', id] }
+    : { listKeys: [['programs']], detailKey: ['programs', id] };
 }
 
 /**
@@ -238,23 +247,45 @@ function cacheKeys(kind: PinKind, id: string): { listKey: string[]; detailKey: s
  */
 function patchIsPinned(
   qc: ReturnType<typeof useQueryClient>,
-  listKey: string[],
+  listKeys: string[][],
   detailKey: string[],
   id: string,
   next: boolean,
 ): void {
-  qc.setQueriesData({ queryKey: listKey }, (prev: unknown) => patchAnyShape(prev, id, next));
+  for (const listKey of listKeys) {
+    qc.setQueriesData({ queryKey: listKey }, (prev: unknown) => patchAnyShape(prev, id, next));
+  }
   qc.setQueryData(detailKey, (prev: unknown) => patchAnyShape(prev, id, next));
 }
 
 function patchAnyShape(prev: unknown, id: string, next: boolean): unknown {
-  if (Array.isArray(prev)) return prev.map((row) => patchRow(row, id, next));
+  if (Array.isArray(prev)) return patchRows(prev, id, next);
   if (!isObject(prev)) return prev;
   // The `{items, count}` envelope used by useProjects.
   if (Array.isArray(prev.items)) {
-    return { ...prev, items: prev.items.map((row) => patchRow(row, id, next)) };
+    const items = patchRows(prev.items, id, next);
+    return items === prev.items ? prev : { ...prev, items };
   }
   return patchRow(prev, id, next);
+}
+
+/**
+ * Map, but return the *original* array when no row matched.
+ *
+ * A project pin sweeps the whole `['programs']` prefix (see `cacheKeys`), which
+ * spans every program-scoped list in the cache — schedules, rollups, member
+ * lists. An unconditional `.map` hands each of them a fresh array identity and
+ * re-renders surfaces that hold no copy of the pinned entity at all. Preserving
+ * the reference keeps the broad sweep cheap.
+ */
+function patchRows(rows: unknown[], id: string, next: boolean): unknown[] {
+  let changed = false;
+  const patched = rows.map((row) => {
+    const result = patchRow(row, id, next);
+    if (result !== row) changed = true;
+    return result;
+  });
+  return changed ? patched : rows;
 }
 
 /** Patch whichever flag this row actually carries; leave a foreign row alone. */

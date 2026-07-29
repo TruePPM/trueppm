@@ -1568,6 +1568,13 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         _excluded = mcp_excluded_project_ids(request)
         if _excluded is not None:
             qs = qs.exclude(pk__in=_excluded)
+        # `is_pinned` for THIS caller (#2553). The annotation normally arrives via
+        # ProjectViewSet.get_queryset, which this action bypasses by building its
+        # own queryset — and ProjectSerializer.get_is_pinned reads the attribute
+        # defensively, so the omission degraded to a silent `false` on every row
+        # rather than raising. Bound positionally to request.user (ADR-0627 §D5),
+        # so it can only ever answer "did I pin this".
+        qs = annotate_is_pinned(qs, request.user, field="project")
         return Response(ProjectSerializer(qs, many=True).data)
 
     @extend_schema(

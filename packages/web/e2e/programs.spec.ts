@@ -1123,3 +1123,67 @@ test.describe('Programs — remove-from-program safety (#2176)', () => {
     await expect(page.getByRole('link', { name: 'Alpha' })).toBeVisible();
   });
 });
+
+test.describe('Programs — pin state on the Projects tab (#2553)', () => {
+  const PIN_URL = '**/api/v1/projects/pp-alpha/pin/';
+  const row = (is_pinned: boolean) => [
+    { id: 'pp-alpha', name: 'Alpha', methodology: 'WATERFALL', program: PROGRAM_ID, is_pinned },
+  ];
+
+  test('an already-pinned project renders as pinned, not as an invitation to pin it', async ({
+    page,
+  }) => {
+    // The regression: the endpoint did not annotate `is_pinned` and the hook did
+    // not map it, so a pinned project showed the OUTLINE glyph — and because an
+    // unpinned toggle is hover-revealed on a fine pointer, showed nothing at all
+    // at rest. Clicking it re-POSTed a pin that already existed, and the project
+    // could never be unpinned from this surface.
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(row(true)) }),
+    );
+
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    // Page-rendered signal before asserting on row chrome.
+    await expect(page.getByRole('link', { name: 'Alpha' })).toBeVisible();
+
+    const pin = page.getByRole('button', { name: 'Unpin Alpha' });
+    await expect(pin).toBeVisible();
+    await expect(pin).toHaveAttribute('aria-pressed', 'true');
+    // Pinned is never hover-revealed — a pin you cannot see is a pin you cannot undo.
+    await expect(pin).toHaveCSS('opacity', '1');
+  });
+
+  test('pinning from this tab flips the row without waiting for a refetch', async ({ page }) => {
+    // The second half of #2553: these rows are cached under
+    // ['programs', {id}, 'projects'], which the toggle's ['projects'] prefix
+    // never reached — so even with the glyph fixed, clicking it left the row
+    // unchanged until something else invalidated the list.
+    let pinned = false;
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(row(pinned)),
+      }),
+    );
+    await page.route(PIN_URL, (r) => {
+      pinned = r.request().method() === 'POST';
+      return r.fulfill({
+        status: pinned ? 200 : 204,
+        contentType: 'application/json',
+        body: JSON.stringify({ is_pinned: pinned }),
+      });
+    });
+
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    await expect(page.getByRole('link', { name: 'Alpha' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Pin Alpha' }).click();
+
+    const pin = page.getByRole('button', { name: 'Unpin Alpha' });
+    await expect(pin).toBeVisible();
+    await expect(pin).toHaveAttribute('aria-pressed', 'true');
+  });
+});
