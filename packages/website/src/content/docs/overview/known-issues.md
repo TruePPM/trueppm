@@ -1,6 +1,6 @@
 ---
 title: Known Issues
-description: The maintained list of defects and limitations in what 0.4 actually ships — each one naming its tracking issue and the release that fixes it.
+description: The maintained list of defects and limitations in what 0.4 will ship — each one naming its tracking issue and the release that fixes it.
 ---
 
 This page lists **defects and limitations in what TruePPM already ships**. It is the
@@ -143,6 +143,36 @@ report-only.
   engine.
 - **Fix planned for 0.5** — [#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468).
 
+## Accessibility
+
+### A foothold, not full WCAG 2.1 AA conformance
+
+The CI pipeline enforces an axe-core WCAG 2.1 A/AA scan inside the Playwright E2E suite,
+and a **critical** or **serious** violation fails the pipeline — that gate runs today, on
+every merge, not just in a future release. The 0.4 remediation pass — focus traps across
+roughly twenty dialogs, 44px touch targets on the board and schedule surfaces, contrast
+fixes in both light and dark themes, live-region announcements for route changes and
+async writes, and keyboard operability on the Gantt, board, and outline
+([#1685](https://gitlab.com/trueppm/trueppm/-/issues/1685),
+[#2202](https://gitlab.com/trueppm/trueppm/-/issues/2202)) — is already merged to `main`
+and lands with the 0.4 beta.
+
+What that gate does **not** prove:
+
+- **`moderate` axe findings do not block a merge.** They are being ratcheted in route by
+  route as each surface's audit lands, so the enforced floor is narrower than the stated
+  commitment.
+- **There has been no formal, end-to-end WCAG 2.1 AA audit of the product.** The gate
+  above is automated and partial; a professional audit — including manual screen-reader
+  and keyboard-only passes — has not been run.
+
+- **Impact:** an evaluator doing PMO due diligence on accessibility will not find a
+  conformance statement anywhere in the product docs before this page, because there
+  isn't one to give yet. Treat 0.4 as "actively improving, automated-gate-enforced, and
+  not yet audited" — not as "WCAG 2.1 AA compliant."
+- **Fix planned for 0.9** — the formal audit is a GA-hardening item on the
+  [roadmap](/overview/roadmap/).
+
 ## Performance and scale
 
 The measured ceilings themselves are covered on
@@ -159,13 +189,13 @@ specific defects behind them.
 
 ## Findability and filtering
 
-Filtering matured on the Board first and has reached the other views unevenly. Label
-filtering arrived on the Table/Grid and the Product Backlog in 0.4; the Schedule did
-not get it, and no view except the Board can save a filter by name.
+Filtering matured on the Board first and will reach the other views unevenly. Label
+filtering lands on the Table/Grid and the Product Backlog with 0.4; the Schedule will
+not get it, and today no view except the Board can save a filter by name.
 
 | Issue | Symptom | Fix planned for |
 |---|---|---|
-| [#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443) | The Schedule is the only task view with no label filter — the Board, Table/Grid, and Product Backlog all have one as of 0.4, the Gantt does not | 0.5 |
+| [#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443) | The Schedule is the only task view with no label filter — the Board, Table/Grid, and Product Backlog all get one with 0.4, the Gantt does not | 0.5 |
 | [#2444](https://gitlab.com/trueppm/trueppm/-/issues/2444) | The Schedule has no text search and no owner/status filter — you cannot find a task on the Gantt | 0.5 |
 | [#2445](https://gitlab.com/trueppm/trueppm/-/issues/2445) | Saved views are Board-only; Grid, Schedule, Backlog and My Work cannot save a named filter | 0.5 |
 | [#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443) | Filter state does not survive a view switch, and the vocabulary differs per view | 0.5 |

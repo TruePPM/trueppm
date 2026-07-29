@@ -7,11 +7,21 @@ This page names competitors and cites sources. It also names the comparisons Tru
 **loses**, because a comparison page that only lists wins is an advertisement, and you
 should not make a tooling decision on an advertisement.
 
+:::caution[Read the version status first]
+TruePPM is pre-GA. The current shipped release is an alpha, and the first beta is
+0.4. Every claim below about TruePPM's own capabilities describes what is in `main`
+today, unless marked otherwise. The [roadmap](/overview/roadmap/) is the
+authoritative Shipped / Underway / Planned record.
+:::
+
 :::note[How to read the claims here]
-Claims about other tools are dated and linked. Vendor packaging changes — re-verify
-against the linked source before quoting any of this. Claims about TruePPM's own
-capabilities are checkable against the
-[engine package](https://pypi.org/project/trueppm-scheduler/) and the
+The SSO/auth comparisons below carry dated, linked footnotes, because vendor
+packaging changes and a stale citation is worse than none — re-verify against the
+linked source before quoting one. The rest of the claims in both tables reflect our
+own reading of each vendor's public documentation and product pages; they are not
+individually dated and footnoted, so treat them as directionally correct rather than
+independently audited. Claims about TruePPM's own capabilities are checkable against
+the [engine package](https://pypi.org/project/trueppm-scheduler/) and the
 [tested scale envelope](/administration/sizing/#tested-envelope). If a row here is
 wrong, [open an issue](https://gitlab.com/trueppm/trueppm/-/issues) and we will
 correct it.
@@ -20,10 +30,10 @@ correct it.
 ## The one-sentence version
 
 TruePPM is the only open-source PPM platform we are aware of that ships **Monte Carlo
-schedule risk analysis**, and the only PPM tool of any kind — open or commercial —
-whose **scheduling engine you can install and audit by itself**. It is *not* a
-Primavera P6 or MS Project replacement, because it has no resource leveling and one
-constraint type.
+schedule risk analysis**, and the only PPM tool of any kind — open or commercial — we
+are aware of whose **scheduling engine you can install and audit by itself**. It is
+*not* a Primavera P6 or MS Project replacement, because it has no resource leveling
+and one constraint type.
 
 ## Against the open-source field
 
@@ -69,7 +79,8 @@ This is where the honest losses are.
 | Agile board / sprints | Yes, on the same objects | No | No |
 | Real-time multi-user web | Yes | Limited | Limited |
 | REST API + WebSocket, API-first | Yes | Partial | Limited |
-| Self-hosted, no per-seat license | Yes, Apache 2.0 | No | No |
+| Self-hosted / on-premises deployment | Yes | Yes (P6 EPPM has a traditional on-prem deployment option) | Yes (Project Server, on-prem option) |
+| Per-seat / named-user licensing | **No** — Apache 2.0, no license cost | Yes | Yes |
 | Engine auditable standalone | **Yes** | No | No |
 
 **Do not choose TruePPM over P6 or MS Project if** you need resource leveling,
