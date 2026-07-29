@@ -172,7 +172,7 @@ const CONFLICT_FIELD_LABELS: Record<string, string> = {
 function conflictFieldLabel(field: string): string {
   return (
     CONFLICT_FIELD_LABELS[field] ??
-    field.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+    field.replaceAll('_', ' ').replace(/^\w/, (c) => c.toUpperCase())
   );
 }
 

@@ -9,7 +9,7 @@ import type { TaskStatus } from '@/types';
 /** Humanize a TaskStatus enum ("IN_PROGRESS" → "In progress"). */
 export function formatTaskStatus(status: TaskStatus | null | undefined): string {
   if (!status) return '';
-  const lower = status.replace(/_/g, ' ').toLowerCase();
+  const lower = status.replaceAll('_', ' ').toLowerCase();
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
 

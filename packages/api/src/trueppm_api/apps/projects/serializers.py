@@ -6481,12 +6481,12 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         user = getattr(request, "user", None) if request else None
         if user is None or not getattr(user, "is_authenticated", False):
             raise serializers.ValidationError(
-                {field: "Authentication required." for field in scheduler_fields}
+                dict.fromkeys(scheduler_fields, "Authentication required.")
             )
         membership = self._resolve_scheduler_gate_membership(user)
         if membership is None or membership.role < Role.SCHEDULER:
             raise serializers.ValidationError(
-                {field: "Only Scheduler+ may set this sprint field." for field in scheduler_fields}
+                dict.fromkeys(scheduler_fields, "Only Scheduler+ may set this sprint field.")
             )
 
     def _resolve_scheduler_gate_membership(self, user: Any) -> Any:
