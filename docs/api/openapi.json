@@ -7430,6 +7430,67 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/mention-reach/": {
+            "get": {
+                "operationId": "v1_programs_mention_reach_retrieve",
+                "description": "Who the ``@program-stakeholders`` alias reaches, counted per arm.\n\nURL: ``GET /api/v1/programs/{pk}/mention-reach/``\n\nThe alias has two arms that ADR-0264 deliberately keeps apart, and this\nendpoint keeps them apart too:\n\n* ``viewer_member_count`` — exact-``Role.VIEWER`` members across the\n  program's live projects, deduplicated by user. Real accounts; they get a\n  durable in-app notification today.\n* ``external_stakeholder_count`` — registry rows with no ``User``. They\n  receive nothing today; outbound delivery is deferred to #1675.\n\n**The response carries no total on purpose** (ADR-0697 §1a). Summing the two\narms would re-assert in the API the very union #1675 removed from the\nresolver — the union under which an internal mention could silently email a\nclient. Clients must render the arms separately.\n\nComputed on read from the same querysets the resolver uses, so the number a\nPM is shown is the number a mention would fan out to. Permission: program\nAdmin+.",
+                "summary": "Count who @program-stakeholders reaches",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramMentionReach"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/pin/": {
             "post": {
                 "operationId": "v1_programs_pin_create",
@@ -49093,6 +49154,25 @@
                 "required": [
                     "role",
                     "user"
+                ]
+            },
+            "ProgramMentionReach": {
+                "type": "object",
+                "properties": {
+                    "group_key": {
+                        "type": "string"
+                    },
+                    "viewer_member_count": {
+                        "type": "integer"
+                    },
+                    "external_stakeholder_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "external_stakeholder_count",
+                    "group_key",
+                    "viewer_member_count"
                 ]
             },
             "ProgramPinResponse": {

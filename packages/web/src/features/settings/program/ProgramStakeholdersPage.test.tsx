@@ -8,6 +8,7 @@ import { ROLE_VIEWER } from '@/lib/roles';
 
 const useProgram = vi.fn();
 const useProgramExternalStakeholders = vi.fn();
+const useProgramMentionReach = vi.fn();
 const createMutate = vi.fn();
 const updateMutate = vi.fn();
 const updateReset = vi.fn();
@@ -15,6 +16,11 @@ const removeMutate = vi.fn();
 
 vi.mock('@/hooks/useProgram', () => ({
   useProgram: () => useProgram() as { data: unknown },
+}));
+
+vi.mock('../hooks/useProgramMentionReach', () => ({
+  useProgramMentionReach: (programId: string | undefined, canRead: boolean) =>
+    useProgramMentionReach(programId, canRead) as { data: unknown; isPending: boolean },
 }));
 
 vi.mock('../hooks/useProgramExternalStakeholders', () => ({
@@ -61,6 +67,15 @@ function renderPage() {
 describe('ProgramStakeholdersPage (settings)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: reach resolved. Individual tests override for the degraded paths.
+    useProgramMentionReach.mockReturnValue({
+      data: {
+        group_key: 'program-stakeholders',
+        viewer_member_count: 6,
+        external_stakeholder_count: 1,
+      },
+      isPending: false,
+    });
   });
 
   it('renders the loading state', () => {
@@ -139,6 +154,72 @@ describe('ProgramStakeholdersPage (settings)', () => {
       email: 'dana@client.example',
       note: undefined,
     });
+  });
+
+  it('renders the reach summary with both arms when rows exist (#2529)', () => {
+    useProgram.mockReturnValue({ data: ADMIN });
+    useProgramExternalStakeholders.mockReturnValue({
+      data: [STAKEHOLDER],
+      isLoading: false,
+      isError: false,
+    });
+    renderPage();
+
+    expect(screen.getByText(/1 external contact — listed only\./)).toBeInTheDocument();
+    expect(document.body.textContent).toContain(
+      '6 Viewer-role members get an in-app notification',
+    );
+  });
+
+  it('wires the real Viewer count into the empty state (#2529)', () => {
+    useProgram.mockReturnValue({ data: ADMIN });
+    useProgramExternalStakeholders.mockReturnValue({ data: [], isLoading: false, isError: false });
+    renderPage();
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /No external stakeholders yet — @program-stakeholders reaches 6 Viewer-role members/i,
+    );
+  });
+
+  it('falls back to the bare empty state when the reach read is unavailable', () => {
+    useProgram.mockReturnValue({ data: ADMIN });
+    useProgramMentionReach.mockReturnValue({ data: undefined, isPending: false });
+    useProgramExternalStakeholders.mockReturnValue({ data: [], isLoading: false, isError: false });
+    renderPage();
+
+    // Never substitute a number for an unavailable count.
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No external stakeholders yet. Add one below.',
+    );
+    expect(document.body.textContent).not.toMatch(/Viewer-role/);
+  });
+
+  it('does not request the Admin-only reach read as a viewer, and says so (#2529)', () => {
+    useProgram.mockReturnValue({ data: VIEWER });
+    // Query disabled → pending forever; the strip must not be held hostage to it.
+    useProgramMentionReach.mockReturnValue({ data: undefined, isPending: true });
+    useProgramExternalStakeholders.mockReturnValue({
+      data: [STAKEHOLDER],
+      isLoading: false,
+      isError: false,
+    });
+    renderPage();
+
+    expect(useProgramMentionReach).toHaveBeenCalledWith('p-1', false);
+    expect(document.body.textContent).toContain('Viewer-role reach is visible to program admins.');
+  });
+
+  it('holds the strip until the reach read settles, so it mounts in one commit', () => {
+    useProgram.mockReturnValue({ data: ADMIN });
+    useProgramMentionReach.mockReturnValue({ data: undefined, isPending: true });
+    useProgramExternalStakeholders.mockReturnValue({
+      data: [STAKEHOLDER],
+      isLoading: false,
+      isError: false,
+    });
+    renderPage();
+
+    expect(document.body.textContent).not.toContain('external contact — listed only.');
   });
 
   it('requires a confirm click before removing a stakeholder', async () => {

@@ -9,6 +9,8 @@ import {
   useProgramExternalStakeholderMutations,
   type ExternalStakeholder,
 } from '../hooks/useProgramExternalStakeholders';
+import { useProgramMentionReach } from '../hooks/useProgramMentionReach';
+import { StakeholderEmptyState, StakeholderReachSummary } from './StakeholderReachSummary';
 import {
   StakeholderEditRow,
   STAKEHOLDER_GRID as GRID,
@@ -116,23 +118,32 @@ function StakeholderRow({
  * Program Settings → External stakeholders (#1658, ADR-0264).
  *
  * A registry of non-account people (client sponsors, vendor contacts, external
- * reviewers) who are included in the `@program-stakeholders` mention fan-out
- * alongside the program's Viewer-role members. Admin+ manages the list; the API
- * enforces the same rule server-side (this is UX, not security).
+ * reviewers) resolved as a *separate* target of the `@program-stakeholders`
+ * fan-out — never unioned into it, so an internal mention cannot silently email a
+ * client (#1675). Admin+ manages the list; the API enforces the same rule
+ * server-side (this is UX, not security).
  *
  * Rows are editable in place (#2530): one row at a time swaps its read cells for
  * the shared {@link StakeholderEditRow}, the same component the add row renders,
  * so correcting a typo no longer means remove-and-re-add — which would discard
  * the verified state #1675 will attach to the row.
  *
- * Email delivery to these addresses is not wired yet — the subtitle uses future
- * tense deliberately (delivery ships in #1675). Do not claim it emails today.
+ * Email delivery to these addresses is not wired yet — copy on this page uses
+ * future tense deliberately (delivery ships in #1675). Do not claim it emails
+ * today. `StakeholderReachSummary` owns the delivery truth; keep the subtitle to
+ * what the registry *is*, so the deferral is stated once (#2529).
  */
 export function ProgramStakeholdersPage() {
   const { programId } = useParams<{ programId: string }>();
   const { data: program } = useProgram(programId);
   const { data: stakeholders = [], isLoading, isError } = useProgramExternalStakeholders(programId);
   const { create, update, remove } = useProgramExternalStakeholderMutations(programId ?? '');
+  const canManage = program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  // Server-computed (ADR-0697): the Viewer arm cannot be derived in the browser —
+  // /programs/{id}/members/ returns ProgramMembership, which per ADR-0070 does not
+  // propagate to project access, while the alias resolves the ProjectMembership
+  // union at an exact Viewer role. Admin+ only, so a non-Admin never fires it.
+  const { data: reach, isPending: isReachPending } = useProgramMentionReach(programId, canManage);
 
   // Only one row edits at a time — a single mutation object carries one error
   // envelope, so two concurrent edit rows could not tell whose 400 it was.
@@ -146,7 +157,6 @@ export function ProgramStakeholdersPage() {
 
   if (!programId) return null;
 
-  const canManage = program?.my_role != null && program.my_role >= ROLE_ADMIN;
   const isBusy = create.isPending || update.isPending || remove.isPending;
 
   // Surface the server's rejection inline: a field error (duplicate email) where
@@ -193,10 +203,22 @@ export function ProgramStakeholdersPage() {
       <SettingsPageTitle
         title="External stakeholders"
         count={stakeholders.length > 0 ? `${stakeholders.length}` : undefined}
-        subtitle="People without a TruePPM account — client sponsors, vendors, reviewers — included in @program-stakeholders mentions. Email notifications to them will be added in a future release."
+        subtitle="People without a TruePPM account — client sponsors, vendors, reviewers — kept as a separate recipient list for @program-stakeholders mentions."
       />
 
       <div className="px-6 pb-8 max-w-[920px]">
+        {/* Held until BOTH reads settle so the strip mounts in one commit — the
+            settings shell renders every section in one scroll, so a two-step
+            injection would shove every section below this one down twice.
+            `isPending` stays true forever when the query is disabled, hence the
+            `!canManage` short-circuit. */}
+        {!isLoading && !isError && (!canManage || !isReachPending) && (
+          <StakeholderReachSummary
+            externalCount={stakeholders.length}
+            viewerMemberCount={reach?.viewer_member_count}
+            viewerCountRestricted={!canManage}
+          />
+        )}
         <div
           className="grid items-center px-4 py-2 bg-neutral-surface-sunken border border-neutral-border rounded-t-card text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mt-4"
           style={{ gridTemplateColumns: GRID }}
@@ -219,8 +241,10 @@ export function ProgramStakeholdersPage() {
           )}
           {!isLoading && !isError && stakeholders.length === 0 && (
             <div role="status" className="px-4 py-6 text-xs text-neutral-text-secondary">
-              No external stakeholders yet.
-              {canManage && ' Add one below.'}
+              <StakeholderEmptyState
+                viewerMemberCount={reach?.viewer_member_count}
+                canManage={canManage}
+              />
             </div>
           )}
           {!isLoading &&

@@ -94,18 +94,48 @@ projects inside the program. See [Roles & Permissions](/administration/rbac/).
 ## External stakeholders
 
 The **External stakeholders** section is a registry of people **without a
-TruePPM account** — client sponsors, vendor contacts, external reviewers — who
-are included in the `@program-stakeholders` mention fan-out alongside the
-program's own Viewer-role members. It is a first-class CRUD list, not a
-free-text field: each row has a **Name**, an **Email** (unique per program),
-and an optional **Note**, plus who added it.
+TruePPM account** — client sponsors, vendor contacts, external reviewers — kept
+as a **separate recipient list** for `@program-stakeholders` mentions. It is a
+first-class CRUD list, not a free-text field: each row has a **Name**, an
+**Email** (unique per program), and an optional **Note**, plus who added it.
+
+They are deliberately *not* merged into the mention group itself, so an internal
+`@program-stakeholders` mention can never silently reach a client.
+
+### Who the alias actually reaches
+
+:::note[Ships in 0.4]
+The **reach summary** described below ships in **TruePPM 0.4** (the first beta),
+along with the `mention-reach` endpoint that computes it. Before 0.4 the section
+shows only a count of the external rows.
+:::
+
+The two halves of the alias have different fates, and the reach summary above the
+table states both so you can see exactly who a mention touches:
+
+- **External contacts are listed only.** No email or notification is sent to
+  them yet — email delivery is a future, operator-enabled capability.
+- **Viewer-role members get an in-app notification.** These are the members
+  holding the Viewer role on any project inside the program, counted once each.
+  If the program has no Viewer-role members, the summary says so plainly — the
+  alias notifies nobody in-app.
+
+Reading the summary requires the program **Admin** role, the same role that
+manages the list. The count comes from
+`GET /api/v1/programs/{id}/mention-reach/`, which returns the two arms
+separately and never a combined total.
 
 ### Managing the list
 
 Add a stakeholder with the **Name / Email / Note** form at the bottom of the
 list; a duplicate email within the same program is rejected inline rather than
-silently creating a second entry for the same person. **Remove** asks for a
-one-click confirmation before it deletes a row.
+silently creating a second entry for the same person. **Edit** on a row opens it
+in place using the same fields as the add row — correcting a mistyped address is
+an edit, not a remove-and-re-add. **Save** commits the change and **Cancel**
+discards it; Save stays disabled until the name and a well-formed email address
+are both present, and a malformed address explains itself under the row rather
+than failing after a round trip. **Remove** asks for a one-click confirmation
+before it deletes a row.
 
 ### Access
 
@@ -113,15 +143,6 @@ Reading and writing the list both require the program **Admin** role or
 above — managing who is externally pinged is treated as an administrative
 act, so Scheduler, Member, Viewer, and non-members cannot see or change it.
 Writes are additionally blocked once the program is closed (reads still work).
-
-### What it does — and does not — do yet
-
-This registry only manages **who** is on the list. Email delivery to these
-addresses is not wired up yet: an external stakeholder shows up as a
-recipient in the `@program-stakeholders` mention target, but no email
-actually reaches them until a future release closes that gap. Treat this
-section today as directory and mention context, not as a notification
-channel.
 
 ### Endpoints
 
@@ -131,13 +152,7 @@ channel.
 | `POST` | `/api/v1/programs/{id}/external-stakeholders/` | Program Admin+ |
 | `PATCH` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
 | `DELETE` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
-
-Program Admins and Owners manage the list. **Edit** on a row opens it in place
-using the same fields as the add row — correcting a mistyped address is an edit,
-not a remove-and-re-add. **Save** commits the change and **Cancel** discards it;
-Save stays disabled until the name and a well-formed email address are both
-present, and a malformed address explains itself under the row rather than
-failing after a round trip. **Remove** asks for a confirmation before deleting.
+| `GET` | `/api/v1/programs/{id}/mention-reach/` | Program Admin+ |
 
 ## Rollup KPIs
 

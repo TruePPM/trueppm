@@ -419,6 +419,15 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # object-level cross-program IDOR (a job_id from another program) is
             # closed in the action bodies via program-scoped lookups.
             return [IsAuthenticated(), IsProgramAdmin()]
+        if self.action == "mention_reach":
+            # Who @program-stakeholders actually reaches (ADR-0697). Admin+, matching
+            # the external-stakeholder registry's own floor (ADR-0264 §3) — the strip
+            # this backs only ever renders beside a list the caller can already read,
+            # so a lower floor buys nothing, and the internal arm is a partial
+            # disclosure of membership across projects the caller may hold no grant
+            # on (ADR-0070's explicit-grants boundary). No IsProgramNotClosed: it is
+            # a read, and a closed program's alias stays inspectable for forensics.
+            return [IsAuthenticated(), IsProgramAdmin()]
         if self.action == "resource_contention":
             # Resource allocation/contention data is Scheduler+ even on read
             # (web-rule 94, matching the per-project resource-allocation gate);
@@ -1622,6 +1631,64 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             )
 
         return Response(sections, status=drf_status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Count who @program-stakeholders reaches",
+        responses={
+            200: inline_serializer(
+                name="ProgramMentionReach",
+                fields={
+                    "group_key": serializers.CharField(),
+                    "viewer_member_count": serializers.IntegerField(),
+                    "external_stakeholder_count": serializers.IntegerField(),
+                },
+            )
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="mention-reach")
+    def mention_reach(self, request: Request, pk: str | None = None) -> Response:
+        """Who the ``@program-stakeholders`` alias reaches, counted per arm.
+
+        URL: ``GET /api/v1/programs/{pk}/mention-reach/``
+
+        The alias has two arms that ADR-0264 deliberately keeps apart, and this
+        endpoint keeps them apart too:
+
+        * ``viewer_member_count`` — exact-``Role.VIEWER`` members across the
+          program's live projects, deduplicated by user. Real accounts; they get a
+          durable in-app notification today.
+        * ``external_stakeholder_count`` — registry rows with no ``User``. They
+          receive nothing today; outbound delivery is deferred to #1675.
+
+        **The response carries no total on purpose** (ADR-0697 §1a). Summing the two
+        arms would re-assert in the API the very union #1675 removed from the
+        resolver — the union under which an internal mention could silently email a
+        client. Clients must render the arms separately.
+
+        Computed on read from the same querysets the resolver uses, so the number a
+        PM is shown is the number a mention would fan out to. Permission: program
+        Admin+.
+        """
+        from trueppm_api.apps.access.groups import count_program_stakeholder_reach
+        from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
+
+        program = self.get_object()
+
+        # ADR-0678 T1 (#2482): the internal arm aggregates CHILD PROJECT membership,
+        # which the mixin's row filter — it only ever sees the Program row — cannot
+        # reach. Intersect explicitly, exactly as rollup/schedule/projects do. The
+        # ADR-0678 T8 audit flag needs no set here: get_object() already ran the
+        # mixin's filter, which sets it centrally for a token caller.
+        reach = count_program_stakeholder_reach(
+            program.pk, exclude_project_ids=mcp_excluded_project_ids(request)
+        )
+        return Response(
+            {
+                "group_key": "program-stakeholders",
+                "viewer_member_count": reach.viewer_member_count,
+                "external_stakeholder_count": reach.external_stakeholder_count,
+            }
+        )
 
     @extend_schema(
         summary="Read or update the program rollup KPIs config",
