@@ -102,8 +102,9 @@ Only `Title` is required. On import:
 - A probability or impact outside 1–5 skips that row — a stray value there usually
   means the columns were mapped wrong, and guessing would be worse.
 
-**Limits:** 2 MB, 500 rows. A larger file is rejected outright rather than
-partially imported, so a truncated import can never look like a successful one.
+A larger file than the [risk import limit](#limits) is rejected outright
+rather than partially imported, so a truncated import can never look like a
+successful one.
 
 ## Tasks
 
