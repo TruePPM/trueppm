@@ -72,8 +72,9 @@ Read `.claude/personas.md` (the canonical source). Pick the personas for whom th
 | PM-facing planning surface (schedule, board, card, task, sprint) | Sarah (PM), Priya (Team Member), Alex (Scrum Master), Jordan (Product Owner) |
 | PMO-facing governance surface (program rollup, portfolio, dashboard, settings) | Marcus (PMO Director), David (Resource Manager), Janet (Executive Sponsor) |
 | Workspace / admin / settings | Sarah (PM, owner-of-the-workspace lens) + Marcus (PMO admin lens) — plus David if it touches resource policy |
-| Mobile / offline flow | Sarah first (job-site hard-NO), Priya second, Alex third |
-| Hybrid agile/waterfall bridge | Alex, Jordan, Morgan (Agile Coach), Sarah, Marcus — full bridge demands the full panel |
+| Mobile / offline flow | Priya first (time capture on the move), Sarah second, Alex third — note Sarah's mobile criteria are N/A until the 0.5 PWA |
+| Hybrid agile/waterfall bridge | Alex (Delivery Lead), Jordan, Sarah, Marcus — full bridge demands the full panel |
+| MCP / AI / provenance surface | Theo (AI-native technical operator) leads; add Nadia if the API contract itself changes |
 | Notification / email / digest | Janet, Marcus, Sarah, Priya — anything the executive layer sees lands on Janet |
 | API / integration / webhook / token / OpenAPI surface | Nadia (integration/API developer) leads; add whichever human personas own the data the API exposes |
 | Deployment / Helm / migration / observability / backup surface | Omar (self-hosting operator) leads; add Marcus if it touches compliance/audit posture |
@@ -130,7 +131,7 @@ Return your response in this exact format and nothing else:
 <bullet list of what the surface does well from this persona's lens — short, no more than 5 bullets>
 ```
 
-Spawn in P3M layer order so results aggregate predictably: Janet → Marcus → David → Sarah → Jordan → Alex → Morgan → Priya. The Agent tool runs them in parallel when issued in one message.
+Spawn in P3M layer order so results aggregate predictably: Janet → Marcus → David → Sarah → Jordan → Alex → Theo → Priya. The Agent tool runs them in parallel when issued in one message.
 
 ---
 

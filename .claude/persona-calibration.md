@@ -51,7 +51,7 @@ personas are most likely to be wrong about. Read every hit rate below as an uppe
 ### Pre-0.4 — baseline (no data)
 
 **Status:** no calibration possible. TruePPM has not shipped a beta, so there is no
-real-user signal to score against. All ten personas are T0 (modeled).
+real-user signal to score against. All eleven personas are T0 (modeled).
 
 Every persona-derived finding in the 0.4 milestone was produced by a simulated panel
 with no real corroboration. That is a legitimate pre-launch position — it is recorded

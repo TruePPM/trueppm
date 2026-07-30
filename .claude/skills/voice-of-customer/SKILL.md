@@ -2,11 +2,12 @@
 name: voice-of-customer
 model: sonnet
 description: >
-  Simulate feedback from TruePPM's eight core P3M-layer personas: Project Manager, PMO
-  Director / Portfolio Manager, Team Member / Contributor, Resource Manager, Executive
-  Sponsor (C-Suite), Scrum Master / Agile Delivery Lead, Product Owner, and Agile Coach /
-  Transformation Lead — plus two conditional specialist evaluators (integration/API
-  developer and self-hosting operator) and the AI-agent actor constraint. Use when
+  Simulate feedback from TruePPM's eight core P3M-layer personas: Delivery / Program
+  Manager, PMO Director / Portfolio Manager, Team Member / Contributor, Resource Manager,
+  Executive Sponsor (C-Suite, conditional), Delivery Lead (Scrum Master / Agile Delivery
+  Lead), Product Owner, and AI-Native Technical Operator — plus three conditional
+  specialist evaluators (integration/API developer, self-hosting operator, and
+  engine-library consumer) and the AI-agent actor constraint. Use when
   evaluating features, prioritizing backlog, writing user stories, reviewing UX designs,
   or testing whether a feature resonates with the target market.
 ---
@@ -14,9 +15,9 @@ description: >
 # Voice of Customer Skill
 
 **Before producing any output, read `.claude/personas.md`** — that file is the single
-source of truth for all ten persona definitions (eight P3M-layer personas plus two
-specialist evaluators), the AI-agent actor note, P3M layer mappings, feature resonance
-rules, and the VoC scoring rubric. Do not use any persona content defined outside that
+source of truth for all eleven persona definitions (eight P3M-layer personas plus three
+specialist evaluators), the AI-agent actor note, the target-market ICP, P3M layer
+mappings, feature resonance rules, and the VoC scoring rubric. Do not use any persona content defined outside that
 file.
 
 ## What this skill produces — read this before using its output
@@ -48,15 +49,23 @@ own merits and say plainly that a simulated panel surfaced it.
 
 ## How to use this skill
 
-The core panel is Personas 1–8 (the P3M-layer human roles). Personas 9 (Nadia —
-integration/API developer) and 10 (Omar — self-hosting operator) are **specialist
-evaluators** that join the panel **only when the feature touches their surface** — the
-API/integration surface for Nadia, the deployment/operations surface for Omar (see the
+The core panel is Personas 1–8 (the P3M-layer human roles), of which **Janet (5) is
+itself conditional** — she never opens the product, so include her only for reporting,
+forecasting, export, digest-to-leadership, or portfolio-visibility features and omit her
+with a one-line note otherwise. Personas 9 (Nadia — integration/API developer), 10 (Omar
+— self-hosting operator) and 11 (Bram — engine-library consumer) are **specialist
+evaluators** that join **only when the feature touches their surface**: the
+API/integration surface for Nadia, the deployment/operations *and pre-install evaluation*
+surface for Omar, and the standalone `trueppm-scheduler` package for Bram (see the
 specialist-panelist note in the personas file's VoC rubric). The **AI-agent actor** is
 never a panel seat; it is a cross-cutting constraint applied to any feature an agent
 could reach via the API (check its hard NOs against the change). Add the specialists as
-extra parallel sub-agents when relevant; omit them with a one-line note when the feature
-is neither API- nor ops-facing.
+extra parallel sub-agents when relevant; omit them with a one-line note otherwise.
+
+**Out-of-window criteria are N/A, never 🔴.** Several personas name criteria that depend
+on a capability with a known future release. Those are marked N/A in the personas file
+and are excluded from both the severity tags and the score — the persona is scored only
+on what is in scope today. Do not let a known-unmet future capability fire a blocker.
 
 The personas are independent — there is no reason to evaluate them serially. This
 skill **delegates each persona to a parallel Sonnet sub-agent** and aggregates the
@@ -142,8 +151,8 @@ reasoning only from the persona definition above, structurally cannot?>
 ```
 
 Spawn the sub-agents in P3M layer order so their results arrive in a sensible order:
-Janet → Marcus → David → Sarah → Jordan → Alex → Morgan → Priya, followed by any
-conditional specialists (Nadia, Omar) when the feature touches their surface. The Agent
+Janet → Marcus → David → Sarah → Jordan → Alex → Theo → Priya, followed by any
+conditional specialists (Nadia, Omar, Bram) when the feature touches their surface. The Agent
 tool handles parallelism when calls are issued in a single message.
 
 ### Step 2 — Aggregate in main context
@@ -163,19 +172,22 @@ delegate aggregation — synthesizing across personas is the value-add of this s
 ### Panel Verdict
 | Persona | Score | Verdict |
 |---|---|---|
-| Janet (COO) | N/10 | … |
+| Janet (Executive Sponsor) † | N/10 | … |
 | Marcus (PMO) | N/10 | … |
 | David (Resource Manager) | N/10 | … |
-| Sarah (PM) | N/10 | … |
+| Sarah (Delivery/Program Manager) | N/10 | … |
 | Jordan (Product Owner) | N/10 | … |
-| Alex (Scrum Master) | N/10 | … |
-| Morgan (Agile Coach) | N/10 | … |
+| Alex (Delivery Lead) | N/10 | … |
+| Theo (AI-Native Technical Operator) | N/10 | … |
 | Priya (Team Member) | N/10 | … |
 | Nadia (API Developer) † | N/10 | … |
 | Omar (Self-Hosting Operator) † | N/10 | … |
+| Bram (Engine-Library Consumer) † | N/10 | … |
 
-† Include only when the feature touches the API/integration surface (Nadia) or the
-deployment/operations surface (Omar); otherwise omit the row with a one-line note.
+† Conditional. Include Janet only for reporting/forecasting/export/portfolio-visibility
+features; Nadia only for an API/integration surface; Omar only for a
+deployment/operations or pre-install-evaluation surface; Bram only for the standalone
+`trueppm-scheduler` package. Otherwise omit the row with a one-line note.
 The AI-agent actor is not scored — apply its hard NOs (personas.md) as a cross-cutting
 constraint and surface any violation as a 🔴 in "Key constraints surfaced".
 
@@ -223,9 +235,12 @@ are relevant** to the feature (e.g., a backend-only refactor that only meaningfu
 affects Sarah and Priya). For ≥3 personas, parallel is always faster and not more
 expensive.
 
-Note: Jordan (Product Owner) and Morgan (Agile Coach) are most relevant to features
-touching backlog management, sprint sovereignty, team health, and the hybrid bridge.
-For pure PMO/portfolio features, they can be omitted from the panel with a note.
+Note: Jordan (Product Owner) and Alex (Delivery Lead) are most relevant to features
+touching backlog management, sprint sovereignty, team health, and the hybrid bridge —
+Alex carries the practice-health and team-autonomy lens that the former Morgan (Agile
+Coach) persona held before the two were merged. For pure PMO/portfolio features, they can
+be omitted from the panel with a note. Theo (AI-native technical operator) is most
+relevant to anything touching the MCP/API read surface, provenance, or agent behavior.
 
 Note: Nadia (integration/API developer) and Omar (self-hosting operator) are the
 inverse — omitted by default, *added* only when the feature touches their surface. Add
