@@ -84,6 +84,13 @@ export interface UseScheduleCommitOptions {
    * to `projectStartDate` when absent.
    */
   effectiveFloorDate?: string | null;
+  /**
+   * The project's effective working-day bitmask (`effective_calendar.working_days`,
+   * ADR-0441 / #1987). Defaults to Mon–Fri when absent (older payloads / the list
+   * cache), matching the server's own `working_day_duration` fallback. Drives the
+   * resize popover's duration label and the no-op-resize guard (#2561).
+   */
+  workingDaysMask?: number | null;
   visibleTasks: Task[];
   allTasks: Task[];
   sprints: ApiSprint[];
@@ -129,24 +136,58 @@ function isoFromUtcMs(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+/** Mon–Fri (1+2+4+8+16) — mirrors the server's `working_day_duration` default. */
+const MON_FRI_MASK = 31;
+
 /**
- * Mon–Fri working days in `[startIso, finishIso]` inclusive — a client-side
- * preview estimate of the duration the server computes from `planned_finish`
- * (#951). The server is authoritative on commit (it derives `duration` from the
- * project calendar's weekday mask); this matches it for the default Mon–Fri
- * calendar and is used only to label the commit popover (old → new working
- * days). It exists because the web side has no project calendar to count
- * against — the real value round-trips back via the post-commit CPM refetch.
+ * Is a UTC-midnight instant a working day under a `Calendar.working_days` mask?
+ *
+ * The mask convention is `bit = 1 << pythonWeekday` (Mon=1 … Sun=64), identical
+ * to the server's. Deliberately NOT reusing `bitForDate` from `lib/recurrence.ts`:
+ * that helper reads `getDay()` (viewer-local), and every date in this module is a
+ * UTC-midnight instant (rule 56). A local read shifts the weekday by one for any
+ * viewer behind UTC, which would silently mis-classify Friday as Saturday — a
+ * class of bug that passes CI, because the runner sits on UTC.
  */
-function workingDaysInclusive(startIso: string, finishIso: string): number {
+function isWorkingDayUtc(ms: number, mask: number): boolean {
+  const dow = new Date(ms).getUTCDay(); // 0 = Sun … 6 = Sat
+  const bit = 1 << (dow === 0 ? 6 : dow - 1); // Mon=1 … Sat=32, Sun=64
+  return (mask & bit) !== 0;
+}
+
+/**
+ * Working days in `[startIso, finishIso]` inclusive under the project calendar's
+ * weekday mask — a client-side estimate of the duration the server computes from
+ * `planned_finish` (#951).
+ *
+ * The server stays authoritative on commit; this is used to label the commit
+ * popover and to detect a resize that resolves to no duration change at all
+ * (#2561 — dropping the handle on a non-working day counts zero extra working
+ * days, so the drag cannot move `duration`).
+ *
+ * Blind to holidays: the calendar payload carries `holiday_count`, not the
+ * exception dates, so a holiday the weekly mask treats as working is counted
+ * here and excluded by the server. The no-op guard compares two counts taken
+ * with this same function, so a holiday inside the unchanged prefix cancels out;
+ * the residue is a holiday landing in the extended region (#1498).
+ */
+function workingDaysInclusive(startIso: string, finishIso: string, mask: number): number {
   const startMs = new Date(startIso + 'T00:00:00Z').getTime();
   const finishMs = new Date(finishIso + 'T00:00:00Z').getTime();
   let count = 0;
   for (let ms = startMs; ms <= finishMs; ms += DAY_MS) {
-    const dow = new Date(ms).getUTCDay(); // 0 = Sun … 6 = Sat
-    if (dow !== 0 && dow !== 6) count += 1;
+    if (isWorkingDayUtc(ms, mask)) count += 1;
   }
   return Math.max(1, count);
+}
+
+/** "Aug 15" — UTC-parsed to match this module's date arithmetic (rule 56). */
+function formatDayLabel(iso: string): string {
+  return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 function computeNewFinishIso(newStartIso: string, durationDays: number): string {
@@ -167,6 +208,7 @@ export function useScheduleCommit({
   projectId,
   projectStartDate,
   effectiveFloorDate,
+  workingDaysMask,
   visibleTasks,
   allTasks,
   sprints,
@@ -194,6 +236,12 @@ export function useScheduleCommit({
   useEffect(() => {
     sprintsRef.current = sprints;
   }, [sprints]);
+  // The mask arrives with the project detail fetch, after the engine listeners are
+  // subscribed — a plain closure would keep the Mon–Fri fallback forever.
+  const workingDaysMaskRef = useRef(workingDaysMask ?? MON_FRI_MASK);
+  useEffect(() => {
+    workingDaysMaskRef.current = workingDaysMask ?? MON_FRI_MASK;
+  }, [workingDaysMask]);
 
   const computeAnchor = useCallback(
     (taskId: string, newBarLeftCanvas: number, newBarRightCanvas: number): { x: number; y: number } | null => {
@@ -287,7 +335,29 @@ export function useScheduleCommit({
       if (newFinish === task.finish) return;
       // Duration is derived server-side from `planned_finish` via the project
       // calendar (#951); this working-day estimate only labels the popover.
-      const newDuration = workingDaysInclusive(task.start, newFinish);
+      const mask = workingDaysMaskRef.current;
+      const newDuration = workingDaysInclusive(task.start, newFinish, mask);
+      // #2561: the finish DATE moved but the WORKING-day span did not, because the
+      // user dropped the handle on a non-working day. `planned_finish` resolves to
+      // the same duration server-side, so the PATCH would be a no-op and the CPM
+      // refetch would redraw the bar where it started — reading as an unexplained
+      // snap-back after the user confirmed a "7d → 7d" popover. Say so instead.
+      //
+      // Compare two counts taken with the SAME mask, not the stored duration: a
+      // holiday the client cannot see (only `holiday_count` is exposed) would make
+      // a client count differ from the stored value on every task, and equality is
+      // the only question here. Whether a drop on non-working time SHOULD instead
+      // consume the next working day is the open semantic in #2562; this guard
+      // deliberately does not decide it.
+      if (newDuration === workingDaysInclusive(task.start, task.finish, mask)) {
+        setScheduleActionToast({
+          message: `${formatDayLabel(newFinish)} isn't a working day — this task still finishes ${formatDayLabel(task.finish)}.`,
+        });
+        if (ariaAssertiveRef.current) {
+          ariaAssertiveRef.current.textContent = `Resize not applied. ${formatDayLabel(newFinish)} is not a working day.`;
+        }
+        return;
+      }
       engine.updateTask(id, {
         finish: newFinish,
         duration: newDuration,
@@ -317,7 +387,14 @@ export function useScheduleCommit({
         ariaAssertiveRef.current.textContent = 'Resize pending. Confirm or cancel.';
       }
     });
-  }, [engine, projectId, computeAnchor, findActiveSprintName, ariaAssertiveRef]);
+  }, [
+    engine,
+    projectId,
+    computeAnchor,
+    findActiveSprintName,
+    ariaAssertiveRef,
+    setScheduleActionToast,
+  ]);
 
   const revertEngine = useCallback(
     (s: ScheduleCommitState) => {
