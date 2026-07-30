@@ -264,7 +264,12 @@ sonar-exclusions-check: ## Fail if a sonar-project.properties exclusion has gone
 	@# under-matches, which is how #2517 dropped the reliability rating A → D.
 	@bash scripts/check-sonar-exclusions.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+extension-signals-check: ## Fail if an OSS→Enterprise extension signal uses plain .send() (#2606)
+	@# A receiver's exception propagates through .send(), so a bug in enterprise
+	@# code breaks the OSS write path that fired the signal. Grep + sed, ~1s.
+	@bash scripts/check-extension-signals.sh
+
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

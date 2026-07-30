@@ -30,6 +30,7 @@ def record_failed_task(
     """
     from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
     from trueppm_api.apps.scheduling.signals import celery_task_permanently_failed
+    from trueppm_api.core.extension_signals import dispatch_extension_signal
 
     exc_type = type(exception).__qualname__
     exc_msg = str(exception)
@@ -72,9 +73,10 @@ def record_failed_task(
     )
 
     if created:
-        # send_robust: a misbehaving receiver (incl. enterprise PagerDuty/Slack)
-        # must never break the dead-letter recording path.
-        celery_task_permanently_failed.send_robust(
+        # A misbehaving receiver (incl. enterprise PagerDuty/Slack) must never
+        # break the dead-letter recording path.
+        dispatch_extension_signal(
+            celery_task_permanently_failed,
             sender=task_name,
             task_id=task_id,
             task_name=task_name,

@@ -36,6 +36,7 @@ from trueppm_api.apps.agents.models import (
     AgentActorKind,
 )
 from trueppm_api.apps.agents.signals import agent_action_prune_requested, agent_action_recorded
+from trueppm_api.core.extension_signals import dispatch_extension_signal
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -193,7 +194,9 @@ def record_agent_action(
                 projected_impact=projected_impact or {},
             )
 
-    transaction.on_commit(lambda: agent_action_recorded.send(sender=AgentAction, action=entry))
+    transaction.on_commit(
+        lambda: dispatch_extension_signal(agent_action_recorded, sender=AgentAction, action=entry)
+    )
     return entry
 
 
@@ -306,6 +309,15 @@ def prune_agent_actions(
             )
 
         # Legal-hold veto point — a receiver raising here rolls back the whole prune.
+        #
+        # FAIL-CLOSED: `.send()` is correct here and must NOT become
+        # dispatch_extension_signal / send_robust. Every other OSS→Enterprise
+        # signal is robust so a third-party bug cannot break an OSS write path
+        # (#2606); this one is the inverse — the raise IS the mechanism. Making
+        # it robust would swallow a hold that failed to register and let the
+        # prune delete records under legal hold, inverting the safety property.
+        # scripts/check-extension-signals.sh recognizes the FAIL-CLOSED marker
+        # above and allows this site; do not remove it.
         agent_action_prune_requested.send(
             sender=AgentAction,
             cutoff_sequence=cutoff_sequence,

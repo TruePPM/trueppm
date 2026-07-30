@@ -177,6 +177,7 @@ The classification test: "Would a PM or program manager need this to run their p
 ### OSS / Enterprise boundary rules
 - The OSS core must remain fully functional without the enterprise repo — no hard dependencies on enterprise hooks, signals, or settings
 - Extension points (settings includes, URL patterns, signal hooks) must remain stable — enterprise code registers against them; changing their shape is a breaking change for enterprise customers
+- **Dispatch every extension signal with `dispatch_extension_signal()`** (`trueppm_api.core.extension_signals`), never a bare `Signal.send()`. `send()` propagates a receiver's exception to the sender, so a bug in enterprise code breaks the OSS write path that fired it — the exact inverse of the one-way dependency. Enforced by `make extension-signals-check` and the `api:extension-signals` CI job (#2606). The single exception is a **fail-closed veto**, where a receiver raising is the mechanism rather than a fault (`agent_action_prune_requested`, the legal-hold check on agent-action pruning): keep `send()` and write a `FAIL-CLOSED` comment above the call saying why, which the gate honors
 - Verify with: `grep -r "trueppm_enterprise" packages/` — must return zero results in OSS code
 
 ### Issues are part of the boundary

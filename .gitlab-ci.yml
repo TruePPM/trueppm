@@ -1005,6 +1005,35 @@ scheduler:lint:
     - ruff check src/ tests/
     - ruff format --check src/ tests/
 
+api:extension-signals:
+  extends: .fast-job
+  # Every OSS→Enterprise extension signal must dispatch robustly (#2606).
+  #
+  # `Signal.send()` propagates a receiver's exception to the sender, so a bug in
+  # an enterprise receiver breaks the OSS write path that fired it — inverting
+  # the boundary contract that OSS works regardless of what enterprise does.
+  # `history_record_created` is fired from the post_save of every Historical* row
+  # for Project, Task and Dependency, so it was one receiver away from failing
+  # every task save in the product.
+  #
+  # The invariant was documented in five skills and honored at 7 of 15 sites,
+  # which is the case for a gate rather than a convention. The signal set is
+  # discovered from the `= Signal()` declarations rather than hardcoded, so a
+  # NEW extension point written in the old style is caught — that being the
+  # failure mode this actually has to catch.
+  #
+  # A fail-closed veto (a receiver raising IS the mechanism) keeps .send() and is
+  # allowed by a FAIL-CLOSED comment above the call. Grep + sed; ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep sed
+  script:
+    - bash scripts/check-extension-signals.sh
+
 api:lint:
   extends: .fast-job
   stage: lint

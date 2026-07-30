@@ -17,6 +17,8 @@ from __future__ import annotations
 import django.dispatch
 from django.db.models.signals import post_save
 
+from trueppm_api.core.extension_signals import dispatch_extension_signal
+
 history_record_created = django.dispatch.Signal()
 
 
@@ -35,7 +37,12 @@ def _dispatch_history_record_created(
     # and ``history_type`` as attributes.
     tracked = getattr(instance, "instance", None)
     history_type = getattr(instance, "history_type", None)
-    history_record_created.send(
+    # Robust dispatch is load-bearing here, not defensive style: this runs inside
+    # the post_save of every Historical* row for Project, Task and Dependency, so
+    # a raising enterprise receiver would fail every task save in the product
+    # (#2606).
+    dispatch_extension_signal(
+        history_record_created,
         sender=sender,
         instance=tracked,
         history_instance=instance,

@@ -2809,10 +2809,13 @@ def record_sprint_scope_change(
             task.sprint_pending = True
             task.save(update_fields=["sprint_pending"])
 
-    # send_robust: sprint_scope_changed is the OSS extension point Enterprise
-    # connects against. A raising receiver must not propagate out of and break
-    # this OSS scope-change write path.
-    sprint_scope_changed.send_robust(
+    # sprint_scope_changed is the OSS extension point Enterprise connects
+    # against. A raising receiver must not propagate out of and break this OSS
+    # scope-change write path.
+    from trueppm_api.core.extension_signals import dispatch_extension_signal
+
+    dispatch_extension_signal(
+        sprint_scope_changed,
         sender=SprintScopeChange,
         scope_change=scope_change,
         task=task,
@@ -4168,6 +4171,7 @@ def reforecast_bound_milestone(
     )
     from trueppm_api.apps.projects.signals import milestone_forecast_recomputed
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    from trueppm_api.core.extension_signals import dispatch_extension_signal
 
     milestone = (
         Task.objects.filter(pk=milestone_id, is_milestone=True, is_deleted=False)
@@ -4251,7 +4255,8 @@ def reforecast_bound_milestone(
                 },
             )
             # §6 Enterprise seam — band + dates only, NO binding_drifted, NO series.
-            milestone_forecast_recomputed.send(
+            dispatch_extension_signal(
+                milestone_forecast_recomputed,
                 sender=ForecastSnapshot,
                 project_id=project_id_str,
                 milestone_id=milestone_id_str,
