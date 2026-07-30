@@ -341,9 +341,9 @@ def test_suggest_approve_scheduler_writes_accepted(
         {"optimistic_duration": 3, "most_likely_duration": 5, "pessimistic_duration": 8},
         format="json",
     )
-    # A Resource Manager (role 2) is read-only on task *content* — the estimate
-    # PATCH is refused. Asserting the 403 keeps this test honest: without it the
-    # unchecked response made the case look like a successful Scheduler write.
+    # A Resource Manager (Role.SCHEDULER) is read-only on task *content* — the
+    # estimate PATCH is refused. Asserting the 403 keeps this test honest: without
+    # it the unchecked response made the case look like a successful Scheduler write.
     assert patch_resp.status_code == 403
     # approve-estimates is the Scheduler's actual door, and it sets accepted
     # atomically regardless of what the PATCH path allows.
@@ -596,10 +596,11 @@ def test_project_manager_cannot_self_approve_via_bare_patch_either(
 
     The action is the single audited write path; allowing a privileged PATCH to
     shortcut it would put the same value in the record by an unlogged route. A
-    Project Manager (Admin) is used here rather than a Resource Manager because
-    role 2 is deliberately read-only on task *content* (IsProjectMemberWriteOrOwn),
-    so a Scheduler PATCH is refused before the serializer is ever consulted and
-    would prove nothing about field-level protection.
+    Project Manager (Role.ADMIN) is used here rather than a Resource Manager because
+    Role.SCHEDULER is deliberately read-only on task *content*
+    (IsProjectMemberWriteOrOwn), so a Scheduler PATCH is refused before the
+    serializer is ever consulted and would prove nothing about field-level
+    protection.
     """
     pm = _make_user("sa_pm")
     _make_membership(suggest_project, pm, Role.ADMIN)
