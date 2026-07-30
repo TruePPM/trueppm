@@ -71,7 +71,7 @@ trueppm-suite/
 - State: Zustand for client state, TanStack Query for server state
 - Styling: Tailwind CSS with Design System v1.0 tokens
 - No `any` types. Use `unknown` and narrow.
-- Shared types: generate from OpenAPI schema (packages/api → packages/web/src/api/types.ts)
+- Shared types: `packages/web/src/api/types.ts` is **hand-maintained**, not generated (#2609). The `generate:types` script exists but emits a different (paths/components) shape that breaks the build — do not run it blindly. When the API schema changes, update the affected interfaces by hand and check them against `docs/api/openapi.json`. There is no drift gate (#2633); see the file's own header
 
 ### Git
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/` prefix + short description (e.g. `feat/cpm-engine`, `fix/sync-conflict`)

@@ -1,7 +1,21 @@
 # ADR-0029: Frontend Slot Registry and Edition Detection
 
 ## Status
-Accepted
+Accepted — **partially implemented as of 0.4.**
+
+The slot registry itself is live (`packages/web/src/lib/widget-registry.ts`), and
+six of its fifteen slots have an OSS render point. **The overlay loader specified
+in the Decision section below does not exist**: `main.tsx` contains no dynamic
+import of `@trueppm/enterprise-web`, and the `*Edition.ts` build-time override
+seams have no corresponding vite alias. So no enterprise module can register
+against any slot today — all fifteen are unreachable, not just the nine marked
+RESERVED (#2609).
+
+This note exists because the ADR read as fully implemented, and a contract
+documented as live but not wired is worse than one that is absent: an integrator
+builds against it and discovers at runtime that nothing loads. Wiring the loader
+is tracked separately; until then, treat the Decision section as the design, not
+a description of the shipped state.
 
 ## Context
 
