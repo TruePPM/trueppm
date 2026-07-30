@@ -3047,6 +3047,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             # ADR-0102: only the accept/reject services may change this — never a
             # client PATCH (so a contributor cannot self-accept by writing it).
             "sprint_pending",
+            # ADR-0032: the value is owned by the server. It is set to pending by
+            # _apply_estimate_governance when PERT durations are written, and only
+            # the Scheduler-gated approve-estimates action may raise it to accepted.
+            # Writable here, an assignee could self-approve their own estimate with a
+            # bare PATCH — the governance hook fires only on a PERT co-write, so it
+            # never saw that payload (#2570).
+            "estimate_status",
             "sprint_scope_changes",
             "milestone_rollup",
             # Computed product-backlog reads (the writable backing fields type /
@@ -4471,8 +4478,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     def _apply_estimate_governance(self, instance: Task, validated_data: dict[str, Any]) -> None:
         """Mark estimate_status pending when PERT fields are written in suggest_approve mode.
 
-        Caller must not pass estimate_status directly; the approve-estimates action
-        is the only path to 'accepted'.
+        estimate_status is in ``Meta.read_only_fields``, so a client-supplied value is
+        dropped before it reaches ``validated_data`` and this hook is the only thing
+        that writes the field on the PATCH path. That read-only declaration is the
+        enforcement — this hook cannot be, because it fires only when a PERT duration
+        is co-written, and a payload carrying estimate_status alone would sail past it
+        (#2570). The approve-estimates action remains the only path to 'accepted'; it
+        writes the model directly and so is unaffected by the read-only declaration.
         """
         _pert_fields = {"optimistic_duration", "most_likely_duration", "pessimistic_duration"}
         if _pert_fields & set(validated_data):
