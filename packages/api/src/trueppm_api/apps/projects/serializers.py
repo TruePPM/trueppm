@@ -4620,6 +4620,41 @@ class TaskDurationChangeEventSerializer(serializers.ModelSerializer[TaskDuration
         return name
 
 
+class SprintDurationChangeEventSerializer(serializers.Serializer[Any]):
+    """One duration-change event in a sprint's changes-log (ADR-0151)."""
+
+    # Documentation-only: the per-sprint aggregate is built as plain dicts in
+    # ``services.sprint_duration_change_payload`` (so the changes-log renders task
+    # attribution without a second round trip), and this class exists purely to give
+    # ``GET /api/v1/sprints/{id}/duration-events/`` a truthful OpenAPI component —
+    # it published a ``Sprint`` before #2583. Deliberately NOT
+    # ``TaskDurationChangeEventSerializer``: the per-sprint rows denormalize
+    # ``task_name``/``actor_name`` and drop ``source``/``sprint``, so reusing the
+    # per-task serializer would publish a second contract the endpoint does not meet.
+    # Keep these fields in lockstep with ``sprint_duration_change_payload``; the
+    # declared-vs-actual test in ``tests/test_openapi_response_conformance.py``
+    # fails if they drift.
+
+    id = serializers.UUIDField(read_only=True)
+    task_id = serializers.UUIDField(read_only=True)
+    task_name = serializers.CharField(read_only=True, allow_null=True)
+    old_duration = serializers.IntegerField(read_only=True)
+    new_duration = serializers.IntegerField(read_only=True)
+    percent_complete_at_change = serializers.FloatField(read_only=True)
+    # Non-null only when the policy actually mutated % (prorate); the client
+    # renders the "% recalculated" line only then.
+    percent_complete_after = serializers.FloatField(read_only=True, allow_null=True)
+    # ChoiceField, not CharField: the sibling per-task component publishes
+    # PolicyAppliedEnum for the same underlying field, and an SDK that got a bare
+    # `string` from one endpoint and an enum from the other would have to hand-write
+    # the union back. Reuses the existing enum component rather than minting a second.
+    policy_applied = serializers.ChoiceField(
+        choices=DurationChangePercentPolicy.choices, read_only=True
+    )
+    actor_name = serializers.CharField(read_only=True, allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+
 class TaskReorderSerializer(serializers.Serializer[Any]):
     """Validate the body for POST /api/v1/projects/{pk}/tasks/reorder/.
 

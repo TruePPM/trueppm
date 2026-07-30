@@ -178,7 +178,11 @@ GET /api/v1/projects/{project_id}/webhooks/{webhook_id}/deliveries/
 GET /api/v1/programs/{program_id}/webhooks/{webhook_id}/deliveries/
 ```
 
-Returns paginated `WebhookDelivery` records with `sequence_number`, `status`, `response_status`, `attempt_count`, and timestamps. Useful for debugging and for inspecting a delivery flagged as a gap by its sequence number.
+Returns `WebhookDelivery` records with `sequence_number`, `status`, `response_status`, `attempt_count`, and timestamps. Useful for debugging and for inspecting a delivery flagged as a gap by its sequence number.
+
+The delivery log grows without bound, so it is **cursor**-paginated rather than
+page-numbered: the envelope is `{next, previous, results}` with **no `count`**.
+Follow `next` until it is `null`. See [Pagination](/api/reference/#pagination).
 
 ## Disabling a webhook
 
