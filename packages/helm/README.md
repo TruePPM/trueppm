@@ -73,6 +73,12 @@ kubectl get secret <release>-trueppm-connection \
 | `containerSecurityContext` | restricted profile | Container-level hardening for API/worker. |
 | `resources.api` / `resources.worker` / `resources.beat` / `resources.web` | see values.yaml | Per-container resources. |
 | `web.enabled` | `true` | Render the nginx-served React SPA tier + `Service`. |
+| `web.adminAccess.enabled` | `true` | Render the `/admin/` proxy; `false` returns `404` instead. |
+| `web.adminAccess.allowCIDRs` | `[]` | Sources allowed to reach `/admin/`. **Empty = deny all** — use `kubectl port-forward svc/<release>-trueppm-api 8000:8000` instead. |
+| `web.adminAccess.rateLimit.*` | `5r/m`, burst `2` | nginx `limit_req` on the admin login surface (no DRF throttle covers Django admin). |
+| `celeryWorker.concurrency` | `2` | **Pinned** prefork pool size. Unset, Celery's `cpu_count()` reads the node's cores, not the cgroup limit, and OOM-kills the worker. |
+| `celeryWorker.maxTasksPerChild` | `100` | Recycle prefork children to bound RSS growth on long tasks; `0` disables. |
+| `celeryWorker.extraArgs` | `[]` | Extra `celery worker` flags, appended in order. |
 | `image.webRepository` | `.../web` | Web tier image (shares `image.tag`/`pullPolicy` with the API). |
 | `probes.api.readinessPath` | `/api/v1/readyz` | Deep API readiness check; liveness stays on `probes.api.livenessPath` (`/api/v1/health/`). |
 | `probes.worker.enabled` / `probes.beat.enabled` | `true` | `celery inspect ping` exec probe on the worker/beat tiers. |

@@ -199,4 +199,38 @@ echo "$probe_log" | grep -qi "SECRET_KEY" \
   || fail "probe failed but not on SECRET_KEY; log tail: $(echo "$probe_log" | tail -3)"
 log "negative probe GREEN — deploy without SECRET_KEY refuses to start"
 
-log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, guards fail closed"
+# ---- 8. Django admin is NOT reachable through the web tier (#2569) ----------
+# The static half of this lives in helm-structure-check.sh; this is the runtime
+# proof. The request originates from the api pod, i.e. an ordinary in-cluster
+# address that is not in the (empty by default) web.adminAccess.allowCIDRs, so
+# nginx must answer 403. Driven from the api pod because the nginx image carries
+# no curl, and with urllib because it needs no extra dependency.
+log "probing /admin/ through the web tier — must be denied"
+admin_code="$(kubectl exec "$api_pod" -c api -- python -c "
+import urllib.request, urllib.error
+url = 'http://${RELEASE}-trueppm-web/admin/'
+try:
+    print(urllib.request.urlopen(url, timeout=15).status)
+except urllib.error.HTTPError as e:
+    print(e.code)
+" 2>/dev/null | tr -d '[:space:]')"
+[ "$admin_code" = "403" ] \
+  || fail "/admin/ through the web tier returned '${admin_code}', expected 403 — a default install is publishing Django admin (#2569)"
+log "admin denied at the web tier (HTTP 403) — deny-by-default holds at runtime"
+
+# ---- 9. celery worker: concurrency pinned, and it STAYS up (#2571) ----------
+# `helm install --wait` above already gates on the worker becoming Ready. What it
+# cannot see is an OOMKill loop that starts once the prefork children are all
+# spawned, so also assert the flag is really on the running container and that
+# the pod has not restarted.
+worker_pod="$(kubectl get pod -l app.kubernetes.io/component=celery-worker -o jsonpath='{.items[0].metadata.name}')"
+[ -n "$worker_pod" ] || fail "no celery-worker pod found"
+worker_cmd="$(kubectl get pod "$worker_pod" -o jsonpath='{.spec.containers[0].command}')"
+echo "$worker_cmd" | grep -qE -- '--concurrency=[0-9]+' \
+  || fail "running celery-worker has no --concurrency; command was: $worker_cmd"
+restarts="$(kubectl get pod "$worker_pod" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
+[ "${restarts:-0}" -eq 0 ] \
+  || fail "celery-worker restarted ${restarts}x since rollout — likely the OOMKill loop from an unpinned prefork pool (#2571)"
+log "celery worker pinned and stable (0 restarts): $worker_cmd"
+
+log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned, guards fail closed"
