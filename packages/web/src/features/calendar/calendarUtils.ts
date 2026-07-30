@@ -130,31 +130,49 @@ export function buildChips(tasks: Task[], anchorDate: Date): CalendarChipData[] 
 
     if (taskEnd < viewStart || taskStart > viewEnd) continue;
 
-    for (const ws of weeks) {
-      const we = addDays(ws, 6);
-      const clampStart = taskStart < ws ? ws : taskStart;
-      const clampEnd = taskEnd > we ? we : taskEnd;
-      if (clampStart > clampEnd) continue;
-
-      const chipStartOffset = Math.round((clampStart.getTime() - ws.getTime()) / 86_400_000);
-      const chipDays = Math.round((clampEnd.getTime() - clampStart.getTime()) / 86_400_000) + 1;
-
-      chips.push({
-        taskId: task.id,
-        taskName: task.name,
-        weekStart: formatISODate(ws),
-        chipStartOffset,
-        chipDays,
-        isCritical: task.isCritical,
-        isMilestone: false,
-        isComplete: task.isComplete,
-        isStart: clampStart.getTime() === taskStart.getTime(),
-        isEnd: clampEnd.getTime() === taskEnd.getTime(),
-      });
-    }
+    chips.push(...weekFragments(task, taskStart, taskEnd, weeks));
   }
 
   return chips;
+}
+
+/**
+ * Split one task's span into a chip per calendar week row it touches.
+ *
+ * Each fragment is clamped to its own week, and `isStart`/`isEnd` mark only the
+ * fragments carrying the task's real endpoints — that is what lets the renderer
+ * round the outer edges of a multi-week bar while leaving the interior joins
+ * square, so a bar reads as continuous across rows.
+ */
+function weekFragments(
+  task: Task,
+  taskStart: Date,
+  taskEnd: Date,
+  weeks: Date[],
+): CalendarChipData[] {
+  const fragments: CalendarChipData[] = [];
+
+  for (const ws of weeks) {
+    const we = addDays(ws, 6);
+    const clampStart = taskStart < ws ? ws : taskStart;
+    const clampEnd = taskEnd > we ? we : taskEnd;
+    if (clampStart > clampEnd) continue;
+
+    fragments.push({
+      taskId: task.id,
+      taskName: task.name,
+      weekStart: formatISODate(ws),
+      chipStartOffset: Math.round((clampStart.getTime() - ws.getTime()) / 86_400_000),
+      chipDays: Math.round((clampEnd.getTime() - clampStart.getTime()) / 86_400_000) + 1,
+      isCritical: task.isCritical,
+      isMilestone: false,
+      isComplete: task.isComplete,
+      isStart: clampStart.getTime() === taskStart.getTime(),
+      isEnd: clampEnd.getTime() === taskEnd.getTime(),
+    });
+  }
+
+  return fragments;
 }
 
 /** Compute milestone diamond markers for the month grid. */
