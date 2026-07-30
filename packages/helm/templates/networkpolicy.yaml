@@ -4,11 +4,19 @@ Default-on NetworkPolicy (#1715): the bundled datastores speak PLAINTEXT on the
 pod network, so this policy is the transport-security boundary in the dev/demo
 posture. Two directions are locked down on each bundled datastore pod:
 
-  - Ingress: ONLY the API and Celery worker pods (matched by selector labels) may
-    reach PostgreSQL (5432) / Valkey (6379). Every other pod is denied.
+  - Ingress: ONLY the chart's own datastore clients (matched by selector labels)
+    may reach PostgreSQL (5432) / Valkey (6379). Every other pod is denied.
   - Egress: default-DENY. A datastore pod has no legitimate reason to initiate
     outbound connections; policyTypes lists Egress with no egress rules, which
     denies all egress and blocks exfiltration from a compromised datastore.
+
+The allowed-client lists below must name EVERY component that opens a datastore
+connection. Getting this wrong fails silently in the safe-looking direction — the
+policy still renders, still applies, and simply drops the traffic — so it is
+asserted at runtime by scripts/helm-netpol-drill.sh rather than trusted. #2560
+found `backup` and `demo-seed` missing from these lists: the backup CronJob's
+pg_dump and the demo-seed Job's migrate/seed both open PostgreSQL, and on an
+enforcing CNI both were being dropped.
 
 The API and Celery worker pods are deliberately NOT egress-restricted here: they
 make legitimate outbound calls (OIDC/OAuth login to the operator's IdP, SMTP,
@@ -17,7 +25,9 @@ chart-imposed egress allowlist would break real installs. Restrict their egress
 at the platform layer if your environment requires it.
 
 Requires a CNI that enforces NetworkPolicy (Calico, Cilium, Antrea, etc.); on a
-cluster without one these objects are accepted but SILENTLY UNENFORCED.
+cluster without one these objects are accepted but SILENTLY UNENFORCED. kind's
+default kindnetd is such a CNI, which is why the enforcement drill creates its own
+Calico cluster instead of reusing the helm:install one.
 
 Only rendered for the datastores the chart actually bundles — when postgresql /
 valkey are disabled (managed-service path) the corresponding policy is skipped.
@@ -39,19 +49,11 @@ spec:
     - Ingress
     - Egress
   ingress:
+    {{- /* backup: the CronJob's pg_dump (#320). demo-seed: its migrate init
+         container and seed_demo_project (ADR-0658). Both are off by default, but
+         both break under enforcement if omitted. */}}
     - from:
-        - podSelector:
-            matchLabels:
-              {{- include "trueppm.selectorLabels" . | nindent 14 }}
-              app.kubernetes.io/component: api
-        - podSelector:
-            matchLabels:
-              {{- include "trueppm.selectorLabels" . | nindent 14 }}
-              app.kubernetes.io/component: celery-worker
-        - podSelector:
-            matchLabels:
-              {{- include "trueppm.selectorLabels" . | nindent 14 }}
-              app.kubernetes.io/component: celery-beat
+        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (list "api" "celery-worker" "celery-beat" "backup" "demo-seed")) | nindent 8 }}
       ports:
         - protocol: TCP
           port: 5432
@@ -75,19 +77,12 @@ spec:
     - Ingress
     - Egress
   ingress:
+    {{- /* No `backup` here: the backup CronJob is wired with DATABASE_URL only and
+         never opens the broker, so listing it would widen the policy for traffic
+         that does not exist. demo-seed runs Django, which resolves CACHES and the
+         channel layer against Valkey. */}}
     - from:
-        - podSelector:
-            matchLabels:
-              {{- include "trueppm.selectorLabels" . | nindent 14 }}
-              app.kubernetes.io/component: api
-        - podSelector:
-            matchLabels:
-              {{- include "trueppm.selectorLabels" . | nindent 14 }}
-              app.kubernetes.io/component: celery-worker
-        - podSelector:
-            matchLabels:
-              {{- include "trueppm.selectorLabels" . | nindent 14 }}
-              app.kubernetes.io/component: celery-beat
+        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (list "api" "celery-worker" "celery-beat" "demo-seed")) | nindent 8 }}
       ports:
         - protocol: TCP
           port: 6379

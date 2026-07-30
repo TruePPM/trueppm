@@ -152,10 +152,11 @@ valkey:
 # NetworkPolicy — ON by default (#1715). The bundled PostgreSQL and Valkey pods
 # speak PLAINTEXT on the pod network (no in-transit TLS), so on a flat network any
 # pod in the cluster could open 5432/6379 and read/write the datastore. When
-# enabled the chart restricts ingress to the datastores so ONLY the API and Celery
-# worker pods (matched by selector labels) can reach them, and applies a
-# default-deny EGRESS posture to the datastore pods (they never legitimately dial
-# out). This is the enforced default for the bundled dev/demo datastores.
+# enabled the chart restricts ingress to the datastores so ONLY the tiers that
+# legitimately open them can (api, celery-worker, celery-beat, backup, demo-seed —
+# matched by selector labels), and applies a default-deny EGRESS posture to the
+# datastore pods (they never legitimately dial out). This is the enforced default
+# for the bundled dev/demo datastores.
 #
 # REQUIRES a CNI that enforces NetworkPolicy (Calico, Cilium, Antrea, Weave, …).
 # On a cluster whose CNI does NOT enforce policy these objects are accepted but
@@ -164,6 +165,17 @@ valkey:
 # datastores for anything sensitive; use managed external datastores with TLS
 # (values-prod.yaml) instead. Set enabled=false only if you have an equivalent
 # network control (e.g. a service mesh) enforcing the same isolation.
+#
+# Enforcement is TESTED, not assumed (#2560): scripts/helm-netpol-drill.sh installs
+# the chart on a kind cluster with Calico and asserts the positive, negative, and
+# egress-deny cases (CI job `helm:netpol`, per-MR + nightly). Note that the broader
+# `helm:install` deploy drill runs on kind's DEFAULT CNI, which does NOT enforce
+# NetworkPolicy — a green helm:install says nothing about isolation.
+#
+# ADDING A DATASTORE CLIENT: the allow-lists in templates/networkpolicy.yaml name
+# clients by `app.kubernetes.io/component`. A new Deployment/Job/CronJob that opens
+# PostgreSQL or Valkey must be added there, or its connections are dropped on any
+# enforcing cluster while every render-time gate stays green.
 networkPolicy:
   enabled: true
 
