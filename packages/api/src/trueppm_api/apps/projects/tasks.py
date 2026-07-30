@@ -974,3 +974,231 @@ def _do_purge_expired_program_exports() -> None:
         count += 1
     if count:
         logger.info("purge_expired_program_exports: deleted %d expired export(s)", count)
+
+
+# ---------------------------------------------------------------------------
+# Async program seed import (ADR-0726, #2574) — the mirror of the export tasks
+# above. Same durable-execution shape; the payload travels through storage.
+# ---------------------------------------------------------------------------
+
+IMPORT_MAX_RETRIES = 3  # ADR-0726 §Durable Execution item 8
+IMPORT_ORPHAN_WINDOW_MINUTES = 10  # ADR-0726 §Durable Execution item 3
+IMPORT_DRAIN_BATCH_SIZE = 10
+
+
+def _import_retention_days() -> int | None:
+    """Days a terminal import job (and its stored payload) is kept; ``None`` disables."""
+    from django.conf import settings
+
+    value = getattr(settings, "TRUEPPM_IMPORT_RETENTION_DAYS", 7)
+    return None if value in (None, 0) else int(value)
+
+
+@shared_task(  # type: ignore[untyped-decorator]
+    bind=True,
+    max_retries=IMPORT_MAX_RETRIES,
+    soft_time_limit=1800,
+    time_limit=1860,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.run_program_import",
+)
+def run_program_import(self: object, job_id: str) -> None:
+    """Build the subtree for a queued seed import (ADR-0726, #2574).
+
+    The request already did the parts that must be synchronous: it validated the
+    document, resolved and performed any confirmed replacement, and created the
+    program shell. This task only fills that shell, which is why it is *purely
+    additive* — and why the claim below is load-bearing rather than decorative.
+    A duplicate delivery (drain re-dispatch, ``acks_late`` redelivery after a
+    worker loss) would otherwise run the whole build a second time into the same
+    program and double every task, dependency, and sprint; ``Task`` carries no
+    ``(project, wbs_path)`` unique constraint to catch it.
+
+    Only transient faults retry. A validation or referential failure is
+    deterministic — and the request already rejected those synchronously — so it
+    goes straight to ``failed`` with the diagnostics on the row.
+
+    A failed job deliberately leaves the empty program shell in place rather than
+    cleaning it up: the replaced subtree is in Trash, and the Owner needs both the
+    shell and the failed job row to reason about what happened.
+    """
+    import json
+
+    from django.core.files.storage import default_storage
+
+    from trueppm_api.apps.projects.models import ImportJobStatus, ProgramImportJob
+    from trueppm_api.apps.projects.seed import SeedValidationError
+    from trueppm_api.apps.projects.seed import import_seed as run_import
+
+    with transaction.atomic():
+        job = ProgramImportJob.objects.select_for_update().filter(pk=job_id).first()
+        if job is None:
+            logger.warning("run_program_import: job %s not found", job_id)
+            return
+        if job.status not in (ImportJobStatus.PENDING, ImportJobStatus.RUNNING):
+            logger.info("run_program_import: job %s already %s, skipping", job_id, job.status)
+            return
+        job.status = ImportJobStatus.RUNNING
+        job.started_at = timezone.now()
+        job.celery_task_id = getattr(getattr(self, "request", None), "id", "") or ""
+        job.save(update_fields=["status", "started_at", "celery_task_id"])
+
+    program = job.program
+    try:
+        with default_storage.open(job.file_path, "rb") as handle:
+            payload = json.loads(handle.read().decode("utf-8"))
+    except Exception as exc:
+        # The payload is gone or unreadable: deterministic, so never retry.
+        logger.exception("run_program_import: payload unreadable for job %s", job_id)
+        _fail_import_job(job_id, f"The uploaded seed could not be read back: {exc}")
+        return
+
+    try:
+        # ``target_program`` adopts the shell the request created, which also
+        # tells the importer to skip its own replace pass entirely — the
+        # replacement, if any, already happened inside the request the operator
+        # authorized (ADR-0726 §4).
+        run_import(
+            payload,
+            owner=job.requested_by,
+            create_users=False,
+            target_program=program,
+        )
+    except SeedValidationError as exc:
+        _fail_import_job(job_id, "; ".join(exc.errors)[:2000])
+        return
+    except Exception as exc:
+        retries = getattr(getattr(self, "request", None), "retries", 0)
+        if retries < IMPORT_MAX_RETRIES:
+            logger.warning("run_program_import: job %s failed, retrying", job_id, exc_info=True)
+            raise self.retry(exc=exc, countdown=10 * (2**retries)) from exc  # type: ignore[attr-defined]
+        logger.exception("run_program_import: job %s failed permanently", job_id)
+        _fail_import_job(job_id, str(exc)[:2000])
+        return
+
+    retention = _import_retention_days()
+    expires_at = timezone.now() + timedelta(days=retention) if retention is not None else None
+    ProgramImportJob.objects.filter(pk=job_id).update(
+        status=ImportJobStatus.SUCCESS,
+        result_summary=_import_summary(program),
+        expires_at=expires_at,
+        completed_at=timezone.now(),
+        error_detail="",
+    )
+
+
+def _import_summary(program: Any) -> dict[str, int]:
+    """Entity counts the polling client renders once the job reaches ``success``."""
+    from trueppm_api.apps.projects.models import Dependency, Project, Sprint, Task
+
+    project_ids = list(
+        Project.objects.filter(program=program, is_deleted=False).values_list("pk", flat=True)
+    )
+    return {
+        "projects": len(project_ids),
+        "tasks": Task.objects.filter(project_id__in=project_ids, is_deleted=False).count(),
+        "sprints": Sprint.objects.filter(project_id__in=project_ids, is_deleted=False).count(),
+        "dependencies": Dependency.objects.filter(
+            predecessor__project_id__in=project_ids, is_deleted=False
+        ).count(),
+    }
+
+
+def _fail_import_job(job_id: str, detail: str) -> None:
+    """Mark a job ``failed`` with a reason the polling client can render.
+
+    Persisted rather than only logged: an async import failure has to be visible
+    on the surface that launched it, which is the whole point of returning a job
+    handle instead of a 504.
+    """
+    from trueppm_api.apps.projects.models import ImportJobStatus, ProgramImportJob
+
+    retention = _import_retention_days()
+    expires_at = timezone.now() + timedelta(days=retention) if retention is not None else None
+    ProgramImportJob.objects.filter(pk=job_id).update(
+        status=ImportJobStatus.FAILED,
+        error_detail=detail or "The seed could not be imported.",
+        expires_at=expires_at,
+        completed_at=timezone.now(),
+    )
+
+
+@idempotent_task(
+    lock_key_template="drain_program_imports",
+    lock_ttl=60,
+    on_contention="skip",
+    soft_time_limit=25,
+    time_limit=30,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.drain_program_imports",
+)
+def drain_program_imports(self: object) -> None:
+    """Re-dispatch seed import jobs stuck in ``pending`` (broker down at on_commit)."""
+    _do_drain_program_imports()
+
+
+@idempotent_task(
+    lock_key_template="purge_expired_program_imports",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=55,
+    time_limit=90,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.purge_expired_program_imports",
+)
+def purge_expired_program_imports(self: object) -> None:
+    """Delete terminal seed import jobs past retention, and their stored payloads."""
+    _do_purge_expired_program_imports()
+
+
+def _do_drain_program_imports() -> None:
+    from trueppm_api.apps.projects.models import ImportJobStatus, ProgramImportJob
+
+    # Only rows whose on_commit dispatch demonstrably never landed: still
+    # pending, never assigned a task id, and older than the window. A row inside
+    # an open on_commit callback is invisible until commit, so the age floor is
+    # what stops the drain racing an in-flight upload it would double-dispatch.
+    orphan_cutoff = timezone.now() - timedelta(minutes=IMPORT_ORPHAN_WINDOW_MINUTES)
+    stuck = list(
+        ProgramImportJob.objects.filter(
+            status=ImportJobStatus.PENDING,
+            celery_task_id="",
+            created_at__lt=orphan_cutoff,
+        ).order_by("created_at")[:IMPORT_DRAIN_BATCH_SIZE]
+    )
+    if not stuck:
+        return
+    for job in stuck:
+        try:
+            run_program_import.delay(str(job.id))
+        except Exception:  # pragma: no cover - broker still down, next tick retries
+            logger.warning("drain_program_imports: broker still unavailable for %s", job.id)
+            break
+    logger.info("drain_program_imports: re-dispatched %d job(s)", len(stuck))
+
+
+def _do_purge_expired_program_imports() -> None:
+    from django.core.files.storage import default_storage
+
+    from trueppm_api.apps.projects.models import ProgramImportJob
+
+    retention = _import_retention_days()
+    if retention is None:  # retention disabled — keep rows indefinitely
+        return
+    expired = ProgramImportJob.objects.filter(expires_at__lt=timezone.now())
+    count = 0
+    for job in expired.iterator():
+        if job.file_path:
+            try:
+                default_storage.delete(job.file_path)
+            except OSError:  # pragma: no cover - storage drift, still drop the row
+                logger.warning(
+                    "purge_expired_program_imports: could not delete payload for %s", job.id
+                )
+        job.delete()
+        count += 1
+    if count:
+        logger.info("purge_expired_program_imports: deleted %d expired import(s)", count)

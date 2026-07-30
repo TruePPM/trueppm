@@ -80,6 +80,8 @@ packages/api/workspace-exports/
 packages/api/project-exports/
 # Program export bundle test/runtime artifacts (ADR-0219, #1958; never committed)
 packages/api/program-exports/
+# Program seed import payload test/runtime artifacts (ADR-0726, #2574; never committed)
+packages/api/seed-imports/
 
 # Per-worktree harness files — auto-generated per worktree/machine by scripts/wt
 # (COMPOSE_PROJECT_NAME, isolated TRUEPPM_TEST_DB, owner marker, number reservation).

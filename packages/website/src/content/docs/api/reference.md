@@ -295,8 +295,9 @@ A program is a container for related projects (see [Programs](/features/programs
 | DELETE | `/api/v1/programs/{id}/` | Soft-delete |
 | GET | `/api/v1/programs/samples/` | List the bundled samples available to the demo loader |
 | POST | `/api/v1/programs/load-sample/` | Load a bundled sample program (the in-app "Load demo data" action); body `{"sample": "<key>"}` |
-| POST | `/api/v1/programs/import/` | Import a JSON seed document as a new program (raw JSON body or multipart `file` upload); caller becomes Owner |
-| POST | `/api/v1/programs/import/validate/` | **Dry run** — validate a JSON seed document and return every diagnostic, **persisting nothing**. Same request shapes and permissions as `import/`. An invalid document is `200 {"valid": false, "errors": [...]}`, not a `400`: the request succeeded, the document is what failed. Also echoes the schema version, program slug/name, and project/task/resource counts the file claims, so you can confirm you grabbed the right file before running the destructive import |
+| POST | `/api/v1/programs/import/` | Import a JSON seed document as a new program (raw JSON body or multipart `file` upload); caller becomes Owner. Returns `202 Accepted` — the program shell is created synchronously, the subtree is built by a worker. Optional `replace` / `expected_program_id` fields confirm a replacement; `409` without them |
+| GET | `/api/v1/programs/{id}/import/jobs/{job_id}/` | Poll one seed import job (Program Admin+). A `job_id` belonging to another program `404`s |
+| POST | `/api/v1/programs/import/validate/` | **Dry run** — validate a JSON seed document and return every diagnostic, **persisting nothing**. Same request shapes and permissions as `import/`. An invalid document is `200 {"valid": false, "errors": [...]}`, not a `400`: the request succeeded, the document is what failed. Also echoes the schema version, program slug/name, project/task/resource counts the file claims, and a `replaces` object naming the program this import would replace (`null` when the slug is free), so you can confirm you grabbed the right file — and see what it would cost — before running the destructive import |
 | GET | `/api/v1/programs/{id}/export/` | Download the program as a canonical JSON seed file (`Content-Disposition: attachment`) |
 | GET | `/api/v1/programs/{id}/rollup-config/` | Read the program rollup KPIs config (enabled KPIs + aggregation policy) |
 | PATCH | `/api/v1/programs/{id}/rollup-config/` | Update the program rollup KPIs config (Admin only) |
@@ -308,17 +309,94 @@ A program is a container for related projects (see [Programs](/features/programs
 | GET | `/api/v1/programs/{id}/schedule/` | Program-true cross-project critical path — merges every member project's tasks and every accepted cross-project dependency into one CPM run, computed on read. Tasks in projects you cannot read are redacted to a minimal card (title + forecast dates only); links are flagged cross-project (any program member) |
 | POST | `/api/v1/programs/{id}/split/` | Split a program into sub-programs — **planned, not yet implemented** (returns `501`) |
 
-Both write endpoints run the importer **synchronously** — each rebuilds a whole
-program, so a call takes seconds rather than milliseconds and scales with the
-document. Allow a generous request timeout, and expect a `6/min` per-account
-scoped limit on each (see [Rate limiting](#rate-limiting) below).
+Both write endpoints carry a `6/min` per-account scoped limit (see
+[Rate limiting](#rate-limiting) below).
 
-The import endpoint returns `201 Created` with the new program; it returns `400`
-with an `errors` array on a malformed or oversized seed document. The load-sample
-endpoint returns `201 Created` with a `{program, landing_project_id, sample_key}`
-envelope — `landing_project_id` is the project board to land a contributor on so
-their assigned work is visible (`null` when the sample has no open sprint), and
-`sample_key` echoes the loaded sample. See
+#### Seed import is asynchronous
+
+`POST /api/v1/programs/import/` returns **`202 Accepted`**:
+
+```json
+{
+  "queued": true,
+  "program_id": "0f3a…",
+  "import_request_id": "b71c…",
+  "replaced_program_id": null
+}
+```
+
+The program shell exists at `program_id` the moment this returns — validation,
+the replace decision, the replacement itself, and the shell creation all happen
+inside the request — so a client can navigate straight to it. Only the O(n)
+subtree build (projects, tasks, sprints, dependencies) is queued. Poll:
+
+```
+GET /api/v1/programs/{program_id}/import/jobs/{import_request_id}/
+```
+
+which returns `{ id, program, status, filename, replace, replaced_program_id,
+result_summary, error_detail, expires_at, created_at, started_at, completed_at }`.
+`status` is one of `pending`, `running`, `success`, `failed`. On success,
+`result_summary` carries the entity counts `{ projects, tasks, sprints,
+dependencies }`; on failure, `error_detail` carries the reason and the (empty)
+program shell is deliberately left in place so you can see what happened and
+retry or delete it. The poll endpoint requires **Program Admin+**, and a
+`job_id` from another program `404`s.
+
+A malformed or oversized seed document still returns `400` synchronously —
+validation runs before anything is queued. `SEED_MAX_UPLOAD_MB` is enforced on
+both the multipart upload and the raw JSON body.
+
+#### Replacing a program requires confirmation
+
+A seed's `program.slug` is persisted as `Program.code`. If a **live program you
+own** already uses that code, the import refuses:
+
+```
+HTTP/1.1 409 Conflict
+{
+  "detail": "A program you own already uses the code \"atlas\". Re-importing moves its projects to Trash. Confirm to continue.",
+  "code": "seed_replace_required",
+  "conflict": {
+    "program_id": "9c2d…",
+    "name": "Atlas Platform Launch",
+    "code": "atlas",
+    "project_count": 3,
+    "task_count": 214
+  }
+}
+```
+
+Two optional request fields confirm it — sent as multipart form fields alongside
+`file`, or as sibling keys on a JSON body:
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `replace` | boolean | `false` | Authorizes replacing whatever collides |
+| `expected_program_id` | UUID | — | Compare-and-swap: must equal the program that would actually be replaced |
+
+`expected_program_id` exists so a client acting on an earlier dry run cannot
+destroy the wrong program if the collision moved in between; a mismatch is
+refused with `409` and `code: "seed_replace_mismatch"`, carrying the same
+`conflict` object. Only programs on which you hold a live **Owner** membership
+are ever candidates, which is why naming one back to you leaks nothing.
+
+The replaced program's projects move to project Trash, where each can be
+restored individually as a standalone project — the program shell itself is
+**not** recoverable, and a restored project does not return to it. Offline
+clients receive real deletion tombstones for the removed rows.
+
+#### Loading a bundled sample is unchanged
+
+`POST /api/v1/programs/load-sample/` still runs **synchronously** and returns
+`201 Created` with a `{program, landing_project_id, sample_key}` envelope —
+`landing_project_id` is the project board to land a contributor on so their
+assigned work is visible (`null` when the sample has no open sprint), and
+`sample_key` echoes the loaded sample. Its payload is a server-curated bundled
+fixture of at most a few hundred entities, so a call takes seconds; allow a
+generous request timeout and do not poll it. Reloading a sample still deletes
+the previous copy outright — demo data is disposable — and never replaces a
+program containing a real, non-sample project. See
 [Sample projects](/getting-started/sample-projects/).
 
 The `rollup-config` and `risk-policy` endpoints use a method-level permission

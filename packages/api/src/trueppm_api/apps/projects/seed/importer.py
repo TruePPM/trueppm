@@ -6,19 +6,30 @@ memberships inside a single transaction. File-local slugs and ltree wbs paths
 are resolved to freshly-minted UUIDs through in-memory symbol tables; nothing in
 the seed file carries a UUID.
 
-Re-import is idempotent on the program slug (persisted in ``Program.code``): a
-matching live program's subtree is hard-deleted and rebuilt. Sample data is
-disposable (ADR-0109), so wipe-then-recreate — the ADR-0092 precedent — is the
-right idempotency model here rather than a field-level merge.
+Re-import is keyed on the program slug (persisted in ``Program.code``). The seed
+format carries no stable entity ids until 0.5 (#1959), so a field-level merge has
+nothing to key on and wipe-then-rebuild remains the right idempotency model —
+but it is destructive, so as of ADR-0726 it requires explicit consent
+(``replace=True``) and is *recoverable*: a real program's subtree is
+**soft**-deleted into Trash with tombstones and per-project delete broadcasts.
+Only the disposable demo path (``is_sample``) still hard-deletes, which is what
+that data is for (ADR-0109).
 
 The seeded tasks carry no CPM outputs (those are derived), so a schedule
 recalculation is enqueued per project after commit; a board broadcast is
 likewise deferred to ``transaction.on_commit``.
+
+Writes are batched (ADR-0726 §8). The whole run sits inside
+``coalesce_sync_seq()`` so the per-row delta-cursor allocation collapses to one
+draw per project, and the O(n) collections go through ``_bulk_insert``, which
+hand-maintains the three things ``VersionedModel.save()`` would otherwise do for
+free — ``server_version``, ``sync_seq``, and the ``simple_history`` row.
 """
 
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from functools import partial
 from typing import Any
@@ -26,6 +37,9 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import F
+from django.utils import timezone
+from simple_history.utils import bulk_create_with_history
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.access.services import create_program
@@ -45,6 +59,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskLabel,
     TaskRelation,
+    TaskStatus,
 )
 from trueppm_api.apps.projects.seed.forecast_backfill import backfill_forecast_history
 from trueppm_api.apps.projects.seed.reldates import (
@@ -52,14 +67,41 @@ from trueppm_api.apps.projects.seed.reldates import (
     resolve_anchor,
     resolve_date,
 )
+from trueppm_api.apps.projects.seed.replace import resolve_replace_candidates
 from trueppm_api.apps.projects.seed.replay import ReplayContext, replay_timeline
 from trueppm_api.apps.projects.seed.validation import validate_seed
 from trueppm_api.apps.resources.models import Resource, TaskResource
 from trueppm_api.apps.resources.services import ensure_project_resource
 from trueppm_api.apps.scheduling.services import enqueue_recalculate
 from trueppm_api.apps.sync.broadcast import broadcast_board_event
+from trueppm_api.apps.sync.sequence import allocate_for_projects, coalesce_sync_seq
 
 logger = logging.getLogger(__name__)
+
+
+class SeedReplaceRequired(Exception):
+    """A live program the caller owns holds this seed's slug and ``replace`` was not given.
+
+    Raised *before* anything is written. Carries the resolved ``Program`` so the
+    view can render the ``409`` conflict body without re-running the ownership
+    query — and so the only program that can ever be named is one the resolver
+    already proved the caller owns (#994).
+    """
+
+    def __init__(self, program: Program) -> None:
+        self.program = program
+        super().__init__(f"A program you own already uses the code {program.code!r}.")
+
+
+class SeedReplaceMismatch(Exception):
+    """``expected_program_id`` did not match the program that would actually be replaced.
+
+    The compare-and-swap failure. A client that resolved a conflict via the dry
+    run and then acted on it is protected from the collision set having changed
+    underneath it in the meantime — the alternative, a bare ``replace=True``,
+    would silently follow the change and destroy a different program.
+    """
+
 
 User = get_user_model()
 
@@ -80,6 +122,9 @@ def import_seed(
     create_users: bool = False,
     is_sample: bool = False,
     persona_password: str | None = None,
+    replace: bool = False,
+    expected_program_id: str | None = None,
+    target_program: Program | None = None,
 ) -> Program:
     """Validate and import a seed document, returning the created ``Program``.
 
@@ -103,9 +148,26 @@ def import_seed(
             server-curated sample path passes this; the caller is responsible for
             never letting a fixed weak value reach a public instance (see the
             ``load_sample_project --with-personas`` DEBUG/env gate, mirroring #1350).
+        replace: authorizes tearing down a live program of the caller's that
+            already holds this seed's slug (ADR-0726, #2581). ``False`` — the
+            default, and the only safe default — raises
+            :class:`SeedReplaceRequired` instead, so a re-import can never
+            destroy real work that the caller did not name.
+        expected_program_id: optional compare-and-swap token. When given it must
+            equal the id of the program that would actually be replaced, or
+            :class:`SeedReplaceMismatch` is raised. Protects a client acting on a
+            dry run from a collision set that moved in between.
+        target_program: adopt this pre-created ``Program`` shell instead of
+            minting one (ADR-0726 §4). The async path creates the shell inside
+            the request — so the destructive replace happens in the request the
+            operator authorized, and the caller has somewhere to land — and hands
+            it here for the worker to fill. ``None`` keeps the create-it-myself
+            behavior the management command and ``load_sample`` rely on.
 
     Raises:
         SeedValidationError: if the payload fails validation; nothing is written.
+        SeedReplaceRequired: if a live program collides and ``replace`` is False.
+        SeedReplaceMismatch: if ``expected_program_id`` names a different program.
     """
     validate_seed(payload)
     importer = _SeedImporter(
@@ -114,8 +176,15 @@ def import_seed(
         create_users=create_users,
         is_sample=is_sample,
         persona_password=persona_password,
+        replace=replace,
+        expected_program_id=expected_program_id,
+        target_program=target_program,
     )
-    with transaction.atomic():
+    # coalesce_sync_seq draws one delta cursor per project for the whole import
+    # instead of one per row (ADR-0686). Rows written together may share a
+    # sync_seq — the delta is `> since` and the checkpoint is the maximum, so a
+    # batch lands wholly on one side of any client checkpoint.
+    with transaction.atomic(), coalesce_sync_seq():
         program = importer.run()
     return program
 
@@ -131,12 +200,21 @@ class _SeedImporter:
         create_users: bool,
         is_sample: bool = False,
         persona_password: str | None = None,
+        replace: bool = False,
+        expected_program_id: str | None = None,
+        target_program: Program | None = None,
     ) -> None:
         self.payload = payload
         self.owner = owner
         self.create_users = create_users
         self.is_sample = is_sample
         self.persona_password = persona_password
+        self.replace = replace
+        self.expected_program_id = expected_program_id
+        self.target_program = target_program
+        #: Program this run tore down, for the caller's audit record. None when
+        #: nothing collided.
+        self.replaced_program_id: str | None = None
         self.users: dict[str, Any] = {}
         self.calendars: dict[str, Calendar] = {}
         self.resources: dict[str, Resource] = {}
@@ -161,7 +239,14 @@ class _SeedImporter:
         self.final_sprint: dict[tuple[str, str], dict[str, Any]] = {}
 
     def run(self) -> Program:
-        self._replace_existing()
+        # Adopting a pre-created shell means the caller already resolved and
+        # performed the replacement inside the request it was authorized in
+        # (ADR-0726 §4). Running the teardown again here would be actively
+        # wrong, not merely redundant: the shell itself now carries this seed's
+        # slug and the caller owns it, so it would match its own candidate query
+        # and soft-delete the program it was handed to fill.
+        if self.target_program is None:
+            self._replace_existing()
         self._resolve_accounts()
         self._resolve_calendars()
         self._resolve_resources()
@@ -245,6 +330,95 @@ class _SeedImporter:
         """A backdated creation timestamp (UTC 09:00) for replay history rows."""
         return datetime(when.year, when.month, when.day, 9, 0, tzinfo=ZoneInfo("UTC"))
 
+    # --- batched inserts (ADR-0726 §8) -------------------------------------
+
+    @staticmethod
+    def _short_id_block(project_id: Any, count: int) -> list[str]:
+        """Reserve ``count`` consecutive ``short_id`` values for one project.
+
+        ``Task.save()`` / ``Sprint.save()`` allocate one at a time from
+        ``Project.object_sequence`` (an ``UPDATE … + 1`` plus a read-back, so two
+        round-trips *per row*). Batched inserts bypass ``save()`` entirely, and a
+        row that skipped the allocation would carry ``short_id = ""`` — which the
+        ``unique_(task|sprint)_short_id_per_project`` constraints turn into an
+        IntegrityError on the second row.
+
+        Advancing the counter by ``count`` in one statement reserves the whole
+        block atomically: the read-back is the last value, so the block is
+        ``[new - count + 1, new]``. Two round-trips per batch instead of two per
+        row, and the values stay in the same hex format and the same shared
+        Task/Sprint/Risk sequence as the per-row path.
+        """
+        if count <= 0:
+            return []
+        Project.objects.filter(pk=project_id).update(object_sequence=F("object_sequence") + count)
+        last: int = Project.objects.values_list("object_sequence", flat=True).get(pk=project_id)
+        return [f"{seq:08X}" for seq in range(last - count + 1, last + 1)]
+
+    def _bulk_insert(
+        self,
+        model: type[Any],
+        rows: list[Any],
+        *,
+        project_ids: list[Any] | None = None,
+        history_dates: list[date] | None = None,
+    ) -> None:
+        """Insert ``rows`` in one round-trip while preserving what ``save()`` does.
+
+        ``bulk_create`` skips three things a ``VersionedModel.save()`` performs,
+        and every one of them fails *silently* rather than loudly:
+
+        1. ``server_version = 1`` on the INSERT branch. ``sync/conflict.py``
+           slices ``current - base_version`` history rows for the ADR-0217
+           field-level merge, so a row at version 0 is arithmetically broken.
+        2. The ``sync_seq`` delta cursor (ADR-0686). A row that never allocates
+           stays at 0, and ``sync_seq__gt=since`` never returns it — *not even on
+           a cold start with ``since=0``*. The rows would be permanently
+           invisible to every offline client. One value is drawn per project and
+           shared across the batch, which ``coalesce_sync_seq``'s contract
+           explicitly permits.
+        3. The ``simple_history`` row, written here by
+           ``bulk_create_with_history`` for models that record history.
+
+        Args:
+            model: the concrete model being inserted.
+            rows: instances to insert. Empty is a no-op.
+            project_ids: owning projects for the cursor draw. ``None`` means the
+                model is outside the sync union (no cursor, no history) and a
+                plain ``bulk_create`` is correct.
+            history_dates: parallel to ``rows``; the backdated ``history_date``
+                for each. Used only under v2 replay, where a task's creation row
+                is dated to when the entity came into being rather than to import
+                time. Rows are grouped by date so the number of INSERT batches is
+                bounded by the distinct dates (the sprint count), not the rows.
+        """
+        if not rows:
+            return
+        if project_ids is None:
+            model.objects.bulk_create(rows)
+            return
+
+        seq = allocate_for_projects(list(project_ids))
+        for row in rows:
+            row.server_version = 1
+            row.sync_seq = seq
+
+        if not hasattr(model, "history"):
+            model.objects.bulk_create(rows)
+            return
+
+        if history_dates is None:
+            bulk_create_with_history(rows, model, default_user=self.owner)
+            return
+
+        by_date: dict[date, list[Any]] = defaultdict(list)
+        for row, when in zip(rows, history_dates, strict=True):
+            by_date[when].append(row)
+        for when, group in by_date.items():
+            bulk_create_with_history(
+                group, model, default_user=self.owner, default_date=self._creation_dt(when)
+            )
+
     def _save_new(self, instance: Any, created_on: date) -> Any:
         """Insert ``instance``, backdating its creation history row under replay.
 
@@ -282,49 +456,73 @@ class _SeedImporter:
     # --- idempotency -------------------------------------------------------
 
     def _replace_existing(self) -> None:
-        """Hard-delete a prior import the caller owns that holds this seed's slug.
+        """Tear down a prior import the caller owns that holds this seed's slug.
 
-        Idempotent re-import rebuilds the *caller's own* program with this slug
-        (keyed on ``Program.code``, which carries it). The replace is scoped to
-        programs the importing ``owner`` holds an OWNER ``ProgramMembership`` on,
-        so an import can never delete another user's program that merely shares a
-        code — ``Program.code`` is user-assigned and non-unique, so collisions
-        are realistic and enumerable (#994). Without this scope any authenticated
-        user could hard-delete (no tombstone) a victim program plus every child
-        project/task/sprint/risk/baseline by crafting a seed whose ``slug``
-        matches the victim's code.
+        Re-import rebuilds the *caller's own* program with this slug (keyed on
+        ``Program.code``, which carries it). Three guards, in order of how badly
+        each one's absence would hurt:
 
-        On the demo/sample path (``is_sample``) the guard is tightened to match
-        the ``remove_sample`` invariant: a program containing any real
-        (non-sample) project is never replaced, so a sample reload can never
-        purge real work even within the caller's own programs.
+        **Ownership (#994).** Candidates come from
+        :func:`~trueppm_api.apps.projects.seed.replace.resolve_replace_candidates`,
+        which restricts them to programs the importing ``owner`` holds a live
+        OWNER ``ProgramMembership`` on. ``Program.code`` is user-assigned and
+        non-unique, so collisions between strangers are realistic and enumerable;
+        without this scope any authenticated user could destroy a victim's
+        program and every child project/task/sprint/risk/baseline by crafting a
+        seed whose ``slug`` matches the victim's code. ``select_for_update``
+        locks each candidate so a concurrent member-add or project-assign cannot
+        resurrect a ``PROTECT``-ed reference mid-teardown.
+
+        **Consent (#2581, ADR-0726).** Even against the caller's own data the
+        teardown is refused unless ``replace`` was explicitly given, and
+        ``expected_program_id`` — when supplied — must name the program that
+        would actually go. Both refusals raise *before* the first write.
+
+        **Sample scoping (#2476).** On the demo path (``is_sample``) a program
+        containing any real (non-sample) project is never replaced, so a sample
+        reload cannot purge real work even within the caller's own programs.
+
+        Non-sample programs are **soft**-deleted: the subtree lands in Trash,
+        offline clients receive tombstones, and each removed project emits a
+        ``project_deleted`` broadcast. Sample programs keep the hard delete —
+        disposable demo data is what it is for — but route through
+        ``hard_delete_program``, which resolves the ``PROTECT``-ing set from
+        ``_meta`` rather than the hand-written list that rotted in #2364.
         """
+        from trueppm_api.apps.access.services import hard_delete_program
+        from trueppm_api.apps.projects.services import soft_delete_program_subtree
+
         slug = self.payload["program"]["slug"]
-        owned_program_ids = ProgramMembership.objects.filter(
-            user=self.owner, role=Role.OWNER, is_deleted=False
-        ).values_list("program_id", flat=True)
-        # select_for_update locks each candidate row so a concurrent member-add /
-        # project-assign can't resurrect a PROTECTed reference mid-teardown
-        # (mirrors remove_sample's lock in program_views.py).
-        candidates = Program.objects.select_for_update().filter(
-            code=slug, is_deleted=False, pk__in=owned_program_ids
-        )
-        for prog in candidates:
-            if self.is_sample:
-                has_real_project = Project.objects.filter(
+        candidates = resolve_replace_candidates(self.owner, slug, lock=True)
+        if self.is_sample:
+            # A mixed program (real projects under a sample slug) is never torn
+            # down. Filtering here rather than inside the loop keeps the consent
+            # check below from refusing on a candidate we would have skipped.
+            candidates = [
+                prog
+                for prog in candidates
+                if not Project.objects.filter(
                     program=prog, is_sample=False, is_deleted=False
                 ).exists()
-                if has_real_project:
-                    # Refuse a partial/destructive delete of a mixed program.
-                    continue
-            project_ids = list(Project.objects.filter(program=prog).values_list("pk", flat=True))
-            # ProjectMembership.project is PROTECTed, so memberships must go
-            # before the projects they guard; the project delete then cascades
-            # tasks/deps/sprints/risks/baselines.
-            ProjectMembership.objects.filter(project_id__in=project_ids).delete()
-            Project.objects.filter(pk__in=project_ids).delete()
-            ProgramMembership.objects.filter(program=prog).delete()
-            Program.objects.filter(pk=prog.pk).delete()
+            ]
+        if not candidates:
+            return
+
+        if not self.replace:
+            raise SeedReplaceRequired(candidates[0])
+        if self.expected_program_id is not None and str(candidates[0].pk) != str(
+            self.expected_program_id
+        ):
+            raise SeedReplaceMismatch(
+                "expected_program_id does not name the program that would be replaced."
+            )
+
+        self.replaced_program_id = str(candidates[0].pk)
+        for prog in candidates:
+            if self.is_sample:
+                hard_delete_program(prog.pk)
+            else:
+                soft_delete_program_subtree(prog, actor=self.owner, reason="seed_replace")
 
     # --- top-level entities ------------------------------------------------
 
@@ -454,13 +652,31 @@ class _SeedImporter:
             self.resources[res["slug"]] = obj
 
     def _create_program(self) -> Program:
+        """Mint the program, or adopt the shell the caller pre-created (ADR-0726 §4).
+
+        The async path creates the shell inside the request — so the replace it
+        may have performed stays in the request the operator authorized, and the
+        202 can name a program to land on — then hands it here for the worker to
+        fill. Either way the seed's display fields and memberships are applied
+        identically, so the two paths cannot produce different programs.
+        """
         data = self.payload["program"]
-        program = create_program(
-            name=data["name"],
-            description=data.get("description", ""),
-            methodology=data["methodology"],
-            created_by=self.owner,
-        )
+        if self.target_program is not None:
+            program = self.target_program
+            # Re-apply the document's own fields over the shell. The view builds
+            # the shell from this same payload, so this is normally a no-op — but
+            # asserting it here means the adopted program is defined by the seed,
+            # not by whatever the view happened to pass.
+            program.name = data["name"]
+            program.description = data.get("description", "")
+            program.methodology = data["methodology"]
+        else:
+            program = create_program(
+                name=data["name"],
+                description=data.get("description", ""),
+                methodology=data["methodology"],
+                created_by=self.owner,
+            )
         # Persist the slug as the natural key + carry display fields.
         program.code = data["slug"]
         if data.get("color"):
@@ -468,7 +684,7 @@ class _SeedImporter:
         lead = self.users.get(data["lead"]) if data.get("lead") else None
         if lead is not None:
             program.lead = lead
-        program.save(update_fields=["code", "color", "lead"])
+        program.save(update_fields=["code", "color", "lead", "name", "description", "methodology"])
         self._grant_program_memberships(program)
         return program
 
@@ -514,16 +730,21 @@ class _SeedImporter:
         # here in Pass A so the Pass B ``_link_task_labels`` step can attach each
         # task's slugged labels once all tasks exist. Slugs are file-local and
         # project-scoped; the seed carries no label UUID (0.5 adds that, #1959).
+        label_rows = []
         for label_data in data.get("labels", []):
-            label = Label.objects.create(
+            label = Label(
                 project=project,
                 name=label_data["name"],
                 color=label_data.get("color", "slate"),
                 position=label_data.get("position", 0),
                 created_by=self.owner,
             )
+            label_rows.append(label)
             self.labels[(slug, label_data["slug"])] = label
+        self._bulk_insert(Label, label_rows, project_ids=[project.pk])
 
+        sprint_rows: list[Sprint] = []
+        sprint_dates: list[date] = []
         for sprint_data in data.get("sprints", []):
             start = self._date(sprint_data["start_date"], slug)
             finish = self._date(sprint_data["finish_date"], slug)
@@ -542,7 +763,8 @@ class _SeedImporter:
                 completed_points=None if self.replay else sprint_data.get("completed_points"),
                 capacity_points=sprint_data.get("capacity_points"),
             )
-            self._save_new(sprint, start)
+            sprint_rows.append(sprint)
+            sprint_dates.append(start)
             self.sprints[(slug, sprint_data["slug"])] = sprint
             if self.replay:
                 self.final_sprint[(slug, sprint_data["slug"])] = {
@@ -550,11 +772,102 @@ class _SeedImporter:
                     "committed_points": sprint_data.get("committed_points"),
                     "completed_points": sprint_data.get("completed_points"),
                 }
+        for sprint, short_id in zip(
+            sprint_rows, self._short_id_block(project.pk, len(sprint_rows)), strict=True
+        ):
+            sprint.short_id = short_id
+        self._bulk_insert(
+            Sprint,
+            sprint_rows,
+            project_ids=[project.pk],
+            history_dates=sprint_dates if self.replay else None,
+        )
 
+        task_rows: list[Task] = []
+        task_dates: list[date] = []
         for task_data in data.get("tasks", []):
-            self._create_task(project, slug, task_data)
+            task, created_on = self._build_task(project, slug, task_data)
+            task_rows.append(task)
+            task_dates.append(created_on)
+        self._stamp_new_tasks(task_rows, project)
+        # One batch per project. The three Task post_save receivers are all
+        # no-ops on INSERT — two early-return on ``created``, and the milestone
+        # rollup short-circuits because ``Sprint.target_milestone`` is not linked
+        # until Pass B — so nothing is lost by skipping the signal.
+        self._bulk_insert(
+            Task,
+            task_rows,
+            project_ids=[project.pk],
+            history_dates=task_dates if self.replay else None,
+        )
+        self._refresh_active_sprint_burndown(sprint_rows)
 
-    def _create_task(self, project: Project, project_slug: str, data: dict[str, Any]) -> None:
+    def _stamp_new_tasks(self, rows: list[Task], project: Project) -> None:
+        """Apply everything ``Task.save()`` does on INSERT that ``bulk_create`` skips.
+
+        Three stamps, each of which would otherwise be a silent data defect:
+
+        * ``short_id`` — reserved as one block (see :meth:`_short_id_block`);
+          without it every row carries ``""`` and the per-project unique
+          constraint rejects the second one.
+        * ``status_changed_at`` — ``_stamp_status_change`` treats an INSERT as a
+          transition from ``None``, so every created task is stamped. Column
+          charts and the stale-task threshold read it.
+        * the sign-off percent coercion — REVIEW and COMPLETE both imply 100%
+          delivered work, and a v1 seed authors those states directly. Without
+          it a seeded COMPLETE task reports its authored ``percent_complete``
+          and the ring, strip, and SPI math disagree with the column the card
+          sits in.
+
+        ``_stamp_blocker_transition`` is deliberately not replicated: on INSERT it
+        only acts when ``blocked_reason`` is non-empty, and the seed schema has no
+        blocker fields, so it is a guaranteed no-op here.
+        """
+        if not rows:
+            return
+        now = timezone.now()
+        for task, short_id in zip(rows, self._short_id_block(project.pk, len(rows)), strict=True):
+            task.short_id = short_id
+            task.status_changed_at = now
+            if task.status in (TaskStatus.REVIEW, TaskStatus.COMPLETE):
+                task.percent_complete = 100.0
+
+    def _refresh_active_sprint_burndown(self, sprints: list[Sprint]) -> None:
+        """Upsert today's burn row once per ACTIVE sprint, not once per task.
+
+        ``Task.save()`` emits ``task_status_changed`` on INSERT, whose receiver
+        upserts the sprint's burndown row. Batching skips the signal, so the
+        effect is reproduced here — but per *sprint* rather than per task, which
+        is what the receiver's own idempotent upsert was collapsing to anyway.
+
+        Skipped under seed replay for the same reason the receiver skips it: the
+        timeline drives backdated burndown per simulated day, and stamping
+        today's row would collapse the curve to a single point (ADR-0114).
+        """
+        from trueppm_api.apps.projects.seed.replay_ctx import is_seed_replay_active
+
+        if is_seed_replay_active():
+            return
+        from trueppm_api.apps.projects.models import SprintState
+        from trueppm_api.apps.projects.services import upsert_burndown_for_sprint
+
+        for sprint in sprints:
+            if sprint.state != SprintState.ACTIVE:
+                continue
+            try:
+                upsert_burndown_for_sprint(sprint)
+            except Exception:
+                logger.exception("seed import: burndown upsert failed for sprint=%s", sprint.pk)
+
+    def _build_task(
+        self, project: Project, project_slug: str, data: dict[str, Any]
+    ) -> tuple[Task, date]:
+        """Construct one unsaved ``Task`` plus the date its creation row backdates to.
+
+        Returns rather than saves so the caller can batch a whole project's tasks
+        into one INSERT (ADR-0726 §8). The returned date is only consulted under
+        v2 replay.
+        """
         sprint = self.sprints.get((project_slug, data["sprint"])) if data.get("sprint") else None
         assignee = self.users.get(data["assignee"]) if data.get("assignee") else None
         is_milestone = data.get("is_milestone", False)
@@ -612,11 +925,10 @@ class _SeedImporter:
         created_on = (
             sprint.start_date if sprint is not None else (planned_start or project.start_date)
         )
-        self._save_new(task, created_on)
-
         self.tasks[(project_slug, data["wbs_path"])] = task
         if self.replay:
             self.final_status[(project_slug, data["wbs_path"])] = final_status
+        return task, created_on
 
     # --- cross-cutting links (Pass B) --------------------------------------
 
@@ -628,34 +940,58 @@ class _SeedImporter:
         return self.tasks[(project_slug, wbs)]
 
     def _link_dependencies(self, project: Project, data: dict[str, Any]) -> None:
+        """Materialize the project's CPM edges in one batch per owning project.
+
+        A dependency carries no project FK, so its sync cursor is drawn through
+        its ``predecessor`` (the endpoint the delta scopes and orders by). Edges
+        are therefore grouped by the *predecessor's* project rather than by the
+        enclosing block — a seed may reference a task in any project of the
+        program (the ADR-0120 D1 envelope), so the two are not the same set.
+        """
         slug = data["slug"]
+        by_owner: dict[Any, list[Dependency]] = defaultdict(list)
         for dep in data.get("dependencies", []):
-            Dependency.objects.create(
-                predecessor=self._resolve_task_ref(dep["predecessor"], slug),
-                successor=self._resolve_task_ref(dep["successor"], slug),
-                dep_type=dep["dep_type"],
-                lag=dep.get("lag", 0),
+            predecessor = self._resolve_task_ref(dep["predecessor"], slug)
+            by_owner[predecessor.project_id].append(
+                Dependency(
+                    predecessor=predecessor,
+                    successor=self._resolve_task_ref(dep["successor"], slug),
+                    dep_type=dep["dep_type"],
+                    lag=dep.get("lag", 0),
+                )
             )
+        for project_id, rows in by_owner.items():
+            self._bulk_insert(Dependency, rows, project_ids=[project_id])
 
     def _link_parent_epics(self, data: dict[str, Any]) -> None:
         slug = data["slug"]
+        touched = []
         for task_data in data.get("tasks", []):
             parent = task_data.get("parent_epic")
             if not parent:
                 continue
             task = self.tasks[(slug, task_data["wbs_path"])]
             task.parent_epic = self.tasks[(slug, parent)]
-            task.save(update_fields=["parent_epic"])
+            touched.append(task)
+        # bulk_update: a back-link is a structural fixup of a row this import just
+        # created, not an independent edit, so it neither needs its own history
+        # row nor a second cursor draw (the same reasoning ADR-0091 applies to CPM
+        # output writes).
+        if touched:
+            Task.objects.bulk_update(touched, ["parent_epic"])
 
     def _link_sprint_milestones(self, data: dict[str, Any]) -> None:
         slug = data["slug"]
+        touched = []
         for sprint_data in data.get("sprints", []):
             target = sprint_data.get("target_milestone")
             if not target:
                 continue
             sprint = self.sprints[(slug, sprint_data["slug"])]
             sprint.target_milestone = self.tasks[(slug, target)]
-            sprint.save(update_fields=["target_milestone"])
+            touched.append(sprint)
+        if touched:
+            Sprint.objects.bulk_update(touched, ["target_milestone"])
 
     def _link_task_labels(self, data: dict[str, Any]) -> None:
         """Attach each task's slugged labels via the ``TaskLabel`` through table (#1958).
@@ -666,6 +1002,8 @@ class _SeedImporter:
         a dangling label ref before we reach here, so this is belt-and-braces.
         """
         slug = data["slug"]
+        rows = []
+        seen: set[tuple[Any, Any]] = set()
         for task_data in data.get("tasks", []):
             label_slugs = task_data.get("labels", [])
             if not label_slugs:
@@ -673,8 +1011,17 @@ class _SeedImporter:
             task = self.tasks[(slug, task_data["wbs_path"])]
             for label_slug in label_slugs:
                 label = self.labels.get((slug, label_slug))
-                if label is not None:
-                    TaskLabel.objects.get_or_create(task=task, label=label)
+                # The de-dup that ``get_or_create`` used to provide. Validation
+                # (#614) already rejects a task listing a label twice, so this
+                # only guards a payload that slipped past it — but the batch has
+                # no per-row conflict handling, so it has to guard it here.
+                if label is not None and (task.pk, label.pk) not in seen:
+                    seen.add((task.pk, label.pk))
+                    rows.append(TaskLabel(task=task, label=label))
+        # TaskLabel is outside the sync union (it has no cursor of its own —
+        # attach/detach saves the Task, which allocates there instead) and
+        # records no history, so a plain bulk_create is the whole story.
+        self._bulk_insert(TaskLabel, rows)
 
     def _link_task_relations(self, project_slug: str, data: dict[str, Any]) -> None:
         """Materialize each task's informational ``links`` as ``TaskRelation`` rows (ADR-0455).
@@ -687,6 +1034,7 @@ class _SeedImporter:
         Self-links are skipped defensively — validation (#614) rejects them first and
         the model's ``task_relation_no_self`` CheckConstraint is the DB backstop.
         """
+        by_owner: dict[Any, list[TaskRelation]] = defaultdict(list)
         for task_data in data.get("tasks", []):
             links = task_data.get("links", [])
             if not links:
@@ -696,16 +1044,27 @@ class _SeedImporter:
                 target = self._resolve_task_ref(link["target"], project_slug)
                 if target.pk == source.pk:
                     continue  # inert self-link; rejected by the DB constraint anyway
-                TaskRelation.objects.create(
-                    source=source,
-                    target=target,
-                    relation_type=link["link_type"],
-                    note=link.get("note", ""),
-                    created_by=self.owner,
+                # Grouped by the source task's project — a relation's cursor is
+                # drawn through ``source``, and a link may cross projects.
+                by_owner[source.project_id].append(
+                    TaskRelation(
+                        source=source,
+                        target=target,
+                        relation_type=link["link_type"],
+                        note=link.get("note", ""),
+                        created_by=self.owner,
+                    )
                 )
+        for project_id, rows in by_owner.items():
+            self._bulk_insert(TaskRelation, rows, project_ids=[project_id])
 
     def _assign_resources(self, project: Project, data: dict[str, Any]) -> None:
         slug = data["slug"]
+        rows = []
+        # ``ensure_project_resource`` is idempotent but costs a round-trip, so it
+        # is hoisted out of the per-assignment loop and run once per distinct
+        # resource rather than once per assignment.
+        used: dict[Any, Any] = {}
         for task_data in data.get("tasks", []):
             assignments = task_data.get("assignments", [])
             if not assignments:
@@ -713,10 +1072,13 @@ class _SeedImporter:
             task = self.tasks[(slug, task_data["wbs_path"])]
             for assignment in assignments:
                 resource = self.resources[assignment["resource"]]
-                TaskResource.objects.create(
-                    task=task, resource=resource, units=assignment.get("units", 1.0)
+                used[resource.pk] = resource
+                rows.append(
+                    TaskResource(task=task, resource=resource, units=assignment.get("units", 1.0))
                 )
-                ensure_project_resource(project, resource)
+        self._bulk_insert(TaskResource, rows)
+        for resource in used.values():
+            ensure_project_resource(project, resource)
 
     def _capture_baselines(self, project: Project, data: dict[str, Any]) -> None:
         slug = data["slug"]
@@ -811,10 +1173,12 @@ class _SeedImporter:
             # Slug map lets risk.status replay beats resolve their target.
             if data.get("slug"):
                 self.risks_by_slug[data["slug"]] = risk
-            for ref in data.get("tasks", []):
+            # Risk itself stays a per-row save so the ``risk_changed`` signal
+            # fires; risk counts are in the tens, so there is nothing to win.
+            risk_task_rows = [
+                RiskTask(risk=risk, task=self._resolve_task_ref(ref, enclosing_project or ""))
                 # Program-scoped risks (enclosing_project is None) always carry
                 # qualified refs, so the enclosing fallback is never consulted.
-                RiskTask.objects.create(
-                    risk=risk,
-                    task=self._resolve_task_ref(ref, enclosing_project or ""),
-                )
+                for ref in data.get("tasks", [])
+            ]
+            self._bulk_insert(RiskTask, risk_task_rows)

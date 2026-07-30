@@ -233,7 +233,8 @@ def test_downloaded_bytes_validate_and_import_with_the_advertised_counts(
     assert report.json()["task_count"] == advertised["task_count"]
 
     created = api.post("/api/v1/programs/import/", data=json.loads(body), format="json")
-    assert created.status_code == status.HTTP_201_CREATED
+    assert created.status_code == status.HTTP_202_ACCEPTED
+    assert created.json()["program_id"]
 
 
 # ── Degraded states ───────────────────────────────────────────────────────────

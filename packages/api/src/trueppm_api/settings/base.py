@@ -649,6 +649,21 @@ CELERY_BEAT_SCHEDULE = {
         # 04:30 UTC — after the project export purge.
         "schedule": crontab(hour=4, minute=30),
     },
+    # Re-dispatch program seed IMPORT jobs orphaned by a broker outage at on_commit
+    # (ADR-0726 §Durable Execution item 2). Deliberately a separate drain from the
+    # export one: same shape, different table and different terminal semantics.
+    "drain-program-imports": {
+        "task": "projects.drain_program_imports",
+        "schedule": 30.0,
+    },
+    # Nightly: delete terminal program seed import jobs past retention and their
+    # stored payloads (ADR-0726 §Durable Execution item 6; shares
+    # TRUEPPM_IMPORT_RETENTION_DAYS with the MS Project import outbox).
+    "purge-expired-program-imports": {
+        "task": "projects.purge_expired_program_imports",
+        # 04:35 UTC — after the program export purge.
+        "schedule": crontab(hour=4, minute=35),
+    },
     # Lazily materialize upcoming recurring-task occurrences within the
     # TRUEPPM_RECURRENCE_HORIZON_DAYS look-ahead. Hourly: occurrences are date-grained,
     # and a missed tick self-heals on the next one (idempotent). See ADR-0090 / #736.

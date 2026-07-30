@@ -287,11 +287,38 @@ information. **No passwords, tokens, or internal IDs are ever exported.**
 
 ## Check a file before you import it
 
-Importing a seed is **wipe-then-recreate on the program slug**: if the document
-names a slug that matches a live program, that program's subtree is deleted and
-rebuilt. The whole operation runs in one transaction, so a document that fails
-validation rolls back cleanly and changes nothing — but you should not have to
-find out at commit time.
+Importing a seed is **replace-then-rebuild on the program slug**: if the document
+names a slug that matches a live program you own, that program is removed and
+rebuilt from the file rather than merged with it. Validation runs before any
+write, so a document that fails validation changes nothing — but you should not
+have to find out at commit time.
+
+The replacement is not silent, and it is not unconditional:
+
+- **The REST endpoint refuses by default.** With a colliding slug and no
+  confirmation, `POST /api/v1/programs/import/` returns `409 Conflict` with
+  `code: "seed_replace_required"` and names the program it would replace,
+  including its project and task counts. You confirm by re-sending with
+  `replace=true` (optionally pinned to `expected_program_id`).
+- **The `import_seed` management command defaults the other way** — it replaces,
+  because re-running `make seed` in place is what it is for, and an operator at a
+  shell has `--check` available to look first. Pass `--no-replace` to make the
+  command refuse instead.
+- **The replaced program's projects move to project Trash**, where each can be
+  restored individually as a standalone project — the program shell itself is
+  **not** recoverable, and a restored project does not return to it. Offline
+  clients receive real deletion tombstones for the removed rows.
+- **Demo samples still hard-delete.** `POST /api/v1/programs/load-sample/` and
+  `load_sample_project` remove the previous copy outright; sample data is
+  disposable by design, and a sample reload never replaces a program containing a
+  real, non-sample project.
+
+:::caution[Trash holds the projects, not the program]
+"Moves to Trash" applies to the replaced program's **projects**, individually and
+detached from their old parent. There is no program Trash and no program restore
+endpoint ([#2587](https://gitlab.com/trueppm/trueppm/-/issues/2587)). If you need
+the program itself back, export it to a seed file before you re-import over it.
+:::
 
 Both import paths have a dry run that validates the file and reports every
 problem while writing nothing:
@@ -312,8 +339,19 @@ grabbed the right file, followed by every diagnostic anchored to its JSON path.
 A document that fails validation comes back as `200` with `"valid": false` and
 the diagnostics, not as an error status: the request succeeded, the *document*
 is what failed, and you need the diagnostics either way. A `400` here means the
-request itself was unusable — an upload over the size ceiling. The command's
+request itself was unusable — a payload over the size ceiling. The command's
 equivalent is its exit code: `0` when valid, `1` when not.
+
+`SEED_MAX_UPLOAD_MB` is enforced on **both** request shapes — a `multipart/form-data`
+upload and a raw JSON body — so the ceiling cannot be sidestepped by posting the
+document as the body.
+
+The dry-run response also answers *what would this import destroy?* before you
+run it. It carries a top-level `replaces` key: `null` when the slug is free, or
+the same conflict object the import's `409` returns — `program_id`, `name`,
+`code`, `project_count`, and `task_count` — for the program that would be
+replaced. Send that `program_id` back as `expected_program_id` on the real
+import and the request is refused if the collision moved in the meantime.
 
 The dry run requires the same permissions as the real import.
 

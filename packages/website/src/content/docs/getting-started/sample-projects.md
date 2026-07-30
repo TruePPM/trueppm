@@ -182,9 +182,14 @@ minute per account — set a generous client timeout, and do not poll it.
 ### From the web app
 
 On the **Programs** page, choose **Import from JSON** and pick a seed file. The
-program is created and owned by you, and you land on it once the import
-finishes. If the file fails validation, the page lists each problem with its
-JSON path so you can fix the file and try again.
+program is created and owned by you, and you land on it while the rest of the
+program builds in the background. If the file fails validation, the page lists
+each problem with its JSON path so you can fix the file and try again.
+
+If a live program you own already uses this seed's slug as its program code, the
+import stops and asks you to confirm the replacement before anything is touched.
+The prompt names the program and how many projects and tasks it holds, so you
+are consenting to a number and not just to a name.
 
 You can also reach the same importer from the sidebar **Import** button (next to
 **New project**): open it, choose the **TruePPM** format, and upload a `.json`
@@ -196,7 +201,7 @@ round-trip counterpart to **Export to JSON**. The same dialog imports MS Project
 ### From the command line
 
 ```bash
-docker compose exec api python manage.py import_seed path/to/seed.json [--owner <username>] [--create-users]
+docker compose exec api python manage.py import_seed path/to/seed.json [--owner <username>] [--create-users] [--no-replace]
 ```
 
 - `--owner` sets the program owner (defaults to the first superuser).
@@ -204,9 +209,29 @@ docker compose exec api python manage.py import_seed path/to/seed.json [--owner 
   already exist. Use it for local demos; leave it off in
   production. The REST endpoint always runs with user creation **off** — an
   import never mints logins on a live instance.
+- `--no-replace` refuses the import when a live program the owner holds already
+  uses this seed's slug, instead of replacing it.
 
 Re-importing the same file is idempotent: a program with the same slug is
-replaced rather than duplicated.
+replaced rather than duplicated. **The command defaults to replacing**, so
+`make seed` keeps re-running in place; pass `--no-replace` when you want the
+command to stop rather than overwrite. The REST endpoint defaults the other way
+— it refuses until you confirm.
+
+### What happens to the replaced program
+
+The replaced program's projects move to project Trash, where each can be
+restored individually as a standalone project — the program shell itself is
+**not** recoverable, and a restored project does not return to it.
+
+Offline and mobile clients receive real deletion tombstones for the removed
+rows, so a device that was disconnected during the re-import learns the old
+projects are gone instead of holding them indefinitely.
+
+Bundled demo samples are the exception: reloading a sample (**Load demo data**,
+`POST /api/v1/programs/load-sample/`, or `load_sample_project`) still deletes
+the previous copy outright. Demo data is disposable by design, and a sample
+reload never replaces a program that contains a real, non-sample project.
 
 ### Over the API
 
@@ -216,7 +241,25 @@ POST /api/v1/programs/import/
 
 Send either a JSON body or a `multipart/form-data` upload with a `file` field.
 Any authenticated user may import (they become the program owner). A validation
-failure returns `400` with `{"errors": [ ... ]}`.
+failure returns `400`.
+
+The import is **asynchronous**. A successful call returns `202 Accepted` with
+`{"queued": true, "program_id": …, "import_request_id": …, "replaced_program_id": …}`.
+The program shell exists at `program_id` immediately — you can navigate to it
+right away — while its projects and tasks are built by a background worker. Poll
+`GET /api/v1/programs/{program_id}/import/jobs/{import_request_id}/` until
+`status` is `success` or `failed`.
+
+If a live program you own already holds the seed's slug, the endpoint refuses
+with `409 Conflict` and `code: "seed_replace_required"`, naming the program and
+its project and task counts. Re-send the same request with `replace=true` to
+confirm. To be certain you are replacing the program you were shown, also send
+`expected_program_id` — if it no longer names the program that would actually be
+replaced, the request is refused again with `code: "seed_replace_mismatch"`
+rather than following the change.
+
+See the [API reference](/api/reference/#programs) for the full request and
+response shapes.
 
 ## Export a program
 

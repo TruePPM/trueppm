@@ -6867,3 +6867,100 @@ class ProgramExportJob(models.Model):
 
     def __str__(self) -> str:
         return f"ProgramExportJob({self.id}, {self.program_id}, {self.status})"
+
+
+class ImportJobStatus(models.TextChoices):
+    """Lifecycle of an async program seed import (ADR-0726, #2574).
+
+    The same four states as :class:`ExportJobStatus`, kept as a separate enum
+    rather than reused: an ``ExportJobStatus`` value on an import row is a wart
+    that every future reader has to re-reason about, and the enum is already
+    duplicated once in this codebase for a comparable reason.
+    """
+
+    PENDING = "pending", "Pending"
+    RUNNING = "running", "Running"
+    SUCCESS = "success", "Success"
+    FAILED = "failed", "Failed"
+
+
+class ProgramImportJob(models.Model):
+    """Tracks one asynchronous program seed import (ADR-0726, #2574, #2581).
+
+    The import-side sibling of :class:`ProgramExportJob`, with the same
+    ADR-0092 durable-execution machinery: the row and its stored payload commit
+    with the request, dispatch is attempted from ``transaction.on_commit``, a
+    drain re-dispatches anything the broker dropped, and a nightly purge reaps
+    terminal rows plus their payload files.
+
+    ``program`` is deliberately **non-null**. The request creates the program
+    shell synchronously and queues only the O(n) subtree build (ADR-0726 §4), so
+    a job always has a program by the time it is written — which is what lets the
+    status endpoint be program-scoped and inherit the export job's IDOR guard
+    through ``get_object()`` instead of needing its own ownership check.
+
+    ``file_path`` holds the *input* payload in ``default_storage``, not an output
+    artifact. Storing a 5 MB seed document in a ``JSONField`` would bloat an
+    operational table that is scanned by the drain every 30 seconds, and the
+    purge already knows how to delete a storage file.
+
+    ``replaced_program_id`` is a plain UUID column rather than an FK: it records
+    what this import tombstoned, and must survive that program being hard-deleted
+    by the retention purge later. It is the only durable record of the
+    replacement, so it outlives its referent by design.
+
+    Plain (non-synced) model: an import job is server-side bookkeeping, never a
+    mobile-offline entity, so it has no ``server_version``.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    program = models.ForeignKey(
+        _PROGRAM_MODEL,
+        on_delete=models.CASCADE,
+        related_name="import_jobs",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="program_imports",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=ImportJobStatus.choices,
+        default=ImportJobStatus.PENDING,
+        db_index=True,
+    )
+    celery_task_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    # Storage key (relative to the configured default storage) of the uploaded seed.
+    file_path = models.CharField(max_length=512, blank=True, default="")
+    filename = models.CharField(max_length=255, blank=True, default="")
+    # True when this import was authorized to replace a colliding live program.
+    replace = models.BooleanField(default=False)
+    # The program this import tombstoned, if any. Not an FK — see the class docstring.
+    replaced_program_id = models.UUIDField(null=True, blank=True)
+    # Terminal entity counts the polling client renders ({"projects": n, "tasks": n, ...}).
+    result_summary = models.JSONField(default=dict, blank=True)
+    error_detail = models.TextField(blank=True, default="")
+    # Past this the purge deletes the row and its stored payload.
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "programs_import_job"
+        ordering = ["-created_at"]
+        indexes = [
+            # Drives the drain scan for pending rows awaiting (re-)dispatch.
+            models.Index(
+                fields=["program", "status", "created_at"],
+                name="progimport_prog_status_idx",
+            ),
+            # Drives the nightly retention purge scan.
+            models.Index(fields=["expires_at"], name="progimport_expires_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ProgramImportJob({self.id}, {self.program_id}, {self.status})"

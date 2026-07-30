@@ -30,6 +30,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from trueppm_api.apps.projects.models import Project
 from trueppm_api.apps.projects.seed import SeedValidationError, import_seed, inspect_seed
+from trueppm_api.apps.projects.seed.importer import SeedReplaceRequired
 
 User = get_user_model()
 
@@ -47,6 +48,17 @@ class Command(BaseCommand):
             "--create-users",
             action="store_true",
             help="Create accounts referenced by the seed if they do not exist.",
+        )
+        parser.add_argument(
+            "--no-replace",
+            action="store_true",
+            help=(
+                "Refuse to import when a live program you own already holds this "
+                "seed's slug, instead of replacing it. The REST endpoint defaults "
+                "to refusing; this command defaults to replacing, because re-running "
+                "`make seed` in place is its whole job and an operator at a shell "
+                "has --check available to look first (ADR-0726)."
+            ),
         )
         parser.add_argument(
             "--check",
@@ -78,10 +90,20 @@ class Command(BaseCommand):
         owner = self._resolve_owner(options.get("owner"))
 
         try:
-            program = import_seed(payload, owner=owner, create_users=options["create_users"])
+            program = import_seed(
+                payload,
+                owner=owner,
+                create_users=options["create_users"],
+                replace=not options["no_replace"],
+            )
         except SeedValidationError as exc:
             # Surface every validation error, one per line, then fail.
             raise CommandError(str(exc)) from exc
+        except SeedReplaceRequired as exc:
+            raise CommandError(
+                f"{exc} Re-run without --no-replace to replace it (its projects move "
+                "to Trash), or edit the seed's program.slug."
+            ) from exc
 
         project_count = Project.objects.filter(program=program).count()
         self.stdout.write(

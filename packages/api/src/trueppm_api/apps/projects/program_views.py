@@ -71,16 +71,19 @@ from trueppm_api.apps.projects.models import (
     Methodology,
     Program,
     ProgramExportJob,
+    ProgramImportJob,
     Project,
     Task,
     TaskStatus,
 )
 from trueppm_api.apps.projects.serializers import (
     ProgramExportJobSerializer,
+    ProgramImportJobSerializer,
     ProgramRiskPolicySerializer,
     ProgramRollupConfigSerializer,
     ProgramSerializer,
     ProjectSerializer,
+    SeedImportRequestSerializer,
 )
 from trueppm_api.apps.projects.views import (
     _SCHEDULE_NOT_COMPUTED,
@@ -237,6 +240,11 @@ class _SeedPayloadProblem:
     is_document_level: bool
 
 
+#: Request-level control fields that ride alongside a seed document but are not
+#: part of it (ADR-0726 §1). Declared by ``SeedImportRequestSerializer``.
+_SEED_CONTROL_FIELDS = frozenset({"replace", "expected_program_id"})
+
+
 def _read_seed_payload(request: Request) -> tuple[Any, _SeedPayloadProblem | None]:
     """Read a seed document from a multipart ``file`` or a raw JSON body.
 
@@ -246,18 +254,41 @@ def _read_seed_payload(request: Request) -> tuple[Any, _SeedPayloadProblem | Non
     """
     from django.conf import settings
 
+    max_bytes = settings.SEED_MAX_UPLOAD_MB * 1024 * 1024
+    too_large = _SeedPayloadProblem(
+        detail=f"Seed file too large. Maximum: {settings.SEED_MAX_UPLOAD_MB} MB.",
+        is_document_level=False,
+    )
+
     upload = request.FILES.get("file")
     if upload is None:
-        return request.data, None
+        # The raw-JSON-body branch was capped only by DATA_UPLOAD_MAX_MEMORY_SIZE
+        # (100 MB), which made SEED_MAX_UPLOAD_MB trivially bypassable — post the
+        # same document as a body instead of a file and the 5 MB ceiling did not
+        # apply. Check the declared length *before* touching ``request.data``,
+        # because reading it is what performs the parse we are trying to bound.
+        declared = request.META.get("CONTENT_LENGTH") or 0
+        try:
+            declared = int(declared)
+        except (TypeError, ValueError):
+            declared = 0
+        if declared > max_bytes:
+            return None, too_large
+        data = request.data
+        if hasattr(data, "items"):
+            # On the multipart path the control fields sit beside ``file`` and
+            # never touch the document. On the JSON-body path there is only one
+            # object, so they arrive *inside* it — and the seed schema is
+            # ``additionalProperties: false``, which would reject the whole
+            # document with "'replace' was unexpected". Strip them here so both
+            # request shapes present the same document to the validator.
+            return {k: v for k, v in data.items() if k not in _SEED_CONTROL_FIELDS}, None
+        return data, None
 
     # Bound the in-memory parse: an authenticated user must not be able
     # to exhaust memory with a giant upload (mirrors the MSP importer).
-    max_bytes = settings.SEED_MAX_UPLOAD_MB * 1024 * 1024
     if upload.size is not None and upload.size > max_bytes:
-        return None, _SeedPayloadProblem(
-            detail=f"Seed file too large. Maximum: {settings.SEED_MAX_UPLOAD_MB} MB.",
-            is_document_level=False,
-        )
+        return None, too_large
     try:
         return json.loads(upload.read().decode("utf-8")), None
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -280,6 +311,52 @@ class SeedValidateThrottle(UserRateThrottle):
     """
 
     scope = "seed_validate"
+
+
+def _seed_replace_conflict() -> Any:
+    """A fresh schema for "the program a confirmed re-import would tear down".
+
+    A factory rather than a module constant because the same shape is nested
+    inside two different response envelopes (the ``409`` refusal and the dry
+    run's ``replaces`` key), and a DRF serializer instance binds to one parent —
+    sharing a single instance across both would be a latent binding bug.
+
+    The counts are the substance of it: a program *name* is not enough
+    information to consent to destroying 812 tasks (ADR-0726 §1).
+    """
+    return inline_serializer(
+        "SeedReplaceConflict",
+        {
+            "program_id": serializers.UUIDField(),
+            "name": serializers.CharField(),
+            "code": serializers.CharField(),
+            "project_count": serializers.IntegerField(),
+            "task_count": serializers.IntegerField(),
+        },
+    )
+
+
+SEED_REPLACE_CONFLICT_RESPONSE = inline_serializer(
+    "SeedReplaceConflictResponse",
+    {
+        "detail": serializers.CharField(),
+        "code": serializers.CharField(),
+        "conflict": _seed_replace_conflict(),
+    },
+)
+
+# The ``202`` envelope (ADR-0726 §6). ``program_id`` exists the moment this
+# returns — the shell is created inside the request — so a client can navigate
+# straight to it while the subtree is still building.
+SEED_IMPORT_QUEUED_RESPONSE = inline_serializer(
+    "SeedImportQueuedResponse",
+    {
+        "queued": serializers.BooleanField(),
+        "program_id": serializers.UUIDField(),
+        "import_request_id": serializers.UUIDField(),
+        "replaced_program_id": serializers.UUIDField(allow_null=True),
+    },
+)
 
 
 # Response envelope for the seed dry run (#2418).
@@ -307,6 +384,11 @@ SEED_VALIDATE_RESPONSE = inline_serializer(
         "project_count": serializers.IntegerField(),
         "task_count": serializers.IntegerField(),
         "resource_count": serializers.IntegerField(),
+        # ADR-0726 §7: what importing this document would tear down, or null.
+        # Computed at the view layer, never inside ``inspect_seed`` — that
+        # function is pure and lives in a module that never imports the ORM, and
+        # the dry run's "persists nothing" guarantee is structural because of it.
+        "replaces": _seed_replace_conflict(),
     },
 )
 
@@ -418,6 +500,15 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # Admin+, matching the POST enqueue. Available on closed programs;
             # object-level cross-program IDOR (a job_id from another program) is
             # closed in the action bodies via program-scoped lookups.
+            return [IsAuthenticated(), IsProgramAdmin()]
+        if self.action == "import_job_detail":
+            # Poll one seed import job (ADR-0726). Admin+, matching the export
+            # job poll: the summary reports the program's entity counts, and the
+            # error detail can echo validation diagnostics naming projects and
+            # tasks the caller must already be entitled to see. The importing
+            # caller is the program's OWNER by construction, so this never locks
+            # anyone out of a job they started. Object-level cross-program IDOR is
+            # closed in the action body via the program-scoped lookup.
             return [IsAuthenticated(), IsProgramAdmin()]
         if self.action == "mention_reach":
             # Who @program-stakeholders actually reaches (ADR-0697). Admin+, matching
@@ -579,6 +670,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         it withholds is the write.
         """
         from trueppm_api.apps.projects.seed import SeedReport, inspect_seed
+        from trueppm_api.apps.projects.seed.replace import preview_replacement
 
         payload, problem = _read_seed_payload(request)
         if problem is not None and not problem.is_document_level:
@@ -597,11 +689,38 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         else:
             report = inspect_seed(payload)
 
-        return Response(asdict(report), status=status.HTTP_200_OK)
+        # The destructive half of the answer (ADR-0726 §7). A dry run that says
+        # "valid" while withholding "and it will move 3 projects to Trash" is
+        # answering the less important question.
+        body = asdict(report)
+        body["replaces"] = preview_replacement(request.user, payload)
+        return Response(body, status=status.HTTP_200_OK)
 
     @extend_schema(
-        summary="Import a JSON seed bundle as a new program",
-        responses={201: ProgramSerializer},
+        summary="Queue a JSON seed bundle as a new program",
+        request=SeedImportRequestSerializer,
+        responses={
+            202: OpenApiResponse(
+                response=SEED_IMPORT_QUEUED_RESPONSE,
+                description=(
+                    "Import queued (ADR-0726). The program shell exists at "
+                    "`program_id` immediately; its projects and tasks are built in "
+                    "the background. Poll GET /programs/{program_id}/import/jobs/"
+                    "{import_request_id}/ until `status` is 'success' or 'failed'."
+                ),
+            ),
+            400: OpenApiResponse(
+                description="Unreadable request, or a document that fails validation."
+            ),
+            409: OpenApiResponse(
+                response=SEED_REPLACE_CONFLICT_RESPONSE,
+                description=(
+                    "A live program you own already holds this seed's slug. Re-send "
+                    "with `replace=true` (or `expected_program_id`) to confirm; the "
+                    "existing program's projects move to Trash."
+                ),
+            ),
+        },
     )
     @action(
         detail=False,
@@ -610,34 +729,65 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         throttle_classes=[SeedImportThrottle],
     )
     def import_seed(self, request: Request) -> Response:
-        """Import a JSON seed document, creating (or replacing) a program.
+        """Queue a JSON seed import, returning ``202`` with the program and job ids.
 
         Accepts either a ``file`` multipart upload or a raw JSON body. The caller
         becomes the program OWNER (same authorization as ``create`` — any
         authenticated user may create a program). ``create_users`` is forced off:
         importing a seed on a live instance must never mint arbitrary logins.
 
-        Rate-limited to the ``seed_import`` scope (:class:`SeedImportThrottle`),
-        which replaces the viewset's general ``user`` default: this runs the same
-        importer as ``load_sample`` — a program teardown plus a full synchronous
-        rebuild — on a payload the *caller* sizes, so an unbounded loop here is
-        the cheaper of the two exhaustion vectors (#2402).
+        **The split (ADR-0726 §4).** Validation, the replace decision, the
+        replacement itself, and the program shell all happen *here*, inside the
+        request; only the O(n) subtree build is queued. Two reasons, both
+        deliberate: a destructive act belongs in the request the operator
+        authorized rather than behind a queue, and resolving the collision here
+        closes the TOCTOU window between "nothing collides" and a worker deleting
+        something. What is left to the worker is purely additive, which is why a
+        100k-entity document no longer 504s mid-transaction (#2574).
+
+        **Replacement requires consent (#2581).** A live program of the caller's
+        whose ``code`` matches this seed's slug is refused with ``409`` unless
+        ``replace=true`` is sent. Confirmed, its projects are **soft**-deleted —
+        they land in project Trash individually, as standalone projects, and
+        offline clients receive tombstones. The program shell itself is not
+        recoverable; there is no program Trash (#2587).
+
+        Rate-limited to the ``seed_import`` scope (:class:`SeedImportThrottle`).
+        The bucket now bounds *job creation* rather than request CPU, which is
+        the correct unit once the build is async — paired with the per-program
+        in-flight de-dupe in ``enqueue_program_import``, that is what keeps this
+        from trading a CPU exhaustion vector for a queue backlog.
 
         Permission parity (#1957): import stays ``IsAuthenticated`` (via the
         get_permissions default) deliberately, because program ``create`` is
-        likewise ``IsAuthenticated`` — both mint a brand-new program owned by the
-        caller, touching no existing data. Import is not tightened beyond create;
-        if create ever becomes workspace-gated, this action must move with it.
+        likewise ``IsAuthenticated``. The *replace* is separately scoped to
+        programs the caller owns outright (#994), so the looser gate on create
+        never widens what a seed can destroy.
         """
-        from trueppm_api.apps.projects.seed import SeedValidationError
-        from trueppm_api.apps.projects.seed import import_seed as run_import
+        import json as _json
+
+        from trueppm_api.apps.access.services import create_program
+        from trueppm_api.apps.projects.seed import SeedValidationError, validate_seed
+        from trueppm_api.apps.projects.seed.replace import (
+            describe_conflict,
+            resolve_replace_candidates,
+        )
+        from trueppm_api.apps.projects.services import (
+            enqueue_program_import,
+            soft_delete_program_subtree,
+        )
 
         payload, problem = _read_seed_payload(request)
         if problem is not None:
             return Response({"detail": problem.detail}, status=status.HTTP_400_BAD_REQUEST)
 
+        options = SeedImportRequestSerializer(data=request.data)
+        options.is_valid(raise_exception=True)
+        replace = bool(options.validated_data.get("replace"))
+        expected_program_id = options.validated_data.get("expected_program_id")
+
         try:
-            program = run_import(payload, owner=request.user, create_users=False)
+            validate_seed(payload)
         except SeedValidationError as exc:
             # Standardized on the `detail` envelope (#1325). For the line-level
             # import report `detail` is the *list* of validation messages (the FE
@@ -645,8 +795,100 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # a plain string. seedImportErrors() normalizes both to a string list.
             return Response({"detail": exc.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        fresh = self.get_queryset().get(pk=program.pk)
-        return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
+        seed_program = payload["program"]
+        slug = seed_program["slug"]
+
+        with transaction.atomic():
+            candidates = resolve_replace_candidates(request.user, slug, lock=True)
+            replaced_program_id = None
+            if candidates:
+                conflict = describe_conflict(candidates[0])
+                if not replace:
+                    return Response(
+                        {
+                            "detail": (
+                                f'A program you own already uses the code "{slug}". '
+                                "Re-importing moves its projects to Trash. Confirm to continue."
+                            ),
+                            "code": "seed_replace_required",
+                            "conflict": conflict.as_dict(),
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                if expected_program_id is not None and str(expected_program_id) != str(
+                    candidates[0].pk
+                ):
+                    return Response(
+                        {
+                            "detail": (
+                                "expected_program_id does not name the program that would "
+                                "be replaced — it may have changed since you checked."
+                            ),
+                            "code": "seed_replace_mismatch",
+                            "conflict": conflict.as_dict(),
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                replaced_program_id = candidates[0].pk
+                for prog in candidates:
+                    soft_delete_program_subtree(prog, actor=request.user, reason="seed_replace")
+
+            program = create_program(
+                name=seed_program["name"],
+                description=seed_program.get("description", ""),
+                methodology=seed_program["methodology"],
+                created_by=request.user,
+            )
+            program.code = slug
+            program.save(update_fields=["code"])
+
+            upload = request.FILES.get("file")
+            job = enqueue_program_import(
+                program=program,
+                requested_by=request.user,
+                payload_bytes=_json.dumps(payload).encode("utf-8"),
+                filename=getattr(upload, "name", "") or "",
+                replace=replace,
+                replaced_program_id=replaced_program_id,
+            )
+
+        program_id = str(program.pk)
+        return Response(
+            {
+                "queued": True,
+                "program_id": program_id,
+                "import_request_id": str(job.pk),
+                "replaced_program_id": (str(replaced_program_id) if replaced_program_id else None),
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
+        summary="Poll one async program seed import job's status",
+        responses={200: ProgramImportJobSerializer},
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"import/jobs/(?P<job_id>[0-9a-f-]{36})",
+    )
+    def import_job_detail(
+        self, request: Request, pk: str | None = None, job_id: str | None = None
+    ) -> Response:
+        """Poll an async seed import job (ADR-0726, #2574).
+
+        The mirror of ``export_job_detail``, and scoped the same way: the job is
+        looked up against the resolved (membership-checked) program, so a
+        ``job_id`` belonging to another program 404s rather than leaking
+        (object-level IDOR guard).
+        """
+        program = self.get_object()
+        if job_id is None:  # unreachable via the URL regex; narrows the type
+            raise Http404("Import job not found")
+        job = ProgramImportJob.objects.filter(program=program, pk=job_id).first()
+        if job is None:
+            raise Http404("Import job not found")
+        return Response(ProgramImportJobSerializer(job).data, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Pin or unpin this program for the requesting user",

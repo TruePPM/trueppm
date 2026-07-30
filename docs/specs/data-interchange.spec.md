@@ -70,7 +70,7 @@ Transport surfaces, for reference:
 |---|---|---|---|
 | Program seed export | `GET /api/v1/programs/{id}/export/` | sync | Program Admin+ |
 | Project seed export | `GET /api/v1/projects/{id}/export/` | sync | Project Admin+ |
-| Program seed import | `POST /api/v1/programs/import/` | sync | Authenticated (parity with `Program.create`) |
+| Program seed import | `POST /api/v1/programs/import/` + `GET …/{id}/import/jobs/{job_id}/` | async (`202`) | Authenticated (parity with `Program.create`); job poll is Program Admin+ |
 | Project export bundle | `POST /api/v1/projects/{id}/export/` + job endpoints | async | Project Admin+ |
 | Program export bundle | `POST /api/v1/programs/{id}/export/` + job endpoints | async | Program Admin+ |
 | Risk CSV import | `POST /api/v1/projects/{id}/risks/import_csv/` | sync | see §5.9 |
@@ -114,8 +114,13 @@ and fresh `server_version`. Cross-references resolve through a file-local symbol
 
 - Re-importing a T1 export **creates a new object**, it does not update the original.
   For the program seed specifically, idempotency is keyed on `(workspace, Program.code)`:
-  a program whose slug matches is **replaced wholesale** (wipe-then-recreate, ADR-0092
-  precedent), not field-merged.
+  a program whose slug matches is **replaced wholesale**, not field-merged. The
+  replacement is **not unconditional** — the REST endpoint refuses it with `409` until the
+  caller sends `replace=true` — and on the non-sample path it is a **soft** delete
+  (ADR-0726): the replaced program's projects move to project Trash, where each can be
+  restored individually as a standalone project, and offline clients receive real
+  tombstones. The program shell itself is **not** recoverable, and a restored project does
+  not return to it. The disposable sample path (`is_sample`) still hard-deletes.
 - Derived values are **absent by construction** — including one is a validation error.
 - Suitable for: moving a program between instances, seeding a demo, hand-editing a plan
   in an editor, archival where re-creating (not restoring in place) is acceptable.
@@ -211,21 +216,49 @@ The schema is the source of truth; this spec governs the *contract around* it.
 
 | Limit | Value | Where |
 |---|---|---|
-| Upload size | 5 MB | `SEED_MAX_UPLOAD_MB` |
+| Payload size | 5 MB | `SEED_MAX_UPLOAD_MB` |
 | Total entities in one seed | 100 000 | `MAX_SEED_NODES` |
 | Program slug length | 40 | `Program.code` |
 | Async bundle download TTL | 7 days | retention policy |
+| Import job row + stored payload TTL | 7 days | `TRUEPPM_IMPORT_RETENTION_DAYS` |
 
-Import is synchronous inside one `transaction.atomic()` — seed size is bounded, so there
-is no outbox and no partial-write window.
+`SEED_MAX_UPLOAD_MB` is checked against `CONTENT_LENGTH` before any parse on **both**
+request shapes — the multipart `file` upload and the raw JSON body. The JSON-body branch
+was previously bounded only by `DATA_UPLOAD_MAX_MEMORY_SIZE`, which made the 5 MB ceiling
+bypassable; ADR-0726 closes that.
+
+`MAX_SEED_NODES` stays at 100 000 and is **deliberately not raised**. At the bundled
+fixtures' measured ~525 bytes/node the 5 MB payload cap already binds well below it; the
+node ceiling is retained as a **worker-memory backstop**, since the importer holds a live
+model instance per task for the duration of the build.
+
+Import is **asynchronous** as of ADR-0726, in two parts. Inside the request: read and cap
+the payload, validate it, resolve and perform any replacement under `select_for_update`,
+create the `Program` shell, and write the `ProgramImportJob` row and its stored payload —
+all in one `transaction.atomic()`, answered with `202` carrying `program_id` and
+`import_request_id`. In the worker: the O(n) subtree build. The split is deliberate — a
+destructive act belongs inside the request the operator authorized, and resolving the
+collision there closes the TOCTOU window between "nothing collides" and a worker deleting
+something. Dispatch is a transactional outbox (`transaction.on_commit`, broker errors
+swallowed to a warning), drained by `projects.drain_program_imports`; the worker claims
+the job row under `select_for_update` and no-ops unless `pending`/`running`, because after
+the split it is purely additive and a duplicate delivery would double the whole subtree.
 
 ### 4.8 Error model
 
-- Validation runs **before any write**. `validate_seed()` raises `SeedValidationError`
-  carrying the offending **JSON path**; the endpoint maps it to a `400` with a
-  path-anchored report.
+- Validation runs **before any write**, and before anything is queued. `validate_seed()`
+  raises `SeedValidationError` carrying the offending **JSON path**; the endpoint maps it
+  to a `400` with a path-anchored report. A `400` is therefore always synchronous, even
+  though a successful import is not.
+- A collision on `Program.code` that was not confirmed is a `409` with
+  `code: "seed_replace_required"` and a `conflict` object (`program_id`, `name`, `code`,
+  `project_count`, `task_count`). `expected_program_id` naming a different program is a
+  `409` with `code: "seed_replace_mismatch"`. Both are raised before any write.
 - Any validation or persistence failure rolls back the entire transaction. A partial
-  program never persists.
+  program never persists. If the queued build fails, the job goes `failed` with
+  `error_detail` and the empty program shell is deliberately left in place — the
+  replaced subtree is in Trash and the Owner needs the failed job row to reason about
+  what happened.
 - The import endpoint honors `Idempotency-Key` (ADR-0170) so a retried upload collapses
   rather than duplicating.
 - **There is no row-level / node-level tier, by design.** Unlike CSV (§5.8), a seed
@@ -243,8 +276,17 @@ is no outbox and no partial-write window.
 - Export remains available on **archived** projects and programs, so data stays portable
   for archival.
 - **Import: Authenticated**, matching `Program.create` — both mint a brand-new program
-  owned by the caller and touch no existing data. If `create` ever becomes
-  workspace-gated, import moves with it.
+  owned by the caller. If `create` ever becomes workspace-gated, import moves with it.
+  The *replace* is separately and more narrowly scoped: only programs on which the caller
+  holds a live **Owner** `ProgramMembership` are ever candidates (#994), so the looser
+  gate on create never widens what a seed can destroy. That is also why naming the
+  colliding program back to the caller in the `409` leaks nothing.
+- **Import job poll (`GET …/import/jobs/{job_id}/`): Program Admin+**, matching the
+  export job poll — the result summary reports the program's entity counts and the error
+  detail can echo diagnostics naming projects and tasks. The job is looked up against the
+  membership-checked program, so a `job_id` from another program `404`s. The importing
+  caller is the program's Owner by construction, so this never locks anyone out of a job
+  they started.
 - The REST import always runs with **user creation off**. Importing a seed on a live
   instance must never mint logins. Only the `import_seed` management command may pass
   `--create-users`, for local demos.
@@ -258,7 +300,12 @@ Stated plainly, because these are the ones people discover the hard way:
 2. **No project-level import endpoint.** A project export re-imports as a new
    single-project program, not back into its original parent.
 3. **A matching program slug is replaced wholesale**, not merged. Field-level upsert does
-   not exist.
+   not exist. The REST endpoint refuses the replacement until you confirm it, and the
+   replaced program's **projects** land in project Trash — but the **program shell itself
+   is not recoverable**. There is no program Trash and no program restore endpoint
+   (#2587), and a project restored from Trash comes back as a standalone project, not
+   regrouped under the program it was removed from. Export before you re-import over a
+   program you care about.
 4. **The v1 seed is final-state only.** Comments, time entries, attachments, and change
    history are **not** in the round-trippable payload. The async bundle carries them as
    raw **sidecars** — readable, but not restorable through seed import.
@@ -608,7 +655,7 @@ lands.
 | Release | Change |
 |---|---|
 | **0.3 and earlier** (shipped) | JSON seed v1/v2 export + program import; async project and program bundles; risk CSV import/export; MS Project XML both directions |
-| **0.4** (underway) | Task CSV/Excel **import** with preview and fuzzy column mapping (#111 → #743 API, #746 wizard) · JSON seed dry-run validation (#2418). Artifacts remain unencrypted and unchecksummed — stated posture, §6.4 |
+| **0.4** (underway) | Task CSV/Excel **import** with preview and fuzzy column mapping (#111 → #743 API, #746 wizard) · JSON seed dry-run validation (#2418) · confirmed, recoverable seed replacement and an asynchronous seed rebuild — `202` + job poll, `409 seed_replace_required`, soft-deleted replacement, `--no-replace` (#2581, #2574, ADR-0726). Artifacts remain unencrypted and unchecksummed — stated posture, §6.4 |
 | **0.5** (planned) | Identity-preserving round trip, T2 (#1959) · integrity manifest (#2399) · optional artifact encryption (#2400) · CSV exporter conformance (#2401) · shared diagnostic model across both importers, §6.6 (#2420) |
 | **0.6** (planned) | Multi-format import breadth — Jira, Asana, Monday, Wrike, ClickUp, Trello, Notion, Linear, Basecamp (epic #624), each normalizing to one of the two shared interchange targets rather than inventing a persistence path (see below) |
 
@@ -627,8 +674,9 @@ two shared targets an adapter feeds:
 | lands in an existing project | `ProjectData` | `import_project` |
 
 Routing an into-existing-project import through the seed pipeline would be actively
-unsafe: seed import is program-scoped wipe-then-recreate on the program slug (§3, T1), so
-importing a spreadsheet into a live program would delete that program's other projects.
+unsafe: seed import is program-scoped replace-then-rebuild on the program slug (§3, T1), so
+importing a spreadsheet into a live program would send that program's other projects to
+Trash — recoverable individually, but detached from the program, which no longer exists.
 
 The 0.6 line is the reason §4 matters beyond export: the canonical seed is the
 **normalization target** every future importer converts *to*. An importer that writes
@@ -641,6 +689,7 @@ directly to the ORM instead of producing a seed is a design error.
 - [ADR-0634](../adr/0634-file-interchange-contract-json-seed-and-csv.md) — the decision of record for this spec
 - [ADR-0109](../adr/0109-canonical-json-seed-import-export-schema.md) — the seed schema and `validate_seed` contract
 - [ADR-0114](../adr/0114-seed-schema-v2-relative-dates-event-replay.md) — v2 relative dates and event replay
+- [ADR-0726](../adr/0726-seed-import-confirmed-replacement-and-async-rebuild.md) — confirmed, recoverable seed replacement and the asynchronous rebuild
 - [ADR-0092](../adr/0092-import-project-from-file.md) — create-a-project-from-a-file
 - [ADR-0219](../adr/0219-project-export-async-bundle.md) — the async export bundle
 - [ADR-0043](../adr/0043-wave7-risks-risk-framework-matrix-filter-csv.md) — the risk register CSV columns

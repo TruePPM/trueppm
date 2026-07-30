@@ -33,6 +33,21 @@ def _client(user: Any) -> APIClient:
     return c
 
 
+def _run_queued_import(resp: Any) -> Any:
+    """Run the job a 202 just queued, as the worker would.
+
+    ``POST /programs/import/`` returns 202 with a program shell and a job id
+    (ADR-0726, #2574); the subtree is built by ``run_program_import``. These
+    tests assert the *end state*, so they drive the worker inline rather than
+    re-asserting the queueing contract that
+    ``test_import_replace_and_async.py`` owns.
+    """
+    from trueppm_api.apps.projects.tasks import run_program_import
+
+    run_program_import.apply(args=[str(resp.data["import_request_id"])])
+    return resp
+
+
 @pytest.fixture
 def user() -> Any:
     return User.objects.create_user(username="importer", password="pw")
@@ -47,10 +62,10 @@ def test_import_requires_auth() -> None:
 
 
 def test_import_json_body_creates_program(user: Any) -> None:
-    resp = _client(user).post(IMPORT_URL, data=_seed(), format="json")
-    assert resp.status_code == 201, resp.content
-    assert resp.data["code"] == "atlas"
+    resp = _run_queued_import(_client(user).post(IMPORT_URL, data=_seed(), format="json"))
+    assert resp.status_code == 202, resp.content
     program = Program.objects.get(code="atlas", is_deleted=False)
+    assert str(program.pk) == resp.data["program_id"]
     assert program.projects.count() == 2
     # caller became OWNER
     assert program.created_by == user
@@ -60,8 +75,10 @@ def test_import_multipart_file_creates_program(user: Any) -> None:
     upload = SimpleUploadedFile(
         "atlas.json", json.dumps(_seed()).encode("utf-8"), content_type="application/json"
     )
-    resp = _client(user).post(IMPORT_URL, data={"file": upload}, format="multipart")
-    assert resp.status_code == 201, resp.content
+    resp = _run_queued_import(
+        _client(user).post(IMPORT_URL, data={"file": upload}, format="multipart")
+    )
+    assert resp.status_code == 202, resp.content
     assert Program.objects.filter(code="atlas").exists()
 
 
@@ -95,7 +112,7 @@ def test_import_rejects_oversized_file(user: Any, settings: Any) -> None:
 
 def test_import_does_not_mint_users(user: Any) -> None:
     # create_users is forced off on the endpoint — assignees stay unresolved.
-    _client(user).post(IMPORT_URL, data=_seed(), format="json")
+    _run_queued_import(_client(user).post(IMPORT_URL, data=_seed(), format="json"))
     assert not User.objects.filter(username="seed-alex").exists()
     assert Task.objects.get(name="Build auth").assignee is None
 
@@ -194,13 +211,15 @@ def test_project_export_round_trips_through_program_import(user: Any) -> None:
     body = b"".join(export_resp.streaming_content) if export_resp.streaming else export_resp.content
 
     upload = SimpleUploadedFile("project.json", body, content_type="application/json")
-    import_resp = client.post(IMPORT_URL, data={"file": upload}, format="multipart")
-    assert import_resp.status_code == 201, import_resp.content
+    import_resp = _run_queued_import(
+        client.post(IMPORT_URL, data={"file": upload}, format="multipart")
+    )
+    assert import_resp.status_code == 202, import_resp.content
 
     # A brand-new program was created (the synthesized single-project wrapper),
     # distinct from the source — not an in-place overwrite of it.
     assert Program.objects.filter(is_deleted=False).count() == programs_before + 1
-    new_program = Program.objects.get(pk=import_resp.data["id"])
+    new_program = Program.objects.get(pk=import_resp.data["program_id"])
     assert new_program.pk != program.pk
     assert new_program.projects.count() == 1
 
