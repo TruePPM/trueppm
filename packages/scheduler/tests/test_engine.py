@@ -1762,6 +1762,31 @@ class TestCompletedNoActualsHonorsNetworkConstraints:
     of the PyPI package, where the caller builds ``Task`` objects itself.
     """
 
+    def test_monte_carlo_does_not_mutate_the_input_project(self) -> None:
+        """monte_carlo() must not mutate the caller's tasks.
+
+        Unlike ``schedule()``, ``monte_carlo()`` builds its ``task_map`` from the
+        caller's own ``Task`` objects. Resolving completed tasks' pins now runs the
+        in-place ``_forward_pass``, which is safe only because it runs over shallow
+        copies — this is the guard on that copy, the sibling of
+        ``test_original_project_not_mutated``. It matters most for the PyPI
+        consumer, who hands the engine objects it holds a reference to.
+        """
+        a = task("A", "A", 5, percent_complete=100.0, planned_start=date(2026, 3, 16))
+        b = task("B", "B", 3)
+        p = make_project([a, b], dependencies=[Dependency("A", "B")], start=date(2026, 3, 2))
+
+        monte_carlo(p, runs=20, seed=0)
+
+        for t in (a, b):
+            assert t.early_start is None
+            assert t.early_finish is None
+            assert t.late_start is None
+            assert t.late_finish is None
+            assert t.total_float == timedelta()
+            assert t.free_float == timedelta()
+            assert t.is_critical is False
+
     def test_monte_carlo_is_never_earlier_than_cpm_with_an_snet_pin(self) -> None:
         """The worked example from #2572, asserted as the invariant rather than a
         fixed date: a 10-day task complete by percent alone, pinned by an SNET two
