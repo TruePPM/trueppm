@@ -76,3 +76,11 @@ change-gated to `packages/wasm-scheduler` and skips cleanly when cargo is absent
 - Statistical convergence tests for Monte Carlo
 - Performance benchmarks tracked across commits
 - Coverage ≥ 95%
+
+### Cross-engine invariants (assert the relationship, not just the values)
+Any code path that computes a schedule **twice** — deterministically and probabilistically, or in Python and in Rust — must be tested on the *relationship between the two results*, not only on each result independently. Two engines can each pass their own known-answer tests while disagreeing with each other.
+
+- **`monte_carlo()` must never finish earlier than `schedule()`.** On a zero-variance project every percentile equals the deterministic finish; on any project, no percentile precedes it. Assert the invariant, not a hard-coded date — a fixed expected date passes for the wrong reason when the anchor changes.
+- **Fast paths that "pin" a value must pin what the slow path computes.** A constant-offset shortcut for completed/fixed tasks is only correct if it projects the deterministic result. A shortcut that re-derives its own anchor will drift from the full pass the moment a constraint (SNET/deadline/predecessor) applies to that task, and drift silently — both engines return plausible dates. Prefer projecting the authoritative result over recomputing an independent one.
+- **Enumerate the branches of every status/threshold predicate and test each.** A completed task reaches its dates through several distinct branches (actual_finish set; actual_start only; percent-complete with no actuals at all). Cover every branch — and confirm the **fuzz generator** reaches them too. A randomized harness that caps `percent_complete` at 99 never generates the ">= 100 with no actuals" branch no matter how many seeds it runs, so a defect there survives an arbitrarily large fuzz budget. When a bug slips past a fuzzer, check the generator's ranges before adding new test files: the fix is usually one widened bound.
+- **A conformance gate must run BOTH halves.** If the Rust half is change-gated on `packages/wasm-scheduler/**` while the Python half is not, a scheduler-only change merges with the two engines never compared — precisely the change most likely to break parity. Verify the gate's trigger conditions, not just its assertions.
