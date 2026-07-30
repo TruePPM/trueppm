@@ -136,3 +136,39 @@ def test_csp_header_is_present_on_docs(client: APIClient) -> None:
     r = client.get("/api/docs/")
     csp = r["Content-Security-Policy"]
     assert "script-src 'self'" in csp
+
+
+def test_schema_version_tracks_the_package_version() -> None:
+    """`info.version` must be derived, never restated (#2605).
+
+    It was a hardcoded "0.3.0" that only `scripts/release.sh` ever updated — by
+    sed, at tag time — so it was correct at the moment of a release and drifted
+    for the whole cycle after it. Against a 0.4.0-beta.1 package it advertised
+    0.3.0 to every generated client and every published schema consumer.
+
+    Asserting equality with TRUEPPM_VERSION rather than with a literal is the
+    point: a literal here would be the same defect one layer up, going stale the
+    next time the package version moves.
+    """
+    from django.conf import settings
+
+    assert settings.SPECTACULAR_SETTINGS["VERSION"] == settings.TRUEPPM_VERSION
+
+
+def test_schema_version_is_not_a_stale_literal() -> None:
+    """Guard the specific regression: never "0.3.0" against a newer package.
+
+    A future refactor that reintroduces a literal would still satisfy the
+    equality test above if it happened to match on the day it was written. This
+    one fails the moment the literal and the package part company.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    from django.conf import settings
+
+    try:
+        installed = version("trueppm-api")
+    except PackageNotFoundError:  # pragma: no cover - source checkout, no metadata
+        pytest.skip("trueppm-api is not installed; no package version to compare against")
+
+    assert settings.SPECTACULAR_SETTINGS["VERSION"] == installed

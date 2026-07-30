@@ -9,11 +9,64 @@ artifacts, which are not relevant to library consumers.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-While the package is in the `0.x` alpha series (`Development Status :: 3 - Alpha`),
-the public API — the `__all__` surface of `trueppm_scheduler` — may change
-between releases. Pin an exact version (e.g. `trueppm-scheduler==0.4.0b1`).
+While the package is in the `0.x` series (`Development Status :: 4 - Beta` from
+0.4.0b1), the public API — the `__all__` surface of `trueppm_scheduler` — may
+change between releases. Pin an exact version (e.g.
+`trueppm-scheduler==0.4.0b1`).
 
 ## [Unreleased]
+
+### Added
+
+- The public API is now property-fuzzed in CI: every input to `schedule()`,
+  `monte_carlo()`, `find_cycle()`, `expand_summary_dependencies()`, and
+  `Project.from_json()` either succeeds or raises a documented `SchedulerError`
+  (`InvalidScheduleInput` / `CyclicDependencyError` / `SimulationCapExceeded`) —
+  an uncaught exception or a hang on any input is treated as a contract
+  violation. A fast deterministic sweep runs on every change; an exhaustive
+  stochastic sweep runs on a schedule. This is robustness/contract fuzzing, not
+  security/memory-safety fuzzing (#1456).
+
+### Changed
+
+- **`Calendar.exceptions` is now an immutable `tuple` of frozen `DateRange`s.**
+  Any iterable is still accepted at construction, so `Calendar(exceptions=[...])`
+  — including the whole `from_dict` / `from_json` path — is unchanged. What is no
+  longer possible is in-place mutation: `cal.exceptions.append(...)`,
+  `cal.exceptions[0] = ...`, and `range.start = ...` now raise rather than leave
+  the cached index stale (#2462). Assign a new set instead:
+
+  ```python
+  cal.exceptions = [*cal.exceptions, DateRange(holiday, holiday)]
+  ```
+
+  Reassignment is normalized and invalidates the cache, so this is the one
+  supported way to change a calendar's exception set.
+- `schedule` CLI output now labels the project finish as the earliest feasible
+  date and points at `monte-carlo` for confidence dates.
+- `monte-carlo` CLI output now carries the reading of each percentile (P50 is a
+  midpoint, P80 is the commitment date, P95 is for external deadlines), and
+  explains a collapsed distribution — every run finishing on the same date
+  because no task carries a three-point estimate — rather than printing three
+  identical dates with no comment. `--json` output is unchanged.
+- **`schedule()` and `monte_carlo()` are faster on large projects.** Cycle
+  detection no longer runs an eager `nx.find_cycle` on every call — the
+  topological sort the engine already performs raises on a cyclic graph, so the
+  expensive edge-DFS runs only on the error path to reconstruct the offending
+  cycle for the message. And `schedule()` shallow-copies its input tasks instead
+  of deep-copying them: every `Task` field is an immutable scalar, so a
+  field-level copy is semantically identical while skipping the recursive
+  `deepcopy` machinery. On a 5,000-task / ~5,700-edge project a full `schedule()`
+  run drops from roughly 400 ms to under 100 ms with identical output (#1526).
+- **`monte_carlo()` is ~2.3× faster at high run counts.** The duration-sensitivity
+  tornado is now ranked over a fixed subsample of the runs (the first 2 000 rows of
+  the sampled matrix) instead of every run, and its per-column rank sort uses the
+  default (unstable) introsort — correct here because the average-rank convention
+  groups purely by exact value equality. The tornado cost is now independent of the
+  run count rather than scaling with it. **P50/P80/P95 percentiles are computed over
+  the full distribution and are byte-identical to before** — only the sensitivity
+  ranking is subsampled, and Spearman rank correlation converges well within the
+  subsample (top-N ranking within ~0.02 of the full-run correlation) (#1525).
 
 ### Fixed
 
@@ -73,79 +126,6 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.4.0b1`).
   date, which is the contract the suite asserts across all four dependency types
   at zero, positive, and negative lag. **Single-calendar projects take the
   unchanged fast path and their seeded P50/P80/P95 are byte-identical** (#1385).
-
-### Changed
-
-- **`Calendar.exceptions` is now an immutable `tuple` of frozen `DateRange`s.**
-  Any iterable is still accepted at construction, so `Calendar(exceptions=[...])`
-  — including the whole `from_dict` / `from_json` path — is unchanged. What is no
-  longer possible is in-place mutation: `cal.exceptions.append(...)`,
-  `cal.exceptions[0] = ...`, and `range.start = ...` now raise rather than leave
-  the cached index stale (#2462). Assign a new set instead:
-
-  ```python
-  cal.exceptions = [*cal.exceptions, DateRange(holiday, holiday)]
-  ```
-
-  Reassignment is normalized and invalidates the cache, so this is the one
-  supported way to change a calendar's exception set.
-- `schedule` CLI output now labels the project finish as the earliest feasible
-  date and points at `monte-carlo` for confidence dates.
-- `monte-carlo` CLI output now carries the reading of each percentile (P50 is a
-  midpoint, P80 is the commitment date, P95 is for external deadlines), and
-  explains a collapsed distribution — every run finishing on the same date
-  because no task carries a three-point estimate — rather than printing three
-  identical dates with no comment. `--json` output is unchanged.
-
-### Documentation
-
-- New README section **Interpreting the output**: `schedule()` returns a
-  deterministic, optimistic single date; `monte_carlo()` returns the
-  distribution it sits in. Previously the package documented the mechanics of
-  both passes but never their relationship.
-- Renamed the README's `Monte Carlo determinism` section to
-  **Reproducibility (seeded runs)**. It describes seeded repeatability, but was
-  the package's only heading containing "determinism" — the word readers search
-  for when they want the single-date-vs-distribution distinction.
-- `schedule()`, `monte_carlo()`, and `MonteCarloResult` docstrings now state how
-  their output should be read.
-
-## [0.4.0b1] - 2026-07-18
-
-### Added
-
-- The public API is now property-fuzzed in CI: every input to `schedule()`,
-  `monte_carlo()`, `find_cycle()`, `expand_summary_dependencies()`, and
-  `Project.from_json()` either succeeds or raises a documented `SchedulerError`
-  (`InvalidScheduleInput` / `CyclicDependencyError` / `SimulationCapExceeded`) —
-  an uncaught exception or a hang on any input is treated as a contract
-  violation. A fast deterministic sweep runs on every change; an exhaustive
-  stochastic sweep runs on a schedule. This is robustness/contract fuzzing, not
-  security/memory-safety fuzzing (#1456).
-
-### Changed
-
-- **`schedule()` and `monte_carlo()` are faster on large projects.** Cycle
-  detection no longer runs an eager `nx.find_cycle` on every call — the
-  topological sort the engine already performs raises on a cyclic graph, so the
-  expensive edge-DFS runs only on the error path to reconstruct the offending
-  cycle for the message. And `schedule()` shallow-copies its input tasks instead
-  of deep-copying them: every `Task` field is an immutable scalar, so a
-  field-level copy is semantically identical while skipping the recursive
-  `deepcopy` machinery. On a 5,000-task / ~5,700-edge project a full `schedule()`
-  run drops from roughly 400 ms to under 100 ms with identical output (#1526).
-- **`monte_carlo()` is ~2.3× faster at high run counts.** The duration-sensitivity
-  tornado is now ranked over a fixed subsample of the runs (the first 2 000 rows of
-  the sampled matrix) instead of every run, and its per-column rank sort uses the
-  default (unstable) introsort — correct here because the average-rank convention
-  groups purely by exact value equality. The tornado cost is now independent of the
-  run count rather than scaling with it. **P50/P80/P95 percentiles are computed over
-  the full distribution and are byte-identical to before** — only the sensitivity
-  ranking is subsampled, and Spearman rank correlation converges well within the
-  subsample (top-N ranking within ~0.02 of the full-run correlation) (#1525).
-
-### Fixed
-
 - **`UnknownTaskError` is now caught by `except SchedulerError`.** It subclassed a
   bare `ValueError`, so the exception raised by `derive_value()` on an unknown task
   id escaped the `SchedulerError` catch-all the base class documents. Reparented to
@@ -181,6 +161,19 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.4.0b1`).
   spurious tasks entering the critical path. The backward pass now snaps every
   predecessor-owned date on the predecessor's own calendar, matching the forward
   pass's existing convention. Single-calendar scheduling is unaffected.
+
+### Documentation
+
+- New README section **Interpreting the output**: `schedule()` returns a
+  deterministic, optimistic single date; `monte_carlo()` returns the
+  distribution it sits in. Previously the package documented the mechanics of
+  both passes but never their relationship.
+- Renamed the README's `Monte Carlo determinism` section to
+  **Reproducibility (seeded runs)**. It describes seeded repeatability, but was
+  the package's only heading containing "determinism" — the word readers search
+  for when they want the single-date-vs-distribution distinction.
+- `schedule()`, `monte_carlo()`, and `MonteCarloResult` docstrings now state how
+  their output should be read.
 
 ## [0.3.0a3] - 2026-06-29
 
@@ -280,8 +273,7 @@ _No library-facing changes in this release._
 - Cycle detection that names the offending task IDs (`CyclicDependencyError`).
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`.
 
-[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b1...main
-[0.4.0b1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a3...scheduler-v0.4.0b1
+[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a3...main
 [0.3.0a3]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a2...scheduler-v0.3.0a3
 [0.3.0a2]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a1...scheduler-v0.3.0a2
 [0.3.0a1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.2.0a1...scheduler-v0.3.0a1

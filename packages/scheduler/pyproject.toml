@@ -27,7 +27,11 @@ keywords = [
     "networkx",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    # 4 - Beta from 0.4.0b1 (#2605). The version said beta while the trove
+    # classifier still said alpha, and the classifier is what PyPI renders on
+    # the project page — so the package advertised a maturity its own version
+    # number contradicted.
+    "Development Status :: 4 - Beta",
     "License :: OSI Approved :: Apache Software License",
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
