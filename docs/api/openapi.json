@@ -47612,21 +47612,6 @@
                         "minimum": 0,
                         "nullable": true
                     },
-                    "estimate_status": {
-                        "nullable": true,
-                        "description": "Approval state for three-point estimates (suggest_approve mode only).\n\n* `pending` - Pending Approval\n* `accepted` - Accepted",
-                        "oneOf": [
-                            {
-                                "$ref": "#/components/schemas/EstimateStatusEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/BlankEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/NullEnum"
-                            }
-                        ]
-                    },
                     "blocked_reason": {
                         "type": "string",
                         "description": "Why the task is blocked; empty means not blocked."
@@ -54308,14 +54293,12 @@
                         "nullable": true
                     },
                     "estimate_status": {
+                        "readOnly": true,
                         "nullable": true,
                         "description": "Approval state for three-point estimates (suggest_approve mode only).\n\n* `pending` - Pending Approval\n* `accepted` - Accepted",
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/EstimateStatusEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/BlankEnum"
                             },
                             {
                                 "$ref": "#/components/schemas/NullEnum"
@@ -54715,6 +54698,7 @@
                     "dwell_days",
                     "early_finish",
                     "early_start",
+                    "estimate_status",
                     "external_link_summary",
                     "free_float",
                     "has_recurrence",
@@ -55891,21 +55875,6 @@
                         "maximum": 36525,
                         "minimum": 0,
                         "nullable": true
-                    },
-                    "estimate_status": {
-                        "nullable": true,
-                        "description": "Approval state for three-point estimates (suggest_approve mode only).\n\n* `pending` - Pending Approval\n* `accepted` - Accepted",
-                        "oneOf": [
-                            {
-                                "$ref": "#/components/schemas/EstimateStatusEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/BlankEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/NullEnum"
-                            }
-                        ]
                     },
                     "blocked_reason": {
                         "type": "string",
