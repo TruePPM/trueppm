@@ -31,4 +31,12 @@ describe('stripTrailingSlash (#2519)', () => {
     expect(stripTrailingSlash('///x')).toBe('///x');
     expect(stripTrailingSlash(`${'/'.repeat(50_000)}x`)).toBe(`${'/'.repeat(50_000)}x`);
   });
+
+  // The scan indexes the string rather than comparing code units (#2566). A string
+  // ending in an astral character ends in a lone trail surrogate at `end - 1`, which
+  // is not `/` — so the scan stops there and the input survives intact.
+  it('leaves a trailing astral character alone', () => {
+    expect(stripTrailingSlash('a🚀')).toBe('a🚀');
+    expect(stripTrailingSlash('a🚀//')).toBe('a🚀');
+  });
 });

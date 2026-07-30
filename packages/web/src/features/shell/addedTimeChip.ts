@@ -9,24 +9,6 @@ import { projectViewSegment } from './useLocationModel';
  */
 
 /**
- * Views that already carry the deterministic CPM finish on screen.
- *
- * **Empty, and deliberately so.** The precondition for a bare `+11d` is that the reader
- * can see what it is measured against; Schedule was the obvious candidate, through the
- * dashed CPM reference chip #2426 put in the forecast row. But the component that
- * renders that chip — `ScheduleForecastBar` — renders `P80: Nov 4 (+11d)` immediately
- * beside it, from the same `delta_vs_cpm` the premium is derived from. So the one
- * surface that made a bare number legible was the one surface already printing it, and
- * a fragment there would be the same value twice on one screen with nothing saying
- * which is authoritative (rule 284, rule 291).
- *
- * The set is kept rather than deleted because the rule it encodes is still the right
- * one — it simply has no true case in this product today. A future surface that shows
- * the CPM finish *without* its delta belongs here.
- */
-const BASELINE_ON_SCREEN_VIEWS = new Set<string>();
-
-/**
  * Views that render added time themselves, in full.
  *
  * Overview mounts `AddedTimeCard`, so anything here would be a second copy of a value
@@ -72,6 +54,22 @@ export function addedTimeChipContext(pathname: string): AddedTimeChipContext {
   return {
     suppressed: false,
     fragment: !DELTA_ON_SCREEN_VIEWS.has(view),
-    baselineOnScreen: BASELINE_ON_SCREEN_VIEWS.has(view),
+    // No view qualifies, and deliberately so. The precondition for a bare `+11d` is that
+    // the reader can see what it is measured against; Schedule was the obvious candidate,
+    // through the dashed CPM reference chip #2426 put in the forecast row. But the
+    // component that renders that chip — `ScheduleForecastBar` — renders
+    // `P80: Nov 4 (+11d)` immediately beside it, from the same `delta_vs_cpm` the premium
+    // is derived from. So the one surface that made a bare number legible was the one
+    // surface already printing it, and a fragment there would be the same value twice on
+    // one screen with nothing saying which is authoritative (rule 284, rule 291).
+    //
+    // This was an empty `BASELINE_ON_SCREEN_VIEWS` set kept as a carrier for that
+    // rationale; a collection that can only be empty is a predicate that cannot fire and
+    // reads the same as one someone forgot to populate (`typescript:S4158`, #2566), so the
+    // rule lives in prose and the value is the constant it always was. The rule itself is
+    // still the right one — it simply has no true case in this product today. A future
+    // surface that shows the CPM finish *without* its delta is what turns this back into
+    // a per-view test.
+    baselineOnScreen: false,
   };
 }

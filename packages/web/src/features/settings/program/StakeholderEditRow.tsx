@@ -28,10 +28,32 @@ export const STAKEHOLDER_GRID = '1.4fr 1.6fr 1.6fr 118px 116px';
 /**
  * Deliberately permissive: the server's `EmailField` is the authority on what is
  * deliverable. This only catches the shapes that cannot possibly be an address
- * (no `@`, no dot in the domain, embedded whitespace) so the user learns about a
- * typo before spending a round trip on it.
+ * (no `@`, no dot in the domain, embedded whitespace, an empty domain label) so
+ * the user learns about a typo before spending a round trip on it.
+ *
+ * The domain label classes exclude `.` so the pattern stays **linear**. The obvious
+ * spelling — `@[^\s@]+\.[^\s@]+$` — puts `.` inside both classes, which makes the
+ * decomposition ambiguous: on a failing input with many dots (`"a@" + "x.".repeat(n)
+ * + "@"`) the engine tries every dot as the `\.` anchor and backtracks the trailing
+ * `[^\s@]+` one character at a time from each, which is O(n²) (SonarCloud S8786).
+ * Not exploitable — it is a client-side check on a field the user types into
+ * themselves — but it is the same hygiene class as `stripTrailingSlash` (#2519) and
+ * there is a clean linear spelling, so take it (#2566). Excluding `.` from the labels
+ * additionally rejects `a@b..c`, which the old pattern accepted and which cannot be a
+ * deliverable domain either.
  */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+
+/**
+ * The client-side pre-flight above, as a named predicate.
+ *
+ * Exported so the pattern's linearity and its reject list can be asserted directly —
+ * the pathological input S8786 is about is 50k characters long, which is not something
+ * `userEvent.type` can drive through the rendered form in reasonable time.
+ */
+export function looksLikeEmail(candidate: string): boolean {
+  return EMAIL_RE.test(candidate);
+}
 
 export interface StakeholderDraft {
   name: string;
@@ -110,7 +132,7 @@ export function StakeholderEditRow({
 
   const trimmedName = name.trim();
   const trimmedEmail = email.trim();
-  const emailMalformed = trimmedEmail !== '' && !EMAIL_RE.test(trimmedEmail);
+  const emailMalformed = trimmedEmail !== '' && !looksLikeEmail(trimmedEmail);
   const showEmailHint = emailMalformed && emailChecked;
 
   const serverEmailError = serverErrorStale ? undefined : firstMessage(fieldErrors?.email);
