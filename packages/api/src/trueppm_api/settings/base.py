@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import timedelta
 from pathlib import Path
 
 import environ
 
 from trueppm_api.core.ratelimit import apply_rate_limit_disable, resolve_rate_limit_enabled
+from trueppm_api.core.storage_config import S3_STORAGE_BACKENDS, build_s3_storage_options
 from trueppm_api.core.valkey_config import parse_sentinels
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -203,6 +205,14 @@ STORAGES = {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
     },
 }
+
+# S3 / MinIO options, attached ONLY for an S3-family backend — a FileSystemStorage
+# deploy must not be handed S3 kwargs it would reject. See core.storage_config for
+# why this plumbing is required rather than cosmetic (#2559): the backend the docs
+# recommend reads its bucket from Django settings, not the environment, so setting
+# TRUEPPM_DEFAULT_FILE_STORAGE alone booted and then failed on the first upload.
+if STORAGES["default"]["BACKEND"] in S3_STORAGE_BACKENDS:
+    STORAGES["default"]["OPTIONS"] = build_s3_storage_options(os.environ)
 
 # Operator opt-in to run prod on local-disk attachment storage (e.g. when it is
 # backed by a persistent volume). Consumed by validate_attachment_storage.

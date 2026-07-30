@@ -15330,6 +15330,24 @@ SIGNED_URL_DEFAULT_TTL_SECONDS = 15 * 60  # constraint #6
 SIGNED_URL_MAX_TTL_SECONDS = 60 * 60  # constraint #7 (OSS hard-cap)
 
 
+def _storage_expire_seconds(storage: object) -> int | None:
+    """Signed-URL lifetime a storage backend applies on its own, in seconds.
+
+    Only consulted when a backend's ``url()`` rejects a per-call ``expire`` — see
+    the signed_url action. django-storages spells this ``querystring_expire`` (S3,
+    an int) or ``expiration`` (GCS, a timedelta); returns None for a backend that
+    advertises neither, in which case the caller keeps the requested TTL.
+    """
+    raw = getattr(storage, "querystring_expire", None)
+    if raw is None:
+        raw = getattr(storage, "expiration", None)
+    if isinstance(raw, datetime.timedelta):
+        return int(raw.total_seconds())
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return raw
+    return None
+
+
 class AttachmentSigningNotSupported(APIException):
     """The configured storage backend cannot produce a real signed URL (#573, MED-2).
 
@@ -15562,9 +15580,31 @@ class TaskAttachmentViewSet(
 
         # The backend check above already confirmed this is a signing-capable
         # backend (S3/MinIO, GCS, Azure Blob via django-storages), so .url()
-        # transparently returns a real query-string-signed, time-limited URL.
-        url = attachment.file.url if attachment.file else ""
-        expires_at = timezone.now() + datetime.timedelta(seconds=ttl)
+        # returns a real query-string-signed, time-limited URL.
+        #
+        # The requested TTL must reach the SIGNATURE, not just the response body
+        # (#2559). django-storages signs with the backend's own configured lifetime
+        # (TRUEPPM_S3_QUERYSTRING_EXPIRE, default 900s) unless an explicit `expire`
+        # is passed, so returning `now + ttl` while signing with the default made
+        # `expires_at` fiction for any ttl != 900 — a client asking for the 3600s
+        # maximum got a URL that died after 15 minutes. This was unreachable while
+        # django-storages was not installed (the check above always 501'd); shipping
+        # the S3 backend makes it live, so the TTL is threaded through here.
+        url = ""
+        effective_ttl = ttl
+        if attachment.file:
+            storage = attachment.file.storage
+            try:
+                url = storage.url(attachment.file.name, expire=ttl)
+            except TypeError:
+                # A signing backend whose url() takes no per-call expiry (the
+                # django-storages GCS backend reads GS_EXPIRATION instead). Fall
+                # back, and report the SHORTER of the two lifetimes so expires_at is
+                # never longer than the URL actually lives.
+                url = attachment.file.url
+                backend_ttl = _storage_expire_seconds(storage)
+                effective_ttl = min(ttl, backend_ttl) if backend_ttl else ttl
+        expires_at = timezone.now() + datetime.timedelta(seconds=effective_ttl)
         data = SignedDownloadUrlSerializer({"url": url, "expires_at": expires_at}).data
         return Response(data, status=status.HTTP_200_OK)
 
