@@ -30,7 +30,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from trueppm_api.apps.projects.models import Project
 from trueppm_api.apps.projects.seed import SeedValidationError, import_seed, inspect_seed
-from trueppm_api.apps.projects.seed.importer import SeedReplaceRequired
+from trueppm_api.apps.projects.seed.importer import SeedReplaceAmbiguous, SeedReplaceRequired
 
 User = get_user_model()
 
@@ -103,6 +103,13 @@ class Command(BaseCommand):
             raise CommandError(
                 f"{exc} Re-run without --no-replace to replace it (its projects move "
                 "to Trash), or edit the seed's program.slug."
+            ) from exc
+        except SeedReplaceAmbiguous as exc:
+            # Reachable because Program.code is non-unique: an owner can hold two
+            # live programs under one slug. Without this the operator gets a raw
+            # traceback for what is an ordinary, actionable refusal.
+            raise CommandError(
+                f"{exc} Delete or re-code one of them, or import as a different user."
             ) from exc
 
         project_count = Project.objects.filter(program=program).count()

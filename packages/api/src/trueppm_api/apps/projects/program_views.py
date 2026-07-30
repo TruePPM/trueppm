@@ -1596,6 +1596,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         (``null`` when the sample has no open sprint), and ``sample_key`` lets the
         client render the matching post-load "Start exploring" guidance.
         """
+        from trueppm_api.apps.projects.seed.importer import SeedReplaceAmbiguous
         from trueppm_api.apps.projects.seed.samples import (
             DEFAULT_SAMPLE,
             UnknownSampleError,
@@ -1606,6 +1607,15 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         key = request.data.get("sample", DEFAULT_SAMPLE)
         try:
             program = load_sample(key, owner=request.user, create_users=True)
+        except SeedReplaceAmbiguous as exc:
+            # The demo loader reloads in place, so it passes replace=True — but
+            # Program.code is non-unique, and two live sample programs sharing
+            # this slug cannot be told apart by a reload. A 409 the caller can
+            # act on, not the 500 an unhandled refusal would produce.
+            return Response(
+                {"detail": str(exc), "code": "seed_replace_ambiguous"},
+                status=status.HTTP_409_CONFLICT,
+            )
         except UnknownSampleError as exc:
             # Standardized on the `detail` envelope (#1325). False positive: the
             # message only echoes the caller's own submitted sample key.

@@ -525,9 +525,10 @@ A [JSON program seed](/administration/management-commands/#sample-data--json-see
 Seeds are bounded relative to the other importers because they are a different
 kind of payload: the largest bundled sample seed is a few hundred KB, so 5 MB is
 generous headroom while still bounding the memory a single authenticated import
-request can consume. The ceiling is checked against `Content-Length` before any
-parse, on **both** request shapes — a `multipart/form-data` upload and a raw JSON
-body — so it cannot be sidestepped by posting the document as the body. See
+request can consume. The ceiling is enforced on **both** request shapes — a
+`multipart/form-data` upload and a raw JSON body — so it cannot be sidestepped by
+posting the document as the body. It is measured against the bytes that actually
+arrived rather than a declared `Content-Length`, which a chunked request may omit. See
 [general API rate limiting](#general-api-rate-limiting)
 above for the separate `TRUEPPM_THROTTLE_SEED_IMPORT_RATE` /
 `TRUEPPM_THROTTLE_SEED_VALIDATE_RATE` throttles that bound *how often* a caller

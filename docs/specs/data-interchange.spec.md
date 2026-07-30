@@ -222,10 +222,16 @@ The schema is the source of truth; this spec governs the *contract around* it.
 | Async bundle download TTL | 7 days | retention policy |
 | Import job row + stored payload TTL | 7 days | `TRUEPPM_IMPORT_RETENTION_DAYS` |
 
-`SEED_MAX_UPLOAD_MB` is checked against `CONTENT_LENGTH` before any parse on **both**
-request shapes — the multipart `file` upload and the raw JSON body. The JSON-body branch
-was previously bounded only by `DATA_UPLOAD_MAX_MEMORY_SIZE`, which made the 5 MB ceiling
-bypassable; ADR-0726 closes that.
+`SEED_MAX_UPLOAD_MB` is enforced on **both** request shapes — the multipart `file` upload
+and the raw JSON body. The JSON-body branch was previously bounded only by
+`DATA_UPLOAD_MAX_MEMORY_SIZE` (100 MB), which made the 5 MB ceiling bypassable simply by
+posting the document as the body; ADR-0726 closes that.
+
+The gate is on **actual bytes**, not on a declared `Content-Length`: the multipart branch
+checks `UploadedFile.size`, and the JSON branch checks `len(request.body)` before parsing.
+A declared length is not sufficient — it can be absent entirely under chunked
+transfer-encoding — and the branch is selected on `Content-Type` rather than by probing
+`request.FILES`, because reading that property runs the parser the check exists to bound.
 
 `MAX_SEED_NODES` stays at 100 000 and is **deliberately not raised**. At the bundled
 fixtures' measured ~525 bytes/node the 5 MB payload cap already binds well below it; the

@@ -234,7 +234,24 @@ def test_downloaded_bytes_validate_and_import_with_the_advertised_counts(
 
     created = api.post("/api/v1/programs/import/", data=json.loads(body), format="json")
     assert created.status_code == status.HTTP_202_ACCEPTED
-    assert created.json()["program_id"]
+
+    # Import is async now (ADR-0726), so run the queued job rather than dropping
+    # the end-to-end assertion: the point of this test is that the *downloaded
+    # bytes* really materialize the counts the catalog advertised.
+    from trueppm_api.apps.projects.models import Project, Task
+    from trueppm_api.apps.projects.tasks import run_program_import
+
+    run_program_import.apply(args=[str(created.json()["import_request_id"])])
+
+    program_id = created.json()["program_id"]
+    assert (
+        Project.objects.filter(program_id=program_id, is_deleted=False).count()
+        == advertised["project_count"]
+    )
+    assert (
+        Task.objects.filter(project__program_id=program_id, is_deleted=False).count()
+        == advertised["task_count"]
+    )
 
 
 # ── Degraded states ───────────────────────────────────────────────────────────

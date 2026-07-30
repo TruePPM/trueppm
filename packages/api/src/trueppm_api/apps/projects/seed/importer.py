@@ -312,9 +312,16 @@ class _SeedImporter:
         # rolled-back import.
         for pid in project_ids:
             transaction.on_commit(partial(enqueue_recalculate, project_id=pid))
-            transaction.on_commit(
-                partial(broadcast_board_event, pid, "project_created", {"id": pid})
-            )
+
+            # A direct call rather than partial(broadcast_board_event, ...): the WS
+            # freeze guard AST-scans for the event-type literal in the argument slot
+            # of a ``broadcast_board_event`` call, and under partial the callee name
+            # is ``partial``, which makes the literal invisible to it. The default
+            # argument pins the loop variable.
+            def _emit_created(project_id: str = pid) -> None:
+                broadcast_board_event(project_id, "project_created", {"id": project_id})
+
+            transaction.on_commit(_emit_created)
         return program
 
     # --- v2 date resolution + replay --------------------------------------
@@ -570,17 +577,14 @@ class _SeedImporter:
             ]
             program_id = str(target.pk)
             hard_delete_program(target.pk)
-            for project_id in doomed:
-                transaction.on_commit(
-                    partial(
-                        broadcast_board_event,
-                        project_id,
-                        "project_hard_deleted",
-                        {"id": project_id},
-                    )
-                )
+            for doomed_id in doomed:
+
+                def _emit_hard_deleted(project_id: str = doomed_id) -> None:
+                    broadcast_board_event(project_id, "project_hard_deleted", {"id": project_id})
+
+                transaction.on_commit(_emit_hard_deleted)
             transaction.on_commit(
-                partial(broadcast_board_event, program_id, "program_deleted", {"id": program_id})
+                lambda: broadcast_board_event(program_id, "program_deleted", {"id": program_id})
             )
         else:
             soft_delete_program_subtree(target, actor=self.owner, reason="seed_replace")

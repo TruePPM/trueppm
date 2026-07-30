@@ -6148,8 +6148,13 @@ def soft_delete_project(project: Any, *, actor: Any, reason: str | None = None) 
     )
 
     enqueue_project_cascade_soft_delete(project_id)
+    # Spelled as a direct call inside a lambda, not partial(broadcast_board_event, ...).
+    # ``test_ws_event_type_set_is_frozen`` AST-scans for the event-type literal in the
+    # argument slot of a ``broadcast_board_event`` *call*; under partial the callee is
+    # ``partial``, so the literal becomes invisible to the freeze guard and the contract
+    # test silently stops covering this event.
     transaction.on_commit(
-        partial(broadcast_board_event, project_id, "project_deleted", {"id": project_id})
+        lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
     )
 
 
@@ -6208,7 +6213,7 @@ def soft_delete_program_subtree(
     locked.soft_delete()
     program_id = str(locked.pk)
     transaction.on_commit(
-        partial(broadcast_board_event, program_id, "program_deleted", {"id": program_id})
+        lambda: broadcast_board_event(program_id, "program_deleted", {"id": program_id})
     )
     return deleted_ids
 
