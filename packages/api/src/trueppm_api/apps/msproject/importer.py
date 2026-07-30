@@ -141,6 +141,40 @@ def _init_summary(data: ProjectData) -> dict[str, Any]:
     return summary
 
 
+def broadcast_import_project_record_change(project_id: str, summary: dict[str, Any]) -> None:
+    """Broadcast ``project_updated`` when an import moved project-record state.
+
+    Two things an import can change live outside the task tree: the project's
+    ``start_date`` (pulled back when an imported task predates it, #867/#873) and
+    ``Project.calendar`` (#1769). Neither is invalidated by the recalc's
+    ``cpm_complete`` or by ``tasks_restructured`` — both of those speak about
+    tasks — so without this a collaborator watching the Gantt sees the whole
+    schedule shift under them with no signal and no attribution.
+
+    Deferred with ``transaction.on_commit`` so a rolled-back import never tells
+    peers a boundary moved. Callers invoke this *after* the import's ``atomic()``
+    block has committed, at which point no ambient transaction remains and the
+    callback fires immediately.
+
+    Shared by all three import wrappers on purpose. MS Project, CSV and Jira all
+    run this same ``import_project``, but each had its own task module, and the
+    #873 broadcast was added to one of them and never reached the other two —
+    CSV and Jira shifted the start silently for three releases (#2610). A fork
+    with three call sites and one behavior is a drift waiting to happen; there is
+    now one site.
+    """
+    if not (summary.get("project_start_shifted") or summary.get("calendar_applied")):
+        return
+
+    from django.db import transaction
+
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    transaction.on_commit(
+        lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
+    )
+
+
 def _import_labels(
     project_id: str,
     data: ProjectData,
