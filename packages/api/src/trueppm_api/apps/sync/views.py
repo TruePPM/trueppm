@@ -218,10 +218,12 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             raise PermissionDenied("You must be a member of this project.")
 
         # Read the high-water mark BEFORE the delta queries. This ORDERING is the
-        # whole guarantee — not an isolation level. The pull runs at PostgreSQL's
-        # default READ COMMITTED (no atomic() block here sets anything else, and
-        # none is configured); REPEATABLE READ would add nothing, and an earlier
-        # version of this comment claimed a wrapper that never existed (#2613).
+        # whole guarantee — not an isolation level. ATOMIC_REQUESTS does wrap this
+        # request in a transaction, but at PostgreSQL's default READ COMMITTED, and
+        # nothing here or in settings raises that: every statement below still takes
+        # its own fresh snapshot, so being in a transaction pins nothing. REPEATABLE
+        # READ would add nothing either, and an earlier version of this comment
+        # claimed a wrapper that never existed at all (#2613).
         #
         # Two facts close the TOCTOU window:
         #
