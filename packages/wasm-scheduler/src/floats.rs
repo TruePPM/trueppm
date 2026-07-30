@@ -2,6 +2,7 @@
 //!
 //! Mirrors the Python `_compute_floats` function from `trueppm_scheduler.engine`.
 
+use chrono::NaiveDate;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
@@ -12,6 +13,60 @@ use crate::calendar::{
 };
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
+
+/// Working-day span counter that keeps the O(log n) fast path where it is valid.
+///
+/// A span goes through the prebuilt [`WorkingDayCounter`] only when the node's
+/// calendar **is** the project calendar the counter was built over; a per-task
+/// calendar falls back to the O(span) scalar reference. Both return identical
+/// counts — this mirrors the Python `_wdb` helper's `cal is calendar` test
+/// exactly, so the single-calendar path keeps using the counter for every span
+/// (#1534).
+struct SpanCounter<'a> {
+    counter: WorkingDayCounter<'a>,
+    calendar: &'a Calendar,
+}
+
+impl SpanCounter<'_> {
+    fn between(&self, start: NaiveDate, end: NaiveDate, cal: &Calendar) -> Result<i32, String> {
+        if std::ptr::eq(cal, self.calendar) {
+            self.counter.between(start, end)
+        } else {
+            working_days_between(start, end, cal)
+        }
+    }
+}
+
+/// The (anchor, latest) pair a single dependency imposes for free float.
+///
+/// `latest` is the last date the predecessor could finish (FS/FF) or start
+/// (SS/SF) while leaving the successor's *early* date untouched; `anchor` is the
+/// predecessor's matching early date. The slack between them is this
+/// relationship's free float.
+///
+/// Computed by **inverting** the forward constraint — the same retreat the
+/// backward pass applies for late dates — rather than measuring the gap from the
+/// forward-imposed date, which diverged whenever a calendar-day lag re-lands
+/// across non-working days as the task slips (#1828).
+fn free_float_anchor(
+    dep: &Dependency,
+    es: NaiveDate,
+    ef: NaiveDate,
+    succ_es: NaiveDate,
+    succ_ef: NaiveDate,
+    node_cal: &Calendar,
+) -> Result<(NaiveDate, NaiveDate), String> {
+    let lag_days = dep.lag_days();
+    Ok(match dep.dep_type {
+        DependencyType::FS => (
+            ef,
+            prev_working_day(checked_offset_days(succ_es, -1 - lag_days)?, node_cal)?,
+        ),
+        DependencyType::SS => (es, retreat_calendar_days(succ_es, lag_days, node_cal)?),
+        DependencyType::FF => (ef, retreat_calendar_days(succ_ef, lag_days, node_cal)?),
+        DependencyType::SF => (es, retreat_calendar_days(succ_ef, lag_days, node_cal)?),
+    })
+}
 
 /// Compute total_float, free_float, and is_critical for every task (in-place).
 ///
@@ -34,18 +89,9 @@ pub fn compute_floats(
     cals: &PassCalendars,
 ) -> Result<Vec<DrivingEdge>, String> {
     let calendar = cals.default_calendar();
-    let counter = WorkingDayCounter::build(tasks, calendar)?;
-    // Span counts go through the O(log n) counter only when the node's calendar
-    // IS the project calendar the counter was built over; a per-task calendar
-    // falls back to the O(span) scalar reference. Both return identical counts —
-    // this mirrors the Python `_wdb` helper's `cal is calendar` test exactly, so
-    // the single-calendar path keeps using the counter for every span (#1534).
-    let wdb = |start, end, cal: &Calendar| -> Result<i32, String> {
-        if std::ptr::eq(cal, calendar) {
-            counter.between(start, end)
-        } else {
-            working_days_between(start, end, cal)
-        }
+    let spans = SpanCounter {
+        counter: WorkingDayCounter::build(tasks, calendar)?,
+        calendar,
     };
     let mut driving_edges: Vec<DrivingEdge> = Vec::new();
     for &idx in topo_order {
@@ -60,7 +106,7 @@ pub fn compute_floats(
         let node_cal = cals.for_node(i);
 
         // Total float: working days between ES and LS.
-        let tf_days = wdb(es, ls, node_cal)?;
+        let tf_days = spans.between(es, ls, node_cal)?;
         // A completed task is never on the critical path. The backward pass pins a
         // done task to late == early (ADR-0132/0136), mechanically yielding zero
         // total float — but a finished task has no remaining work and no slack to
@@ -91,19 +137,15 @@ pub fn compute_floats(
                 continue;
             }
             let dep = &deps[*edge.weight()];
-            let lag_days = dep.lag_days();
-            let succ_es = succ.early_start.unwrap();
-            let succ_ef = succ.early_finish.unwrap();
-            let (anchor, latest) = match dep.dep_type {
-                DependencyType::FS => (
-                    ef,
-                    prev_working_day(checked_offset_days(succ_es, -1 - lag_days)?, node_cal)?,
-                ),
-                DependencyType::SS => (es, retreat_calendar_days(succ_es, lag_days, node_cal)?),
-                DependencyType::FF => (ef, retreat_calendar_days(succ_ef, lag_days, node_cal)?),
-                DependencyType::SF => (es, retreat_calendar_days(succ_ef, lag_days, node_cal)?),
-            };
-            let slack = wdb(anchor, latest, node_cal)?;
+            let (anchor, latest) = free_float_anchor(
+                dep,
+                es,
+                ef,
+                succ.early_start.unwrap(),
+                succ.early_finish.unwrap(),
+                node_cal,
+            )?;
+            let slack = spans.between(anchor, latest, node_cal)?;
             ff_days = ff_days.min(slack.max(0));
             // Zero relationship free float ⇒ this link drives the successor's early
             // date (#2095). The forward pass guarantees slack >= 0, so the exact
