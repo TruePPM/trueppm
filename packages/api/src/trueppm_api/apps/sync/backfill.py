@@ -25,14 +25,24 @@ from __future__ import annotations
 
 from typing import Any
 
+# The two join shapes every indirect source uses to reach its project row, and
+# the predicates that bind the target table to the end of that join. Named
+# because the table below is thirteen rows of near-identical SQL otherwise: the
+# names say *how* a model reaches its project (directly, or through its task),
+# which is the only thing that varies between most rows.
+_VIA_PROJECT = "{project} p"
+_VIA_TASK = "{task} t JOIN {project} p ON t.project_id = p.id"
+_ON_PROJECT_ID = "x.project_id = p.id"
+_ON_TASK_ID = "x.task_id = t.id"
+
 # (label, join clause reaching the project row, predicate binding the target).
 # The target table is aliased ``x`` and the project row ``p`` in every statement.
 _INDIRECT_SOURCES: list[tuple[str, str, str]] = [
-    ("projects.Task", "{project} p", "x.project_id = p.id"),
-    ("access.ProjectMembership", "{project} p", "x.project_id = p.id"),
-    ("projects.Risk", "{project} p", "x.project_id = p.id"),
-    ("projects.Sprint", "{project} p", "x.project_id = p.id"),
-    ("projects.Label", "{project} p", "x.project_id = p.id"),
+    ("projects.Task", _VIA_PROJECT, _ON_PROJECT_ID),
+    ("access.ProjectMembership", _VIA_PROJECT, _ON_PROJECT_ID),
+    ("projects.Risk", _VIA_PROJECT, _ON_PROJECT_ID),
+    ("projects.Sprint", _VIA_PROJECT, _ON_PROJECT_ID),
+    ("projects.Label", _VIA_PROJECT, _ON_PROJECT_ID),
     (
         "projects.SprintRetro",
         "{sprint} s JOIN {project} p ON s.project_id = p.id",
@@ -44,39 +54,15 @@ _INDIRECT_SOURCES: list[tuple[str, str, str]] = [
         "JOIN {project} p ON s.project_id = p.id",
         "x.retro_id = r.id",
     ),
-    (
-        "projects.TaskSuggestedAssignee",
-        "{task} t JOIN {project} p ON t.project_id = p.id",
-        "x.task_id = t.id",
-    ),
-    (
-        "projects.TaskRecurrenceRule",
-        "{task} t JOIN {project} p ON t.project_id = p.id",
-        "x.task_id = t.id",
-    ),
-    (
-        "integrations.TaskLink",
-        "{task} t JOIN {project} p ON t.project_id = p.id",
-        "x.task_id = t.id",
-    ),
-    (
-        "timetracking.TimeEntry",
-        "{task} t JOIN {project} p ON t.project_id = p.id",
-        "x.task_id = t.id",
-    ),
+    ("projects.TaskSuggestedAssignee", _VIA_TASK, _ON_TASK_ID),
+    ("projects.TaskRecurrenceRule", _VIA_TASK, _ON_TASK_ID),
+    ("integrations.TaskLink", _VIA_TASK, _ON_TASK_ID),
+    ("timetracking.TimeEntry", _VIA_TASK, _ON_TASK_ID),
     # Graph edges reach the project through the endpoint the delta scopes and
     # orders by. Both are delivered as their own collection filtered on their own
     # `sync_seq`, so an unseeded edge would stay at 0 and never be delivered.
-    (
-        "projects.Dependency",
-        "{task} t JOIN {project} p ON t.project_id = p.id",
-        "x.predecessor_id = t.id",
-    ),
-    (
-        "projects.TaskRelation",
-        "{task} t JOIN {project} p ON t.project_id = p.id",
-        "x.source_id = t.id",
-    ),
+    ("projects.Dependency", _VIA_TASK, "x.predecessor_id = t.id"),
+    ("projects.TaskRelation", _VIA_TASK, "x.source_id = t.id"),
 ]
 
 

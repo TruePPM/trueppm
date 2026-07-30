@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import zoneinfo
+from functools import partial
 from typing import Any, cast
 
 from rest_framework import serializers
@@ -45,6 +46,104 @@ _HOST_REQUIRED_MODES = {EmailTransportMode.SMTP, EmailTransportMode.SES}
 # because its username is server-fixed to the literal "apikey" (the key travels as
 # the password), and CLOUD stores no credentials at all.
 _USERNAME_REQUIRED_MODES = {EmailTransportMode.SMTP, EmailTransportMode.SES}
+
+
+def _effective(attrs: dict[str, Any], instance: Any, field: str, default: Any = "") -> Any:
+    """Value ``field`` will hold after this write.
+
+    A PATCH only carries the fields being changed, so validation has to reason
+    about the *merged* record: incoming value if the request set one, otherwise
+    whatever is already stored.
+    """
+    if field in attrs:
+        return attrs[field]
+    return getattr(instance, field, default)
+
+
+def _assert_transport_fields(
+    *,
+    mode: Any,
+    host: str,
+    username: str,
+    effective_pw: str,
+    needs_fresh_password: bool,
+) -> None:
+    """Reject a transport config that is missing something the transport needs.
+
+    Runs before the live probe so a config that cannot possibly work is refused
+    without opening a connection.
+    """
+    # Reusing a stale secret across a transport switch is a footgun — a
+    # SendGrid API key is not an SES password (security review M2).
+    if needs_fresh_password and mode in _CREDENTIAL_MODES:
+        raise serializers.ValidationError(
+            {"password": "Re-enter the password when changing the transport."}
+        )
+
+    if mode in _HOST_REQUIRED_MODES and not host:
+        raise serializers.ValidationError({"host": "Host is required for this transport."})
+
+    # SMTP AUTH is a (username, password) pair, so a blank username is not a
+    # weaker credential — it is *no* credential. Django's SMTP backend calls
+    # login() only when both are truthy, so a blank username makes the probe
+    # open an unauthenticated connection that succeeds, persisting a config
+    # whose every real send then fails 530 Authentication Required. Requiring
+    # it here is what makes the validate-before-persist gate honest.
+    if mode in _USERNAME_REQUIRED_MODES and not username:
+        raise serializers.ValidationError(
+            {
+                "username": (
+                    "A username is required for this transport — the mail server "
+                    "authenticates as this account. It is usually the full email "
+                    "address that owns the password or app password."
+                )
+            }
+        )
+
+    if not effective_pw:
+        raise serializers.ValidationError(
+            {"password": "A password is required for this transport."}
+        )
+
+
+def _probe_or_raise(
+    *,
+    mode: Any,
+    host: str,
+    port: Any,
+    security: Any,
+    username: str,
+    password: str,
+) -> None:
+    """Validate-before-persist: open the candidate transport now.
+
+    Generic error only — never leak the underlying smtplib exception (M1).
+    """
+    from .email_backend import EmailTransportError, probe_transport
+
+    try:
+        probe_transport(
+            transport_mode=str(mode),
+            host=host,
+            port=int(port),
+            security=str(security),
+            username=username,
+            password=password,
+        )
+    except EmailTransportError as exc:
+        # Curated message only — never surface the exception object. The
+        # SSRF-guarded host path can carry the DNS-resolved internal address
+        # (scrubbed from the client at email_backend._assert_host_public);
+        # log the detail server-side (CodeQL py/stack-trace-exposure).
+        logger.info("email transport probe failed (host=%s port=%s): %s", host, port, exc)
+        raise serializers.ValidationError(
+            {
+                "non_field_errors": [
+                    "Could not connect to the mail server with these settings. "
+                    "Check the host, port, security, and credentials."
+                ]
+            }
+        ) from exc
 
 
 class MentionAuthorSerializer(serializers.Serializer[Any]):
@@ -478,11 +577,9 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = self.instance
-
-        def eff(field: str, default: Any = "") -> Any:
-            if field in attrs:
-                return attrs[field]
-            return getattr(instance, field, default)
+        # Bound rather than nested: a closure's own branching is charged to its
+        # enclosing function, and a module-level resolver is testable alone.
+        eff = partial(_effective, attrs, instance)
 
         mode = eff("transport_mode", EmailTransportMode.CLOUD)
         if mode == EmailTransportMode.CLOUD:
@@ -498,66 +595,22 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
         stored_pw = instance.get_password() if instance is not None else ""
         mode_changed = instance is not None and instance.transport_mode != mode
 
-        # Reusing a stale secret across a transport switch is a footgun — a
-        # SendGrid API key is not an SES password (security review M2).
-        if mode_changed and not incoming_pw and mode in _CREDENTIAL_MODES:
-            raise serializers.ValidationError(
-                {"password": "Re-enter the password when changing the transport."}
-            )
-
-        if mode in _HOST_REQUIRED_MODES and not host:
-            raise serializers.ValidationError({"host": "Host is required for this transport."})
-
-        # SMTP AUTH is a (username, password) pair, so a blank username is not a
-        # weaker credential — it is *no* credential. Django's SMTP backend calls
-        # login() only when both are truthy, so a blank username makes the probe
-        # below open an unauthenticated connection that succeeds, persisting a
-        # config whose every real send then fails 530 Authentication Required.
-        # Requiring it here is what makes the validate-before-persist gate honest.
-        if mode in _USERNAME_REQUIRED_MODES and not username:
-            raise serializers.ValidationError(
-                {
-                    "username": (
-                        "A username is required for this transport — the mail server "
-                        "authenticates as this account. It is usually the full email "
-                        "address that owns the password or app password."
-                    )
-                }
-            )
-
         effective_pw = incoming_pw or stored_pw
-        if not effective_pw:
-            raise serializers.ValidationError(
-                {"password": "A password is required for this transport."}
-            )
-
-        # Validate-before-persist: open the candidate transport now. Generic
-        # error only — never leak the underlying smtplib exception (M1).
-        from .email_backend import EmailTransportError, probe_transport
-
-        try:
-            probe_transport(
-                transport_mode=str(mode),
-                host=host,
-                port=int(port),
-                security=str(security),
-                username=username,
-                password=effective_pw,
-            )
-        except EmailTransportError as exc:
-            # Curated message only — never surface the exception object. The
-            # SSRF-guarded host path can carry the DNS-resolved internal address
-            # (scrubbed from the client at email_backend._assert_host_public);
-            # log the detail server-side (CodeQL py/stack-trace-exposure).
-            logger.info("email transport probe failed (host=%s port=%s): %s", host, port, exc)
-            raise serializers.ValidationError(
-                {
-                    "non_field_errors": [
-                        "Could not connect to the mail server with these settings. "
-                        "Check the host, port, security, and credentials."
-                    ]
-                }
-            ) from exc
+        _assert_transport_fields(
+            mode=mode,
+            host=host,
+            username=username,
+            effective_pw=effective_pw,
+            needs_fresh_password=mode_changed and not incoming_pw,
+        )
+        _probe_or_raise(
+            mode=mode,
+            host=host,
+            port=port,
+            security=security,
+            username=username,
+            password=effective_pw,
+        )
 
         return attrs
 
