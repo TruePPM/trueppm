@@ -8,10 +8,15 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * JSON" affordance uploads a seed file, lands the user on the imported program
  * (golden path), and surfaces the server's line-level error report when the
  * seed is rejected (error state).
+ *
+ * Since ADR-0726 the endpoint answers `202` with a job handle, so the button
+ * polls the job to a terminal state before navigating, and a `409` naming a
+ * program the seed's slug collides with becomes a confirmation (#2581).
  */
 
 const ME_ID = 'user-alice';
 const PROGRAM_ID = 'e2e-seed-00000000-0000-0000-0000-000000000613';
+const JOB_ID = 'e2e-seed-job-0000-0000-0000-000000002574';
 
 const FIXTURE_ME = {
   id: ME_ID,
@@ -60,6 +65,68 @@ const FIXTURE_ROLLUP = {
 };
 
 const pj = (o: unknown) => JSON.stringify(o);
+
+/** The 202 envelope — the program shell already exists at `program_id`. */
+const QUEUED = {
+  queued: true,
+  program_id: PROGRAM_ID,
+  import_request_id: JOB_ID,
+  replaced_program_id: null,
+};
+
+/**
+ * GET /programs/{id}/import/jobs/{job}/ — object-shaped. It sits under the broad
+ * `**‍/programs/${PROGRAM_ID}/**` route below, which would otherwise answer it
+ * with FIXTURE_PROGRAM (no `status` key) and strand the button in "Building…".
+ */
+function importJob(status: 'pending' | 'running' | 'success' | 'failed', errorDetail = '') {
+  return {
+    id: JOB_ID,
+    program: PROGRAM_ID,
+    status,
+    filename: 'atlas.json',
+    replace: false,
+    replaced_program_id: null,
+    result_summary:
+      status === 'success' ? { projects: 3, tasks: 12, sprints: 0, dependencies: 0 } : {},
+    error_detail: errorDetail,
+    expires_at: null,
+    created_at: '2026-06-06T00:00:00Z',
+    started_at: null,
+    completed_at: null,
+  };
+}
+
+/** The 409 body — what a confirmed re-import would tear down (#2581). */
+const REPLACE_CONFLICT = {
+  detail: 'A program you own already uses the code "atlas". Confirm to continue.',
+  code: 'seed_replace_required',
+  conflict: {
+    program_id: 'e2e-live-0000-0000-0000-000000002581',
+    name: 'Atlas Platform Launch',
+    code: 'atlas',
+    project_count: 3,
+    task_count: 812,
+  },
+};
+
+/**
+ * Registered AFTER `setup()` so it beats the broad program route (Playwright is
+ * last-registered-wins).
+ */
+async function routeImportJob(
+  page: Page,
+  status: 'pending' | 'running' | 'success' | 'failed',
+  errorDetail = '',
+) {
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/import/jobs/${JOB_ID}/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj(importJob(status, errorDetail)),
+    }),
+  );
+}
 
 async function setup(page: Page) {
   await page.addInitScript(() => {
@@ -118,8 +185,9 @@ test.describe('Program JSON import', () => {
   test('imports a seed file and lands on the new program', async ({ page }) => {
     await setup(page);
     await page.route('**/api/v1/programs/import/', (r) =>
-      r.fulfill({ status: 201, contentType: 'application/json', body: pj(FIXTURE_PROGRAM) }),
+      r.fulfill({ status: 202, contentType: 'application/json', body: pj(QUEUED) }),
     );
+    await routeImportJob(page, 'success');
     await page.goto('/programs');
 
     await page
@@ -164,5 +232,109 @@ test.describe('Program JSON import', () => {
 
     await expect(page.getByText(/Could not import this file/i)).toBeVisible();
     await expect(page.getByText(/program\.name: required and missing/i)).toBeVisible();
+  });
+
+  test('asks before replacing a colliding program, then re-sends with the token', async ({
+    page,
+  }) => {
+    await setup(page);
+    const importBodies: string[] = [];
+    await page.route('**/api/v1/programs/import/', async (r) => {
+      const body = r.request().postData() ?? '';
+      importBodies.push(body);
+      // Only the unconfirmed attempt collides.
+      if (body.includes('name="replace"')) {
+        await r.fulfill({ status: 202, contentType: 'application/json', body: pj(QUEUED) });
+        return;
+      }
+      await r.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: pj(REPLACE_CONFLICT),
+      });
+    });
+    await routeImportJob(page, 'success');
+    await page.goto('/programs');
+
+    await page
+      .getByRole('button', { name: /Import from JSON/i })
+      .first()
+      .click();
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'atlas.json',
+      mimeType: 'application/json',
+      buffer: SAMPLE_SEED,
+    });
+
+    const confirm = page.getByRole('alertdialog');
+    await expect(confirm).toBeVisible();
+    await expect(confirm).toContainText('Replace “Atlas Platform Launch”?');
+    await expect(confirm).toContainText('3 projects and 812 tasks');
+    await expect(confirm).toContainText(
+      'Its projects move to Trash and can be restored individually as standalone projects.',
+    );
+    await expect(confirm).toContainText('The program itself is not recoverable.');
+
+    await confirm.getByRole('button', { name: 'Replace program' }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
+    expect(importBodies).toHaveLength(2);
+    expect(importBodies[0]).not.toContain('name="replace"');
+    expect(importBodies[1]).toContain('name="expected_program_id"');
+    expect(importBodies[1]).toContain(REPLACE_CONFLICT.conflict.program_id);
+  });
+
+  test('cancelling the replace confirmation imports nothing', async ({ page }) => {
+    await setup(page);
+    let importCalls = 0;
+    await page.route('**/api/v1/programs/import/', async (r) => {
+      importCalls += 1;
+      await r.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: pj(REPLACE_CONFLICT),
+      });
+    });
+    await page.goto('/programs');
+
+    await page
+      .getByRole('button', { name: /Import from JSON/i })
+      .first()
+      .click();
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'atlas.json',
+      mimeType: 'application/json',
+      buffer: SAMPLE_SEED,
+    });
+
+    const confirm = page.getByRole('alertdialog');
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole('button', { name: 'Cancel' }).click();
+
+    await expect(confirm).toBeHidden();
+    await expect(page).toHaveURL(/\/programs$/);
+    expect(importCalls).toBe(1);
+  });
+
+  test('surfaces the job error_detail when the background build fails', async ({ page }) => {
+    await setup(page);
+    await page.route('**/api/v1/programs/import/', (r) =>
+      r.fulfill({ status: 202, contentType: 'application/json', body: pj(QUEUED) }),
+    );
+    await routeImportJob(page, 'failed', 'Seed references an unknown resource "ghost".');
+    await page.goto('/programs');
+
+    await page
+      .getByRole('button', { name: /Import from JSON/i })
+      .first()
+      .click();
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'atlas.json',
+      mimeType: 'application/json',
+      buffer: SAMPLE_SEED,
+    });
+
+    await expect(page.getByText('Seed references an unknown resource "ghost".')).toBeVisible();
+    await expect(page).toHaveURL(/\/programs$/);
   });
 });

@@ -181,16 +181,30 @@ user-facing guide.
   namespaced usernames (e.g. `atlas-alex`) — same resolution as `seed_demo_project`
   (`TRUEPPM_DEMO_PASSWORD` if set, else `demo` under `DEBUG=True`, else a random token
   printed once). Without it the personas exist but carry unusable passwords.
-- **`import_seed <path> [--owner <username>] [--create-users]`** — imports a
-  TruePPM JSON seed file into the database. Re-running with the same file rebuilds
-  the program subtree idempotently on the program slug. `--create-users` mints any
-  accounts the seed references that do not yet exist (intended for local demos,
-  not production).
+- **`import_seed <path> [--owner <username>] [--create-users] [--no-replace]`** —
+  imports a TruePPM JSON seed file into the database. Re-running with the same file
+  rebuilds the program subtree idempotently on the program slug. `--create-users`
+  mints any accounts the seed references that do not yet exist (intended for local
+  demos, not production).
+
+  The command **defaults to replacing** a live program of the owner's that already
+  uses the seed's slug — re-running `make seed` in place is what it is for, and an
+  operator at a shell has `--check` (below) available to look first. `--no-replace`
+  inverts that: the command reports the collision and exits with an error instead of
+  overwriting. The REST endpoint defaults the opposite way and refuses until the
+  caller confirms.
+
+  The replaced program's projects move to project Trash, where each can be restored
+  individually as a standalone project — the program shell itself is **not**
+  recoverable, and a restored project does not return to it. `load_sample_project`
+  is the exception: it still deletes the previous sample copy outright, because
+  demo data is disposable.
 - **`import_seed <path> --check`** — validates the file and reports every problem
   **without importing it**. Writes nothing, exits `0` when the document is valid
-  and `1` when it is not, so it can gate a CI job. Because a real import is
-  wipe-then-recreate on the program slug, this is how you answer *"will this be
-  accepted?"* before pointing a destructive operation at a live program. Output
+  and `1` when it is not, so it can gate a CI job. Because a real import replaces
+  a matching program rather than merging into it, this is how you answer *"will
+  this be accepted?"* before pointing a destructive operation at a live program.
+  Output
   leads with what the file claims to be — schema version, program name and slug,
   and the project / task / resource counts — then lists each diagnostic anchored
   to its JSON path:

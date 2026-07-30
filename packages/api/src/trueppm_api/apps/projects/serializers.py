@@ -64,6 +64,7 @@ from trueppm_api.apps.projects.models import (
     PhaseGateConfig,
     Program,
     ProgramExportJob,
+    ProgramImportJob,
     Project,
     ProjectApiToken,
     ProjectCustomField,
@@ -1485,6 +1486,58 @@ class ProgramExportJobSerializer(serializers.ModelSerializer[ProgramExportJob]):
         if obj.status != ExportJobStatus.SUCCESS:
             return None
         return f"/api/v1/programs/{obj.program_id}/export/jobs/{obj.id}/download/"
+
+
+class ProgramImportJobSerializer(serializers.ModelSerializer[ProgramImportJob]):
+    """Read serializer for an async program seed import job (ADR-0726, #2574).
+
+    What the client polls after its ``202``. ``result_summary`` carries the entity
+    counts on success and ``error_detail`` the reason on failure — both live on the
+    row rather than only in the worker log, because an async import failure has to
+    be visible on the surface that launched it or the job handle buys nothing.
+
+    ``file_path`` is deliberately **not** exposed: it is a storage key for the
+    uploaded payload, and the job status surface is not a file-read surface.
+    """
+
+    class Meta:
+        model = ProgramImportJob
+        fields = [
+            "id",
+            "program",
+            "status",
+            "filename",
+            "replace",
+            "replaced_program_id",
+            "result_summary",
+            "error_detail",
+            "expires_at",
+            "created_at",
+            "started_at",
+            "completed_at",
+        ]
+        read_only_fields = fields
+
+
+class SeedImportRequestSerializer(serializers.Serializer[Any]):
+    """The two consent fields on ``POST /programs/import/`` (ADR-0726 §1).
+
+    Declared as a serializer rather than read off ``request.data`` so
+    drf-spectacular describes them and the OpenAPI schema tells a client how to
+    confirm a destructive re-import without reading the source.
+
+    ``replace`` is the blunt confirmation. ``expected_program_id`` is the
+    compare-and-swap: when supplied it must equal the program that would actually
+    be replaced, which protects a client acting on an earlier dry run from a
+    collision set that moved underneath it. Neither is required — and the default
+    of both absent is a refusal, which is the point.
+
+    The seed document itself arrives as a multipart ``file`` or as the JSON body,
+    so this serializer deliberately validates neither.
+    """
+
+    replace = serializers.BooleanField(required=False, default=False)
+    expected_program_id = serializers.UUIDField(required=False, allow_null=True)
 
 
 # Program-context labels for the shared ``Role`` enum (#1794). The enum labels

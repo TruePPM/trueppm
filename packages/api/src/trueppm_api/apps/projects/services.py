@@ -6100,3 +6100,221 @@ def apply_program_defaults(validated_data: dict[str, Any], program: Any) -> dict
             continue  # Explicit request value wins over the copied program default.
         validated_data[field] = getattr(program, field)
     return validated_data
+
+
+# ---------------------------------------------------------------------------
+# Recoverable subtree deletion — shared by DELETE /projects/{id}/ and the seed
+# importer's confirmed replace (ADR-0726, #2581)
+# ---------------------------------------------------------------------------
+
+
+def soft_delete_project(project: Any, *, actor: Any, reason: str | None = None) -> None:
+    """Tombstone one project, cascade its children, audit it, and broadcast it.
+
+    The recoverable half of ``ProjectViewSet.perform_destroy``, extracted so the
+    seed importer's confirmed replace (ADR-0726) cannot drift from the ordinary
+    delete path — the two differing was the whole of #2581.
+
+    The project row is tombstoned synchronously (instant, and every read filters
+    ``is_deleted=False``, so it reads as gone the moment this commits) while the
+    potentially ~24k-row child tombstone cascade is offloaded to Celery (#1112).
+    ``deleted_by`` is set *before* ``soft_delete()`` so it lands in the same
+    UPDATE as ``is_deleted`` and the Trash list can show "Deleted by X" (#1113).
+
+    Args:
+        project: the ``Project`` to tombstone. Must not already be deleted.
+        actor: the user to record as ``deleted_by`` and as the audit actor.
+        reason: optional discriminator written into the audit metadata, so a
+            replace-driven delete is distinguishable from a user-initiated one.
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    from trueppm_api.apps.workspace.services import record_audit_event
+
+    project_id = str(project.pk)
+    project_name = project.name
+    project.deleted_by = actor
+    project.soft_delete()
+
+    metadata: dict[str, Any] = {"mode": "soft"}
+    if reason:
+        metadata["reason"] = reason
+    record_audit_event(
+        event_type="project_deleted",
+        actor=actor,
+        target_type="project",
+        target_id=project.pk,
+        target_label=project_name,
+        metadata=metadata,
+    )
+
+    enqueue_project_cascade_soft_delete(project_id)
+    # Spelled as a direct call inside a lambda, not partial(broadcast_board_event, ...).
+    # ``test_ws_event_type_set_is_frozen`` AST-scans for the event-type literal in the
+    # argument slot of a ``broadcast_board_event`` *call*; under partial the callee is
+    # ``partial``, so the literal becomes invisible to the freeze guard and the contract
+    # test silently stops covering this event.
+    transaction.on_commit(
+        lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
+    )
+
+
+def soft_delete_program_subtree(
+    program: Any, *, actor: Any, reason: str | None = None
+) -> list[str]:
+    """Recoverably tear down a program and every project under it (ADR-0726 §3).
+
+    Used by the seed importer's confirmed replace, where the alternative was the
+    unconditional hard delete of #2581. Each project lands in Trash individually
+    and every offline client receives a real tombstone.
+
+    Three deviations from :func:`access.services.delete_program_cascade` are
+    load-bearing, not incidental:
+
+    1. **Program memberships are left live.** ``UserProgramSyncView`` builds its
+       accessible set from ``ProgramMembership(user=…, is_deleted=False)`` and
+       only then filters ``Program``. Soft-deleting the memberships would drop
+       the program out of that set and the tombstone would never be delivered —
+       the same end state as the hard delete this replaces, one layer down.
+       ``PROTECT`` on the membership FK binds only a real ``DELETE``, so keeping
+       the rows costs nothing here.
+    2. **Projects are detached (``program = NULL``) before being tombstoned.**
+       ``ProjectViewSet.restore`` has no notion of a soft-deleted parent, so a
+       restored project still pointing at a tombstoned program would be exactly
+       the dangling reference ``delete_program_cascade`` exists to prevent. A
+       restored project comes back standalone, matching ADR-0202's promise.
+    3. **The program row itself is only tombstoned**, never removed, so its
+       ``server_version`` bump reaches sync consumers.
+
+    Returns:
+        The ids of the projects that were tombstoned, in deletion order.
+    """
+    from trueppm_api.apps.projects.models import Program, Project
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    # Lock the program row so a concurrent project-assign cannot land a new child
+    # between the scan below and the program's own tombstone, leaving it orphaned
+    # under a deleted parent.
+    locked = Program.objects.select_for_update().filter(pk=program.pk).first()
+    if locked is None:
+        return []
+
+    deleted_ids: list[str] = []
+    for project in Project.objects.select_for_update().filter(
+        program_id=locked.pk, is_deleted=False
+    ):
+        # Detach in memory only. ``VersionedModel.soft_delete`` saves without an
+        # explicit ``update_fields``, so ``save()`` writes every concrete column —
+        # the detach rides along in the same UPDATE and the same history row
+        # rather than costing a second version bump.
+        project.program = None
+        soft_delete_project(project, actor=actor, reason=reason)
+        deleted_ids.append(str(project.pk))
+
+    locked.soft_delete()
+    program_id = str(locked.pk)
+    transaction.on_commit(
+        lambda: broadcast_board_event(program_id, "program_deleted", {"id": program_id})
+    )
+    return deleted_ids
+
+
+def store_seed_payload(payload_bytes: bytes) -> str:
+    """Write an uploaded seed to ``default_storage`` and return its key.
+
+    Deliberately callable *outside* a transaction. The write can be a
+    multi-megabyte PUT to object storage, and the import request holds
+    ``SELECT FOR UPDATE`` on the replaced program and each of its projects for
+    the whole atomic block — doing the upload inside it would hold those locks
+    across a network round-trip and put the same latency on the ``202``.
+
+    The key is namespaced by a fresh UUID so two imports of the same filename
+    never collide and the purge can delete one without touching the other. No
+    part of the key comes from user input.
+    """
+    from django.core.files.base import ContentFile
+    from django.core.files.storage import default_storage
+
+    return str(
+        default_storage.save(f"seed-imports/{uuid.uuid4()}.json", ContentFile(payload_bytes))
+    )
+
+
+def enqueue_program_import(
+    *,
+    program: Any,
+    requested_by: Any,
+    payload_path: str,
+    filename: str = "",
+    replace: bool = False,
+    replaced_program_id: Any = None,
+) -> Any:
+    """Persist a queued seed import and best-effort dispatch it (ADR-0726, #2574).
+
+    The import-side sibling of :func:`enqueue_program_export`, and the same
+    transactional-outbox convention (ADR-0080): the job row and the stored
+    payload commit with the request, ``.delay()`` is attempted from
+    ``transaction.on_commit``, and a broker error is swallowed because
+    ``drain_program_imports`` re-dispatches stuck ``pending`` rows.
+    ``.delay()`` is only ever called from here and from the drain.
+
+    De-dupes in-flight work per program: a rebuild is expensive and the request
+    that reaches here has already performed any destructive replacement, so a
+    second concurrent job would double the subtree rather than redo it. Returning
+    the existing job is also what keeps an async import from converting a bounded
+    per-request cost into an unbounded queue backlog.
+
+    ``payload_path`` is a ``default_storage`` key written by
+    :func:`store_seed_payload` *before* the caller opened its transaction. The
+    payload lives in storage rather than on the row because a 5 MB seed in a
+    ``JSONField`` would bloat a table the drain scans every 30 seconds — and it
+    is written outside the transaction because on an S3-backed deployment that
+    write is a multi-megabyte network PUT, which must not happen while the
+    replaced program and every one of its projects are under ``SELECT FOR
+    UPDATE``. A rollback after the write leaves an orphan object, which the
+    retention purge already sweeps.
+    """
+    from trueppm_api.apps.projects.models import ImportJobStatus, ProgramImportJob
+
+    existing = ProgramImportJob.objects.filter(
+        program=program,
+        status__in=[ImportJobStatus.PENDING, ImportJobStatus.RUNNING],
+    ).first()
+    if existing is not None:
+        return existing
+
+    # ``expires_at`` is set at CREATION, not only on the terminal transition.
+    # The purge filters ``expires_at__lt=now``, which excludes NULL — so a job
+    # that reaches ``running`` and then loses its worker (the OOM shape a large
+    # import has) would be reaped by neither the purge nor the drain, which only
+    # re-dispatches rows still ``pending`` with no task id. Its payload would be
+    # retained forever. Setting a floor here makes retention unconditional; the
+    # terminal transitions refresh it from the same window.
+    from trueppm_api.apps.projects.tasks import _import_retention_days
+
+    retention = _import_retention_days()
+    job = ProgramImportJob.objects.create(
+        program=program,
+        requested_by=requested_by,
+        file_path=payload_path,
+        filename=filename[:255],
+        replace=replace,
+        replaced_program_id=replaced_program_id,
+        expires_at=(timezone.now() + timedelta(days=retention) if retention is not None else None),
+    )
+
+    # Capture the plain id, not the ORM instance — a deferred callback must not
+    # close over a row that could be stale by the time it runs.
+    dispatch_id = str(job.id)
+
+    def _dispatch() -> None:
+        from trueppm_api.apps.projects.tasks import run_program_import
+
+        try:
+            run_program_import.delay(dispatch_id)
+        except Exception:  # pragma: no cover - broker-down path, drain recovers
+            logger.warning(
+                "broker unavailable; drain_program_imports will pick up import %s", dispatch_id
+            )
+
+    transaction.on_commit(_dispatch)
+    return job

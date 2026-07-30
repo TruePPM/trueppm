@@ -64,7 +64,7 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_THROTTLE_SHARE_ACCESS_RATE` | `60/min` | Rate limit for the **unauthenticated** public board endpoint (`GET /share/board/<token>/`), per client IP, in DRF `<count>/<period>` form. Bounds scraping of a leaked or widely-shared link. |
 | `TRUEPPM_THROTTLE_SHARE_MINT_RATE` | `20/min` | Rate limit for an Admin minting public board links, per account, in DRF `<count>/<period>` form. |
 | `TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE` | `6/min` | Rate limit for loading a bundled demo sample (`POST /programs/load-sample/`), per account, in DRF `<count>/<period>` form. Each call rebuilds an entire program — a teardown of the caller's previous copy plus a full fixture import, run synchronously — so the cap is deliberately tight. Ample for a person clicking **Load demo data** and trying a couple of samples; raise it only if you are scripting demo environments. |
-| `TRUEPPM_THROTTLE_SEED_IMPORT_RATE` | `6/min` | Rate limit for importing a JSON seed bundle (`POST /programs/import/`), per account, in DRF `<count>/<period>` form. Runs the same synchronous importer as the demo loader above, on a payload the caller supplies. Separate bucket, so loading a demo does not spend an import allowance. Raise it if you bulk-migrate programs through the API. |
+| `TRUEPPM_THROTTLE_SEED_IMPORT_RATE` | `6/min` | Rate limit for importing a JSON seed bundle (`POST /programs/import/`), per account, in DRF `<count>/<period>` form. The import returns `202` and the subtree is built by a worker, so this bucket bounds *job creation* rather than request CPU — paired with the per-program in-flight de-dupe, that is what keeps a burst of imports from becoming a queue backlog. Separate bucket, so loading a demo does not spend an import allowance. Raise it if you bulk-migrate programs through the API. |
 | `TRUEPPM_THROTTLE_SEED_VALIDATE_RATE` | `20/min` | Rate limit for the seed **dry run** (`POST /programs/import/validate/`), per account, in DRF `<count>/<period>` form. Looser than the import bucket because the dry run never reaches the importer — it parses and validates, then writes nothing. Separate bucket for a usability reason as much as a cost one: iterating on a file until it validates must not spend the allowance for importing the file that finally passes. |
 | `TRUEPPM_THROTTLE_OMNI_SEARCH_RATE` | `60/min` | Rate limit for the ⌘K global Epic/Story omni-search, per account, in DRF `<count>/<period>` form. Matches the general user-typeahead rate — snug enough to block a scripted scrape of every title an account can see, loose enough that live typing never trips it. |
 | `TRUEPPM_THROTTLE_SAMPLE_DOWNLOAD_RATE` | `60/min` | Rate limit for downloading a bundled sample fixture (`GET /programs/samples/{key}/download/`), per account, in DRF `<count>/<period>` form. Looser than `TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE` because a download only streams a small file off disk and touches no table — but it is still throttled, since it serves a file keyed by a client-supplied string and would otherwise double as an enumeration oracle. |
@@ -520,12 +520,16 @@ A [JSON program seed](/administration/management-commands/#sample-data--json-see
 
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
-| `SEED_MAX_UPLOAD_MB` | `5` | MB | Maximum size of a single JSON program seed upload |
+| `SEED_MAX_UPLOAD_MB` | `5` | MB | Maximum size of a single JSON program seed payload |
 
 Seeds are bounded relative to the other importers because they are a different
 kind of payload: the largest bundled sample seed is a few hundred KB, so 5 MB is
 generous headroom while still bounding the memory a single authenticated import
-request can consume. See [general API rate limiting](#general-api-rate-limiting)
+request can consume. The ceiling is enforced on **both** request shapes — a
+`multipart/form-data` upload and a raw JSON body — so it cannot be sidestepped by
+posting the document as the body. It is measured against the bytes that actually
+arrived rather than a declared `Content-Length`, which a chunked request may omit. See
+[general API rate limiting](#general-api-rate-limiting)
 above for the separate `TRUEPPM_THROTTLE_SEED_IMPORT_RATE` /
 `TRUEPPM_THROTTLE_SEED_VALIDATE_RATE` throttles that bound *how often* a caller
 may hit this endpoint, independent of payload size.

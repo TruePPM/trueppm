@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AxiosError, AxiosHeaders } from 'axios';
 import { renderWithProviders } from '@/test/utils';
@@ -27,6 +27,10 @@ const seedState = vi.hoisted(() => ({
   isError: false,
   error: null as unknown,
 }));
+// The 202 job poll (ADR-0726). `data` undefined = nothing queued yet.
+const statusState = vi.hoisted(() => ({
+  data: undefined as { status: string; error_detail: string } | undefined,
+}));
 
 vi.mock('@/hooks/useMsProjectImportExport', async (importOriginal) => {
   const actual =
@@ -36,7 +40,11 @@ vi.mock('@/hooks/useMsProjectImportExport', async (importOriginal) => {
 
 vi.mock('@/hooks/useProgramSeedIo', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/useProgramSeedIo')>();
-  return { ...actual, useImportProgramSeed: () => seedState };
+  return {
+    ...actual,
+    useImportProgramSeed: () => seedState,
+    useProgramImportStatus: () => statusState,
+  };
 });
 
 const { ImportProjectModal } = await import('./ImportProjectModal');
@@ -56,6 +64,40 @@ function resetState() {
     isError: false,
     error: null,
   });
+  statusState.data = undefined;
+}
+
+/** The 202 envelope the seed mutation now resolves with (ADR-0726 §6). */
+function queued(programId = 'prog-77') {
+  return {
+    queued: true,
+    program_id: programId,
+    import_request_id: 'job-1',
+    replaced_program_id: null,
+  };
+}
+
+/** A 409 replace refusal, the shape `seedReplaceConflict` reads (#2581). */
+function conflictErr(code = 'seed_replace_required'): AxiosError {
+  const err = new AxiosError('conflict');
+  err.response = {
+    data: {
+      detail: 'A program you own already uses the code "atlas".',
+      code,
+      conflict: {
+        program_id: 'prog-live',
+        name: 'Atlas Platform Launch',
+        code: 'atlas',
+        project_count: 3,
+        task_count: 812,
+      },
+    },
+    status: 409,
+    statusText: 'Conflict',
+    headers: {},
+    config: { headers: new AxiosHeaders() },
+  };
+  return err;
 }
 
 function axiosErr(detail: unknown): AxiosError {
@@ -230,17 +272,57 @@ describe('ImportProjectModal — native TruePPM seed path', () => {
     ).toBeInTheDocument();
   });
 
-  it('submits a JSON seed to the seed mutation and forwards the new program id', async () => {
+  it('submits a JSON seed to the seed mutation and forwards the program id once the job lands', async () => {
     seedState.mutate = vi.fn(
-      (_file: File, opts: { onSuccess: (data: { id: string }) => void }) =>
-        opts.onSuccess({ id: 'prog-77' }),
+      (
+        _input: unknown,
+        opts: { onSuccess: (data: ReturnType<typeof queued>) => void },
+      ) => opts.onSuccess(queued()),
     );
+    statusState.data = { status: 'success', error_detail: '' };
     const { onProgramImported } = setup();
     await switchToTruePpm();
     pickFile(jsonFile('export.json'));
     await userEvent.click(screen.getByRole('button', { name: 'Import' }));
     expect(seedState.mutate).toHaveBeenCalledTimes(1);
+    // The mutation variable is now an input object, not a bare File — and an
+    // unconfirmed import carries neither consent field.
+    expect(Object.keys(seedState.mutate.mock.calls[0][0] as object)).toEqual(['file']);
     expect(onProgramImported).toHaveBeenCalledWith('prog-77');
+  });
+
+  it('holds a "building" status while the queued job is still running', async () => {
+    seedState.mutate = vi.fn(
+      (
+        _input: unknown,
+        opts: { onSuccess: (data: ReturnType<typeof queued>) => void },
+      ) => opts.onSuccess(queued()),
+    );
+    statusState.data = { status: 'running', error_detail: '' };
+    const { onProgramImported } = setup();
+    await switchToTruePpm();
+    pickFile(jsonFile('export.json'));
+    await userEvent.click(screen.getByRole('button', { name: 'Import' }));
+
+    expect(screen.getByRole('status')).toHaveTextContent('Building the imported program…');
+    expect(onProgramImported).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the job error_detail when the background build fails', async () => {
+    seedState.mutate = vi.fn(
+      (
+        _input: unknown,
+        opts: { onSuccess: (data: ReturnType<typeof queued>) => void },
+      ) => opts.onSuccess(queued()),
+    );
+    statusState.data = { status: 'failed', error_detail: 'Seed references an unknown resource.' };
+    const { onProgramImported } = setup();
+    await switchToTruePpm();
+    pickFile(jsonFile('export.json'));
+    await userEvent.click(screen.getByRole('button', { name: 'Import' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Seed references an unknown resource.');
+    expect(onProgramImported).not.toHaveBeenCalled();
   });
 
   it('renders a multi-line validation report from the seed importer', async () => {
@@ -274,6 +356,74 @@ describe('ImportProjectModal — native TruePPM seed path', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Import failed — please check the file and try again.',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Replace confirmation (#2581, ADR-0726) — the 409 is a question, not an error.
+// ---------------------------------------------------------------------------
+
+describe('ImportProjectModal — seed replace confirmation', () => {
+  async function importWithConflict(code = 'seed_replace_required') {
+    // Only the *unconfirmed* attempt collides; the confirmed retry is accepted,
+    // so the dialog must not reappear behind its own confirm.
+    seedState.mutate = vi.fn(
+      (
+        input: { replace?: boolean },
+        opts: { onError: (e: unknown) => void; onSuccess: (d: ReturnType<typeof queued>) => void },
+      ) => {
+        if (input.replace) {
+          opts.onSuccess(queued());
+          return;
+        }
+        seedState.isError = true;
+        seedState.error = conflictErr(code);
+        opts.onError(seedState.error);
+      },
+    );
+    const handles = setup();
+    await userEvent.click(screen.getByRole('radio', { name: /TruePPM/ }));
+    pickFile(jsonFile('atlas.json'));
+    await userEvent.click(screen.getByRole('button', { name: 'Import' }));
+    return handles;
+  }
+
+  it('names the program, its counts, and what survives — instead of an error dump', async () => {
+    await importWithConflict();
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('Replace “Atlas Platform Launch”?');
+    expect(dialog).toHaveTextContent('3 projects and 812 tasks');
+    expect(dialog).toHaveTextContent(
+      'Its projects move to Trash and can be restored individually as standalone projects.',
+    );
+    expect(dialog).toHaveTextContent('The program itself is not recoverable.');
+  });
+
+  it('re-submits the same file with replace + the compare-and-swap token on confirm', async () => {
+    await importWithConflict();
+    await userEvent.click(screen.getByRole('button', { name: 'Replace program' }));
+
+    expect(seedState.mutate).toHaveBeenCalledTimes(2);
+    expect(seedState.mutate.mock.calls[1][0]).toMatchObject({
+      replace: true,
+      expectedProgramId: 'prog-live',
+    });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('treats a stale compare-and-swap token (seed_replace_mismatch) as the same question', async () => {
+    await importWithConflict('seed_replace_mismatch');
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Replace “Atlas Platform Launch”?');
+  });
+
+  it('Cancel returns to the picker rather than repainting the 409 as an error', async () => {
+    await importWithConflict();
+    // Scoped to the alertdialog — the modal beneath has its own Cancel.
+    const dialog = screen.getByRole('alertdialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(seedState.reset).toHaveBeenCalled();
   });
 });
 

@@ -15,7 +15,7 @@ and nothing you import ever writes back to the source. Pick your source below.
 | Microsoft Project (`.mpp` or `.xml`) | [MS Project import & export](/features/msproject-import-export/) | **Shipped** — REST endpoints since 0.1, in-app wizard since 0.2 | `.mpp` needs the optional MPXJ dependency installed; export as `.xml` from Project if it isn't |
 | A spreadsheet you built by hand, or exported from Asana, Trello, Basecamp, or a similar tool | [CSV / Excel import & export](/features/csv-import-export/) | **Ships in 0.4** — the column-mapping wizard is not live yet | Column headers are auto-detected, but always check the mapping before you commit |
 | Jira **Server or Data Center** (XML issue export) | [Jira import](/features/jira-import/) | **Ships in 0.4** | **Jira Cloud has no XML export** — Cloud has no file this importer can read. Cloud migration is a separate, out-of-scope track |
-| Another TruePPM instance, or a hand-edited file matching the seed schema | [Data export](/administration/data-export/#check-a-file-before-you-import-it) (JSON seed import) | **Shipped** today, with a dry-run validator | Wipe-then-recreate on the program slug — read the re-import semantics before you run it |
+| Another TruePPM instance, or a hand-edited file matching the seed schema | [Data export](/administration/data-export/#check-a-file-before-you-import-it) (JSON seed import) | **Shipped** today, with a dry-run validator | Replace-then-rebuild on the program slug — a colliding program is replaced, not merged, and only its projects are recoverable. Read the re-import semantics before you run it |
 
 Not sure which row fits? If the source tool can export a CSV at all, the CSV
 importer is the safest default — it's the one built for "a table from

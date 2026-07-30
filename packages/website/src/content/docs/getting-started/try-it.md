@@ -119,6 +119,12 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/
 ```
 
 Only then `POST` the same file to `/api/v1/programs/import/`, or click **Load**.
+The dry run's `replaces` key tells you up front whether that import would replace
+a program you already own — `null` means the slug is free. If it names one, the
+import returns `409` until you re-send with `replace=true`. The import itself
+answers `202` with a `program_id` and an `import_request_id`; poll
+`/api/v1/programs/{program_id}/import/jobs/{import_request_id}/` until `status`
+is `success`.
 
 :::caution[What the hash proves, and what it does not]
 The SHA-256 proves you received the file this instance ships — transport
