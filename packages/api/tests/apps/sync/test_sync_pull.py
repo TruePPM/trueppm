@@ -769,3 +769,166 @@ def test_project_delete_and_restore_cascades_are_delivered(
     body = _pull(authed_client, project, since)
     revived = body["changes"]["tasks"]["created"] + body["changes"]["tasks"]["updated"]
     assert len(revived) == 2, "restore delivered no revived tasks"
+
+
+# ---------------------------------------------------------------------------
+# Within-request snapshot safety under READ COMMITTED (#2613)
+#
+# `ProjectSyncView` used to claim in two places that its watermark read ran
+# "inside REPEATABLE READ isolation". It never did — `get()` opens no isolation
+# block and none is configured — and a second comment in `UserProgramSyncView`
+# had begun reasoning from that false premise. The pull *is* safe, but for a
+# different reason, and these pin the real one so the claim cannot drift back:
+#
+#   1. The endpoint really does run at READ COMMITTED (test below reads the
+#      isolation level from inside the request, not from a settings constant).
+#   2. Reading the watermark BEFORE the delta queries is what closes the window:
+#      a write landing in between draws `sync_seq > timestamp`, so it survives to
+#      the next pull. Reading it after would be the lossy order.
+#   3. That argument has a writer-side precondition — the allocator bump and the
+#      row write must commit together — which `ATOMIC_REQUESTS` supplies for every
+#      HTTP write. The autocommit hole is tracked separately in #2617.
+# ---------------------------------------------------------------------------
+
+
+def _sync_views() -> object:
+    from trueppm_api.apps.sync import views as sync_views
+
+    return sync_views
+
+
+@pytest.mark.django_db
+def test_pull_runs_at_read_committed_not_repeatable_read(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """The pull's transaction isolation, observed from inside the request.
+
+    Asserts the level the safety argument is written against rather than the level
+    a comment claims. `SHOW transaction_isolation` is read on the connection the
+    view itself is using, mid-request, so a future `transaction.atomic()` wrapper
+    that changed the level would fail here instead of silently invalidating the
+    docstring.
+    """
+    from django.db import connection
+
+    sync_views = _sync_views()
+    observed: list[str] = []
+    real = sync_views.ProjectSyncView._watermark.__func__
+
+    def _probe(cls: object, proj: Project) -> int:
+        with connection.cursor() as cur:
+            cur.execute("SHOW transaction_isolation")
+            row = cur.fetchone()
+            observed.append(row[0])
+        return int(real(cls, proj))
+
+    with patch.object(sync_views.ProjectSyncView, "_watermark", classmethod(_probe)):
+        _pull(authed_client, project, 0)
+
+    assert observed == ["read committed"], (
+        f"pull ran at {observed!r}; the concurrency argument in ProjectSyncView's "
+        "docstring is written for READ COMMITTED"
+    )
+
+
+def _pull_with_interleaved_write(
+    client: APIClient, project: Project, *, before_queries: bool
+) -> tuple[dict, Task]:
+    """Run one pull with a synced write spliced into a fixed point of the request.
+
+    The hook wraps ``paginate_changes`` — the delta queries themselves — rather than
+    ``_watermark``, so the injection point is defined relative to the *row reads* and
+    stays fixed no matter where the view chooses to read its watermark. That is what
+    makes this a test of the ordering rather than a restatement of it.
+
+    ``before_queries=True`` puts the write between the watermark read and the row
+    reads. ``before_queries=False`` puts it after the row reads — the interleaving a
+    watermark-last implementation would publish a checkpoint over.
+    """
+    sync_views = _sync_views()
+    real_paginate = sync_views.paginate_changes
+    written: list[Task] = []
+
+    def _hooked(*args: object, **kwargs: object) -> object:
+        def _write() -> None:
+            written.append(Task.objects.create(project=project, name="mid-pull", duration=1))
+
+        if before_queries:
+            _write()
+            return real_paginate(*args, **kwargs)  # type: ignore[operator]
+        result = real_paginate(*args, **kwargs)  # type: ignore[operator]
+        _write()
+        return result
+
+    with patch.object(sync_views, "paginate_changes", _hooked):
+        body = _pull(client, project, 0)
+    task = written[0]
+    task.refresh_from_db()
+    return body, task
+
+
+@pytest.mark.django_db
+def test_write_landing_before_the_delta_queries_is_not_lost(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """A write between the watermark read and the row reads reaches the client.
+
+    This is the first half of the window the deleted REPEATABLE READ comment
+    claimed to have closed. The row is visible to the delta queries, so it rides
+    this response — and because the checkpoint was fixed before it was written, it
+    also rides the next one. Re-delivery is the safe direction; WatermelonDB
+    upserts absorb it.
+    """
+    body, task = _pull_with_interleaved_write(authed_client, project, before_queries=True)
+    since = body["timestamp"]
+
+    assert task.sync_seq > since, "the interleaved row must sit above the published checkpoint"
+    assert "mid-pull" in _names(body)
+    assert "mid-pull" in _names(_pull(authed_client, project, since))
+
+
+@pytest.mark.django_db
+def test_write_landing_after_the_delta_queries_is_not_lost(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """The lossy half — a write the response body could not carry (#2613).
+
+    The row commits after every delta query has run, so this response cannot
+    contain it. Its only route to the client is the *next* pull, which filters
+    ``sync_seq__gt=timestamp``. That works only because the watermark was read
+    before the row existed. Move the watermark read below ``paginate_changes`` and
+    the published checkpoint swallows the row: this test fails, which is the
+    regression guard the old comment stood in for.
+
+    What this proves: the ordering inside ``get()`` is sufficient at the isolation
+    level the endpoint actually runs at (READ COMMITTED — see the test above).
+
+    What it does not prove: one connection is used, so a second transaction's
+    commit visibility is not exercised. That half rests on the project row lock
+    (ADR-0686) and on writer atomicity (#2617), not on this ordering.
+    """
+    body, task = _pull_with_interleaved_write(authed_client, project, before_queries=False)
+    since = body["timestamp"]
+
+    assert "mid-pull" not in _names(body), "fixture invalid — the write must post-date the reads"
+    assert task.sync_seq > since, (
+        f"checkpoint {since} swallowed a row at {task.sync_seq} the response never "
+        "carried — the row is now unreachable forever"
+    )
+    assert "mid-pull" in _names(_pull(authed_client, project, since))
+
+
+def test_http_writes_commit_the_cursor_allocation_with_their_row() -> None:
+    """The writer-side precondition the pull's safety argument depends on (#2613).
+
+    `VersionedModel.save()` bumps `Project.last_sync_version` and writes the row it
+    stamps in separate statements. If those commit separately, a pull can observe
+    the raised allocator while the row is still invisible, publish a checkpoint
+    above it, and drop it forever — and no reader isolation level can prevent that.
+    `ATOMIC_REQUESTS` is what binds them for every HTTP write, so it is a
+    correctness setting for the sync protocol, not a convenience. Asserted here
+    because nothing else in the suite did.
+    """
+    from django.conf import settings as dj_settings
+
+    assert dj_settings.DATABASES["default"]["ATOMIC_REQUESTS"] is True
