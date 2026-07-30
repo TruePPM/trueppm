@@ -80,7 +80,8 @@ rather than being removed outright:
    asserted as already wired.
 3. **Window.** Once a deprecation is announced, the intent is for the
    deprecated element to keep working for **at least one full minor release**
-   (one 3–4 week release cycle) before it may be removed — and never less.
+   (roughly 10–12 weeks at the current [release cadence](/overview/roadmap/))
+   before it may be removed — and never less.
    Security-critical removals would be the only exception, and would be
    documented as such.
 4. **Removal.** The element would be removed only after the window elapses, in

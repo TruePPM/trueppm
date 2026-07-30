@@ -244,15 +244,16 @@ rather than leaving you to discover it at a pricing page.
 
 ## Maturity — the honest framing
 
-TruePPM's first OSS release was May 2026. The current line is an alpha; 0.4 is the
-first beta. OpenProject has roughly fifteen years, a company behind it, and a support
-contract you can buy. Redmine has twenty.
+TruePPM's first OSS release was May 2026, and it is built part-time. The current line
+is an alpha; 0.4 is the first beta. OpenProject has roughly fifteen years, a company
+behind it, full-time staff, and a support contract you can buy. Redmine has twenty.
 
-What we offer against that: a published 3–4 week release cadence that has held across
-every release so far, a public
-[commit history](https://gitlab.com/trueppm/trueppm/-/commits/main), a tested scale
-envelope, and this page. Those are the evidence available to a young project. Whether
-they are enough is a reasonable thing to decide against us.
+What we offer against that: a public
+[commit history](https://gitlab.com/trueppm/trueppm/-/commits/main), a
+[roadmap](/overview/roadmap/) that publishes its target dates at honest precision and
+a cadence we believe we can hold, a tested scale envelope, and this page. Those are
+the evidence available to a young project. Whether they are enough is a reasonable
+thing to decide against us.
 
 **Do not put a program you cannot afford to lose on TruePPM before the 0.4 beta.**
 That is our own recommendation, and it is in the README too.
