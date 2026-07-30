@@ -11,7 +11,13 @@ from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import serializers as drf_serializers
 from rest_framework import status
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import PageNumberPagination
@@ -244,6 +250,26 @@ class ProjectHistoryListView(APIView):
     # "for consistency" — archived projects still need their audit trail readable.
     permission_classes = [IsAuthenticated, IsProjectMember]
 
+    @extend_schema(
+        # Same class of defect as #2583's two named instances: a plain APIView that
+        # builds its paginator inline is invisible to drf-spectacular's auto-wrap
+        # heuristic, and with no annotation at all the operation shipped a 200 with
+        # no response content whatsoever — a generated SDK gets an untyped body for
+        # a paginated endpoint. Declare the envelope, including the non-standard
+        # ``count_truncated`` flag the handler grafts onto it below.
+        responses={
+            200: inline_serializer(
+                name="ProjectHistoryPage",
+                fields={
+                    "count": drf_serializers.IntegerField(),
+                    "next": drf_serializers.URLField(allow_null=True),
+                    "previous": drf_serializers.URLField(allow_null=True),
+                    "results": HistoryRecordSerializer(many=True),
+                    "count_truncated": drf_serializers.BooleanField(),
+                },
+            )
+        },
+    )
     def get(self, request: Request, project_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(request, project)

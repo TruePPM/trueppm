@@ -192,6 +192,7 @@ from trueppm_api.apps.projects.serializers import (
     SprintBurnSnapshotSerializer,
     SprintCloseRequestSerializer,
     SprintDailyDeltaSerializer,
+    SprintDurationChangeEventSerializer,
     SprintForecastSerializer,
     SprintOutcomeSerializer,
     SprintSerializer,
@@ -12103,6 +12104,20 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         self.check_object_permissions(request, sprint)
         return Response(sprint_scope_change_payload(sprint), status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Duration-change audit events captured during a sprint (ADR-0151, #1254)",
+        # Without this the action inherits SprintViewSet.serializer_class and the
+        # schema promised a `Sprint` for a `{events: [...]}` body — a generated SDK
+        # was handed a type the endpoint never returns (#2583). The sibling
+        # TaskViewSet.duration_events has always declared its response; only this
+        # one was bare.
+        responses={
+            200: inline_serializer(
+                name="SprintDurationChangeEventList",
+                fields={"events": SprintDurationChangeEventSerializer(many=True)},
+            )
+        },
+    )
     @action(detail=True, methods=["get"], url_path="duration-events")
     def duration_events(self, request: Request, pk: str | None = None) -> Response:
         """Read the sprint's mid-sprint duration-change events (ADR-0151, issue 1254).

@@ -812,6 +812,42 @@ The mid-sprint scope-injection approve-gate (ADR-0102 §5) referenced from
 started lands here pending Scrum Master / Product Owner approval rather than
 silently joining the commitment.
 
+### Sprint and task duration changes
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/sprints/{id}/duration-events/` | Every duration change recorded against tasks in this sprint, newest first |
+| GET | `/api/v1/tasks/{id}/duration-events/` | Duration-change history for one task, newest first |
+
+The audit behind the mid-sprint duration change (ADR-0151): when a task's
+`duration` is edited, the effective percent-complete policy decides whether `%`
+is kept or prorated, and one event row records the before/after and the policy
+applied. Any project member (Viewer and up) may read both.
+
+**The two endpoints return different shapes — do not assume they match.** The
+per-sprint aggregate exists so a sprint changes-log renders in one request
+instead of one per task, so it denormalizes `task_name` / `actor_name` and
+returns a single object:
+
+```json
+{"events": [
+  {"id": "…", "task_id": "…", "task_name": "Design",
+   "old_duration": 10, "new_duration": 20,
+   "percent_complete_at_change": 50.0, "percent_complete_after": 25.0,
+   "policy_applied": "prorate", "actor_name": "Sarah Chen",
+   "created_at": "2026-04-03T09:12:00Z"}
+]}
+```
+
+`percent_complete_after` is `null` unless the policy actually changed `%` (that
+is, under `prorate`) — under `keep` and `confirm` it stays null, which is how a
+client distinguishes "the policy moved the number" from "the policy left it
+alone". The events list is empty, never absent, for a sprint with no changes.
+
+The **per-task** endpoint is [paginated](#pagination) instead, returning
+`{count, next, previous, results}` where each result carries the raw `task`,
+`actor`, `source`, and `sprint` foreign keys.
+
 ### Task relations
 
 | Method | Path | Description |
@@ -905,6 +941,18 @@ Default page size: 50. Response envelope:
 ```json
 {"count": 123, "next": "...?page=3", "previous": "...?page=1", "results": [...]}
 ```
+
+A few endpoints over unbounded, append-only logs are **cursor**-paginated
+instead — currently the [audit log](/administration/audit-log/#reading-the-log).
+A cursor envelope has no `count` (computing one would defeat the point of a
+cursor), so it is `{next, previous, results}` only. Follow `next` until it is
+`null`; do not compute page counts from these endpoints.
+
+Not every list endpoint is paginated. Some return a **bare array** where the
+result set is inherently small and bounded — a task's
+[relations](#task-relations), for instance. The generated
+[OpenAPI schema](#interactive-schema) is authoritative per endpoint: check the
+declared `200` response shape rather than assuming an envelope.
 
 ## Rate limiting
 

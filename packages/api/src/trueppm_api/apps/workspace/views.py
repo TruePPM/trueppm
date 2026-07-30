@@ -1226,7 +1226,24 @@ class WorkspaceAuditEventListView(APIView):
                 "until", str, description="Only events at/before this ISO-8601 instant."
             ),
         ],
-        responses={200: AuditEventSerializer(many=True)},
+        # The handler paginates (``AuditEventCursorPagination.get_paginated_response``),
+        # so the 200 body is a cursor envelope, NOT a bare array. drf-spectacular's
+        # auto-wrap only fires for a view with a class-level ``pagination_class``;
+        # this is a plain APIView that instantiates its paginator inline, so the
+        # heuristic never saw it and ``AuditEventSerializer(many=True)`` published a
+        # ``type: array`` no response can satisfy — a generated SDK iterating the
+        # result broke on the first call (#2583). Declare the envelope explicitly.
+        # Cursor pagination carries no ``count`` (that is the point of a cursor).
+        responses={
+            200: inline_serializer(
+                name="AuditEventCursorPage",
+                fields={
+                    "next": serializers.URLField(allow_null=True),
+                    "previous": serializers.URLField(allow_null=True),
+                    "results": AuditEventSerializer(many=True),
+                },
+            )
+        },
     )
     def get(self, request: Request) -> Response:
         qs = AuditEvent.objects.select_related("actor").all()

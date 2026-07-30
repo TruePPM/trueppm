@@ -60,7 +60,16 @@ no actor.
 GET /api/v1/workspace/audit-events/
 ```
 
-The endpoint is cursor-paginated (newest first) and supports filtering:
+The endpoint is cursor-paginated (newest first). The response is an **object**,
+not a bare array — and unlike the page-number
+[envelope](/api/reference/#pagination) used elsewhere it carries no `count`,
+because a cursor never computes one:
+
+```json
+{"next": "…?cursor=cD0yMDI2…", "previous": null, "results": [ … ]}
+```
+
+Follow `next` until it is `null`. It supports filtering:
 
 | Query parameter | Description |
 |---|---|
