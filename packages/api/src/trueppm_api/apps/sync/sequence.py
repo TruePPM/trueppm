@@ -61,7 +61,7 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from django.db import connections, models, router
+from django.db import models
 from django.db.models import F, Value
 from django.db.models.functions import Greatest
 
@@ -88,30 +88,15 @@ def _next_seq(project_id: Any) -> int:
     Returns 0 when the ``UPDATE`` matches no row — the project was hard-deleted
     concurrently, or (for a ``Project`` being INSERTed) does not exist yet. The
     caller decides what that means; a 0 cursor is simply never delivered.
+
+    The statement lives in :func:`trueppm_api.core.db.increment_returning`, shared
+    with the ``server_version`` bump so the API has one raw-SQL site.
     """
     from trueppm_api.apps.projects.models import Project
+    from trueppm_api.core.db import increment_returning
 
-    connection = connections[router.db_for_write(Project)]
-    quote = connection.ops.quote_name
-    pk_field = Project._meta.pk
-    version_column = Project._meta.get_field("last_sync_version").column
-    # A concrete model always has a pk and real column names; narrow the stubs'
-    # broadened ``str | None`` so the quoted identifiers are str.
-    assert pk_field is not None and pk_field.column is not None
-    assert version_column is not None
-    table = quote(Project._meta.db_table)
-    column = quote(version_column)
-    pk_col = quote(pk_field.column)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            # Table/column names come from model _meta and are quoted via
-            # connection.ops.quote_name (not user input); the pk is bound below.
-            f"UPDATE {table} SET {column} = {column} + 1 "  # nosec B608
-            f"WHERE {pk_col} = %s RETURNING {column}",
-            [project_id],
-        )
-        row = cursor.fetchone()
-    return int(row[0]) if row is not None else 0
+    seq = increment_returning(Project, "last_sync_version", project_id)
+    return seq if seq is not None else 0
 
 
 def _raise_to(project_ids: Iterable[Any], seq: int) -> None:

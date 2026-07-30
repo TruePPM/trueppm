@@ -375,39 +375,18 @@ class VersionedModel(models.Model):
         serialize and produce a strict version order — the lost-update guarantee is
         unchanged; only the redundant refetch query is removed.
 
-        Table and column names come from the model ``_meta`` (not user input) and
-        are passed through the backend's identifier quoter, so the interpolated SQL
-        is safe; the pk is bound as a parameter.
+        The statement itself lives in :func:`trueppm_api.core.db.increment_returning`,
+        shared with the ``sync_seq`` allocator so the API has one raw-SQL site.
         """
-        from django.db import connections, router
+        from trueppm_api.core.db import increment_returning
 
         model = type(self)
-        connection = connections[router.db_for_write(model, instance=self)]
-        quote = connection.ops.quote_name
-        pk_field = model._meta.pk
-        version_column = model._meta.get_field("server_version").column
-        # A concrete model always has a pk and both columns bound to real DB names;
-        # narrow the stub-broadened ``str | None`` so the quoted identifiers are str.
-        assert pk_field is not None and pk_field.column is not None
-        assert version_column is not None
-        table = quote(model._meta.db_table)
-        version_col = quote(version_column)
-        pk_col = quote(pk_field.column)
-        with connection.cursor() as cursor:
-            cursor.execute(
-                # Table/column names come from model _meta and are quoted via
-                # connection.ops.quote_name (not user input); the pk is bound
-                # as a parameter below.
-                f"UPDATE {table} SET {version_col} = {version_col} + 1 "  # nosec B608
-                f"WHERE {pk_col} = %s RETURNING {version_col}",
-                [self.pk],
-            )
-            row = cursor.fetchone()
-        # ``row`` is None only if the pk vanished between the caller's existence
-        # check and this UPDATE (e.g. a concurrent hard delete). Leave
-        # server_version untouched; super().save()'s UPDATE then no-ops too.
-        if row is not None:
-            self.server_version = row[0]
+        version = increment_returning(model, "server_version", self.pk, instance=self)
+        # ``None`` only if the pk vanished between the caller's existence check and
+        # this UPDATE (e.g. a concurrent hard delete). Leave server_version
+        # untouched; super().save()'s UPDATE then no-ops too.
+        if version is not None:
+            self.server_version = version
 
     def soft_delete(self) -> None:
         """Mark the row as deleted and increment server_version.

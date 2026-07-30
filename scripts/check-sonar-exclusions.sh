@@ -36,6 +36,15 @@
 # SonarCloud scan and a token; this runs offline in milliseconds so it can sit in
 # `make pre-push`.
 #
+# Also NOT detectable here, and worth knowing about: a glob that still matches its
+# original file while the *pattern* it excuses grows a SECOND home elsewhere. #2491
+# copied the `UPDATE … RETURNING` allocator into `apps/sync/sequence.py`; `pysql1`
+# kept matching `apps/projects/models.py`, so nothing looked dead and a
+# reviewed-safe pattern resurfaced as a new-code Security finding (#2567). Pure
+# path matching cannot see that. The durable fix is on the code side — keep the
+# suppressed pattern in ONE place so a copy has nowhere to hide (#2567 folded both
+# call sites into `trueppm_api/core/db.py`).
+#
 # USAGE
 #   check-sonar-exclusions.sh [properties-file]
 #   check-sonar-exclusions.sh --self-test   # prove the gate fails when it should
