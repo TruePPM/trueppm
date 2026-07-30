@@ -272,7 +272,8 @@ kubectl create secret generic trueppm-env \
 The API image bundles the S3 backend, so those two keys are all an AWS S3 deploy
 needs — credentials resolve from IRSA or the instance profile. For MinIO or
 another non-AWS endpoint add `TRUEPPM_S3_ENDPOINT_URL`,
-`TRUEPPM_S3_ADDRESSING_STYLE=path`, and the access/secret keys. The bucket name is
+`TRUEPPM_S3_ADDRESSING_STYLE=path`, and an access/secret key pair **scoped to the
+attachments bucket** — not the MinIO root account. The bucket name is
 **required** whenever the backend is S3: startup fails with `trueppm.E008` if it
 is missing, instead of booting and failing on the first upload. GCS and Azure Blob
 backends are **not** bundled — see

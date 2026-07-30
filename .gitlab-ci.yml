@@ -2387,6 +2387,11 @@ api:s3-drill:
       alias: minio
       command: ["server", "/data"]
   variables:
+    # Throwaway root credentials for a service container that lives for one job,
+    # has no persistence and no ingress. NOT a pattern to copy into a deploy: the
+    # docs deliberately tell operators to change the MinIO root password and give
+    # TruePPM a bucket-scoped access key instead. See the "Object storage" section
+    # of docs/administration/configuration.
     MINIO_ROOT_USER: minioadmin
     MINIO_ROOT_PASSWORD: minioadmin
     TRUEPPM_S3_ENDPOINT_URL: "http://minio:9000"

@@ -91,8 +91,8 @@ def test_minio_shaped_environ() -> None:
             "TRUEPPM_S3_ENDPOINT_URL": "http://minio:9000",
             "TRUEPPM_S3_ADDRESSING_STYLE": "path",
             "TRUEPPM_S3_REGION_NAME": "us-east-1",
-            "TRUEPPM_S3_ACCESS_KEY_ID": "minioadmin",
-            "TRUEPPM_S3_SECRET_ACCESS_KEY": "minioadmin",
+            "TRUEPPM_S3_ACCESS_KEY_ID": "your-access-key",
+            "TRUEPPM_S3_SECRET_ACCESS_KEY": "your-secret-key",
         }
     )
     assert opts["bucket_name"] == "trueppm-attachments"

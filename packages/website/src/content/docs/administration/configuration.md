@@ -156,13 +156,29 @@ TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage
 TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
 TRUEPPM_S3_ENDPOINT_URL=http://minio:9000
 TRUEPPM_S3_ADDRESSING_STYLE=path
-TRUEPPM_S3_ACCESS_KEY_ID=minioadmin
-TRUEPPM_S3_SECRET_ACCESS_KEY=minioadmin
+TRUEPPM_S3_ACCESS_KEY_ID=your-access-key
+TRUEPPM_S3_SECRET_ACCESS_KEY=your-secret-key
 ```
 
 Create the bucket before first use — TruePPM does not create it for you. Keep it
 **private**: attachments are reached only through a presigned URL, and a
 world-readable bucket makes that signature meaningless.
+
+:::caution[Do not hand TruePPM your MinIO root credentials]
+`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` — whose out-of-the-box value on a fresh
+MinIO is `minioadmin` for both — are the **administrative** account for the whole
+server. Two separate things to get right:
+
+1. **Change the defaults.** A MinIO reachable on `minioadmin`/`minioadmin` is
+   compromised the moment anything can route to it.
+2. **Do not use the root account here even after changing it.** Issue a dedicated
+   MinIO **access key** scoped to a policy that allows only
+   `s3:GetObject` / `s3:PutObject` / `s3:DeleteObject` on
+   `arn:aws:s3:::trueppm-attachments/*` (plus `s3:ListBucket` on the bucket
+   itself), and put *that* key pair in the two variables above. TruePPM never
+   needs to create buckets, read other buckets, or administer the server, so a
+   leaked application credential should not be able to.
+:::
 
 ### Which backends the image can import
 
