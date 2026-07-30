@@ -1133,10 +1133,10 @@ helm:template:
     # (allow-before-deny ordering, limit_req zone declared); this keeps the
     # headline invariant visible right next to its demo counterpart.
     - |
-      grep -A6 -F 'location /admin/' /tmp/rendered.yaml | grep -qE '^\s+deny all;' \
+      grep -A14 -F 'location /admin/' /tmp/rendered.yaml | grep -qE '^\s+deny all;' \
         || { echo "PROD REGRESSION: /admin/ no longer denies by default — a default install publishes Django admin (#2569)"; exit 1; }
     - |
-      grep -A6 -F 'location /admin/' /tmp/rendered.yaml | grep -q 'limit_req zone=admin_login' \
+      grep -A14 -F 'location /admin/' /tmp/rendered.yaml | grep -q 'limit_req zone=admin_login' \
         || { echo "PROD REGRESSION: /admin/ login is no longer rate-limited (#2569)"; exit 1; }
     # And the inverse: none of this may leak into a normal deploy. Scoped to the
     # Job kind, not a bare grep: the datastore NetworkPolicy allow-lists name

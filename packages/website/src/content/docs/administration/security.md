@@ -257,7 +257,12 @@ against a known-present privileged account.
 Port-forward straight to the API Service, bypassing the web tier:
 
 ```bash
-kubectl port-forward svc/<release>-trueppm-api 8000:8000
+# Resolve the API Service by label — the chart's fullname helper collapses the
+# release name when it already contains "trueppm", so `helm install trueppm ...`
+# yields `trueppm-api` while `helm install foo ...` yields `foo-trueppm-api`.
+kubectl port-forward "svc/$(kubectl get svc \
+  -l app.kubernetes.io/component=api \
+  -o jsonpath='{.items[0].metadata.name}')" 8000:8000
 # then visit http://localhost:8000/admin/
 ```
 
@@ -295,6 +300,19 @@ web:
 ```
 
 Port-forwarding still works, because it never traverses nginx.
+
+:::danger[This control does not apply when `web.enabled: false`]
+`adminAccess` is enforced by the web tier's nginx. If you disable the web tier
+to front the SPA from your own CDN, the chart-managed Ingress routes `/`
+**straight to the API Service**, and Django serves `/admin/` there with no
+allowlist and no rate limit — the same exposure this setting exists to prevent.
+
+If you run `web.enabled: false` with a public Ingress, you must restrict
+`/admin/` at your own edge (ingress-controller annotation, WAF, or CDN rule).
+The same applies if you change `service.type` away from `ClusterIP`, or add an
+`ingress.hosts[].paths[]` entry that targets `service: api` — any path that
+reaches the API Service directly bypasses the nginx control.
+:::
 
 ### Datastore network isolation
 

@@ -74,7 +74,7 @@ kubectl get secret <release>-trueppm-connection \
 | `resources.api` / `resources.worker` / `resources.beat` / `resources.web` | see values.yaml | Per-container resources. |
 | `web.enabled` | `true` | Render the nginx-served React SPA tier + `Service`. |
 | `web.adminAccess.enabled` | `true` | Render the `/admin/` proxy; `false` returns `404` instead. |
-| `web.adminAccess.allowCIDRs` | `[]` | Sources allowed to reach `/admin/`. **Empty = deny all** — use `kubectl port-forward svc/<release>-trueppm-api 8000:8000` instead. |
+| `web.adminAccess.allowCIDRs` | `[]` | Sources allowed to reach `/admin/`. **Empty = deny all** — port-forward to the API Service instead ([Reaching Django admin](https://trueppm.com/administration/security/#reaching-django-admin)). Only binds while `web.enabled` is true. |
 | `web.adminAccess.rateLimit.*` | `5r/m`, burst `2` | nginx `limit_req` on the admin login surface (no DRF throttle covers Django admin). |
 | `celeryWorker.concurrency` | `2` | **Pinned** prefork pool size. Unset, Celery's `cpu_count()` reads the node's cores, not the cgroup limit, and OOM-kills the worker. |
 | `celeryWorker.maxTasksPerChild` | `100` | Recycle prefork children to bound RSS growth on long tasks; `0` disables. |

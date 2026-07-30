@@ -53,7 +53,14 @@ spec:
             - --loglevel=info
             - --concurrency={{ $concurrency }}
             {{- with .Values.celeryWorker.maxTasksPerChild }}
-            - --max-tasks-per-child={{ . }}
+            {{- /* Validated, not interpolated raw: a string value carrying a
+                   newline would otherwise inject extra argv entries into the
+                   command list, and a bare `| int` would silently coerce any
+                   non-numeric value to 0 rather than saying so. */}}
+            {{- if not (regexMatch "^[0-9]+$" (toString .)) }}
+              {{- fail (printf "celeryWorker.maxTasksPerChild must be a non-negative integer, got %q" (toString .)) }}
+            {{- end }}
+            - --max-tasks-per-child={{ . | int }}
             {{- end }}
             {{- range .Values.celeryWorker.extraArgs }}
             - {{ . | quote }}

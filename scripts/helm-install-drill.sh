@@ -206,16 +206,28 @@ log "negative probe GREEN — deploy without SECRET_KEY refuses to start"
 # nginx must answer 403. Driven from the api pod because the nginx image carries
 # no curl, and with urllib because it needs no extra dependency.
 log "probing /admin/ through the web tier — must be denied"
+# Resolve the Service by LABEL, never by string-building the release name:
+# `trueppm.fullname` collapses when the release name already contains the chart
+# name, so "<release>-trueppm-web" is wrong for the default release `trueppm`
+# (the Service is just `trueppm-web`) and right for others. The label selector is
+# correct for every release name.
+web_svc="$(kubectl get svc -l app.kubernetes.io/component=web -o jsonpath='{.items[0].metadata.name}')"
+[ -n "$web_svc" ] || fail "no web Service found (component=web)"
+# URLError (DNS/connection) is caught separately from HTTPError so a
+# connectivity failure reports as a distinct sentinel rather than an unhandled
+# traceback that `set -e` would turn into an opaque red with no message.
 admin_code="$(kubectl exec "$api_pod" -c api -- python -c "
 import urllib.request, urllib.error
-url = 'http://${RELEASE}-trueppm-web/admin/'
+url = 'http://${web_svc}/admin/'
 try:
     print(urllib.request.urlopen(url, timeout=15).status)
 except urllib.error.HTTPError as e:
     print(e.code)
-" 2>/dev/null | tr -d '[:space:]')"
+except Exception as e:
+    print('UNREACHABLE:%s' % e)
+" 2>&1 | tr -d '[:space:]' || true)"
 [ "$admin_code" = "403" ] \
-  || fail "/admin/ through the web tier returned '${admin_code}', expected 403 — a default install is publishing Django admin (#2569)"
+  || fail "/admin/ through the web tier (svc/${web_svc}) returned '${admin_code}', expected 403 — a default install is publishing Django admin (#2569)"
 log "admin denied at the web tier (HTTP 403) — deny-by-default holds at runtime"
 
 # ---- 9. celery worker: concurrency pinned, and it STAYS up (#2571) ----------

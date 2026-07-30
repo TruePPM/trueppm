@@ -51,6 +51,12 @@ web:
   # nginx renders a bare `deny all`, and admin is reached out-of-band with
   #   kubectl port-forward svc/<release>-trueppm-api 8000:8000
   # which bypasses the web tier entirely and needs no chart change.
+  #
+  # SCOPE: this is an nginx control, so it only binds while the web tier is
+  # deployed. With web.enabled=false the Ingress routes / straight to the API
+  # Service and Django serves /admin/ there unrestricted — restrict it at your
+  # own edge in that topology. Same caveat for any ingress path pointing at
+  # `service: api`, or a non-ClusterIP service.type.
   adminAccess:
     # false renders `return 404` instead of the proxy — the demo posture, for
     # operators who never want the path to exist on the public listener.

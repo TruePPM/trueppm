@@ -145,6 +145,13 @@ data:
         root /usr/share/nginx/html;
         index index.html;
 
+        # nginx appends a missing trailing slash during location matching, i.e.
+        # BEFORE the access phase — so a denied client hitting /admin still gets
+        # a 301 that both confirms the proxy exists and, because the default
+        # redirect is built from $server_port, leaks the internal container port
+        # and downgrades the scheme behind a TLS-terminating ingress.
+        absolute_redirect off;
+
         # Proxy API calls to the Django backend (release-scoped Service DNS).
         location /api/ {
             proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
@@ -176,6 +183,14 @@ data:
             # Ordering is load-bearing: nginx takes the FIRST matching
             # allow/deny rule, so every allow must precede the `deny all`.
             {{- range .Values.web.adminAccess.allowCIDRs }}
+            {{- /* Entries must look like an address or CIDR. This exists to
+                   reject the allowlist-shaped `all`, which nginx accepts as a
+                   valid `allow all;` and which would silently turn this control
+                   off while still reading like a restriction. A malformed CIDR
+                   is also caught here rather than crash-looping nginx. */}}
+            {{- if not (regexMatch "^[0-9a-fA-F:.]+(/[0-9]{1,3})?$" (toString .)) }}
+              {{- fail (printf "web.adminAccess.allowCIDRs entry %q is not an IP address or CIDR — note that 'all' would render `allow all;` and disable the restriction entirely (#2569)" .) }}
+            {{- end }}
             allow {{ . }};
             {{- end }}
             deny all;
