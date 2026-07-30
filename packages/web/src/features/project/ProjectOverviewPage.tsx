@@ -925,21 +925,20 @@ function buildOpenRisksMetric(
 ): OverviewMetric {
   const high = overview?.high_risk_count;
   const open = overview?.open_risk_count;
-  const hasRisks = (high != null && high > 0) || (open != null && open > 0);
-  const risksValue =
-    high != null && high > 0 ? `${high} high` : open != null ? `${open} open` : '—';
+  // `high > 0` was spelled out four times below; naming it once is what keeps
+  // the four uses from drifting apart.
+  const hasHigh = high != null && high > 0;
+  const hasRisks = hasHigh || (open != null && open > 0);
+  const risksValue = hasHigh ? `${high} high` : open != null ? `${open} open` : '—';
   return {
     key: 'open_risks',
     label: 'Open risks',
     value: risksValue,
     sub: open != null ? `${open} in register` : undefined,
-    variant: high != null && high > 0 ? 'at-risk' : overview ? 'on-track' : 'neutral',
+    variant: hasHigh ? 'at-risk' : overview ? 'on-track' : 'neutral',
     // Risk register rows already open a RiskDrawer; a high count pre-focuses the
     // High segment. Real-zero stays static (rule 172).
-    to:
-      base && hasRisks
-        ? `${base}/risk${high != null && high > 0 ? '?severity=high' : ''}`
-        : undefined,
+    to: base && hasRisks ? `${base}/risk${hasHigh ? '?severity=high' : ''}` : undefined,
     toLabel: 'the risk register',
   };
 }

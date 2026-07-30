@@ -48,29 +48,48 @@ interface DialogCopy {
  * mismatch — a "Requeue" title over a "Drop" body — impossible to write by
  * accident. `busy` only ever replaces the confirm label with its progress form.
  */
+/**
+ * Per-action copy. The two actions differ only in wording, so they are a table
+ * rather than two branches — the bulk/single and idle/busy variations are the
+ * same shape for both and are applied once in `dialogCopy` below.
+ */
+const ACTION_COPY: Record<
+  DeadLetterActionKind,
+  { verb: string; busyLabel: string; bulkBody: string; singleBody: string }
+> = {
+  requeue: {
+    verb: 'Requeue',
+    busyLabel: 'Requeuing…',
+    bulkBody:
+      'Every dead or pending task in the current filter will be re-enqueued through the durable workflow backend (bounded per run).',
+    singleBody:
+      'This task will be re-enqueued through the durable workflow backend with the chosen backoff.',
+  },
+  drop: {
+    verb: 'Drop',
+    busyLabel: 'Dropping…',
+    bulkBody:
+      'Every task in the current filter will be removed from the active queue. The records are kept for audit — they are not deleted.',
+    singleBody:
+      'This task will be removed from the active queue. The record is kept for audit — it is not deleted.',
+  },
+};
+
 function dialogCopy(
   kind: DeadLetterActionKind,
   bulkCount: number | undefined,
   busy: boolean,
 ): DialogCopy {
+  const copy = ACTION_COPY[kind];
   const isBulk = typeof bulkCount === 'number';
-  const plural = bulkCount === 1 ? '' : 's';
+  // Bulk names the count so the operator confirms against a number, not a
+  // vague "all matching" — these actions are not individually undoable.
+  const target = isBulk ? `${bulkCount} task${bulkCount === 1 ? '' : 's'}` : 'task';
 
-  if (kind === 'requeue') {
-    return {
-      title: isBulk ? `Requeue ${bulkCount} task${plural}?` : 'Requeue task?',
-      body: isBulk
-        ? 'Every dead or pending task in the current filter will be re-enqueued through the durable workflow backend (bounded per run).'
-        : 'This task will be re-enqueued through the durable workflow backend with the chosen backoff.',
-      confirmLabel: busy ? 'Requeuing…' : isBulk ? `Requeue ${bulkCount}` : 'Requeue',
-    };
-  }
   return {
-    title: isBulk ? `Drop ${bulkCount} task${plural}?` : 'Drop task?',
-    body: isBulk
-      ? 'Every task in the current filter will be removed from the active queue. The records are kept for audit — they are not deleted.'
-      : 'This task will be removed from the active queue. The record is kept for audit — it is not deleted.',
-    confirmLabel: busy ? 'Dropping…' : isBulk ? `Drop ${bulkCount}` : 'Drop',
+    title: `${copy.verb} ${target}?`,
+    body: isBulk ? copy.bulkBody : copy.singleBody,
+    confirmLabel: busy ? copy.busyLabel : isBulk ? `${copy.verb} ${bulkCount}` : copy.verb,
   };
 }
 

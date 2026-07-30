@@ -24,6 +24,17 @@ interface BacklogListProps {
   controller: BacklogController;
 }
 
+/**
+ * Bind a reorder handler only for rows the user may actually reorder.
+ *
+ * `undefined` (not a no-op) is what tells `BacklogListRow` the affordance is
+ * absent, so it renders without drag handles and move buttons rather than with
+ * inert ones. Named once instead of repeating the same ternary per handler.
+ */
+function whenDraggable<T>(draggable: boolean, handler: T): T | undefined {
+  return draggable ? handler : undefined;
+}
+
 export function BacklogList({ controller }: BacklogListProps) {
   const { url, mainItems, pulledItems, canEdit, pendingPullItemId, searchActive, matchCount } =
     controller;
@@ -72,15 +83,15 @@ export function BacklogList({ controller }: BacklogListProps) {
         isDropTarget={dropTargetId === item.id && draggingId !== item.id}
         onSelect={() => url.selectItem(item.id)}
         onPull={() => url.openPull(item.id)}
-        onDragStart={draggable ? () => setDraggingId(item.id) : undefined}
-        onDragEnter={draggable ? () => setDropTargetId(item.id) : undefined}
-        onDrop={draggable ? () => commitDrop(item) : undefined}
+        onDragStart={whenDraggable(draggable, () => setDraggingId(item.id))}
+        onDragEnter={whenDraggable(draggable, () => setDropTargetId(item.id))}
+        onDrop={whenDraggable(draggable, () => commitDrop(item))}
         onDragEnd={() => {
           setDraggingId(null);
           setDropTargetId(null);
         }}
-        onMoveUp={draggable ? () => moveBy(item, -1) : undefined}
-        onMoveDown={draggable ? () => moveBy(item, 1) : undefined}
+        onMoveUp={whenDraggable(draggable, () => moveBy(item, -1))}
+        onMoveDown={whenDraggable(draggable, () => moveBy(item, 1))}
       />
     );
   }

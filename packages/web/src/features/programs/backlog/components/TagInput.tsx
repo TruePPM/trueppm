@@ -32,6 +32,104 @@ interface TagInputProps {
 
 type Row = { kind: 'tag'; value: string } | { kind: 'create'; value: string };
 
+/**
+ * Arrow / Home / End / Enter — movement within the suggestion list.
+ *
+ * Returns true when the key was consumed. Home/End and Enter only claim the key
+ * when there is a list to act on; otherwise the caret keeps its native
+ * behavior in the text input. An arrow always claims, and opens a closed
+ * popover — that is how the list is reached without typing.
+ */
+function handleListNavKey(
+  e: KeyboardEvent<HTMLInputElement>,
+  ctx: {
+    rows: Row[];
+    open: boolean;
+    activeIndex: number;
+    setOpen: (next: boolean) => void;
+    setActiveIndex: (next: number | ((i: number) => number)) => void;
+    commit: (index: number) => void;
+  },
+): boolean {
+  const { rows, open, activeIndex, setOpen, setActiveIndex, commit } = ctx;
+  switch (e.key) {
+    case 'ArrowDown':
+      e.preventDefault();
+      if (!open) setOpen(true);
+      setActiveIndex((i) => (rows.length ? (i + 1) % rows.length : 0));
+      return true;
+    case 'ArrowUp':
+      e.preventDefault();
+      if (!open) setOpen(true);
+      setActiveIndex((i) => (rows.length ? (i - 1 + rows.length) % rows.length : 0));
+      return true;
+    case 'Home':
+      if (rows.length) {
+        e.preventDefault();
+        setActiveIndex(0);
+      }
+      return true;
+    case 'End':
+      if (rows.length) {
+        e.preventDefault();
+        setActiveIndex(rows.length - 1);
+      }
+      return true;
+    case 'Enter':
+      e.preventDefault();
+      if (rows.length) commit(activeIndex);
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Comma / Escape / Backspace — editing the query and the chip list.
+ *
+ * Escape is two-stage by design: it clears a non-empty query first and only
+ * closes the popover on a second press, so one keystroke never discards both
+ * the text and the list.
+ */
+function handleTextEditKey(
+  e: KeyboardEvent<HTMLInputElement>,
+  ctx: {
+    q: string;
+    query: string;
+    open: boolean;
+    tags: string[];
+    add: (value: string) => void;
+    setQuery: (next: string) => void;
+    setOpen: (next: boolean) => void;
+    setActiveIndex: (next: number) => void;
+    onChange: (next: string[]) => void;
+  },
+): void {
+  const { q, query, open, tags, add, setQuery, setOpen, setActiveIndex, onChange } = ctx;
+  switch (e.key) {
+    case ',':
+      // Comma is a quick "add exactly what I typed" (parity with the old field).
+      if (q) {
+        e.preventDefault();
+        add(q);
+      }
+      break;
+    case 'Escape':
+      if (query) {
+        e.preventDefault();
+        setQuery('');
+        setActiveIndex(0);
+      } else if (open) {
+        e.preventDefault();
+        setOpen(false);
+      }
+      break;
+    case 'Backspace':
+      if (query === '' && tags.length > 0) onChange(tags.slice(0, -1));
+      break;
+  }
+}
+
 export function TagInput({ tags, onChange, suggestions = [], id }: TagInputProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -96,55 +194,11 @@ export function TagInput({ tags, onChange, suggestions = [], id }: TagInputProps
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        if (!open) setOpen(true);
-        setActiveIndex((i) => (rows.length ? (i + 1) % rows.length : 0));
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        if (!open) setOpen(true);
-        setActiveIndex((i) => (rows.length ? (i - 1 + rows.length) % rows.length : 0));
-        break;
-      case 'Home':
-        if (rows.length) {
-          e.preventDefault();
-          setActiveIndex(0);
-        }
-        break;
-      case 'End':
-        if (rows.length) {
-          e.preventDefault();
-          setActiveIndex(rows.length - 1);
-        }
-        break;
-      case 'Enter':
-        e.preventDefault();
-        if (rows.length) commit(activeIndex);
-        break;
-      case ',':
-        // Comma is a quick "add exactly what I typed" (parity with the old field).
-        if (q) {
-          e.preventDefault();
-          add(q);
-        }
-        break;
-      case 'Escape':
-        // Two-stage: clear a non-empty query first, then close the popover.
-        if (query) {
-          e.preventDefault();
-          setQuery('');
-          setActiveIndex(0);
-        } else if (open) {
-          e.preventDefault();
-          setOpen(false);
-        }
-        break;
-      case 'Backspace':
-        if (query === '' && tags.length > 0) onChange(tags.slice(0, -1));
-        break;
-    }
+    // The two halves of the rule-124 combobox contract: moving within the list,
+    // and editing the text. A navigation key that lands is never also an
+    // editing key, so the first handler to claim it wins.
+    if (handleListNavKey(e, { rows, open, activeIndex, setOpen, setActiveIndex, commit })) return;
+    handleTextEditKey(e, { q, query, open, tags, add, setQuery, setOpen, setActiveIndex, onChange });
   }
 
   const activeDescId = open && rows.length ? `${baseId}-opt-${activeIndex}` : undefined;

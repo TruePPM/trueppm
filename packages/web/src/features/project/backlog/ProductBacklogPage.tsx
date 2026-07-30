@@ -90,7 +90,7 @@ import {
   useReparentStory,
   useSetDor,
 } from './hooks/useProductBacklog';
-import type { GroomingHealth, ProductBacklog } from './types';
+import type { EpicGroup, GroomingHealth, ProductBacklog } from './types';
 
 type BacklogView = 'epic' | 'ranked';
 
@@ -480,6 +480,44 @@ function toEntries(d: ProductBacklog): ReorderEntry[] {
  * TanStack Query cache (keyed by projectId), so there is no double-fetch and no
  * controller to extract — the shared cache dedupes.
  */
+/**
+ * Resolve `selectedId` against both collections.
+ *
+ * The id addresses either a story row or an epic header, and the two id spaces
+ * are disjoint — so both are looked up and the caller renders whichever drawer
+ * matched. At most one can be non-null.
+ */
+function resolveSelection(
+  selectedId: string | null,
+  allStories: Task[],
+  epics: EpicGroup[],
+): { story: Task | null; epic: Task | null } {
+  if (selectedId == null) return { story: null, epic: null };
+  return {
+    story: allStories.find((s) => s.id === selectedId) ?? null,
+    epic: epics.find((g) => g.epic.id === selectedId)?.epic ?? null,
+  };
+}
+
+/**
+ * The page subtitle, whose composition describes the sprint-commitment split:
+ * a story with a sprint is "pulled" (committed), a post-activation injection is
+ * "pending" (ADR-0102), and the rest are "proposed" candidates. "Pending" is
+ * omitted at zero — it names an exceptional state, so showing "0 pending"
+ * would imply the flow is in play when it is not.
+ */
+function backlogSubtitle(allStories: Task[], hasScore: boolean): string {
+  const pendingCount = allStories.filter((s) => s.sprintPending).length;
+  const pulledCount = allStories.filter((s) => s.sprintId && !s.sprintPending).length;
+  const proposedCount = allStories.filter((s) => !s.sprintId).length;
+
+  const parts = ['Epics → stories'];
+  if (hasScore) parts.push('scored & ordered');
+  parts.push(`${pulledCount} pulled into sprint`, `${proposedCount} proposed`);
+  if (pendingCount > 0) parts.push(`${pendingCount} pending`);
+  return parts.join(' · ');
+}
+
 export function ProductBacklogPage() {
   const breakpoint = useBreakpoint();
   return breakpoint === 'sm' ? <MobileGroomingPage /> : <DesktopGroomingView />;
@@ -620,12 +658,11 @@ function DesktopGroomingView() {
   const allStories = [...backlog.epics.flatMap((g) => g.stories), ...backlog.ungrouped];
   // `selectedId` addresses either a story row or an epic header — their ids are disjoint,
   // so resolve against both and render whichever drawer matches.
-  const selectedStory =
-    selectedId == null ? null : (allStories.find((s) => s.id === selectedId) ?? null);
-  const selectedEpic =
-    selectedId == null
-      ? null
-      : (backlog.epics.find((g) => g.epic.id === selectedId)?.epic ?? null);
+  const { story: selectedStory, epic: selectedEpic } = resolveSelection(
+    selectedId,
+    allStories,
+    backlog.epics,
+  );
 
   // Drag bookkeeping for the unified surface (ADR-0183). `groupKeyIndex` maps each
   // story to its current group's droppable key; `activeStory`/`dragActive` track the
@@ -644,14 +681,7 @@ function DesktopGroomingView() {
   // Sprint-commitment composition drives the dynamic subtitle: a story with a sprint is
   // "pulled" (committed), a post-activation injection is "pending" (ADR-0102), the rest
   // are "proposed" candidates.
-  const pendingCount = allStories.filter((s) => s.sprintPending).length;
-  const pulledCount = allStories.filter((s) => s.sprintId && !s.sprintPending).length;
-  const proposedCount = allStories.filter((s) => !s.sprintId).length;
-  const subtitleParts = ['Epics → stories'];
-  if (hasScore) subtitleParts.push('scored & ordered');
-  subtitleParts.push(`${pulledCount} pulled into sprint`, `${proposedCount} proposed`);
-  if (pendingCount > 0) subtitleParts.push(`${pendingCount} pending`);
-  const subtitle = subtitleParts.join(' · ');
+  const subtitle = backlogSubtitle(allStories, hasScore);
 
   // Ranked view: a flat read-only list. With a model, sort by score desc ("score drives
   // the ranked view"); without one, keep the persisted manual priority order (allStories
