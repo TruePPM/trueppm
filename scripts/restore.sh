@@ -18,6 +18,10 @@
 # Connection is parameterized through env / flags, identical to backup.sh, so
 # the same script restores onto the Compose dev stack or a Helm-deployed cluster.
 #
+# The artifact may be a local path (--artifact) or an object key in the same
+# bucket backup.sh uploads to (--from-s3 KEY, or --from-s3 latest). See
+# scripts/lib/s3.sh for client selection and the path-style rationale.
+#
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
@@ -29,8 +33,11 @@ Usage: restore.sh --artifact PATH [options]
 Restore a TruePPM backup artifact (produced by scripts/backup.sh) onto a clean
 target database, then verify required PostgreSQL extensions are present.
 
-Required:
-  -a, --artifact PATH    Path to the trueppm-backup-*.tar.gz artifact.
+Required (exactly one source):
+  -a, --artifact PATH    Path to a local trueppm-backup-*.tar.gz artifact.
+      --from-s3 KEY      Object key to download from $S3_BUCKET first, then
+                         restore. Use "latest" to select the newest
+                         trueppm-backup-*.tar.gz under --s3-prefix.
 
 Options:
   -d, --db-url URL       Target PostgreSQL connection URL (default: $DATABASE_URL).
@@ -39,10 +46,21 @@ Options:
                          artifact contains media AND this is set).
   -j, --jobs N           pg_restore parallel jobs (default: 1).
   -y, --yes              Do not prompt before overwriting the target database.
+      --s3-bucket NAME   Bucket to download from with --from-s3 (default: $S3_BUCKET).
+      --s3-endpoint URL  S3-compatible endpoint (default: $S3_ENDPOINT). Omit for
+                         real AWS S3; set it for MinIO and friends.
+      --s3-prefix PATH   Key prefix searched by --from-s3 latest (default: $S3_PREFIX).
   -h, --help             Show this help and exit.
 
 Environment variables (flags take precedence):
-  DATABASE_URL, TRUEPPM_MEDIA_ROOT
+  DATABASE_URL, TRUEPPM_MEDIA_ROOT,
+  S3_BUCKET, S3_ENDPOINT, S3_PREFIX, AWS_DEFAULT_REGION,
+  AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, TRUEPPM_S3_CLIENT
+
+Downloading: --from-s3 pulls the artifact into a scratch directory and restores
+from it, using the same client selection as backup.sh (AWS CLI preferred, MinIO
+client accepted). The downloaded copy is deleted when the script exits; pass
+--artifact with a local path if you want to keep it.
 
 Idempotency: pg_restore runs with --clean --if-exists, so re-running against an
 already-populated database drops and recreates each object rather than erroring
@@ -66,6 +84,10 @@ DB_URL="${DATABASE_URL:-}"
 MEDIA_DIR="${TRUEPPM_MEDIA_ROOT:-}"
 JOBS="1"
 ASSUME_YES="false"
+FROM_S3=""
+S3_BUCKET="${S3_BUCKET:-}"
+S3_ENDPOINT="${S3_ENDPOINT:-}"
+S3_PREFIX="${S3_PREFIX:-}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -74,14 +96,24 @@ while [ "$#" -gt 0 ]; do
     -m|--media-dir) MEDIA_DIR="${2:?--media-dir needs a value}"; shift 2 ;;
     -j|--jobs)      JOBS="${2:?--jobs needs a value}"; shift 2 ;;
     -y|--yes)       ASSUME_YES="true"; shift ;;
+    --from-s3)      FROM_S3="${2:?--from-s3 needs a value}"; shift 2 ;;
+    --s3-bucket)    S3_BUCKET="${2:?--s3-bucket needs a value}"; shift 2 ;;
+    --s3-endpoint)  S3_ENDPOINT="${2:?--s3-endpoint needs a value}"; shift 2 ;;
+    --s3-prefix)    S3_PREFIX="${2:?--s3-prefix needs a value}"; shift 2 ;;
     -h|--help)      usage; exit 0 ;;
     *)              usage >&2; die "unknown argument: $1" ;;
   esac
 done
+export S3_BUCKET S3_ENDPOINT
 
 # ---- preconditions ---------------------------------------------------------
-[ -n "$ARTIFACT" ] || { usage >&2; die "no artifact — pass --artifact PATH"; }
-[ -f "$ARTIFACT" ] || die "artifact not found: $ARTIFACT"
+if [ -n "$ARTIFACT" ] && [ -n "$FROM_S3" ]; then
+  die "--artifact and --from-s3 are mutually exclusive — pick one source"
+fi
+if [ -z "$ARTIFACT" ] && [ -z "$FROM_S3" ]; then
+  usage >&2
+  die "no artifact — pass --artifact PATH or --from-s3 KEY"
+fi
 [ -n "$DB_URL" ] || die "no database URL — set DATABASE_URL or pass --db-url"
 case "$JOBS" in ''|*[!0-9]*) die "--jobs must be a positive integer, got: $JOBS" ;; esac
 command -v pg_restore >/dev/null 2>&1 || die "pg_restore not found (install postgresql-client)"
@@ -90,6 +122,34 @@ command -v psql >/dev/null 2>&1 || die "psql not found (install postgresql-clien
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/trueppm-restore.XXXXXX")"
 cleanup() { rm -rf "$WORKDIR"; }
 trap cleanup EXIT
+
+# ---- fetch from object storage (optional) ----------------------------------
+# Downloads into WORKDIR, so the copy is removed on exit by the same trap that
+# cleans the extraction tree. An operator who wants to keep the artifact should
+# download it themselves and pass --artifact.
+if [ -n "$FROM_S3" ]; then
+  [ -n "$S3_BUCKET" ] || die "--from-s3 given but no bucket — set S3_BUCKET or pass --s3-bucket"
+  # shellcheck source-path=SCRIPTDIR source=lib/s3.sh
+  . "$(cd "$(dirname "$0")" && pwd)/lib/s3.sh"
+  s3_client >/dev/null \
+    || die "--from-s3 requested but no client found — $(s3_client_hint)"
+  [ -n "${AWS_ACCESS_KEY_ID:-}" ] || die "--from-s3 requested but AWS_ACCESS_KEY_ID is unset"
+  [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] || die "--from-s3 requested but AWS_SECRET_ACCESS_KEY is unset"
+
+  S3_KEY="$FROM_S3"
+  if [ "$S3_KEY" = "latest" ]; then
+    log "resolving newest artifact in s3://$S3_BUCKET/${S3_PREFIX:+$S3_PREFIX/}..."
+    S3_KEY="$(s3_latest_key "$S3_PREFIX")" \
+      || die "no trueppm-backup-*.tar.gz found in s3://$S3_BUCKET/${S3_PREFIX:+$S3_PREFIX/}"
+  fi
+  ARTIFACT="$WORKDIR/$(basename "$S3_KEY")"
+  log "downloading s3://$S3_BUCKET/$S3_KEY ..."
+  s3_get "$S3_KEY" "$ARTIFACT" \
+    || die "download of s3://$S3_BUCKET/$S3_KEY failed"
+  log "downloaded: $ARTIFACT ($(du -h "$ARTIFACT" | cut -f1))"
+fi
+
+[ -f "$ARTIFACT" ] || die "artifact not found: $ARTIFACT"
 
 log "extracting artifact: $ARTIFACT"
 tar -xzf "$ARTIFACT" -C "$WORKDIR"
