@@ -80,10 +80,15 @@ function countMineByStatus(
   myResourceId: string | null,
 ): Record<TaskStatus, number> {
   const counts = emptyStatusCounts();
-  if (myResourceId === null) return counts;
-  for (const phase of phases) {
-    for (const task of phase.tasks) {
-      if (task.assignees.some((a) => a.resourceId === myResourceId)) counts[task.status]++;
+  // Single return, rather than an early `return counts` on the null guard:
+  // Sonar's S3516 reads two `return counts` paths as an invariant result
+  // because its dataflow does not model the `counts[...]++` mutation between
+  // them. Guarding the loop instead of returning early says the same thing.
+  if (myResourceId !== null) {
+    for (const phase of phases) {
+      for (const task of phase.tasks) {
+        if (task.assignees.some((a) => a.resourceId === myResourceId)) counts[task.status]++;
+      }
     }
   }
   return counts;

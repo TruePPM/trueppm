@@ -430,6 +430,59 @@ export function filterBacklogTasks(tasks: Task[], query: string): Task[] {
   });
 }
 
+/** "1 idea" / "4 ideas" — used by the rail's heading, aria-label and strip. */
+function ideaCount(n: number): string {
+  return `${n} ${n === 1 ? 'idea' : 'ideas'}`;
+}
+
+/**
+ * Nothing in the backlog at all. The hint names quick capture only when the
+ * user actually has it — a viewer is told the one thing they can do (drag).
+ */
+function EmptyBacklogHint({ canQuickCapture }: { canQuickCapture: boolean }) {
+  return (
+    <div
+      className="flex-1 flex items-center justify-center rounded-card border border-dashed border-neutral-border text-xs italic text-neutral-text-secondary"
+      role="status"
+      style={{ minHeight: 88 }}
+    >
+      {canQuickCapture
+        ? 'No backlog yet — capture an idea above, or drag a card here to defer it.'
+        : 'No backlog yet — drag a card here to defer it.'}
+    </div>
+  );
+}
+
+/**
+ * Backlog is non-empty but the live filter matched nothing. Distinct from
+ * `EmptyBacklogHint` on purpose: filtering never hides how much backlog exists
+ * (issue 1609), so this says "your search is empty", not "your backlog is".
+ */
+function NoBacklogMatchesHint({
+  query,
+  onClearSearch,
+}: {
+  query: string;
+  onClearSearch: () => void;
+}) {
+  return (
+    <div
+      className="flex-1 flex flex-col items-center justify-center gap-2 rounded-card border border-dashed border-neutral-border px-3 text-center text-xs italic text-neutral-text-secondary"
+      role="status"
+      style={{ minHeight: 88 }}
+    >
+      <span>No ideas match “{query}”.</span>
+      <button
+        type="button"
+        onClick={onClearSearch}
+        className="not-italic font-medium text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control px-1"
+      >
+        Clear search
+      </button>
+    </div>
+  );
+}
+
 export function BacklogBand({
   tasks,
   density = 'comfortable',
@@ -512,7 +565,7 @@ export function BacklogBand({
         onClick={() => setCollapsed(false)}
         aria-expanded={false}
         aria-controls="backlog-rail-body"
-        aria-label={`Expand backlog rail, ${tasks.length} ${tasks.length === 1 ? 'idea' : 'ideas'}`}
+        aria-label={`Expand backlog rail, ${ideaCount(tasks.length)}`}
         data-testid="backlog-band"
         className={[
           'flex flex-col items-center gap-3 py-4 cursor-pointer',
@@ -556,7 +609,7 @@ export function BacklogBand({
             <span
               id="backlog-rail-heading"
               className="text-lg font-semibold text-neutral-text-primary"
-              aria-label={`${tasks.length} ${tasks.length === 1 ? 'idea' : 'ideas'} in backlog`}
+              aria-label={`${ideaCount(tasks.length)} in backlog`}
             >
               {tasks.length}
             </span>
@@ -694,30 +747,9 @@ export function BacklogBand({
         aria-label="Backlog cards"
       >
         {sortedTasks.length === 0 ? (
-          <div
-            className="flex-1 flex items-center justify-center rounded-card border border-dashed border-neutral-border text-xs italic text-neutral-text-secondary"
-            role="status"
-            style={{ minHeight: 88 }}
-          >
-            {canQuickCapture
-              ? 'No backlog yet — capture an idea above, or drag a card here to defer it.'
-              : 'No backlog yet — drag a card here to defer it.'}
-          </div>
+          <EmptyBacklogHint canQuickCapture={canQuickCapture} />
         ) : visibleTasks.length === 0 ? (
-          <div
-            className="flex-1 flex flex-col items-center justify-center gap-2 rounded-card border border-dashed border-neutral-border px-3 text-center text-xs italic text-neutral-text-secondary"
-            role="status"
-            style={{ minHeight: 88 }}
-          >
-            <span>No ideas match “{query.trim()}”.</span>
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              className="not-italic font-medium text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control px-1"
-            >
-              Clear search
-            </button>
-          </div>
+          <NoBacklogMatchesHint query={query.trim()} onClearSearch={() => setQuery('')} />
         ) : (
           visibleTasks.map((task) => {
             const phaseColor = phaseColorFor(task.parentId);

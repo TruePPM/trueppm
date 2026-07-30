@@ -31,6 +31,8 @@ import {
   parseCyclicDependencyError,
   formatCycleMessage,
   parseProgressAnchorError,
+  type CreateTaskPayload,
+  type UpdateTaskPayload,
 } from '@/hooks/useTaskMutations';
 import {
   useAddAssignment,
@@ -43,6 +45,7 @@ import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { AssigneesEditor, type AssigneeWorkingRow } from './AssigneesEditor';
 import { PredecessorsEditor, type PredecessorWorkingRow } from './PredecessorsEditor';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import { SyncConflictBanner } from './SyncConflictBanner';
 import { isPhaseTask } from '@/lib/isPhaseTask';
 import { StoryPointField } from '@/features/backlog/StoryPointField';
 import { formatStoryPoints } from '@/lib/storyPoints';
@@ -153,48 +156,6 @@ interface FormState {
   predecessors: PredecessorWorkingRow[];
 }
 
-// #2036: human-readable labels for the snake_case field names the API returns in
-// a 409 `conflict_fields` list, so the conflict banner reads in domain terms.
-const CONFLICT_FIELD_LABELS: Record<string, string> = {
-  name: 'Name',
-  notes: 'Notes',
-  status: 'Status',
-  duration: 'Duration',
-  percent_complete: 'Progress',
-  planned_start: 'Planned start',
-  type: 'Type',
-  governance_class: 'Governance class',
-  delivery_mode: 'Delivery mode',
-  story_points: 'Story points',
-  sprint: 'Sprint',
-};
-
-function conflictFieldLabel(field: string): string {
-  return (
-    CONFLICT_FIELD_LABELS[field] ??
-    field.replaceAll('_', ' ').replace(/^\w/, (c) => c.toUpperCase())
-  );
-}
-
-/** Join field labels into a natural-language list ("Name, Notes and Status"). */
-function formatConflictFieldList(fields: string[]): string {
-  const labels = fields.map(conflictFieldLabel);
-  if (labels.length === 1) return labels[0];
-  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
-}
-
-/**
- * Render a server value from the 409 body for display, or null when there's
- * nothing meaningful to show (RBAC-filtered fields arrive absent/null).
- */
-function formatServerValue(value: unknown): string | null {
-  if (value === null || value === undefined || value === '') return null;
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return String(value);
-  }
-  return null;
-}
-
 function initialState(task: Task | null, defaultStatus: TaskStatus): FormState {
   if (task === null) {
     return {
@@ -269,6 +230,148 @@ function formatRelative(iso: string | null | undefined): string {
   if (d < 30) return `${d}d ago`;
   const mo = Math.floor(d / 30);
   return `${mo}mo ago`;
+}
+
+/**
+ * Header eyebrow. Read-only wins over edit — a viewer opening a task they
+ * cannot change should be told that first, before the mode.
+ */
+function headerEyebrow(mode: {
+  isReadOnly: boolean;
+  isEdit: boolean;
+  isMilestoneCreate: boolean;
+}): string {
+  if (mode.isReadOnly) return 'VIEW TASK';
+  if (mode.isEdit) return 'EDIT TASK';
+  return mode.isMilestoneCreate ? 'NEW MILESTONE' : 'NEW TASK';
+}
+
+/**
+ * Header title. Edit mode shows the task's own name; create mode names what is
+ * being created, qualified by the phase it lands in when there is one.
+ */
+function headerTitleFor(mode: {
+  isEdit: boolean;
+  isMilestoneCreate: boolean;
+  taskName: string;
+  phaseName?: string;
+}): string {
+  if (mode.isEdit) return mode.taskName;
+  if (mode.isMilestoneCreate) return 'New milestone';
+  return mode.phaseName ? `Add to ${mode.phaseName}` : 'Add task';
+}
+
+/** Fields the create and update payload builders read off the component. */
+interface SubmitContext {
+  /** Duration floored to a valid working-day count by the caller. */
+  committedDuration: number;
+  /** Project has agile features enabled — gates sprint assignment (ADR-0037). */
+  agileFeatures: boolean;
+}
+
+/**
+ * Build the POST body for create mode.
+ *
+ * Milestone-create suppresses both the duration and the whole classification
+ * triple, mirroring the fields the render hides in that mode — the two must
+ * stay in step or the modal writes a value the user was never shown.
+ */
+function buildCreatePayload(
+  form: FormState,
+  ctx: SubmitContext & { isMilestoneCreate: boolean; parentId: string | null },
+): CreateTaskPayload {
+  const classification = ctx.isMilestoneCreate
+    ? {}
+    : {
+        type: form.type,
+        governance_class: form.governanceClass,
+        delivery_mode: form.deliveryMode,
+      };
+  return {
+    name: form.name.trim(),
+    duration: ctx.isMilestoneCreate ? 0 : ctx.committedDuration,
+    parent_id: ctx.parentId,
+    status: form.status,
+    planned_start: form.plannedStart || null,
+    notes: form.notes,
+    ...(ctx.isMilestoneCreate ? { is_milestone: true } : {}),
+    ...classification,
+    // The point estimate is available on every methodology (ADR-0418, #1961) —
+    // decoupled from agile_features. Sprint assignment stays agile-only.
+    story_points: form.storyPoints,
+    ...(ctx.agileFeatures ? { sprint: form.sprintId } : {}),
+  };
+}
+
+/**
+ * Build the PATCH body for edit mode.
+ *
+ * `baseVersion` opts into field-level merge (ADR-0217, #322): a disjoint
+ * concurrent edit merges server-side, an overlapping one 409s. The caller
+ * passes the rebased version after "Keep my edits & save" (#2036).
+ */
+function buildUpdatePayload(
+  form: FormState,
+  // `baseVersion` stays optional-shaped: a task with no `serverVersion` yet
+  // omits the header and falls back to last-writer-wins, as it did inline.
+  ctx: SubmitContext & { id: string; projectId: string; baseVersion: number | undefined },
+): UpdateTaskPayload {
+  return {
+    id: ctx.id,
+    projectId: ctx.projectId,
+    baseVersion: ctx.baseVersion,
+    // #2036: render our own inline conflict banner instead of the toast.
+    suppressConflictToast: true,
+    name: form.name.trim(),
+    duration: ctx.committedDuration,
+    percent_complete: form.progress,
+    planned_start: form.plannedStart || null,
+    status: form.status,
+    notes: form.notes,
+    type: form.type,
+    governance_class: form.governanceClass,
+    delivery_mode: form.deliveryMode,
+    // Estimate on every methodology (ADR-0418, #1961); sprint stays agile-only.
+    story_points: form.storyPoints,
+    ...(ctx.agileFeatures ? { sprint: form.sprintId } : {}),
+  };
+}
+
+/**
+ * Message for a failure in the best-effort assignment/dependency tail.
+ *
+ * The task itself is already written at this point, so every outcome here is a
+ * non-blocking warning that keeps the modal open for a retry. A dependency
+ * cycle gets the structured path message so the user can act on it (ADR-0055).
+ */
+function describeAssignmentFailure(err: unknown): string {
+  const cycle = parseCyclicDependencyError(err);
+  if (cycle) return formatCycleMessage(cycle);
+  if (err instanceof Error) {
+    return `Saved task, but updating assignments or dependencies failed: ${err.message}`;
+  }
+  return 'Saved task, but updating assignments or dependencies failed.';
+}
+
+/**
+ * Classify a failed save into the one banner the modal should show.
+ *
+ * A sync conflict (ADR-0217) on this surface used to close the modal and
+ * discard every edited field (#2036); it is returned separately so the caller
+ * can keep the modal open and render the rebase-and-resave banner instead.
+ */
+function classifySubmitError(
+  err: unknown,
+  iterationLower: string,
+): { conflict: SyncConflict } | { message: string } {
+  const conflict = asSyncConflict(err);
+  if (conflict) return { conflict };
+  if (parseProgressAnchorError(err)) {
+    return {
+      message: `Set a Planned Start date (or assign a ${iterationLower}) before recording progress.`,
+    };
+  }
+  return { message: err instanceof Error ? err.message : `Couldn’t save the task. Try again.` };
 }
 
 /**
@@ -635,52 +738,34 @@ export function TaskFormModal({
     // count (#1974). Milestones are always zero-duration.
     const committedDuration =
       Number.isFinite(form.duration) && form.duration >= 1 ? form.duration : 1;
+    const ctx = {
+      committedDuration,
+      agileFeatures: Boolean(projectDetail?.agile_features),
+    };
     try {
       let savedTaskId: string;
       if (mode === 'create') {
-        const created = await createTask.mutateAsync({
-          name: form.name.trim(),
-          duration: isMilestoneCreate ? 0 : committedDuration,
-          parent_id: selectedParentId,
-          status: form.status,
-          planned_start: form.plannedStart || null,
-          notes: form.notes,
-          ...(isMilestoneCreate ? { is_milestone: true } : {}),
-          // Classification is suppressed in milestone-create mode (see render).
-          ...(isMilestoneCreate
-            ? {}
-            : { type: form.type, governance_class: form.governanceClass, delivery_mode: form.deliveryMode }),
-          // The point estimate is available on every methodology (ADR-0418, #1961) —
-          // decoupled from agile_features. Sprint assignment stays agile-only.
-          story_points: form.storyPoints,
-          ...(projectDetail?.agile_features ? { sprint: form.sprintId } : {}),
-        });
+        const created = await createTask.mutateAsync(
+          buildCreatePayload(form, {
+            ...ctx,
+            isMilestoneCreate,
+            parentId: selectedParentId,
+          }),
+        );
         savedTaskId = created.id;
       } else {
         if (!task) throw new Error('Edit mode requires a task');
-        await updateTask.mutateAsync({
-          id: task.id,
-          projectId,
-          // Opt into field-level merge (ADR-0217, issue 322): if another editor changed a
-          // disjoint field the server merges; an overlapping edit 409s. #2036: after the
-          // user chooses "Keep my edits & save" on the conflict banner, rebase onto the
-          // server's current version so the retry is accepted rather than 409ing again.
-          baseVersion: overrideBaseVersion ?? baseVersionOverride ?? task.serverVersion,
-          // #2036: render our own inline conflict banner instead of the toast.
-          suppressConflictToast: true,
-          name: form.name.trim(),
-          duration: committedDuration,
-          percent_complete: form.progress,
-          planned_start: form.plannedStart || null,
-          status: form.status,
-          notes: form.notes,
-          type: form.type,
-          governance_class: form.governanceClass,
-          delivery_mode: form.deliveryMode,
-          // Estimate on every methodology (ADR-0418, #1961); sprint stays agile-only.
-          story_points: form.storyPoints,
-          ...(projectDetail?.agile_features ? { sprint: form.sprintId } : {}),
-        });
+        await updateTask.mutateAsync(
+          buildUpdatePayload(form, {
+            ...ctx,
+            id: task.id,
+            projectId,
+            // #2036: after the user chooses "Keep my edits & save" on the
+            // conflict banner, rebase onto the server's current version so the
+            // retry is accepted rather than 409ing again.
+            baseVersion: overrideBaseVersion ?? baseVersionOverride ?? task.serverVersion,
+          }),
+        );
         savedTaskId = task.id;
       }
       // Best-effort: assignments + predecessors. Failures here surface as a
@@ -689,20 +774,7 @@ export function TaskFormModal({
         await syncAssignments(savedTaskId);
         await syncPredecessors(savedTaskId);
       } catch (assignErr) {
-        // Cycle errors from POST /dependencies/ get a structured message so
-        // the user can see the offending path and act on it (ADR-0055).
-        const cycle = parseCyclicDependencyError(assignErr);
-        if (cycle) {
-          setSubmitError(formatCycleMessage(cycle));
-          return;
-        }
-        // Task saved, but the secondary writes failed. Keep modal open so
-        // the user can retry.
-        setSubmitError(
-          assignErr instanceof Error
-            ? `Saved task, but updating assignments or dependencies failed: ${assignErr.message}`
-            : 'Saved task, but updating assignments or dependencies failed.',
-        );
+        setSubmitError(describeAssignmentFailure(assignErr));
         return;
       }
       if (mode === 'create') {
@@ -711,27 +783,14 @@ export function TaskFormModal({
       }
       onClose();
     } catch (err) {
-      // A sync conflict (ADR-0217) on the highest-collaboration surface used to
-      // close the modal and discard every field the user edited (#2036). Instead
-      // keep the modal open and surface an inline banner (rendered below) that
-      // names the conflicting fields and lets the user rebase-and-resave with
-      // their edits preserved. The mutation opts out of the toast (suppressed
-      // above) so the banner is the single signal.
-      const conflictErr = asSyncConflict(err);
-      if (conflictErr) {
-        setConflict(conflictErr);
+      const outcome = classifySubmitError(err, itl.lower);
+      if ('conflict' in outcome) {
+        // Keep the modal open and let the banner below offer rebase-and-resave
+        // rather than discarding every edited field (#2036).
+        setConflict(outcome.conflict);
         return;
       }
-      const anchorErr = parseProgressAnchorError(err);
-      if (anchorErr) {
-        setSubmitError(
-          `Set a Planned Start date (or assign a ${itl.lower}) before recording progress.`,
-        );
-        return;
-      }
-      setSubmitError(
-        err instanceof Error ? err.message : `Couldn’t save the task. Try again.`,
-      );
+      setSubmitError(outcome.message);
     }
   }
 
@@ -1217,50 +1276,12 @@ export function TaskFormModal({
         </div>
 
         {conflict && (
-          <div
-            role="alert"
-            className="bg-semantic-at-risk-bg border border-semantic-at-risk/30 text-semantic-at-risk text-xs px-3 py-2.5 rounded-card space-y-2"
-          >
-            <p className="font-semibold">
-              Someone else changed{' '}
-              {conflict.conflict_fields.length > 0
-                ? formatConflictFieldList(conflict.conflict_fields)
-                : 'this task'}{' '}
-              while you were editing.
-            </p>
-            {conflict.conflict_fields.length > 0 && (
-              <ul className="list-disc pl-4 space-y-0.5">
-                {conflict.conflict_fields.map((field) => (
-                  <li key={field}>
-                    <span className="font-medium">{conflictFieldLabel(field)}</span>
-                    {formatServerValue(conflict.server_value[field]) !== null && (
-                      <> — now “{formatServerValue(conflict.server_value[field])}” on the server</>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p>Keep your edits (they’ll overwrite the changes above), or keep editing to reconcile them yourself.</p>
-            <div className="flex flex-wrap gap-2 pt-0.5">
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void resolveConflictKeepingEdits()}
-                disabled={isPending}
-              >
-                Keep my edits &amp; save
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => setConflict(null)}
-                disabled={isPending}
-              >
-                Keep editing
-              </Button>
-            </div>
-          </div>
+          <SyncConflictBanner
+            conflict={conflict}
+            isPending={isPending}
+            onKeepEdits={() => void resolveConflictKeepingEdits()}
+            onKeepEditing={() => setConflict(null)}
+          />
         )}
 
         {submitError && (
@@ -1273,20 +1294,13 @@ export function TaskFormModal({
   }
 
   // Header eyebrow + title.
-  const eyebrow = isReadOnly
-    ? 'VIEW TASK'
-    : isEdit
-      ? 'EDIT TASK'
-      : isMilestoneCreate
-        ? 'NEW MILESTONE'
-        : 'NEW TASK';
-  const headerTitle = isEdit
-    ? task?.name ?? ''
-    : isMilestoneCreate
-      ? 'New milestone'
-      : phaseName
-        ? `Add to ${phaseName}`
-        : 'Add task';
+  const eyebrow = headerEyebrow({ isReadOnly, isEdit, isMilestoneCreate });
+  const headerTitle = headerTitleFor({
+    isEdit,
+    isMilestoneCreate,
+    taskName: task?.name ?? '',
+    phaseName,
+  });
 
   function renderHeader() {
     return (
