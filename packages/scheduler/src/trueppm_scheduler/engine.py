@@ -2758,47 +2758,79 @@ def _lag_term(delta_arr: np.ndarray, anchor: np.ndarray) -> np.ndarray:
     return np.asarray(delta_arr[idx], dtype=np.float64)
 
 
-def _completed_dates(t: Task, calendar: Calendar, project_start: date) -> tuple[date, date]:
-    """The VERBATIM ``(early_start, early_finish)`` ``_forward_pass`` gives a completed task.
+def _completed_dates(
+    project: Project,
+    task_map: dict[str, Task],
+    topo_order: list[str],
+    g: nx.DiGraph[str],
+    task_calendars: dict[str, Calendar] | None,
+) -> dict[str, tuple[date, date]]:
+    """The VERBATIM ``(early_start, early_finish)`` ``schedule()`` gives each completed task.
 
-    This is the single source of truth both engines' completed-task handling reads
-    from, so Monte Carlo can no longer drift from ``schedule()`` on the arithmetic
-    itself (#2460/#2461). It reproduces the three completed-task branches of
-    ``_forward_pass`` (ADR-0136, issue #1565) exactly, in scalar ``date`` space —
-    crucially including the *non-working* dates the working-day offset index cannot
-    represent:
+    Rather than *reproducing* ``_forward_pass``'s completed-task branches, this runs
+    the deterministic forward pass itself over throwaway copies and reads the answers
+    off it. That is the single source of truth both engines' completed-task handling
+    reads from, so Monte Carlo cannot drift from ``schedule()`` on the arithmetic
+    (#2460/#2461) — and, unlike a transcription, cannot fall behind a later change to
+    the deterministic pass (#2572).
 
-    1. ``actual_finish`` recorded: the finish is truth, kept verbatim even on a
-       weekend. The start is the recorded ``actual_start`` if present, else a **full
-       duration** back from the finish (``_start_from_finish``).
-    2. Only ``actual_start`` recorded (e.g. a REVIEW task — done, awaiting sign-off):
-       the full duration lays forward from the known start.
-    3. No actuals at all (``percent_complete >= 100`` alone): the full duration lays
-       forward from the *un-floored* project start, the same ``start_base`` anchor
-       ``_forward_pass`` uses for this case. Unlike ``_forward_pass``, this does not
-       additionally fold in predecessor/``planned_start`` constraints: those can vary
-       per Monte Carlo run, which would break the constant pin this fast path relies
-       on, so a completed task chained after an unresolved predecessor stays out of
-       scope (an inherently anomalous data state — a completed task is not expected
-       to depend on incomplete work).
+    The transcription it replaces reproduced only the *pinned* branches faithfully.
+    For the third branch — ``percent_complete >= 100`` with no actuals at all — it
+    returned the bare project-start anchor and dropped both the ``planned_start``
+    (SNET) floor and every predecessor constraint that ``_forward_pass`` folds in,
+    so a completed-by-percent task with an SNET pin simulated *earlier* than its CPM
+    position and the percentiles under-reported risk.
+
+    Both dropped constraints are resolved here, once, in scalar ``date`` space — which
+    is what keeps the constant-pin property the Monte Carlo fast path relies on. The
+    SNET floor is a fixed input date. The predecessor constraints are read off the
+    deterministic (mean-duration) positions rather than each run's sampled ones: a
+    completed task chained after incomplete work is an inherently anomalous data state,
+    and pinning it at its CPM position is both run-invariant and exactly what
+    ``schedule()`` reports for it.
+
+    Scalar ``date`` space also preserves the *non-working* dates the working-day offset
+    index cannot represent — a weekend ``actual_finish`` stays verbatim.
+
+    Args:
+        project: The project being simulated (supplies the start date, project
+            calendar, and data date).
+        task_map: Every task by id. Not mutated — the pass runs over shallow copies.
+        topo_order: Any valid topological order of ``g``.
+        g: The dependency graph.
+        task_calendars: Per-task calendar overrides, or ``None`` for one calendar.
+
+    Returns:
+        ``{task_id: (early_start, early_finish)}`` for the completed tasks only.
+        Empty when the project carries no completed task, in which case the
+        deterministic pass is skipped entirely.
     """
-    full_days = t.duration.days
-    if t.actual_finish is not None:
-        # A full duration back, NOT one day back: the previous offset-space pin used
-        # ``ef_off - 1`` regardless of duration, so an n-day completed task with no
-        # recorded start had its start pinned n-1 working days late and mis-anchored
-        # every SS/SF successor (#2460). The API deliberately leaves ``actual_start``
-        # null on a straight-to-COMPLETE transition, so this is the common shape.
-        start = (
-            t.actual_start
-            if t.actual_start is not None
-            else _start_from_finish(t.actual_finish, full_days, calendar)
-        )
-        return start, t.actual_finish
-    if t.actual_start is not None:
-        return t.actual_start, _finish_from_start(t.actual_start, full_days, calendar)
-    base = _next_working_day(project_start, calendar)
-    return base, _finish_from_start(base, full_days, calendar)
+    completed_ids = [tid for tid, t in task_map.items() if _is_complete(t)]
+    if not completed_ids:
+        return {}
+
+    # _forward_pass assigns early_start/early_finish in place and monte_carlo()'s
+    # task_map holds the *caller's* Task objects, so run it over shallow copies —
+    # the same isolation schedule() applies, and safe for the same reason (every
+    # Task field is an immutable scalar).
+    scratch = {tid: copy.copy(t) for tid, t in task_map.items()}
+    _forward_pass(
+        scratch,
+        topo_order,
+        g,
+        project.start_date,
+        project.calendar,
+        project.status_date,
+        task_calendars,
+    )
+
+    dates: dict[str, tuple[date, date]] = {}
+    for tid in completed_ids:
+        t = scratch[tid]
+        # The forward pass sets both on every task it visits.
+        assert t.early_start is not None and t.early_finish is not None
+        dates[tid] = (t.early_start, t.early_finish)
+    return dates
 
 
 def _index_offset(d: date, offset_of: dict[date, int], wd_index: list[date]) -> float:
@@ -2936,6 +2968,9 @@ def _mc_es_floors(
 def _mc_progress_state(
     project: Project,
     task_map: dict[str, Task],
+    topo_order: list[str],
+    g: nx.DiGraph[str],
+    task_calendars: dict[str, Calendar] | None,
     cal_of: dict[str, Calendar],
     cal_key_of: dict[str, int],
     offset_of_by_cal: dict[int, dict[date, int]],
@@ -2970,17 +3005,13 @@ def _mc_progress_state(
         project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal
     )
 
-    # The verbatim dates schedule() gives each completed task, resolved on the task's
-    # OWN calendar (the same one _forward_pass lays its duration back on). Everything
+    # The verbatim dates schedule() gives each completed task — read off an actual
+    # deterministic forward pass rather than transcribed from it, so the two engines
+    # cannot disagree on the completed-task arithmetic (#2460/#2461/#2572). Everything
     # downstream that must agree with schedule() — the successor constraints, the
     # terminal finish floor — is derived from THESE, in scalar date space, rather
-    # than re-derived in offset space where a non-working date cannot be represented
-    # (#2460/#2461).
-    completed_dates: dict[str, tuple[date, date]] = {
-        t.id: _completed_dates(t, cal_of[t.id], project.start_date)
-        for t in task_map.values()
-        if _is_complete(t)
-    }
+    # than re-derived in offset space where a non-working date cannot be represented.
+    completed_dates = _completed_dates(project, task_map, topo_order, g, task_calendars)
 
     completed_offsets: dict[str, tuple[float, float]] = {
         tid: _completed_offsets(
@@ -3413,7 +3444,17 @@ def monte_carlo(
         completed_offsets,
         completed_dates,
         elapsed_days,
-    ) = _mc_progress_state(project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal)
+    ) = _mc_progress_state(
+        project,
+        task_map,
+        topo_order,
+        g,
+        task_calendars,
+        cal_of,
+        cal_key_of,
+        offset_of_by_cal,
+        wd_index_by_cal,
+    )
 
     # A completed task's dates are run-invariant, so both the constraints it imposes
     # on live successors and its own contribution to the project finish are resolved
