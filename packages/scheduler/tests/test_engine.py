@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from datetime import date, timedelta
 
 import pytest
@@ -1745,6 +1746,147 @@ class TestCompletedFullDuration:
         assert t.early_start == date(2026, 3, 10)
         assert t.early_finish == date(2026, 3, 12)
         assert t.total_float == timedelta(0)
+
+
+class TestCompletedNoActualsHonorsNetworkConstraints:
+    """A task complete by ``percent_complete`` alone is the one completed branch
+    ``schedule()`` runs through network logic instead of pinning: it takes a
+    full-duration planning position at the project start, then floors that at its
+    ``planned_start`` (SNET) and at every predecessor constraint. Monte Carlo used
+    to pin it at the bare project-start anchor and drop both, so the percentiles
+    could land *earlier* than the deterministic finish — a risk feature
+    under-reporting risk (#2572).
+
+    The shape is reachable from any import path that carries ``percent_complete``
+    without actuals (MS Project / CSV / Jira), from seed data, and from direct use
+    of the PyPI package, where the caller builds ``Task`` objects itself.
+    """
+
+    def test_monte_carlo_is_never_earlier_than_cpm_with_an_snet_pin(self) -> None:
+        """The worked example from #2572, asserted as the invariant rather than a
+        fixed date: a 10-day task complete by percent alone, pinned by an SNET two
+        weeks after the project start. schedule() floors it at the SNET; Monte
+        Carlo must never report a percentile earlier than the CPM finish."""
+        p = make_project(
+            [
+                task(
+                    "A",
+                    "A",
+                    10,
+                    percent_complete=100.0,
+                    planned_start=date(2026, 3, 16),
+                )
+            ],
+            start=date(2026, 3, 2),  # Monday
+        )
+        cpm = schedule(p).project_finish
+        mc = monte_carlo(p, runs=100, seed=7)
+
+        assert mc.p50 >= cpm
+        assert mc.p80 >= cpm
+        assert mc.p95 >= cpm
+        # Deterministic input, so the band collapses onto the CPM finish exactly.
+        assert mc.p50 == mc.p80 == mc.p95 == cpm
+
+    def test_monte_carlo_honors_a_predecessor_of_a_completed_task(self) -> None:
+        """A completed-by-percent task chained after an *incomplete* predecessor:
+        schedule() pushes it out to the predecessor's finish, and Monte Carlo must
+        carry the same constraint into its constant pin."""
+        p = make_project(
+            tasks=[
+                task("A", "A", 8),  # live, not started
+                task("B", "B", 3, percent_complete=100.0),  # complete, no actuals
+            ],
+            dependencies=[Dependency("A", "B")],
+            start=date(2026, 3, 2),
+        )
+        by_id = {t.id: t for t in schedule(p).tasks}
+        # B is pushed past A rather than sitting at the project start.
+        assert by_id["B"].early_start == date(2026, 3, 12)
+        assert by_id["B"].early_finish == date(2026, 3, 16)
+
+        cpm = schedule(p).project_finish
+        mc = monte_carlo(p, runs=100, seed=7)
+        assert mc.p50 == mc.p80 == mc.p95 == cpm
+
+    def test_completed_by_percent_still_pins_across_runs(self) -> None:
+        """The corrected pin must stay *constant* across runs — folding the SNET
+        and predecessor constraints in must not reintroduce per-run sampling for a
+        completed task. A pessimistic estimate on the completed task therefore
+        widens nothing: the whole distribution is one date."""
+        p = make_project(
+            [
+                task(
+                    "A",
+                    "A",
+                    10,
+                    percent_complete=100.0,
+                    planned_start=date(2026, 3, 16),
+                    optimistic_duration=timedelta(days=5),
+                    most_likely_duration=timedelta(days=10),
+                    pessimistic_duration=timedelta(days=40),
+                )
+            ],
+            start=date(2026, 3, 2),
+        )
+        cpm = schedule(p).project_finish
+        mc = monte_carlo(p, runs=200, seed=11)
+        assert set(mc.distribution) == {cpm}
+
+    @pytest.mark.parametrize("dep_type", list(DependencyType))
+    def test_every_dep_type_into_a_completed_by_percent_successor(
+        self, dep_type: DependencyType
+    ) -> None:
+        """FS/SS/FF/SF all bound a completed-by-percent successor in schedule();
+        Monte Carlo must agree on each."""
+        p = make_project(
+            tasks=[
+                task("A", "A", 6),
+                task("B", "B", 4, percent_complete=100.0),
+            ],
+            dependencies=[Dependency("A", "B", dep_type, timedelta(days=2))],
+            start=date(2026, 3, 2),
+        )
+        assert monte_carlo(p, runs=64, seed=5).p95 == schedule(p).project_finish
+
+    @pytest.mark.parametrize("seed", range(12))
+    def test_deterministic_projects_simulate_to_the_cpm_finish(self, seed: int) -> None:
+        """Property: for any deterministic project (no three-point estimates, so
+        zero duration variance) every percentile equals the deterministic finish.
+        Fuzzed over completed-by-percent tasks, SNET pins, and arbitrary links."""
+        rng = random.Random(seed)
+        n = rng.randint(2, 6)
+        tasks: list[Task] = []
+        for i in range(n):
+            t = task(f"T{i}", f"T{i}", rng.randint(0, 6))
+            if rng.random() < 0.4:
+                t.percent_complete = 100.0  # complete, both actuals left null
+            if rng.random() < 0.4:
+                t.planned_start = date(2026, 3, 2) + timedelta(days=rng.randint(0, 20))
+            tasks.append(t)
+
+        deps: list[Dependency] = []
+        seen: set[tuple[int, int]] = set()
+        for _ in range(rng.randint(1, n)):
+            i, j = rng.randrange(n), rng.randrange(n)
+            if i >= j or (i, j) in seen:
+                continue
+            seen.add((i, j))
+            deps.append(
+                Dependency(
+                    f"T{i}",
+                    f"T{j}",
+                    rng.choice(list(DependencyType)),
+                    timedelta(days=rng.randint(-2, 4)),
+                )
+            )
+
+        p = make_project(tasks, deps, start=date(2026, 3, 2))
+        cpm = schedule(p).project_finish
+        mc = monte_carlo(p, runs=48, seed=3)
+        assert mc.p50 == mc.p80 == mc.p95 == cpm, (
+            f"seed={seed}: CPM {cpm} vs MC {mc.p50}/{mc.p80}/{mc.p95}"
+        )
 
 
 class TestCompletedNotCritical:
