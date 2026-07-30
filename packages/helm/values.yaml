@@ -77,6 +77,19 @@ web:
       enabled: true
       rate: 5r/m
       burst: 2
+  # nginx `client_max_body_size` for the web tier (#2604).
+  #
+  # In the DEFAULT topology this is inert: the Ingress routes /api and /ws
+  # straight to the API Service, so uploads never traverse this nginx and
+  # `ingress.annotations` proxy-body-size is the binding constraint. It matters
+  # when an operator routes everything through the web tier instead (a single
+  # `service: web` path, or a LoadBalancer in front of the web Service) — a
+  # topology that previously had no knob at all and inherited nginx's 1m default.
+  #
+  # Set >= the largest application upload cap, same rule as the ingress
+  # annotation. The demo overlay deliberately ignores this and pins 1M: a
+  # read-only demo has no legitimate large upload.
+  maxBodySize: 50M
 
 # Chart-managed Ingress + edge TLS (#1714). Off by default: the ingress class,
 # hostnames, and certificate source are cluster-specific, so a default-on ingress
@@ -90,7 +103,25 @@ ingress:
   className: ""
   # Controller / cert-manager annotations. Example for cert-manager:
   #   cert-manager.io/cluster-issuer: letsencrypt-prod
-  annotations: {}
+  #
+  # proxy-body-size (#2604): the transport limit must be >= the largest
+  # application upload cap, or the import fails at the edge with a bare 413 and
+  # the app never sees the request. 50m matches MSPROJECT_MAX_UPLOAD_MB, the
+  # largest of the four caps (MS Project 50 / Jira 25 / CSV 10 / seed 5). Without
+  # it, ingress-nginx applies its own 1m default and **every import above 1 MB
+  # fails on a default install** — which is how this shipped before 0.4.
+  #
+  # The app cap, not this one, is what should reject an oversized file: it
+  # returns a validation error naming the limit, where the edge returns an
+  # unexplained 413. Raise this to stay ahead of the app; do not use it as the
+  # enforcement point.
+  #
+  # This annotation is ingress-nginx-specific. On Traefik use a
+  # `buffering` middleware (`maxRequestBodyBytes`); on HAProxy set
+  # `haproxy.org/client-body-buffer-size`. Helm deep-merges this map, so adding
+  # your own keys keeps this one unless you override it by name.
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
   # One or more virtual hosts. Each path routes to either the web SPA or the API,
   # selected by its `service:` key (`web` or `api`, default `api`). The default
   # below sends /api and /ws to the Django API Service and everything else (/) to

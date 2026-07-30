@@ -1220,6 +1220,25 @@ helm:template:
     - |
       grep -A14 -F 'location /admin/' /tmp/rendered.yaml | grep -q 'limit_req zone=admin_login' \
         || { echo "PROD REGRESSION: /admin/ login is no longer rate-limited (#2569)"; exit 1; }
+    # Transport limits must clear the application upload caps (#2604). Before 0.4
+    # the ingress shipped `annotations: {}` and the production nginx branch
+    # declared no client_max_body_size at all, so both inherited a 1m default
+    # against app caps of 10-50 MB: every import above 1 MB failed at the edge
+    # with a bare 413 and the app never saw the request. Assert both, because a
+    # values-file tidy-up is exactly how the empty map came back.
+    - |
+      grep -q 'client_max_body_size 50M;' /tmp/rendered.yaml \
+        || { echo "PROD REGRESSION: web nginx no longer clears the 50 MB app upload cap (#2604)"; exit 1; }
+    - |
+      helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
+        | grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 50m' \
+        || { echo "PROD REGRESSION: ingress no longer raises proxy-body-size — a default install 413s every import >1 MB (#2604)"; exit 1; }
+    # The demo keeps its own 1M ceiling: it is read-only and imports nothing. If
+    # web.maxBodySize ever leaks into the demo branch, the demo has silently
+    # gained a 50 MB upload surface.
+    - |
+      grep -q 'client_max_body_size 1M;' /tmp/rendered-demo.yaml \
+        || { echo "DEMO REGRESSION: demo no longer pins its 1M upload ceiling (#2604)"; exit 1; }
     # And the inverse: none of this may leak into a normal deploy. Scoped to the
     # Job kind, not a bare grep: the datastore NetworkPolicy allow-lists name
     # `demo-seed` as a client selector unconditionally (#2560), and a selector

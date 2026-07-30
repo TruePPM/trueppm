@@ -66,7 +66,9 @@ data:
         add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
 
-        # Read-only demo: no large upload is ever legitimate.
+        # Read-only demo: no large upload is ever legitimate. Deliberately
+        # ignores web.maxBodySize — the production branch raises that ceiling to
+        # clear the import caps (#2604), and the demo has nothing to import.
         client_max_body_size 1M;
 
         # Belt-and-braces alongside X-Robots-Tag. Exact match outranks the SPA
@@ -151,6 +153,14 @@ data:
         # redirect is built from $server_port, leaks the internal container port
         # and downgrades the scheme behind a TLS-terminating ingress.
         absolute_redirect off;
+
+        # Transport upload ceiling (#2604). nginx defaults to 1m, which is under
+        # every application cap (MS Project 50 / Jira 25 / CSV 10 MB) — so an
+        # operator routing uploads through this tier got a bare 413 at the proxy
+        # and the app never saw the request. Keep this >= the largest cap: the
+        # application's own limit should be what rejects an oversized file,
+        # because it names the limit in the error.
+        client_max_body_size {{ .Values.web.maxBodySize | default "50M" }};
 
         # Proxy API calls to the Django backend (release-scoped Service DNS).
         location /api/ {
