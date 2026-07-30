@@ -6953,7 +6953,11 @@ class ProgramImportJob(models.Model):
         db_table = "programs_import_job"
         ordering = ["-created_at"]
         indexes = [
-            # Drives the drain scan for pending rows awaiting (re-)dispatch.
+            # Drives ``enqueue_program_import``'s in-flight de-dupe — the
+            # ``(program, status in [pending, running])`` probe under the
+            # ``-created_at`` default ordering. The drain's own scan has no
+            # ``program`` predicate, so it uses the standalone ``status`` index
+            # instead; ``pending`` is highly selective in steady state.
             models.Index(
                 fields=["program", "status", "created_at"],
                 name="progimport_prog_status_idx",

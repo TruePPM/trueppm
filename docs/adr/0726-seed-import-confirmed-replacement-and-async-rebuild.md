@@ -233,8 +233,12 @@ counts are in the tens. `Project` / `Program` / memberships are O(#projects), an
 At the bundled fixtures' measured ~525 bytes/node, `SEED_MAX_UPLOAD_MB = 5` already
 bounds a multipart upload to roughly 10,000 nodes (~44,000 adversarially minified), so
 the node ceiling was never the binding constraint there. It *is* reachable through the
-uncapped JSON-body branch, which this ADR closes by checking `CONTENT_LENGTH` against
-`SEED_MAX_UPLOAD_MB` on **both** branches before any parse.
+uncapped JSON-body branch, which this ADR closes on **both** branches. The gate is on the
+raw bytes (`request.body`) and the function branches on `request.content_type`, *not* on
+`request.FILES` — reading `FILES` on a DRF `Request` calls `_load_data_and_files()`,
+which runs the parser, so a size check placed after it could only change the response and
+never the memory cost. A declared `Content-Length` is not sufficient either: it can be
+absent entirely under chunked transfer-encoding.
 
 Once async, the binding resource is worker memory rather than request time: `self.tasks`
 holds a live model instance per task for the whole import, so 100k nodes is on the order
@@ -266,8 +270,27 @@ has no `(project, wbs_path)` unique constraint to stop it.
 `run_program_export`'s claim is reused: `select_for_update` the job row, no-op unless
 `pending`/`running`, flip to `running` before any write. A caller with a `pending` or
 `running` job for the same program gets that job back rather than queuing a second one,
-mirroring `enqueue_program_export`'s in-flight de-dupe — which is also what keeps an
-async import from converting a bounded CPU cost into an unbounded queue backlog.
+mirroring `enqueue_program_export`'s in-flight de-dupe.
+
+That de-dupe is a re-delivery guard, **not** a resource bound, and the distinction is
+worth stating because it is easy to misread: the import path creates a fresh program in
+the same request, so a brand-new program can never already have a job and the filter
+never matches there. What actually bounds queue growth is `SeedImportThrottle`
+(6/min/account), which now throttles *job creation* — the correct unit once the request
+itself is cheap. A per-user concurrent-job cap is filed as follow-up #2615.
+
+Payload retention is made unconditional rather than assumed. `expires_at` is stamped at
+job **creation**, not only on the terminal transition: the purge filters
+`expires_at__lt=now`, which excludes NULL, and the drain only re-dispatches rows still
+`pending` with an empty task id — so a job that reached `running` and then lost its
+worker would be reaped by neither, and its stored payload retained forever.
+
+The refusals are decided *before* the payload is stored. The `409` is the designed
+default path for a re-import (POST → confirm → POST), so storing first would leak one
+full payload copy per ordinary re-import into object storage, referenced by no job row
+and therefore invisible to the row-driven purge. That pre-check is unlocked and advisory;
+the authoritative resolve still runs under `select_for_update` inside the transaction and
+re-applies the same guards, discarding the stored payload on the rare race.
 
 ## Alternatives Considered
 

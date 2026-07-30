@@ -13,6 +13,7 @@ delete, role checks) is in :mod:`trueppm_api.apps.access.services` and
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import asdict, dataclass
 from typing import Any, cast
 
@@ -245,6 +246,25 @@ class _SeedPayloadProblem:
 _SEED_CONTROL_FIELDS = frozenset({"replace", "expected_program_id"})
 
 
+def _discard_seed_payload(path: str) -> None:
+    """Drop a stored seed payload whose import never produced a job row.
+
+    The retention purge reclaims payloads by walking ``ProgramImportJob`` rows,
+    so an object written for a request that then refused is invisible to it
+    permanently. Best-effort: a storage error here must not turn a clean 409 into
+    a 500, and a leaked object is recoverable by an operator while a wrong status
+    code is not.
+    """
+    import logging
+
+    from django.core.files.storage import default_storage
+
+    try:
+        default_storage.delete(path)
+    except Exception:  # pragma: no cover - storage drift; the 409 still stands
+        logging.getLogger(__name__).warning("could not discard orphaned seed payload %s", path)
+
+
 def _read_seed_payload(request: Request) -> tuple[Any, _SeedPayloadProblem | None]:
     """Read a seed document from a multipart ``file`` or a raw JSON body.
 
@@ -260,21 +280,37 @@ def _read_seed_payload(request: Request) -> tuple[Any, _SeedPayloadProblem | Non
         is_document_level=False,
     )
 
-    upload = request.FILES.get("file")
-    if upload is None:
-        # The raw-JSON-body branch was capped only by DATA_UPLOAD_MAX_MEMORY_SIZE
-        # (100 MB), which made SEED_MAX_UPLOAD_MB trivially bypassable — post the
-        # same document as a body instead of a file and the 5 MB ceiling did not
-        # apply. Check the declared length *before* touching ``request.data``,
-        # because reading it is what performs the parse we are trying to bound.
-        declared = request.META.get("CONTENT_LENGTH") or 0
+    # Branch on the declared content type, NOT on ``request.FILES``. Reading
+    # ``FILES`` on a DRF Request calls ``_load_data_and_files()``, which runs the
+    # parser — so probing it first would perform the very JSON parse this
+    # function exists to bound, and any size check after it could only change the
+    # response, never the memory cost.
+    if not (request.content_type or "").startswith("multipart/"):
+        # Raw-JSON-body branch. It used to be capped only by
+        # DATA_UPLOAD_MAX_MEMORY_SIZE (100 MB), so posting the same document as a
+        # body instead of a file bypassed SEED_MAX_UPLOAD_MB entirely. Gate on
+        # the raw bytes: ``request.body`` is the undecoded payload, so this
+        # measures what actually arrived rather than a declared Content-Length
+        # that may be absent under chunked transfer-encoding.
         try:
-            declared = int(declared)
-        except (TypeError, ValueError):
-            declared = 0
-        if declared > max_bytes:
-            return None, too_large
-        data = request.data
+            raw = request.body
+        except Exception:
+            # Stream already consumed (a multipart request with no ``file``
+            # part reaches here). Fall back to the parsed form data, which is
+            # bounded by DATA_UPLOAD_MAX_MEMORY_SIZE and carries no document.
+            raw = None
+        if raw is not None:
+            if len(raw) > max_bytes:
+                return None, too_large
+            try:
+                data = json.loads(raw.decode("utf-8")) if raw else request.data
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                return None, _SeedPayloadProblem(
+                    detail=f"Request body is not valid JSON: {exc}",
+                    is_document_level=True,
+                )
+        else:
+            data = request.data
         if hasattr(data, "items"):
             # On the multipart path the control fields sit beside ``file`` and
             # never touch the document. On the JSON-body path there is only one
@@ -284,6 +320,10 @@ def _read_seed_payload(request: Request) -> tuple[Any, _SeedPayloadProblem | Non
             # request shapes present the same document to the validator.
             return {k: v for k, v in data.items() if k not in _SEED_CONTROL_FIELDS}, None
         return data, None
+
+    upload = request.FILES.get("file")
+    if upload is None:
+        return request.data, None
 
     # Bound the in-memory parse: an authenticated user must not be able
     # to exhaust memory with a giant upload (mirrors the MSP importer).
@@ -696,6 +736,86 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         body["replaces"] = preview_replacement(request.user, payload)
         return Response(body, status=status.HTTP_200_OK)
 
+    def _seed_replace_refusal(
+        self,
+        user: Any,
+        slug: str,
+        *,
+        replace: bool,
+        expected_program_id: Any,
+        candidates: list[Any] | None = None,
+    ) -> Response | None:
+        """The three ``409`` refusals, or ``None`` when the import may proceed.
+
+        Shared between the unlocked pre-check (which decides the refusal before a
+        payload is stored, so the ordinary confirm round-trip leaks nothing) and
+        the locked re-check inside the transaction (which is authoritative and
+        catches a collision created in between). Both must answer identically, so
+        they call one function rather than two copies of the same three branches.
+        """
+        from trueppm_api.apps.projects.seed.replace import (
+            describe_conflict,
+            resolve_replace_candidates,
+        )
+
+        if candidates is None:
+            candidates = resolve_replace_candidates(user, slug)
+        if not candidates:
+            return None
+
+        if expected_program_id is not None:
+            named = [p for p in candidates if str(p.pk) == str(expected_program_id)]
+            if not named:
+                return Response(
+                    {
+                        "detail": (
+                            "expected_program_id does not name the program that would "
+                            "be replaced — it may have changed since you checked."
+                        ),
+                        "code": "seed_replace_mismatch",
+                        "conflict": describe_conflict(candidates[0]).as_dict(),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            candidates = named
+
+        if not replace:
+            return Response(
+                {
+                    "detail": (
+                        f'A program you own already uses the code "{slug}". Re-importing '
+                        "moves its projects to Trash, where each can be restored "
+                        "individually as a standalone project; the program itself is not "
+                        "recoverable. Confirm to continue."
+                    ),
+                    "code": "seed_replace_required",
+                    "conflict": describe_conflict(candidates[0]).as_dict(),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if len(candidates) > 1:
+            # ``Program.code`` is non-unique by design, so one caller can
+            # legitimately own two programs sharing this slug. A single
+            # ``conflict`` object can name only one of them, so a bare
+            # ``replace=true`` would destroy a program the caller was never shown,
+            # never counted, and that no audit field records — exactly what
+            # ``expected_program_id`` exists to prevent.
+            return Response(
+                {
+                    "detail": (
+                        f"You own {len(candidates)} live programs using the code "
+                        f'"{slug}". Re-send with expected_program_id to name the one '
+                        "to replace."
+                    ),
+                    "code": "seed_replace_ambiguous",
+                    "conflicts": [describe_conflict(p).as_dict() for p in candidates],
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return None
+
     @extend_schema(
         summary="Queue a JSON seed bundle as a new program",
         request=SeedImportRequestSerializer,
@@ -716,8 +836,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 response=SEED_REPLACE_CONFLICT_RESPONSE,
                 description=(
                     "A live program you own already holds this seed's slug. Re-send "
-                    "with `replace=true` (or `expected_program_id`) to confirm; the "
-                    "existing program's projects move to Trash."
+                    "with `replace=true` to confirm; optionally pin the target with "
+                    "`expected_program_id`. The replaced program's projects move to "
+                    "Trash individually as standalone projects; the program shell "
+                    "itself is not recoverable. `code` is `seed_replace_required`, "
+                    "`seed_replace_mismatch`, or `seed_replace_ambiguous`."
                 ),
             ),
         },
@@ -775,6 +898,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         from trueppm_api.apps.projects.services import (
             enqueue_program_import,
             soft_delete_program_subtree,
+            store_seed_payload,
         )
 
         payload, problem = _read_seed_payload(request)
@@ -798,40 +922,76 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         seed_program = payload["program"]
         slug = seed_program["slug"]
 
+        # Decide the refusals BEFORE storing anything. The 409 is the *designed*
+        # default path for a re-import — POST, confirm, POST — so storing the
+        # payload first would leak one full copy of every ordinary re-import into
+        # object storage, referenced by no job row and therefore invisible to the
+        # row-driven retention purge forever.
+        #
+        # This first pass is deliberately unlocked: it only decides whether to
+        # answer 409. The authoritative resolve happens under
+        # ``select_for_update`` inside the transaction below, and re-runs the same
+        # guards, so a collision that appears in between is still caught.
+        refusal = self._seed_replace_refusal(
+            request.user, slug, replace=replace, expected_program_id=expected_program_id
+        )
+        if refusal is not None:
+            return refusal
+
+        # Past the refusals: persist the payload OUTSIDE the transaction. On an
+        # S3-backed deployment this is a multi-megabyte network PUT, and the block
+        # below holds SELECT FOR UPDATE on the replaced program and every one of
+        # its projects until commit.
+        upload = request.FILES.get("file")
+        payload_path = store_seed_payload(_json.dumps(payload).encode("utf-8"))
+
         with transaction.atomic():
             candidates = resolve_replace_candidates(request.user, slug, lock=True)
             replaced_program_id = None
             if candidates:
-                conflict = describe_conflict(candidates[0])
-                if not replace:
-                    return Response(
-                        {
-                            "detail": (
-                                f'A program you own already uses the code "{slug}". '
-                                "Re-importing moves its projects to Trash. Confirm to continue."
-                            ),
-                            "code": "seed_replace_required",
-                            "conflict": conflict.as_dict(),
-                        },
+                # ``expected_program_id`` narrows the teardown to the one program
+                # the caller named. Without this the set the caller consented to
+                # and the set actually destroyed could differ — see the ambiguity
+                # refusal below.
+                if expected_program_id is not None:
+                    named = [p for p in candidates if str(p.pk) == str(expected_program_id)]
+                    if not named:
+                        _discard_seed_payload(payload_path)
+                        return Response(
+                            {
+                                "detail": (
+                                    "expected_program_id does not name the program that "
+                                    "would be replaced — it may have changed since you "
+                                    "checked."
+                                ),
+                                "code": "seed_replace_mismatch",
+                                "conflict": describe_conflict(candidates[0]).as_dict(),
+                            },
+                            status=status.HTTP_409_CONFLICT,
+                        )
+                    candidates = named
+
+                if not replace or len(candidates) > 1:
+                    # A collision that only appeared between the unlocked
+                    # pre-check and this locked resolve. Rare (it needs a
+                    # concurrent create), so the orphaned payload is cleaned up
+                    # here rather than restructured around.
+                    _discard_seed_payload(payload_path)
+                    return self._seed_replace_refusal(
+                        request.user,
+                        slug,
+                        replace=replace,
+                        expected_program_id=expected_program_id,
+                        candidates=candidates,
+                    ) or Response(
+                        {"detail": "The replace could not be confirmed. Try again."},
                         status=status.HTTP_409_CONFLICT,
                     )
-                if expected_program_id is not None and str(expected_program_id) != str(
-                    candidates[0].pk
-                ):
-                    return Response(
-                        {
-                            "detail": (
-                                "expected_program_id does not name the program that would "
-                                "be replaced — it may have changed since you checked."
-                            ),
-                            "code": "seed_replace_mismatch",
-                            "conflict": conflict.as_dict(),
-                        },
-                        status=status.HTTP_409_CONFLICT,
-                    )
+
                 replaced_program_id = candidates[0].pk
-                for prog in candidates:
-                    soft_delete_program_subtree(prog, actor=request.user, reason="seed_replace")
+                soft_delete_program_subtree(
+                    candidates[0], actor=request.user, reason="seed_replace"
+                )
 
             program = create_program(
                 name=seed_program["name"],
@@ -842,11 +1002,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             program.code = slug
             program.save(update_fields=["code"])
 
-            upload = request.FILES.get("file")
             job = enqueue_program_import(
                 program=program,
                 requested_by=request.user,
-                payload_bytes=_json.dumps(payload).encode("utf-8"),
+                payload_path=payload_path,
                 filename=getattr(upload, "name", "") or "",
                 replace=replace,
                 replaced_program_id=replaced_program_id,
@@ -883,9 +1042,14 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         (object-level IDOR guard).
         """
         program = self.get_object()
-        if job_id is None:  # unreachable via the URL regex; narrows the type
-            raise Http404("Import job not found")
-        job = ProgramImportJob.objects.filter(program=program, pk=job_id).first()
+        # The URL regex admits 36-char strings that are not UUIDs (36 dashes,
+        # say). Passing one to a UUID pk filter raises Django's ValidationError,
+        # which DRF does not map — a 500 where the caller should simply get a 404.
+        try:
+            parsed_job_id = uuid.UUID(str(job_id))
+        except (TypeError, ValueError) as exc:
+            raise Http404("Import job not found") from exc
+        job = ProgramImportJob.objects.filter(program=program, pk=parsed_job_id).first()
         if job is None:
             raise Http404("Import job not found")
         return Response(ProgramImportJobSerializer(job).data, status=status.HTTP_200_OK)

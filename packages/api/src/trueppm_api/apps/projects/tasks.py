@@ -1048,10 +1048,14 @@ def run_program_import(self: object, job_id: str) -> None:
     try:
         with default_storage.open(job.file_path, "rb") as handle:
             payload = json.loads(handle.read().decode("utf-8"))
-    except Exception as exc:
-        # The payload is gone or unreadable: deterministic, so never retry.
+    except Exception:
+        # The payload is gone or unreadable: deterministic, so never retry. The
+        # reason is logged, not persisted — a storage exception renders the
+        # absolute key path, and ``error_detail`` is served verbatim to any
+        # program Admin while ``file_path`` is deliberately withheld from the
+        # same serializer.
         logger.exception("run_program_import: payload unreadable for job %s", job_id)
-        _fail_import_job(job_id, f"The uploaded seed could not be read back: {exc}")
+        _fail_import_job(job_id, "The uploaded seed could no longer be read. Re-import the file.")
         return
 
     try:

@@ -78,6 +78,17 @@ from trueppm_api.apps.sync.sequence import allocate_for_projects, coalesce_sync_
 
 logger = logging.getLogger(__name__)
 
+#: Rows per INSERT statement in the batched passes (ADR-0726 §8).
+#:
+#: Django's PostgreSQL backend does not override ``bulk_batch_size``, so an
+#: unbounded ``bulk_create`` emits *one* statement for the whole project. With
+#: psycopg's default client-side binding that is a single mogrified string
+#: holding every literal — ``Task`` has ~57 columns, and the history table adds
+#: five more — so an adversarially dense document would build a multi-hundred-MB
+#: statement (twice, row + history) before Postgres ever sees it. Worker memory
+#: is the binding resource once the import is async, so the batch is capped.
+_BULK_BATCH_SIZE = 500
+
 
 class SeedReplaceRequired(Exception):
     """A live program the caller owns holds this seed's slug and ``replace`` was not given.
@@ -100,6 +111,16 @@ class SeedReplaceMismatch(Exception):
     run and then acted on it is protected from the collision set having changed
     underneath it in the meantime — the alternative, a bare ``replace=True``,
     would silently follow the change and destroy a different program.
+    """
+
+
+class SeedReplaceAmbiguous(Exception):
+    """Several live programs the caller owns hold this slug, and none was named.
+
+    ``Program.code`` carries no uniqueness constraint, so owning two programs
+    under one code is legitimate. A confirmation can only describe one of them,
+    so replacing the whole set would destroy a program the caller was never
+    shown a count for — ``expected_program_id`` is the way out.
     """
 
 
@@ -395,7 +416,7 @@ class _SeedImporter:
         if not rows:
             return
         if project_ids is None:
-            model.objects.bulk_create(rows)
+            model.objects.bulk_create(rows, batch_size=_BULK_BATCH_SIZE)
             return
 
         seq = allocate_for_projects(list(project_ids))
@@ -404,11 +425,13 @@ class _SeedImporter:
             row.sync_seq = seq
 
         if not hasattr(model, "history"):
-            model.objects.bulk_create(rows)
+            model.objects.bulk_create(rows, batch_size=_BULK_BATCH_SIZE)
             return
 
         if history_dates is None:
-            bulk_create_with_history(rows, model, default_user=self.owner)
+            bulk_create_with_history(
+                rows, model, batch_size=_BULK_BATCH_SIZE, default_user=self.owner
+            )
             return
 
         by_date: dict[date, list[Any]] = defaultdict(list)
@@ -416,7 +439,11 @@ class _SeedImporter:
             by_date[when].append(row)
         for when, group in by_date.items():
             bulk_create_with_history(
-                group, model, default_user=self.owner, default_date=self._creation_dt(when)
+                group,
+                model,
+                batch_size=_BULK_BATCH_SIZE,
+                default_user=self.owner,
+                default_date=self._creation_dt(when),
             )
 
     def _save_new(self, instance: Any, created_on: date) -> Any:
@@ -508,21 +535,55 @@ class _SeedImporter:
         if not candidates:
             return
 
+        # Narrow to the named program before consenting, so the set the caller
+        # authorized and the set actually torn down are the same one.
+        # ``Program.code`` is non-unique by design, so a caller can legitimately
+        # own two programs under this slug; ``SeedReplaceRequired`` can only
+        # carry one, and destroying the rest would be exactly the unconsented
+        # deletion this whole gate exists to stop.
+        if self.expected_program_id is not None:
+            named = [p for p in candidates if str(p.pk) == str(self.expected_program_id)]
+            if not named:
+                raise SeedReplaceMismatch(
+                    "expected_program_id does not name the program that would be replaced."
+                )
+            candidates = named
+
         if not self.replace:
             raise SeedReplaceRequired(candidates[0])
-        if self.expected_program_id is not None and str(candidates[0].pk) != str(
-            self.expected_program_id
-        ):
-            raise SeedReplaceMismatch(
-                "expected_program_id does not name the program that would be replaced."
+        if len(candidates) > 1:
+            raise SeedReplaceAmbiguous(
+                f"You own {len(candidates)} live programs using the code "
+                f"{slug!r}. Pass expected_program_id to name the one to replace."
             )
 
-        self.replaced_program_id = str(candidates[0].pk)
-        for prog in candidates:
-            if self.is_sample:
-                hard_delete_program(prog.pk)
-            else:
-                soft_delete_program_subtree(prog, actor=self.owner, reason="seed_replace")
+        target = candidates[0]
+        self.replaced_program_id = str(target.pk)
+        if self.is_sample:
+            # Capture the doomed project ids before the rows go: a hard delete
+            # leaves no tombstone, so the broadcast is the only signal a client
+            # holding these rows will ever get (the #2581 defect, on the branch
+            # ADR-0726 deliberately left hard). Mirrors ``remove_sample``.
+            doomed = [
+                str(pk)
+                for pk in Project.objects.filter(program=target).values_list("pk", flat=True)
+            ]
+            program_id = str(target.pk)
+            hard_delete_program(target.pk)
+            for project_id in doomed:
+                transaction.on_commit(
+                    partial(
+                        broadcast_board_event,
+                        project_id,
+                        "project_hard_deleted",
+                        {"id": project_id},
+                    )
+                )
+            transaction.on_commit(
+                partial(broadcast_board_event, program_id, "program_deleted", {"id": program_id})
+            )
+        else:
+            soft_delete_program_subtree(target, actor=self.owner, reason="seed_replace")
 
     # --- top-level entities ------------------------------------------------
 
@@ -1106,7 +1167,7 @@ class _SeedImporter:
                         story_points=bt.get("story_points", task.story_points),
                     )
                 )
-            BaselineTask.objects.bulk_create(rows)
+            BaselineTask.objects.bulk_create(rows, batch_size=_BULK_BATCH_SIZE)
             if rows and has_dates:
                 Baseline.objects.filter(pk=baseline.pk).update(has_cpm_dates=True)
 

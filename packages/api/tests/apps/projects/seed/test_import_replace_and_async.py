@@ -414,7 +414,7 @@ def test_a_duplicate_delivery_does_not_double_the_subtree(seed_owner: Any) -> No
 
 def test_a_second_import_for_the_same_program_reuses_the_in_flight_job(seed_owner: Any) -> None:
     """Per-program de-dupe: the async path must not become a queue amplifier."""
-    from trueppm_api.apps.projects.services import enqueue_program_import
+    from trueppm_api.apps.projects.services import enqueue_program_import, store_seed_payload
 
     resp = _client(seed_owner).post(IMPORT_URL, data=_seed(), format="json")
     program = Program.objects.get(pk=resp.data["program_id"])
@@ -422,7 +422,7 @@ def test_a_second_import_for_the_same_program_reuses_the_in_flight_job(seed_owne
     again = enqueue_program_import(
         program=program,
         requested_by=seed_owner,
-        payload_bytes=json.dumps(_seed()).encode("utf-8"),
+        payload_path=store_seed_payload(json.dumps(_seed()).encode("utf-8")),
     )
     assert str(again.pk) == resp.data["import_request_id"]
     assert ProgramImportJob.objects.filter(program=program).count() == 1
@@ -611,3 +611,126 @@ def test_multipart_import_carries_the_filename_onto_the_job(seed_owner: Any) -> 
     assert resp.status_code == 202, resp.content
     job = ProgramImportJob.objects.get(pk=resp.data["import_request_id"])
     assert job.filename == "atlas.json"
+
+
+# --- guarded set == destroyed set (multi-candidate) --------------------------
+
+
+def test_two_owned_programs_sharing_a_code_are_never_replaced_blind(seed_owner: Any) -> None:
+    """``Program.code`` is non-unique, so a caller can own two under one slug.
+
+    A single ``conflict`` object can describe only one of them, so a bare
+    ``replace=true`` must not tear down the other — the caller would never have
+    been shown its counts, and no audit field would record it.
+    """
+    first = import_seed(_seed(), owner=seed_owner, create_users=False)
+    second = import_seed(_seed(), owner=seed_owner, create_users=False, replace=True)
+    # Resurrect the first so both are live under code "atlas".
+    Program.objects.filter(pk=first.pk).update(is_deleted=False)
+    assert Program.objects.filter(code="atlas", is_deleted=False).count() == 2
+
+    resp = _client(seed_owner).post(IMPORT_URL, data={**_seed(), "replace": True}, format="json")
+
+    assert resp.status_code == 409, resp.content
+    assert resp.data["code"] == "seed_replace_ambiguous"
+    named = {c["program_id"] for c in resp.data["conflicts"]}
+    assert named == {str(first.pk), str(second.pk)}
+    # Both survive untouched.
+    assert Program.objects.filter(code="atlas", is_deleted=False).count() == 2
+
+
+def test_expected_program_id_narrows_the_teardown_to_the_named_program(seed_owner: Any) -> None:
+    """Naming one of two resolves the ambiguity — and spares the other."""
+    first = import_seed(_seed(), owner=seed_owner, create_users=False)
+    second = import_seed(_seed(), owner=seed_owner, create_users=False, replace=True)
+    Program.objects.filter(pk=first.pk).update(is_deleted=False)
+
+    resp = _import_via_api(
+        _client(seed_owner), _seed(), replace=True, expected_program_id=str(first.pk)
+    )
+    assert resp.status_code == 202, resp.content
+    assert resp.data["replaced_program_id"] == str(first.pk)
+
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert first.is_deleted is True
+    assert second.is_deleted is False, "the unnamed program must survive"
+
+
+# --- the sample hard-delete path must still tell connected clients ----------
+
+
+def test_sample_replace_broadcasts_the_hard_delete(
+    seed_owner: Any, django_capture_on_commit_callbacks: Any
+) -> None:
+    """A hard delete leaves no tombstone, so the broadcast is the only signal."""
+    first = import_seed(_seed(), owner=seed_owner, create_users=True, is_sample=True)
+    doomed = {str(pk) for pk in Project.objects.filter(program=first).values_list("pk", flat=True)}
+
+    # Patched where the importer *binds* it: ``seed/importer.py`` imports the
+    # name at module load, so patching the source module would leave the bound
+    # reference untouched and the callback would hit a real broker.
+    with (
+        patch("trueppm_api.apps.projects.seed.importer.broadcast_board_event") as broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        import_seed(_seed(), owner=seed_owner, create_users=True, is_sample=True, replace=True)
+
+    hard = {
+        call.args[0] for call in broadcast.call_args_list if call.args[1] == "project_hard_deleted"
+    }
+    assert doomed <= hard, "one hard-delete event per purged sample project"
+    assert any(call.args[1] == "program_deleted" for call in broadcast.call_args_list)
+
+
+# --- the job poll's role floor ----------------------------------------------
+
+
+def test_job_poll_requires_admin_not_merely_membership(seed_owner: Any, stranger: Any) -> None:
+    """Pins the ``IsProgramAdmin`` floor.
+
+    Without this, a regression of that permission line to the ``IsAuthenticated``
+    fallthrough would leave every other test in this file green while any Viewer
+    on the program could read the job's cross-project entity counts.
+    """
+    resp = _client(seed_owner).post(IMPORT_URL, data=_seed(), format="json")
+    program_id = resp.data["program_id"]
+    job_id = resp.data["import_request_id"]
+    _run_job(job_id)
+    url = f"/api/v1/programs/{program_id}/import/jobs/{job_id}/"
+
+    membership, _ = ProgramMembership.objects.update_or_create(
+        program_id=program_id, user=stranger, defaults={"role": Role.MEMBER}
+    )
+    assert _client(stranger).get(url).status_code == 403
+
+    membership.role = Role.ADMIN
+    membership.save(update_fields=["role"])
+    assert _client(stranger).get(url).status_code == 200
+
+
+def test_batched_inserts_are_sliced_not_one_giant_statement(seed_owner: Any) -> None:
+    """A single unbounded INSERT is a worker OOM, not a slow query (ADR-0726 §8)."""
+    from trueppm_api.apps.projects.seed.importer import _BULK_BATCH_SIZE
+
+    assert _BULK_BATCH_SIZE > 0
+    seed = json.loads(json.dumps(_seed()))
+    project = seed["projects"][0]
+    base = project["tasks"][0]
+    for i in range(_BULK_BATCH_SIZE + 5):
+        clone = json.loads(json.dumps(base))
+        clone["wbs_path"] = f"7.{i + 1}"
+        clone["name"] = f"Sliced task {i}"
+        clone.pop("sprint", None)
+        clone.pop("estimate", None)
+        project["tasks"].append(clone)
+    seed["program"]["slug"] = "sliced"
+
+    program = import_seed(seed, owner=seed_owner, create_users=False)
+
+    landed = Task.objects.filter(project__program=program, name__startswith="Sliced task")
+    assert landed.count() == _BULK_BATCH_SIZE + 5
+    # Crossing a batch boundary must not break the invariants the slices carry.
+    assert landed.filter(sync_seq=0).count() == 0
+    assert landed.filter(short_id="").count() == 0
+    assert len({t.short_id for t in landed}) == landed.count()

@@ -6213,11 +6213,32 @@ def soft_delete_program_subtree(
     return deleted_ids
 
 
+def store_seed_payload(payload_bytes: bytes) -> str:
+    """Write an uploaded seed to ``default_storage`` and return its key.
+
+    Deliberately callable *outside* a transaction. The write can be a
+    multi-megabyte PUT to object storage, and the import request holds
+    ``SELECT FOR UPDATE`` on the replaced program and each of its projects for
+    the whole atomic block — doing the upload inside it would hold those locks
+    across a network round-trip and put the same latency on the ``202``.
+
+    The key is namespaced by a fresh UUID so two imports of the same filename
+    never collide and the purge can delete one without touching the other. No
+    part of the key comes from user input.
+    """
+    from django.core.files.base import ContentFile
+    from django.core.files.storage import default_storage
+
+    return str(
+        default_storage.save(f"seed-imports/{uuid.uuid4()}.json", ContentFile(payload_bytes))
+    )
+
+
 def enqueue_program_import(
     *,
     program: Any,
     requested_by: Any,
-    payload_bytes: bytes,
+    payload_path: str,
     filename: str = "",
     replace: bool = False,
     replaced_program_id: Any = None,
@@ -6237,13 +6258,16 @@ def enqueue_program_import(
     the existing job is also what keeps an async import from converting a bounded
     per-request cost into an unbounded queue backlog.
 
-    The payload is written to ``default_storage`` rather than onto the row: a 5 MB
-    seed in a ``JSONField`` would bloat a table the drain scans every 30 seconds,
-    and the purge already knows how to delete a storage file.
+    ``payload_path`` is a ``default_storage`` key written by
+    :func:`store_seed_payload` *before* the caller opened its transaction. The
+    payload lives in storage rather than on the row because a 5 MB seed in a
+    ``JSONField`` would bloat a table the drain scans every 30 seconds — and it
+    is written outside the transaction because on an S3-backed deployment that
+    write is a multi-megabyte network PUT, which must not happen while the
+    replaced program and every one of its projects are under ``SELECT FOR
+    UPDATE``. A rollback after the write leaves an orphan object, which the
+    retention purge already sweeps.
     """
-    from django.core.files.base import ContentFile
-    from django.core.files.storage import default_storage
-
     from trueppm_api.apps.projects.models import ImportJobStatus, ProgramImportJob
 
     existing = ProgramImportJob.objects.filter(
@@ -6253,18 +6277,24 @@ def enqueue_program_import(
     if existing is not None:
         return existing
 
-    job_id = uuid.uuid4()
-    # Namespaced by job id, so two imports of the same filename never collide and
-    # the purge can delete one without touching the other.
-    path = default_storage.save(f"seed-imports/{job_id}.json", ContentFile(payload_bytes))
+    # ``expires_at`` is set at CREATION, not only on the terminal transition.
+    # The purge filters ``expires_at__lt=now``, which excludes NULL — so a job
+    # that reaches ``running`` and then loses its worker (the OOM shape a large
+    # import has) would be reaped by neither the purge nor the drain, which only
+    # re-dispatches rows still ``pending`` with no task id. Its payload would be
+    # retained forever. Setting a floor here makes retention unconditional; the
+    # terminal transitions refresh it from the same window.
+    from trueppm_api.apps.projects.tasks import _import_retention_days
+
+    retention = _import_retention_days()
     job = ProgramImportJob.objects.create(
-        id=job_id,
         program=program,
         requested_by=requested_by,
-        file_path=path,
+        file_path=payload_path,
         filename=filename[:255],
         replace=replace,
         replaced_program_id=replaced_program_id,
+        expires_at=(timezone.now() + timedelta(days=retention) if retention is not None else None),
     )
 
     # Capture the plain id, not the ORM instance — a deferred callback must not
