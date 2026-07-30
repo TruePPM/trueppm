@@ -49,6 +49,11 @@ function WithheldNote({ count }: { count: number }) {
   );
 }
 
+/** "1 project" / "3 projects" — a count and its noun, agreeing. */
+function countOf(n: number, noun: string): string {
+  return `${n} ${n === 1 ? noun : `${noun}s`}`;
+}
+
 export function ProgramLabelsPage() {
   const { programId } = useParams<{ programId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -113,15 +118,13 @@ export function ProgramLabelsPage() {
           <option value="">Choose a label…</option>
           {(catalog.data?.results ?? []).map((entry) => (
             <option key={entry.name} value={entry.name}>
-              {entry.name} — in {entry.project_count}{' '}
-              {entry.project_count === 1 ? 'project' : 'projects'}
+              {entry.name} — in {countOf(entry.project_count, 'project')}
             </option>
           ))}
         </select>
         {selected && tasks.data ? (
           <span className="text-sm text-neutral-text-secondary" aria-live="polite">
-            {tasks.data.count} {tasks.data.count === 1 ? 'task' : 'tasks'} · {groups.length}{' '}
-            {groups.length === 1 ? 'project' : 'projects'}
+            {countOf(tasks.data.count, 'task')} · {countOf(groups.length, 'project')}
           </span>
         ) : null}
       </div>

@@ -7,6 +7,8 @@ import {
   addedTimeSpokenHeadline,
   formatEndpoint,
   type AddedTimePresentation,
+  type AddedTimeNotRun,
+  type AddedTimeUnmeasurable,
 } from './addedTime';
 
 /**
@@ -133,47 +135,68 @@ function ProportionTrack({ pct, label }: { pct: number; label: string }) {
   );
 }
 
+/**
+ * The two "no number yet" states.
+ *
+ * Structurally distinct from a measured zero, not just worded differently: no
+ * digit, no track, no as-of stamp, and a dashed frame. That is what stops "we
+ * have not measured this" from reading as "we measured no risk". Each state
+ * offers the one action that would produce a number — estimates or a forecast
+ * run.
+ */
+function AddedTimeEmptyCard({
+  presentation,
+  base,
+}: {
+  // Narrowed to the two empty variants: the caller has already tested `state`,
+  // and only these carry `reason`.
+  presentation: AddedTimeUnmeasurable | AddedTimeNotRun;
+  base: string | undefined;
+}) {
+  const isUnmeasurable = presentation.state === 'unmeasurable';
+  const action = isUnmeasurable
+    ? { label: 'Add estimates', to: base ? `${base}/grid` : undefined }
+    : { label: 'Run forecast', to: base ? `${base}/schedule` : undefined };
+
+  return (
+    <section
+      aria-label={ADDED_TIME_LABEL_QUALIFIED}
+      className={`${CARD_BASE} border-dashed border-neutral-border`}
+    >
+      <CardTitle />
+      <p className="text-sm font-semibold text-neutral-text-primary">
+        {isUnmeasurable ? "Can't be measured yet" : 'Not run yet'}
+      </p>
+      {/* The reason sentence is the content here — there is no number to explain,
+          and it never truncates at any width (#2483 D3). */}
+      <p className="text-xs text-neutral-text-secondary">{presentation.reason}</p>
+      {presentation.endpoints && (
+        <EndpointRows
+          cpmFinish={presentation.endpoints.cpmFinish}
+          p80={presentation.endpoints.p80}
+          p80Label="P80 commit"
+        />
+      )}
+      {action.to && (
+        <Link
+          to={action.to}
+          className="mt-auto inline-flex items-center min-h-[44px] text-xs font-medium text-brand-primary
+            underline-offset-2 hover:underline rounded-control
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          {action.label} →
+        </Link>
+      )}
+    </section>
+  );
+}
+
 export function AddedTimeCard({ presentation, base }: AddedTimeCardProps) {
   // Empty states are structurally distinct from a measured zero, not just worded
   // differently: no digit, no track, no as-of stamp, and a dashed frame. That is what
   // stops "we have not measured this" from reading as "we measured no risk".
   if (presentation.state === 'notRun' || presentation.state === 'unmeasurable') {
-    const isUnmeasurable = presentation.state === 'unmeasurable';
-    const action = isUnmeasurable
-      ? { label: 'Add estimates', to: base ? `${base}/grid` : undefined }
-      : { label: 'Run forecast', to: base ? `${base}/schedule` : undefined };
-
-    return (
-      <section
-        aria-label={ADDED_TIME_LABEL_QUALIFIED}
-        className={`${CARD_BASE} border-dashed border-neutral-border`}
-      >
-        <CardTitle />
-        <p className="text-sm font-semibold text-neutral-text-primary">
-          {isUnmeasurable ? "Can't be measured yet" : 'Not run yet'}
-        </p>
-        {/* The reason sentence is the content here — there is no number to explain,
-            and it never truncates at any width (#2483 D3). */}
-        <p className="text-xs text-neutral-text-secondary">{presentation.reason}</p>
-        {presentation.endpoints && (
-          <EndpointRows
-            cpmFinish={presentation.endpoints.cpmFinish}
-            p80={presentation.endpoints.p80}
-            p80Label="P80 commit"
-          />
-        )}
-        {action.to && (
-          <Link
-            to={action.to}
-            className="mt-auto inline-flex items-center min-h-[44px] text-xs font-medium text-brand-primary
-              underline-offset-2 hover:underline rounded-control
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          >
-            {action.label} →
-          </Link>
-        )}
-      </section>
-    );
+    return <AddedTimeEmptyCard presentation={presentation} base={base} />;
   }
 
   const { headline, endpoints, ratioPct, ratioLabel, asOf, band, state } = presentation;

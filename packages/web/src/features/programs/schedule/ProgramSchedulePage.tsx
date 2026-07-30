@@ -170,81 +170,15 @@ export function ProgramSchedulePage() {
   if (isLoading) {
     body = <LoadingSkeleton />;
   } else if (error) {
-    const kind = classifyProgramScheduleError(error);
-    if (kind === 'not-computed') {
-      body = <NoScheduleEmptyState programId={programId} navigate={navigate} />;
-    } else if (kind === 'too-large') {
-      body = (
-        <EmptyState
-          className="h-full"
-          icon={WarningIcon}
-          title="This program is too large to chart live"
-          description="This program has more tasks than the live program schedule can compute on demand. Open an individual project's schedule to view its critical path."
-          action={
-            <Button
-              variant="secondary"
-              onClick={() => void navigate(`/programs/${programId}/projects`)}
-            >
-              Go to Projects
-            </Button>
-          }
-        />
-      );
-    } else if (kind === 'invalid-input') {
-      // One member project has a task the CPM engine can't compute (#1981).
-      // Name the offending project and route the user there — a retry can never
-      // succeed until the underlying data is fixed, so no Retry button here.
-      const invalid = getProgramScheduleInvalidInput(error);
-      const projectName = invalid?.project?.name;
-      body = (
-        <EmptyState
-          className="h-full"
-          icon={WarningIcon}
-          title="A project's task data can't be scheduled"
-          description={
-            projectName
-              ? `A task in “${projectName}” has an invalid estimate or dependency, so the program schedule can't be computed. Open that project's schedule to fix it.`
-              : "A task in one of this program's projects has an invalid estimate or dependency, so the program schedule can't be computed. Open the project's schedule to fix it."
-          }
-          action={
-            invalid?.project?.id ? (
-              <Button
-                variant="secondary"
-                onClick={() => void navigate(`/projects/${invalid.project!.id}/schedule`)}
-              >
-                Open {projectName ?? 'project'} schedule
-              </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                onClick={() => void navigate(`/programs/${programId}/projects`)}
-              >
-                Go to Projects
-              </Button>
-            )
-          }
-        />
-      );
-    } else if (kind === 'forbidden') {
-      body = (
-        <div className="flex h-full items-center justify-center px-6">
-          <p role="alert" className="text-sm text-semantic-critical">
-            You don&apos;t have access to this program&apos;s schedule.
-          </p>
-        </div>
-      );
-    } else {
-      body = (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-6">
-          <p role="alert" className="text-sm text-semantic-critical">
-            Couldn&apos;t load the program schedule.
-          </p>
-          <Button variant="secondary" onClick={() => void refetch()} disabled={isRefetching}>
-            {isRefetching ? 'Retrying…' : 'Retry'}
-          </Button>
-        </div>
-      );
-    }
+    body = (
+      <ProgramScheduleErrorBody
+        error={error}
+        programId={programId}
+        navigate={navigate}
+        refetch={refetch}
+        isRefetching={isRefetching}
+      />
+    );
   } else if (!data || data.tasks.length === 0) {
     body = <NoScheduleEmptyState programId={programId} navigate={navigate} />;
   } else {
@@ -340,6 +274,124 @@ function LoadingSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * The failure states of the program schedule, each routed to the one action
+ * that could resolve it.
+ *
+ * Only the unclassified fallback offers Retry. The others cannot succeed on a
+ * retry — a too-large program, invalid task data, and a permission denial all
+ * need something changed first — so offering one would just teach the user that
+ * the button does nothing.
+ */
+function ProgramScheduleErrorBody({
+  error,
+  programId,
+  navigate,
+  refetch,
+  isRefetching,
+}: {
+  error: unknown;
+  programId: string | undefined;
+  navigate: ReturnType<typeof useNavigate>;
+  refetch: () => unknown;
+  isRefetching: boolean;
+}) {
+  const kind = classifyProgramScheduleError(error);
+
+  if (kind === 'not-computed') {
+    return <NoScheduleEmptyState programId={programId} navigate={navigate} />;
+  }
+
+  if (kind === 'too-large') {
+    return (
+      <EmptyState
+        className="h-full"
+        icon={WarningIcon}
+        title="This program is too large to chart live"
+        description="This program has more tasks than the live program schedule can compute on demand. Open an individual project's schedule to view its critical path."
+        action={
+          <Button variant="secondary" onClick={() => void navigate(`/programs/${programId}/projects`)}>
+            Go to Projects
+          </Button>
+        }
+      />
+    );
+  }
+
+  if (kind === 'invalid-input') {
+    return <InvalidInputEmptyState error={error} programId={programId} navigate={navigate} />;
+  }
+
+  if (kind === 'forbidden') {
+    return (
+      <div className="flex h-full items-center justify-center px-6">
+        <p role="alert" className="text-sm text-semantic-critical">
+          You don&apos;t have access to this program&apos;s schedule.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6">
+      <p role="alert" className="text-sm text-semantic-critical">
+        Couldn&apos;t load the program schedule.
+      </p>
+      <Button variant="secondary" onClick={() => void refetch()} disabled={isRefetching}>
+        {isRefetching ? 'Retrying…' : 'Retry'}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * One member project has a task the CPM engine can't compute (#1981).
+ *
+ * Names the offending project and routes the user there — a retry can never
+ * succeed until the underlying data is fixed, so there is no Retry button. When
+ * the server did not identify the project, fall back to the projects list.
+ */
+function InvalidInputEmptyState({
+  error,
+  programId,
+  navigate,
+}: {
+  error: unknown;
+  programId: string | undefined;
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  const invalid = getProgramScheduleInvalidInput(error);
+  const projectName = invalid?.project?.name;
+  const invalidProjectId = invalid?.project?.id;
+
+  return (
+    <EmptyState
+      className="h-full"
+      icon={WarningIcon}
+      title="A project's task data can't be scheduled"
+      description={
+        projectName
+          ? `A task in “${projectName}” has an invalid estimate or dependency, so the program schedule can't be computed. Open that project's schedule to fix it.`
+          : "A task in one of this program's projects has an invalid estimate or dependency, so the program schedule can't be computed. Open the project's schedule to fix it."
+      }
+      action={
+        invalidProjectId ? (
+          <Button
+            variant="secondary"
+            onClick={() => void navigate(`/projects/${invalidProjectId}/schedule`)}
+          >
+            Open {projectName ?? 'project'} schedule
+          </Button>
+        ) : (
+          <Button variant="secondary" onClick={() => void navigate(`/programs/${programId}/projects`)}>
+            Go to Projects
+          </Button>
+        )
+      }
+    />
   );
 }
 

@@ -414,6 +414,41 @@ const SES_REGIONS = [
 ];
 
 /** Compose / parse the region-specific SES relay host from a region code. */
+/**
+ * Hint under the credential field, or undefined when the label says enough.
+ *
+ * A stored secret is never echoed, so the hint's first job is telling the admin
+ * that leaving the field blank keeps it — otherwise a save that only changed
+ * the port would look like it wiped the password.
+ */
+function credentialHintFor(id: ProviderId, passwordIsSet: boolean): string | undefined {
+  if (passwordIsSet) return 'Leave blank to keep the current secret.';
+  if (id === 'gmail' || id === 'fastmail') {
+    return 'Use an App Password, not your account password.';
+  }
+  return undefined;
+}
+
+/**
+ * Placeholder for the credential field. Names the *kind* of secret each
+ * provider wants — an API key and an app password are not interchangeable, and
+ * pasting the wrong one fails at send time rather than at save.
+ */
+function credentialPlaceholderFor(id: ProviderId, passwordIsSet: boolean): string {
+  if (passwordIsSet) return '•••• (set — leave blank to keep)';
+  switch (id) {
+    case 'gmail':
+      return 'Paste the 16-character App Password';
+    case 'sendgrid':
+    case 'ses':
+      return 'Paste API key';
+    case 'fastmail':
+      return 'Paste your app password';
+    default:
+      return 'Enter password';
+  }
+}
+
 function sesHostFor(region: string): string {
   return `email-smtp.${region}.amazonaws.com`;
 }
@@ -710,22 +745,8 @@ export function WorkspaceEmailPage() {
   const isPreset = provider.showAdvanced; // gmail / m365 / fastmail
   const credentialLabel = provider.credentialLabel;
 
-  let credentialHint: string | undefined;
-  if (data.password_is_set) {
-    credentialHint = 'Leave blank to keep the current secret.';
-  } else if (providerId === 'gmail' || providerId === 'fastmail') {
-    credentialHint = 'Use an App Password, not your account password.';
-  }
-
-  const credentialPlaceholder = data.password_is_set
-    ? '•••• (set — leave blank to keep)'
-    : providerId === 'gmail'
-      ? 'Paste the 16-character App Password'
-      : isSendgrid || isSes
-        ? 'Paste API key'
-        : providerId === 'fastmail'
-          ? 'Paste your app password'
-          : 'Enter password';
+  const credentialHint = credentialHintFor(providerId, data.password_is_set);
+  const credentialPlaceholder = credentialPlaceholderFor(providerId, data.password_is_set);
 
   // Host / Port / Security block, shared by the Custom path (shown flat) and the
   // preset path (wrapped in the Advanced reveal). Username renders separately so

@@ -111,6 +111,93 @@ function StatusPill({ tone, children }: { tone: 'warn' | 'crit' | 'neutral'; chi
   );
 }
 
+/**
+ * One pill, worst-first: a missing file outranks missing counts, which outranks
+ * the routine schema tag. Only the most important thing about the fixture is
+ * shown, so the heading never grows a row of competing badges.
+ */
+function SampleStatusPill({
+  available,
+  hasCounts,
+  schemaVersion,
+}: {
+  available: boolean;
+  hasCounts: boolean;
+  schemaVersion?: string | null;
+}) {
+  if (!available) return <StatusPill tone="crit">file missing</StatusPill>;
+  if (!hasCounts) return <StatusPill tone="warn">counts unavailable</StatusPill>;
+  if (schemaVersion) return <StatusPill tone="neutral">{`schema ${schemaVersion}`}</StatusPill>;
+  return null;
+}
+
+/**
+ * Scale, size, and hash for one fixture.
+ *
+ * Order is fixed — counts, then size, then hash — because scale is the question
+ * most readers arrive with. A file that is registered but absent shows only its
+ * filename: every other number would be a guess.
+ */
+function SampleMetrics({
+  sample,
+  hasCounts,
+  size,
+}: {
+  sample: SampleInfo;
+  hasCounts: boolean;
+  size: string | null;
+}) {
+  if (!sample.available) return <span>{sample.filename}</span>;
+  return (
+    <>
+      {hasCounts ? (
+        <>
+          <span>
+            <b className="font-medium text-neutral-text-secondary">{sample.project_count}</b>{' '}
+            {sample.project_count === 1 ? 'project' : 'projects'}
+          </span>
+          <span>
+            <b className="font-medium text-neutral-text-secondary">{sample.task_count}</b> tasks
+          </span>
+          <span>
+            <b className="font-medium text-neutral-text-secondary">{sample.resource_count}</b>{' '}
+            resources
+          </span>
+        </>
+      ) : (
+        <span title="This instance couldn't summarize the file. You can still download it.">—</span>
+      )}
+      {size ? <span>{size}</span> : null}
+      {sample.sha256 ? <HashChip sha256={sample.sha256} /> : null}
+    </>
+  );
+}
+
+/**
+ * `href` is the server-supplied `download_url` — never assembled from the key
+ * client-side, so the server stays the only thing that decides what a key maps
+ * to.
+ *
+ * A missing fixture renders a disabled `<button>`, not an `<a>` without an
+ * href: an anchor with no href has no link role, is not focusable, and is
+ * announced as plain text, so a screen-reader user would never learn the action
+ * exists — let alone that it is unavailable.
+ */
+function DownloadAction({ sample }: { sample: SampleInfo }) {
+  if (!sample.available) {
+    return (
+      <button type="button" disabled className={ACTION_CLASS}>
+        Download
+      </button>
+    );
+  }
+  return (
+    <a href={sample.download_url} download={sample.filename} className={ACTION_CLASS}>
+      Download
+    </a>
+  );
+}
+
 export function SampleRow({
   sample,
   onLoad,
@@ -133,13 +220,11 @@ export function SampleRow({
             <h3 className="text-[13.5px] font-semibold text-neutral-text-primary">
               {sample.title}
             </h3>
-            {!sample.available ? (
-              <StatusPill tone="crit">file missing</StatusPill>
-            ) : !hasCounts ? (
-              <StatusPill tone="warn">counts unavailable</StatusPill>
-            ) : sample.schema_version ? (
-              <StatusPill tone="neutral">{`schema ${sample.schema_version}`}</StatusPill>
-            ) : null}
+            <SampleStatusPill
+              available={sample.available}
+              hasCounts={hasCounts}
+              schemaVersion={sample.schema_version}
+            />
           </div>
 
           <p className="max-w-[62ch] text-[12.5px] text-neutral-text-secondary">
@@ -151,38 +236,7 @@ export function SampleRow({
           {/* Order is fixed: counts, then size, then hash. Scale first, because
               that is the question most readers arrive with. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 font-mono text-[11px] text-neutral-text-secondary">
-            {!sample.available ? (
-              <span>{sample.filename}</span>
-            ) : (
-              <>
-                {hasCounts ? (
-                  <>
-                    <span>
-                      <b className="font-medium text-neutral-text-secondary">
-                        {sample.project_count}
-                      </b>{' '}
-                      {sample.project_count === 1 ? 'project' : 'projects'}
-                    </span>
-                    <span>
-                      <b className="font-medium text-neutral-text-secondary">{sample.task_count}</b>{' '}
-                      tasks
-                    </span>
-                    <span>
-                      <b className="font-medium text-neutral-text-secondary">
-                        {sample.resource_count}
-                      </b>{' '}
-                      resources
-                    </span>
-                  </>
-                ) : (
-                  <span title="This instance couldn't summarize the file. You can still download it.">
-                    —
-                  </span>
-                )}
-                {size ? <span>{size}</span> : null}
-                {sample.sha256 ? <HashChip sha256={sample.sha256} /> : null}
-              </>
-            )}
+            <SampleMetrics sample={sample} hasCounts={hasCounts} size={size} />
           </div>
         </div>
 
@@ -195,15 +249,7 @@ export function SampleRow({
               an href: an anchor with no href has no link role, is not focusable
               and is announced as plain text, so a screen-reader user would never
               learn the action exists — let alone that it is unavailable. */}
-          {sample.available ? (
-            <a href={sample.download_url} download={sample.filename} className={ACTION_CLASS}>
-              Download
-            </a>
-          ) : (
-            <button type="button" disabled className={ACTION_CLASS}>
-              Download
-            </button>
-          )}
+          <DownloadAction sample={sample} />
           <button
             type="button"
             onClick={onLoad}

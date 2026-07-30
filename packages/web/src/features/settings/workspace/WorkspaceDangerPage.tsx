@@ -27,6 +27,87 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 /** Workspace > Archive / Delete danger zone — transfer / export / delete (#641). */
+/**
+ * The export card's single action, which swaps once an archive exists.
+ *
+ * One control, not two side by side: "Export all data" and "Download archive"
+ * are the same slot at different stages, and showing both would invite a second
+ * export run over a ready archive.
+ */
+function ExportActionButton({
+  ready,
+  downloading,
+  exportBusy,
+  onDownload,
+  onStartExport,
+}: {
+  ready: boolean;
+  downloading: boolean;
+  exportBusy: boolean;
+  onDownload: () => void | Promise<void>;
+  onStartExport: () => void;
+}) {
+  if (ready) {
+    return (
+      <button
+        type="button"
+        onClick={() => void onDownload()}
+        disabled={downloading}
+        className="shrink-0 px-3 py-1.5 rounded-control border border-brand-primary text-[13px] font-medium text-brand-primary hover:bg-brand-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-60"
+      >
+        {downloading ? 'Downloading…' : 'Download archive'}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onStartExport}
+      disabled={exportBusy}
+      className="shrink-0 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary"
+    >
+      {exportBusy ? 'Building export…' : 'Export all data'}
+    </button>
+  );
+}
+
+/** Status line under the export controls. '' while no export has ever run. */
+function exportStatusMessage(exportStatus: string | undefined): string {
+  switch (exportStatus) {
+    case 'pending':
+    case 'running':
+      return 'Queued — this can take a while for a large workspace.';
+    case 'success':
+      return 'Ready to download.';
+    case 'failed':
+      return 'Last export failed — try again.';
+    default:
+      return '';
+  }
+}
+
+/**
+ * Transient confirmation for a danger-zone action.
+ *
+ * An error is announced assertively and role="alert" — on this page a failed
+ * action is something the user must not miss, unlike a success they asked for.
+ */
+function DangerToast({ toast }: { toast: InlineToast }) {
+  const isError = toast.variant === 'error';
+  return (
+    <div
+      role={isError ? 'alert' : 'status'}
+      aria-live={isError ? 'assertive' : 'polite'}
+      className={[
+        'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-card border border-neutral-border text-[13px] font-medium',
+        isError ? 'bg-semantic-critical text-white' : 'bg-neutral-text-primary text-white',
+      ].join(' ')}
+    >
+      {toast.message}
+    </div>
+  );
+}
+
 export function WorkspaceDangerPage() {
   const navigate = useNavigate();
   const clearTokens = useAuthStore((s) => s.clearTokens);
@@ -146,33 +227,15 @@ export function WorkspaceDangerPage() {
           </p>
           <LearnMoreLink href="administration/data-export" label="Learn more" />
           <div className="mt-3 flex items-center gap-3">
-            {exportStatus === 'success' && exportJob ? (
-              <button
-                type="button"
-                onClick={() => void onDownload()}
-                disabled={downloading}
-                className="shrink-0 px-3 py-1.5 rounded-control border border-brand-primary text-[13px] font-medium text-brand-primary hover:bg-brand-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-60"
-              >
-                {downloading ? 'Downloading…' : 'Download archive'}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onStartExport}
-                disabled={exportBusy}
-                className="shrink-0 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary"
-              >
-                {exportBusy ? 'Building export…' : 'Export all data'}
-              </button>
-            )}
+            <ExportActionButton
+              ready={exportStatus === 'success' && exportJob != null}
+              downloading={downloading}
+              exportBusy={exportBusy}
+              onDownload={onDownload}
+              onStartExport={onStartExport}
+            />
             <p className="text-[12px] text-neutral-text-secondary" role="status" aria-live="polite">
-              {exportStatus === 'pending' || exportStatus === 'running'
-                ? 'Queued — this can take a while for a large workspace.'
-                : exportStatus === 'success'
-                  ? 'Ready to download.'
-                  : exportStatus === 'failed'
-                    ? 'Last export failed — try again.'
-                    : ''}
+              {exportStatusMessage(exportStatus)}
             </p>
           </div>
         </div>
@@ -278,20 +341,7 @@ export function WorkspaceDangerPage() {
         </div>
       </div>
 
-      {toast && (
-        <div
-          role={toast.variant === 'error' ? 'alert' : 'status'}
-          aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
-          className={[
-            'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-card border border-neutral-border text-[13px] font-medium',
-            toast.variant === 'error'
-              ? 'bg-semantic-critical text-white'
-              : 'bg-neutral-text-primary text-white',
-          ].join(' ')}
-        >
-          {toast.message}
-        </div>
-      )}
+      {toast && <DangerToast toast={toast} />}
     </div>
   );
 }
