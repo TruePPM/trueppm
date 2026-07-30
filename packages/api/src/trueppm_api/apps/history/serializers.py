@@ -27,15 +27,19 @@ class FieldDiffSerializer(serializers.Serializer[Any]):
 
 
 class HistoryRecordSerializer(serializers.Serializer[Any]):
-    """Serialised form of a single django-simple-history HistoricalRecord.
+    """One change record: when it happened, what changed, and (for Admins) by whom.
 
-    ``history_user`` is exposed only to Owner/Admin callers (role >= Role.ADMIN).  The
-    view sets ``hide_user=True`` on the serializer context for lower-privilege
-    callers so this field returns null.
-
-    ``diff`` is computed by the view via ``prev_record`` comparison and injected
-    into context so the serializer doesn't need ORM access.
+    ``history_user`` is null for callers below Admin, so a client must treat it as
+    optional rather than assume the actor is always present.
     """
+
+    # This docstring is published as the ``HistoryRecord`` component description in
+    # docs/api/openapi.json, so it is integrator-facing copy — keep it about the
+    # contract, not the mechanism. The mechanism: the view sets ``hide_user=True``
+    # on the serializer context for callers below ``Role.ADMIN`` (redaction, not
+    # omission — the key is always present), and computes ``diff`` via a
+    # ``prev_record`` comparison injected through context so this serializer needs
+    # no ORM access.
 
     id = serializers.SerializerMethodField()
     history_date = serializers.DateTimeField()

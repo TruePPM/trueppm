@@ -4644,7 +4644,13 @@ class SprintDurationChangeEventSerializer(serializers.Serializer[Any]):
     # Non-null only when the policy actually mutated % (prorate); the client
     # renders the "% recalculated" line only then.
     percent_complete_after = serializers.FloatField(read_only=True, allow_null=True)
-    policy_applied = serializers.CharField(read_only=True)
+    # ChoiceField, not CharField: the sibling per-task component publishes
+    # PolicyAppliedEnum for the same underlying field, and an SDK that got a bare
+    # `string` from one endpoint and an enum from the other would have to hand-write
+    # the union back. Reuses the existing enum component rather than minting a second.
+    policy_applied = serializers.ChoiceField(
+        choices=DurationChangePercentPolicy.choices, read_only=True
+    )
     actor_name = serializers.CharField(read_only=True, allow_null=True)
     created_at = serializers.DateTimeField(read_only=True)
 

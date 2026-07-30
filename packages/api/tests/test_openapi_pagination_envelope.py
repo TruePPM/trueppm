@@ -44,6 +44,7 @@ import re
 from typing import Any
 
 from drf_spectacular.generators import SchemaGenerator
+from rest_framework.pagination import CursorPagination
 
 # The envelope component names drf-spectacular mints per paginated serializer.
 _ENVELOPE_NAME = re.compile(r"^Paginated\w*List$")
@@ -152,6 +153,39 @@ _LOCAL_PAGINATOR = re.compile(r"=\s*\w*Pagination\(\)")
 # means an envelope is what goes on the wire.
 _ENVELOPE_CALL = "get_paginated_response"
 
+# The paginator class name in ``paginator = WebhookDeliveryCursorPagination()``,
+# so the rule can resolve the class and ask what envelope it really emits.
+_LOCAL_PAGINATOR_NAME = re.compile(r"=\s*(\w*Pagination)\(\)")
+
+
+def _local_paginator_class(handler: Any, source: str) -> type | None:
+    """Resolve the paginator a handler instantiates inline, from its own module."""
+    match = _LOCAL_PAGINATOR_NAME.search(source)
+    if match is None:
+        return None
+    module = inspect.getmodule(handler)
+    candidate = getattr(module, match.group(1), None)
+    return candidate if isinstance(candidate, type) else None
+
+
+def declares_a_count_no_cursor_can_produce(
+    schema_node: dict[str, Any], components: dict[str, Any]
+) -> bool:
+    """Does this declaration REQUIRE a ``count`` field?
+
+    A cursor paginator deliberately never computes a total — that is what makes it
+    O(1) at any depth — so ``CursorPagination.get_paginated_response`` emits only
+    ``{next, previous, results}``. An envelope that lists ``count`` in ``required``
+    therefore cannot be satisfied, and a typed client that models ``count`` as
+    non-optional breaks on the first call.
+
+    ``count`` merely *present* in ``properties`` is not flagged: an optional field
+    an endpoint never sends is thin documentation, not a broken contract. Only the
+    ``required`` promise is a promise.
+    """
+    resolved = _resolve(schema_node, components)
+    return "count" in resolved.get("required", [])
+
 
 def _resolve(schema_node: dict[str, Any], components: dict[str, Any]) -> dict[str, Any]:
     """Follow ``$ref`` chains into ``components/schemas`` (bounded, so a cycle can't hang)."""
@@ -247,21 +281,37 @@ def test_every_paginating_handler_declares_its_envelope() -> None:
                 .get("application/json", {})
                 .get("schema", {})
             )
-            if can_describe_an_envelope(declared, components):
-                continue
-
             shown = (
                 declared.get("$ref", "").rsplit("/", 1)[-1] or declared.get("type") or "no schema"
             )
-            offenders.append(
-                f"{method.upper()} {path} -> {shown} "
-                f"({type(view).__name__}.{action or method.lower()} paginates)"
-            )
+            where = f"{type(view).__name__}.{action or method.lower()}"
+
+            if not can_describe_an_envelope(declared, components):
+                offenders.append(f"{method.upper()} {path} -> {shown} ({where} paginates)")
+                continue
+
+            # The declaration admits *an* envelope — but is it the right one? A
+            # handler that builds a cursor paginator inline is doubly invisible to
+            # auto-wrap: the heuristic both misses that it paginates AND, when the
+            # viewset separately declares a page-number pagination_class, wraps it
+            # in that paginator's envelope instead. That publishes a required
+            # ``count`` no cursor response can carry.
+            paginator_class = _local_paginator_class(handler, source)
+            if (
+                paginator_class is not None
+                and issubclass(paginator_class, CursorPagination)
+                and declares_a_count_no_cursor_can_produce(declared, components)
+            ):
+                offenders.append(
+                    f"{method.upper()} {path} -> {shown} "
+                    f"({where} paginates with {paginator_class.__name__}, "
+                    "which never emits the `count` this schema requires)"
+                )
 
     assert not offenders, (
-        "These handlers return a pagination envelope but their declared 200 cannot "
-        "describe one. Declare the envelope explicitly — an inline_serializer with "
-        "next/previous/results (plus count for page-number pagination) — so a "
+        "These handlers return a pagination envelope their declared 200 cannot "
+        "describe. Declare the envelope explicitly with an inline_serializer — "
+        "next/previous/results, plus count ONLY for page-number pagination — so a "
         "generated SDK is not handed a type the endpoint never returns:\n  "
         + "\n  ".join(sorted(offenders))
     )
@@ -303,3 +353,48 @@ def test_the_envelope_predicate_rejects_what_it_must() -> None:
     assert can_describe_an_envelope({"type": "object", "additionalProperties": {}}, components), (
         "OpenApiTypes.OBJECT is thin but not false — do not fail it here"
     )
+
+
+def test_the_cursor_count_predicate_rejects_what_it_must() -> None:
+    """A cursor endpoint may not REQUIRE a ``count`` it structurally cannot send.
+
+    The second half of the reverse rule, and the one that catches an envelope
+    which is present and plausible but belongs to the wrong paginator — the shape
+    ``GET /webhooks/{id}/deliveries/`` shipped, where a page-number
+    ``pagination_class`` on the viewset wrapped a cursor-paginated action.
+    """
+    components = {
+        "PaginatedWebhookDeliveryList": {
+            "type": "object",
+            "required": ["count", "results"],
+            "properties": {
+                "count": {"type": "integer"},
+                "next": {"type": "string"},
+                "previous": {"type": "string"},
+                "results": {"type": "array"},
+            },
+        },
+        "WebhookDeliveryCursorPage": {
+            "type": "object",
+            "required": ["next", "previous", "results"],
+            "properties": {
+                "next": {"type": "string"},
+                "previous": {"type": "string"},
+                "results": {"type": "array"},
+            },
+        },
+    }
+
+    assert declares_a_count_no_cursor_can_produce(
+        {"$ref": "#/components/schemas/PaginatedWebhookDeliveryList"}, components
+    ), "a page-number envelope on a cursor handler requires a count that never arrives"
+    assert not declares_a_count_no_cursor_can_produce(
+        {"$ref": "#/components/schemas/WebhookDeliveryCursorPage"}, components
+    ), "the cursor envelope is the fix, not a finding"
+    assert not declares_a_count_no_cursor_can_produce(
+        {
+            "type": "object",
+            "properties": {"count": {"type": "integer"}, "results": {"type": "array"}},
+        },
+        components,
+    ), "an OPTIONAL count is thin documentation, not a broken promise"

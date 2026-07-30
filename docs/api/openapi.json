@@ -12087,7 +12087,7 @@
         },
         "/api/v1/programs/{program_pk}/webhooks/{id}/deliveries/": {
             "get": {
-                "operationId": "v1_programs_webhooks_deliveries_list",
+                "operationId": "v1_programs_webhooks_deliveries_retrieve",
                 "description": "List deliveries for this webhook, newest first (cursor-paginated, #1317).\n\nA bare ``GET`` returns the most recent page; follow ``next`` to page\nback through history. Instantiates the cursor paginator directly rather\nthan going through ``self.paginator`` (the viewset default is page-number\nfor the webhook CRUD list — the delivery log wants a cursor).",
                 "summary": "List recent webhook deliveries",
                 "parameters": [
@@ -12100,39 +12100,12 @@
                         "required": true
                     },
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "program_pk",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -12151,7 +12124,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedWebhookDeliveryList"
+                                    "$ref": "#/components/schemas/WebhookDeliveryCursorPage"
                                 }
                             }
                         },
@@ -28174,7 +28147,7 @@
         },
         "/api/v1/projects/{project_pk}/webhooks/{id}/deliveries/": {
             "get": {
-                "operationId": "v1_projects_webhooks_deliveries_list",
+                "operationId": "v1_projects_webhooks_deliveries_retrieve",
                 "description": "List deliveries for this webhook, newest first (cursor-paginated, #1317).\n\nA bare ``GET`` returns the most recent page; follow ``next`` to page\nback through history. Instantiates the cursor paginator directly rather\nthan going through ``self.paginator`` (the viewset default is page-number\nfor the webhook CRUD list — the delivery log wants a cursor).",
                 "summary": "List recent webhook deliveries",
                 "parameters": [
@@ -28187,39 +28160,12 @@
                         "required": true
                     },
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "project_pk",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -28238,7 +28184,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedWebhookDeliveryList"
+                                    "$ref": "#/components/schemas/WebhookDeliveryCursorPage"
                                 }
                             }
                         },
@@ -43480,7 +43426,7 @@
             },
             "HistoryRecord": {
                 "type": "object",
-                "description": "Serialised form of a single django-simple-history HistoricalRecord.\n\n``history_user`` is exposed only to Owner/Admin callers (role >= Role.ADMIN).  The\nview sets ``hide_user=True`` on the serializer context for lower-privilege\ncallers so this field returns null.\n\n``diff`` is computed by the view via ``prev_record`` comparison and injected\ninto context so the serializer doesn't need ORM access.",
+                "description": "One change record: when it happened, what changed, and (for Admins) by whom.\n\n``history_user`` is null for callers below Admin, so a client must treat it as\noptional rather than assume the actor is always present.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -46264,37 +46210,6 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/VelocitySuggestion"
-                        }
-                    }
-                }
-            },
-            "PaginatedWebhookDeliveryList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/WebhookDelivery"
                         }
                     }
                 }
@@ -53515,7 +53430,11 @@
                         "nullable": true
                     },
                     "policy_applied": {
-                        "type": "string",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PolicyAppliedEnum"
+                            }
+                        ],
                         "readOnly": true
                     },
                     "actor_name": {
@@ -57413,6 +57332,32 @@
                     "response_status",
                     "sequence_number",
                     "status"
+                ]
+            },
+            "WebhookDeliveryCursorPage": {
+                "type": "object",
+                "properties": {
+                    "next": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "previous": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WebhookDelivery"
+                        }
+                    }
+                },
+                "required": [
+                    "next",
+                    "previous",
+                    "results"
                 ]
             },
             "WebhookDeliveryStatusEnum": {

@@ -835,9 +835,14 @@ returns a single object:
    "old_duration": 10, "new_duration": 20,
    "percent_complete_at_change": 50.0, "percent_complete_after": 25.0,
    "policy_applied": "prorate", "actor_name": "Sarah Chen",
-   "created_at": "2026-04-03T09:12:00Z"}
+   "created_at": "2026-04-03T09:12:00+00:00"}
 ]}
 ```
+
+Note the timestamp offset form. This aggregate is assembled as plain values rather
+than through a serializer, so `created_at` is a raw ISO-8601 string with a numeric
+offset — the per-task endpoint below renders the same instant as `…09:12:00Z`.
+Parse both with an ISO-8601 parser rather than matching on the suffix.
 
 `percent_complete_after` is `null` unless the policy actually changed `%` (that
 is, under `prorate`) — under `keep` and `confirm` it stays null, which is how a
@@ -846,7 +851,7 @@ alone". The events list is empty, never absent, for a sprint with no changes.
 
 The **per-task** endpoint is [paginated](#pagination) instead, returning
 `{count, next, previous, results}` where each result carries the raw `task`,
-`actor`, `source`, and `sprint` foreign keys.
+`actor`, and `sprint` foreign keys plus a `source` enum.
 
 ### Task relations
 
@@ -942,11 +947,12 @@ Default page size: 50. Response envelope:
 {"count": 123, "next": "...?page=3", "previous": "...?page=1", "results": [...]}
 ```
 
-A few endpoints over unbounded, append-only logs are **cursor**-paginated
-instead — currently the [audit log](/administration/audit-log/#reading-the-log).
-A cursor envelope has no `count` (computing one would defeat the point of a
-cursor), so it is `{next, previous, results}` only. Follow `next` until it is
-`null`; do not compute page counts from these endpoints.
+Endpoints over unbounded, append-only logs are **cursor**-paginated instead — the
+[audit log](/administration/audit-log/#reading-the-log), the workspace member
+list, and a webhook's delivery history. A cursor envelope has no `count`
+(computing one would defeat the point of a cursor), so it is
+`{next, previous, results}` only. Follow `next` until it is `null`; do not
+compute page counts from these endpoints.
 
 Not every list endpoint is paginated. Some return a **bare array** where the
 result set is inherently small and bounded — a task's

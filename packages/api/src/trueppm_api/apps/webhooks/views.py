@@ -179,7 +179,24 @@ class WebhookViewSet(
 
     @extend_schema(
         summary="List recent webhook deliveries",
-        responses={200: WebhookDeliverySerializer(many=True)},
+        # This action paginates with a CURSOR while the viewset's own
+        # pagination_class is page-number, and drf-spectacular's auto-wrap reads
+        # the class attribute — so a ``many=True`` response was wrapped in the
+        # page-number envelope and published ``count`` as *required* for a body
+        # that never carries one. Same defect class as #2583's named instances:
+        # a generated SDK typing ``count`` as non-optional breaks on first call.
+        # Declare the cursor envelope explicitly rather than leaning on a
+        # heuristic that cannot see which paginator actually runs.
+        responses={
+            200: inline_serializer(
+                name="WebhookDeliveryCursorPage",
+                fields={
+                    "next": serializers.URLField(allow_null=True),
+                    "previous": serializers.URLField(allow_null=True),
+                    "results": WebhookDeliverySerializer(many=True),
+                },
+            )
+        },
     )
     @action(detail=True, methods=["get"], url_path="deliveries")
     def deliveries(self, request: Request, **kwargs: object) -> Response:

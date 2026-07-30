@@ -238,6 +238,14 @@ def action_inherits_a_serializer_it_never_produces(
     ``reopen`` / ``activate``). Both spellings are common here and neither is a
     defect, so recognizing only one would force an allowlist of correct endpoints
     — and an allowlist is how a gate stops being read.
+
+    Known blind spot, characterized rather than unknown (#2595): naming the
+    serializer is a substring test, so a handler that nests it inside a composite
+    body (``{"task": …, "backlog_item": BacklogItemSerializer(item).data}``)
+    satisfies the escape hatch while still not returning the declared type.
+    Tightening this predicate would re-flag the correct endpoints above; the
+    orthogonal lever tracked in #2595 is a status-code rule, since that shape is
+    also documented under the wrong status code.
     """
     if declared_component is None or default_component is None:
         return False
