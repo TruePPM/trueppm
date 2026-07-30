@@ -410,6 +410,45 @@ function inclusiveDurationDays(startIso: string, finishIso: string): number {
   return Math.max(1, Math.round((finish - start) / MS_PER_DAY) + 1);
 }
 
+/** The printed project window, or an em-dash when nothing is dated. */
+function windowKpi(
+  projectStart: string | null,
+  projectFinish: string | null,
+  durationDays: number,
+): SchedulePrintKpis['window'] {
+  const dated = projectStart && projectFinish;
+  return {
+    label: 'Window',
+    value: dated ? `${fmtUtcShort(projectStart)} – ${fmtUtcShort(projectFinish)}` : '—',
+    sub: durationDays ? `${durationDays}d` : null,
+  };
+}
+
+/**
+ * P80 forecast and its signed slip against the CPM finish.
+ *
+ * No forecast at all and a forecast with no CPM delta are different states:
+ * the first has nothing to show, the second has a date but no comparison.
+ */
+function forecastKpi(
+  forecast: MonteCarloResult | null | undefined,
+): SchedulePrintKpis['forecastP80'] {
+  if (!forecast) return { label: 'P80 forecast', value: '—', sub: null };
+  const slip = forecast.deltaVsCpm?.p80;
+  return {
+    label: 'P80 forecast',
+    value: fmtUtcShort(forecast.p80),
+    sub: slip == null ? null : describeSlip(slip),
+  };
+}
+
+/** Signed slip in days, phrased so "no slip" reads as a state, not as `+0d`. */
+function describeSlip(slip: number): string {
+  if (slip > 0) return `+${slip}d vs CPM`;
+  if (slip < 0) return `${slip}d vs CPM`;
+  return 'on CPM finish';
+}
+
 function buildKpis(
   rows: SchedulePrintRow[],
   forecast: MonteCarloResult | null | undefined,
@@ -445,36 +484,14 @@ function buildKpis(
     .map((r) => r.finish as string)
     .sort(compareCodeUnits)[0];
 
-  // Forecast P80 + slip vs CPM (signed days).
-  let forecastValue = '—';
-  let forecastSub: string | null = null;
-  if (forecast) {
-    forecastValue = fmtUtcShort(forecast.p80);
-    const slip = forecast.deltaVsCpm?.p80;
-    if (slip != null) {
-      forecastSub = slip > 0 ? `+${slip}d vs CPM` : slip < 0 ? `${slip}d vs CPM` : 'on CPM finish';
-    }
-  }
-
   return {
-    window: {
-      label: 'Window',
-      value:
-        projectStart && projectFinish
-          ? `${fmtUtcShort(projectStart)} – ${fmtUtcShort(projectFinish)}`
-          : '—',
-      sub: durationDays ? `${durationDays}d` : null,
-    },
+    window: windowKpi(projectStart, projectFinish, durationDays),
     criticalPath: {
       label: 'Critical path',
       value: `${cp.length} ${cp.length === 1 ? 'task' : 'tasks'}`,
       sub: `${cpFloat}d float`,
     },
-    forecastP80: {
-      label: 'P80 forecast',
-      value: forecastValue,
-      sub: forecastSub,
-    },
+    forecastP80: forecastKpi(forecast),
     progress: {
       label: 'Progress',
       value: `${meanPct}%`,

@@ -55,6 +55,25 @@ function previousEditableColumn(current: EditableColumn): EditableColumn | null 
   return idx <= 0 ? null : EDITABLE_COLUMNS[idx - 1];
 }
 
+/**
+ * Move the edit cursor to the adjacent editable column.
+ *
+ * Running off either end falls back to `RowFocused` rather than staying in
+ * `CellEdit`, so the caller can decide what happens next (e.g. wrap to the next
+ * row's first cell). Anything that is not an active cell edit is returned
+ * unchanged — Tab outside `CellEdit` is not this machine's transition.
+ */
+function stepEditColumn(
+  state: ScheduleFocusState,
+  step: (current: EditableColumn) => EditableColumn | null,
+): ScheduleFocusState {
+  if (state.mode !== 'CellEdit' || !state.column || !state.rowId) return state;
+  const target = step(state.column);
+  return target
+    ? { mode: 'CellEdit', rowId: state.rowId, column: target }
+    : { mode: 'RowFocused', rowId: state.rowId, column: null };
+}
+
 export function scheduleFocusReducer(
   state: ScheduleFocusState,
   action: FocusAction,
@@ -88,27 +107,15 @@ export function scheduleFocusReducer(
       if (state.mode !== 'CellEdit' || !state.rowId) return state;
       return { mode: 'RowFocused', rowId: state.rowId, column: null };
 
+    // Both Tab directions are the same transition with a different step
+    // function. RowFocused.Tab and NoSelection.Tab are not internal
+    // transitions — they trigger external actions (indent, browser focus) and
+    // the caller handles them, which is why both fall through unchanged.
     case 'TAB_FORWARD':
-      if (state.mode === 'CellEdit' && state.column && state.rowId) {
-        const next = nextEditableColumn(state.column);
-        // Last column → fall back to RowFocused so caller can decide
-        // (e.g. wrap to next row's first cell).
-        return next
-          ? { mode: 'CellEdit', rowId: state.rowId, column: next }
-          : { mode: 'RowFocused', rowId: state.rowId, column: null };
-      }
-      // RowFocused.Tab and NoSelection.Tab are not internal transitions —
-      // they trigger external actions (indent, browser focus). Caller handles.
-      return state;
+      return stepEditColumn(state, nextEditableColumn);
 
     case 'TAB_BACKWARD':
-      if (state.mode === 'CellEdit' && state.column && state.rowId) {
-        const prev = previousEditableColumn(state.column);
-        return prev
-          ? { mode: 'CellEdit', rowId: state.rowId, column: prev }
-          : { mode: 'RowFocused', rowId: state.rowId, column: null };
-      }
-      return state;
+      return stepEditColumn(state, previousEditableColumn);
 
     default:
       return state;

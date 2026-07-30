@@ -68,6 +68,59 @@ const INACTIVE: ScheduleFilterClassification = {
  *   the `N of M match` hint alive when the row is collapsed.
  * @param selectedLabelIds Selected label ids; empty means the filter is off.
  */
+/** Matched-vs-total leaf counts for one subtree — the `N of M` context chip. */
+interface Tally {
+  matched: number;
+  total: number;
+}
+
+/** Index every task under its parent, so the walk can descend without rescanning. */
+function groupByParent(allTasks: readonly Task[]): Map<string, Task[]> {
+  const childrenByParent = new Map<string, Task[]>();
+  for (const task of allTasks) {
+    if (!task.parentId) continue;
+    const siblings = childrenByParent.get(task.parentId);
+    if (siblings) siblings.push(task);
+    else childrenByParent.set(task.parentId, [task]);
+  }
+  return childrenByParent;
+}
+
+/**
+ * Memoized post-order walk of one subtree's match tally.
+ *
+ * `tallies` is both the memo and the cycle guard. A deep WBS would otherwise
+ * re-walk the same subtree once per ancestor — O(n·depth) on a view that
+ * repaints on every filter change.
+ */
+function tallyFor(
+  task: Task,
+  childrenByParent: Map<string, Task[]>,
+  matched: Set<string>,
+  tallies: Map<string, Tally>,
+): Tally {
+  const cached = tallies.get(task.id);
+  if (cached) return cached;
+
+  // Seed with the row itself only when it is a leaf: `N of M` counts real work
+  // items, so a phase must not inflate M by counting sub-phases as tasks.
+  const children = childrenByParent.get(task.id) ?? [];
+  const tally: Tally =
+    children.length === 0
+      ? { matched: matched.has(task.id) ? 1 : 0, total: 1 }
+      : { matched: 0, total: 0 };
+
+  // Set before recursing so a malformed cyclic parentId terminates rather than
+  // overflowing the stack — a bad payload must degrade, not crash the view.
+  tallies.set(task.id, tally);
+  for (const child of children) {
+    const childTally = tallyFor(child, childrenByParent, matched, tallies);
+    tally.matched += childTally.matched;
+    tally.total += childTally.total;
+  }
+  return tally;
+}
+
 export function classifyScheduleRows(
   allTasks: readonly Task[],
   selectedLabelIds: readonly string[],
@@ -94,50 +147,19 @@ export function classifyScheduleRows(
     };
   }
 
-  const childrenByParent = new Map<string, Task[]>();
-  for (const task of allTasks) {
-    if (!task.parentId) continue;
-    const siblings = childrenByParent.get(task.parentId);
-    if (siblings) siblings.push(task);
-    else childrenByParent.set(task.parentId, [task]);
-  }
+  const childrenByParent = groupByParent(allTasks);
 
   const stateById = new Map<string, RowFilterState>();
-  const contextCounts = new Map<string, { matched: number; total: number }>();
-
-  // Memoized post-order walk. A deep WBS would re-walk the same subtree once per
-  // ancestor without this, which is O(n·depth) on a view that repaints per
-  // filter change.
-  const tallies = new Map<string, { matched: number; total: number }>();
-  const tallyFor = (task: Task): { matched: number; total: number } => {
-    const cached = tallies.get(task.id);
-    if (cached) return cached;
-
-    // Seed with the row itself only when it is a leaf: `N of M` counts real work
-    // items, so a phase must not inflate M by counting sub-phases as tasks.
-    const children = childrenByParent.get(task.id) ?? [];
-    const isLeaf = children.length === 0;
-    const tally = isLeaf
-      ? { matched: matched.has(task.id) ? 1 : 0, total: 1 }
-      : { matched: 0, total: 0 };
-
-    // Set before recursing so a malformed cyclic parentId terminates rather than
-    // overflowing the stack — a bad payload must degrade, not crash the view.
-    tallies.set(task.id, tally);
-    for (const child of children) {
-      const childTally = tallyFor(child);
-      tally.matched += childTally.matched;
-      tally.total += childTally.total;
-    }
-    return tally;
-  };
+  const contextCounts = new Map<string, Tally>();
+  // Memo shared across the walk — see `tallyFor`.
+  const tallies = new Map<string, Tally>();
 
   for (const task of allTasks) {
     if (matched.has(task.id)) {
       stateById.set(task.id, 'match');
       continue;
     }
-    const tally = tallyFor(task);
+    const tally = tallyFor(task, childrenByParent, matched, tallies);
     if (tally.matched > 0) {
       stateById.set(task.id, 'context');
       contextCounts.set(task.id, { matched: tally.matched, total: tally.total });
