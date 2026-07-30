@@ -11,6 +11,8 @@ import uuid
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, Role
@@ -244,6 +246,71 @@ def test_pagination_paths_all_rows(user: object) -> None:
 
     assert seen_programs == {str(p.pk) for p in progs}
     assert len(seen_memberships) == 5
+
+
+@pytest.mark.django_db
+def test_timestamp_is_pinned_for_the_whole_paging_session(user: object) -> None:
+    """`timestamp` is session state here too — it must not move mid-drain (#2568).
+
+    The program slice pages the same cursor as the project slice, so it inherits
+    the same defect: a mid-drain write to an already-drained collection would be
+    filtered out by a checkpoint the session never drained to.
+
+    Pinning is a strict improvement here but not a full guarantee: this slice
+    still keys on the per-row ``server_version`` rather than a session sequence,
+    so a low-version program edited mid-drain can sit *below* the pinned max.
+    That is the separate #2498 defect class — not fixed, and not made worse.
+    """
+    progs = [Program.objects.create(name=f"Q{i}") for i in range(5)]
+    for p in progs:
+        ProgramMembership.objects.create(program=p, user=user, role=Role.VIEWER)
+    c = APIClient()
+    c.force_authenticate(user=user)
+
+    stamps: list[int] = []
+    cursor: str | None = None
+    guard = 0
+    while True:
+        guard += 1
+        assert guard < 50, "pagination did not terminate"
+        q = f"{URL}?page_size=2" + (f"&cursor={cursor}" if cursor else "")
+        body = c.get(q).json()
+        stamps.append(body["timestamp"])
+        # Bump the sequence between pages; a per-request watermark would climb.
+        progs[0].description = f"churn {guard}"
+        progs[0].save()
+        if not body["has_more"]:
+            break
+        cursor = body["next_cursor"]
+
+    assert len(stamps) > 1, "fixture assumption: the delta spans multiple pages"
+    assert len(set(stamps)) == 1, f"timestamp drifted across pages: {stamps}"
+
+
+@pytest.mark.django_db
+def test_continuation_page_issues_no_watermark_aggregates(user: object) -> None:
+    """A continuation page must not re-run the watermark aggregates (#2568).
+
+    ``UserProgramSyncView._watermark`` costs two ``Max(server_version)`` aggregates,
+    the second scanning every membership of every accessible program. Reading the
+    pinned value off the cursor removes both from continuation pages, turning
+    O(pages x rows) repeated work into O(rows) paid once. Asserting on the absence
+    of ``MAX(`` rather than a bare query count keeps the test aimed at that
+    regression and immune to unrelated churn in the surrounding queries.
+    """
+    progs = [Program.objects.create(name=f"R{i}") for i in range(5)]
+    for p in progs:
+        ProgramMembership.objects.create(program=p, user=user, role=Role.VIEWER)
+    c = APIClient()
+    c.force_authenticate(user=user)
+
+    first = c.get(f"{URL}?page_size=2").json()
+    assert first["has_more"] is True, "fixture assumption: the delta spans multiple pages"
+
+    with CaptureQueriesContext(connection) as ctx:
+        c.get(f"{URL}?page_size=2&cursor={first['next_cursor']}")
+    aggregates = [q["sql"] for q in ctx.captured_queries if "MAX(" in q["sql"].upper()]
+    assert not aggregates, f"continuation page recomputed the watermark: {aggregates}"
 
 
 @pytest.mark.django_db

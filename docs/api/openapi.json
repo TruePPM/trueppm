@@ -17405,7 +17405,7 @@
         "/api/v1/projects/{id}/sync/": {
             "get": {
                 "operationId": "v1_projects_sync_retrieve",
-                "description": "Pull-only delta sync endpoint for the mobile offline store.\n\nReturns all rows (live and soft-deleted) whose ``sync_seq`` is strictly\ngreater than `since` for the given project, formatted for WatermelonDB's\nsynchronize() helper.\n\n``sync_seq`` — not ``server_version`` — is the cursor (ADR-0686, #2491). It is\ndrawn from the project's own monotonic sequence, so every synced row in the\nproject is totally ordered against every other one and the project-wide\nmaximum is a meaningful checkpoint. ``server_version`` counts a single row's\nsaves; comparing it against that maximum let a frequently-edited row raise the\ncheckpoint above every other row's counter and drop those rows from the delta\npermanently.\n\nThe response `timestamp` is snapshotted *before* the delta queries run\n(inside REPEATABLE READ isolation) to eliminate the TOCTOU gap where a\nwrite could land between the watermark read and the row queries.\n\nUsage:\n    GET /api/v1/projects/{pk}/sync/?since=0",
+                "description": "Pull-only delta sync endpoint for the mobile offline store.\n\nReturns all rows (live and soft-deleted) whose ``sync_seq`` is strictly\ngreater than `since` for the given project, formatted for WatermelonDB's\nsynchronize() helper.\n\n``sync_seq`` — not ``server_version`` — is the cursor (ADR-0686, #2491). It is\ndrawn from the project's own monotonic sequence, so every synced row in the\nproject is totally ordered against every other one and the project-wide\nmaximum is a meaningful checkpoint. ``server_version`` counts a single row's\nsaves; comparing it against that maximum let a frequently-edited row raise the\ncheckpoint above every other row's counter and drop those rows from the delta\npermanently.\n\nThe response `timestamp` is snapshotted *before* the delta queries run\n(inside REPEATABLE READ isolation) to eliminate the TOCTOU gap where a\nwrite could land between the watermark read and the row queries. It is\nsnapshotted once per *paging session*, not per request: continuation pages\necho the value pinned in the cursor (#2568).\n\nUsage:\n    GET /api/v1/projects/{pk}/sync/?since=0",
                 "summary": "Pull the offline sync delta for a project",
                 "parameters": [
                     {
@@ -54021,7 +54021,7 @@
                     },
                     "timestamp": {
                         "type": "integer",
-                        "description": "High-water mark to adopt as `since` once the delta is fully drained (after the last page)."
+                        "description": "High-water mark to adopt as `since` once the delta is fully drained (after the last page). Pinned when the session's first page is served and identical on every page of that session. On the project pull, whose cursor is the project's monotonic `sync_seq`, that means a row written into an already-drained collection mid-drain still falls above the adopted checkpoint and arrives on the next pull. The program pull keys on the per-row `server_version` rather than a session sequence, so pinning stops its checkpoint climbing mid-drain but does not yet deliver that guarantee — see issue #2498."
                     },
                     "next_cursor": {
                         "type": "string",
