@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import operator
 import uuid
 from collections.abc import Iterable
 from datetime import date, timedelta
@@ -533,8 +534,21 @@ CPM_DELTA_BROADCAST_CAP = 500
 
 Above this the WS frame grows large enough that a client-side full re-fetch is cheaper
 than splicing, so we emit a ``truncated`` signal instead and let the client invalidate.
-A 500-task payload is ≈60 KB. Every recalc is a full write-back, so the truncated
-branch is reached whenever a project carries more than ~500 schedulable tasks.
+A delta row serializes to ≈264 bytes, so a 500-row payload is ≈130 KB.
+
+The cap counts the *moved* set, not the write-back set (#2573). A recalc always
+re-assigns every engine-returned row, so counting the write-back set put every
+project above ~500 tasks permanently into the truncated branch and made ADR-0091's
+splice path unreachable at the documented envelope.
+
+Sized against the moved subset the truncated branch is reachable only when the recalc
+genuinely moved that many rows. Note that the backward pass seeds every task's late
+dates from the project finish, so **any edit that shifts the project finish moves the
+whole network's late dates and floats** — a critical-path edit therefore still
+truncates on a large project even though few bars actually move. Narrowing that case
+(splitting early dates from late/float churn, or re-sizing the cap) is tracked in
+#2598; the other wide cases are a first-ever pass, a calendar change, and a
+project-start shift.
 """
 
 
@@ -766,18 +780,60 @@ def _build_children_map(db_tasks: list[Any]) -> dict[str, list[str]]:
     return children_map
 
 
+_CPM_DELTA_FIELDS: tuple[str, ...] = (
+    "early_start",
+    "early_finish",
+    "late_start",
+    "late_finish",
+    "total_float",
+    "free_float",
+    "is_critical",
+    "duration",
+)
+"""Every CPM-owned field a ``task_dates_updated`` delta can carry (ADR-0091, #2573).
+
+Deliberately the same set the write-back persists, so "this row changed" and "this
+row needs to ship in the delta" are the same question. ``planned_start`` also rides
+in the payload but is a user-owned field the CPM write-back never touches, so it
+cannot make a row moved.
+"""
+
+
+_cpm_delta_snapshot = operator.attrgetter(*_CPM_DELTA_FIELDS)
+"""Snapshot the broadcast-relevant CPM fields of a Task for a moved/unmoved diff.
+
+``attrgetter`` rather than a ``getattr`` generator: this runs twice per task inside
+the ``_apply_cpm_results`` hot loop, and the C-level multi-attribute form is ~4x
+faster than the Python-level loop (0.19 µs vs 0.85 µs per call), which at 5,000
+tasks is ~8 ms → ~2 ms. Every name is a concrete column on ``Task`` and neither CPM
+load path defers columns, so no access can trigger a deferred-field query.
+"""
+
+
 def _apply_cpm_results(
     db_tasks: Iterable[Any],
     result_map: dict[str, Any],
     summary_ids: set[str],
-) -> tuple[list[Any], dict[str, tuple[Any, Any, Any, Any]]]:
+) -> tuple[list[Any], dict[str, tuple[Any, Any, Any, Any]], list[Any]]:
     """Write engine CPM results onto Task rows in memory.
 
-    Returns ``(tasks_to_update, old_cpm_dates)`` where ``old_cpm_dates`` snapshots
-    each task's four CPM dates *before* they are overwritten, so
-    :func:`_build_schedule_shift_events` can tell which tasks actually moved
-    (ADR-0207). Shared verbatim by the single-project and program-scoped
-    write-backs so the two never drift.
+    Returns ``(tasks_to_update, old_cpm_dates, moved_tasks)``.
+
+    ``old_cpm_dates`` snapshots each task's four CPM dates *before* they are
+    overwritten, so :func:`_build_schedule_shift_events` can tell which tasks
+    actually moved (ADR-0207).
+
+    ``moved_tasks`` is the subset of ``tasks_to_update`` whose broadcast-relevant
+    CPM fields (:data:`_CPM_DELTA_FIELDS`) actually changed in this pass. WHY it is
+    computed here and not by the caller: a CPM run is a *full* write-back — every
+    engine-returned row is re-assigned whether or not its value moved — so the only
+    place the pre-write value still exists is inside this loop. Broadcasting the
+    full write-back set instead of the moved subset put every project above 500
+    tasks permanently into the ``truncated`` branch, which made each connected
+    client re-fetch the whole paginated task list on every single-field edit and
+    left ADR-0091's splice path effectively dead (#2573). ``tasks_to_update``
+    itself stays the full set — the write-back and the ADR-0207 activity events
+    must still see every row.
 
     INTENTIONAL DESIGN: the caller persists these via ``bulk_update``, which
     bypasses ``VersionedModel.save()`` so ``server_version`` is NOT incremented —
@@ -788,6 +844,7 @@ def _apply_cpm_results(
     """
     tasks_to_update: list[Any] = []
     old_cpm_dates: dict[str, tuple[Any, Any, Any, Any]] = {}
+    moved_tasks: list[Any] = []
     for db_task in db_tasks:
         sched = result_map.get(str(db_task.id))
         if sched is None:
@@ -798,6 +855,7 @@ def _apply_cpm_results(
             db_task.late_start,
             db_task.late_finish,
         )
+        before = _cpm_delta_snapshot(db_task)
         db_task.early_start = sched.early_start
         db_task.early_finish = sched.early_finish
         db_task.late_start = sched.late_start
@@ -818,7 +876,9 @@ def _apply_cpm_results(
         if str(db_task.id) in summary_ids and db_task.early_start and db_task.early_finish:
             db_task.duration = max(1, (db_task.early_finish - db_task.early_start).days)
         tasks_to_update.append(db_task)
-    return tasks_to_update, old_cpm_dates
+        if _cpm_delta_snapshot(db_task) != before:
+            moved_tasks.append(db_task)
+    return tasks_to_update, old_cpm_dates, moved_tasks
 
 
 def _apply_driving_flags(deps: list[Any], driving_edges: Iterable[Any]) -> None:
@@ -1051,8 +1111,11 @@ def _run_schedule(
     # Write CPM results back for every task the engine returned (server_version is
     # intentionally NOT bumped — see _apply_cpm_results). old_cpm_dates snapshots
     # each task's dates before the overwrite so the shift-events helper can tell
-    # which tasks actually moved (ADR-0207).
-    tasks_to_update, old_cpm_dates = _apply_cpm_results(db_tasks, result_map, summary_ids)
+    # which tasks actually moved (ADR-0207); moved_tasks is that same moved subset
+    # as a list, and is what the ADR-0091 delta broadcast ships (#2573).
+    tasks_to_update, old_cpm_dates, moved_tasks = _apply_cpm_results(
+        db_tasks, result_map, summary_ids
+    )
 
     from django.db import transaction
 
@@ -1066,7 +1129,11 @@ def _run_schedule(
 
     # Per-task CPM date deltas (ADR-0091). Broadcast the tasks whose dates just moved so
     # collaborators' Gantt bars slide in real time, with no full re-fetch. Built from
-    # tasks_to_update (already in scope, fields mutated in-memory) so it costs no query.
+    # moved_tasks (already in scope, fields mutated in-memory) so it costs no query.
+    # It MUST be the moved subset, not the full write-back set: a CPM pass re-assigns
+    # every engine-returned row, so shipping tasks_to_update put any project over
+    # CPM_DELTA_BROADCAST_CAP permanently into the truncated branch and turned every
+    # single-field edit into a full paginated re-fetch per connected client (#2573).
     # Best-effort, same tier as cpm_complete. Field names mirror SyncTaskSerializer so the
     # web client can splice the payload straight into its task cache (and a future mobile
     # client could too); the server_version carve-out above is preserved — this is an
@@ -1075,7 +1142,7 @@ def _run_schedule(
     # they are not a sync anchor (bulk_update bypasses VersionedModel.save(), ADR-0091).
     # Built via the shared helper so the single-project and program-pass deltas (and
     # their >CPM_DELTA_BROADCAST_CAP truncation) can never drift.
-    delta_payload = _member_cpm_delta(tasks_to_update)
+    delta_payload = _member_cpm_delta(moved_tasks)
 
     # Persist results and mark the outbox row done in a single transaction, and
     # defer the board broadcasts to on_commit (#896). Previously the bulk_update
@@ -1257,17 +1324,20 @@ def recalculate_program_schedule(self: object, program_id: str) -> None:
     _run_program_schedule(program_id)
 
 
-def _member_cpm_delta(project_tasks: list[Any]) -> dict[str, object]:
+def _member_cpm_delta(moved_tasks: list[Any]) -> dict[str, object]:
     """Build one project's ``task_dates_updated`` delta payload (ADR-0091 shape).
 
-    Mirrors the single-project delta exactly so a web client can splice program-pass
-    results into its task cache the same way; above ``CPM_DELTA_BROADCAST_CAP`` it
-    emits a ``truncated`` signal and lets the client re-fetch.
+    ``moved_tasks`` must be the *changed set* — only the rows whose CPM fields
+    actually moved this pass — not the full write-back set. ``count`` is therefore
+    the moved-task count in both branches, as ADR-0091 specifies. Mirrors the
+    single-project delta exactly so a web client can splice program-pass results
+    into its task cache the same way; above ``CPM_DELTA_BROADCAST_CAP`` it emits a
+    ``truncated`` signal and lets the client re-fetch.
     """
-    if len(project_tasks) > CPM_DELTA_BROADCAST_CAP:
-        return {"count": len(project_tasks), "truncated": True}
+    if len(moved_tasks) > CPM_DELTA_BROADCAST_CAP:
+        return {"count": len(moved_tasks), "truncated": True}
     return {
-        "count": len(project_tasks),
+        "count": len(moved_tasks),
         "tasks": [
             {
                 "id": str(t.id),
@@ -1281,7 +1351,7 @@ def _member_cpm_delta(project_tasks: list[Any]) -> dict[str, object]:
                 "planned_start": t.planned_start.isoformat() if t.planned_start else None,
                 "duration": t.duration,
             }
-            for t in project_tasks
+            for t in moved_tasks
         ],
     }
 
@@ -1301,6 +1371,7 @@ _PROGRAM_WRITE_FIELDS = [
 def _register_program_broadcasts(
     graph: Any,
     by_project: dict[object, list[Any]],
+    moved_by_project: dict[object, list[Any]],
     crit_order: list[str],
 ) -> None:
     """Register each member project's post-commit broadcasts for a program pass.
@@ -1311,6 +1382,12 @@ def _register_program_broadcasts(
     rollback broadcasts nothing. MUST be called from inside the writeback's
     ``transaction.atomic()`` block. Default-arg binding pins each project's payload
     against late mutation.
+
+    Two groupings, deliberately: ``by_project`` is the full write-back set and
+    defines each project's ``project_finish`` (an *unmoved* late task still sets
+    where finish sits), while ``moved_by_project`` is the changed subset the
+    ADR-0091 delta ships (#2573). Collapsing them would either mis-report the
+    finish or re-introduce the full-project delta.
     """
     from django.db import transaction
 
@@ -1336,7 +1413,7 @@ def _register_program_broadcasts(
             "project_finish": project_finish.isoformat() if project_finish else None,
             "critical_path": project_crit,
         }
-        delta_payload = _member_cpm_delta(project_tasks)
+        delta_payload = _member_cpm_delta(moved_by_project.get(p.id, []))
 
         def _cpm_complete(pid: str = pid, pay: dict[str, object] = cpm_payload) -> None:
             broadcast_board_event(project_id=pid, event_type="cpm_complete", payload=pay)
@@ -1403,6 +1480,9 @@ def _run_program_schedule(program_id: str) -> None:
 
     now = timezone.now()
     tasks_to_update: list[Task] = []
+    # The subset of tasks_to_update whose CPM fields actually moved — what the
+    # ADR-0091 delta broadcast ships (#2573).
+    moved_tasks: list[Task] = []
     # Driving-link flags across every member project (#2095), persisted alongside
     # the task write-back below. Empty when the program has no schedulable result.
     program_db_deps: list[Dependency] = []
@@ -1418,7 +1498,7 @@ def _run_program_schedule(program_id: str) -> None:
         # incremental subgraph writes are a later optimization). Shared helper with
         # _run_schedule, so field assignment — milestone single-point normalisation
         # and summary calendar-day duration included — can never drift.
-        tasks_to_update, old_cpm_dates = _apply_cpm_results(
+        tasks_to_update, old_cpm_dates, moved_tasks = _apply_cpm_results(
             graph.db_task_by_id.values(), result_map, summary_ids
         )
 
@@ -1427,10 +1507,18 @@ def _run_program_schedule(program_id: str) -> None:
         program_db_deps = list(Dependency.objects.filter(predecessor__project_id__in=member_ids))
         _apply_driving_flags(program_db_deps, graph.result.driving_edges)
 
-    # Group moved tasks by project for the per-project broadcasts.
+    # Group the full write-back set by project — this is what defines each member
+    # project's finish (an unmoved late task still sets where finish sits).
     by_project: dict[object, list[Task]] = {}
     for t in tasks_to_update:
         by_project.setdefault(t.project_id, []).append(t)
+
+    # And the moved subset by project — this is what the ADR-0091 delta ships, so a
+    # program pass over many member projects does not force every subscriber into
+    # the truncated full-refetch branch (#2573).
+    moved_by_project: dict[object, list[Task]] = {}
+    for t in moved_tasks:
+        moved_by_project.setdefault(t.project_id, []).append(t)
 
     # Program-true critical path restricted to each project (clients consuming a
     # project's cpm_complete expect that project's critical ids).
@@ -1479,7 +1567,7 @@ def _run_program_schedule(program_id: str) -> None:
         # Per-project broadcasts + forecast capture, deferred to commit (#896) so
         # clients only ever see dates that persisted. Registered from inside this
         # atomic block so the on_commit callbacks are tied to this transaction.
-        _register_program_broadcasts(graph, by_project, crit_order)
+        _register_program_broadcasts(graph, by_project, moved_by_project, crit_order)
 
     logger.info(
         "recalculate_program_schedule: program %s — %d member project(s), %d task(s) updated",
