@@ -41,3 +41,11 @@ description: >
 - axe-core in CI (automated checks on every PR)
 - Manual testing with screen reader (quarterly)
 - Keyboard-only navigation test (every new feature)
+
+### Auditing the a11y gate itself (not just the components)
+A green axe run proves only that the rules axe was *allowed to check* passed. Audit the suppressions with the same rigor as the code:
+
+- **Every rule exclusion must name an OPEN issue.** Read each `disableRules` / `exclude` / rule-off in `packages/web/e2e/a11y.spec.ts` and resolve the issue it cites. An exclusion citing a **closed** issue is the worst case: the failure it hides is real, nothing tracks it, and the pipeline is green — the gate is actively concealing a regression rather than deferring a known one. When you find one, verify independently whether the underlying failure still reproduces before deciding to drop the exclusion or re-file it.
+- **A suppression comment is not a suppression.** Check that the mechanism actually suppresses what the comment claims, and that the comment's stated condition ("remove when #N lands") is re-read when #N does land. Nothing enforces that automatically.
+- **Count what is excluded, and say so in the report.** "axe passes" and "axe passes with `aria-required-attr`, `aria-required-children`, and `nested-interactive` disabled on the three densest surfaces" are very different claims. Always report the second form — the excluded set is the finding.
+- **Check the gate's coverage, not just its result.** Which routes and themes does the spec actually scan? A contrast gate that never opens the dark theme, or a keyboard gate that never visits the canvas, is passing on a subset it does not disclose.

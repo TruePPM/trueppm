@@ -63,6 +63,52 @@ function KpiChip({
  * off-vocabulary once the Schedule and Calendar views are themselves hidden — and
  * foregrounds the sprint; HYBRID lights up both. The tab itself is never gated.
  */
+/**
+ * The schedule-health KPI row, or the one error line that replaces it.
+ *
+ * A failed load shows a single alert rather than four chips reading "—" or
+ * "0": zeros here would be indistinguishable from a genuinely clean schedule,
+ * which is the reading that matters least to be wrong about.
+ */
+function ScheduleKpiChips({
+  error,
+  overview,
+  pctComplete,
+}: {
+  error: unknown;
+  overview: ProjectScheduleSummary | undefined;
+  pctComplete: number | null;
+}) {
+  if (error) {
+    return (
+      <span role="alert" className="text-[13px] text-semantic-critical">
+        Couldn&apos;t load schedule status.
+      </span>
+    );
+  }
+  return (
+    <>
+      <KpiChip label="Complete" value={pctComplete != null ? `${pctComplete}%` : '—'} />
+      <KpiChip
+        label="Critical"
+        value={String(overview?.critical_task_count ?? 0)}
+        tone={overview && overview.critical_task_count > 0 ? 'warn' : 'neutral'}
+      />
+      <KpiChip
+        label="Late"
+        value={String(overview?.tasks_late_count ?? 0)}
+        tone={overview && overview.tasks_late_count > 0 ? 'critical' : 'neutral'}
+      />
+      {overview?.next_milestone && (
+        <KpiChip
+          label="Next milestone"
+          value={`${overview.next_milestone.name} · ${overview.next_milestone.percent_complete}%`}
+        />
+      )}
+    </>
+  );
+}
+
 export function SchedulePulse({ projectId }: { projectId: string }) {
   const { data: overview, isLoading, error } = useProjectScheduleSummary(projectId);
   const { sprint } = useActiveSprint(projectId);
@@ -137,31 +183,7 @@ export function SchedulePulse({ projectId }: { projectId: string }) {
               )}
             </span>
 
-            {error ? (
-              <span role="alert" className="text-[13px] text-semantic-critical">
-                Couldn&apos;t load schedule status.
-              </span>
-            ) : (
-              <>
-                <KpiChip label="Complete" value={pctComplete != null ? `${pctComplete}%` : '—'} />
-                <KpiChip
-                  label="Critical"
-                  value={String(overview?.critical_task_count ?? 0)}
-                  tone={overview && overview.critical_task_count > 0 ? 'warn' : 'neutral'}
-                />
-                <KpiChip
-                  label="Late"
-                  value={String(overview?.tasks_late_count ?? 0)}
-                  tone={overview && overview.tasks_late_count > 0 ? 'critical' : 'neutral'}
-                />
-                {overview?.next_milestone && (
-                  <KpiChip
-                    label="Next milestone"
-                    value={`${overview.next_milestone.name} · ${overview.next_milestone.percent_complete}%`}
-                  />
-                )}
-              </>
-            )}
+            <ScheduleKpiChips error={error} overview={overview} pctComplete={pctComplete} />
           </>
         )}
 

@@ -111,7 +111,13 @@ Rules:
 - **One line per gate that ran**, using the gate's skill name exactly (`regression-check`,
   `security-review`, `rbac-check`, `perf-check`, `broadcast-check`, `migration-check`,
   `architect`, `ux-design`, `ux-review`, `voc`, `test-scaffold`, `enterprise-check`,
-  `api-docs`, `dependency`). Exact names matter — the parser matches on them.
+  `api-docs`, `dependency`). Exact names matter — the parser matches on them. Every
+  name above resolves to a skill in `.claude/skills/` with one deliberate exception:
+  `voc` is the established shorthand for the `voice-of-customer` skill, and is the
+  form both CLAUDE.md files and `/kaizen`'s yield query already use — keep writing
+  `voc`. A name in this list that resolves to *nothing* is a phantom gate: the ledger
+  will tally it as covered while it can never run, which is worse than no gate at all
+  (#2612). Before adding a name here, confirm the skill exists.
 - **`0 findings` is a real and expected outcome — record it.** The temptation is to omit
   a gate that found nothing because the line looks like noise. That omission is precisely
   what destroys the metric: zeros are the signal that a gate has stopped earning its

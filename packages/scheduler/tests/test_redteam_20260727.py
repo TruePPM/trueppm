@@ -218,7 +218,16 @@ def test_deterministic_projects_with_actuals_simulate_to_the_cpm_finish(seed: in
             t.actual_finish = finish
             if rng.random() < 0.5:
                 t.actual_start = finish - timedelta(days=rng.randint(0, 5))
-        elif roll < 0.5:
+        elif roll < 0.45:
+            # Complete by percent alone, with BOTH actuals null (#2572). The
+            # generator used to cap the no-actuals branch at 99, so the third
+            # completed-task branch — the one schedule() runs through network
+            # logic rather than pinning — was never generated and the harness
+            # could not see Monte Carlo dropping its SNET floor and predecessor
+            # constraints. Combined with the planned_start roll below, this is
+            # what makes the differential assertion cover that branch.
+            t.percent_complete = 100.0
+        elif roll < 0.6:
             t.percent_complete = float(rng.choice([10, 25, 50, 75, 99]))
         if rng.random() < 0.2:
             t.planned_start = START + timedelta(days=rng.randint(0, 20))

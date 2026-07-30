@@ -45,12 +45,18 @@ notes — under recalculation noise.
 | Method & path | Returns |
 |---|---|
 | `GET /api/v1/projects/{id}/tasks/{taskId}/history/` | Paginated field-level diffs for one task |
-| `GET /api/v1/projects/{id}/history/` | Project-level field changes |
+| `GET /api/v1/projects/{id}/history/` | Paginated project-level field changes, plus a `count_truncated` flag |
 | `GET /api/v1/projects/{id}/history/summary/?window=7d` | Aggregate mutation counts by field and object type over a window (`1d`, `7d`, `30d`, `90d`) |
 
-Any project Member or above can read history. The identity of the editing user
-(`history_user`) is included only for Admins. The summary endpoint is cached for five
-minutes; pass `?refresh=1` to recompute.
+Any project Viewer or above can read history. The identity of the editing user
+(`history_user`) is included only for Admins — for everyone else the field is
+present but `null`, so a client should treat it as optional rather than absent.
+The summary endpoint is cached for five minutes; pass `?refresh=1` to recompute.
+
+The project-level endpoint materializes at most a fixed number of records before
+paginating. When that cap is reached it sets `count_truncated: true` alongside the
+usual `{count, next, previous, results}` envelope, meaning older history exists but
+is not reachable through this endpoint.
 
 ### Activity feed (ships in 0.4)
 

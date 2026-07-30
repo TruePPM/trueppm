@@ -178,7 +178,14 @@ def test_operator_kill_switch_neutralizes_these_throttles(
         for _ in range(3)
     ]
 
-    assert statuses == [201, 201, 201]
+    # Asserted as "nothing was throttled" rather than as an exact code: the two
+    # parametrized actions no longer share one. ``load-sample`` still returns 201
+    # (synchronous), while ``import`` returns 202 and then 409 on the repeats,
+    # because the first call now leaves a live program holding the seed's slug
+    # and replacement requires explicit consent (ADR-0726). The kill switch is
+    # about 429s; spelling out each action's success code here would couple this
+    # test to a contract it does not exercise.
+    assert 429 not in statuses
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +217,9 @@ def test_exceeding_the_import_rate_returns_429(
     first = client.post(IMPORT_URL, _seed(), format="json")
     second = client.post(IMPORT_URL, _seed(), format="json")
 
-    assert first.status_code == 201
+    assert first.status_code == 202
+    # Throttled in initial(), before the view body — so the second call never
+    # reaches the replace check that would otherwise answer 409.
     assert second.status_code == 429
 
 
@@ -223,7 +232,7 @@ def test_demo_loader_and_import_do_not_share_a_bucket(
     _patch_rate(monkeypatch, "1/min", LoadSampleThrottle)
     cache.clear()
 
-    assert client.post(IMPORT_URL, _seed(), format="json").status_code == 201
+    assert client.post(IMPORT_URL, _seed(), format="json").status_code == 202
     assert client.post(IMPORT_URL, _seed(), format="json").status_code == 429
 
     # The demo loader's own bucket is untouched.

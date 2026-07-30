@@ -783,6 +783,67 @@ describe('useProjectWebSocket — task_dates_updated splice (ADR-0091)', () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
+
+  // #2573: the server used to build the delta from the whole CPM write-back set,
+  // so a 1,000-task project always shipped `truncated` and every client re-fetched
+  // ~5 pages per single-field edit. With the server sending only the moved subset,
+  // the payload a big project produces is small — assert the hook actually splices
+  // a bounded delta into a large cache and refetches nothing.
+  it('splices a bounded delta into a large task cache without any re-fetch', () => {
+    const cachedTasks = Array.from({ length: 1000 }, (_, i) => ({
+      id: `t${i}`,
+      name: `Task ${i}`,
+      start: '2026-10-05',
+      finish: '2026-10-15',
+      duration: 10,
+      isCritical: false,
+      totalFloat: 5,
+      plannedStart: null,
+      isSummary: false,
+      progress: 0,
+      status: 'NOT_STARTED',
+    })) as unknown as Task[];
+    qc.setQueryData(['tasks', 'proj-1'], cachedTasks);
+
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    // The moved subgraph of a one-field edit: five of a thousand rows.
+    const movedIds = ['t5', 't6', 't7', 't8', 't9'];
+    dispatch({
+      count: movedIds.length,
+      tasks: movedIds.map((id) => ({
+        id,
+        early_start: '2026-11-02',
+        early_finish: '2026-11-12',
+        late_start: '2026-11-05',
+        late_finish: '2026-11-15',
+        total_float: 0,
+        free_float: 0,
+        is_critical: true,
+        planned_start: null,
+        duration: 10,
+      })),
+    });
+    act(() => {
+      vi.advanceTimersByTime(400); // let any debounced invalidate fire if one was queued
+    });
+
+    const cached = qc.getQueryData(['tasks', 'proj-1']) as Array<Record<string, unknown>>;
+    expect(cached).toHaveLength(1000);
+    for (const id of movedIds) {
+      const moved = cached.find((t) => t.id === id)!;
+      expect(moved.start).toBe('2026-11-02');
+      expect(moved.isCritical).toBe(true);
+      expect(moved.totalFloat).toBe(0);
+    }
+    // Every unmoved row is untouched — the splice is scoped to the delta.
+    const untouched = cached.filter((t) => !movedIds.includes(t.id as string));
+    expect(untouched).toHaveLength(995);
+    expect(untouched.every((t) => t.start === '2026-10-05' && t.isCritical === false)).toBe(true);
+    // And the cost that #2573 was about: zero page re-fetches.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
 });
 
 // Wave-2 broadcast-check (#835) — backend emits these on commit but the client

@@ -158,9 +158,103 @@ done
 # nothing — the same false-assurance failure mode this check exists to close.
 [ "$np_checked" -gt 0 ] || fail "NetworkPolicy client check inspected no workloads — the render or the yq paths changed"
 
+# 6. The PRODUCTION nginx render must not publish Django admin (#2569).
+#
+#    This assertion is the one that was missing. CI asserted `/admin/` was closed
+#    only on the DEMO render, so the production block sat unrestricted — an
+#    unthrottled, internet-reachable password-guessing surface against the
+#    superuser the `bootstrap` initContainer creates on every deploy — while every
+#    gate stayed green. Django admin is a plain Django view, so no DRF throttle
+#    scope covers it and there is no lockout backend; nginx is the only control.
+#    Assert the production render here so the same gap cannot reopen.
+prod_admin_block() {
+  helm template trueppm "$CHART" --set image.tag=latest "$@" \
+    --show-only templates/web/configmap.yaml \
+    | yq '.data["default.conf"]' \
+    | awk '/location \/admin\/ \{/{f=1} f{print} f&&/^[[:space:]]*\}[[:space:]]*$/{exit}'
+}
+
+# 6a. Default values (empty allowlist) must fail CLOSED with a bare `deny all`.
+admin_default="$(prod_admin_block)"
+[ -n "$admin_default" ] || fail "could not extract the /admin/ block from the production web ConfigMap"
+echo "$admin_default" | grep -qE '^[[:space:]]*deny all;' \
+  || fail "production nginx /admin/ block has no 'deny all' on default values — a default install publishes Django admin to the internet (#2569)"
+echo "$admin_default" | grep -qE '^[[:space:]]*allow ' \
+  && fail "production nginx /admin/ renders an 'allow' directive on DEFAULT values — the allowlist must be empty (deny-by-default) unless the operator sets web.adminAccess.allowCIDRs"
+
+# 6b. The admin surface must be rate-limited, and the zone it references must
+#     actually be declared — nginx refuses to start on an unknown limit_req zone,
+#     so a half-rendered pair is a crash-loop, not a soft failure.
+echo "$admin_default" | grep -q 'limit_req zone=admin_login' \
+  || fail "production nginx /admin/ block has no 'limit_req' — admin login is unthrottled (#2569)"
+helm template trueppm "$CHART" --set image.tag=latest --show-only templates/web/configmap.yaml \
+  | yq '.data["default.conf"]' | grep -q 'limit_req_zone .* zone=admin_login:' \
+  || fail "the admin_login limit_req zone is referenced but never declared — nginx will refuse to start"
+
+# 6c. A supplied CIDR must render an `allow` BEFORE the `deny all`. nginx takes
+#     the first matching allow/deny rule, so an allow emitted after `deny all` is
+#     dead config and the operator's allowlist would silently do nothing.
+admin_cidr="$(prod_admin_block --set 'web.adminAccess.allowCIDRs={10.42.0.0/16}')"
+echo "$admin_cidr" | grep -qE '^[[:space:]]*allow 10\.42\.0\.0/16;' \
+  || fail "web.adminAccess.allowCIDRs did not render a matching 'allow' directive"
+allow_ln="$(echo "$admin_cidr" | grep -nE '^[[:space:]]*allow ' | head -1 | cut -d: -f1)"
+deny_ln="$(echo "$admin_cidr" | grep -nE '^[[:space:]]*deny all;' | head -1 | cut -d: -f1)"
+[ -n "$allow_ln" ] && [ -n "$deny_ln" ] && [ "$allow_ln" -lt "$deny_ln" ] \
+  || fail "'allow' (line $allow_ln) must precede 'deny all' (line $deny_ln) — nginx honors the first match, so this allowlist is inert"
+
+# 6d. adminAccess.enabled=false removes the surface entirely.
+admin_off="$(prod_admin_block --set web.adminAccess.enabled=false)"
+echo "$admin_off" | grep -q 'return 404' \
+  || fail "web.adminAccess.enabled=false must render 'return 404' for /admin/"
+
+# 7. The Celery worker must run with a PINNED --concurrency (#2571).
+#
+#    Celery prefork defaults to cpu_count(), which inside a container reads the
+#    NODE's core count and ignores the cgroup CPU limit — a 32-core node forks 32
+#    children at ~150-250 MB RSS each against a 2Gi limit, so the worker OOMKills
+#    at zero load and takes CPM recalculation, imports, email, and Beat with it.
+#    The chart previously hardcoded the command with no flag AND no values knob,
+#    so a values-only operator could not fix it at all.
+worker_cmd() {
+  helm template trueppm "$CHART" --set image.tag=latest "$@" \
+    --show-only templates/celery-worker/deployment.yaml \
+    | yq '.spec.template.spec.containers[0].command | join(" ")'
+}
+
+wc_default="$(worker_cmd)"
+echo "$wc_default" | grep -qE -- '--concurrency=[0-9]+' \
+  || fail "celery worker command has no explicit --concurrency — Celery falls back to cpu_count() and OOMKills the background tier on any multi-core node (#2571)"
+
+# The default must be a small pinned value, NOT the node's core count.
+wc_n="$(echo "$wc_default" | sed -nE 's/.*--concurrency=([0-9]+).*/\1/p')"
+[ "$wc_n" -ge 1 ] || fail "default --concurrency is '$wc_n' — must be >= 1"
+
+# The knob must actually be wired, not just present with a default.
+worker_cmd --set celeryWorker.concurrency=4 | grep -q -- '--concurrency=4' \
+  || fail "celeryWorker.concurrency=4 did not render '--concurrency=4' — the values knob is not wired"
+
+# extraArgs must append verbatim AND in the declared order.
+wc_extra="$(worker_cmd --set 'celeryWorker.extraArgs={--queues=exports,--prefetch-multiplier=1}')"
+echo "$wc_extra" | grep -q -- '--queues=exports' \
+  || fail "celeryWorker.extraArgs did not render into the worker command"
+case "$wc_extra" in
+  *"--queues=exports"*"--prefetch-multiplier=1"*) ;;
+  *) fail "celeryWorker.extraArgs rendered out of order: $wc_extra" ;;
+esac
+
+# concurrency=0 must be REJECTED, not passed through: Celery reads
+# `--concurrency=0` as "use the default", i.e. cpu_count() — the exact OOMKill
+# this knob exists to prevent. A silent 0 would reopen #2571 through the very
+# setting that fixed it, so the render has to fail.
+if worker_cmd --set celeryWorker.concurrency=0 >/dev/null 2>&1; then
+  fail "celeryWorker.concurrency=0 rendered successfully — it must fail the render, because Celery treats --concurrency=0 as cpu_count() (#2571)"
+fi
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches migrate, bootstrap, and api"
 echo "  - shared admin-password emptyDir mounted by bootstrap ($boot_mount) and api ($api_mount)"
 echo "  - web nginx proxies to release-scoped trueppm-api (baked compose 'api' host overridden)"
 echo "  - all $np_checked datastore-client bindings are covered by the NetworkPolicy allow-lists"
+echo "  - production nginx /admin/ fails closed (deny all + limit_req; allow precedes deny)"
+echo "  - celery worker pins --concurrency=$wc_n and honors concurrency/extraArgs overrides"

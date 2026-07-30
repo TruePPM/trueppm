@@ -130,11 +130,27 @@ data:
     }
 {{- else }}
   default.conf: |
+    {{- if and .Values.web.adminAccess.enabled .Values.web.adminAccess.rateLimit.enabled }}
+    # Per-source-IP rate limit for the Django admin login surface (#2569),
+    # matching nginx/app.conf.template's 5r/m + burst 2. Declared here at http
+    # scope because this file is included from nginx.conf's `http` block —
+    # limit_req_zone is not valid inside `server`. Django admin is a plain
+    # Django view, so no DRF throttle scope covers it and there is no lockout
+    # backend; this is the only rate limit that surface has.
+    limit_req_zone $binary_remote_addr zone=admin_login:1m rate={{ .Values.web.adminAccess.rateLimit.rate }};
+    {{- end }}
     server {
         listen {{ .Values.web.containerPort | default 8080 }};
         server_name _;
         root /usr/share/nginx/html;
         index index.html;
+
+        # nginx appends a missing trailing slash during location matching, i.e.
+        # BEFORE the access phase — so a denied client hitting /admin still gets
+        # a 301 that both confirms the proxy exists and, because the default
+        # redirect is built from $server_port, leaks the internal container port
+        # and downgrades the scheme behind a TLS-terminating ingress.
+        absolute_redirect off;
 
         # Proxy API calls to the Django backend (release-scoped Service DNS).
         location /api/ {
@@ -155,12 +171,40 @@ data:
             proxy_read_timeout 86400s;
         }
 
-        # Django admin panel — proxied so it is reachable at the same origin.
+        # Django admin — fails CLOSED (#2569). With the default empty
+        # web.adminAccess.allowCIDRs this renders a bare `deny all`, so a
+        # default install publishes no admin login surface at all. The
+        # in-cluster equivalent of compose's SSH tunnel needs no chart change
+        # and bypasses nginx entirely:
+        #   kubectl port-forward svc/{{ include "trueppm.fullname" . }}-api {{ .Values.service.port }}:{{ .Values.service.port }}
+        # then visit http://localhost:{{ .Values.service.port }}/admin/
         location /admin/ {
+        {{- if .Values.web.adminAccess.enabled }}
+            # Ordering is load-bearing: nginx takes the FIRST matching
+            # allow/deny rule, so every allow must precede the `deny all`.
+            {{- range .Values.web.adminAccess.allowCIDRs }}
+            {{- /* Entries must look like an address or CIDR. This exists to
+                   reject the allowlist-shaped `all`, which nginx accepts as a
+                   valid `allow all;` and which would silently turn this control
+                   off while still reading like a restriction. A malformed CIDR
+                   is also caught here rather than crash-looping nginx. */}}
+            {{- if not (regexMatch "^[0-9a-fA-F:.]+(/[0-9]{1,3})?$" (toString .)) }}
+              {{- fail (printf "web.adminAccess.allowCIDRs entry %q is not an IP address or CIDR — note that 'all' would render `allow all;` and disable the restriction entirely (#2569)" .) }}
+            {{- end }}
+            allow {{ . }};
+            {{- end }}
+            deny all;
+            {{- if .Values.web.adminAccess.rateLimit.enabled }}
+            limit_req zone=admin_login burst={{ .Values.web.adminAccess.rateLimit.burst }} nodelay;
+            {{- end }}
+
             proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_redirect off;
+        {{- else }}
+            return 404;
+        {{- end }}
         }
 
         # Django static files (admin CSS/JS, collectstatic output).

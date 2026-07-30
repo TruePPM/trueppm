@@ -715,6 +715,31 @@ function YouTier({
 
 /** Tier 2, off a project/program route: the flat pinned jump list, or the
  *  zero-project first-run CTA, or the "pin something" hint. */
+/**
+ * What the Pinned group shows before it can show pins.
+ *
+ * Skeleton rows rather than the "pin something" hint while the request is in
+ * flight: telling a user who HAS pins that they have none is worse than a brief
+ * neutral placeholder. On failure the rail owns the message — silently
+ * rendering "no pins" is exactly the "my pins disappeared" moment this feature
+ * exists to avoid.
+ */
+function PinsPlaceholder({ isLoading }: { isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <div aria-hidden="true" className="flex flex-col gap-1 px-3 py-2">
+        <div className="h-4 w-32 animate-pulse rounded bg-chrome-surface-raised" />
+        <div className="h-4 w-24 animate-pulse rounded bg-chrome-surface-raised" />
+      </div>
+    );
+  }
+  return (
+    <p role="status" className="px-3 py-2 text-xs text-chrome-text-secondary">
+      Couldn&rsquo;t load pins.
+    </p>
+  );
+}
+
 function PinnedTier({
   hasPins,
   isLoading,
@@ -743,21 +768,8 @@ function PinnedTier({
   return (
     <>
       <h2 className={GROUP_LABEL}>Pinned</h2>
-      {isLoading && !hasPins ? (
-        // Skeleton rows, not the "pin something" hint: showing the empty-state
-        // advice while the request is still in flight tells a user with pins
-        // that they have none, which is worse than a brief neutral placeholder.
-        <div aria-hidden="true" className="flex flex-col gap-1 px-3 py-2">
-          <div className="h-4 w-32 animate-pulse rounded bg-chrome-surface-raised" />
-          <div className="h-4 w-24 animate-pulse rounded bg-chrome-surface-raised" />
-        </div>
-      ) : isError && !hasPins ? (
-        // The rail is where the absence is noticed, so it owns the message —
-        // silently rendering "no pins" on a failed fetch is the "my pins
-        // disappeared" moment this feature exists to avoid.
-        <p role="status" className="px-3 py-2 text-xs text-chrome-text-secondary">
-          Couldn&rsquo;t load pins.
-        </p>
+      {!hasPins && (isLoading || isError) ? (
+        <PinsPlaceholder isLoading={isLoading} />
       ) : hasPins ? (
         <>
           {/* Pinned programs first, then pinned projects — a flat jump

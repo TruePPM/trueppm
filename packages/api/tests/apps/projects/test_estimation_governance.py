@@ -335,15 +335,18 @@ def test_suggest_approve_contributor_sets_pending(
 def test_suggest_approve_scheduler_writes_accepted(
     suggest_project: Project, suggest_task: Task, sa_scheduler: object
 ) -> None:
-    # Scheduler writes directly — should come out accepted after approve action.
     c = _client(sa_scheduler)
-    c.patch(
+    patch_resp = c.patch(
         f"/api/v1/tasks/{suggest_task.pk}/",
         {"optimistic_duration": 3, "most_likely_duration": 5, "pessimistic_duration": 8},
         format="json",
     )
-    # Scheduler writes still go through the PATCH path (pending), but then
-    # approve-estimates sets accepted atomically.
+    # A Resource Manager (Role.SCHEDULER) is read-only on task *content* — the
+    # estimate PATCH is refused. Asserting the 403 keeps this test honest: without
+    # it the unchecked response made the case look like a successful Scheduler write.
+    assert patch_resp.status_code == 403
+    # approve-estimates is the Scheduler's actual door, and it sets accepted
+    # atomically regardless of what the PATCH path allows.
     resp = c.post(f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/")
     assert resp.status_code == 200
     suggest_task.refresh_from_db()
@@ -511,3 +514,178 @@ def test_approve_records_status_change_in_history(
     )
     assert EstimateStatus.ACCEPTED in statuses
     assert EstimateStatus.PENDING in statuses
+
+
+# ---------------------------------------------------------------------------
+# Undefended door: a direct PATCH of estimate_status (#2570)
+#
+# The tests above exercise both *sanctioned* doors — the PERT co-write path and
+# the role-gated approve-estimates action. They never attempt the one the code
+# only asks callers not to use. A field whose protection is "the caller is not
+# supposed to send this" needs a test that sending it is actually rejected, not
+# only that the sanctioned path works.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_contributor_cannot_self_approve_via_bare_patch(
+    suggest_project: Project, suggest_task: Task, sa_contributor: object
+) -> None:
+    """A bare ``PATCH {"estimate_status": "accepted"}`` must not stick (#2570).
+
+    ``_apply_estimate_governance`` only normalizes the field when PERT durations
+    are co-written, so before the fix an assignee could self-approve by sending
+    estimate_status alone — bypassing the Scheduler-gated approve-estimates
+    action entirely.
+    """
+    from django.contrib.auth import get_user_model as _get_user_model
+
+    _u = _get_user_model().objects.get(username="sa_contributor")
+    suggest_task.assignee = _u
+    suggest_task.estimate_status = EstimateStatus.PENDING
+    suggest_task.save(update_fields=["assignee", "estimate_status"])
+
+    c = _client(sa_contributor)
+    resp = c.patch(
+        f"/api/v1/tasks/{suggest_task.pk}/",
+        {"estimate_status": EstimateStatus.ACCEPTED},
+        format="json",
+    )
+
+    # Read-only fields are silently ignored by DRF, so the request succeeds — what
+    # must not happen is the value landing.
+    assert resp.status_code == 200
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.PENDING
+    # The response must echo the server's value, not the attacker's.
+    assert resp.data["estimate_status"] == EstimateStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_contributor_cannot_self_approve_alongside_pert_write(
+    suggest_project: Project, suggest_task: Task, sa_contributor: object
+) -> None:
+    """Smuggling estimate_status into a legitimate PERT edit still yields pending."""
+    from django.contrib.auth import get_user_model as _get_user_model
+
+    _u = _get_user_model().objects.get(username="sa_contributor")
+    suggest_task.assignee = _u
+    suggest_task.save(update_fields=["assignee"])
+
+    c = _client(sa_contributor)
+    resp = c.patch(
+        f"/api/v1/tasks/{suggest_task.pk}/",
+        {
+            "optimistic_duration": 3,
+            "most_likely_duration": 5,
+            "pessimistic_duration": 8,
+            "estimate_status": EstimateStatus.ACCEPTED,
+        },
+        format="json",
+    )
+    assert resp.status_code == 200
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_project_manager_cannot_self_approve_via_bare_patch_either(
+    suggest_project: Project, suggest_task: Task
+) -> None:
+    """Read-only is uniform: even a Project Manager must use approve-estimates.
+
+    The action is the single audited write path; allowing a privileged PATCH to
+    shortcut it would put the same value in the record by an unlogged route. A
+    Project Manager (Role.ADMIN) is used here rather than a Resource Manager because
+    can_user_edit_task refuses Role.SCHEDULER on task *content* — so a plain
+    Scheduler PATCH is rejected before the serializer is consulted and would prove
+    nothing about field-level protection. (That refusal is not absolute: a Scheduler
+    who also holds the team's Product Owner facet may edit EPIC/STORY tasks, per
+    ADR-0078. Role.ADMIN avoids depending on either branch.)
+    """
+    pm = _make_user("sa_pm")
+    _make_membership(suggest_project, pm, Role.ADMIN)
+    suggest_task.estimate_status = EstimateStatus.PENDING
+    suggest_task.save(update_fields=["estimate_status"])
+
+    resp = _client(pm).patch(
+        f"/api/v1/tasks/{suggest_task.pk}/",
+        {"estimate_status": EstimateStatus.ACCEPTED},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_approve_estimates_action_still_reaches_accepted(
+    suggest_project: Project, suggest_task: Task, sa_scheduler: object
+) -> None:
+    """Regression guard: making the field read-only must not break the legit path.
+
+    ``approve_estimates`` writes the model directly (``task.save(update_fields=…)``),
+    so serializer read-only status does not apply to it.
+    """
+    suggest_task.estimate_status = EstimateStatus.PENDING
+    suggest_task.save(update_fields=["estimate_status"])
+
+    resp = _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/")
+    assert resp.status_code == 200
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.ACCEPTED
+    assert resp.data["estimate_status"] == EstimateStatus.ACCEPTED
+
+
+# ---------------------------------------------------------------------------
+# The general shape (#2570): every server-owned Task field must reject a direct
+# client write, not merely document that callers should not send it.
+#
+# Parametrized over the fields whose value is owned by a gated action or an
+# internal service. Each case sets a known server value, PATCHes an attacker
+# value as a Member, and asserts the stored value is untouched. Add a row here
+# whenever a new field's protection is "the caller is not supposed to send this."
+# ---------------------------------------------------------------------------
+
+
+SERVER_OWNED_TASK_FIELDS: list[tuple[str, object, object]] = [
+    # (field, server-set value, attacker-supplied value)
+    ("estimate_status", EstimateStatus.PENDING, EstimateStatus.ACCEPTED),
+    # ADR-0102: only the sprint accept/reject services may clear this.
+    ("sprint_pending", True, False),
+    # wbs_path and is_subtask belong in this table too — both are server-managed
+    # with their invariants enforced only at create, and both are still writable on
+    # PATCH. They need create-vs-update asymmetry rather than a read_only_fields
+    # entry, so they are tracked separately: TODO(#2585).
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("field", "server_value", "attacker_value"), SERVER_OWNED_TASK_FIELDS)
+def test_server_owned_task_field_rejects_direct_write(
+    suggest_project: Project,
+    suggest_task: Task,
+    sa_contributor: object,
+    field: str,
+    server_value: object,
+    attacker_value: object,
+) -> None:
+    from django.contrib.auth import get_user_model as _get_user_model
+
+    _u = _get_user_model().objects.get(username="sa_contributor")
+    suggest_task.assignee = _u
+    setattr(suggest_task, field, server_value)
+    suggest_task.save(update_fields=["assignee", field])
+
+    resp = _client(sa_contributor).patch(
+        f"/api/v1/tasks/{suggest_task.pk}/",
+        {field: attacker_value},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+
+    suggest_task.refresh_from_db()
+    assert getattr(suggest_task, field) == server_value, (
+        f"{field} is client-writable: a Member PATCHed it to {attacker_value!r}. "
+        "Add it to TaskSerializer.Meta.read_only_fields."
+    )

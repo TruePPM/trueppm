@@ -90,7 +90,7 @@ The Helm chart (`packages/helm/values.yaml`) ships these defaults:
 - **Bundled PostgreSQL** requests `250m / 1Gi`, limits `2 CPU / 4Gi`, with an 8Gi PVC.
 - **Bundled Valkey** requests `100m / 256Mi`, limits `1 CPU / 1Gi`, with a 2Gi PVC.
 
-The key constraint to understand: uvicorn runs a **single worker per pod** (`packages/api/Dockerfile`, no `--workers` flag), so request throughput scales by **replica count**. Celery concurrency auto-detects the CPU count when left unset.
+The key constraint to understand: uvicorn runs a **single worker per pod** (`packages/api/Dockerfile`, no `--workers` flag), so request throughput scales by **replica count**. Celery concurrency is pinned by the chart at `celeryWorker.concurrency` (default `2`); raise it toward the pod's CPU limit as you scale.
 
 ## Sizing tiers
 
@@ -151,21 +151,21 @@ own pool and PgBouncer is mandatory.
 - **PgBouncer:** **required.** `ATOMIC_REQUESTS=true` + `CONN_MAX_AGE=60` means every
   API and Celery worker holds a Postgres connection; 6 API pods × 3 workers + 4
   Celery pods × 4 will exceed the default `max_connections=100` without pooling.
-- **Celery pinning:** the worker auto-detects concurrency from the node CPU
-  count, which over-allocates on a large shared node and gets OOM-killed. The
-  chart has no dedicated concurrency knob, so pin it by overriding the worker
-  container command to append `--concurrency=4` (matching the pod CPU limit).
+- **Celery pinning:** set `celeryWorker.concurrency: 4` to match the pod CPU
+  limit. The chart pins concurrency for you — it defaults to `2` — so the worker
+  never falls back to Celery's `cpu_count()` default, which reads the *node's*
+  core count rather than the cgroup CPU limit and gets OOM-killed on a large
+  shared node.
 - **Dedicated Celery node pool:** keep reforecast/Monte Carlo CPU bursts off the
   request-serving API pods so a portfolio recompute never starves interactive traffic.
 
 Both profiles slot into the [values reference](/administration/helm-values/) —
 set `replicaCount` / `web.replicaCount`, `resources.*`, the managed-datastore
-`env.DATABASE_URL` / `env.REDIS_URL`, and (for Profile B) the worker command
-override for `--concurrency`.
+`env.DATABASE_URL` / `env.REDIS_URL`, and (for Profile B) `celeryWorker.concurrency`.
 
 ## Bottlenecks, in the order they bite
 
-1. **Celery / Monte Carlo CPU.** The scheduler is the heavy part. A portfolio reforecast or a Monte Carlo run (P50/P80/P95) is a CPU-bound burst. At 100+ concurrent users triggering recalculations, this is the first wall you hit. Scale Celery replicas, and pin `--concurrency` to the pod's CPU limit rather than letting it auto-detect — auto-detect over-allocates and gets OOM-killed (the dev compose file caps it at 2 for exactly this reason).
+1. **Celery / Monte Carlo CPU.** The scheduler is the heavy part. A portfolio reforecast or a Monte Carlo run (P50/P80/P95) is a CPU-bound burst. At 100+ concurrent users triggering recalculations, this is the first wall you hit. Scale Celery replicas, and raise `celeryWorker.concurrency` to match the pod's CPU limit. The chart pins this at `2` by default precisely so it never falls back to Celery's `cpu_count()` auto-detection, which reads the node's cores rather than the cgroup limit, over-allocates, and gets OOM-killed (the dev compose file caps it at 2 for the same reason).
 2. **Single uvicorn worker per pod.** WebSocket collaboration keeps connections open (the Channels capacity of 1500 is fine), but request CPU is a single worker. Add `--workers` (roughly 2× vCPU) or scale replicas before reaching 100 users. **This is the single most important non-default change.**
 3. **Postgres connection ceiling.** `CONN_MAX_AGE=60` and `ATOMIC_REQUESTS=true` mean every request runs inside a transaction and holds a connection. With many API and Celery workers, you approach PostgreSQL's default `max_connections=100` at the 200-user tier — add **PgBouncer** or raise `max_connections`.
 
@@ -176,7 +176,7 @@ These defaults are tuned for evaluation, not scale. At every tier above:
 - The **bundled PostgreSQL and Valkey sub-charts are dev/demo only** — single replica, small PVCs, and a non-persistent Valkey that loses in-flight Celery tasks on restart. Use a **managed PostgreSQL** (RDS, CloudSQL, etc.) and **managed Valkey** (ElastiCache for Valkey, Memorystore for Valkey, etc.) instead. See [Valkey High Availability](/administration/valkey-ha/) for which topologies are supported.
 - **File attachments default to the local filesystem** and are lost on pod restart. Set `TRUEPPM_DEFAULT_FILE_STORAGE` to an S3-compatible or MinIO backend, together with `TRUEPPM_S3_BUCKET_NAME` — see [object storage](/administration/configuration/#object-storage-s3--minio).
 - The **Horizontal Pod Autoscaler is off by default**, not absent. The chart ships an `autoscaling/v2` HPA for the API tier (and optionally the worker tier) behind `autoscaling.enabled`; the defaults scale the API between 2 and 6 replicas at 75% CPU utilization. It is opt-in because an HPA overrides the static `replicaCount` and **requires `metrics-server`** (or a custom metrics adapter) to be installed in the cluster. Without it, scale replicas manually. See the [values reference](/administration/helm-values/) for the full key list.
-- **Autoscale the API tier; keep the worker tier on fixed replicas.** The `--concurrency` pinning advice above and a CPU-utilization HPA are two different answers to the same load, and following both naively double-counts: the HPA adds worker pods while each pod's concurrency is already pinned to its CPU limit, so a Monte Carlo burst can multiply total in-flight tasks well past what the database connection ceiling tolerates. Until worker autoscaling keys off queue depth rather than CPU, the safe posture is `autoscaling.enabled=true` with `autoscaling.worker.enabled=false` — HPA for request-serving traffic, fixed replicas plus pinned concurrency for the CPU-bound queue.
+- **Autoscale the API tier; keep the worker tier on fixed replicas.** The `celeryWorker.concurrency` pinning advice above and a CPU-utilization HPA are two different answers to the same load, and following both naively double-counts: the HPA adds worker pods while each pod's concurrency is already pinned to its CPU limit, so a Monte Carlo burst can multiply total in-flight tasks well past what the database connection ceiling tolerates. Until worker autoscaling keys off queue depth rather than CPU, the safe posture is `autoscaling.enabled=true` with `autoscaling.worker.enabled=false` — HPA for request-serving traffic, fixed replicas plus pinned concurrency for the CPU-bound queue.
 
 ## Per-tier recommendation summary
 

@@ -1,3 +1,175 @@
+{{/*
+Shared pieces of the backup job, defined here rather than in _helpers.tpl
+because nothing outside this file uses them. They sit above the
+backup.enabled guard because a define may not be nested inside a control
+structure.
+
+The job has two shapes:
+
+  s3.enabled: false  one container — dump to the local volume, prune, done.
+  s3.enabled: true   an initContainer dumps (it needs pg_dump, so it runs the
+                     PostgreSQL image) and the main container uploads (it needs
+                     an S3 client, so it runs the uploader image).
+
+The split exists because no single stock image carries both pg_dump and an
+object-storage client: postgres:16-alpine ships pg_dump/pg_isready/psql and
+neither `aws` nor `mc`, which is why the previous single-container job could
+only ever print a note about the bucket instead of writing to it (#2611).
+*/}}
+
+{{- define "trueppm.backup.dumpEnv" -}}
+# DATABASE_URL from the chart-owned connection Secret — the same single
+# credential source of truth the API and worker use, so the backup never
+# carries a second copy of the password.
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "trueppm.urlSecretName" . }}
+      key: DATABASE_URL
+- name: OUTPUT_DIR
+  value: {{ .Values.backup.outputDir | quote }}
+- name: KEEP_DAILY
+  value: {{ .Values.backup.keepDaily | quote }}
+{{- if .Values.backup.mediaDir }}
+- name: MEDIA_DIR
+  value: {{ .Values.backup.mediaDir | quote }}
+{{- end }}
+{{- end -}}
+
+{{- define "trueppm.backup.s3Env" -}}
+- name: OUTPUT_DIR
+  value: {{ .Values.backup.outputDir | quote }}
+- name: S3_BUCKET
+  value: {{ .Values.backup.s3.bucket | quote }}
+- name: S3_ENDPOINT
+  value: {{ .Values.backup.s3.endpoint | quote }}
+- name: S3_PREFIX
+  value: {{ .Values.backup.s3.prefix | quote }}
+- name: AWS_DEFAULT_REGION
+  value: {{ .Values.backup.s3.region | quote }}
+# The AWS CLI writes nothing under a normal `s3 cp`, but it does resolve $HOME
+# to look for ~/.aws. readOnlyRootFilesystem is on and there is no home
+# directory for the non-root UID, so point HOME at the writable scratch mount
+# rather than letting it fall back to "/" and fail on a permission error.
+- name: HOME
+  value: /tmp
+{{- if .Values.backup.s3.existingSecret }}
+- name: AWS_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.backup.s3.existingSecret }}
+      key: AWS_ACCESS_KEY_ID
+- name: AWS_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.backup.s3.existingSecret }}
+      key: AWS_SECRET_ACCESS_KEY
+{{- end }}
+{{- end -}}
+
+{{- define "trueppm.backup.volumeMounts" -}}
+- name: tmp
+  mountPath: /tmp
+- name: backups
+  mountPath: {{ .Values.backup.outputDir | quote }}
+{{- if .Values.backup.mediaDir }}
+{{- with .Values.backup.extraVolumeMounts }}
+{{- toYaml . }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+The dump step. Mirrors scripts/backup.sh (same pg_dump --format=custom, same
+timestamped artifact, same local prune). Kept inline rather than mounting the
+repo-root script because Helm .Files.Get cannot read across the chart boundary
+and the lean application image carries no pg_dump.
+
+It records the artifact path in .last-artifact so the upload container knows
+exactly which file this run produced, rather than re-deriving "newest" and
+racing a concurrent write.
+*/}}
+{{- define "trueppm.backup.dumpCommand" -}}
+- /bin/sh
+- -ec
+- |
+  set -eu
+  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+  ART="${OUTPUT_DIR}/trueppm-backup-${TS}.tar.gz"
+  STAGE="$(mktemp -d /tmp/trueppm-backup.XXXXXX)"
+  trap 'rm -rf "$STAGE"' EXIT
+  mkdir -p "$OUTPUT_DIR"
+  echo "waiting for PostgreSQL..."
+  i=0; until pg_isready -d "$DATABASE_URL" >/dev/null 2>&1; do
+    i=$((i+1)); [ "$i" -ge 30 ] && { echo "postgres not ready"; exit 1; }; sleep 1
+  done
+  echo "dumping database..."
+  pg_dump --format=custom --no-owner --no-privileges \
+    -d "$DATABASE_URL" -f "$STAGE/db.dump"
+  if [ -n "${MEDIA_DIR:-}" ] && [ -d "${MEDIA_DIR}" ]; then
+    echo "archiving media ${MEDIA_DIR}..."
+    tar -czf "$STAGE/media.tar.gz" -C "$MEDIA_DIR" . || true
+  fi
+  {
+    echo "TruePPM backup manifest"
+    echo "created_utc: $TS"
+    echo "pg_dump_version: $(pg_dump --version | head -n1)"
+  } > "$STAGE/MANIFEST"
+  tar -czf "$ART" -C "$STAGE" .
+  echo "backup written: $ART"
+  # Hand the exact artifact path to the upload container (no-op when there
+  # isn't one). Written last so its presence implies a complete artifact.
+  printf '%s' "$ART" > "${OUTPUT_DIR}/.last-artifact"
+  # Retention: keep the KEEP_DAILY newest LOCAL artifacts (names sort
+  # chronologically). No-op when KEEP_DAILY is empty/0. This never touches the
+  # bucket — remote retention is the object store's lifecycle policy.
+  if [ -n "${KEEP_DAILY:-}" ] && [ "${KEEP_DAILY}" -gt 0 ] 2>/dev/null; then
+    ls -1 "$OUTPUT_DIR"/trueppm-backup-*.tar.gz 2>/dev/null | sort -r \
+      | tail -n "+$((KEEP_DAILY + 1))" \
+      | while IFS= read -r f; do echo "pruning $f"; rm -f "$f"; done
+  fi
+{{- end -}}
+
+{{/*
+The upload step. Runs only when backup.s3.enabled, in an image that carries the
+AWS CLI. Path-style addressing is forced whenever a custom endpoint is set,
+because a self-hosted MinIO is normally reached by IP or by a single hostname
+with no wildcard DNS, so virtual-hosted-style requests resolve to nothing.
+
+Credentials are passed as AWS_* environment variables and never assembled into
+a URL: a real 40-char secret key routinely contains "/", "+", and ":", which
+corrupts URL-based credential forms. Same rationale as scripts/lib/s3.sh.
+*/}}
+{{- define "trueppm.backup.uploadCommand" -}}
+- /bin/sh
+- -ec
+- |
+  set -eu
+  # backup.s3.region is optional in values; the CLI still requires a region to
+  # sign with. us-east-1 is what MinIO reports unless reconfigured, and it is
+  # the correct signing region for a bucket whose location is unset.
+  AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+  export AWS_DEFAULT_REGION
+  MARKER="${OUTPUT_DIR}/.last-artifact"
+  [ -f "$MARKER" ] || { echo "no .last-artifact marker — the dump step did not complete"; exit 1; }
+  ART="$(cat "$MARKER")"
+  [ -f "$ART" ] || { echo "artifact named by marker is missing: $ART"; exit 1; }
+  KEY="$(basename "$ART")"
+  if [ -n "${S3_PREFIX:-}" ]; then
+    KEY="$(printf '%s' "$S3_PREFIX" | sed 's#^/*##; s#/*$##')/$KEY"
+  fi
+  if [ -n "${S3_ENDPOINT:-}" ]; then
+    AWS_S3_ADDRESSING_STYLE=path
+    export AWS_S3_ADDRESSING_STYLE
+    set -- --endpoint-url "$S3_ENDPOINT"
+  else
+    set --
+  fi
+  echo "uploading to s3://${S3_BUCKET}/${KEY} ..."
+  aws "$@" s3 cp "$ART" "s3://${S3_BUCKET}/${KEY}"
+  echo "uploaded: s3://${S3_BUCKET}/${KEY}"
+{{- end -}}
+
 {{- if .Values.backup.enabled }}
 {{- if .Values.backup.persistence.enabled }}
 {{- if not .Values.backup.persistence.existingClaim }}
@@ -67,6 +239,39 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
             {{- end }}
+          {{- if .Values.backup.s3.enabled }}
+          # Two-phase: dump in an image that has pg_dump, upload in one that has
+          # an S3 client. An initContainer (rather than a second container) so
+          # the upload cannot start before the artifact exists.
+          initContainers:
+            - name: dump
+              image: "{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
+              imagePullPolicy: {{ .Values.backup.image.pullPolicy }}
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              env:
+                {{- include "trueppm.backup.dumpEnv" . | nindent 16 }}
+              command:
+                {{- include "trueppm.backup.dumpCommand" . | nindent 16 }}
+              volumeMounts:
+                {{- include "trueppm.backup.volumeMounts" . | nindent 16 }}
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+          containers:
+            - name: upload
+              image: "{{ .Values.backup.s3.image.repository }}:{{ .Values.backup.s3.image.tag }}"
+              imagePullPolicy: {{ .Values.backup.s3.image.pullPolicy }}
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              env:
+                {{- include "trueppm.backup.s3Env" . | nindent 16 }}
+              command:
+                {{- include "trueppm.backup.uploadCommand" . | nindent 16 }}
+              volumeMounts:
+                {{- include "trueppm.backup.volumeMounts" . | nindent 16 }}
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+          {{- else }}
           containers:
             - name: backup
               image: "{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
@@ -74,96 +279,12 @@ spec:
               securityContext:
                 {{- toYaml .Values.containerSecurityContext | nindent 16 }}
               env:
-                # DATABASE_URL from the chart-owned connection Secret — the same
-                # single credential source of truth the API and worker use, so the
-                # backup never carries a second copy of the password.
-                - name: DATABASE_URL
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ include "trueppm.urlSecretName" . }}
-                      key: DATABASE_URL
-                - name: OUTPUT_DIR
-                  value: {{ .Values.backup.outputDir | quote }}
-                - name: KEEP_DAILY
-                  value: {{ .Values.backup.keepDaily | quote }}
-                {{- if .Values.backup.mediaDir }}
-                - name: MEDIA_DIR
-                  value: {{ .Values.backup.mediaDir | quote }}
-                {{- end }}
-                {{- if .Values.backup.s3.enabled }}
-                - name: S3_BUCKET
-                  value: {{ .Values.backup.s3.bucket | quote }}
-                - name: S3_ENDPOINT
-                  value: {{ .Values.backup.s3.endpoint | quote }}
-                - name: AWS_DEFAULT_REGION
-                  value: {{ .Values.backup.s3.region | quote }}
-                {{- if .Values.backup.s3.existingSecret }}
-                - name: AWS_ACCESS_KEY_ID
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ .Values.backup.s3.existingSecret }}
-                      key: AWS_ACCESS_KEY_ID
-                - name: AWS_SECRET_ACCESS_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ .Values.backup.s3.existingSecret }}
-                      key: AWS_SECRET_ACCESS_KEY
-                {{- end }}
-                {{- end }}
-              # Inline backup command — mirrors scripts/backup.sh (pg_dump
-              # --format=custom into a single timestamped tarball, then prune to
-              # KEEP_DAILY newest). Kept inline rather than mounting the repo-root
-              # script because Helm .Files.Get cannot read across the chart
-              # boundary and the lean app image carries no pg_dump. Restore is a
-              # manual action with scripts/restore.sh (see the runbook).
+                {{- include "trueppm.backup.dumpEnv" . | nindent 16 }}
               command:
-                - /bin/sh
-                - -ec
-                - |
-                  set -eu
-                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
-                  ART="${OUTPUT_DIR}/trueppm-backup-${TS}.tar.gz"
-                  STAGE="$(mktemp -d /tmp/trueppm-backup.XXXXXX)"
-                  trap 'rm -rf "$STAGE"' EXIT
-                  mkdir -p "$OUTPUT_DIR"
-                  echo "waiting for PostgreSQL..."
-                  i=0; until pg_isready -d "$DATABASE_URL" >/dev/null 2>&1; do
-                    i=$((i+1)); [ "$i" -ge 30 ] && { echo "postgres not ready"; exit 1; }; sleep 1
-                  done
-                  echo "dumping database..."
-                  pg_dump --format=custom --no-owner --no-privileges \
-                    -d "$DATABASE_URL" -f "$STAGE/db.dump"
-                  if [ -n "${MEDIA_DIR:-}" ] && [ -d "${MEDIA_DIR}" ]; then
-                    echo "archiving media ${MEDIA_DIR}..."
-                    tar -czf "$STAGE/media.tar.gz" -C "$MEDIA_DIR" . || true
-                  fi
-                  {
-                    echo "TruePPM backup manifest"
-                    echo "created_utc: $TS"
-                    echo "pg_dump_version: $(pg_dump --version | head -n1)"
-                  } > "$STAGE/MANIFEST"
-                  tar -czf "$ART" -C "$STAGE" .
-                  echo "backup written: $ART"
-                  if [ -n "${S3_BUCKET:-}" ]; then
-                    echo "S3_BUCKET set ($S3_BUCKET) — upload with your object-storage CLI/sidecar; see runbook"
-                  fi
-                  # Retention: keep the KEEP_DAILY newest artifacts (names sort
-                  # chronologically). No-op when KEEP_DAILY is empty/0.
-                  if [ -n "${KEEP_DAILY:-}" ] && [ "${KEEP_DAILY}" -gt 0 ] 2>/dev/null; then
-                    ls -1 "$OUTPUT_DIR"/trueppm-backup-*.tar.gz 2>/dev/null | sort -r \
-                      | tail -n "+$((KEEP_DAILY + 1))" \
-                      | while IFS= read -r f; do echo "pruning $f"; rm -f "$f"; done
-                  fi
+                {{- include "trueppm.backup.dumpCommand" . | nindent 16 }}
               volumeMounts:
-                - name: tmp
-                  mountPath: /tmp
-                - name: backups
-                  mountPath: {{ .Values.backup.outputDir | quote }}
-                {{- if .Values.backup.mediaDir }}
-                {{- with .Values.backup.extraVolumeMounts }}
-                {{- toYaml . | nindent 16 }}
-                {{- end }}
-                {{- end }}
+                {{- include "trueppm.backup.volumeMounts" . | nindent 16 }}
               resources:
                 {{- toYaml .Values.backup.resources | nindent 16 }}
+          {{- end }}
 {{- end }}

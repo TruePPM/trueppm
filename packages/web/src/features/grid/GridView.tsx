@@ -141,6 +141,110 @@ function modeSwitchAnnouncement(next: GridMode, taskCount: number, groupBy: Grid
   return `Switched to grouped mode. Grouped by ${groupBy}.`;
 }
 
+/**
+ * The grid with no tasks at all — distinct from a filter that matched nothing.
+ *
+ * Keeps the toolbar mounted (with its actions inert) so the mode and grouping
+ * controls do not disappear the moment a project is empty; only "Add task"
+ * stays live, which is the one thing there is to do here.
+ */
+function EmptyGridShell({
+  mode,
+  groupBy,
+  agileFeatures,
+  searchDraft,
+  canEdit,
+  projectId,
+  isMobile,
+  showAddForm,
+  addFormParentId,
+  onModeChange,
+  onGroupByChange,
+  onSearchChange,
+  onOpenAddForm,
+  onCloseAddForm,
+}: {
+  mode: GridMode;
+  groupBy: GridGroupBy;
+  agileFeatures: boolean;
+  searchDraft: string;
+  canEdit: boolean;
+  projectId: string | null;
+  isMobile: boolean;
+  showAddForm: boolean;
+  addFormParentId: string | null;
+  onModeChange: (next: GridMode) => void;
+  onGroupByChange: (next: GridGroupBy) => void;
+  onSearchChange: (next: string) => void;
+  onOpenAddForm: () => void;
+  onCloseAddForm: () => void;
+}) {
+  return (
+  <div className="flex flex-col h-full bg-neutral-surface overflow-hidden">
+    <Toolbar
+      mode={mode}
+      onModeChange={onModeChange}
+      groupBy={groupBy}
+      onGroupByChange={onGroupByChange}
+      agileFeatures={agileFeatures}
+      searchDraft={searchDraft}
+      onSearchChange={onSearchChange}
+      filteredCount={0}
+      totalCount={0}
+      deletePhase="idle"
+      selectedSize={0}
+      allSelected={false}
+      onSelectAll={() => {}}
+      onClearSelection={() => {}}
+      onDeleteClick={() => {}}
+      onConfirmDelete={() => {}}
+      onCancelDelete={() => {}}
+      isDeleting={false}
+      onAddTask={onOpenAddForm}
+      onAddChild={() => {}}
+      showAddChild={false}
+      onExpandAll={() => {}}
+      onCollapseAll={() => {}}
+      onCsvExport={() => {}}
+      canExport={false}
+      canEdit={canEdit}
+    />
+    <GridEmptyState onAddTask={projectId && canEdit ? onOpenAddForm : undefined} />
+    <GridAddTaskModal
+      show={showAddForm}
+      projectId={projectId}
+      parentId={addFormParentId}
+      isMobile={isMobile}
+      onClose={onCloseAddForm}
+    />
+  </div>
+  );
+}
+
+/**
+ * "2 owners, 1 status" — the applied facets, for the filter announcement.
+ *
+ * Empty facets are omitted rather than shown as "0 owners": the string is read
+ * aloud to screen-reader users on every filter change, so it names what is
+ * filtering, not what could.
+ */
+function buildFacetSummary(
+  ownerIds: readonly string[],
+  statuses: readonly string[],
+  labelIds: readonly string[],
+): string {
+  const counted = (n: number, singular: string, plural: string) =>
+    n > 0 ? `${n} ${n === 1 ? singular : plural}` : null;
+
+  return [
+    counted(ownerIds.length, 'owner', 'owners'),
+    counted(statuses.length, 'status', 'statuses'),
+    counted(labelIds.length, 'label', 'labels'),
+  ]
+    .filter(Boolean)
+    .join(', ');
+}
+
 export function GridView() {
   const projectId = useProjectId() ?? null;
   const project = useProject(projectId);
@@ -453,15 +557,7 @@ export function GridView() {
   // Below md the popover has nowhere to go on a 428px toolbar, so each trigger
   // opens the same panel body inside a bottom sheet instead.
   const facetPresentation = isMobile ? 'sheet' : 'popover';
-  const facetSummary = [
-    ownerIds.length > 0 ? `${ownerIds.length} owner${ownerIds.length === 1 ? '' : 's'}` : null,
-    statuses.length > 0 ? `${statuses.length} status${statuses.length === 1 ? '' : 'es'}` : null,
-    appliedLabelIds.length > 0
-      ? `${appliedLabelIds.length} label${appliedLabelIds.length === 1 ? '' : 's'}`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(', ');
+  const facetSummary = buildFacetSummary(ownerIds, statuses, appliedLabelIds);
   const announcement = useFilterAnnouncement(
     facetSummary && tasks ? `${filteredCount} of ${tasks.length} rows — ${facetSummary}` : '',
   );
@@ -566,59 +662,28 @@ export function GridView() {
 
   if (tasks.length === 0) {
     return (
-      <div className="flex flex-col h-full bg-neutral-surface overflow-hidden">
-        <Toolbar
-          mode={effectiveMode}
-          onModeChange={handleModeChange}
-          groupBy={groupBy}
-          onGroupByChange={handleGroupByChange}
-          agileFeatures={agileFeatures}
-          searchDraft={searchDraft}
-          onSearchChange={handleSearchChange}
-          filteredCount={0}
-          totalCount={0}
-          deletePhase="idle"
-          selectedSize={0}
-          allSelected={false}
-          onSelectAll={() => {}}
-          onClearSelection={() => {}}
-          onDeleteClick={() => {}}
-          onConfirmDelete={() => {}}
-          onCancelDelete={() => {}}
-          isDeleting={false}
-          onAddTask={() => {
-            setAddFormParentId(null);
-            setShowAddForm(true);
-          }}
-          onAddChild={() => {}}
-          showAddChild={false}
-          onExpandAll={() => {}}
-          onCollapseAll={() => {}}
-          onCsvExport={() => {}}
-          canExport={false}
-          canEdit={canEdit}
-        />
-        <GridEmptyState
-          onAddTask={
-            projectId && canEdit
-              ? () => {
-                  setAddFormParentId(null);
-                  setShowAddForm(true);
-                }
-              : undefined
-          }
-        />
-        <GridAddTaskModal
-          show={showAddForm}
-          projectId={projectId}
-          parentId={addFormParentId}
-          isMobile={isMobile}
-          onClose={() => {
-            setShowAddForm(false);
-            setAddFormParentId(null);
-          }}
-        />
-      </div>
+      <EmptyGridShell
+        mode={effectiveMode}
+        groupBy={groupBy}
+        agileFeatures={agileFeatures}
+        searchDraft={searchDraft}
+        canEdit={canEdit}
+        projectId={projectId}
+        isMobile={isMobile}
+        showAddForm={showAddForm}
+        addFormParentId={addFormParentId}
+        onModeChange={handleModeChange}
+        onGroupByChange={handleGroupByChange}
+        onSearchChange={handleSearchChange}
+        onOpenAddForm={() => {
+          setAddFormParentId(null);
+          setShowAddForm(true);
+        }}
+        onCloseAddForm={() => {
+          setShowAddForm(false);
+          setAddFormParentId(null);
+        }}
+      />
     );
   }
 

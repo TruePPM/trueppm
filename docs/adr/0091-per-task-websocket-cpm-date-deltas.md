@@ -32,7 +32,8 @@ sync protocol (ADR-0082), not a replacement for it.
 Emitted once at the end of `_run_schedule`, immediately after the `bulk_update` commits,
 from the same point that broadcasts `cpm_complete` today. It is built from the
 `tasks_to_update` list already in scope (Django instances whose CPM fields are mutated
-in-memory), so it costs no extra query.
+in-memory), so it costs no extra query. *(Superseded by the amendment below — the
+payload is built from the moved subset of that list, still with no extra query.)*
 
 Broadcast via the existing `broadcast_board_event(project_id, "task_dates_updated", payload)`
 on the `project_{pk}` channel group. Event name uses the snake_case `task_*` family
@@ -72,9 +73,12 @@ remain server-owned and read-only.
 No task array. The client falls back to invalidating `['tasks', projectId]`. This bounds
 the WS frame size on large/full recomputes. `CPM_DELTA_BROADCAST_CAP = 500` (a 500-task
 payload is ≈60 KB; above that the re-fetch is cheaper and simpler than a giant frame).
+*(The ≈60 KB estimate was low — a delta row serializes to ≈264 bytes, so 500 rows is
+≈130 KB. Corrected in the amendment below; the cap value itself is unchanged.)*
 The incremental-CPM path (ADR-0027) already restricts the written set to the affected
 subgraph, so the truncated path is reached only on genuine large/full recomputes — the
-same situation that triggers a full re-fetch today.
+same situation that triggers a full re-fetch today. *(This premise was false in
+practice — see the amendment below.)*
 
 ### 2. Client ownership of the tasks cache moves to the delta event
 The `task_dates_updated` handler in `useProjectWebSocket` becomes the **sole** maintainer
@@ -166,3 +170,77 @@ makes the live path richer.
    identical tier to `cpm_complete`). Justified: the DB is the source of truth and all
    clients have an independent reconciliation path (web refetch, mobile re-derive), so a
    lost frame degrades only latency, never correctness.
+
+## Amendment (2026-07-30, #2573) — the changed set is derived in-process
+
+The payload contract above is unchanged. What changed is where the *changed set*
+comes from.
+
+This ADR specified the payload in terms of the changed set ("delta case, changed-set
+size ≤ cap"), and the truncated-case rationale above assumed ADR-0027's incremental
+CPM would supply that set by restricting the written set to the affected subgraph.
+ADR-0027 has not landed. In its absence the implementation shipped
+`tasks_to_update` — the *full* write-back set — and because a CPM pass re-assigns
+every engine-returned row whether or not its value moved, the changed set was
+effectively the whole project. Every project above `CPM_DELTA_BROADCAST_CAP`
+therefore broadcast `truncated: true` on every recalculation, each connected client
+re-fetched the whole paginated task list, and decision §2's splice path was
+unreachable at the documented envelope — the exact full-re-fetch cost this ADR
+exists to remove.
+
+Until ADR-0027 lands, the changed set is derived in-process instead:
+`_apply_cpm_results` snapshots each row's CPM-owned fields before overwriting them
+and returns a `moved_tasks` subset of rows whose snapshot changed. That subset is
+what `_member_cpm_delta` ships, in both the single-project and program-pass paths,
+so `count` means moved-task count in both the delta and truncated branches as
+specified above.
+
+`tasks_to_update` keeps its original meaning and stays the full set — it drives the
+`bulk_update` write-back and the ADR-0207 schedule-shift activity events, both of
+which must still see every row. The cap and its `truncated` fallback are retained
+unchanged, now sized against the moved set, so they fire only when the recalc genuinely
+moved that many rows — a first-ever pass, a calendar change, a project-start shift, or
+any edit that shifts the project finish (see the residual case below).
+
+The diffed field set is exactly the set the write-back persists (`early_start`,
+`early_finish`, `late_start`, `late_finish`, `total_float`, `free_float`,
+`is_critical`, `duration`). `planned_start` also rides in the payload but is a
+user-owned field the CPM write-back never touches, so it cannot make a row moved; a
+user edit to it arrives on `task_updated`.
+
+When ADR-0027 lands, this derivation becomes redundant rather than wrong — the
+engine would already return only the affected subgraph, and the diff would simply
+find every returned row moved.
+
+Two measurements above were also corrected while verifying this:
+
+- **Payload size.** A delta row serializes to ≈264 bytes (UUID + four ISO dates + two
+  ints + a bool + `planned_start` + `duration`), so the 500-row cap is ≈130 KB rather
+  than the ≈60 KB estimated here. The cap value is left at 500 — the original figure
+  was an estimate, not a budget — but the number is now stated correctly so a future
+  re-sizing argues from the real one.
+- **Residual truncation case (#2598).** The backward pass seeds every task's
+  late-finish constraint from the project finish, so any edit that shifts the project
+  finish shifts `late_start` / `late_finish` / `total_float` across the whole network.
+  Those fields are in the payload, so a **critical-path edit still truncates** on a
+  large project even though almost no bars move (measured: 2,000 of 2,000 rows moved,
+  10 of them early dates). Splitting bar-moving fields from late/float re-anchoring is
+  tracked in #2598; it is a narrowing of this ADR's cost model, not a change to the
+  payload contract.
+
+### Consequence of the narrowing: frames no longer self-repair
+
+Worth stating explicitly, because it is the one property the narrowing gives up.
+Under the old (full write-back set) behavior every frame carried the whole project,
+so a client that missed frame N was fully repaired by frame N+1. A narrowed frame
+carries only what moved in *its* pass, so recovery now depends on ADR-0236 replay
+rather than on the next frame happening to be a superset.
+
+That is a sound trade — replay is wired for this event (`task_dates_updated` is not
+in `DONT_PERSIST_EVENT_TYPES`, and the client seq-gate rejects out-of-order splices)
+— but it has one residual hole: `_persist_board_event` swallows a `DatabaseError`
+and still emits the live frame with `seq: null` and no replay row. Because no seq is
+consumed, a client's `since` cursor stays inside the buffer and no `resync_required`
+fires, so a DB failure *plus* a missed live frame can leave a client silently stale
+until its next refetch, reconnect, or CPM run. Accepted: it needs two independent
+failures, and every affected value is re-derivable from the API.

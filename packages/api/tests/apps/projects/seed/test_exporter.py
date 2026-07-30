@@ -71,7 +71,9 @@ def test_labels_round_trip_through_export_import(owner: Any) -> None:
     assert tblock is not None
 
     # Re-import into a fresh program: the label and its attachment survive.
-    program2 = import_seed(exported, owner=owner, create_users=True)
+    # replace=True: the re-import lands on the same program slug, which now
+    # requires explicit consent (ADR-0726). It is what this call always did.
+    program2 = import_seed(exported, owner=owner, create_users=True, replace=True)
     project2 = program2.projects.get(name=project.name)
     label2 = Label.objects.filter(project=project2, name="Needs Review").first()
     assert label2 is not None
@@ -85,7 +87,7 @@ def test_round_trip_is_stable(owner: Any) -> None:
     program1 = import_seed(_seed(), owner=owner, create_users=True)
     export1 = export_program(program1)
 
-    program2 = import_seed(export1, owner=owner, create_users=True)
+    program2 = import_seed(export1, owner=owner, create_users=True, replace=True)
     export2 = export_program(program2)
 
     assert dump_seed(export1) == dump_seed(export2)
@@ -150,7 +152,7 @@ def test_export_project_round_trip_is_stable(owner: Any) -> None:
     project = program.projects.get(name="Platform Core")
 
     doc1 = export_project(project)
-    program2 = import_seed(doc1, owner=owner, create_users=True)
+    program2 = import_seed(doc1, owner=owner, create_users=True, replace=True)
     project2 = program2.projects.get()
     doc2 = export_project(project2)
 
@@ -201,7 +203,7 @@ def test_calendar_exceptions_round_trip_through_v1(owner: Any) -> None:
     ]
 
     # Re-importing must materialize the exception back onto the calendar.
-    reimported = import_seed(exported, owner=owner, create_users=True)
+    reimported = import_seed(exported, owner=owner, create_users=True, replace=True)
     re_cal = Calendar.objects.get(pk=reimported.projects.get(name="Platform Core").calendar_id)
     assert re_cal.exceptions.count() == 1
 

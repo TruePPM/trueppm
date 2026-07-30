@@ -200,3 +200,50 @@ def test_program_pass_excludes_backlog_and_soft_deleted(calendar: Calendar) -> N
     assert a1.early_start is not None
     assert backlog.early_start is None and backlog.early_finish is None
     assert deleted.early_start is None and deleted.early_finish is None
+
+
+@pytest.mark.django_db
+def test_program_delta_ships_only_moved_tasks_per_member(
+    calendar: Calendar, django_capture_on_commit_callbacks: object
+) -> None:
+    """The program pass must fan out the *moved* subset per member project (#2573).
+
+    The program write-back is deliberately coarse — it re-assigns every member
+    project's tasks on every pass — so building each member's ADR-0091 delta from
+    the write-back set meant a program of P projects sent every subscriber a
+    full-project payload on every pass, and tripped the truncated full-refetch
+    branch on any member above the cap. A second, no-op pass moves nothing, so
+    every member's delta must be empty while ``cpm_complete`` still fires.
+    """
+
+    def _deltas(bcast: object) -> dict[str, dict[str, object]]:
+        return {
+            call.kwargs["project_id"]: call.kwargs["payload"]
+            for call in bcast.call_args_list  # type: ignore[attr-defined]
+            if call.kwargs.get("event_type") == "task_dates_updated"
+        }
+
+    program, proj_a, proj_b, _a1, _b1 = _program(calendar, accepted=True)
+
+    # Warm pass: dates go from unset to computed, so both tasks legitimately move.
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as first,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        _run_program_schedule(str(program.pk))
+    warm = _deltas(first)
+    assert warm[str(proj_a.pk)]["count"] == 1
+    assert warm[str(proj_b.pk)]["count"] == 1
+
+    # No-op re-run: nothing changed, so nothing moved.
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as second,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        _run_program_schedule(str(program.pk))
+    repeat = _deltas(second)
+
+    for pid in (str(proj_a.pk), str(proj_b.pk)):
+        assert repeat[pid]["count"] == 0, f"{pid} re-broadcast unmoved tasks"
+        assert repeat[pid]["tasks"] == []
+        assert "truncated" not in repeat[pid]
