@@ -597,10 +597,11 @@ def test_project_manager_cannot_self_approve_via_bare_patch_either(
     The action is the single audited write path; allowing a privileged PATCH to
     shortcut it would put the same value in the record by an unlogged route. A
     Project Manager (Role.ADMIN) is used here rather than a Resource Manager because
-    Role.SCHEDULER is deliberately read-only on task *content*
-    (IsProjectMemberWriteOrOwn), so a Scheduler PATCH is refused before the
-    serializer is ever consulted and would prove nothing about field-level
-    protection.
+    can_user_edit_task refuses Role.SCHEDULER on task *content* — so a plain
+    Scheduler PATCH is rejected before the serializer is consulted and would prove
+    nothing about field-level protection. (That refusal is not absolute: a Scheduler
+    who also holds the team's Product Owner facet may edit EPIC/STORY tasks, per
+    ADR-0078. Role.ADMIN avoids depending on either branch.)
     """
     pm = _make_user("sa_pm")
     _make_membership(suggest_project, pm, Role.ADMIN)

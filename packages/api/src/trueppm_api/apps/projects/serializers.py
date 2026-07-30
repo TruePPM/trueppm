@@ -4275,9 +4275,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         Estimate governance:
         - If any PERT field is being written and the project is in SUGGEST_APPROVE
-          mode, set estimate_status=pending. There is no role branch here: role
-          gating happens in IsProjectMemberWriteOrOwn, which refuses a Scheduler on
-          task content outright, so a Scheduler never reaches this method by PATCH.
+          mode, set estimate_status=pending. There is no role branch here, and none
+          is needed: this method can only ever write 'pending' or null, so whoever
+          reaches it cannot use it to approve anything.
         - In OPEN or PM_ONLY modes estimate_status is left null (not tracked).
         - estimate_status is never set by this method to 'accepted' — that path goes
           through the dedicated approve-estimates action on TaskViewSet.
@@ -4487,8 +4487,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         (#2570). approve-estimates remains the only path to 'accepted' *over the task
         API*; it writes the model directly and so is unaffected by the read-only
         declaration. The MS Project and seed importers also write 'accepted' directly
-        on the model (ADR-0093 Q4) — they bypass the serializer entirely, and their
-        uploaders are gated to Project Manager and above.
+        on the model (ADR-0093 Q4), bypassing the serializer. Importing into an
+        *existing* project requires Project Manager (msproject/views.py), but the
+        create-from-import and seed-import endpoints require only authentication —
+        what makes them safe is not a role gate but that they only ever create a new
+        project/program on which the caller immediately becomes Owner. Neither can
+        reach an existing task.
         """
         _pert_fields = {"optimistic_duration", "most_likely_duration", "pessimistic_duration"}
         if _pert_fields & set(validated_data):
