@@ -4275,8 +4275,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         Estimate governance:
         - If any PERT field is being written and the project is in SUGGEST_APPROVE
-          mode, set estimate_status=pending (unless the caller is Scheduler+ — that
-          is enforced upstream in the view by calling approve_estimates() instead).
+          mode, set estimate_status=pending. There is no role branch here: role
+          gating happens in IsProjectMemberWriteOrOwn, which refuses a Scheduler on
+          task content outright, so a Scheduler never reaches this method by PATCH.
         - In OPEN or PM_ONLY modes estimate_status is left null (not tracked).
         - estimate_status is never set by this method to 'accepted' — that path goes
           through the dedicated approve-estimates action on TaskViewSet.
@@ -4483,8 +4484,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         that writes the field on the PATCH path. That read-only declaration is the
         enforcement — this hook cannot be, because it fires only when a PERT duration
         is co-written, and a payload carrying estimate_status alone would sail past it
-        (#2570). The approve-estimates action remains the only path to 'accepted'; it
-        writes the model directly and so is unaffected by the read-only declaration.
+        (#2570). approve-estimates remains the only path to 'accepted' *over the task
+        API*; it writes the model directly and so is unaffected by the read-only
+        declaration. The MS Project and seed importers also write 'accepted' directly
+        on the model (ADR-0093 Q4) — they bypass the serializer entirely, and their
+        uploaders are gated to Project Manager and above.
         """
         _pert_fields = {"optimistic_duration", "most_likely_duration", "pessimistic_duration"}
         if _pert_fields & set(validated_data):
