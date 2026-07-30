@@ -95,7 +95,7 @@ run_scan() {
   # ("planned for 0.6", "sequenced for 0.6"). The "In 0.X the …" form is the
   # present-tense framing the regression used ("In 0.2 the reaction allow-list
   # is …").
-  local anchor_re='(shipped in|added in|landed in|introduced in|available in|released in|In) 0\.[0-9]+'
+  local anchor_re='(shipped in|added in|landed in|introduced in|available in|released in|new in|as of|since|In) 0\.[0-9]+'
 
   # Future-tense modal qualifiers — if a matched line also carries one of these,
   # the claim is forward-looking ("In 0.3 My Work will group …") and is allowed.
@@ -137,6 +137,58 @@ run_scan() {
     done <<< "$hits"
   done <<< "$files"
 
+  # ── Front-matter pairing (#2608) ────────────────────────────────────────────
+  #
+  # The regex above can only see a claim that ANCHORS ITSELF to a version. It is
+  # structurally blind to a page describing an unreleased feature in plain
+  # present tense with no version mentioned anywhere — which is what four pages
+  # did while this gate reported clean, telling a 0.3 self-hoster to use a
+  # Share button that did not exist in their install. No regex decides that
+  # question; the page has to say which version it documents.
+  #
+  # So: `documentedFor: "0.X"` in front matter, paired against the roadmap.
+  #   unshipped 0.X  → the page MUST carry a "Ships in 0.X" callout
+  #   shipped   0.X  → it must NOT (a callout left behind after the release is
+  #                    the same lie in the other direction, and is the failure
+  #                    mode a release will actually produce)
+  #
+  # Honest about the limit: this cannot catch a page that documents an
+  # unreleased feature and declares nothing. It converts "did the author pick
+  # the right tense" — unenforceable — into "the author named a version once,
+  # and the banner is guaranteed to match it".
+  local fm_violations=0
+  local declared callout_ver
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    # Read the key only from the front-matter block (line 1 to the closing ---).
+    declared="$(sed -n '1,/^---[[:space:]]*$/{ /^documentedFor:/p; }' "$f" 2>/dev/null \
+      | head -n 1 | sed -E 's/^documentedFor:[[:space:]]*["'"'"']?([0-9]+\.[0-9]+).*/\1/')"
+    # A "Ships in 0.X" callout anywhere on the page, in note or caution form.
+    callout_ver="$(grep -oE ':::(note|caution)\[Ships in 0\.[0-9]+' "$f" 2>/dev/null \
+      | head -n 1 | grep -oE '0\.[0-9]+' || true)"
+
+    if [ -n "$declared" ]; then
+      if [ "$(version_gt "$declared" "$highest")" = "1" ]; then
+        if [ -z "$callout_ver" ]; then
+          echo "VIOLATION: $f declares documentedFor: $declared (unshipped) but carries no \"Ships in $declared\" callout"
+          echo "    A reader on $highest would take this page as describing their install."
+          fm_violations=$((fm_violations + 1))
+        elif [ "$callout_ver" != "$declared" ]; then
+          echo "VIOLATION: $f declares documentedFor: $declared but its callout says \"Ships in $callout_ver\""
+          fm_violations=$((fm_violations + 1))
+        fi
+      elif [ -n "$callout_ver" ]; then
+        echo "VIOLATION: $f carries a \"Ships in $callout_ver\" callout, but documentedFor: $declared has shipped"
+        echo "    Delete the callout — $declared is released, so the banner now misinforms."
+        fm_violations=$((fm_violations + 1))
+      fi
+    elif [ -n "$callout_ver" ] && [ "$(version_gt "$callout_ver" "$highest")" != "1" ]; then
+      echo "VIOLATION: $f carries a \"Ships in $callout_ver\" callout for a version that has shipped"
+      fm_violations=$((fm_violations + 1))
+    fi
+  done <<< "$files"
+  violations=$((violations + fm_violations))
+
   echo ""
   echo "Shipped versions (from roadmap): $(echo "$shipped" | tr '\n' ' ')(highest: $highest)"
   if [ "$violations" -gt 0 ]; then
@@ -144,6 +196,10 @@ run_scan() {
     echo "ERROR: $violations version-tense violation(s) found."
     echo "Past/present-tense version claims must reference a SHIPPED version."
     echo "For unshipped versions use future tense (\"ships in 0.X\", \"lands in 0.X\")."
+    echo ""
+    echo "If a page documents behavior that has not been released, declare it:"
+    echo "  documentedFor: \"0.X\"   in front matter, plus a :::note[Ships in 0.X] callout."
+    echo "Once 0.X ships, delete the callout — the roadmap move is what makes it stale."
     echo "Source of truth: $roadmap"
     return 1
   fi
@@ -203,6 +259,73 @@ MD
   else
     echo "SELF-TEST OK: unshipped past-tense claim correctly rejected."
   fi
+
+  # ── documentedFor pairing (#2608) ──────────────────────────────────────────
+  # These four cases are the whole reason the key exists: none of them mentions
+  # a version in prose, so the regex above sees nothing in any of them. Each
+  # fixture goes in its own directory so one verdict cannot mask another.
+  local case_dir
+  fm_case() { # fm_case <name> <expect-pass|expect-fail> <page-body>
+    case_dir="$tmp/fm-$1"
+    mkdir -p "$case_dir"
+    cp "$docs/overview/roadmap.md" "$case_dir/"
+    printf '%s\n' "$3" > "$case_dir/page.md"
+    if run_scan "$case_dir/roadmap.md" "$case_dir" >/dev/null 2>&1; then
+      if [ "$2" = "expect-pass" ]; then
+        echo "SELF-TEST OK: $1 accepted."
+      else
+        echo "SELF-TEST FAILED: $1 was accepted and should not be." >&2
+        return 1
+      fi
+    else
+      if [ "$2" = "expect-fail" ]; then
+        echo "SELF-TEST OK: $1 correctly rejected."
+      else
+        echo "SELF-TEST FAILED: $1 was rejected and should not be." >&2
+        return 1
+      fi
+    fi
+  }
+
+  # Unshipped (0.3 is Underway in the fixture roadmap) and unbannered — the
+  # exact shape of the four pages this gate reported clean.
+  fm_case "unshipped-without-callout" expect-fail '---
+title: Sharing
+documentedFor: "0.3"
+---
+
+Click **Share** to generate a public link.' || return 1
+
+  fm_case "unshipped-with-callout" expect-pass '---
+title: Sharing
+documentedFor: "0.3"
+---
+
+:::note[Ships in 0.3]
+Not in the latest release.
+:::
+
+Click **Share** to generate a public link.' || return 1
+
+  # The failure a release actually produces: the version ships, the banner stays.
+  fm_case "shipped-with-stale-callout" expect-fail '---
+title: Sharing
+documentedFor: "0.2"
+---
+
+:::note[Ships in 0.2]
+Not in the latest release.
+:::
+
+Click **Share** to generate a public link.' || return 1
+
+  # A page documenting long-shipped behavior needs no key at all.
+  fm_case "no-key-no-callout" expect-pass '---
+title: Sharing
+---
+
+Click **Share** to generate a public link.' || return 1
+
   return 0
 }
 

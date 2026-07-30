@@ -1,11 +1,19 @@
 ---
 title: Baselines
 description: Capture an immutable snapshot of your schedule and compare planned dates against where the project actually stands.
+documentedFor: "0.4"
 ---
 
 A **baseline** is a frozen snapshot of your project's schedule at a point in time. Capture
 one when you commit a plan to stakeholders, then compare it against the live schedule to
 see exactly how far — and which tasks — have drifted.
+:::note[Ships in 0.4]
+The **in-app** capture and management described on this page ships in **TruePPM
+0.4**, the first beta. The latest released version is `v0.3.0-alpha.3`, where
+baselines exist over the REST API only — there is no Actions-menu entry and no
+baseline manager. The API behavior below is unchanged.
+:::
+
 
 ## Capturing and managing baselines in the app
 
