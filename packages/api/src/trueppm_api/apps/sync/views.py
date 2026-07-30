@@ -128,7 +128,9 @@ class ProjectSyncView(IdempotencyMixin, APIView):
 
     The response `timestamp` is snapshotted *before* the delta queries run
     (inside REPEATABLE READ isolation) to eliminate the TOCTOU gap where a
-    write could land between the watermark read and the row queries.
+    write could land between the watermark read and the row queries. It is
+    snapshotted once per *paging session*, not per request: continuation pages
+    echo the value pinned in the cursor (#2568).
 
     Usage:
         GET /api/v1/projects/{pk}/sync/?since=0
@@ -214,7 +216,15 @@ class ProjectSyncView(IdempotencyMixin, APIView):
 
         # Snapshot the high-water mark before running delta queries.
         # Using REPEATABLE READ ensures we don't miss rows written concurrently.
-        timestamp = self._watermark(project)
+        #
+        # One watermark per *session*, not per request (#2568). On a continuation
+        # page the checkpoint is read back off the cursor: recomputing it would
+        # publish a value above rows written mid-drain into a collection the pager
+        # had already passed, and the client adopting the last page's `timestamp`
+        # would filter those rows out of every future pull. Pinning page 1's value
+        # errs the safe way — such rows simply arrive on the next pull, and rows
+        # this drain did deliver above the pin are re-delivered under upsert.
+        timestamp = cursor.watermark if cursor is not None else self._watermark(project)
 
         # Retros are visibility-gated per ADR-0071 §3. A VIEWER on a TEAM_ONLY
         # retro does not receive the retro's raw notes — the sync filters them
@@ -388,6 +398,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             cursor=cursor,
             page_size=page_size,
             collect=self._collect,
+            watermark=timestamp,
             version_field="sync_seq",
         )
 
@@ -773,7 +784,11 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
         # the delta. It is NOT fixed by the project sequence — programs have no
         # single owning row to sequence from, so the accessible-set cursor needs its
         # own design. Tracked in #2498.
-        timestamp = self._watermark(accessible_ids)
+        #
+        # As in ProjectSyncView, the watermark is session state: a continuation page
+        # echoes the cursor's pinned value instead of recomputing one that could sit
+        # above an already-drained collection's mid-drain write (#2568).
+        timestamp = cursor.watermark if cursor is not None else self._watermark(accessible_ids)
 
         # Program rows include soft-deleted ones so a program deleted while the
         # caller is still a member arrives as a tombstone. Memberships cover every
@@ -795,7 +810,11 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
         ]
 
         changes, next_cursor, has_more = paginate_changes(
-            sources, cursor=cursor, page_size=page_size, collect=ProjectSyncView._collect
+            sources,
+            cursor=cursor,
+            page_size=page_size,
+            collect=ProjectSyncView._collect,
+            watermark=timestamp,
         )
 
         return Response(

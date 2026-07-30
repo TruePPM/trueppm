@@ -30,6 +30,16 @@ increases: a row edited mid-pull moves *forward* in ``(version, id)`` order, so 
 not-yet-reached row is delivered later and an already-delivered row is
 re-delivered under WatermelonDB upsert semantics — never lost.
 
+That argument only holds for rows the drain can still *reach*. A row written into
+a collection the cursor has already passed moves forward in a stream nobody is
+reading any more, so the drain cannot deliver it — the client's next ``since``
+has to stay low enough to catch it on the following pull. The watermark is
+therefore a property of the **pull session**, not of the request: it is computed
+once on the first (cursor-less) request, carried in the cursor as ``w``, and
+echoed unchanged on every continuation page (#2568). Recomputing it per request
+published a checkpoint above rows the session never returned, and the client
+adopting the last page's value skipped them permanently.
+
 The field itself is caller-supplied (``version_field``) because the two sync
 endpoints key on different columns: the project pull uses ``sync_seq``, the
 project-scoped replication cursor; the program pull still uses ``server_version``
@@ -70,16 +80,23 @@ class SyncCursor:
     for an *intra-table* cursor (resume strictly after ``(version, row_id)``
     within ``sources[index]``). Keeping the two cases distinct avoids emitting a
     ``id > ''`` predicate that Postgres would reject when casting to ``uuid``.
+
+    ``watermark`` pins the checkpoint the whole drain must report as
+    ``timestamp`` (#2568). It is the session's state, not the page's: the view
+    computes it once on the cursor-less first request and thereafter reads it
+    back off the cursor instead of re-querying, so the client can never adopt a
+    checkpoint above a row the session had already paged past.
     """
 
     index: int
     version: int
     row_id: str | None
+    watermark: int
 
     def encode(self) -> str:
         """Serialize to an opaque, URL-safe token for the response envelope."""
         raw = json.dumps(
-            {"i": self.index, "v": self.version, "id": self.row_id},
+            {"i": self.index, "v": self.version, "id": self.row_id, "w": self.watermark},
             separators=(",", ":"),
         )
         return base64.urlsafe_b64encode(raw.encode()).decode()
@@ -89,7 +106,15 @@ class SyncCursor:
         """Parse a client-supplied cursor token, rejecting anything malformed.
 
         The token is client-controlled, so every field is validated: a tampered
-        or truncated token yields a 400 rather than an unhandled 500.
+        or truncated token yields a 400 rather than an unhandled 500. ``w`` is
+        validated exactly like ``i`` and ``v`` — required, integral, and
+        non-negative — because the view returns it verbatim as the checkpoint the
+        client adopts, which makes a junk value a data-loss vector rather than a
+        cosmetic one.
+
+        A token minted before ``w`` existed carries no such key and is rejected
+        as malformed. That costs a drain straddling the deploy one 400; the
+        client restarts it at the same unchanged ``since`` and loses nothing.
         """
         try:
             raw = base64.urlsafe_b64decode(token.encode())
@@ -97,11 +122,17 @@ class SyncCursor:
             index = int(data["i"])
             version = int(data["v"])
             row_id = data["id"]
+            watermark = int(data["w"])
         except (binascii.Error, ValueError, KeyError, TypeError, UnicodeDecodeError) as err:
             raise ValidationError({"cursor": "Malformed pagination cursor."}) from err
-        if index < 0 or version < 0 or (row_id is not None and not isinstance(row_id, str)):
+        if (
+            index < 0
+            or version < 0
+            or watermark < 0
+            or (row_id is not None and not isinstance(row_id, str))
+        ):
             raise ValidationError({"cursor": "Malformed pagination cursor."})
-        return cls(index=index, version=version, row_id=row_id)
+        return cls(index=index, version=version, row_id=row_id, watermark=watermark)
 
 
 def paginate_changes(
@@ -110,6 +141,7 @@ def paginate_changes(
     cursor: SyncCursor | None,
     page_size: int,
     collect: CollectFn,
+    watermark: int,
     version_field: str = "server_version",
 ) -> tuple[dict[str, Any], SyncCursor | None, bool]:
     """Return one page of the delta: ``(changes, next_cursor, has_more)``.
@@ -128,6 +160,12 @@ def paginate_changes(
     ``version_field`` must be the same column the caller used for its
     ``__gt=since`` floor — mixing the two (ordering on ``sync_seq`` while
     filtering ``server_version``) would page a stream the floor does not bound.
+
+    ``watermark`` is stamped unchanged into every emitted cursor so the caller can
+    read the session checkpoint back off a continuation cursor rather than
+    recomputing it per page (#2568). It is threaded through here, not derived
+    here, because only the caller knows which sequence its ``since`` is drawn
+    from.
     """
     changes: dict[str, Any] = {
         name: {"created": [], "updated": [], "deleted": []} for name, _, _ in sources
@@ -157,13 +195,17 @@ def paginate_changes(
         if has_more_in_source:
             # This collection still has rows; stop with an intra-table cursor.
             last = rows[-1]
-            return changes, SyncCursor(i, getattr(last, version_field), str(last.pk)), True
+            return (
+                changes,
+                SyncCursor(i, getattr(last, version_field), str(last.pk), watermark),
+                True,
+            )
 
         if remaining == 0:
             # Page is exactly full and this collection is drained. Resume at the
             # top of the next collection, or finish if this was the last one.
             if i + 1 < len(sources):
-                return changes, SyncCursor(i + 1, 0, None), True
+                return changes, SyncCursor(i + 1, 0, None, watermark), True
             return changes, None, False
 
     # Every remaining collection drained within the budget — delta exhausted.

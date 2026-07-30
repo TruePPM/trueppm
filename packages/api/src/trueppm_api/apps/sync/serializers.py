@@ -489,7 +489,10 @@ class SyncPullResponseSerializer(serializers.Serializer):  # type: ignore[type-a
     timestamp = serializers.IntegerField(
         help_text=(
             "High-water mark to adopt as `since` once the delta is fully drained "
-            "(after the last page)."
+            "(after the last page). Pinned when the session's first page is served "
+            "and identical on every page of that session, so a row written into an "
+            "already-drained collection mid-drain still falls above the adopted "
+            "checkpoint and arrives on the next pull."
         ),
     )
     next_cursor = serializers.CharField(

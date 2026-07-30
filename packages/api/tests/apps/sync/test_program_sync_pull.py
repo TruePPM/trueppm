@@ -247,6 +247,40 @@ def test_pagination_paths_all_rows(user: object) -> None:
 
 
 @pytest.mark.django_db
+def test_timestamp_is_pinned_for_the_whole_paging_session(user: object) -> None:
+    """`timestamp` is session state here too — it must not move mid-drain (#2568).
+
+    The program slice pages the same cursor as the project slice, so it inherits
+    the same defect: a mid-drain write to an already-drained collection would be
+    filtered out by a checkpoint the session never drained to.
+    """
+    progs = [Program.objects.create(name=f"Q{i}") for i in range(5)]
+    for p in progs:
+        ProgramMembership.objects.create(program=p, user=user, role=Role.VIEWER)
+    c = APIClient()
+    c.force_authenticate(user=user)
+
+    stamps: list[int] = []
+    cursor: str | None = None
+    guard = 0
+    while True:
+        guard += 1
+        assert guard < 50, "pagination did not terminate"
+        q = f"{URL}?page_size=2" + (f"&cursor={cursor}" if cursor else "")
+        body = c.get(q).json()
+        stamps.append(body["timestamp"])
+        # Bump the sequence between pages; a per-request watermark would climb.
+        progs[0].description = f"churn {guard}"
+        progs[0].save()
+        if not body["has_more"]:
+            break
+        cursor = body["next_cursor"]
+
+    assert len(stamps) > 1, "fixture assumption: the delta spans multiple pages"
+    assert len(set(stamps)) == 1, f"timestamp drifted across pages: {stamps}"
+
+
+@pytest.mark.django_db
 def test_missing_uuid_route_is_not_shadowed() -> None:
     """The static /sync/user/programs/ route must not collide with the uuid pk route."""
     # A random uuid under /projects/<uuid>/sync/ 404s; /sync/user/programs/ must 401

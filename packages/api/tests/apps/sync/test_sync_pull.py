@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from datetime import date
 from unittest.mock import patch
 
@@ -492,11 +494,181 @@ def test_sync_malformed_cursor_returns_400(
 
 
 def test_sync_cursor_round_trips() -> None:
-    """The opaque cursor token encodes and decodes losslessly (#1013)."""
-    original = SyncCursor(index=3, version=7, row_id="a1b2c3d4-0000-0000-0000-000000000000")
+    """The opaque cursor token encodes and decodes losslessly (#1013, #2568)."""
+    original = SyncCursor(
+        index=3, version=7, row_id="a1b2c3d4-0000-0000-0000-000000000000", watermark=91
+    )
     assert SyncCursor.decode(original.encode()) == original
-    fresh = SyncCursor(index=2, version=0, row_id=None)
+    fresh = SyncCursor(index=2, version=0, row_id=None, watermark=0)
     assert SyncCursor.decode(fresh.encode()) == fresh
+
+
+# ---------------------------------------------------------------------------
+# Session-pinned watermark (#2568)
+#
+# The checkpoint belongs to the pull *session*, not the request. Recomputing it
+# per page published a value above rows written mid-drain into a collection the
+# pager had already passed; the client adopting the last page's `timestamp`
+# filtered them out of every subsequent pull, losing the edit with no error and
+# no retry path. These tests pin the behaviour at the protocol boundary.
+# ---------------------------------------------------------------------------
+
+
+def _decode_token(token: str) -> dict[str, object]:
+    """Decode a cursor token back to its raw JSON payload (test-only introspection)."""
+    return dict(json.loads(base64.urlsafe_b64decode(token.encode())))
+
+
+def _encode_token(payload: dict[str, object]) -> str:
+    """Encode a raw payload as a cursor token, bypassing SyncCursor's validation."""
+    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+
+
+@pytest.mark.django_db
+def test_sync_mid_drain_write_to_drained_collection_is_not_skipped(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """A row written into an already-drained collection survives the drain (#2568).
+
+    ``projects`` is collection index 0, so it is fully drained by page 1. Editing
+    the project between page 1 and the last page writes a row the session can no
+    longer reach. If the final page reported a freshly recomputed watermark, the
+    client would adopt a checkpoint at or above that row's ``sync_seq`` and the
+    edit would never be delivered again.
+    """
+    _seed_tasks(project, 40, sync_seq=1)
+
+    # Page 1: drains `projects` (1 row) and starts on `tasks`.
+    first = authed_client.get(_url(project), {"since": "0", "page_size": "5"})
+    assert first.status_code == 200
+    assert first.data["has_more"] is True
+    pinned = first.data["timestamp"]
+    delivered_projects = {r["id"] for r in first.data["changes"]["projects"]["updated"]}
+    assert str(project.pk) in delivered_projects, "fixture assumption: projects drained on page 1"
+
+    # Mid-drain write into the already-drained collection.
+    project.name = "Renamed mid-drain"
+    project.save()
+    project.refresh_from_db()
+    assert project.sync_seq > pinned, "fixture assumption: the edit lands above the pin"
+
+    # Drain the rest of the session.
+    cursor = first.data["next_cursor"]
+    last_body = dict(first.data)
+    while cursor is not None:
+        resp = authed_client.get(_url(project), {"since": "0", "page_size": "5", "cursor": cursor})
+        assert resp.status_code == 200, resp.data
+        last_body = dict(resp.data)
+        cursor = resp.data["next_cursor"]
+
+    adopted = last_body["timestamp"]
+    assert adopted == pinned, "the session published a checkpoint it never drained to"
+
+    # The whole point: the next pull still delivers the mid-drain edit.
+    nxt = authed_client.get(_url(project), {"since": str(adopted), "page_size": "500"})
+    assert nxt.status_code == 200
+    redelivered = {r["id"] for r in nxt.data["changes"]["projects"]["updated"]}
+    assert str(project.pk) in redelivered, "mid-drain edit was lost — #2568 regression"
+
+
+@pytest.mark.django_db
+def test_sync_timestamp_is_identical_on_every_page_of_one_drain(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """`timestamp` never moves within a paging session, even under concurrent writes."""
+    _seed_tasks(project, 60, sync_seq=1)
+
+    pages: list[object] = []
+    cursor: str | None = None
+    while True:
+        params = {"since": "0", "page_size": "7"}
+        if cursor is not None:
+            params["cursor"] = cursor
+        resp = authed_client.get(_url(project), params)
+        assert resp.status_code == 200, resp.data
+        pages.append(resp.data["timestamp"])
+        # Bump the project sequence between every pair of pages; a per-request
+        # watermark would climb with it.
+        project.name = f"Churn {len(pages)}"
+        project.save()
+        cursor = resp.data["next_cursor"]
+        if not resp.data["has_more"]:
+            break
+
+    assert len(pages) > 1, "fixture assumption: the delta spans multiple pages"
+    assert len(set(pages)) == 1, f"timestamp drifted across pages: {pages}"
+
+
+@pytest.mark.django_db
+def test_sync_cursor_pins_watermark_in_the_token(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """The emitted continuation token carries the session watermark as `w` (#2568)."""
+    _seed_tasks(project, 20, sync_seq=1)
+    resp = authed_client.get(_url(project), {"since": "0", "page_size": "3"})
+    assert resp.data["has_more"] is True
+    payload = _decode_token(resp.data["next_cursor"])
+    assert payload["w"] == resp.data["timestamp"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "bad_w",
+    [
+        pytest.param(-1, id="negative"),
+        pytest.param("not-an-int", id="non-numeric-string"),
+        pytest.param(None, id="null"),
+        pytest.param({"nested": 1}, id="object"),
+    ],
+)
+def test_sync_cursor_with_bad_watermark_returns_400(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+    bad_w: object,
+) -> None:
+    """A tampered `w` is rejected as malformed, not crashed on (#2568).
+
+    ``w`` is echoed straight back as the checkpoint the client adopts, so an
+    unvalidated value is a data-loss vector — it gets the same strict treatment
+    as ``i`` and ``v``.
+    """
+    _seed_tasks(project, 20, sync_seq=1)
+    first = authed_client.get(_url(project), {"since": "0", "page_size": "3"})
+    payload = _decode_token(first.data["next_cursor"])
+    payload["w"] = bad_w
+    resp = authed_client.get(
+        _url(project), {"since": "0", "page_size": "3", "cursor": _encode_token(payload)}
+    )
+    assert resp.status_code == 400, resp.data
+
+
+@pytest.mark.django_db
+def test_sync_cursor_without_watermark_field_returns_400(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """A truncated token missing `w` entirely is malformed — 400, never 500 (#2568).
+
+    This is also the shape of a token minted by a pre-#2568 server, so a drain
+    straddling the deploy restarts at its unchanged `since` rather than adopting
+    an unpinned checkpoint.
+    """
+    _seed_tasks(project, 20, sync_seq=1)
+    first = authed_client.get(_url(project), {"since": "0", "page_size": "3"})
+    payload = _decode_token(first.data["next_cursor"])
+    del payload["w"]
+    resp = authed_client.get(
+        _url(project), {"since": "0", "page_size": "3", "cursor": _encode_token(payload)}
+    )
+    assert resp.status_code == 400, resp.data
 
 
 @pytest.mark.django_db
