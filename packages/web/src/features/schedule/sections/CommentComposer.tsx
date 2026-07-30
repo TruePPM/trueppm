@@ -40,22 +40,64 @@ function findActiveMentionToken(
   let i = caret - 1;
   while (i >= 0) {
     const ch = body[i];
-    if (ch === '@') {
-      // Must be at the start of the body OR follow whitespace; \@ is an escape
-      const prev = i > 0 ? body[i - 1] : '';
-      if (prev === '\\') return null;
-      if (i === 0 || /\s/.test(prev)) {
-        return { start: i, query: body.slice(i + 1, caret) };
-      }
-      return null;
-    }
-    // Whitespace or punctuation that can't be inside a username/groupkey
-    // breaks the token.
-    if (/\s/.test(ch)) return null;
+    if (ch === '@') return tokenStartingAt(body, i, caret);
+    // Anything that cannot appear inside a username/groupkey ends the scan.
+    // Whitespace is covered by this test too — it is outside the class.
     if (!/[A-Za-z0-9_.-]/.test(ch)) return null;
     i--;
   }
   return null;
+}
+
+/**
+ * Resolve an `@` found at `i` into a token, or reject it.
+ *
+ * An `@` only opens a mention at the very start of the body or after
+ * whitespace — `foo@bar` is an email, not a mention — and `\@` is an explicit
+ * escape.
+ */
+function tokenStartingAt(
+  body: string,
+  i: number,
+  caret: number,
+): { start: number; query: string } | null {
+  const prev = i > 0 ? body[i - 1] : '';
+  if (prev === '\\') return null;
+  if (i === 0 || /\s/.test(prev)) return { start: i, query: body.slice(i + 1, caret) };
+  return null;
+}
+
+/**
+ * Arrow/Enter navigation inside an open suggestion list. Returns true when the
+ * key was consumed, so the caller can stop before its own bindings.
+ *
+ * Only reached while a token is active and there is something to navigate —
+ * with no popover open these keys must keep their native textarea behavior.
+ */
+function handleSuggestionNav(
+  e: KeyboardEvent<HTMLTextAreaElement>,
+  suggestions: MentionSuggestion[],
+  highlightIndex: number,
+  setHighlightIndex: (next: (i: number) => number) => void,
+  onChoose: (suggestion: MentionSuggestion) => void,
+): boolean {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    setHighlightIndex((i) => Math.min(i + 1, suggestions.length - 1));
+    return true;
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    setHighlightIndex((i) => Math.max(i - 1, 0));
+    return true;
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    const chosen = suggestions[highlightIndex];
+    if (chosen && !chosen.disabled) onChoose(chosen);
+    return true;
+  }
+  return false;
 }
 
 interface Props {
@@ -177,23 +219,12 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
       return;
     }
     // Arrow / Enter navigation — only when there are suggestions to navigate.
-    if (activeToken && suggestions.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setHighlightIndex((i) => Math.min(i + 1, suggestions.length - 1));
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setHighlightIndex((i) => Math.max(i - 1, 0));
-        return;
-      }
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        const chosen = suggestions[highlightIndex];
-        if (chosen && !chosen.disabled) insertSuggestion(chosen);
-        return;
-      }
+    if (
+      activeToken &&
+      suggestions.length > 0 &&
+      handleSuggestionNav(e, suggestions, highlightIndex, setHighlightIndex, insertSuggestion)
+    ) {
+      return;
     }
     // Cmd/Ctrl+Enter submits
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canSubmit) {

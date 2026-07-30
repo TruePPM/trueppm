@@ -283,29 +283,66 @@ export function runCpmForwardPass(
   const order = topologicalSort(tasks, edges, inDegree);
 
   // --- Forward pass ---
+  relaxForward(order, stateMap, predecessors, draggedTaskId);
+
+  // --- Collect results ---
+  return collectResults(stateMap);
+}
+
+/**
+ * Push each task forward to the latest date its predecessors allow, in
+ * topological order (so every predecessor is final before its successors are
+ * read). Mutates `stateMap` in place.
+ *
+ * The dragged task is skipped: its start is the user's input, not something the
+ * network derives.
+ */
+function relaxForward(
+  order: string[],
+  stateMap: Map<string, TaskState>,
+  predecessors: Map<string, CpmEdge[]>,
+  draggedTaskId: string,
+): void {
   for (const taskId of order) {
-    if (taskId === draggedTaskId) continue; // Already set above.
+    if (taskId === draggedTaskId) continue; // Already set by the caller.
     const task = stateMap.get(taskId);
     if (!task) continue;
 
     const preds = predecessors.get(taskId) ?? [];
     if (preds.length === 0) continue; // No predecessors — keep original dates.
 
-    let maxEarlyStart = -Infinity;
-    for (const edge of preds) {
-      const source = stateMap.get(edge.sourceId);
-      if (!source) continue;
-      const constraint = constraintFromEdge(edge, source, task);
-      if (constraint > maxEarlyStart) maxEarlyStart = constraint;
-    }
-
+    const maxEarlyStart = latestConstraint(preds, stateMap, task);
     if (maxEarlyStart > task.earlyStartMs) {
       task.earlyStartMs = maxEarlyStart;
       task.earlyFinishMs = finishFromStart(maxEarlyStart, task.durationDays);
     }
   }
+}
 
-  // --- Collect results ---
+/** The binding predecessor constraint, or -Infinity when none applies. */
+function latestConstraint(
+  preds: CpmEdge[],
+  stateMap: Map<string, TaskState>,
+  task: TaskState,
+): number {
+  let maxEarlyStart = -Infinity;
+  for (const edge of preds) {
+    const source = stateMap.get(edge.sourceId);
+    if (!source) continue;
+    const constraint = constraintFromEdge(edge, source, task);
+    if (constraint > maxEarlyStart) maxEarlyStart = constraint;
+  }
+  return maxEarlyStart;
+}
+
+/**
+ * Turn the relaxed state map into the preview payload, and pick the milestone
+ * that slipped furthest — the one headline the drag overlay shows.
+ */
+function collectResults(stateMap: Map<string, TaskState>): {
+  results: PreviewTaskResult[];
+  worstMilestone: PreviewMilestone | null;
+} {
   const results: PreviewTaskResult[] = [];
   let worstMilestone: PreviewMilestone | null = null;
   let worstDelta = 0;

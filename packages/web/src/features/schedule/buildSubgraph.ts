@@ -30,7 +30,12 @@ export function buildSubgraph(
     outgoing.get(link.sourceId)?.push(link);
   }
 
-  // BFS to collect reachable task ids
+  const visited = reachableFrom(startTaskId, outgoing);
+  return { tasks: toCpmTasks(visited, taskIndex), edges: internalEdges(links, visited) };
+}
+
+/** Every task id reachable downstream of `startTaskId`, including itself. */
+function reachableFrom(startTaskId: string, outgoing: Map<string, TaskLink[]>): Set<string> {
   const visited = new Set<string>();
   const queue: string[] = [startTaskId];
 
@@ -39,13 +44,17 @@ export function buildSubgraph(
     if (visited.has(id)) continue;
     visited.add(id);
     for (const link of outgoing.get(id) ?? []) {
-      if (!visited.has(link.targetId)) {
-        queue.push(link.targetId);
-      }
+      if (!visited.has(link.targetId)) queue.push(link.targetId);
     }
   }
+  return visited;
+}
 
-  // Collect edges that are internal to the subgraph
+/**
+ * Links with both endpoints inside the subgraph. A link that leaves the
+ * subgraph imposes nothing on the preview, since its target is not recomputed.
+ */
+function internalEdges(links: TaskLink[], visited: Set<string>): CpmEdge[] {
   const edges: CpmEdge[] = [];
   for (const link of links) {
     if (visited.has(link.sourceId) && visited.has(link.targetId)) {
@@ -57,8 +66,11 @@ export function buildSubgraph(
       });
     }
   }
+  return edges;
+}
 
-  // Collect CpmTask shapes for visited tasks
+/** Project the visited tasks into the shape the preview engine consumes. */
+function toCpmTasks(visited: Set<string>, taskIndex: Map<string, Task>): CpmTask[] {
   const cpmTasks: CpmTask[] = [];
   for (const id of visited) {
     const t = taskIndex.get(id);
@@ -82,6 +94,5 @@ export function buildSubgraph(
       name: t.name,
     });
   }
-
-  return { tasks: cpmTasks, edges };
+  return cpmTasks;
 }

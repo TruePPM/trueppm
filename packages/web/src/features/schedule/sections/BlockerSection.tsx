@@ -21,6 +21,7 @@ import {
   useBlockerSyncedSignal,
 } from '@/features/blocker/offline/blockerOutboxStore';
 import { BlockerPendingBadge } from '@/features/blocker/BlockerPendingBadge';
+import type { BlockerOpKind } from '@/features/blocker/offline/blockerQueue';
 import { useDrawerSectionStore } from '@/stores/drawerSectionStore';
 
 const LABEL_CLASS =
@@ -29,6 +30,51 @@ const CONTROL_CLASS =
   'w-full rounded-control border border-neutral-border bg-neutral-surface px-3 py-2 ' +
   'text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
+
+/**
+ * The team-visible blocker signals: badge, type, age, who flagged it.
+ *
+ * Rendered identically in the read-only and editor views — it is the summary
+ * everyone on the project can see, as distinct from the reason, which is
+ * private to the assignee and anyone they @mentioned.
+ */
+function BlockerSignalChips({
+  blockerType,
+  age,
+  blockedBy,
+  freshQueuedFlag = false,
+  pendingOp = null,
+}: {
+  blockerType?: string | null;
+  age: string | null;
+  blockedBy?: { id: string; username: string } | null;
+  /** Offline flag not yet acknowledged, so there is no server-stamped age. */
+  freshQueuedFlag?: boolean;
+  pendingOp?: { kind: BlockerOpKind } | null;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="inline-flex items-center rounded-chip bg-semantic-at-risk-bg px-2 py-0.5 text-xs font-medium text-semantic-at-risk">
+        Blocked
+      </span>
+      {blockerType && (
+        <span className="inline-flex items-center rounded-chip bg-neutral-surface-sunken px-2 py-0.5 text-xs text-neutral-text-secondary">
+          {blockerTypeLabel(blockerType)}
+        </span>
+      )}
+      {freshQueuedFlag ? (
+        // No server-stamped age yet — the pending badge carries the sync state.
+        <span className="text-xs text-neutral-text-secondary">queued</span>
+      ) : (
+        age && <span className="tppm-mono text-xs text-neutral-text-secondary">{age}</span>
+      )}
+      {blockedBy && (
+        <span className="text-xs text-neutral-text-secondary">flagged by {blockedBy.username}</span>
+      )}
+      {pendingOp && <BlockerPendingBadge kind={pendingOp.kind} compact />}
+    </div>
+  );
+}
 
 /**
  * Blocker — the human "I'm stuck" flag (ADR-0124), distinct from the
@@ -259,22 +305,11 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
           <span className="text-sm text-neutral-text-secondary">Not blocked</span>
         ) : (
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="inline-flex items-center rounded-chip bg-semantic-at-risk-bg px-2 py-0.5 text-xs font-medium text-semantic-at-risk">
-                Blocked
-              </span>
-              {task.blockerType && (
-                <span className="inline-flex items-center rounded-chip bg-neutral-surface-sunken px-2 py-0.5 text-xs text-neutral-text-secondary">
-                  {blockerTypeLabel(task.blockerType)}
-                </span>
-              )}
-              {age && <span className="tppm-mono text-xs text-neutral-text-secondary">{age}</span>}
-              {task.blockedBy && (
-                <span className="text-xs text-neutral-text-secondary">
-                  flagged by {task.blockedBy.username}
-                </span>
-              )}
-            </div>
+            <BlockerSignalChips
+              blockerType={task.blockerType}
+              age={age}
+              blockedBy={task.blockedBy}
+            />
 
             {canReadReason ? (
               <div>
@@ -377,28 +412,13 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
       ) : (
         <div className="space-y-4">
           {/* Read-only flag summary — team-visible signals */}
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="inline-flex items-center rounded-chip bg-semantic-at-risk-bg px-2 py-0.5 text-xs font-medium text-semantic-at-risk">
-              Blocked
-            </span>
-            {task.blockerType && (
-              <span className="inline-flex items-center rounded-chip bg-neutral-surface-sunken px-2 py-0.5 text-xs text-neutral-text-secondary">
-                {blockerTypeLabel(task.blockerType)}
-              </span>
-            )}
-            {freshQueuedFlag ? (
-              // No server-stamped age yet — the pending badge carries the sync state.
-              <span className="text-xs text-neutral-text-secondary">queued</span>
-            ) : (
-              age && <span className="tppm-mono text-xs text-neutral-text-secondary">{age}</span>
-            )}
-            {task.blockedBy && (
-              <span className="text-xs text-neutral-text-secondary">
-                flagged by {task.blockedBy.username}
-              </span>
-            )}
-            {pendingOp && <BlockerPendingBadge kind={pendingOp.kind} compact />}
-          </div>
+          <BlockerSignalChips
+            blockerType={task.blockerType}
+            age={age}
+            blockedBy={task.blockedBy}
+            freshQueuedFlag={freshQueuedFlag}
+            pendingOp={pendingOp}
+          />
 
           {/* Reason — editable for the assignee/@mentioned, private notice otherwise */}
           {canReadReason ? (

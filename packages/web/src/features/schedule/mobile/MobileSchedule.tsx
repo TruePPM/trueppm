@@ -16,6 +16,7 @@ import {
   markerLeftPct,
   todayLeftPct,
   wbsDepth,
+  type BarGeometry,
   type ScheduleWindow,
 } from './mobileScheduleGeometry';
 
@@ -191,6 +192,141 @@ interface RowProps {
   completeDisabled: boolean;
 }
 
+/**
+ * The 44px complete checkbox, or a same-width spacer when the viewer cannot
+ * complete the task — the spacer keeps every row's line-1 grid aligned whether
+ * or not the control is there.
+ */
+function CompleteToggle({
+  taskName,
+  isComplete,
+  canComplete,
+  completeDisabled,
+  justCompleted,
+  setJustCompleted,
+  onComplete,
+}: {
+  taskName: string;
+  isComplete: boolean;
+  canComplete: boolean;
+  completeDisabled: boolean;
+  justCompleted: boolean;
+  setJustCompleted: (next: boolean) => void;
+  onComplete: () => void;
+}) {
+  if (!canComplete) return <span aria-hidden="true" className="w-11 shrink-0" />;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setJustCompleted(true);
+        onComplete();
+      }}
+      disabled={isComplete || completeDisabled}
+      aria-pressed={isComplete}
+      aria-label={isComplete ? `${taskName} is complete` : `Mark ${taskName} complete`}
+      className="pointer-events-auto relative z-10 grid h-11 w-11 shrink-0 place-items-center rounded-control
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+        disabled:cursor-default"
+    >
+      <span
+        onAnimationEnd={() => setJustCompleted(false)}
+        className={[
+          'grid h-[18px] w-[18px] place-items-center rounded-[5px] border-[1.5px] text-xs leading-none',
+          isComplete
+            ? 'border-brand-primary bg-brand-primary text-neutral-text-inverse'
+            : 'border-neutral-border text-transparent',
+          justCompleted ? 'motion-safe:animate-checkpop' : '',
+        ].join(' ')}
+      >
+        <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Line 2 of a row — the shared-scale mini-timeline.
+ *
+ * Three distinct marks, not three styles of one: a milestone is a diamond at a
+ * point, a summary group is a thin un-filled span, and a leaf task is a track
+ * that also carries progress fill and the today line. All three share the
+ * window's scale so rows are comparable down the list.
+ */
+function MiniTimelineTrack({
+  isMilestone,
+  isGroup,
+  marker,
+  geom,
+  today,
+  isCritical,
+  isComplete,
+  progress,
+}: {
+  isMilestone: boolean;
+  /** `isSummary || isPhase`; both are optional upstream, hence the undefined. */
+  isGroup: boolean | undefined;
+  marker: number;
+  geom: BarGeometry;
+  today: number | null;
+  isCritical: boolean;
+  isComplete: boolean;
+  progress: number;
+}) {
+  if (isMilestone) {
+    return (
+      <div className="relative h-3 flex-1">
+        <span
+          aria-hidden="true"
+          style={{ left: `${marker}%` }}
+          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] bg-brand-accent"
+        />
+      </div>
+    );
+  }
+  if (isGroup) {
+    return (
+      <div className="relative h-1.5 flex-1">
+        <span
+          aria-hidden="true"
+          style={{ left: `${geom.leftPct}%`, width: `${geom.widthPct}%` }}
+          className="absolute inset-y-0 rounded-full bg-neutral-border"
+        />
+      </div>
+    );
+  }
+  return (
+    <div
+      aria-hidden="true"
+      className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-neutral-surface-sunken"
+    >
+      <div
+        style={{ left: `${geom.leftPct}%`, width: `${geom.widthPct}%` }}
+        className={`absolute inset-y-0 rounded-full bg-brand-primary/25 ring-1 ring-inset ${
+          isCritical ? 'ring-semantic-critical' : 'ring-brand-primary/30'
+        }`}
+      >
+        {progress > 0 && (
+          <div
+            style={{ width: `${Math.min(progress, 100)}%` }}
+            className={`absolute inset-y-0 left-0 rounded-full ${
+              isComplete ? 'bg-semantic-on-track' : 'bg-brand-primary'
+            }`}
+          />
+        )}
+      </div>
+      {today !== null && (
+        <span
+          aria-hidden="true"
+          style={{ left: `${today}%` }}
+          className="absolute inset-y-0 w-[1.5px] bg-semantic-at-risk opacity-60"
+        />
+      )}
+    </div>
+  );
+}
+
 function MobileScheduleRow({ task, window, onOpen, onComplete, completeDisabled }: RowProps) {
   const [justCompleted, setJustCompleted] = useState(false);
   const isGroup = task.isSummary || task.isPhase;
@@ -265,88 +401,29 @@ function MobileScheduleRow({ task, window, onOpen, onComplete, completeDisabled 
           <span className="tppm-mono hidden shrink-0 text-xs text-neutral-text-secondary min-[360px]:inline">
             {datesText}
           </span>
-          {canComplete ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setJustCompleted(true);
-                onComplete();
-              }}
-              disabled={task.isComplete || completeDisabled}
-              aria-pressed={task.isComplete}
-              aria-label={
-                task.isComplete ? `${task.name} is complete` : `Mark ${task.name} complete`
-              }
-              className="pointer-events-auto relative z-10 grid h-11 w-11 shrink-0 place-items-center rounded-control
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                disabled:cursor-default"
-            >
-              <span
-                onAnimationEnd={() => setJustCompleted(false)}
-                className={[
-                  'grid h-[18px] w-[18px] place-items-center rounded-[5px] border-[1.5px] text-xs leading-none',
-                  task.isComplete
-                    ? 'border-brand-primary bg-brand-primary text-neutral-text-inverse'
-                    : 'border-neutral-border text-transparent',
-                  justCompleted ? 'motion-safe:animate-checkpop' : '',
-                ].join(' ')}
-              >
-                <CheckIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
-              </span>
-            </button>
-          ) : (
-            <span aria-hidden="true" className="w-11 shrink-0" />
-          )}
+          <CompleteToggle
+            taskName={task.name}
+            isComplete={task.isComplete}
+            canComplete={canComplete}
+            completeDisabled={completeDisabled}
+            justCompleted={justCompleted}
+            setJustCompleted={setJustCompleted}
+            onComplete={onComplete}
+          />
         </div>
 
         {/* Line 2 — the shared-scale mini-timeline */}
         <div className="flex w-full items-center gap-2 pr-11">
-          {isMilestone ? (
-            <div className="relative h-3 flex-1">
-              <span
-                aria-hidden="true"
-                style={{ left: `${marker}%` }}
-                className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] bg-brand-accent"
-              />
-            </div>
-          ) : isGroup ? (
-            <div className="relative h-1.5 flex-1">
-              <span
-                aria-hidden="true"
-                style={{ left: `${geom.leftPct}%`, width: `${geom.widthPct}%` }}
-                className="absolute inset-y-0 rounded-full bg-neutral-border"
-              />
-            </div>
-          ) : (
-            <div
-              aria-hidden="true"
-              className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-neutral-surface-sunken"
-            >
-              <div
-                style={{ left: `${geom.leftPct}%`, width: `${geom.widthPct}%` }}
-                className={`absolute inset-y-0 rounded-full bg-brand-primary/25 ring-1 ring-inset ${
-                  task.isCritical ? 'ring-semantic-critical' : 'ring-brand-primary/30'
-                }`}
-              >
-                {task.progress > 0 && (
-                  <div
-                    style={{ width: `${Math.min(task.progress, 100)}%` }}
-                    className={`absolute inset-y-0 left-0 rounded-full ${
-                      task.isComplete ? 'bg-semantic-on-track' : 'bg-brand-primary'
-                    }`}
-                  />
-                )}
-              </div>
-              {today !== null && (
-                <span
-                  aria-hidden="true"
-                  style={{ left: `${today}%` }}
-                  className="absolute inset-y-0 w-[1.5px] bg-semantic-at-risk opacity-60"
-                />
-              )}
-            </div>
-          )}
+          <MiniTimelineTrack
+            isMilestone={isMilestone}
+            isGroup={isGroup}
+            marker={marker}
+            geom={geom}
+            today={today}
+            isCritical={task.isCritical}
+            isComplete={task.isComplete}
+            progress={task.progress}
+          />
           {!isMilestone && !isGroup && task.progress > 0 && (
             <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
               {Math.round(task.progress)}%

@@ -125,6 +125,22 @@ function buildPrintScale(startIso: string, finishIso: string, chartW: number): G
 }
 
 /** Week-boundary gridline X positions across the scale (every 7 days from start). */
+/**
+ * X for the data-date line, or null when it should not be drawn.
+ *
+ * Null covers both "no data date" and "the data date falls outside the printed
+ * span" — a line rendered off-chart would either clip to an edge and read as a
+ * date it is not, or draw outside the plot area entirely.
+ */
+function visibleDataDateX(
+  layout: { scales: GanttScaleData; chartW: number } | null,
+  dataDate: string | null | undefined,
+): number | null {
+  if (!layout || !dataDate) return null;
+  const x = dateToLeft(dataDate, layout.scales);
+  return x >= 0 && x <= layout.chartW ? x : null;
+}
+
 function weekGridlines(scales: GanttScaleData): number[] {
   const xs: number[] = [];
   const startMs = scales.start.getTime();
@@ -238,13 +254,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
       perSourceCount.set(l.fromId, n + 1);
     }
 
-    const dataDateX =
-      layout && dataDate
-        ? (() => {
-            const x = dateToLeft(dataDate, layout.scales);
-            return x >= 0 && x <= layout.chartW ? x : null;
-          })()
-        : null;
+    const dataDateX = visibleDataDateX(layout, dataDate);
 
     // Right end for an overdue overrun tail: the data-date line clamped into the
     // chart, or the chart edge when the data date sits past the visible span. An
@@ -254,6 +264,21 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
       layout && dataDate
         ? Math.max(0, Math.min(dateToLeft(dataDate, layout.scales), layout.chartW))
         : (layout?.chartW ?? 0);
+
+    // Measurement hooks the print E2E specs assert on. Gated behind a single
+    // `layout` test rather than one ternary per attribute: they are all
+    // meaningless until layout resolves, so they appear and disappear together.
+    const printMetricAttrs = layout
+      ? {
+          'data-print-label-strip-px': labelStripPx,
+          'data-print-week-px': weekPx ?? undefined,
+          'data-print-chart-content-px': layout.contentW,
+          'data-print-gantt-row-count': rows.length,
+        }
+      : {};
+    // Deliberately outside the `layout` gate above: this one describes the CP
+    // summary table, which renders whether or not the chart layout resolved.
+    const cpRowCount = includeCpSummary && cpChain.length > 0 ? cpChain.length : undefined;
 
     const kpiCells = [
       kpis.window,
@@ -275,13 +300,8 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
         // light; the island keeps it light regardless of the exporter's theme.
         className={`theme-light ${roleBgClass('sheetSurface')} p-6 font-sans text-neutral-text-primary`}
         data-print-page-width-px={printWidth}
-        data-print-label-strip-px={layout ? labelStripPx : undefined}
-        data-print-week-px={layout && weekPx != null ? weekPx : undefined}
-        data-print-chart-content-px={layout ? layout.contentW : undefined}
-        data-print-gantt-row-count={layout ? rows.length : undefined}
-        data-print-cp-row-count={
-          includeCpSummary && cpChain.length > 0 ? cpChain.length : undefined
-        }
+        data-print-cp-row-count={cpRowCount}
+        {...printMetricAttrs}
       >
         {/* Masthead */}
         <header className="mb-3 border-b border-neutral-border pb-3">
