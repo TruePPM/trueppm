@@ -1125,9 +1125,12 @@ helm:template:
     - |
       grep -q 'X-Robots-Tag' /tmp/rendered-demo.yaml \
         || { echo "DEMO REGRESSION: noindex header missing"; exit 1; }
-    # And the inverse: none of this may leak into a normal deploy.
+    # And the inverse: none of this may leak into a normal deploy. Scoped to the
+    # Job kind, not a bare grep: the datastore NetworkPolicy allow-lists name
+    # `demo-seed` as a client selector unconditionally (#2560), and a selector
+    # matching a pod that does not exist is inert, not a leak.
     - |
-      grep -q 'demo-seed' /tmp/rendered.yaml \
+      yq ea 'select(.kind == "Job") | .metadata.name' /tmp/rendered.yaml | grep -q 'demo-seed' \
         && { echo "LEAK: demo Job rendered with demo.enabled=false"; exit 1; } || true
     - |
       grep -q 'X-Robots-Tag' /tmp/rendered.yaml \
