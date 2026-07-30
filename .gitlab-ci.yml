@@ -497,12 +497,16 @@ scripts:test:
         - scripts/release.sh
         - scripts/wt
         - scripts/osv-severity-gate.sh
+        - scripts/backup.sh
+        - scripts/restore.sh
+        - scripts/lib/s3.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/osv-severity-gate.test.sh
+        - scripts/tests/backup-s3.test.sh
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -511,12 +515,16 @@ scripts:test:
         - scripts/release.sh
         - scripts/wt
         - scripts/osv-severity-gate.sh
+        - scripts/backup.sh
+        - scripts/restore.sh
+        - scripts/lib/s3.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/osv-severity-gate.test.sh
+        - scripts/tests/backup-s3.test.sh
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -525,6 +533,7 @@ scripts:test:
     - bash scripts/tests/release-preflight.test.sh
     - bash scripts/tests/wt-reserve.test.sh
     - bash scripts/tests/osv-severity-gate.test.sh
+    - bash scripts/tests/backup-s3.test.sh
 
 boundary:check:
   extends: .fast-job
@@ -1357,21 +1366,35 @@ backup:restore-drill:
     # The service reads POSTGRES_DB/USER/PASSWORD from the global variables block.
     - name: postgres:16-alpine
       alias: postgres
+    # Object store for the off-cluster leg of the drill (#2611).
+    - name: minio/minio:latest
+      alias: minio
+      command: ["server", "/data"]
+      variables:
+        MINIO_ROOT_USER: drillkey
+        MINIO_ROOT_PASSWORD: "dr/ill+sec:ret12345"
   variables:
     PGPASSWORD: trueppm
     DATABASE_URL: "postgres://trueppm:trueppm@postgres:5432/drilldb"
+    # Deliberately NOT named S3_ENDPOINT / S3_BUCKET: backup.sh reads those from
+    # the environment, so job-level variables with those names would silently
+    # switch the local leg of the drill into upload mode too.
+    DRILL_S3_ENDPOINT: "http://minio:9000"
+    DRILL_S3_BUCKET: trueppm-drill
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - scripts/backup.sh
         - scripts/restore.sh
+        - scripts/lib/s3.sh
         - packages/helm/templates/cronjob-backup.yaml
         - .gitlab-ci.yml
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - scripts/backup.sh
         - scripts/restore.sh
+        - scripts/lib/s3.sh
         - packages/helm/templates/cronjob-backup.yaml
         - .gitlab-ci.yml
   script:
@@ -1415,6 +1438,53 @@ backup:restore-drill:
         exit 1
       fi
     - echo "restore drill GREEN — row counts match and required extensions present"
+    # ---- 5. off-cluster round trip (#2611) ---------------------------------
+    # The local drill above proves the artifact is correct; this proves it can
+    # actually reach a bucket and come back. Before #2611 the chart injected a
+    # full S3 env contract and the job answered it with an `echo`, so "backups
+    # are off-cluster" was true in the runbook and false in the cluster. Only an
+    # end-to-end upload/download against a real object store catches that class
+    # of gap, so it runs here rather than being asserted in a stub.
+    #
+    # The MinIO credentials deliberately contain "/" "+" and ":" — a real 40-char
+    # AWS secret key is base64 and routinely does. Credential handling that
+    # round-trips through a URL corrupts exactly these characters, so a plain
+    # alphanumeric secret would let that regression through.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends awscli
+    - export AWS_ACCESS_KEY_ID=drillkey AWS_SECRET_ACCESS_KEY='dr/ill+sec:ret12345' AWS_DEFAULT_REGION=us-east-1
+    - echo "waiting for the minio service..."
+    - |
+      i=0
+      until aws --endpoint-url "$DRILL_S3_ENDPOINT" s3 ls >/dev/null 2>&1; do
+        i=$((i+1)); [ "$i" -ge 60 ] && { echo "minio not ready" >&2; exit 1; }; sleep 1
+      done
+    - aws --endpoint-url "$DRILL_S3_ENDPOINT" s3 mb "s3://$DRILL_S3_BUCKET"
+    # Back up straight to the bucket, then verify the object really landed.
+    - ./scripts/backup.sh --output-dir "$CI_PROJECT_DIR/s3-backups" --s3-bucket "$DRILL_S3_BUCKET" --s3-endpoint "$DRILL_S3_ENDPOINT" --s3-prefix drill/daily
+    - |
+      OBJECTS=$(aws --endpoint-url "$DRILL_S3_ENDPOINT" s3 ls --recursive "s3://$DRILL_S3_BUCKET" | grep -c 'drill/daily/trueppm-backup-.*\.tar\.gz' || true)
+      if [ "$OBJECTS" -lt 1 ]; then
+        echo "S3 DRILL FAILED: backup.sh reported success but the bucket is empty" >&2
+        exit 1
+      fi
+      echo "bucket holds $OBJECTS artifact(s)"
+    # Destroy the database AND every local artifact, so the only surviving copy
+    # is the one in the bucket — otherwise --from-s3 could silently be restoring
+    # from local disk and the drill would prove nothing.
+    - rm -rf "$CI_PROJECT_DIR/s3-backups" "$CI_PROJECT_DIR/drill-backups"
+    - psql -h postgres -U trueppm -d trueppm_test -c "DROP DATABASE drilldb WITH (FORCE);"
+    - psql -h postgres -U trueppm -d trueppm_test -c "CREATE DATABASE drilldb;"
+    - ./scripts/restore.sh --from-s3 latest --s3-bucket "$DRILL_S3_BUCKET" --s3-endpoint "$DRILL_S3_ENDPOINT" --s3-prefix drill/daily --yes
+    - S3_PROJECTS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_project;")
+    - S3_TASKS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_task;")
+    - |
+      if [ "$S3_PROJECTS" != "$BEFORE_PROJECTS" ] || [ "$S3_TASKS" != "$BEFORE_TASKS" ]; then
+        echo "S3 DRILL FAILED: row counts differ after restoring from the bucket" >&2
+        echo "  projects: before=$BEFORE_PROJECTS after=$S3_PROJECTS" >&2
+        echo "  tasks:    before=$BEFORE_TASKS after=$S3_TASKS" >&2
+        exit 1
+      fi
+    - echo "S3 round-trip drill GREEN — artifact uploaded, local copies removed, restored from the bucket"
 
 mcp:lint:
   extends: .fast-job

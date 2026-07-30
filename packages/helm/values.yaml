@@ -674,17 +674,22 @@ backup:
   # with object storage (S3/MinIO) the bucket is backed up by the object store and
   # this should stay empty. Set to the in-container media path to include it.
   mediaDir: ""
-  # Retention. keepDaily is enforced in-job by scripts/backup.sh after each run
-  # (it prunes the output directory to the N newest artifacts). keepWeekly is
-  # advisory metadata for an external lifecycle policy (e.g. S3 bucket lifecycle
-  # rules or a sweep job) — the in-cluster CronJob does not itself promote dailies
-  # to weeklies. Document your off-cluster retention alongside these values.
+  # Retention. keepDaily prunes the LOCAL output directory to the N newest
+  # artifacts after each run. It is local-only by design and NEVER deletes from
+  # the bucket: a scheduled job that removes remote backups is the one component
+  # whose bug destroys the thing it exists to protect. keepWeekly is likewise
+  # advisory metadata — the CronJob does not promote dailies to weeklies.
+  # For an S3 destination, set retention with the bucket's own lifecycle policy
+  # and document it alongside these values.
   keepDaily: 7
   keepWeekly: 4
-  # Destination. Two mutually-supported shapes:
+  # Destination. Two shapes, and they compose:
   #   persistence.enabled: true  → mount a chart-managed PVC at outputDir
-  #   s3: { ... }                → pass S3-compatible env vars to the job so a
-  #                                custom outputDir/upload step can target a bucket
+  #   s3.enabled: true           → after the dump, upload the artifact to an
+  #                                S3-compatible bucket (a second container in
+  #                                the same job actually performs the upload)
+  # With s3.enabled the local copy is still written to outputDir first, so a
+  # PVC is worth keeping as a staging area even when the bucket is the target.
   # Leave both off only if you are supplying your own volume via extraVolumes.
   persistence:
     enabled: false
@@ -693,16 +698,40 @@ backup:
     storageClass: ""
     accessMode: ReadWriteOnce
     size: 10Gi
-  # S3-compatible off-cluster destination. When set, these are injected as env
-  # vars into the job so backup.sh (or a wrapper) can upload the artifact. The
-  # secret key MUST come from a Kubernetes Secret, never a plaintext value here.
+  # S3-compatible off-cluster destination. When enabled, the job gains a second
+  # container that uploads the finished artifact to the bucket. It runs a
+  # separate image because the PostgreSQL image above carries pg_dump but no
+  # object-storage client (no aws, no mc), so the upload cannot happen in the
+  # same container as the dump.
+  #
+  # A failed upload fails the job — the artifact is never left only on the PVC
+  # while the operator believes it went off-cluster.
+  #
+  # The secret key MUST come from a Kubernetes Secret, never a plaintext value
+  # here. Credentials are passed as AWS_* env vars and never assembled into a
+  # URL: a real 40-char secret key routinely contains "/", "+" and ":", which
+  # corrupts URL-based credential forms.
   s3:
     enabled: false
     bucket: ""
+    # S3-compatible endpoint. Leave empty for real AWS S3 (the region below
+    # selects the endpoint). Set it for MinIO and friends — when it is set, the
+    # upload forces path-style addressing, because a self-hosted object store is
+    # normally reached by IP or by a single hostname with no wildcard DNS, and
+    # virtual-hosted-style requests would resolve to nothing.
     endpoint: ""
     region: ""
+    # Optional key prefix inside the bucket. The object key is
+    # <prefix>/trueppm-backup-<UTC timestamp>.tar.gz.
+    prefix: ""
     # Reference the credentials Secret (keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY).
     existingSecret: ""
+    # Image for the upload container. Must carry the AWS CLI as `aws`.
+    # TODO(#1733): pin by digest alongside the other subchart/backup images.
+    image:
+      repository: amazon/aws-cli
+      tag: "2.17.0"
+      pullPolicy: IfNotPresent
   # Extra volumes / mounts for the backup job — the supported way to give the job
   # read access to your media PVC when mediaDir is set (mount the same claim the
   # API uses at the mediaDir path, read-only). Ignored unless mediaDir is set.
