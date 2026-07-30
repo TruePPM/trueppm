@@ -168,6 +168,33 @@ def _local_paginator_class(handler: Any, source: str) -> type | None:
     return candidate if isinstance(candidate, type) else None
 
 
+def effective_source(view: Any, handler: Any) -> str:
+    """The handler's source plus that of any ``self._helper()`` it delegates to.
+
+    Without this hop the rule reads only the ``@action`` body, so the ordinary
+    refactor of moving a shared implementation into a helper — exactly what the two
+    webhook-deliveries actions do so each can pin its own ``operation_id`` — would
+    hide ``get_paginated_response`` and the paginator construction from the check.
+    The gate would then go quiet on the very endpoints it was written for, which is
+    the worst failure mode a gate has: silent, and indistinguishable from success.
+    One level deep, matching the sibling rule in
+    ``test_openapi_response_conformance.py``.
+    """
+    try:
+        sources = [inspect.getsource(handler)]
+    except (OSError, TypeError):  # pragma: no cover - handler without source
+        return ""
+    for helper_name in set(re.findall(r"self\.(_\w+)\(", sources[0])):
+        helper = getattr(type(view), helper_name, None)
+        if helper is None:
+            continue
+        try:
+            sources.append(inspect.getsource(helper))
+        except (OSError, TypeError):  # pragma: no cover - builtin/C helper
+            continue
+    return "\n".join(sources)
+
+
 def declares_a_count_no_cursor_can_produce(
     schema_node: dict[str, Any], components: dict[str, Any]
 ) -> bool:
@@ -259,11 +286,7 @@ def test_every_paginating_handler_declares_its_envelope() -> None:
             )
             if handler is None:
                 continue
-            try:
-                source = inspect.getsource(handler)
-            except (OSError, TypeError):  # pragma: no cover - handler without source
-                continue
-
+            source = effective_source(view, handler)
             if _ENVELOPE_CALL not in source:
                 continue
             # Only when a paginator really exists: either the view declares one (so

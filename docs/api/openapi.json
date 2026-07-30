@@ -12087,7 +12087,7 @@
         },
         "/api/v1/programs/{program_pk}/webhooks/{id}/deliveries/": {
             "get": {
-                "operationId": "v1_programs_webhooks_deliveries_retrieve",
+                "operationId": "v1_programs_webhooks_deliveries_list",
                 "description": "List deliveries for this webhook, newest first (cursor-paginated, #1317).\n\nA bare ``GET`` returns the most recent page; follow ``next`` to page\nback through history. Instantiates the cursor paginator directly rather\nthan going through ``self.paginator`` (the viewset default is page-number\nfor the webhook CRUD list — the delivery log wants a cursor).",
                 "summary": "List recent webhook deliveries",
                 "parameters": [
@@ -28147,7 +28147,7 @@
         },
         "/api/v1/projects/{project_pk}/webhooks/{id}/deliveries/": {
             "get": {
-                "operationId": "v1_projects_webhooks_deliveries_retrieve",
+                "operationId": "v1_projects_webhooks_deliveries_list",
                 "description": "List deliveries for this webhook, newest first (cursor-paginated, #1317).\n\nA bare ``GET`` returns the most recent page; follow ``next`` to page\nback through history. Instantiates the cursor paginator directly rather\nthan going through ``self.paginator`` (the viewset default is page-number\nfor the webhook CRUD list — the delivery log wants a cursor).",
                 "summary": "List recent webhook deliveries",
                 "parameters": [
@@ -37618,8 +37618,9 @@
         },
         "/api/v1/workspace/audit-events/": {
             "get": {
-                "operationId": "v1_workspace_audit_events_retrieve",
+                "operationId": "v1_workspace_audit_events_list",
                 "description": "GET /api/v1/workspace/audit-events/ — operational audit log (ADR-0157, #859).\n\nOwner/Admin only (``IsWorkspaceAuditViewer``). Cursor-paginated, newest first.\nOptional filters, all ANDed: ``?event_type=`` (an ``AuditEventType`` value),\n``?actor=`` (user id), ``?since=`` / ``?until=`` (ISO-8601 on ``created_at``).",
+                "summary": "List workspace audit events",
                 "parameters": [
                     {
                         "in": "query",
@@ -37692,8 +37693,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Retrieve audit event"
+                }
             }
         },
         "/api/v1/workspace/email-settings/": {

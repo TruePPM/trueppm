@@ -1244,6 +1244,16 @@ class WorkspaceAuditEventListView(APIView):
                 },
             )
         },
+        # Pinned: drf-spectacular derives the operationId's `_list`/`_retrieve`
+        # suffix from whether the 200 is a ``many=True`` serializer, so replacing
+        # the (wrong) array with the envelope silently renamed
+        # ``v1_workspace_audit_events_list`` to ``…_retrieve``. operationId is the
+        # method name in a generated client, so that rename would break every
+        # existing caller — trading the bug this fixes for the same bug in a new
+        # place. Also keeps the summary honest: this lists events, it does not
+        # retrieve one.
+        operation_id="v1_workspace_audit_events_list",
+        summary="List workspace audit events",
     )
     def get(self, request: Request) -> Response:
         qs = AuditEvent.objects.select_related("actor").all()
