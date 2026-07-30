@@ -475,6 +475,13 @@ scripts:test:
   #   - osv-severity-gate — the security:osv severity classifier (#2261): its
   #     exit code is the pipeline's OSV verdict, so a regression flips the
   #     security posture (a HIGH sailing through, or a LOW red-walling the train).
+  #   - check-enterprise-imports — the Apache 2.0 boundary source gate (#2603).
+  #     It must fail on a real import and pass on prose that only names the
+  #     package; a drift either way is invisible on a clean tree, which is
+  #     exactly how the rule went unenforced for so long.
+  #   - check-suppression-issues — the stale-suppression gate (#2603). Its
+  #     discovery half fails OPEN: a regex that stops matching reports "no
+  #     markers found" and exits 0, which reads exactly like a clean tree.
   # There is no other test harness for these scripts, so guard the logic
   # directly. Pinned python image (bash + python3), ~5s. The wt-reserve test
   # stages real throwaway git repos and runs scripts/wt against them, so this
@@ -500,6 +507,8 @@ scripts:test:
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
+        - scripts/check-enterprise-imports.sh
+        - scripts/check-suppression-issues.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
@@ -507,6 +516,8 @@ scripts:test:
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/osv-severity-gate.test.sh
         - scripts/tests/backup-s3.test.sh
+        - scripts/tests/check-enterprise-imports.test.sh
+        - scripts/tests/check-suppression-issues.test.sh
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -518,6 +529,8 @@ scripts:test:
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
+        - scripts/check-enterprise-imports.sh
+        - scripts/check-suppression-issues.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
@@ -525,6 +538,8 @@ scripts:test:
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/osv-severity-gate.test.sh
         - scripts/tests/backup-s3.test.sh
+        - scripts/tests/check-enterprise-imports.test.sh
+        - scripts/tests/check-suppression-issues.test.sh
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -534,6 +549,8 @@ scripts:test:
     - bash scripts/tests/wt-reserve.test.sh
     - bash scripts/tests/osv-severity-gate.test.sh
     - bash scripts/tests/backup-s3.test.sh
+    - bash scripts/tests/check-enterprise-imports.test.sh
+    - bash scripts/tests/check-suppression-issues.test.sh
 
 boundary:check:
   extends: .fast-job
@@ -554,6 +571,62 @@ boundary:check:
     - apk add --no-cache curl jq bash
   script:
     - bash scripts/check-issue-boundary.sh
+
+boundary:imports:
+  extends: .fast-job
+  # The source-tree half of the Two-Repo Rule (#2603). boundary:check above
+  # guards the issue tracker; this guards the code — "the community edition
+  # NEVER imports from trueppm-enterprise" was documented in CLAUDE.md,
+  # CONTRIBUTING.md, five skills and ~30 ADRs and enforced by NO CI job. It held
+  # on convention alone. An import in that direction is a licensing defect, not
+  # a style one, so it belongs on a gate rather than in review.
+  #
+  # Unlike boundary:check (main + schedule, because it reads tracker state that
+  # changes outside MRs), this runs on every MR: the violation it catches
+  # arrives in a diff, and catching it after merge to a protected branch is too
+  # late. A grep over packages/; ~1s, no install beyond bash.
+  #
+  # Prose that names the enterprise package stays legal — the gate matches only
+  # import syntax and quoted module paths, and strips comment lines first. See
+  # the script header for the patterns and scripts/tests/ for the cases proving
+  # it fails on real imports.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash
+  script:
+    - bash scripts/check-enterprise-imports.sh
+
+suppressions:check:
+  extends: .fast-job
+  # Fail when a suppression outlives the issue it was waiting on (#2603).
+  #
+  # The 0.4 audit found six axe exclusions citing #2204 — closed — one of them
+  # reading "remove this last exclusion when #2204 lands". The a11y gate was
+  # green partly by hiding failures nothing tracked. Nothing could have noticed:
+  # a suppression's justification expires on the day an unrelated issue is
+  # closed, which produces no diff for anyone to review.
+  #
+  # That is also why this runs on main + schedule and not only on MRs: the event
+  # this catches is an issue closing, not a commit landing. The MR rule is still
+  # here so a newly added marker is validated (real issue, currently open) at the
+  # moment it is written.
+  #
+  # Opt-in marker, not a bare `#NNNN` scan — see the script header for why
+  # matching bare references would make the gate mostly noise.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache curl jq bash
+  script:
+    - bash scripts/check-suppression-issues.sh
 
 lint:todo-grep:
   extends: .fast-job
@@ -3438,7 +3511,8 @@ security:osv:
   # Unified SCA across the committed lockfiles using the OSV database:
   #   - npm:    packages/web, packages/website, packages/mobile
   #   - Cargo:  packages/wasm-scheduler
-  #   - Python: packages/api (uv.lock), packages/scheduler (uv.lock)
+  #   - Python: packages/api (uv.lock), packages/scheduler (uv.lock),
+  #             packages/mcp (uv.lock)
   # Replaces the per-package npm-audit jobs (former web:security + website:security)
   # and adds Rust coverage that nothing scanned before. This is also where #904's
   # "add npm-audit" finding lands: OSV's surgical, expiring per-advisory ignores
@@ -3448,6 +3522,11 @@ security:osv:
   # pip-audit job (#1153 step 1); the scheduler joined once it committed its own
   # uv.lock (#1153 scheduler half), retiring security:pip-audit:scheduler. OSV
   # can only scan a lockfile, so each ecosystem joins here as it commits one.
+  #
+  # packages/mcp joined at #2603, and was the same omission twice over: it ships
+  # to PyPI as `trueppm-mcp`, so it was a PUBLISHED artifact with no dependency
+  # scanning at all. If you are reading this list wondering whether a package is
+  # covered, the answer is only "yes" if its lockfile appears in -L below.
   #
   # packages/mobile joined late (#2477) and is the cautionary tale for this list:
   # it had committed a lockfile since its first commit but was never added here,
@@ -3520,6 +3599,7 @@ security:osv:
         -L packages/wasm-scheduler/Cargo.lock
         -L packages/api/uv.lock
         -L packages/scheduler/uv.lock
+        -L packages/mcp/uv.lock
         --format json --output-file osv-results.json || true
     - sh scripts/osv-severity-gate.sh osv-results.json
 
@@ -3675,6 +3755,11 @@ license:check:py:
   # Verify no copyleft-licensed Python dependency has been introduced.
   # LGPL is permitted (library-linking exemption applies).
   #
+  # Scope is packages/scheduler + packages/api. packages/mcp is audited by
+  # license:check:mcp in its own venv (#2603) — see that job for why it is not a
+  # third editable install here. If you add a Python package, it needs a job:
+  # this one will not notice it.
+  #
   # Split from a former single license:check job (kaizen): mixing Python +
   # Node in one container forced a per-run `apt-get install nodejs npm` onto
   # the python-slim ci-api image (network-bound, the dominant cost) and made
@@ -3756,6 +3841,122 @@ license:check:web:
     # allow-list then rejects. Dropping `private` lets its real license show.
     - npx license-checker --production
         --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0"
+
+license:check:website:
+  # #2603: packages/website had zero license-compliance coverage — license:check:web
+  # hardcodes packages/web, so the docs site's production tree was never audited.
+  #
+  # Deliberately a separate job with a separate allow-list rather than a second
+  # directory inside license:check:web. `sharp` (Astro's image pipeline) bundles
+  # libvips as @img/sharp-libvips-*, which is LGPL-3.0-or-later. CLAUDE.md permits
+  # LGPL for a dynamically-linked library, and this is the site generator's build
+  # dependency, not shipped runtime code. Widening web's list to cover it would
+  # grant that allowance to the *application* bundle too, where a new LGPL dep
+  # would be a genuine problem worth failing on. Scope the exception to the
+  # package that needs it.
+  #
+  # --excludePrivatePackages: license-checker force-reports any package marked
+  # `private: true` as UNLICENSED (lib/index.js), and trueppm-website is private
+  # by design — it is a site, not a publishable package. Excluding it audits the
+  # dependency tree, which is what this gate is for. (license:check:web takes the
+  # other route for @trueppm/web — see its note — because that package is not
+  # private and its declared license should be checked like any other.)
+  stage: security
+  needs: []
+  image: node:22-alpine@sha256:ab07539e0988b63558ff621f5fbe1077054c39d9809112974fb79993949d41cd
+  cache:
+    key:
+      files:
+        - packages/website/package-lock.json
+      prefix: website-npm-cacache
+    paths:
+      - .cache/npm/
+    policy: pull
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/website/package.json
+        - packages/website/package-lock.json
+        - .gitlab-ci.yml
+  before_script:
+    - *retry-fn
+    - cd packages/website
+    - retry npm ci --omit=dev --prefer-offline --no-audit --no-fund --quiet
+  script:
+    - npx license-checker --production --excludePrivatePackages
+        --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0;LGPL-3.0-or-later"
+
+license:check:mobile:
+  # #2603: packages/mobile had zero license-compliance coverage — the same
+  # omission as its OSV gap (#2477), which is why both are worth stating twice:
+  # a package is covered by a scan only if it is named in that scan's config.
+  #
+  # MPL-2.0 is allowed here for `lightningcss` (nativewind's CSS pipeline).
+  # MPL is file-level copyleft: it reaches modifications to the licensed files
+  # themselves and not the app that imports them, so it is compatible with an
+  # Apache 2.0 distribution — CLAUDE.md's "with care" band. As with the website
+  # job, the exception is scoped to the package that needs it rather than
+  # widened into the web allow-list.
+  #
+  # `type-fest` resolves to the SPDX expression "(MIT OR CC0-1.0)"; license-checker
+  # satisfies compound expressions against the allow-list, so both disjuncts being
+  # present is enough and no per-package exclusion is needed. Verified locally.
+  stage: security
+  needs: []
+  image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+  cache:
+    <<: *mobile-cache
+    policy: pull
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/mobile/package.json
+        - packages/mobile/package-lock.json
+        - .gitlab-ci.yml
+  before_script:
+    - *retry-fn
+    - cd packages/mobile
+    - retry npm ci --omit=dev --prefer-offline --no-audit --no-fund --quiet
+  script:
+    - npx license-checker --production --excludePrivatePackages
+        --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0;MPL-2.0"
+
+license:check:mcp:
+  # #2603: packages/mcp ships to PyPI as `trueppm-mcp` and had no license audit —
+  # a published artifact whose dependency licenses nothing checked.
+  #
+  # Its own job rather than a third `pip install -e` inside license:check:py:
+  # mcp is a standalone client (mcp[cli] + httpx, no Django, no ORM), and
+  # resolving it into the API's pinned environment would let an unrelated
+  # dependency conflict fail a licensing gate. A clean venv keeps the failure
+  # modes honest — if this job goes red, it is about licenses.
+  stage: security
+  needs: []
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/mcp/pyproject.toml
+        - packages/mcp/uv.lock
+        - .gitlab-ci.yml
+  before_script:
+    - python -m venv /tmp/mcp-venv
+    - /tmp/mcp-venv/bin/pip install --quiet --upgrade pip
+    - /tmp/mcp-venv/bin/pip install --quiet pip-licenses
+    - /tmp/mcp-venv/bin/pip install --quiet ./packages/mcp
+  script:
+    - /tmp/mcp-venv/bin/pip-licenses --order=license --format=plain-vertical
+    - >-
+      /tmp/mcp-venv/bin/pip-licenses
+      --fail-on="GNU General Public License v2 (GPLv2);
+                 GNU General Public License v3 (GPLv3);
+                 GNU Affero General Public License v3 (AGPLv3)"
 
 wasm:license-check:
   # Verify no copyleft-licensed Rust dependency has been introduced, and that no

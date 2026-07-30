@@ -264,7 +264,14 @@ sonar-exclusions-check: ## Fail if a sonar-project.properties exclusion has gone
 	@# under-matches, which is how #2517 dropped the reliability rating A → D.
 	@bash scripts/check-sonar-exclusions.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+enterprise-boundary-check: ## Fail if OSS source imports from trueppm-enterprise (#2603)
+	@# The Apache 2.0 boundary's one hard rule, which until #2603 was enforced by
+	@# no gate at all. A grep over packages/ — milliseconds, no network — so it
+	@# costs nothing to run on every push and catches the one class of mistake
+	@# that is a licensing defect rather than a bug.
+	@bash scripts/check-enterprise-imports.sh
+
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check enterprise-boundary-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

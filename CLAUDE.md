@@ -45,7 +45,7 @@ trueppm-suite/
 ### Key Design Principles
 1. **API-First**: Every feature is a REST or WebSocket endpoint first. Web and mobile are API consumers with no privileged access. If it's not in the API, it doesn't exist. **Boundary (ADR-0599):** this governs *authoritative* state — the real value of any persisted fact, including every scheduled date and forecast, is computed server-side and reached over the API. Three narrow paths run outside the API on purpose: the interactive Gantt drag/keyboard **preview** (recomputes locally for 60fps, never persisted, server reconciles on commit), **offline on-device recompute** (no network → no API; the Rust/WASM engine is kept in CI conformance with the Python engine, future work #1777), and the **engine-as-library** (`trueppm-scheduler`). The invariant that keeps them safe: the server always has the last word — client compute is preview or offline stand-in, never source of truth. Do not read the slogan as forbidding these.
 2. **Mobile-First**: Design from mobile constraints upward. Offline works. Touch is primary. Bandwidth is limited.
-3. **Apache 2.0 boundary is sacred**: The community edition NEVER imports from `trueppm-enterprise`. The dependency is one-way: enterprise → core. Run `grep -r "trueppm_enterprise" packages/` to verify — it must return zero results in OSS code.
+3. **Apache 2.0 boundary is sacred**: The community edition NEVER imports from `trueppm-enterprise`. The dependency is one-way: enterprise → core. Verify with `make enterprise-boundary-check` (also `boundary:imports` in CI, and part of `make pre-push`). A plain `grep -r "trueppm_enterprise" packages/` is **not** the check — the tree legitimately carries prose that names the package in extension-point docstrings and ADR pointers; the gate matches import syntax and quoted module paths and ignores comments (#2603).
 
 ## Code Conventions
 
@@ -177,7 +177,7 @@ The classification test: "Would a PM or program manager need this to run their p
 ### OSS / Enterprise boundary rules
 - The OSS core must remain fully functional without the enterprise repo — no hard dependencies on enterprise hooks, signals, or settings
 - Extension points (settings includes, URL patterns, signal hooks) must remain stable — enterprise code registers against them; changing their shape is a breaking change for enterprise customers
-- Verify with: `grep -r "trueppm_enterprise" packages/` — must return zero results in OSS code
+- Verify with: `make enterprise-boundary-check` — zero imports of `trueppm_enterprise` in OSS code. Enforced in CI by `boundary:imports` on every MR and on main. Naming the package in prose is fine; importing it is not
 
 ### Issues are part of the boundary
 - An issue describing enterprise functionality (cross-program/portfolio coordination, org identity governance — SAML/SCIM/LDAP directory sync, enforced org-wide SSO — audit trail, approval workflows, multi-tenancy, AI scheduling) must be filed in `trueppm-enterprise` from the start — not in the OSS tracker. **Basic OIDC/OAuth login is OSS** (see the Auth carve-out above) — do not bounce it to enterprise
