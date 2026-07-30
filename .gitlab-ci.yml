@@ -3847,13 +3847,22 @@ license:check:website:
   # hardcodes packages/web, so the docs site's production tree was never audited.
   #
   # Deliberately a separate job with a separate allow-list rather than a second
-  # directory inside license:check:web. `sharp` (Astro's image pipeline) bundles
-  # libvips as @img/sharp-libvips-*, which is LGPL-3.0-or-later. CLAUDE.md permits
-  # LGPL for a dynamically-linked library, and this is the site generator's build
-  # dependency, not shipped runtime code. Widening web's list to cover it would
-  # grant that allowance to the *application* bundle too, where a new LGPL dep
-  # would be a genuine problem worth failing on. Scope the exception to the
-  # package that needs it.
+  # directory inside license:check:web, because the docs site needs two licenses
+  # the application bundle should keep failing on:
+  #
+  #   LGPL-3.0-or-later — `sharp` (Astro's image pipeline) bundles libvips as
+  #     @img/sharp-libvips-*. CLAUDE.md permits LGPL for a dynamically-linked
+  #     library, and this is the site generator's build dependency, not shipped
+  #     runtime code.
+  #   MPL-2.0 — `lightningcss` reaches the tree as astro -> vite -> lightningcss,
+  #     one non-optional package plus eleven per-platform binaries. MPL is
+  #     file-level copyleft: it reaches modifications to the licensed files
+  #     themselves, not the site that builds with them. Same dependency and same
+  #     reasoning as license:check:mobile, arriving by a different route.
+  #
+  # Widening web's list instead would grant both allowances to the *application*
+  # bundle, where a new copyleft dependency is a genuine problem worth failing
+  # on. Scope each exception to the package that needs it.
   #
   # --excludePrivatePackages: license-checker force-reports any package marked
   # `private: true` as UNLICENSED (lib/index.js), and trueppm-website is private
@@ -3886,7 +3895,7 @@ license:check:website:
     - retry npm ci --omit=dev --prefer-offline --no-audit --no-fund --quiet
   script:
     - npx license-checker --production --excludePrivatePackages
-        --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0;LGPL-3.0-or-later"
+        --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0;LGPL-3.0-or-later;MPL-2.0"
 
 license:check:mobile:
   # #2603: packages/mobile had zero license-compliance coverage — the same
